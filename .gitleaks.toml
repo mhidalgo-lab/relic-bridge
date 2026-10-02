@@ -1,0 +1,40 @@
+# gitleaks config (P0-04, THREAT_MODEL T8). Extends the default ruleset with relic-bridge-specific secrets.
+title = "relic-bridge"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "new-relic-user-api-key"
+description = "New Relic User API key (NRAK-)"
+regex = '''\bNRAK-[A-Z0-9]{27}\b'''
+keywords = ["nrak-"]
+
+[[rules]]
+id = "new-relic-ingest-key"
+description = "New Relic ingest / browser / insights keys"
+regex = '''\b(?:NRII|NRJS|NRIQ|NRBR)-[A-Za-z0-9_-]{19,40}\b'''
+keywords = ["nrii-", "nrjs-", "nriq-", "nrbr-"]
+
+[[rules]]
+id = "new-relic-license-key"
+description = "New Relic license key (40 chars ending in NRAL)"
+regex = '''\b[a-f0-9]{36}NRAL\b'''
+keywords = ["nral"]
+
+[[rules]]
+id = "relic-bridge-access-token"
+description = "relic-bridge access token (rb_ prefix, see P2-05)"
+regex = '''\brb_[A-Za-z0-9]{2,8}_[A-Za-z0-9]{32,}(?:_[A-Za-z0-9]{6})?\b|\brb_[A-Za-z0-9]{40,}\b'''
+keywords = ["rb_"]
+
+[[rules]]
+id = "relic-bridge-master-key"
+description = "relic-bridge master key assignment"
+regex = '''RB_MASTER_KEY\s*[=:]\s*['"]?[A-Za-z0-9+/]{43}=?'''
+keywords = ["rb_master_key"]
+
+[allowlist]
+description = "Obviously fake values used in docs and tests"
+regexTarget = "match"
+regexes = ['''(?i)(?:EXAMPLE|FAKE|TEST|DUMMY|XXXX)''']

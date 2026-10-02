@@ -1,0 +1,18 @@
+packages:
+  - packages/*
+  - apps/*
+
+# Supply-chain hardening (THREAT_MODEL T18). pnpm 11+ defaults are already safe; we tighten them.
+# Don't resolve versions published less than 3 days ago (minutes).
+minimumReleaseAge: 4320
+# Fail if a package is published with weaker auth (e.g. lost provenance) than a previous version.
+trustPolicy: no-downgrade
+# Transitive deps may not use git/tarball URLs.
+blockExoticSubdeps: true
+# Install scripts run only for packages explicitly approved here.
+strictDepBuilds: true
+allowBuilds:
+  lefthook: true
+  esbuild: true
+  workerd: true
+strictPeerDependencies: true

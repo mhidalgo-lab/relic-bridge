@@ -1,0 +1,20 @@
+# Git hooks (P0-04). Installed automatically by `pnpm install`.
+pre-commit:
+  parallel: true
+  commands:
+    biome:
+      glob: '*.{ts,tsx,js,mjs,json,jsonc}'
+      run: pnpm exec biome check --no-errors-on-unmatched --files-ignore-unknown=true {staged_files}
+    gitleaks:
+      # Requires the gitleaks binary (https://github.com/gitleaks/gitleaks#installing). CI scans regardless.
+      run: |
+        if command -v gitleaks >/dev/null; then
+          gitleaks git --pre-commit --staged --redact --config .gitleaks.toml
+        else
+          echo "gitleaks not installed, skipped locally (CI still scans)"
+        fi
+commit-msg:
+  commands:
+    dco:
+      run: |
+        grep -qE '^Signed-off-by: .+ <.+>' {1} || { echo "Missing DCO sign-off. Use git commit -s"; exit 1; }

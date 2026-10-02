@@ -1,0 +1,23 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:best-practices", ":semanticCommits", ":dependencyDashboard"],
+  "description": "P0-04: weekly, grouped, mature releases only; GitHub Actions pinned by digest.",
+  "schedule": ["before 6am on monday"],
+  "timezone": "UTC",
+  "minimumReleaseAge": "3 days",
+  "internalChecksFilter": "strict",
+  "prConcurrentLimit": 5,
+  "labels": ["dependencies"],
+  "commitMessageSuffix": "",
+  "lockFileMaintenance": { "enabled": true, "schedule": ["before 6am on monday"] },
+  "packageRules": [
+    { "matchManagers": ["github-actions"], "groupName": "GitHub Actions", "pinDigests": true },
+    {
+      "matchDepTypes": ["devDependencies"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "dev dependencies (non-major)"
+    },
+    { "matchUpdateTypes": ["major"], "dependencyDashboardApproval": true }
+  ],
+  "vulnerabilityAlerts": { "enabled": true, "labels": ["security"], "minimumReleaseAge": null }
+}

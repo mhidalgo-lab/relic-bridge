@@ -1,0 +1,16 @@
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+.wrangler/
+.dev.vars
+.env
+.env.*
+!.env.example
+*.sqlite
+*.sqlite-*
+*.db
+relic-bridge.yaml
+!examples/**/relic-bridge.yaml
+.DS_Store
+spikes/**/results/

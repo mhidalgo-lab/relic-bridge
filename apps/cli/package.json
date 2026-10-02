@@ -1,0 +1,48 @@
+{
+  "name": "relic-bridge",
+  "version": "0.0.0",
+  "description": "Unofficial MCP server for New Relic via NerdGraph (CLI: stdio and serve)",
+  "license": "Apache-2.0",
+  "private": false,
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.mts",
+      "default": "./dist/index.mjs"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsdown",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "relicBridge": {
+    "runtime": "node"
+  },
+  "devDependencies": {
+    "tsdown": "0.23.0"
+  },
+  "bin": {
+    "relic-bridge": "./dist/index.mjs"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "new-relic",
+    "nerdgraph",
+    "nrql",
+    "observability",
+    "ai-agents"
+  ],
+  "engines": {
+    "node": ">=24.11.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/matiashidalgo/relic-bridge.git",
+    "directory": "apps/cli"
+  }
+}

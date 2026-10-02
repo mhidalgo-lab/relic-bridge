@@ -1,0 +1,29 @@
+name: Bug report
+description: Something doesn't work as documented
+labels: [bug, triage]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Security problem?** Don't file it here — use private reporting (see SECURITY.md).
+        Never paste API keys, tokens, account ids or customer data.
+  - type: input
+    id: version
+    attributes: { label: relic-bridge version, placeholder: "0.1.0" }
+    validations: { required: true }
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Deployment mode
+      options: [stdio (npx), Node serve, Docker, Cloudflare Worker]
+    validations: { required: true }
+  - type: input
+    id: client
+    attributes: { label: MCP client and version, placeholder: "Claude Code 2.x" }
+  - type: textarea
+    id: what
+    attributes: { label: What happened, description: Steps to reproduce, expected vs actual }
+    validations: { required: true }
+  - type: textarea
+    id: logs
+    attributes: { label: Logs (redacted), render: text }

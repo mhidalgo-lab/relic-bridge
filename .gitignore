@@ -14,3 +14,4 @@ relic-bridge.yaml
 !examples/**/relic-bridge.yaml
 .DS_Store
 spikes/**/results/
+spikes/**/wrangler.deploy*.jsonc

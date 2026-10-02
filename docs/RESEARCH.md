@@ -30,8 +30,8 @@ Source: <https://developers.cloudflare.com/workers/platform/limits/>
 
 ### Measured (spike P0-06, local)
 
-See ADR-0010 for the CPU table and presets. Warm calls fit the free plan's 10 ms CPU up to about 1 MB of response (p50).
-Cold-isolate behaviour and production `cpuTime` remain to be measured (`spikes/workers-limits/deploy-and-measure.md`).
+See ADR-0010 for the local and **production** CPU tables and presets. Production p50: 2.8 ms (10 KB), 3.7 ms (100 KB),
+10.2 ms (1 MB), 45.8 ms (5 MB). Cold first call: 17–35 ms. No request was killed (plan to be confirmed by the maintainer).
 Per-request CPU comes from the dashboard or GraphQL Analytics (`workersInvocationsAdaptive`). `wrangler tail` only
 reports `outcome: "exceededCpu"`.
 

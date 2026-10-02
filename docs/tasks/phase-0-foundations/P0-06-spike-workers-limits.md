@@ -2,7 +2,7 @@
 id: P0-06
 title: "Spike: Workers free-plan CPU and subrequest budget"
 phase: 0
-status: blocked
+status: review
 priority: high
 depends_on: [P0-01]
 adr: [0010]
@@ -24,7 +24,7 @@ Throw-away Worker in `spikes/workers-limits/` (deleted or archived after) that s
 Measure CPU using Workers Logs / tail `cpuTime` and `wrangler dev` profiling; run 50+ calls each.
 
 ## Acceptance criteria
-- [ ] Results table (payload size → p50/p95 CPU ms, subrequests) written to `docs/RESEARCH.md` §1 "Measured".
+- [x] Results table (payload size → p50/p95 CPU ms, subrequests) written to `docs/RESEARCH.md` §1 "Measured".
 - [x] Recommended `maxResponseBytes` default for `RB_PLAN=free` set from the data.
 - [x] Clear statement: which tools/payloads need Workers Paid.
 - [x] ADR-0010 status updated (accepted, or superseded with changes).
@@ -41,7 +41,6 @@ Use synthetic data only; no real NR keys in the spike.
 ## Progress notes
 - 2026-10-01: local measurements done (`spikes/workers-limits/RESULTS.md`), provisional presets in ADR-0010.
 
-## Blocker
-Production numbers (CPU p50/p99 per payload, cold-isolate behaviour) need a deployment to the maintainer's free-plan
-Cloudflare account: `spikes/workers-limits/deploy-and-measure.md`. Waiting for maintainer approval. Synthetic data only;
-delete the Worker afterwards.
+- 2026-10-02: deployed on the maintainer's account, measured production CPU (warm per size + 5 cold starts) via GraphQL
+  Analytics, then deleted all spike resources (2 Workers, 1 D1). Results in `spikes/workers-limits/RESULTS.md` and ADR-0010.
+- **Open question for the maintainer:** is the account on Workers Free or Paid? No request was terminated even at 46–62 ms.

@@ -116,7 +116,17 @@ It would bring a second implementation to secure, a different storage model, and
 
 ## Real-client results
 
-_Pending: maintainer runs [deploy-and-test.md](deploy-and-test.md) (claude.ai web, Claude mobile, Claude Code)._
+Deployed 2026-10-02 (`relic-bridge-spike-oauth`, KV-backed). **Automated against production:**
+- `scripts/cimd.ts`: **ALL CHECKS PASSED** (CIMD with Claude Code's real metadata document, so `global_fetch_strictly_public` works).
+- `scripts/e2e.ts`: all OAuth checks pass (DCR, PKCE S256 only, cross-slug rejection, refresh can't retarget, revocation). Two
+  expected deviations:
+  1. "runtime-added project" passed on one run and failed on another (`invalid_target`). The spike keeps projects in
+     **isolate memory**, and production routes requests to different isolates. **Confirms the project list must come from
+     storage** (ADR-0009: built per request from stored projects, cached by version).
+  2. "CIMD http://localhost client_id refused" fails in production because `BASE` is HTTPS there, so the self-hosted CIMD
+     document is legitimately accepted. Test artifact, not a defect.
+
+Manual (maintainer):
 
 | Client + version | Registration used (CIMD/DCR) | Connected? | echo OK? | Refresh seen after 1 h? | Notes |
 |---|---|---|---|---|---|

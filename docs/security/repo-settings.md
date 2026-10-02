@@ -2,6 +2,14 @@
 
 Settings that can't be committed as files. Apply them when the GitHub repository is created, and re-check before each release.
 
+## While the repository is private (free personal plan)
+
+Some controls only exist for public repos (or with GitHub Advanced Security). Until the repo goes public:
+- Rulesets / branch protection, secret-scanning push protection and private vulnerability reporting are **unavailable**.
+  The local lefthook hooks (DCO + gitleaks) and the CI gitleaks job are the stand-ins.
+- CodeQL runs with `upload: never` (analysis still fails the job on errors). Scorecard runs without publishing or SARIF upload.
+- **When making the repo public:** enable everything in this file, then confirm the CodeQL and Scorecard uploads appear.
+
 ## General
 - Default branch: `main`. Disable merge commits; allow **squash merge** only (PR title = Conventional Commit).
 - Automatically delete head branches.

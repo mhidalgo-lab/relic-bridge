@@ -38,6 +38,9 @@ The authless test Worker must expose only the `echo` tool and be deleted afterwa
 - 2026-10-01: Node, workerd and stdio work for both protocol eras; Inspector CLI works; ADR-0005 amended
   (`spikes/mcp-sdk-v2/RESULTS.md`).
 
+- 2026-10-02: echo Worker deployed (`relic-bridge-spike-echo`). Inspector CLI and Claude Code 2.1.287 (http, http+header,
+  stdio) verified; remaining clients need the maintainer (see Blocker).
+
 ## Blocker
 Real-client matrix (Claude Desktop, claude.ai web, Claude mobile, Cursor, VS Code) needs the short-lived echo-only test
 Worker in `spikes/mcp-sdk-v2/deploy-and-test.md`. Waiting for maintainer approval. This doesn't block Phase 1; if it's still

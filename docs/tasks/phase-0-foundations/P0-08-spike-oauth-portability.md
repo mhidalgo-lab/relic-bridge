@@ -41,6 +41,10 @@ T2, T9, T10, T11. Spike deployment protected or deleted after use.
 - 2026-10-01: 29-check OAuth e2e suite passes on workerd and Node; CIMD tested with Claude Code's public metadata document;
   ADR-0009 updated (`spikes/oauth/RESULTS.md`).
 
+- 2026-10-02: OAuth Worker deployed (`relic-bridge-spike-oauth`). CIMD and DCR flows pass against production; confirmed that
+  the project list must come from storage (isolates don't share memory). claude.ai, mobile and Claude Code browser login need
+  the maintainer.
+
 ## Blocker
 Real OAuth run with claude.ai web, Claude mobile and Claude Code needs the protected test Worker in
 `spikes/oauth/deploy-and-test.md`. Waiting for maintainer approval. Then fill in "Real-client results" and the DCR/CIMD notes in RESEARCH §3.

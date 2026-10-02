@@ -123,22 +123,32 @@ Mitigations worth carrying into P1/P3:
 - consider building the `McpServer` tool table once per isolate and filtering per grant, instead of re-registering
   tools on every request (verify that the SDK allows this safely; T21: no request data in module state)
 
-## Still to verify on a real deployment
+## Production results (2026-10-02, maintainer's Cloudflare account)
 
-- [ ] Production CPU p50/p99 per payload size (dashboard or GraphQL `cpuTimeP50`/`cpuTimeP99`; unit believed to be µs)
-- [ ] Cold-isolate first-call CPU in production, and whether Free terminates it (1102 / `exceededCpu`)
-- [ ] Whether a CPU-time field appears in Workers Logs invocation logs (name not documented in the pages checked)
-- [ ] Whether service-binding calls count as subrequests (docs checked don't say; count them conservatively)
-- [ ] Real NerdGraph response sizes for typical queries (P0-09) to confirm the 512 KiB cap rarely bites
+Deployed `spike-workers-limits` + `spike-mock-nerdgraph` (service binding) + D1, 50 warm calls per payload size in separate
+time windows, then 5 cold calls (each right after a redeploy). CPU from GraphQL Analytics `workersInvocationsAdaptive`
+(values in **µs**, confirmed: they match the dashboard's ms scale). Everything deleted afterwards.
 
-### Production measurements (fill in)
+| Payload | CPU p50 | CPU p90 | CPU p99 | Client wall p50 | Killed (1102 / exceededCpu) |
+|---|---|---|---|---|---|
+| 10 KB | 2.8 ms | 3.7 ms | 24.6 ms | 187 ms | 0 / 50 |
+| 100 KB | 3.7 ms | 6.6 ms | 20.5 ms | 201 ms | 0 / 50 |
+| 1 MB | 10.2 ms | 14.9 ms | 39.7 ms | 198 ms | 0 / 50 |
+| 5 MB | 45.8 ms | 54.1 ms | 61.9 ms | 252 ms | 0 / 50 |
 
-| Payload | CPU p50 (ms) | CPU p99 (ms) | 1102 / exceededCpu count (of 50) | Cold first-call CPU |
-|---|---|---|---|---|
-| 10 KB | | | | |
-| 100 KB | | | | |
-| 1 MB | | | | |
-| 5 MB | | | | |
+**Cold first call** (10 KB, fresh isolate after redeploy, n=5): **17.3, 21.3, 21.4, 22.8, 34.7 ms** CPU, wall 555–714 ms. All succeeded.
+Warm p99 values of ~20–25 ms are those cold isolates showing up in the batches.
+
+Findings:
+- Production CPU tracks the local estimates. Body parsing dominates (~9 ms/MB in production vs ~5 ms/MB locally).
+- **No request was terminated, even at 46–62 ms or for 17–35 ms cold starts.** Either the account isn't on the Free
+  Workers plan (not visible through the wrangler OAuth token; the maintainer must confirm) or Free enforces 10 ms leniently.
+  Either way, design to the budget: **cap free-plan responses at 512 KiB** (≈ 5 ms parse) and keep cold-path work minimal.
+- Analytics reported **1 subrequest per call**, although each call did 1 D1 query + 1 service-binding fetch, so analytics
+  counts only one of them. Our budget keeps counting both (conservative).
+- Workers Logs: not checked for a CPU field (analytics was enough). Low priority.
+
+Remaining: confirm the account's Workers plan; if it's Paid, re-run the 1 MB/5 MB windows on a Free account before P3-03.
 
 ## Files
 

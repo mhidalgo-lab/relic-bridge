@@ -1,6 +1,6 @@
 # 0010 — Budgets, concurrency and retries for Workers and NerdGraph limits
 
-- Status: accepted (local measurements from spike P0-06; production CPU and live NerdGraph numbers pending)
+- Status: accepted (spike P0-06 local + production measurements, P0-09 live NerdGraph run)
 - Date: 2026-10-01
 
 ## Context
@@ -51,3 +51,16 @@ Body read and parse dominate at about 5 ms/MB. Hashing, AES-GCM and shaping each
 
 **Open risk:** cold-isolate CPU (first SDK request compiles schemas: 66–163 ms in Node, smaller in workerd). Only a
 production free-plan deployment can show whether cold calls exceed the limit. This must be measured before P3-03 finalises the presets.
+
+## Production measurements (P0-06, 2026-10-02)
+
+| Response | CPU p50 | CPU p90 | CPU p99 |
+|---|---|---|---|
+| 10 KB | 2.8 ms | 3.7 ms | 24.6 ms |
+| 100 KB | 3.7 ms | 6.6 ms | 20.5 ms |
+| 1 MB | 10.2 ms | 14.9 ms | 39.7 ms |
+| 5 MB | 45.8 ms | 54.1 ms | 61.9 ms |
+
+Cold first call: 17–35 ms CPU (n=5). **No request was terminated**, so the account's plan or Free's leniency is unconfirmed (see
+`spikes/workers-limits/RESULTS.md`). The presets above stand: 512 KiB keeps warm calls at about 5 ms. NerdGraph latency for
+lean queries is ~230–470 ms (P0-09), so wall time is dominated by NerdGraph, not by the Worker.

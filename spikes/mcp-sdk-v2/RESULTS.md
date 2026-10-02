@@ -106,3 +106,17 @@ pnpm exec tsx test/run.ts http http://127.0.0.1:8787
 pnpm exec tsx test/run.ts http http://127.0.0.1:8788
 pnpm exec tsx test/run.ts stdio
 ```
+
+## Real clients (deployed echo Worker, 2026-10-02)
+
+| Client | Version | Listed | Call OK | Era | Notes |
+|---|---|---|---|---|---|
+| MCP Inspector CLI (http) | 2.8.0 | yes | yes | legacy | Against the deployed Worker; wrong path token → 404 |
+| Claude Code (http) | 2.1.287 | yes | yes | **modern** | Via a temporary `--mcp-config` (user config untouched) |
+| Claude Code (http + `Authorization` header) | 2.1.287 | yes | yes | modern | Header accepted alongside |
+| Claude Code (stdio, local) | 2.1.287 | yes | yes | modern | `env` block in the MCP config reached the server (`SPIKE_SLUG=b`) |
+| Claude Desktop | | | | | pending: maintainer |
+| claude.ai web | | | | | pending: maintainer |
+| Claude mobile | | | | | pending: maintainer |
+| Cursor | | | | | pending: maintainer (optional) |
+| VS Code (Copilot agent) | | | | | pending: maintainer (optional) |

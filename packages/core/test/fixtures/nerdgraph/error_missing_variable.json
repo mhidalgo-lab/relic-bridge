@@ -1,0 +1,47 @@
+{
+  "probe": "error_missing_variable",
+  "profile": "A",
+  "region": "US",
+  "endpoint": "https://api.newrelic.com/REDACTED",
+  "at": "2026-10-02T12:17:20.819Z",
+  "request": {
+    "query": "query E($accountId: Int!, $nrql: Nrql!) {\n  actor { account(id: $accountId) { nrql(query: $nrql, timeout: 10) { results } } }\n}",
+    "variables": {
+      "accountId": 1000001
+    }
+  },
+  "response": {
+    "status": 200,
+    "ok": true,
+    "durationMs": 238,
+    "headers": {
+      "content-type": "application/json; charset=utf-8",
+      "date": "Fri, 02 Oct 2026 12:17:20 GMT",
+      "server": "cloudflare",
+      "x-envoy-upstream-service-time": "6"
+    },
+    "body": {
+      "errors": [
+        {
+          "message": "In argument \"query\": Expected type \"Nrql!\", found null.",
+          "locations": [
+            {
+              "line": 2,
+              "column": 42
+            }
+          ]
+        },
+        {
+          "message": "Variable \"nrql\": Expected non-null, found null.",
+          "locations": [
+            {
+              "line": 1,
+              "column": 27
+            }
+          ]
+        }
+      ]
+    },
+    "bodyBytes": 224
+  }
+}

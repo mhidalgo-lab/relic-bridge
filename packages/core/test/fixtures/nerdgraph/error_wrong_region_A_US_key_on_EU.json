@@ -1,0 +1,32 @@
+{
+  "probe": "error_wrong_region_A_US_key_on_EU",
+  "profile": "A",
+  "region": "US",
+  "endpoint": "https://api.eu.newrelic.com/REDACTED",
+  "at": "2026-10-02T12:17:22.644Z",
+  "request": {
+    "query": "query E($accountId: Int!, $nrql: Nrql!) {\n  actor { account(id: $accountId) { nrql(query: $nrql, timeout: 10) { results } } }\n}",
+    "variables": {
+      "accountId": 1000001,
+      "nrql": "SELECT count(*) FROM Transaction SINCE 10 minutes ago"
+    }
+  },
+  "response": {
+    "status": 403,
+    "ok": false,
+    "durationMs": 1824,
+    "headers": {
+      "content-type": "application/json",
+      "date": "Fri, 02 Oct 2026 12:17:22 GMT",
+      "server": "cloudflare"
+    },
+    "body": {
+      "errors": [
+        {
+          "message": "not authorized for account region"
+        }
+      ]
+    },
+    "bodyBytes": 60
+  }
+}

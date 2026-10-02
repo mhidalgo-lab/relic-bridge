@@ -1,0 +1,8 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "relic-bridge-spike-echo",
+  "main": "src/worker-echo.ts",
+  "compatibility_date": "2026-09-25",
+  "workers_dev": true,
+  "observability": { "enabled": true }
+}

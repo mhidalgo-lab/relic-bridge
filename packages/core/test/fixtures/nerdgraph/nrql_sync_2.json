@@ -1,0 +1,1679 @@
+{
+  "probe": "nrql_sync_2",
+  "profile": "A",
+  "region": "US",
+  "endpoint": "https://api.newrelic.com/REDACTED",
+  "note": "SELECT count(*), percentile(duration, 95) FROM Transaction FACET appName SINCE 1 day ago LIMIT 5 TIMESERIES 1 hour",
+  "at": "2026-10-02T12:17:06.468Z",
+  "request": {
+    "query": "query NrqlSync($accountId: Int!, $nrql: Nrql!, $timeout: Seconds) {\n  actor { account(id: $accountId) { nrql(query: $nrql, timeout: $timeout) { __typename embeddedChartUrl eventDefinitions { __typename attributes { __typename definition documentationUrl label name } definition label name } metadata { __typename eventTypes facets messages timeWindow { __typename begin compareWith end since until } } nrql otherResult queryProgress { __typename completed queryId resultExpiration retryAfter retryDeadline } rawResponse results staticChartUrl suggestedQueries { __typename suggestions { __typename nrql title } } totalResult } } }\n}",
+    "variables": {
+      "accountId": 1000001,
+      "nrql": "SELECT count(*), percentile(duration, 95) FROM Transaction FACET appName SINCE 1 day ago LIMIT 5 TIMESERIES 1 hour",
+      "timeout": 30
+    }
+  },
+  "response": {
+    "status": 200,
+    "ok": true,
+    "durationMs": 3723,
+    "headers": {
+      "content-type": "application/json; charset=utf-8",
+      "date": "Fri, 02 Oct 2026 12:17:06 GMT",
+      "server": "cloudflare",
+      "x-envoy-upstream-service-time": "3528"
+    },
+    "body": {
+      "data": {
+        "actor": {
+          "account": {
+            "nrql": {
+              "__typename": "NrdbResultContainer",
+              "embeddedChartUrl": null,
+              "eventDefinitions": [
+                {
+                  "__typename": "EventDefinition",
+                  "attributes": [
+                    {
+                      "__typename": "EventAttributeDefinition",
+                      "definition": "Incoming request size in bytes as read from the Content-Length HTTP request header.",
+                      "documentationUrl": "https://docs.newrelic.com/REDACTED",
+                      "label": "request.headers.contentLength",
+                      "name": "request.headers.contentLength"
+                    },
+                    {
+                      "__typename": "EventAttributeDefinition",
+                      "definition": "Incoming request content-type as read from the HTTP request header Content-Type. Example value: application/octet-stream.",
+                      "documentationUrl": "https://docs.newrelic.com/REDACTED",
+                      "label": "request.headers.contentType",
+                      "name": "request.headers.contentType"
+                    },
+                    {
+                      "__typename": "EventAttributeDefinition",
+                      "definition": "The unique ID (a randomly generated string) used to identify a single request as it crosses inter- and intra- process boundaries. This ID allows the linking of spans in a distributed trace. Included when distributed tracing is enabled.",
+                      "documentationUrl": "https://docs.newrelic.com/REDACTED",
+                      "label": "trace.id",
+                      "name": "trace.id"
+                    },
+                    {
+                      "__typename": "EventAttributeDefinition",
+                      "definition": "The duration of the transaction, equivalent to duration.",
+                      "documentationUrl": "https://docs.newrelic.com/REDACTED",
+                      "label": "webDuration",
+                      "name": "webDuration"
+                    },
+                    {
+                      "__typename": "EventAttributeDefinition",
+                      "definition": "A unique ID (a randomly-generated string) used to identify a single request as it crosses application boundaries. If distributed tracing is enabled, this will be reported as traceId.",
+                      "documentationUrl": "https://docs.newrelic.com/REDACTED",
+                      "label": "tripId",
+                      "name": "tripId"
+                    },
+                    {
+                      "__typename": "EventAttributeDefinition",
+                      "definition": "The type of the transaction. For example: Web or Background (non-web).",
+                      "documentationUrl": "https://docs.newrelic.com/REDACTED",
+                      "label": "transactionType",
+                      "name": "transactionType"
+                    },
+                    {
+                      "__typename": "EventAttributeDefinition",
+                      "definition": "Provides a more specific level of detail about the transaction than transactionType. Example: Controller or Custom.",
+                      "documentationUrl": "https://docs.newrelic.com/REDACTED",
+                      "label": "transactionSubType",
+                      "name": "transactionSubType"
+                    },
+                    {
+                      "__typename": "EventAttributeDefinition",
+                      "definition": "The sum of all async components' duration, in seconds. An async component is a method or function where there is no instrumented encapsulating method or function.",
+                      "documentationUrl": "https://docs.newrelic.com/REDACTED",
+                      "label": "totalTime",
+                      "name": "totalTime"
+                    },
+                    {
+                      "__typename": "EventAttributeDefinition",
+                      "definition": "Indicates whether this event was sampled for inclusion in a distributed trace. Only present when distributed tracing is enabled.",
+                      "documentationUrl": "https://docs.newrelic.com/REDACTED",
+                      "label": "sampled",
+                      "name": "sampled"
+                    },
+                    {
+                      "__typename": "EventAttributeDefinition",
+                      "definition": "The HTTP response code associated with the transaction.",
+                      "documentationUrl": "https://docs.newrelic.com/REDACTED",
+                      "label": "response.status",
+                      "name": "response.status"
+                    },
+                    {
+                      "__typename": "EventAttributeDefinition",
+                      "definition": "For an HTTP response, the data type of the returned response. Example values: text/html, application/json.",
+                      "documentationUrl": "https://docs.newrelic.com/REDACTED",
+                      "label": "response.headers.contentType",
+                      "name": "response.headers.contentType"
+                    },
+                    {
+                      "__typename": "EventAttributeDefinition",
+                      "definition": "The outgoing response size in bytes as read from the Content-Length response header.",
+                      "documentationUrl": "https://docs.newrelic.com/REDACTED",
+                      "label": "response.headers.contentLength",
+                      "name": "response.headers.contentLength"
+                    },
+                    {
+                      "__typename": "EventAttributeDefinition",
+                      "definition": "The incoming request path of the transaction. This does not include the protocol, host, port, or any query parameters. This is hardcoded into the JSON for transaction traces and, formerly, the error blobs.",
+                      "documentationUrl": "https://docs.newrelic.com/REDACTED",
+                      "label": "request.uri",
+                      "name": "request.uri"
+                    },
+                    {
+                      "__typename": "EventAttributeDefinition",
+                      "definition": "The HTTP request method used. Example values: POST, GET.",
+                      "documentationUrl": "https://docs.newrelic.com/REDACTED",
+                      "label": "request.method",
+                      "name": "request.method"
+                    },
+                    {
+                      "__typename": "EventAttributeDefinition",
+                      "definition": "The contents of the User-Agent HTTP header.",
+                      "documentationUrl": "https://docs.newrelic.com/REDACTED",
+                      "label": "request.headers.userAgent",
+                      "name": "request.headers.userAgent"
+                    },
+                    {
+                      "__typename": "EventAttributeDefinition",
+                      "definition": "The incoming request referer as read from the Referer request header.",
+                      "documentationUrl": "https://docs.newrelic.com/REDACTED",
+                      "label": "request.headers.referer",
+                      "name": "request.headers.referer"
+                    },
+                    {
+                      "__typename": "EventAttributeDefinition",
+                      "definition": "The name from the HTTP host request header.",
+                      "documentationUrl": "https://docs.newrelic.com/REDACTED",
+                      "label": "request.headers.host",
+                      "name": "request.headers.host"
+                    },
+                    {
+                      "__typename": "EventAttributeDefinition",
+                      "definition": "The types as read from the HTTP Accept request header.",
+                      "documentationUrl": "https://docs.newrelic.com/REDACTED",
+                      "label": "request.headers.accept",
+                      "name": "request.headers.accept"
+                    },
+                    {
+                      "__typename": "EventAttributeDefinition",
+                      "definition": "The ID of the New Relic agent that reported the data.",
+                      "documentationUrl": "https://docs.newrelic.com/REDACTED",
+                      "label": "realAgentId",
+                      "name": "realAgentId"
+                    },
+                    {
+                      "__typename": "EventAttributeDefinition",
+                      "definition": "The total time the requester waits for a service to initiate, in seconds.",
+                      "documentationUrl": "https://docs.newrelic.com/REDACTED",
+                      "label": "queueDuration",
+                      "name": "queueDuration"
+                    },
+                    {
+                      "__typename": "EventAttributeDefinition",
+                      "definition": "Likelihood this event will be saved.",
+                      "documentationUrl": "https://docs.newrelic.com/REDACTED",
+                      "label": "priority",
+                      "name": "priority"
+                    },
+                    {
+                      "__typename": "EventAttributeDefinition",
+                      "definition": "If a distributed trace payload was received, the guid of this parent transaction.",
+                      "documentationUrl": "https://docs.newrelic.com/REDACTED",
+                      "label": "parentId",
+                      "name": "parentId"
+                    },
+                    {
+                      "__typename": "EventAttributeDefinition",
+                      "definition": "If a distributed trace payload was received, the parent's data source type. Example values: App, Browser, Mobile.",
+                      "documentationUrl": "https://docs.newrelic.com/REDACTED",
+                      "label": "parent.type",
+                      "name": "parent.type"
+                    },
+                    {
+                      "__typename": "EventAttributeDefinition",
+                      "definition": "When a distributed tracing payload is received, the method of transport for the payload. Example values: Unknown, HTTP, HTTPS, Kafka, JMS, IronMQ, AMQP, Queue, or Other.",
+                      "documentationUrl": "https://docs.newrelic.com/REDACTED",
+                      "label": "parent.transportType",
+                      "name": "parent.transportType"
+                    },
+                    {
+                      "__typename": "EventAttributeDefinition",
+                      "definition": "When distributed tracing is enabled and a payload is received, the difference in time between the timestamp given for when the payload was sent and the moment it was processed.",
+                      "documentationUrl": "https://docs.newrelic.com/REDACTED",
+                      "label": "parent.transportDuration",
+                      "name": "parent.transportDuration"
+                    },
+                    {
+                      "__typename": "EventAttributeDefinition",
+                      "definition": "If a distributed tracing payload is received, this is the application identifier. APM agents retrieve this value in the connect response under the key primary_application_id.",
+                      "documentationUrl": "https://docs.newrelic.com/REDACTED",
+                      "label": "parent.app",
+                      "name": "parent.app"
+                    },
+                    {
+                      "__typename": "EventAttributeDefinition",
+                      "definition": "If a distributed tracing payload is received, this is the account identifier for the transaction's upstream caller.",
+                      "documentationUrl": "https://docs.newrelic.com/REDACTED",
+                      "label": "parent.account",
+                      "name": "parent.account"
+                    },
+                    {
+                      "__typename": "EventAttributeDefinition",
+                      "definition": "The name of the transaction associated with this data. Ex: Controller/customers/show.",
+                      "documentationUrl": "https://docs.newrelic.com/REDACTED",
+                      "label": "name",
+                      "name": "name"
+                    },
+                    {
+                      "__typename": "EventAttributeDefinition",
+                      "definition": "The memcache response time, in seconds.",
+                      "documentationUrl": "https://docs.newrelic.com/REDACTED",
+                      "label": "memcacheDuration",
+                      "name": "memcacheDuration"
+                    },
+                    {
+                      "__typename": "EventAttributeDefinition",
+                      "definition": "The HTTP response code associated with the transaction. Some agents use http.statusCode, which is equivalent.",
+                      "documentationUrl": "https://docs.newrelic.com/REDACTED",
+                      "label": "httpResponseCode",
+                      "name": "httpResponseCode"
+                    },
+                    {
+                      "__typename": "EventAttributeDefinition",
+                      "definition": "The response status message for a web request.",
+                      "documentationUrl": "https://docs.newrelic.com/REDACTED",
+                      "label": "http.statusText",
+                      "name": "http.statusText"
+                    },
+                    {
+                      "__typename": "EventAttributeDefinition",
+                      "definition": "The HTTP status code associated with the transaction. Some agents use httpResponseCode, which is equivalent.",
+                      "documentationUrl": "https://docs.newrelic.com/REDACTED",
+                      "label": "http.statusCode",
+                      "name": "http.statusCode"
+                    },
+                    {
+                      "__typename": "EventAttributeDefinition",
+                      "definition": "The name of the application host that processed this request.",
+                      "documentationUrl": "https://docs.newrelic.com/REDACTED",
+                      "label": "host",
+                      "name": "host"
+                    },
+                    {
+                      "__typename": "EventAttributeDefinition",
+                      "definition": "The identifier for the transaction.",
+                      "documentationUrl": "https://docs.newrelic.com/REDACTED",
+                      "label": "guid",
+                      "name": "guid"
+                    },
+                    {
+                      "__typename": "EventAttributeDefinition",
+                      "definition": "(Ruby and Java agents only) The total time spent in garbage collection during this transaction, in seconds.",
+                      "documentationUrl": "https://docs.newrelic.com/REDACTED",
+                      "label": "gcCumulative",
+                      "name": "gcCumulative"
+                    },
+                    {
+                      "__typename": "EventAttributeDefinition",
+                      "definition": "The total response time of all external (out-of-process) services, in seconds.",
+                      "documentationUrl": "https://docs.newrelic.com/REDACTED",
+                      "label": "externalDuration",
+                      "name": "externalDuration"
+                    },
+                    {
+                      "__typename": "EventAttributeDefinition",
+                      "definition": "The number of external calls made by this transaction.",
+                      "documentationUrl": "https://docs.newrelic.com/REDACTED",
+                      "label": "externalCallCount",
+                      "name": "externalCallCount"
+                    },
+                    {
+                      "__typename": "EventAttributeDefinition",
+                      "definition": "Total time the transaction was running while blocked by an event loop process, subject to the threshold. (Python agent only)",
+                      "documentationUrl": "https://docs.newrelic.com/REDACTED",
+                      "label": "eventLoopWait",
+                      "name": "eventLoopWait"
+                    },
+                    {
+                      "__typename": "EventAttributeDefinition",
+                      "definition": "The time the transaction spent running the event loop. (Python agent only)",
+                      "documentationUrl": "https://docs.newrelic.com/REDACTED",
+                      "label": "eventLoopTime",
+                      "name": "eventLoopTime"
+                    },
+                    {
+                      "__typename": "EventAttributeDefinition",
+                      "definition": "This will be server and platform specific. The class or classification of the error. If multiple errors occur, only the first will be shown. If an error occurs during a transaction, the error may skew the duration of the event.",
+                      "documentationUrl": "https://docs.newrelic.com/REDACTED",
+                      "label": "errorType",
+                      "name": "errorType"
+                    },
+                    {
+                      "__typename": "EventAttributeDefinition",
+                      "definition": "(.NET and PHP agents only) This will be server and platform specific. The message contained within an error for the transaction. If an error occurs during a transaction, the error may skew the duration of the event.",
+                      "documentationUrl": "https://docs.newrelic.com/REDACTED",
+                      "label": "errorMessage",
+                      "name": "errorMessage"
+                    },
+                    {
+                      "__typename": "EventAttributeDefinition",
+                      "definition": "Indicates whether an error was noticed during execution.",
+                      "documentationUrl": "https://docs.newrelic.com/REDACTED",
+                      "label": "error",
+                      "name": "error"
+                    },
+                    {
+                      "__typename": "EventAttributeDefinition",
+                      "definition": "The total server-side response time for the transaction, in seconds. Does not include request queueing time.",
+                      "documentationUrl": "https://docs.newrelic.com/REDACTED",
+                      "label": "duration",
+                      "name": "duration"
+                    },
+                    {
+                      "__typename": "EventAttributeDefinition",
+                      "definition": "The database response time in seconds.",
+                      "documentationUrl": "https://docs.newrelic.com/REDACTED",
+                      "label": "databaseDuration",
+                      "name": "databaseDuration"
+                    },
+                    {
+                      "__typename": "EventAttributeDefinition",
+                      "definition": "The number of database calls made by this transaction.",
+                      "documentationUrl": "https://docs.newrelic.com/REDACTED",
+                      "label": "databaseCallCount",
+                      "name": "databaseCallCount"
+                    },
+                    {
+                      "__typename": "EventAttributeDefinition",
+                      "definition": "The application name set in the New Relic agent configuration.",
+                      "documentationUrl": "https://docs.newrelic.com/REDACTED",
+                      "label": "appName",
+                      "name": "appName"
+                    },
+                    {
+                      "__typename": "EventAttributeDefinition",
+                      "definition": "The unique numeric identifier assigned by New Relic for the service/app that generated the transaction.",
+                      "documentationUrl": "https://docs.newrelic.com/REDACTED",
+                      "label": "appId",
+                      "name": "appId"
+                    },
+                    {
+                      "__typename": "EventAttributeDefinition",
+                      "definition": "The unique ID of the account associated with the service/application where the Transaction was created.",
+                      "documentationUrl": "https://docs.newrelic.com/REDACTED",
+                      "label": "accountId",
+                      "name": "accountId"
+                    }
+                  ],
+                  "definition": "A transaction is a logical unit of work in a software application, such as HTTP requests, SQL queries, background processes, message queue activity, etc. The Transaction event includes information about the app, database calls, the duration of the transaction, and any errors that may occur.",
+                  "label": "Transaction",
+                  "name": "Transaction"
+                }
+              ],
+              "metadata": {
+                "__typename": "NrdbMetadata",
+                "eventTypes": [
+                  "Transaction"
+                ],
+                "facets": [
+                  "appName"
+                ],
+                "messages": [
+                  "No events found -- do you have the correct event type and time range?"
+                ],
+                "timeWindow": {
+                  "__typename": "NrdbMetadataTimeWindow",
+                  "begin": 1790857023110,
+                  "compareWith": null,
+                  "end": 1790943423110,
+                  "since": "1 DAYS AGO",
+                  "until": "NOW"
+                }
+              },
+              "nrql": "SELECT count(*), percentile(duration, 95) FROM Transaction FACET appName SINCE 1 day ago LIMIT 5 TIMESERIES 1 hour",
+              "otherResult": [
+                {
+                  "beginTimeSeconds": 1790857023,
+                  "endTimeSeconds": 1790860623,
+                  "count": 0,
+                  "percentile.duration": {
+                    "95": 0
+                  }
+                },
+                {
+                  "beginTimeSeconds": 1790860623,
+                  "endTimeSeconds": 1790864223,
+                  "count": 0,
+                  "percentile.duration": {
+                    "95": 0
+                  }
+                },
+                {
+                  "beginTimeSeconds": 1790864223,
+                  "endTimeSeconds": 1790867823,
+                  "count": 0,
+                  "percentile.duration": {
+                    "95": 0
+                  }
+                },
+                {
+                  "beginTimeSeconds": 1790867823,
+                  "endTimeSeconds": 1790871423,
+                  "count": 0,
+                  "percentile.duration": {
+                    "95": 0
+                  }
+                },
+                {
+                  "beginTimeSeconds": 1790871423,
+                  "endTimeSeconds": 1790875023,
+                  "count": 0,
+                  "percentile.duration": {
+                    "95": 0
+                  }
+                },
+                {
+                  "beginTimeSeconds": 1790875023,
+                  "endTimeSeconds": 1790878623,
+                  "count": 0,
+                  "percentile.duration": {
+                    "95": 0
+                  }
+                },
+                {
+                  "beginTimeSeconds": 1790878623,
+                  "endTimeSeconds": 1790882223,
+                  "count": 0,
+                  "percentile.duration": {
+                    "95": 0
+                  }
+                },
+                {
+                  "beginTimeSeconds": 1790882223,
+                  "endTimeSeconds": 1790885823,
+                  "count": 0,
+                  "percentile.duration": {
+                    "95": 0
+                  }
+                },
+                {
+                  "beginTimeSeconds": 1790885823,
+                  "endTimeSeconds": 1790889423,
+                  "count": 0,
+                  "percentile.duration": {
+                    "95": 0
+                  }
+                },
+                {
+                  "beginTimeSeconds": 1790889423,
+                  "endTimeSeconds": 1790893023,
+                  "count": 0,
+                  "percentile.duration": {
+                    "95": 0
+                  }
+                },
+                {
+                  "beginTimeSeconds": 1790893023,
+                  "endTimeSeconds": 1790896623,
+                  "count": 0,
+                  "percentile.duration": {
+                    "95": 0
+                  }
+                },
+                {
+                  "beginTimeSeconds": 1790896623,
+                  "endTimeSeconds": 1790900223,
+                  "count": 0,
+                  "percentile.duration": {
+                    "95": 0
+                  }
+                },
+                {
+                  "beginTimeSeconds": 1790900223,
+                  "endTimeSeconds": 1790903823,
+                  "count": 0,
+                  "percentile.duration": {
+                    "95": 0
+                  }
+                },
+                {
+                  "beginTimeSeconds": 1790903823,
+                  "endTimeSeconds": 1790907423,
+                  "count": 0,
+                  "percentile.duration": {
+                    "95": 0
+                  }
+                },
+                {
+                  "beginTimeSeconds": 1790907423,
+                  "endTimeSeconds": 1790911023,
+                  "count": 0,
+                  "percentile.duration": {
+                    "95": 0
+                  }
+                },
+                {
+                  "beginTimeSeconds": 1790911023,
+                  "endTimeSeconds": 1790914623,
+                  "count": 0,
+                  "percentile.duration": {
+                    "95": 0
+                  }
+                },
+                {
+                  "beginTimeSeconds": 1790914623,
+                  "endTimeSeconds": 1790918223,
+                  "count": 0,
+                  "percentile.duration": {
+                    "95": 0
+                  }
+                },
+                {
+                  "beginTimeSeconds": 1790918223,
+                  "endTimeSeconds": 1790921823,
+                  "count": 0,
+                  "percentile.duration": {
+                    "95": 0
+                  }
+                },
+                {
+                  "beginTimeSeconds": 1790921823,
+                  "endTimeSeconds": 1790925423,
+                  "count": 0,
+                  "percentile.duration": {
+                    "95": 0
+                  }
+                },
+                {
+                  "beginTimeSeconds": 1790925423,
+                  "endTimeSeconds": 1790929023,
+                  "count": 0,
+                  "percentile.duration": {
+                    "95": 0
+                  }
+                },
+                {
+                  "beginTimeSeconds": 1790929023,
+                  "endTimeSeconds": 1790932623,
+                  "count": 0,
+                  "percentile.duration": {
+                    "95": 0
+                  }
+                },
+                {
+                  "beginTimeSeconds": 1790932623,
+                  "endTimeSeconds": 1790936223,
+                  "count": 0,
+                  "percentile.duration": {
+                    "95": 0
+                  }
+                },
+                {
+                  "beginTimeSeconds": 1790936223,
+                  "endTimeSeconds": 1790939823,
+                  "count": 0,
+                  "percentile.duration": {
+                    "95": 0
+                  }
+                },
+                {
+                  "beginTimeSeconds": 1790939823,
+                  "endTimeSeconds": 1790943423,
+                  "count": 0,
+                  "percentile.duration": {
+                    "95": 0
+                  }
+                }
+              ],
+              "queryProgress": {
+                "__typename": "NrdbQueryProgress",
+                "completed": true,
+                "queryId": null,
+                "resultExpiration": null,
+                "retryAfter": null,
+                "retryDeadline": null
+              },
+              "rawResponse": {
+                "facets": [],
+                "metadata": {
+                  "accounts": [
+                    1000001
+                  ],
+                  "beginTime": "2026-10-01T12:17:03Z",
+                  "beginTimeMillis": 1790857023110,
+                  "bucketSizeMillis": 3600000,
+                  "contents": {
+                    "info": [
+                      "No events found -- do you have the correct event type and time range?"
+                    ],
+                    "messages": [
+                      "No events found -- do you have the correct event type and time range?"
+                    ],
+                    "timeSeries": {
+                      "contents": [
+                        {
+                          "function": "count",
+                          "simple": true
+                        },
+                        {
+                          "attribute": "duration",
+                          "function": "percentile",
+                          "relativeError": 0,
+                          "thresholds": [
+                            95
+                          ]
+                        }
+                      ],
+                      "info": [
+                        "No events found -- do you have the correct event type and time range?"
+                      ],
+                      "messages": [
+                        "No events found -- do you have the correct event type and time range?"
+                      ]
+                    }
+                  },
+                  "endTime": "2026-10-02T12:17:03Z",
+                  "endTimeMillis": 1790943423110,
+                  "eventType": "Transaction",
+                  "eventTypes": [
+                    "Transaction"
+                  ],
+                  "facet": "appName",
+                  "facetExpression": "`appName`",
+                  "guid": "ec2a8e00-361e-e962-95ea-50a68bdeeedd",
+                  "info": [
+                    "No events found -- do you have the correct event type and time range?"
+                  ],
+                  "limit": 5,
+                  "messages": [
+                    "No events found -- do you have the correct event type and time range?"
+                  ],
+                  "offset": 0,
+                  "openEnded": true,
+                  "rawCompareWith": "",
+                  "rawSince": "1 DAYS AGO",
+                  "rawUntil": "NOW",
+                  "routerGuid": "ec2a8e00-361e-e962-95ea-50a68bdeeedd"
+                },
+                "performanceStats": {
+                  "exceedsRetentionWindow": false,
+                  "inspectedCount": 0,
+                  "matchCount": 0,
+                  "omittedCount": 0,
+                  "wallClockTime": 145
+                },
+                "queryUsage": {
+                  "billableMetric": "ccu",
+                  "ccu": 0,
+                  "nrqlPredictModeling": 0,
+                  "scannedEvents": 0
+                },
+                "totalResult": {
+                  "timeSeries": [
+                    {
+                      "beginTimeSeconds": 1790857023,
+                      "endTimeSeconds": 1790860623,
+                      "inspectedCount": 0,
+                      "results": [
+                        {
+                          "count": 0
+                        },
+                        {
+                          "percentiles": {
+                            "95": 0
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "beginTimeSeconds": 1790860623,
+                      "endTimeSeconds": 1790864223,
+                      "inspectedCount": 0,
+                      "results": [
+                        {
+                          "count": 0
+                        },
+                        {
+                          "percentiles": {
+                            "95": 0
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "beginTimeSeconds": 1790864223,
+                      "endTimeSeconds": 1790867823,
+                      "inspectedCount": 0,
+                      "results": [
+                        {
+                          "count": 0
+                        },
+                        {
+                          "percentiles": {
+                            "95": 0
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "beginTimeSeconds": 1790867823,
+                      "endTimeSeconds": 1790871423,
+                      "inspectedCount": 0,
+                      "results": [
+                        {
+                          "count": 0
+                        },
+                        {
+                          "percentiles": {
+                            "95": 0
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "beginTimeSeconds": 1790871423,
+                      "endTimeSeconds": 1790875023,
+                      "inspectedCount": 0,
+                      "results": [
+                        {
+                          "count": 0
+                        },
+                        {
+                          "percentiles": {
+                            "95": 0
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "beginTimeSeconds": 1790875023,
+                      "endTimeSeconds": 1790878623,
+                      "inspectedCount": 0,
+                      "results": [
+                        {
+                          "count": 0
+                        },
+                        {
+                          "percentiles": {
+                            "95": 0
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "beginTimeSeconds": 1790878623,
+                      "endTimeSeconds": 1790882223,
+                      "inspectedCount": 0,
+                      "results": [
+                        {
+                          "count": 0
+                        },
+                        {
+                          "percentiles": {
+                            "95": 0
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "beginTimeSeconds": 1790882223,
+                      "endTimeSeconds": 1790885823,
+                      "inspectedCount": 0,
+                      "results": [
+                        {
+                          "count": 0
+                        },
+                        {
+                          "percentiles": {
+                            "95": 0
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "beginTimeSeconds": 1790885823,
+                      "endTimeSeconds": 1790889423,
+                      "inspectedCount": 0,
+                      "results": [
+                        {
+                          "count": 0
+                        },
+                        {
+                          "percentiles": {
+                            "95": 0
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "beginTimeSeconds": 1790889423,
+                      "endTimeSeconds": 1790893023,
+                      "inspectedCount": 0,
+                      "results": [
+                        {
+                          "count": 0
+                        },
+                        {
+                          "percentiles": {
+                            "95": 0
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "beginTimeSeconds": 1790893023,
+                      "endTimeSeconds": 1790896623,
+                      "inspectedCount": 0,
+                      "results": [
+                        {
+                          "count": 0
+                        },
+                        {
+                          "percentiles": {
+                            "95": 0
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "beginTimeSeconds": 1790896623,
+                      "endTimeSeconds": 1790900223,
+                      "inspectedCount": 0,
+                      "results": [
+                        {
+                          "count": 0
+                        },
+                        {
+                          "percentiles": {
+                            "95": 0
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "beginTimeSeconds": 1790900223,
+                      "endTimeSeconds": 1790903823,
+                      "inspectedCount": 0,
+                      "results": [
+                        {
+                          "count": 0
+                        },
+                        {
+                          "percentiles": {
+                            "95": 0
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "beginTimeSeconds": 1790903823,
+                      "endTimeSeconds": 1790907423,
+                      "inspectedCount": 0,
+                      "results": [
+                        {
+                          "count": 0
+                        },
+                        {
+                          "percentiles": {
+                            "95": 0
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "beginTimeSeconds": 1790907423,
+                      "endTimeSeconds": 1790911023,
+                      "inspectedCount": 0,
+                      "results": [
+                        {
+                          "count": 0
+                        },
+                        {
+                          "percentiles": {
+                            "95": 0
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "beginTimeSeconds": 1790911023,
+                      "endTimeSeconds": 1790914623,
+                      "inspectedCount": 0,
+                      "results": [
+                        {
+                          "count": 0
+                        },
+                        {
+                          "percentiles": {
+                            "95": 0
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "beginTimeSeconds": 1790914623,
+                      "endTimeSeconds": 1790918223,
+                      "inspectedCount": 0,
+                      "results": [
+                        {
+                          "count": 0
+                        },
+                        {
+                          "percentiles": {
+                            "95": 0
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "beginTimeSeconds": 1790918223,
+                      "endTimeSeconds": 1790921823,
+                      "inspectedCount": 0,
+                      "results": [
+                        {
+                          "count": 0
+                        },
+                        {
+                          "percentiles": {
+                            "95": 0
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "beginTimeSeconds": 1790921823,
+                      "endTimeSeconds": 1790925423,
+                      "inspectedCount": 0,
+                      "results": [
+                        {
+                          "count": 0
+                        },
+                        {
+                          "percentiles": {
+                            "95": 0
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "beginTimeSeconds": 1790925423,
+                      "endTimeSeconds": 1790929023,
+                      "inspectedCount": 0,
+                      "results": [
+                        {
+                          "count": 0
+                        },
+                        {
+                          "percentiles": {
+                            "95": 0
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "beginTimeSeconds": 1790929023,
+                      "endTimeSeconds": 1790932623,
+                      "inspectedCount": 0,
+                      "results": [
+                        {
+                          "count": 0
+                        },
+                        {
+                          "percentiles": {
+                            "95": 0
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "beginTimeSeconds": 1790932623,
+                      "endTimeSeconds": 1790936223,
+                      "inspectedCount": 0,
+                      "results": [
+                        {
+                          "count": 0
+                        },
+                        {
+                          "percentiles": {
+                            "95": 0
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "beginTimeSeconds": 1790936223,
+                      "endTimeSeconds": 1790939823,
+                      "inspectedCount": 0,
+                      "results": [
+                        {
+                          "count": 0
+                        },
+                        {
+                          "percentiles": {
+                            "95": 0
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "beginTimeSeconds": 1790939823,
+                      "endTimeSeconds": 1790943423,
+                      "inspectedCount": 0,
+                      "results": [
+                        {
+                          "count": 0
+                        },
+                        {
+                          "percentiles": {
+                            "95": 0
+                          }
+                        }
+                      ]
+                    }
+                  ],
+                  "total": {
+                    "beginTimeSeconds": 1790857023,
+                    "endTimeSeconds": 1790943423,
+                    "inspectedCount": 0,
+                    "results": [
+                      {
+                        "count": 0
+                      },
+                      {
+                        "percentiles": {
+                          "95": 0
+                        }
+                      }
+                    ]
+                  }
+                },
+                "unknownGroup": {
+                  "timeSeries": [
+                    {
+                      "beginTimeSeconds": 1790857023,
+                      "endTimeSeconds": 1790860623,
+                      "inspectedCount": 0,
+                      "results": [
+                        {
+                          "count": 0
+                        },
+                        {
+                          "percentiles": {
+                            "95": 0
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "beginTimeSeconds": 1790860623,
+                      "endTimeSeconds": 1790864223,
+                      "inspectedCount": 0,
+                      "results": [
+                        {
+                          "count": 0
+                        },
+                        {
+                          "percentiles": {
+                            "95": 0
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "beginTimeSeconds": 1790864223,
+                      "endTimeSeconds": 1790867823,
+                      "inspectedCount": 0,
+                      "results": [
+                        {
+                          "count": 0
+                        },
+                        {
+                          "percentiles": {
+                            "95": 0
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "beginTimeSeconds": 1790867823,
+                      "endTimeSeconds": 1790871423,
+                      "inspectedCount": 0,
+                      "results": [
+                        {
+                          "count": 0
+                        },
+                        {
+                          "percentiles": {
+                            "95": 0
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "beginTimeSeconds": 1790871423,
+                      "endTimeSeconds": 1790875023,
+                      "inspectedCount": 0,
+                      "results": [
+                        {
+                          "count": 0
+                        },
+                        {
+                          "percentiles": {
+                            "95": 0
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "beginTimeSeconds": 1790875023,
+                      "endTimeSeconds": 1790878623,
+                      "inspectedCount": 0,
+                      "results": [
+                        {
+                          "count": 0
+                        },
+                        {
+                          "percentiles": {
+                            "95": 0
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "beginTimeSeconds": 1790878623,
+                      "endTimeSeconds": 1790882223,
+                      "inspectedCount": 0,
+                      "results": [
+                        {
+                          "count": 0
+                        },
+                        {
+                          "percentiles": {
+                            "95": 0
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "beginTimeSeconds": 1790882223,
+                      "endTimeSeconds": 1790885823,
+                      "inspectedCount": 0,
+                      "results": [
+                        {
+                          "count": 0
+                        },
+                        {
+                          "percentiles": {
+                            "95": 0
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "beginTimeSeconds": 1790885823,
+                      "endTimeSeconds": 1790889423,
+                      "inspectedCount": 0,
+                      "results": [
+                        {
+                          "count": 0
+                        },
+                        {
+                          "percentiles": {
+                            "95": 0
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "beginTimeSeconds": 1790889423,
+                      "endTimeSeconds": 1790893023,
+                      "inspectedCount": 0,
+                      "results": [
+                        {
+                          "count": 0
+                        },
+                        {
+                          "percentiles": {
+                            "95": 0
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "beginTimeSeconds": 1790893023,
+                      "endTimeSeconds": 1790896623,
+                      "inspectedCount": 0,
+                      "results": [
+                        {
+                          "count": 0
+                        },
+                        {
+                          "percentiles": {
+                            "95": 0
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "beginTimeSeconds": 1790896623,
+                      "endTimeSeconds": 1790900223,
+                      "inspectedCount": 0,
+                      "results": [
+                        {
+                          "count": 0
+                        },
+                        {
+                          "percentiles": {
+                            "95": 0
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "beginTimeSeconds": 1790900223,
+                      "endTimeSeconds": 1790903823,
+                      "inspectedCount": 0,
+                      "results": [
+                        {
+                          "count": 0
+                        },
+                        {
+                          "percentiles": {
+                            "95": 0
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "beginTimeSeconds": 1790903823,
+                      "endTimeSeconds": 1790907423,
+                      "inspectedCount": 0,
+                      "results": [
+                        {
+                          "count": 0
+                        },
+                        {
+                          "percentiles": {
+                            "95": 0
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "beginTimeSeconds": 1790907423,
+                      "endTimeSeconds": 1790911023,
+                      "inspectedCount": 0,
+                      "results": [
+                        {
+                          "count": 0
+                        },
+                        {
+                          "percentiles": {
+                            "95": 0
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "beginTimeSeconds": 1790911023,
+                      "endTimeSeconds": 1790914623,
+                      "inspectedCount": 0,
+                      "results": [
+                        {
+                          "count": 0
+                        },
+                        {
+                          "percentiles": {
+                            "95": 0
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "beginTimeSeconds": 1790914623,
+                      "endTimeSeconds": 1790918223,
+                      "inspectedCount": 0,
+                      "results": [
+                        {
+                          "count": 0
+                        },
+                        {
+                          "percentiles": {
+                            "95": 0
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "beginTimeSeconds": 1790918223,
+                      "endTimeSeconds": 1790921823,
+                      "inspectedCount": 0,
+                      "results": [
+                        {
+                          "count": 0
+                        },
+                        {
+                          "percentiles": {
+                            "95": 0
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "beginTimeSeconds": 1790921823,
+                      "endTimeSeconds": 1790925423,
+                      "inspectedCount": 0,
+                      "results": [
+                        {
+                          "count": 0
+                        },
+                        {
+                          "percentiles": {
+                            "95": 0
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "beginTimeSeconds": 1790925423,
+                      "endTimeSeconds": 1790929023,
+                      "inspectedCount": 0,
+                      "results": [
+                        {
+                          "count": 0
+                        },
+                        {
+                          "percentiles": {
+                            "95": 0
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "beginTimeSeconds": 1790929023,
+                      "endTimeSeconds": 1790932623,
+                      "inspectedCount": 0,
+                      "results": [
+                        {
+                          "count": 0
+                        },
+                        {
+                          "percentiles": {
+                            "95": 0
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "beginTimeSeconds": 1790932623,
+                      "endTimeSeconds": 1790936223,
+                      "inspectedCount": 0,
+                      "results": [
+                        {
+                          "count": 0
+                        },
+                        {
+                          "percentiles": {
+                            "95": 0
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "beginTimeSeconds": 1790936223,
+                      "endTimeSeconds": 1790939823,
+                      "inspectedCount": 0,
+                      "results": [
+                        {
+                          "count": 0
+                        },
+                        {
+                          "percentiles": {
+                            "95": 0
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "beginTimeSeconds": 1790939823,
+                      "endTimeSeconds": 1790943423,
+                      "inspectedCount": 0,
+                      "results": [
+                        {
+                          "count": 0
+                        },
+                        {
+                          "percentiles": {
+                            "95": 0
+                          }
+                        }
+                      ]
+                    }
+                  ],
+                  "total": {
+                    "beginTimeSeconds": 1790857023,
+                    "endTimeSeconds": 1790943423,
+                    "inspectedCount": 0,
+                    "results": [
+                      {
+                        "count": 0
+                      },
+                      {
+                        "percentiles": {
+                          "95": 0
+                        }
+                      }
+                    ]
+                  }
+                }
+              },
+              "results": [],
+              "staticChartUrl": "https://web-snapshots.newrelic.com/REDACTED",
+              "suggestedQueries": null,
+              "totalResult": [
+                {
+                  "beginTimeSeconds": 1790857023,
+                  "endTimeSeconds": 1790860623,
+                  "count": 0,
+                  "percentile.duration": {
+                    "95": 0
+                  }
+                },
+                {
+                  "beginTimeSeconds": 1790860623,
+                  "endTimeSeconds": 1790864223,
+                  "count": 0,
+                  "percentile.duration": {
+                    "95": 0
+                  }
+                },
+                {
+                  "beginTimeSeconds": 1790864223,
+                  "endTimeSeconds": 1790867823,
+                  "count": 0,
+                  "percentile.duration": {
+                    "95": 0
+                  }
+                },
+                {
+                  "beginTimeSeconds": 1790867823,
+                  "endTimeSeconds": 1790871423,
+                  "count": 0,
+                  "percentile.duration": {
+                    "95": 0
+                  }
+                },
+                {
+                  "beginTimeSeconds": 1790871423,
+                  "endTimeSeconds": 1790875023,
+                  "count": 0,
+                  "percentile.duration": {
+                    "95": 0
+                  }
+                },
+                {
+                  "beginTimeSeconds": 1790875023,
+                  "endTimeSeconds": 1790878623,
+                  "count": 0,
+                  "percentile.duration": {
+                    "95": 0
+                  }
+                },
+                {
+                  "beginTimeSeconds": 1790878623,
+                  "endTimeSeconds": 1790882223,
+                  "count": 0,
+                  "percentile.duration": {
+                    "95": 0
+                  }
+                },
+                {
+                  "beginTimeSeconds": 1790882223,
+                  "endTimeSeconds": 1790885823,
+                  "count": 0,
+                  "percentile.duration": {
+                    "95": 0
+                  }
+                },
+                {
+                  "beginTimeSeconds": 1790885823,
+                  "endTimeSeconds": 1790889423,
+                  "count": 0,
+                  "percentile.duration": {
+                    "95": 0
+                  }
+                },
+                {
+                  "beginTimeSeconds": 1790889423,
+                  "endTimeSeconds": 1790893023,
+                  "count": 0,
+                  "percentile.duration": {
+                    "95": 0
+                  }
+                },
+                {
+                  "beginTimeSeconds": 1790893023,
+                  "endTimeSeconds": 1790896623,
+                  "count": 0,
+                  "percentile.duration": {
+                    "95": 0
+                  }
+                },
+                {
+                  "beginTimeSeconds": 1790896623,
+                  "endTimeSeconds": 1790900223,
+                  "count": 0,
+                  "percentile.duration": {
+                    "95": 0
+                  }
+                },
+                {
+                  "beginTimeSeconds": 1790900223,
+                  "endTimeSeconds": 1790903823,
+                  "count": 0,
+                  "percentile.duration": {
+                    "95": 0
+                  }
+                },
+                {
+                  "beginTimeSeconds": 1790903823,
+                  "endTimeSeconds": 1790907423,
+                  "count": 0,
+                  "percentile.duration": {
+                    "95": 0
+                  }
+                },
+                {
+                  "beginTimeSeconds": 1790907423,
+                  "endTimeSeconds": 1790911023,
+                  "count": 0,
+                  "percentile.duration": {
+                    "95": 0
+                  }
+                },
+                {
+                  "beginTimeSeconds": 1790911023,
+                  "endTimeSeconds": 1790914623,
+                  "count": 0,
+                  "percentile.duration": {
+                    "95": 0
+                  }
+                },
+                {
+                  "beginTimeSeconds": 1790914623,
+                  "endTimeSeconds": 1790918223,
+                  "count": 0,
+                  "percentile.duration": {
+                    "95": 0
+                  }
+                },
+                {
+                  "beginTimeSeconds": 1790918223,
+                  "endTimeSeconds": 1790921823,
+                  "count": 0,
+                  "percentile.duration": {
+                    "95": 0
+                  }
+                },
+                {
+                  "beginTimeSeconds": 1790921823,
+                  "endTimeSeconds": 1790925423,
+                  "count": 0,
+                  "percentile.duration": {
+                    "95": 0
+                  }
+                },
+                {
+                  "beginTimeSeconds": 1790925423,
+                  "endTimeSeconds": 1790929023,
+                  "count": 0,
+                  "percentile.duration": {
+                    "95": 0
+                  }
+                },
+                {
+                  "beginTimeSeconds": 1790929023,
+                  "endTimeSeconds": 1790932623,
+                  "count": 0,
+                  "percentile.duration": {
+                    "95": 0
+                  }
+                },
+                {
+                  "beginTimeSeconds": 1790932623,
+                  "endTimeSeconds": 1790936223,
+                  "count": 0,
+                  "percentile.duration": {
+                    "95": 0
+                  }
+                },
+                {
+                  "beginTimeSeconds": 1790936223,
+                  "endTimeSeconds": 1790939823,
+                  "count": 0,
+                  "percentile.duration": {
+                    "95": 0
+                  }
+                },
+                {
+                  "beginTimeSeconds": 1790939823,
+                  "endTimeSeconds": 1790943423,
+                  "count": 0,
+                  "percentile.duration": {
+                    "95": 0
+                  }
+                }
+              ]
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "message": "Input NRQL must have exactly one result",
+          "path": [
+            "actor",
+            "account",
+            "nrql",
+            "suggestedQueries"
+          ],
+          "extensions": {
+            "errorClass": "UNSUPPORTED_NRQL"
+          },
+          "locations": [
+            {
+              "line": 2,
+              "column": 476
+            }
+          ]
+        },
+        {
+          "message": "Server Error (403)",
+          "path": [
+            "actor",
+            "account",
+            "nrql",
+            "embeddedChartUrl"
+          ],
+          "extensions": {
+            "errorClass": "SERVER_ERROR",
+            "errorCode": "GNC:1002304"
+          },
+          "locations": [
+            {
+              "line": 2,
+              "column": 88
+            }
+          ]
+        }
+      ]
+    },
+    "bodyBytes": 29892
+  }
+}

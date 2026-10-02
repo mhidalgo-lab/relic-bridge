@@ -1,0 +1,214 @@
+{
+  "probe": "nrql_sync_3",
+  "profile": "A",
+  "region": "US",
+  "endpoint": "https://api.newrelic.com/REDACTED",
+  "note": "SHOW EVENT TYPES SINCE 1 day ago",
+  "at": "2026-10-02T12:17:10.183Z",
+  "request": {
+    "query": "query NrqlSync($accountId: Int!, $nrql: Nrql!, $timeout: Seconds) {\n  actor { account(id: $accountId) { nrql(query: $nrql, timeout: $timeout) { __typename embeddedChartUrl eventDefinitions { __typename attributes { __typename definition documentationUrl label name } definition label name } metadata { __typename eventTypes facets messages timeWindow { __typename begin compareWith end since until } } nrql otherResult queryProgress { __typename completed queryId resultExpiration retryAfter retryDeadline } rawResponse results staticChartUrl suggestedQueries { __typename suggestions { __typename nrql title } } totalResult } } }\n}",
+    "variables": {
+      "accountId": 1000001,
+      "nrql": "SHOW EVENT TYPES SINCE 1 day ago",
+      "timeout": 30
+    }
+  },
+  "response": {
+    "status": 200,
+    "ok": true,
+    "durationMs": 3713,
+    "headers": {
+      "content-type": "application/json; charset=utf-8",
+      "date": "Fri, 02 Oct 2026 12:17:10 GMT",
+      "server": "cloudflare",
+      "x-envoy-upstream-service-time": "3438"
+    },
+    "body": {
+      "data": {
+        "actor": {
+          "account": {
+            "nrql": {
+              "__typename": "NrdbResultContainer",
+              "embeddedChartUrl": null,
+              "eventDefinitions": [],
+              "metadata": {
+                "__typename": "NrdbMetadata",
+                "eventTypes": [],
+                "facets": null,
+                "messages": null,
+                "timeWindow": null
+              },
+              "nrql": "SHOW EVENT TYPES SINCE 1 day ago",
+              "otherResult": null,
+              "queryProgress": {
+                "__typename": "NrdbQueryProgress",
+                "completed": true,
+                "queryId": null,
+                "resultExpiration": null,
+                "retryAfter": null,
+                "retryDeadline": null
+              },
+              "rawResponse": {
+                "metadata": {
+                  "accounts": [
+                    1000001
+                  ],
+                  "beginTime": "2026-10-01T12:17:06Z",
+                  "beginTimeMillis": 1790857026892,
+                  "contents": [
+                    {
+                      "function": "eventTypes"
+                    }
+                  ],
+                  "endTime": "2026-10-02T12:17:06Z",
+                  "endTimeMillis": 1790943426892,
+                  "eventTypes": [],
+                  "guid": "b496055e-9db0-8201-ca8b-f6f5cf741aa4",
+                  "messages": [],
+                  "openEnded": false,
+                  "routerGuid": "b496055e-9db0-8201-ca8b-f6f5cf741aa4"
+                },
+                "performanceStats": {
+                  "exceedsRetentionWindow": false,
+                  "inspectedCount": 0,
+                  "matchCount": 0,
+                  "omittedCount": 0,
+                  "wallClockTime": 93
+                },
+                "queryUsage": {
+                  "billableMetric": "ccu",
+                  "ccu": 0,
+                  "nrqlPredictModeling": 0,
+                  "scannedEvents": 0
+                },
+                "results": [
+                  {
+                    "eventTypes": [
+                      "CloudCost",
+                      "CloudCostEstimate",
+                      "Entity",
+                      "EntityAudits",
+                      "EntityRelationship",
+                      "KubernetesCost",
+                      "Metric",
+                      "NrAiSignal",
+                      "NrAuditEvent",
+                      "NrComputeUsage",
+                      "NrConsumption",
+                      "NrCustomerMTDConsumption",
+                      "NrDailyUsage",
+                      "NrMTDConsumption",
+                      "NrdbQuery",
+                      "Public_APICall",
+                      "SyntheticCheck",
+                      "SyntheticRequest"
+                    ]
+                  }
+                ]
+              },
+              "results": [
+                {
+                  "eventType": "CloudCost"
+                },
+                {
+                  "eventType": "CloudCostEstimate"
+                },
+                {
+                  "eventType": "Entity"
+                },
+                {
+                  "eventType": "EntityAudits"
+                },
+                {
+                  "eventType": "EntityRelationship"
+                },
+                {
+                  "eventType": "KubernetesCost"
+                },
+                {
+                  "eventType": "Metric"
+                },
+                {
+                  "eventType": "NrAiSignal"
+                },
+                {
+                  "eventType": "NrAuditEvent"
+                },
+                {
+                  "eventType": "NrComputeUsage"
+                },
+                {
+                  "eventType": "NrConsumption"
+                },
+                {
+                  "eventType": "NrCustomerMTDConsumption"
+                },
+                {
+                  "eventType": "NrDailyUsage"
+                },
+                {
+                  "eventType": "NrMTDConsumption"
+                },
+                {
+                  "eventType": "NrdbQuery"
+                },
+                {
+                  "eventType": "Public_APICall"
+                },
+                {
+                  "eventType": "SyntheticCheck"
+                },
+                {
+                  "eventType": "SyntheticRequest"
+                }
+              ],
+              "staticChartUrl": "https://web-snapshots.newrelic.com/REDACTED",
+              "suggestedQueries": null,
+              "totalResult": null
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "message": "Input NRQL must be a SELECT query",
+          "path": [
+            "actor",
+            "account",
+            "nrql",
+            "suggestedQueries"
+          ],
+          "extensions": {
+            "errorClass": "UNSUPPORTED_NRQL"
+          },
+          "locations": [
+            {
+              "line": 2,
+              "column": 476
+            }
+          ]
+        },
+        {
+          "message": "Server Error (403)",
+          "path": [
+            "actor",
+            "account",
+            "nrql",
+            "embeddedChartUrl"
+          ],
+          "extensions": {
+            "errorClass": "SERVER_ERROR",
+            "errorCode": "GNC:1002304"
+          },
+          "locations": [
+            {
+              "line": 2,
+              "column": 88
+            }
+          ]
+        }
+      ]
+    },
+    "bodyBytes": 2513
+  }
+}

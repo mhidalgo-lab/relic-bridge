@@ -1,0 +1,19 @@
+{
+  "name": "spike-workers-limits",
+  "private": true,
+  "type": "module",
+  "license": "Apache-2.0",
+  "scripts": {
+    "dev": "wrangler dev --local --port 8787",
+    "node-bench": "node src/node-bench.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/server": "2.2.0",
+    "hono": "4.13.10",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "5.20260928.1",
+    "wrangler": "4.143.0"
+  }
+}

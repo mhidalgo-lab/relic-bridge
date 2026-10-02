@@ -1,0 +1,6 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "spike-mock-nerdgraph",
+  "main": "src/mock-nerdgraph.ts",
+  "compatibility_date": "2026-09-28"
+}

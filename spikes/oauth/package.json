@@ -1,0 +1,26 @@
+{
+  "name": "spike-oauth",
+  "private": true,
+  "description": "P0-08 spike: OAuth 2.1 (workers-oauth-provider) on Workers and Node with per-slug resources",
+  "license": "Apache-2.0",
+  "type": "module",
+  "packageManager": "pnpm@12.8.1",
+  "scripts": {
+    "dev:worker": "wrangler dev --port 8797 --inspector-port 9339 --ip 127.0.0.1",
+    "dev:node": "node --import ./src/node-register.ts src/node.ts",
+    "e2e": "node scripts/e2e.ts",
+    "typecheck": "tsc -p tsconfig.json && tsc -p scripts/tsconfig.json"
+  },
+  "dependencies": {
+    "@cloudflare/workers-oauth-provider": "1.2.1",
+    "@hono/node-server": "2.1.1",
+    "@modelcontextprotocol/server": "2.2.0",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "5.20260928.1",
+    "@types/node": "24.19.0",
+    "typescript": "7.0.2",
+    "wrangler": "4.143.0"
+  }
+}

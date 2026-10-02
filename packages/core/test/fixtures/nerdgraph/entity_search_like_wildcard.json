@@ -1,0 +1,2655 @@
+{
+  "probe": "entity_search_like_wildcard",
+  "profile": "A",
+  "region": "US",
+  "endpoint": "https://api.newrelic.com/REDACTED",
+  "note": "name LIKE '%a%'",
+  "at": "2026-10-02T12:17:26.941Z",
+  "request": {
+    "query": "query Search($q: String) { actor { entitySearch(query: $q) { count query results { nextCursor entities { __typename accountId alertSeverity domain entityType firstIndexedAt goldenMetrics { __typename } goldenTags { __typename } guid indexedAt lastReportingChangeAt name permalink reporting serviceLevel { __typename } tags { __typename key values } type } } } } }",
+    "variables": {
+      "q": "name LIKE '%a%'"
+    }
+  },
+  "response": {
+    "status": 200,
+    "ok": true,
+    "durationMs": 588,
+    "headers": {
+      "content-type": "application/json; charset=utf-8",
+      "date": "Fri, 02 Oct 2026 12:17:27 GMT",
+      "server": "cloudflare",
+      "x-envoy-upstream-service-time": "389"
+    },
+    "body": {
+      "data": {
+        "actor": {
+          "entitySearch": {
+            "count": 32,
+            "query": "name LIKE '%a%'",
+            "results": {
+              "entities": [
+                {
+                  "__typename": "DashboardEntityOutline",
+                  "accountId": 1000001,
+                  "alertSeverity": null,
+                  "domain": "VIZ",
+                  "entityType": "DASHBOARD_ENTITY",
+                  "firstIndexedAt": 1753189258034,
+                  "goldenMetrics": {
+                    "__typename": "EntityGoldenContextScopedGoldenMetrics"
+                  },
+                  "goldenTags": {
+                    "__typename": "EntityGoldenContextScopedGoldenTags"
+                  },
+                  "guid": "MTAwMDAwMXxWSVp8REFTSEJPQVJEfDkwMDAwMDQ",
+                  "indexedAt": 1783486407783,
+                  "lastReportingChangeAt": 1753189258171,
+                  "name": "name-4",
+                  "permalink": "https://one.newrelic.com/REDACTED",
+                  "reporting": true,
+                  "serviceLevel": {
+                    "__typename": "ServiceLevelDefinition"
+                  },
+                  "tags": [
+                    {
+                      "__typename": "EntityTag",
+                      "key": "account",
+                      "values": [
+                        "tag-5"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "accountId",
+                      "values": [
+                        "8000006"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "createdBy",
+                      "values": [
+                        "tag-7"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "isDashboardPage",
+                      "values": [
+                        "false"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "permissions",
+                      "values": [
+                        "PUBLIC_READ_WRITE"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "quickstart",
+                      "values": [
+                        "name-4"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "trustedAccountId",
+                      "values": [
+                        "8000006"
+                      ]
+                    }
+                  ],
+                  "type": "DASHBOARD"
+                },
+                {
+                  "__typename": "DashboardEntityOutline",
+                  "accountId": 1000001,
+                  "alertSeverity": null,
+                  "domain": "VIZ",
+                  "entityType": "DASHBOARD_ENTITY",
+                  "firstIndexedAt": 1753189258115,
+                  "goldenMetrics": {
+                    "__typename": "EntityGoldenContextScopedGoldenMetrics"
+                  },
+                  "goldenTags": {
+                    "__typename": "EntityGoldenContextScopedGoldenTags"
+                  },
+                  "guid": "MTAwMDAwMXxWSVp8REFTSEJPQVJEfDkwMDAwMDU",
+                  "indexedAt": 1781196833765,
+                  "lastReportingChangeAt": 1753189258236,
+                  "name": "name-8",
+                  "permalink": "https://one.newrelic.com/REDACTED",
+                  "reporting": true,
+                  "serviceLevel": {
+                    "__typename": "ServiceLevelDefinition"
+                  },
+                  "tags": [
+                    {
+                      "__typename": "EntityTag",
+                      "key": "account",
+                      "values": [
+                        "tag-5"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "accountId",
+                      "values": [
+                        "8000006"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "createdBy",
+                      "values": [
+                        "tag-7"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "isDashboardPage",
+                      "values": [
+                        "true"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "parentId",
+                      "values": [
+                        "MTAwMDAwMXxWSVp8REFTSEJPQVJEfDkwMDAwMDQ"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "permissions",
+                      "values": [
+                        "PUBLIC_READ_WRITE"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "trustedAccountId",
+                      "values": [
+                        "8000006"
+                      ]
+                    }
+                  ],
+                  "type": "DASHBOARD"
+                },
+                {
+                  "__typename": "DashboardEntityOutline",
+                  "accountId": 1000001,
+                  "alertSeverity": null,
+                  "domain": "VIZ",
+                  "entityType": "DASHBOARD_ENTITY",
+                  "firstIndexedAt": 1753189257962,
+                  "goldenMetrics": {
+                    "__typename": "EntityGoldenContextScopedGoldenMetrics"
+                  },
+                  "goldenTags": {
+                    "__typename": "EntityGoldenContextScopedGoldenTags"
+                  },
+                  "guid": "MTAwMDAwMXxWSVp8REFTSEJPQVJEfDkwMDAwMDY",
+                  "indexedAt": 1781196838444,
+                  "lastReportingChangeAt": 1753189258106,
+                  "name": "name-9",
+                  "permalink": "https://one.newrelic.com/REDACTED",
+                  "reporting": true,
+                  "serviceLevel": {
+                    "__typename": "ServiceLevelDefinition"
+                  },
+                  "tags": [
+                    {
+                      "__typename": "EntityTag",
+                      "key": "account",
+                      "values": [
+                        "tag-5"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "accountId",
+                      "values": [
+                        "8000006"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "createdBy",
+                      "values": [
+                        "tag-7"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "isDashboardPage",
+                      "values": [
+                        "true"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "parentId",
+                      "values": [
+                        "MTAwMDAwMXxWSVp8REFTSEJPQVJEfDkwMDAwMDQ"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "permissions",
+                      "values": [
+                        "PUBLIC_READ_WRITE"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "trustedAccountId",
+                      "values": [
+                        "8000006"
+                      ]
+                    }
+                  ],
+                  "type": "DASHBOARD"
+                },
+                {
+                  "__typename": "DashboardEntityOutline",
+                  "accountId": 1000001,
+                  "alertSeverity": null,
+                  "domain": "VIZ",
+                  "entityType": "DASHBOARD_ENTITY",
+                  "firstIndexedAt": 1753189257839,
+                  "goldenMetrics": {
+                    "__typename": "EntityGoldenContextScopedGoldenMetrics"
+                  },
+                  "goldenTags": {
+                    "__typename": "EntityGoldenContextScopedGoldenTags"
+                  },
+                  "guid": "MTAwMDAwMXxWSVp8REFTSEJPQVJEfDkwMDAwMDc",
+                  "indexedAt": 1781196833704,
+                  "lastReportingChangeAt": 1753189257978,
+                  "name": "name-10",
+                  "permalink": "https://one.newrelic.com/REDACTED",
+                  "reporting": true,
+                  "serviceLevel": {
+                    "__typename": "ServiceLevelDefinition"
+                  },
+                  "tags": [
+                    {
+                      "__typename": "EntityTag",
+                      "key": "account",
+                      "values": [
+                        "tag-5"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "accountId",
+                      "values": [
+                        "8000006"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "createdBy",
+                      "values": [
+                        "tag-7"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "isDashboardPage",
+                      "values": [
+                        "true"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "parentId",
+                      "values": [
+                        "MTAwMDAwMXxWSVp8REFTSEJPQVJEfDkwMDAwMDQ"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "permissions",
+                      "values": [
+                        "PUBLIC_READ_WRITE"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "trustedAccountId",
+                      "values": [
+                        "8000006"
+                      ]
+                    }
+                  ],
+                  "type": "DASHBOARD"
+                },
+                {
+                  "__typename": "DashboardEntityOutline",
+                  "accountId": 1000001,
+                  "alertSeverity": null,
+                  "domain": "VIZ",
+                  "entityType": "DASHBOARD_ENTITY",
+                  "firstIndexedAt": 1753189257495,
+                  "goldenMetrics": {
+                    "__typename": "EntityGoldenContextScopedGoldenMetrics"
+                  },
+                  "goldenTags": {
+                    "__typename": "EntityGoldenContextScopedGoldenTags"
+                  },
+                  "guid": "MTAwMDAwMXxWSVp8REFTSEJPQVJEfDkwMDAwMDg",
+                  "indexedAt": 1781196833709,
+                  "lastReportingChangeAt": 1753189257628,
+                  "name": "name-11",
+                  "permalink": "https://one.newrelic.com/REDACTED",
+                  "reporting": true,
+                  "serviceLevel": {
+                    "__typename": "ServiceLevelDefinition"
+                  },
+                  "tags": [
+                    {
+                      "__typename": "EntityTag",
+                      "key": "account",
+                      "values": [
+                        "tag-5"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "accountId",
+                      "values": [
+                        "8000006"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "createdBy",
+                      "values": [
+                        "tag-7"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "isDashboardPage",
+                      "values": [
+                        "true"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "parentId",
+                      "values": [
+                        "MTAwMDAwMXxWSVp8REFTSEJPQVJEfDkwMDAwMDQ"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "permissions",
+                      "values": [
+                        "PUBLIC_READ_WRITE"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "trustedAccountId",
+                      "values": [
+                        "8000006"
+                      ]
+                    }
+                  ],
+                  "type": "DASHBOARD"
+                },
+                {
+                  "__typename": "DashboardEntityOutline",
+                  "accountId": 1000001,
+                  "alertSeverity": null,
+                  "domain": "VIZ",
+                  "entityType": "DASHBOARD_ENTITY",
+                  "firstIndexedAt": 1753189257492,
+                  "goldenMetrics": {
+                    "__typename": "EntityGoldenContextScopedGoldenMetrics"
+                  },
+                  "goldenTags": {
+                    "__typename": "EntityGoldenContextScopedGoldenTags"
+                  },
+                  "guid": "MTAwMDAwMXxWSVp8REFTSEJPQVJEfDkwMDAwMDk",
+                  "indexedAt": 1781196833892,
+                  "lastReportingChangeAt": 1753189257628,
+                  "name": "name-12",
+                  "permalink": "https://one.newrelic.com/REDACTED",
+                  "reporting": true,
+                  "serviceLevel": {
+                    "__typename": "ServiceLevelDefinition"
+                  },
+                  "tags": [
+                    {
+                      "__typename": "EntityTag",
+                      "key": "account",
+                      "values": [
+                        "tag-5"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "accountId",
+                      "values": [
+                        "8000006"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "createdBy",
+                      "values": [
+                        "tag-7"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "isDashboardPage",
+                      "values": [
+                        "true"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "parentId",
+                      "values": [
+                        "MTAwMDAwMXxWSVp8REFTSEJPQVJEfDkwMDAwMDQ"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "permissions",
+                      "values": [
+                        "PUBLIC_READ_WRITE"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "trustedAccountId",
+                      "values": [
+                        "8000006"
+                      ]
+                    }
+                  ],
+                  "type": "DASHBOARD"
+                },
+                {
+                  "__typename": "DashboardEntityOutline",
+                  "accountId": 1000001,
+                  "alertSeverity": null,
+                  "domain": "VIZ",
+                  "entityType": "DASHBOARD_ENTITY",
+                  "firstIndexedAt": 1753189257993,
+                  "goldenMetrics": {
+                    "__typename": "EntityGoldenContextScopedGoldenMetrics"
+                  },
+                  "goldenTags": {
+                    "__typename": "EntityGoldenContextScopedGoldenTags"
+                  },
+                  "guid": "MTAwMDAwMXxWSVp8REFTSEJPQVJEfDkwMDAwMTA",
+                  "indexedAt": 1781196833375,
+                  "lastReportingChangeAt": 1753189258124,
+                  "name": "name-13",
+                  "permalink": "https://one.newrelic.com/REDACTED",
+                  "reporting": true,
+                  "serviceLevel": {
+                    "__typename": "ServiceLevelDefinition"
+                  },
+                  "tags": [
+                    {
+                      "__typename": "EntityTag",
+                      "key": "account",
+                      "values": [
+                        "tag-5"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "accountId",
+                      "values": [
+                        "8000006"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "createdBy",
+                      "values": [
+                        "tag-7"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "isDashboardPage",
+                      "values": [
+                        "true"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "parentId",
+                      "values": [
+                        "MTAwMDAwMXxWSVp8REFTSEJPQVJEfDkwMDAwMDQ"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "permissions",
+                      "values": [
+                        "PUBLIC_READ_WRITE"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "trustedAccountId",
+                      "values": [
+                        "8000006"
+                      ]
+                    }
+                  ],
+                  "type": "DASHBOARD"
+                },
+                {
+                  "__typename": "DashboardEntityOutline",
+                  "accountId": 1000001,
+                  "alertSeverity": null,
+                  "domain": "VIZ",
+                  "entityType": "DASHBOARD_ENTITY",
+                  "firstIndexedAt": 1753189257829,
+                  "goldenMetrics": {
+                    "__typename": "EntityGoldenContextScopedGoldenMetrics"
+                  },
+                  "goldenTags": {
+                    "__typename": "EntityGoldenContextScopedGoldenTags"
+                  },
+                  "guid": "MTAwMDAwMXxWSVp8REFTSEJPQVJEfDkwMDAwMTE",
+                  "indexedAt": 1781196833391,
+                  "lastReportingChangeAt": 1753189257975,
+                  "name": "name-14",
+                  "permalink": "https://one.newrelic.com/REDACTED",
+                  "reporting": true,
+                  "serviceLevel": {
+                    "__typename": "ServiceLevelDefinition"
+                  },
+                  "tags": [
+                    {
+                      "__typename": "EntityTag",
+                      "key": "account",
+                      "values": [
+                        "tag-5"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "accountId",
+                      "values": [
+                        "8000006"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "createdBy",
+                      "values": [
+                        "tag-7"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "isDashboardPage",
+                      "values": [
+                        "true"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "parentId",
+                      "values": [
+                        "MTAwMDAwMXxWSVp8REFTSEJPQVJEfDkwMDAwMDQ"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "permissions",
+                      "values": [
+                        "PUBLIC_READ_WRITE"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "trustedAccountId",
+                      "values": [
+                        "8000006"
+                      ]
+                    }
+                  ],
+                  "type": "DASHBOARD"
+                },
+                {
+                  "__typename": "DashboardEntityOutline",
+                  "accountId": 1000001,
+                  "alertSeverity": null,
+                  "domain": "VIZ",
+                  "entityType": "DASHBOARD_ENTITY",
+                  "firstIndexedAt": 1753189257322,
+                  "goldenMetrics": {
+                    "__typename": "EntityGoldenContextScopedGoldenMetrics"
+                  },
+                  "goldenTags": {
+                    "__typename": "EntityGoldenContextScopedGoldenTags"
+                  },
+                  "guid": "MTAwMDAwMXxWSVp8REFTSEJPQVJEfDkwMDAwMTI",
+                  "indexedAt": 1781196833865,
+                  "lastReportingChangeAt": 1753189257462,
+                  "name": "name-15",
+                  "permalink": "https://one.newrelic.com/REDACTED",
+                  "reporting": true,
+                  "serviceLevel": {
+                    "__typename": "ServiceLevelDefinition"
+                  },
+                  "tags": [
+                    {
+                      "__typename": "EntityTag",
+                      "key": "account",
+                      "values": [
+                        "tag-5"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "accountId",
+                      "values": [
+                        "8000006"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "createdBy",
+                      "values": [
+                        "tag-7"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "isDashboardPage",
+                      "values": [
+                        "true"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "parentId",
+                      "values": [
+                        "MTAwMDAwMXxWSVp8REFTSEJPQVJEfDkwMDAwMDQ"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "permissions",
+                      "values": [
+                        "PUBLIC_READ_WRITE"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "trustedAccountId",
+                      "values": [
+                        "8000006"
+                      ]
+                    }
+                  ],
+                  "type": "DASHBOARD"
+                },
+                {
+                  "__typename": "DashboardEntityOutline",
+                  "accountId": 1000001,
+                  "alertSeverity": null,
+                  "domain": "VIZ",
+                  "entityType": "DASHBOARD_ENTITY",
+                  "firstIndexedAt": 1753189257962,
+                  "goldenMetrics": {
+                    "__typename": "EntityGoldenContextScopedGoldenMetrics"
+                  },
+                  "goldenTags": {
+                    "__typename": "EntityGoldenContextScopedGoldenTags"
+                  },
+                  "guid": "MTAwMDAwMXxWSVp8REFTSEJPQVJEfDkwMDAwMTM",
+                  "indexedAt": 1781196838495,
+                  "lastReportingChangeAt": 1753189258106,
+                  "name": "name-16",
+                  "permalink": "https://one.newrelic.com/REDACTED",
+                  "reporting": true,
+                  "serviceLevel": {
+                    "__typename": "ServiceLevelDefinition"
+                  },
+                  "tags": [
+                    {
+                      "__typename": "EntityTag",
+                      "key": "account",
+                      "values": [
+                        "tag-5"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "accountId",
+                      "values": [
+                        "8000006"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "createdBy",
+                      "values": [
+                        "tag-7"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "isDashboardPage",
+                      "values": [
+                        "true"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "parentId",
+                      "values": [
+                        "MTAwMDAwMXxWSVp8REFTSEJPQVJEfDkwMDAwMDQ"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "permissions",
+                      "values": [
+                        "PUBLIC_READ_WRITE"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "trustedAccountId",
+                      "values": [
+                        "8000006"
+                      ]
+                    }
+                  ],
+                  "type": "DASHBOARD"
+                },
+                {
+                  "__typename": "DashboardEntityOutline",
+                  "accountId": 1000001,
+                  "alertSeverity": null,
+                  "domain": "VIZ",
+                  "entityType": "DASHBOARD_ENTITY",
+                  "firstIndexedAt": 1753189258102,
+                  "goldenMetrics": {
+                    "__typename": "EntityGoldenContextScopedGoldenMetrics"
+                  },
+                  "goldenTags": {
+                    "__typename": "EntityGoldenContextScopedGoldenTags"
+                  },
+                  "guid": "MTAwMDAwMXxWSVp8REFTSEJPQVJEfDkwMDAwMTQ",
+                  "indexedAt": 1781196833523,
+                  "lastReportingChangeAt": 1753189258226,
+                  "name": "name-17",
+                  "permalink": "https://one.newrelic.com/REDACTED",
+                  "reporting": true,
+                  "serviceLevel": {
+                    "__typename": "ServiceLevelDefinition"
+                  },
+                  "tags": [
+                    {
+                      "__typename": "EntityTag",
+                      "key": "account",
+                      "values": [
+                        "tag-5"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "accountId",
+                      "values": [
+                        "8000006"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "createdBy",
+                      "values": [
+                        "tag-7"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "isDashboardPage",
+                      "values": [
+                        "true"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "parentId",
+                      "values": [
+                        "MTAwMDAwMXxWSVp8REFTSEJPQVJEfDkwMDAwMDQ"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "permissions",
+                      "values": [
+                        "PUBLIC_READ_WRITE"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "trustedAccountId",
+                      "values": [
+                        "8000006"
+                      ]
+                    }
+                  ],
+                  "type": "DASHBOARD"
+                },
+                {
+                  "__typename": "GenericEntityOutline",
+                  "accountId": 1000001,
+                  "alertSeverity": null,
+                  "domain": "AIOPS",
+                  "entityType": "GENERIC_ENTITY",
+                  "firstIndexedAt": 1753189256821,
+                  "goldenMetrics": {
+                    "__typename": "EntityGoldenContextScopedGoldenMetrics"
+                  },
+                  "goldenTags": {
+                    "__typename": "EntityGoldenContextScopedGoldenTags"
+                  },
+                  "guid": "MTAwMDAwMXxBSU9QU3xQT0xJQ1l8OTAwMDAwMQ",
+                  "indexedAt": 1753189258077,
+                  "lastReportingChangeAt": 1753189256965,
+                  "name": "name-1",
+                  "permalink": "https://one.newrelic.com/REDACTED",
+                  "reporting": true,
+                  "serviceLevel": {
+                    "__typename": "ServiceLevelDefinition"
+                  },
+                  "tags": [
+                    {
+                      "__typename": "EntityTag",
+                      "key": "account",
+                      "values": [
+                        "tag-5"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "accountId",
+                      "values": [
+                        "8000006"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "nr.alerts.policyId",
+                      "values": [
+                        "8000026"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "policyId",
+                      "values": [
+                        "8000026"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "trustedAccountId",
+                      "values": [
+                        "8000006"
+                      ]
+                    }
+                  ],
+                  "type": "POLICY"
+                },
+                {
+                  "__typename": "GenericEntityOutline",
+                  "accountId": 1000001,
+                  "alertSeverity": null,
+                  "domain": "AIOPS",
+                  "entityType": "GENERIC_ENTITY",
+                  "firstIndexedAt": 1756912833825,
+                  "goldenMetrics": {
+                    "__typename": "EntityGoldenContextScopedGoldenMetrics"
+                  },
+                  "goldenTags": {
+                    "__typename": "EntityGoldenContextScopedGoldenTags"
+                  },
+                  "guid": "MTAwMDAwMXxBSU9QU3xQT0xJQ1l8OTAwMDAwMg",
+                  "indexedAt": 1756912834308,
+                  "lastReportingChangeAt": 1756912833954,
+                  "name": "name-2",
+                  "permalink": "https://one.newrelic.com/REDACTED",
+                  "reporting": true,
+                  "serviceLevel": {
+                    "__typename": "ServiceLevelDefinition"
+                  },
+                  "tags": [
+                    {
+                      "__typename": "EntityTag",
+                      "key": "account",
+                      "values": [
+                        "tag-5"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "accountId",
+                      "values": [
+                        "8000006"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "nr.alerts.policyId",
+                      "values": [
+                        "8000027"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "policyId",
+                      "values": [
+                        "8000027"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "trustedAccountId",
+                      "values": [
+                        "8000006"
+                      ]
+                    }
+                  ],
+                  "type": "POLICY"
+                },
+                {
+                  "__typename": "SyntheticMonitorEntityOutline",
+                  "accountId": 1000001,
+                  "alertSeverity": "NOT_CONFIGURED",
+                  "domain": "SYNTH",
+                  "entityType": "SYNTHETIC_MONITOR_ENTITY",
+                  "firstIndexedAt": 1770238473183,
+                  "goldenMetrics": {
+                    "__typename": "EntityGoldenContextScopedGoldenMetrics"
+                  },
+                  "goldenTags": {
+                    "__typename": "EntityGoldenContextScopedGoldenTags"
+                  },
+                  "guid": "MTAwMDAwMXxTWU5USHxNT05JVE9SfDkwMDAwMjM",
+                  "indexedAt": 1790389969738,
+                  "lastReportingChangeAt": 1770238473301,
+                  "name": "name-28",
+                  "permalink": "https://one.newrelic.com/REDACTED",
+                  "reporting": true,
+                  "serviceLevel": {
+                    "__typename": "ServiceLevelDefinition"
+                  },
+                  "tags": [
+                    {
+                      "__typename": "EntityTag",
+                      "key": "account",
+                      "values": [
+                        "tag-5"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "accountId",
+                      "values": [
+                        "8000006"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "apdexTarget",
+                      "values": [
+                        "tag-29"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "browsers",
+                      "values": [
+                        "CHROME"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "devices",
+                      "values": [
+                        "DESKTOP"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "enableScreenshotOnFailureAndScript",
+                      "values": [
+                        "true"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "monitorId",
+                      "values": [
+                        "tag-30"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "monitorStatus",
+                      "values": [
+                        "tag-31"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "monitorType",
+                      "values": [
+                        "tag-32"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "period",
+                      "values": [
+                        "8000033"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "publicLocation",
+                      "values": [
+                        "tag-34"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "runtimeType",
+                      "values": [
+                        "CHROME_BROWSER"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "runtimeTypeVersion",
+                      "values": [
+                        "LATEST"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "scriptLanguage",
+                      "values": [
+                        "JAVASCRIPT"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "trustedAccountId",
+                      "values": [
+                        "8000006"
+                      ]
+                    }
+                  ],
+                  "type": "MONITOR"
+                },
+                {
+                  "__typename": "GenericEntityOutline",
+                  "accountId": 1000001,
+                  "alertSeverity": null,
+                  "domain": "AIOPS",
+                  "entityType": "GENERIC_ENTITY",
+                  "firstIndexedAt": 1753189256826,
+                  "goldenMetrics": {
+                    "__typename": "EntityGoldenContextScopedGoldenMetrics"
+                  },
+                  "goldenTags": {
+                    "__typename": "EntityGoldenContextScopedGoldenTags"
+                  },
+                  "guid": "MTAwMDAwMXxBSU9QU3xDT05ESVRJT058OTAwMDAyNA",
+                  "indexedAt": 1753189258093,
+                  "lastReportingChangeAt": 1753189256957,
+                  "name": "name-35",
+                  "permalink": "https://one.newrelic.com/REDACTED",
+                  "reporting": true,
+                  "serviceLevel": {
+                    "__typename": "ServiceLevelDefinition"
+                  },
+                  "tags": [
+                    {
+                      "__typename": "EntityTag",
+                      "key": "account",
+                      "values": [
+                        "tag-5"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "accountId",
+                      "values": [
+                        "8000006"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "enabled",
+                      "values": [
+                        "true"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "id",
+                      "values": [
+                        "8000036"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "nr.alerts.conditionId",
+                      "values": [
+                        "8000036"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "nr.alerts.enabled",
+                      "values": [
+                        "true"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "nr.alerts.policyId",
+                      "values": [
+                        "8000026"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "nr.alerts.type",
+                      "values": [
+                        "tag-37"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "policyId",
+                      "values": [
+                        "8000026"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "trustedAccountId",
+                      "values": [
+                        "8000006"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "type",
+                      "values": [
+                        "tag-37"
+                      ]
+                    }
+                  ],
+                  "type": "CONDITION"
+                },
+                {
+                  "__typename": "GenericEntityOutline",
+                  "accountId": 1000001,
+                  "alertSeverity": null,
+                  "domain": "AIOPS",
+                  "entityType": "GENERIC_ENTITY",
+                  "firstIndexedAt": 1756912834394,
+                  "goldenMetrics": {
+                    "__typename": "EntityGoldenContextScopedGoldenMetrics"
+                  },
+                  "goldenTags": {
+                    "__typename": "EntityGoldenContextScopedGoldenTags"
+                  },
+                  "guid": "MTAwMDAwMXxBSU9QU3xDT05ESVRJT058OTAwMDAyNQ",
+                  "indexedAt": 1756912835168,
+                  "lastReportingChangeAt": 1756912834514,
+                  "name": "name-38",
+                  "permalink": "https://one.newrelic.com/REDACTED",
+                  "reporting": true,
+                  "serviceLevel": {
+                    "__typename": "ServiceLevelDefinition"
+                  },
+                  "tags": [
+                    {
+                      "__typename": "EntityTag",
+                      "key": "account",
+                      "values": [
+                        "tag-5"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "accountId",
+                      "values": [
+                        "8000006"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "enabled",
+                      "values": [
+                        "true"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "id",
+                      "values": [
+                        "8000039"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "nr.alerts.conditionId",
+                      "values": [
+                        "8000039"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "nr.alerts.enabled",
+                      "values": [
+                        "true"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "nr.alerts.policyId",
+                      "values": [
+                        "8000027"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "nr.alerts.type",
+                      "values": [
+                        "tag-37"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "policyId",
+                      "values": [
+                        "8000027"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "trustedAccountId",
+                      "values": [
+                        "8000006"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "type",
+                      "values": [
+                        "tag-37"
+                      ]
+                    }
+                  ],
+                  "type": "CONDITION"
+                },
+                {
+                  "__typename": "GenericEntityOutline",
+                  "accountId": 1000001,
+                  "alertSeverity": null,
+                  "domain": "AIOPS",
+                  "entityType": "GENERIC_ENTITY",
+                  "firstIndexedAt": 1756912834265,
+                  "goldenMetrics": {
+                    "__typename": "EntityGoldenContextScopedGoldenMetrics"
+                  },
+                  "goldenTags": {
+                    "__typename": "EntityGoldenContextScopedGoldenTags"
+                  },
+                  "guid": "MTAwMDAwMXxBSU9QU3xDT05ESVRJT058OTAwMDAyNg",
+                  "indexedAt": 1756912835009,
+                  "lastReportingChangeAt": 1756912834298,
+                  "name": "name-40",
+                  "permalink": "https://one.newrelic.com/REDACTED",
+                  "reporting": true,
+                  "serviceLevel": {
+                    "__typename": "ServiceLevelDefinition"
+                  },
+                  "tags": [
+                    {
+                      "__typename": "EntityTag",
+                      "key": "account",
+                      "values": [
+                        "tag-5"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "accountId",
+                      "values": [
+                        "8000006"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "enabled",
+                      "values": [
+                        "true"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "id",
+                      "values": [
+                        "8000041"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "nr.alerts.conditionId",
+                      "values": [
+                        "8000041"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "nr.alerts.enabled",
+                      "values": [
+                        "true"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "nr.alerts.policyId",
+                      "values": [
+                        "8000027"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "nr.alerts.type",
+                      "values": [
+                        "tag-37"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "policyId",
+                      "values": [
+                        "8000027"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "trustedAccountId",
+                      "values": [
+                        "8000006"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "type",
+                      "values": [
+                        "tag-37"
+                      ]
+                    }
+                  ],
+                  "type": "CONDITION"
+                },
+                {
+                  "__typename": "DashboardEntityOutline",
+                  "accountId": 1000001,
+                  "alertSeverity": null,
+                  "domain": "VIZ",
+                  "entityType": "DASHBOARD_ENTITY",
+                  "firstIndexedAt": 1756912834263,
+                  "goldenMetrics": {
+                    "__typename": "EntityGoldenContextScopedGoldenMetrics"
+                  },
+                  "goldenTags": {
+                    "__typename": "EntityGoldenContextScopedGoldenTags"
+                  },
+                  "guid": "MTAwMDAwMXxWSVp8REFTSEJPQVJEfDkwMDAwMTU",
+                  "indexedAt": 1783487087921,
+                  "lastReportingChangeAt": 1756912834394,
+                  "name": "name-18",
+                  "permalink": "https://one.newrelic.com/REDACTED",
+                  "reporting": true,
+                  "serviceLevel": {
+                    "__typename": "ServiceLevelDefinition"
+                  },
+                  "tags": [
+                    {
+                      "__typename": "EntityTag",
+                      "key": "account",
+                      "values": [
+                        "tag-5"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "accountId",
+                      "values": [
+                        "8000006"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "createdBy",
+                      "values": [
+                        "tag-7"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "isDashboardPage",
+                      "values": [
+                        "false"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "permissions",
+                      "values": [
+                        "PUBLIC_READ_WRITE"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "quickstart",
+                      "values": [
+                        "name-18"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "trustedAccountId",
+                      "values": [
+                        "8000006"
+                      ]
+                    }
+                  ],
+                  "type": "DASHBOARD"
+                },
+                {
+                  "__typename": "DashboardEntityOutline",
+                  "accountId": 1000001,
+                  "alertSeverity": null,
+                  "domain": "VIZ",
+                  "entityType": "DASHBOARD_ENTITY",
+                  "firstIndexedAt": 1756912834664,
+                  "goldenMetrics": {
+                    "__typename": "EntityGoldenContextScopedGoldenMetrics"
+                  },
+                  "goldenTags": {
+                    "__typename": "EntityGoldenContextScopedGoldenTags"
+                  },
+                  "guid": "MTAwMDAwMXxWSVp8REFTSEJPQVJEfDkwMDAwMTY",
+                  "indexedAt": 1781197515983,
+                  "lastReportingChangeAt": 1756912834803,
+                  "name": "name-19",
+                  "permalink": "https://one.newrelic.com/REDACTED",
+                  "reporting": true,
+                  "serviceLevel": {
+                    "__typename": "ServiceLevelDefinition"
+                  },
+                  "tags": [
+                    {
+                      "__typename": "EntityTag",
+                      "key": "account",
+                      "values": [
+                        "tag-5"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "accountId",
+                      "values": [
+                        "8000006"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "createdBy",
+                      "values": [
+                        "tag-7"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "isDashboardPage",
+                      "values": [
+                        "true"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "parentId",
+                      "values": [
+                        "MTAwMDAwMXxWSVp8REFTSEJPQVJEfDkwMDAwMTU"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "permissions",
+                      "values": [
+                        "PUBLIC_READ_WRITE"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "trustedAccountId",
+                      "values": [
+                        "8000006"
+                      ]
+                    }
+                  ],
+                  "type": "DASHBOARD"
+                },
+                {
+                  "__typename": "DashboardEntityOutline",
+                  "accountId": 1000001,
+                  "alertSeverity": null,
+                  "domain": "VIZ",
+                  "entityType": "DASHBOARD_ENTITY",
+                  "firstIndexedAt": 1756912834015,
+                  "goldenMetrics": {
+                    "__typename": "EntityGoldenContextScopedGoldenMetrics"
+                  },
+                  "goldenTags": {
+                    "__typename": "EntityGoldenContextScopedGoldenTags"
+                  },
+                  "guid": "MTAwMDAwMXxWSVp8REFTSEJPQVJEfDkwMDAwMTc",
+                  "indexedAt": 1781197515950,
+                  "lastReportingChangeAt": 1756912834135,
+                  "name": "name-20",
+                  "permalink": "https://one.newrelic.com/REDACTED",
+                  "reporting": true,
+                  "serviceLevel": {
+                    "__typename": "ServiceLevelDefinition"
+                  },
+                  "tags": [
+                    {
+                      "__typename": "EntityTag",
+                      "key": "account",
+                      "values": [
+                        "tag-5"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "accountId",
+                      "values": [
+                        "8000006"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "createdBy",
+                      "values": [
+                        "tag-7"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "isDashboardPage",
+                      "values": [
+                        "true"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "parentId",
+                      "values": [
+                        "MTAwMDAwMXxWSVp8REFTSEJPQVJEfDkwMDAwMTU"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "permissions",
+                      "values": [
+                        "PUBLIC_READ_WRITE"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "trustedAccountId",
+                      "values": [
+                        "8000006"
+                      ]
+                    }
+                  ],
+                  "type": "DASHBOARD"
+                },
+                {
+                  "__typename": "DashboardEntityOutline",
+                  "accountId": 1000001,
+                  "alertSeverity": null,
+                  "domain": "VIZ",
+                  "entityType": "DASHBOARD_ENTITY",
+                  "firstIndexedAt": 1756912834665,
+                  "goldenMetrics": {
+                    "__typename": "EntityGoldenContextScopedGoldenMetrics"
+                  },
+                  "goldenTags": {
+                    "__typename": "EntityGoldenContextScopedGoldenTags"
+                  },
+                  "guid": "MTAwMDAwMXxWSVp8REFTSEJPQVJEfDkwMDAwMTg",
+                  "indexedAt": 1781197515626,
+                  "lastReportingChangeAt": 1756912834792,
+                  "name": "name-21",
+                  "permalink": "https://one.newrelic.com/REDACTED",
+                  "reporting": true,
+                  "serviceLevel": {
+                    "__typename": "ServiceLevelDefinition"
+                  },
+                  "tags": [
+                    {
+                      "__typename": "EntityTag",
+                      "key": "account",
+                      "values": [
+                        "tag-5"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "accountId",
+                      "values": [
+                        "8000006"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "createdBy",
+                      "values": [
+                        "tag-7"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "isDashboardPage",
+                      "values": [
+                        "true"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "parentId",
+                      "values": [
+                        "MTAwMDAwMXxWSVp8REFTSEJPQVJEfDkwMDAwMTU"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "permissions",
+                      "values": [
+                        "PUBLIC_READ_WRITE"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "trustedAccountId",
+                      "values": [
+                        "8000006"
+                      ]
+                    }
+                  ],
+                  "type": "DASHBOARD"
+                },
+                {
+                  "__typename": "DashboardEntityOutline",
+                  "accountId": 1000001,
+                  "alertSeverity": null,
+                  "domain": "VIZ",
+                  "entityType": "DASHBOARD_ENTITY",
+                  "firstIndexedAt": 1756912834019,
+                  "goldenMetrics": {
+                    "__typename": "EntityGoldenContextScopedGoldenMetrics"
+                  },
+                  "goldenTags": {
+                    "__typename": "EntityGoldenContextScopedGoldenTags"
+                  },
+                  "guid": "MTAwMDAwMXxWSVp8REFTSEJPQVJEfDkwMDAwMTk",
+                  "indexedAt": 1781197515950,
+                  "lastReportingChangeAt": 1756912834145,
+                  "name": "name-22",
+                  "permalink": "https://one.newrelic.com/REDACTED",
+                  "reporting": true,
+                  "serviceLevel": {
+                    "__typename": "ServiceLevelDefinition"
+                  },
+                  "tags": [
+                    {
+                      "__typename": "EntityTag",
+                      "key": "account",
+                      "values": [
+                        "tag-5"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "accountId",
+                      "values": [
+                        "8000006"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "createdBy",
+                      "values": [
+                        "tag-7"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "isDashboardPage",
+                      "values": [
+                        "true"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "parentId",
+                      "values": [
+                        "MTAwMDAwMXxWSVp8REFTSEJPQVJEfDkwMDAwMTU"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "permissions",
+                      "values": [
+                        "PUBLIC_READ_WRITE"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "trustedAccountId",
+                      "values": [
+                        "8000006"
+                      ]
+                    }
+                  ],
+                  "type": "DASHBOARD"
+                },
+                {
+                  "__typename": "DashboardEntityOutline",
+                  "accountId": 1000001,
+                  "alertSeverity": null,
+                  "domain": "VIZ",
+                  "entityType": "DASHBOARD_ENTITY",
+                  "firstIndexedAt": 1756912834265,
+                  "goldenMetrics": {
+                    "__typename": "EntityGoldenContextScopedGoldenMetrics"
+                  },
+                  "goldenTags": {
+                    "__typename": "EntityGoldenContextScopedGoldenTags"
+                  },
+                  "guid": "MTAwMDAwMXxWSVp8REFTSEJPQVJEfDkwMDAwMjA",
+                  "indexedAt": 1781197515863,
+                  "lastReportingChangeAt": 1756912834381,
+                  "name": "name-23",
+                  "permalink": "https://one.newrelic.com/REDACTED",
+                  "reporting": true,
+                  "serviceLevel": {
+                    "__typename": "ServiceLevelDefinition"
+                  },
+                  "tags": [
+                    {
+                      "__typename": "EntityTag",
+                      "key": "account",
+                      "values": [
+                        "tag-5"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "accountId",
+                      "values": [
+                        "8000006"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "createdBy",
+                      "values": [
+                        "tag-7"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "isDashboardPage",
+                      "values": [
+                        "true"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "parentId",
+                      "values": [
+                        "MTAwMDAwMXxWSVp8REFTSEJPQVJEfDkwMDAwMTU"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "permissions",
+                      "values": [
+                        "PUBLIC_READ_WRITE"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "trustedAccountId",
+                      "values": [
+                        "8000006"
+                      ]
+                    }
+                  ],
+                  "type": "DASHBOARD"
+                },
+                {
+                  "__typename": "GenericEntityOutline",
+                  "accountId": 1000001,
+                  "alertSeverity": null,
+                  "domain": "AIOPS",
+                  "entityType": "GENERIC_ENTITY",
+                  "firstIndexedAt": 1753189256828,
+                  "goldenMetrics": {
+                    "__typename": "EntityGoldenContextScopedGoldenMetrics"
+                  },
+                  "goldenTags": {
+                    "__typename": "EntityGoldenContextScopedGoldenTags"
+                  },
+                  "guid": "MTAwMDAwMXxBSU9QU3xDT05ESVRJT058OTAwMDAyNw",
+                  "indexedAt": 1753189257590,
+                  "lastReportingChangeAt": 1753189256955,
+                  "name": "name-42",
+                  "permalink": "https://one.newrelic.com/REDACTED",
+                  "reporting": true,
+                  "serviceLevel": {
+                    "__typename": "ServiceLevelDefinition"
+                  },
+                  "tags": [
+                    {
+                      "__typename": "EntityTag",
+                      "key": "account",
+                      "values": [
+                        "tag-5"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "accountId",
+                      "values": [
+                        "8000006"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "enabled",
+                      "values": [
+                        "true"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "id",
+                      "values": [
+                        "8000043"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "nr.alerts.conditionId",
+                      "values": [
+                        "8000043"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "nr.alerts.enabled",
+                      "values": [
+                        "true"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "nr.alerts.policyId",
+                      "values": [
+                        "8000026"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "nr.alerts.type",
+                      "values": [
+                        "tag-37"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "policyId",
+                      "values": [
+                        "8000026"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "trustedAccountId",
+                      "values": [
+                        "8000006"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "type",
+                      "values": [
+                        "tag-37"
+                      ]
+                    }
+                  ],
+                  "type": "CONDITION"
+                },
+                {
+                  "__typename": "GenericEntityOutline",
+                  "accountId": 1000001,
+                  "alertSeverity": null,
+                  "domain": "AIOPS",
+                  "entityType": "GENERIC_ENTITY",
+                  "firstIndexedAt": 1770230033756,
+                  "goldenMetrics": {
+                    "__typename": "EntityGoldenContextScopedGoldenMetrics"
+                  },
+                  "goldenTags": {
+                    "__typename": "EntityGoldenContextScopedGoldenTags"
+                  },
+                  "guid": "MTAwMDAwMXxBSU9QU3xERVNUSU5BVElPTnw5MDAwMDI4",
+                  "indexedAt": 1770230034389,
+                  "lastReportingChangeAt": 1770230033937,
+                  "name": "name-44",
+                  "permalink": "https://one.newrelic.com/REDACTED",
+                  "reporting": true,
+                  "serviceLevel": {
+                    "__typename": "ServiceLevelDefinition"
+                  },
+                  "tags": [
+                    {
+                      "__typename": "EntityTag",
+                      "key": "account",
+                      "values": [
+                        "tag-5"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "accountId",
+                      "values": [
+                        "8000006"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "trustedAccountId",
+                      "values": [
+                        "8000006"
+                      ]
+                    }
+                  ],
+                  "type": "DESTINATION"
+                },
+                {
+                  "__typename": "SyntheticMonitorEntityOutline",
+                  "accountId": 1000001,
+                  "alertSeverity": "NOT_CONFIGURED",
+                  "domain": "SYNTH",
+                  "entityType": "SYNTHETIC_MONITOR_ENTITY",
+                  "firstIndexedAt": 1769894416764,
+                  "goldenMetrics": {
+                    "__typename": "EntityGoldenContextScopedGoldenMetrics"
+                  },
+                  "goldenTags": {
+                    "__typename": "EntityGoldenContextScopedGoldenTags"
+                  },
+                  "guid": "MTAwMDAwMXxTWU5USHxNT05JVE9SfDkwMDAwMjk",
+                  "indexedAt": 1790901651290,
+                  "lastReportingChangeAt": 1769894416895,
+                  "name": "name-45",
+                  "permalink": "https://one.newrelic.com/REDACTED",
+                  "reporting": true,
+                  "serviceLevel": {
+                    "__typename": "ServiceLevelDefinition"
+                  },
+                  "tags": [
+                    {
+                      "__typename": "EntityTag",
+                      "key": "account",
+                      "values": [
+                        "tag-5"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "accountId",
+                      "values": [
+                        "8000006"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "apdexTarget",
+                      "values": [
+                        "tag-29"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "browsers",
+                      "values": [
+                        "CHROME"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "devices",
+                      "values": [
+                        "DESKTOP",
+                        "TABLET_PORTRAIT",
+                        "MOBILE_LANDSCAPE"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "enableScreenshotOnFailureAndScript",
+                      "values": [
+                        "true"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "monitorId",
+                      "values": [
+                        "tag-46"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "monitorStatus",
+                      "values": [
+                        "tag-47"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "monitorType",
+                      "values": [
+                        "tag-48"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "period",
+                      "values": [
+                        "8000033"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "publicLocation",
+                      "values": [
+                        "tag-49"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "runtimeType",
+                      "values": [
+                        "CHROME_BROWSER"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "runtimeTypeVersion",
+                      "values": [
+                        "LATEST"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "scriptLanguage",
+                      "values": [
+                        "JAVASCRIPT"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "trustedAccountId",
+                      "values": [
+                        "8000006"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "useTlsValidation",
+                      "values": [
+                        "false"
+                      ]
+                    }
+                  ],
+                  "type": "MONITOR"
+                },
+                {
+                  "__typename": "GenericEntityOutline",
+                  "accountId": 1000001,
+                  "alertSeverity": null,
+                  "domain": "AIOPS",
+                  "entityType": "GENERIC_ENTITY",
+                  "firstIndexedAt": 1770229388054,
+                  "goldenMetrics": {
+                    "__typename": "EntityGoldenContextScopedGoldenMetrics"
+                  },
+                  "goldenTags": {
+                    "__typename": "EntityGoldenContextScopedGoldenTags"
+                  },
+                  "guid": "MTAwMDAwMXxBSU9QU3xQT0xJQ1l8OTAwMDAwMw",
+                  "indexedAt": 1770229392173,
+                  "lastReportingChangeAt": 1770229388169,
+                  "name": "name-3",
+                  "permalink": "https://one.newrelic.com/REDACTED",
+                  "reporting": true,
+                  "serviceLevel": {
+                    "__typename": "ServiceLevelDefinition"
+                  },
+                  "tags": [
+                    {
+                      "__typename": "EntityTag",
+                      "key": "account",
+                      "values": [
+                        "tag-5"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "accountId",
+                      "values": [
+                        "8000006"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "nr.alerts.policyId",
+                      "values": [
+                        "8000050"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "policyId",
+                      "values": [
+                        "8000050"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "trustedAccountId",
+                      "values": [
+                        "8000006"
+                      ]
+                    }
+                  ],
+                  "type": "POLICY"
+                },
+                {
+                  "__typename": "GenericEntityOutline",
+                  "accountId": 1000001,
+                  "alertSeverity": null,
+                  "domain": "AIOPS",
+                  "entityType": "GENERIC_ENTITY",
+                  "firstIndexedAt": 1770230229450,
+                  "goldenMetrics": {
+                    "__typename": "EntityGoldenContextScopedGoldenMetrics"
+                  },
+                  "goldenTags": {
+                    "__typename": "EntityGoldenContextScopedGoldenTags"
+                  },
+                  "guid": "MTAwMDAwMXxBSU9QU3xDT05ESVRJT058OTAwMDAzMA",
+                  "indexedAt": 1770230242307,
+                  "lastReportingChangeAt": 1770230229577,
+                  "name": "name-51",
+                  "permalink": "https://one.newrelic.com/REDACTED",
+                  "reporting": true,
+                  "serviceLevel": {
+                    "__typename": "ServiceLevelDefinition"
+                  },
+                  "tags": [
+                    {
+                      "__typename": "EntityTag",
+                      "key": "account",
+                      "values": [
+                        "tag-5"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "accountId",
+                      "values": [
+                        "8000006"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "enabled",
+                      "values": [
+                        "true"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "id",
+                      "values": [
+                        "8000052"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "nr.alerts.conditionId",
+                      "values": [
+                        "8000052"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "nr.alerts.enabled",
+                      "values": [
+                        "true"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "nr.alerts.policyId",
+                      "values": [
+                        "8000050"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "nr.alerts.type",
+                      "values": [
+                        "tag-37"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "policyId",
+                      "values": [
+                        "8000050"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "trustedAccountId",
+                      "values": [
+                        "8000006"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "type",
+                      "values": [
+                        "tag-37"
+                      ]
+                    }
+                  ],
+                  "type": "CONDITION"
+                },
+                {
+                  "__typename": "BrowserApplicationEntityOutline",
+                  "accountId": 1000001,
+                  "alertSeverity": "NOT_CONFIGURED",
+                  "domain": "BROWSER",
+                  "entityType": "BROWSER_APPLICATION_ENTITY",
+                  "firstIndexedAt": 1770081740225,
+                  "goldenMetrics": {
+                    "__typename": "EntityGoldenContextScopedGoldenMetrics"
+                  },
+                  "goldenTags": {
+                    "__typename": "EntityGoldenContextScopedGoldenTags"
+                  },
+                  "guid": "MTAwMDAwMXxCUk9XU0VSfEFQUExJQ0FUSU9OfDkwMDAwMzE",
+                  "indexedAt": 1790782646531,
+                  "lastReportingChangeAt": 1790782646107,
+                  "name": "name-53",
+                  "permalink": "https://one.newrelic.com/REDACTED",
+                  "reporting": false,
+                  "serviceLevel": {
+                    "__typename": "ServiceLevelDefinition"
+                  },
+                  "tags": [
+                    {
+                      "__typename": "EntityTag",
+                      "key": "account",
+                      "values": [
+                        "tag-5"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "accountId",
+                      "values": [
+                        "8000006"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "trustedAccountId",
+                      "values": [
+                        "8000006"
+                      ]
+                    }
+                  ],
+                  "type": "APPLICATION"
+                },
+                {
+                  "__typename": "GenericEntityOutline",
+                  "accountId": 1000001,
+                  "alertSeverity": null,
+                  "domain": "AIOPS",
+                  "entityType": "GENERIC_ENTITY",
+                  "firstIndexedAt": 1770230045261,
+                  "goldenMetrics": {
+                    "__typename": "EntityGoldenContextScopedGoldenMetrics"
+                  },
+                  "goldenTags": {
+                    "__typename": "EntityGoldenContextScopedGoldenTags"
+                  },
+                  "guid": "MTAwMDAwMXxBSU9QU3xXT1JLRkxPV3w5MDAwMDMy",
+                  "indexedAt": 1770231525141,
+                  "lastReportingChangeAt": 1770230045406,
+                  "name": "name-54",
+                  "permalink": "https://one.newrelic.com/REDACTED",
+                  "reporting": true,
+                  "serviceLevel": {
+                    "__typename": "ServiceLevelDefinition"
+                  },
+                  "tags": [
+                    {
+                      "__typename": "EntityTag",
+                      "key": "account",
+                      "values": [
+                        "tag-5"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "accountId",
+                      "values": [
+                        "8000006"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "trustedAccountId",
+                      "values": [
+                        "8000006"
+                      ]
+                    }
+                  ],
+                  "type": "WORKFLOW"
+                },
+                {
+                  "__typename": "SyntheticMonitorEntityOutline",
+                  "accountId": 1000001,
+                  "alertSeverity": "NOT_ALERTING",
+                  "domain": "SYNTH",
+                  "entityType": "SYNTHETIC_MONITOR_ENTITY",
+                  "firstIndexedAt": 1770234166643,
+                  "goldenMetrics": {
+                    "__typename": "EntityGoldenContextScopedGoldenMetrics"
+                  },
+                  "goldenTags": {
+                    "__typename": "EntityGoldenContextScopedGoldenTags"
+                  },
+                  "guid": "MTAwMDAwMXxTWU5USHxNT05JVE9SfDkwMDAwMzM",
+                  "indexedAt": 1790517298015,
+                  "lastReportingChangeAt": 1770234166771,
+                  "name": "name-55",
+                  "permalink": "https://one.newrelic.com/REDACTED",
+                  "reporting": true,
+                  "serviceLevel": {
+                    "__typename": "ServiceLevelDefinition"
+                  },
+                  "tags": [
+                    {
+                      "__typename": "EntityTag",
+                      "key": "account",
+                      "values": [
+                        "tag-5"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "accountId",
+                      "values": [
+                        "8000006"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "apdexTarget",
+                      "values": [
+                        "tag-29"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "monitorId",
+                      "values": [
+                        "tag-56"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "monitorStatus",
+                      "values": [
+                        "tag-47"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "monitorType",
+                      "values": [
+                        "tag-57"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "period",
+                      "values": [
+                        "8000033"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "publicLocation",
+                      "values": [
+                        "tag-58"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "runtimeType",
+                      "values": [
+                        "NODE_API"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "runtimeTypeVersion",
+                      "values": [
+                        "tag-59"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "scriptLanguage",
+                      "values": [
+                        "JAVASCRIPT"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "trustedAccountId",
+                      "values": [
+                        "8000006"
+                      ]
+                    }
+                  ],
+                  "type": "MONITOR"
+                },
+                {
+                  "__typename": "SyntheticMonitorEntityOutline",
+                  "accountId": 1000001,
+                  "alertSeverity": "NOT_ALERTING",
+                  "domain": "SYNTH",
+                  "entityType": "SYNTHETIC_MONITOR_ENTITY",
+                  "firstIndexedAt": 1769894192512,
+                  "goldenMetrics": {
+                    "__typename": "EntityGoldenContextScopedGoldenMetrics"
+                  },
+                  "goldenTags": {
+                    "__typename": "EntityGoldenContextScopedGoldenTags"
+                  },
+                  "guid": "MTAwMDAwMXxTWU5USHxNT05JVE9SfDkwMDAwMzQ",
+                  "indexedAt": 1776891170114,
+                  "lastReportingChangeAt": 1769894192624,
+                  "name": "name-60",
+                  "permalink": "https://one.newrelic.com/REDACTED",
+                  "reporting": true,
+                  "serviceLevel": {
+                    "__typename": "ServiceLevelDefinition"
+                  },
+                  "tags": [
+                    {
+                      "__typename": "EntityTag",
+                      "key": "account",
+                      "values": [
+                        "tag-5"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "accountId",
+                      "values": [
+                        "8000006"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "apdexTarget",
+                      "values": [
+                        "tag-29"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "monitorId",
+                      "values": [
+                        "tag-61"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "monitorStatus",
+                      "values": [
+                        "tag-47"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "monitorType",
+                      "values": [
+                        "tag-62"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "period",
+                      "values": [
+                        "tag-63"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "publicLocation",
+                      "values": [
+                        "tag-58",
+                        "tag-64",
+                        "tag-65"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "redirectIsFailure",
+                      "values": [
+                        "false"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "responseValidationText",
+                      "values": [
+                        "tag-66"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "shouldBypassHeadRequest",
+                      "values": [
+                        "false"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "trustedAccountId",
+                      "values": [
+                        "8000006"
+                      ]
+                    },
+                    {
+                      "__typename": "EntityTag",
+                      "key": "useTlsValidation",
+                      "values": [
+                        "true"
+                      ]
+                    }
+                  ],
+                  "type": "MONITOR"
+                }
+              ],
+              "nextCursor": null
+            }
+          }
+        }
+      }
+    },
+    "bodyBytes": 40250
+  }
+}

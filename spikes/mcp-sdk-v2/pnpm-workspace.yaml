@@ -1,0 +1,11 @@
+# Standalone workspace for the P0-07 spike; same supply-chain settings as the repo root.
+packages: []
+minimumReleaseAge: 4320
+trustPolicy: no-downgrade
+blockExoticSubdeps: true
+strictDepBuilds: true
+allowBuilds:
+  esbuild: true
+  workerd: true
+  sharp: false
+strictPeerDependencies: false

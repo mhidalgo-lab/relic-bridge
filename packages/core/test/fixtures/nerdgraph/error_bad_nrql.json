@@ -1,0 +1,55 @@
+{
+  "probe": "error_bad_nrql",
+  "profile": "A",
+  "region": "US",
+  "endpoint": "https://api.newrelic.com/REDACTED",
+  "at": "2026-10-02T12:17:18.889Z",
+  "request": {
+    "query": "query E($accountId: Int!, $nrql: Nrql!) {\n  actor { account(id: $accountId) { nrql(query: $nrql, timeout: 10) { results } } }\n}",
+    "variables": {
+      "accountId": 1000001,
+      "nrql": "SELEC count(* FROM Nowhere"
+    }
+  },
+  "response": {
+    "status": 200,
+    "ok": true,
+    "durationMs": 236,
+    "headers": {
+      "content-type": "application/json; charset=utf-8",
+      "date": "Fri, 02 Oct 2026 12:17:18 GMT",
+      "server": "cloudflare",
+      "x-envoy-upstream-service-time": "30"
+    },
+    "body": {
+      "data": {
+        "actor": {
+          "account": {
+            "nrql": null
+          }
+        }
+      },
+      "errors": [
+        {
+          "message": "NRQL Syntax Error: Error at line 1 position 1, unexpected 'SELEC'",
+          "path": [
+            "actor",
+            "account",
+            "nrql"
+          ],
+          "extensions": {
+            "errorClass": "INVALID_INPUT",
+            "errorCode": "NRDB:1102004"
+          },
+          "locations": [
+            {
+              "line": 2,
+              "column": 37
+            }
+          ]
+        }
+      ]
+    },
+    "bodyBytes": 277
+  }
+}

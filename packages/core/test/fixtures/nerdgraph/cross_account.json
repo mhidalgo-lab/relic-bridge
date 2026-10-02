@@ -1,0 +1,150 @@
+{
+  "probe": "cross_account",
+  "profile": "A",
+  "region": "US",
+  "endpoint": "https://api.newrelic.com/REDACTED",
+  "note": "2 account(s)",
+  "at": "2026-10-02T12:17:18.651Z",
+  "request": {
+    "query": "query CrossAccount($accounts: [Int!]!, $nrql: Nrql!, $timeout: Seconds) {\n  actor { nrql(accounts: $accounts, query: $nrql, timeout: $timeout) { __typename metadata { __typename eventTypes facets messages timeWindow { __typename begin compareWith end since until } } nrql otherResult queryProgress { __typename completed queryId resultExpiration retryAfter retryDeadline } rawResponse results totalResult } }\n}",
+    "variables": {
+      "accounts": [
+        1000001,
+        1000004
+      ],
+      "nrql": "SELECT count(*) FROM Transaction FACET accountId() SINCE 1 hour ago",
+      "timeout": 30
+    }
+  },
+  "response": {
+    "status": 200,
+    "ok": true,
+    "durationMs": 348,
+    "headers": {
+      "content-type": "application/json; charset=utf-8",
+      "date": "Fri, 02 Oct 2026 12:17:18 GMT",
+      "server": "cloudflare",
+      "x-envoy-upstream-service-time": "137"
+    },
+    "body": {
+      "data": {
+        "actor": {
+          "nrql": {
+            "__typename": "CrossAccountNrdbResultContainer",
+            "metadata": {
+              "__typename": "NrdbMetadata",
+              "eventTypes": [
+                "Transaction"
+              ],
+              "facets": [
+                "accountId()"
+              ],
+              "messages": [
+                "No events found -- do you have the correct event type and time range?"
+              ],
+              "timeWindow": {
+                "__typename": "NrdbMetadataTimeWindow",
+                "begin": 1790939838619,
+                "compareWith": null,
+                "end": 1790943438619,
+                "since": "1 HOURS AGO",
+                "until": "NOW"
+              }
+            },
+            "nrql": "SELECT count(*) FROM Transaction FACET accountId() SINCE 1 hour ago",
+            "otherResult": {
+              "count": 0
+            },
+            "queryProgress": {
+              "__typename": "NrdbQueryProgress",
+              "completed": true,
+              "queryId": null,
+              "resultExpiration": null,
+              "retryAfter": null,
+              "retryDeadline": null
+            },
+            "rawResponse": {
+              "facets": [],
+              "metadata": {
+                "accounts": [
+                  1000001,
+                  1000004
+                ],
+                "beginTime": "2026-10-02T11:17:18Z",
+                "beginTimeMillis": 1790939838619,
+                "contents": {
+                  "contents": [
+                    {
+                      "function": "count",
+                      "simple": true
+                    }
+                  ],
+                  "info": [
+                    "No events found -- do you have the correct event type and time range?"
+                  ],
+                  "messages": [
+                    "No events found -- do you have the correct event type and time range?"
+                  ]
+                },
+                "endTime": "2026-10-02T12:17:18Z",
+                "endTimeMillis": 1790943438619,
+                "eventType": "Transaction",
+                "eventTypes": [
+                  "Transaction"
+                ],
+                "facet": "accountId()",
+                "facetExpression": "`accountId`()",
+                "guid": "f0f71253-9554-7b3b-e06e-ca4b1ae759ec",
+                "info": [
+                  "No events found -- do you have the correct event type and time range?"
+                ],
+                "limit": 10,
+                "messages": [
+                  "No events found -- do you have the correct event type and time range?"
+                ],
+                "offset": 0,
+                "openEnded": true,
+                "rawCompareWith": "",
+                "rawSince": "1 HOURS AGO",
+                "rawUntil": "NOW",
+                "routerGuid": "f0f71253-9554-7b3b-e06e-ca4b1ae759ec"
+              },
+              "performanceStats": {
+                "exceedsRetentionWindow": false,
+                "inspectedCount": 0,
+                "matchCount": 0,
+                "omittedCount": 0,
+                "wallClockTime": 116
+              },
+              "queryUsage": {
+                "billableMetric": "ccu",
+                "ccu": 0,
+                "nrqlPredictModeling": 0,
+                "scannedEvents": 0
+              },
+              "totalResult": {
+                "results": [
+                  {
+                    "count": 0
+                  }
+                ]
+              },
+              "unknownGroup": {
+                "results": [
+                  {
+                    "count": 0
+                  }
+                ]
+              }
+            },
+            "results": [],
+            "totalResult": {
+              "count": 0
+            }
+          }
+        }
+      }
+    },
+    "bodyBytes": 1891
+  }
+}

@@ -1,0 +1,57 @@
+{
+  "probe": "ai_issues_experimental_header",
+  "profile": "A",
+  "region": "US",
+  "endpoint": "https://api.newrelic.com/REDACTED",
+  "note": "docs say this opt-in header is required",
+  "at": "2026-10-02T12:17:28.986Z",
+  "request": {
+    "query": "query AiIssues($accountId: Int!, $issues_timeWindow: TimeWindowInput, $incidents_timeWindow: TimeWindowInput) { actor { account(id: $accountId) { aiIssues { issues(timeWindow: $issues_timeWindow) { __typename issues { __typename account { __typename id name } accountIds acknowledgedAt acknowledgedBy activatedAt closedAt closedBy conditionFamilyId conditionName conditionProduct correlationRuleDescriptions correlationRuleIds correlationRuleNames createdAt dataMlModules { __typename key value } deepLinkUrl description entityGuids entityNames entityTypes eventType incidentIds investigatedAt investigatedBy isCorrelated isIdle issueId mergeReason mutingState origins parentMergeId policyIds policyName priority sources state title totalIncidents unAcknowledgedAt unAcknowledgedBy updatedAt wildcard } nextCursor } incidents(timeWindow: $incidents_timeWindow) { __typename incidents { __typename account { __typename id name } accountIds closedAt createdAt description entityGuids entityNames entityTypes incidentId priority state timestamp title updatedAt } nextCursor } } } } }",
+    "variables": {
+      "accountId": 1000001,
+      "issues_timeWindow": {
+        "endTime": 1790943448199,
+        "startTime": 1790338648199
+      },
+      "incidents_timeWindow": {
+        "endTime": 1790943448201,
+        "startTime": 1790338648201
+      }
+    },
+    "extraHeaders": {
+      "nerd-graph-unsafe-experimental-opt-in": "AiIssues"
+    }
+  },
+  "response": {
+    "status": 200,
+    "ok": true,
+    "durationMs": 395,
+    "headers": {
+      "content-type": "application/json; charset=utf-8",
+      "date": "Fri, 02 Oct 2026 12:17:29 GMT",
+      "server": "cloudflare",
+      "x-envoy-upstream-service-time": "187"
+    },
+    "body": {
+      "data": {
+        "actor": {
+          "account": {
+            "aiIssues": {
+              "incidents": {
+                "__typename": "AiIssuesIncidentData",
+                "incidents": [],
+                "nextCursor": null
+              },
+              "issues": {
+                "__typename": "AiIssuesIssueData",
+                "issues": [],
+                "nextCursor": null
+              }
+            }
+          }
+        }
+      }
+    },
+    "bodyBytes": 202
+  }
+}

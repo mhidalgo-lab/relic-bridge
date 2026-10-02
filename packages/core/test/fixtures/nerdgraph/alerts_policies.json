@@ -1,0 +1,66 @@
+{
+  "probe": "alerts_policies",
+  "profile": "A",
+  "region": "US",
+  "endpoint": "https://api.newrelic.com/REDACTED",
+  "at": "2026-10-02T12:17:29.608Z",
+  "request": {
+    "query": "query Policies($accountId: Int!) { actor { account(id: $accountId) { alerts { policiesSearch { __typename nextCursor policies { __typename accountId entityGuid id incidentPreference name } totalCount } } } } }",
+    "variables": {
+      "accountId": 1000001
+    }
+  },
+  "response": {
+    "status": 200,
+    "ok": true,
+    "durationMs": 268,
+    "headers": {
+      "content-type": "application/json; charset=utf-8",
+      "date": "Fri, 02 Oct 2026 12:17:29 GMT",
+      "server": "cloudflare",
+      "x-envoy-upstream-service-time": "63"
+    },
+    "body": {
+      "data": {
+        "actor": {
+          "account": {
+            "alerts": {
+              "policiesSearch": {
+                "__typename": "AlertsPoliciesSearchResultSet",
+                "nextCursor": null,
+                "policies": [
+                  {
+                    "__typename": "AlertsPolicy",
+                    "accountId": 1000001,
+                    "entityGuid": "MTAwMDAwMXxBSU9QU3xQT0xJQ1l8OTAwMDAwMQ",
+                    "id": "8000026",
+                    "incidentPreference": "PER_CONDITION",
+                    "name": "name-1"
+                  },
+                  {
+                    "__typename": "AlertsPolicy",
+                    "accountId": 1000001,
+                    "entityGuid": "MTAwMDAwMXxBSU9QU3xQT0xJQ1l8OTAwMDAwMg",
+                    "id": "8000027",
+                    "incidentPreference": "PER_CONDITION",
+                    "name": "name-2"
+                  },
+                  {
+                    "__typename": "AlertsPolicy",
+                    "accountId": 1000001,
+                    "entityGuid": "MTAwMDAwMXxBSU9QU3xQT0xJQ1l8OTAwMDAwMw",
+                    "id": "8000050",
+                    "incidentPreference": "PER_CONDITION",
+                    "name": "name-3"
+                  }
+                ],
+                "totalCount": 3
+              }
+            }
+          }
+        }
+      }
+    },
+    "bodyBytes": 735
+  }
+}

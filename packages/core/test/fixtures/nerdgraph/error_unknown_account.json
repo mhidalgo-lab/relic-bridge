@@ -1,0 +1,51 @@
+{
+  "probe": "error_unknown_account",
+  "profile": "A",
+  "region": "US",
+  "endpoint": "https://api.newrelic.com/REDACTED",
+  "at": "2026-10-02T12:17:19.475Z",
+  "request": {
+    "query": "query E($accountId: Int!, $nrql: Nrql!) {\n  actor { account(id: $accountId) { nrql(query: $nrql, timeout: 10) { results } } }\n}",
+    "variables": {
+      "accountId": 1000002,
+      "nrql": "SELECT count(*) FROM Transaction SINCE 10 minutes ago"
+    }
+  },
+  "response": {
+    "status": 200,
+    "ok": true,
+    "durationMs": 313,
+    "headers": {
+      "content-type": "application/json; charset=utf-8",
+      "date": "Fri, 02 Oct 2026 12:17:19 GMT",
+      "server": "cloudflare",
+      "x-envoy-upstream-service-time": "95"
+    },
+    "body": {
+      "data": {
+        "actor": {
+          "account": null
+        }
+      },
+      "errors": [
+        {
+          "message": "Access denied.",
+          "path": [
+            "actor",
+            "account"
+          ],
+          "extensions": {
+            "errorClass": "ACCESS_DENIED"
+          },
+          "locations": [
+            {
+              "line": 2,
+              "column": 11
+            }
+          ]
+        }
+      ]
+    },
+    "bodyBytes": 183
+  }
+}

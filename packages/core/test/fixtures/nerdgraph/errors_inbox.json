@@ -1,0 +1,48 @@
+{
+  "probe": "errors_inbox",
+  "profile": "A",
+  "region": "US",
+  "endpoint": "https://api.newrelic.com/REDACTED",
+  "note": "ErrorsInboxActorStitchedFields.errorGroups(cursor: String, entityGuids: [EntityGuid!], filter: ErrorsInboxErrorGroupSearchFilterInput, query: String, sortBy: [ErrorsInboxErrorGroupSortOrderInput!], timeWindow: TimeWindowInput): ErrorsInboxErrorGroupsResponse",
+  "at": "2026-10-02T12:17:29.339Z",
+  "request": {
+    "query": "query ErrorsInbox($eg_filter: ErrorsInboxErrorGroupSearchFilterInput, $eg_timeWindow: TimeWindowInput) { actor { errorsInbox { errorGroups(filter: $eg_filter, timeWindow: $eg_timeWindow) { __typename nextCursor results { __typename assignment { __typename email } entityGuid eventsQuery firstSeenAt id isCustom issueType lastSeenAt message name occurrences { __typename expectedCount firstSeenAt lastSeenAt totalCount } regressedAt resources { __typename nextCursor totalCount } source state url } totalCount } } } }",
+    "variables": {
+      "eg_filter": {
+        "accountIds": [
+          1000001
+        ]
+      },
+      "eg_timeWindow": {
+        "endTime": 1790943448987,
+        "startTime": 1790338648987
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "ok": true,
+    "durationMs": 352,
+    "headers": {
+      "content-type": "application/json; charset=utf-8",
+      "date": "Fri, 02 Oct 2026 12:17:29 GMT",
+      "server": "cloudflare",
+      "x-envoy-upstream-service-time": "163"
+    },
+    "body": {
+      "data": {
+        "actor": {
+          "errorsInbox": {
+            "errorGroups": {
+              "__typename": "ErrorsInboxErrorGroupsResponse",
+              "nextCursor": null,
+              "results": [],
+              "totalCount": 0
+            }
+          }
+        }
+      }
+    },
+    "bodyBytes": 144
+  }
+}

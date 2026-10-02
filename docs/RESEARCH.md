@@ -1,0 +1,173 @@
+# Research notes
+
+Facts verified while planning (2026-10-01). Each one affects a design decision. The P0 spikes
+must re-check every item marked **verify** against the real platforms before Phase 1 depends on it.
+
+## 1. Cloudflare Workers platform limits
+
+Source: <https://developers.cloudflare.com/workers/platform/limits/>
+
+| Limit | Free | Paid | Impact on relic-bridge |
+|---|---|---|---|
+| Requests / day | 100,000 | unlimited | Far above personal or small-team MCP usage. |
+| CPU time / request | **10 ms** | 30 s default, 5 min max | **Main risk.** Network waits do *not* count, but JSON parsing of large NRQL results, crypto, and output shaping do. |
+| Subrequests / request | **50** | 10,000 | **D1, KV and fetch calls all count.** Every NerdGraph call, async poll, D1 lookup and OAuth-token KV read uses budget. |
+| Concurrent connections waiting for headers | 6 | 6 | Parallel NerdGraph fan-out from one invocation is capped at 6. |
+| Wall-clock duration (HTTP) | no limit while the client is connected | same | Async NRQL polling is fine while the MCP client keeps the connection open. |
+| Memory | 128 MB | 128 MB | Cap result sizes; never buffer unbounded responses. |
+
+**Conclusions**
+
+- The free plan works for personal use **if** the code stays CPU-frugal:
+  - tokens are high-entropy random values, so they're hashed with a single SHA-256; never PBKDF2 or bcrypt on the hot path
+  - AES-GCM uses a raw imported key
+  - response bytes are capped before parsing
+- Every request carries a **subrequest budget** (`free` = 50, `paid` = 1000 by default; configurable). Tools
+  declare their expected cost, and combined report tools degrade gracefully (partial report plus a note) instead of failing.
+- Auth and config lookups are cached in isolate memory with a short TTL (≤ 60 s) to save subrequests.
+  This bounds how long a revocation takes to apply (documented trade-off; the TTL is configurable, and 0 disables the cache).
+- Docs will recommend Workers Paid for heavy use or shared teams. Spike **P0-06** measures real CPU numbers.
+
+### Measured (spike P0-06, local)
+
+See ADR-0010 for the CPU table and presets. Warm calls fit the free plan's 10 ms CPU up to about 1 MB of response (p50).
+Cold-isolate behaviour and production `cpuTime` remain to be measured (`spikes/workers-limits/deploy-and-measure.md`).
+Per-request CPU comes from the dashboard or GraphQL Analytics (`workersInvocationsAdaptive`). `wrangler tail` only
+reports `outcome: "exceededCpu"`.
+
+## 2. NerdGraph limits
+
+Sources: <https://docs.newrelic.com/docs/apis/nerdgraph/nerdgraph-usage-limits/>,
+<https://docs.newrelic.com/docs/nrql/using-nrql/rate-limits-nrql-queries/>,
+<https://docs.newrelic.com/docs/apis/nerdgraph/examples/async-queries-nrql-tutorial/>
+
+| Limit | Value | Impact |
+|---|---|---|
+| Concurrent requests | **25 per New Relic *user*** (not per key); more may be allowed but only 25 are guaranteed | Several keys of the same NR user share the budget. Several devices of one person: fine. A team sharing **one** key: everyone shares 25. |
+| Request rate | not limited (only concurrency) | — |
+| Over-limit response | HTTP **429**; succeeds again once in-flight requests finish | Retry with exponential backoff plus jitter. |
+| NRQL queries | 3,000 per account per minute | Per-grant rate limits keep one runaway agent from using up the account. |
+| Recommended concurrent NRQL | ≤ 5 long-running/complex queries | Default concurrency cap of 5 NRQL per credential. |
+| NRQL duration | 1 min (Original Data) / 10 min (Data Plus) | Long queries must use `async: true` + `queryProgress` polling. |
+| NerdGraph default timeout | 5 s (configurable via `timeout`) | Always pass an explicit timeout. |
+
+### Measured (spike P0-09, 2026-10-02, maintainer's US accounts; see `spikes/nerdgraph/RESULTS.md` §B)
+
+- Light queries take ~230–470 ms. Selecting every NRQL result field (`eventDefinitions`, `suggestedQueries`, chart URLs) pushed
+  it to ~3.6 s, so **select only the needed fields**.
+- A burst of 30 parallel light queries all returned 200 in 0.3–1.7 s (queued, no 429). The 429 body is still unobserved.
+- Cost signals live in `rawResponse.performanceStats { inspectedCount matchCount omittedCount wallClockTime }` and
+  `rawResponse.queryUsage { billableMetric scannedEvents ccu }`. Surface them in tool `meta`.
+- Optional fields fail **independently** (GraphQL partial errors alongside `data`). The client must accept `data` + `errors`
+  and map field-level errors.
+- Wrong region: **HTTP 403** `not authorized for account region`. Invalid, ingest-style and empty keys: **HTTP 401**
+  `authentication required` (indistinguishable, so check the `NRAK-` prefix client-side). Bad NRQL: 200 + `INVALID_INPUT`
+  (`NRDB:1102004`). Unauthorized account: 200 + `ACCESS_DENIED`. An unknown event type is not an error: rely on
+  `metadata.messages` ("No events found …").
+
+**Conclusions**
+
+- **Recommended team pattern: each member connects their *own* NR key** (a credential bound to their grant).
+  This keeps New Relic's own RBAC, gives each person their own 25-concurrency budget, and makes NR-side
+  audit logs match the real person. One shared key per project remains supported for personal use.
+- Concurrency control has layers:
+  1. per-invocation cap (≤ 5, and ≤ 6 because of Workers)
+  2. 429 backoff
+  3. an optional Durable Object semaphore per credential (Phase 7) for shared keys on Workers
+- Async NRQL follows the stateless "explicit handle" pattern of the 2026-07-28 MCP spec. If a query isn't done
+  within the tool's poll budget, the tool returns a `queryId` and the agent calls `get_query_result` later.
+
+## 3. MCP client authentication: the phone requirement
+
+Sources: <https://claude.com/docs/connectors/building/authentication>,
+<https://support.claude.com/en/articles/11175166-get-started-with-custom-connectors-using-remote-mcp>,
+<https://github.com/anthropics/claude-ai-mcp/issues/112>
+
+- claude.ai (web), Claude Desktop connectors and **Claude mobile** share one connector system. It supports
+  **OAuth 2.0 with DCR** and **OAuth 2.0 with Client ID Metadata Documents (CIMD)**. Static request headers are
+  only in beta for some organisations.
+- Claude Code (CLI) supports `--header "Authorization: Bearer …"` and OAuth.
+- **Conclusion: static bearer tokens cover the MacBook, PC and W365 machine (Claude Code / IDEs) from
+  Phase 2. The phone needs OAuth 2.1 (Phase 5).** Both DCR (still used by many clients) and CIMD (the
+  spec's preferred method) must be supported.
+
+## 4. MCP spec 2026-07-28 and TypeScript SDK v2
+
+Sources: <https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization/authorization-server-discovery>,
+<https://workos.com/blog/mcp-2026-spec-agent-authentication>, <https://ts.sdk.modelcontextprotocol.io/v2/protocol-versions>
+
+- Protocol-level sessions are removed: no `initialize` handshake and no `Mcp-Session-Id`, and `server/discover` replaces
+  up-front negotiation. Version and capabilities travel in `_meta` on every request. This fits Workers well:
+  no Durable Objects or sticky sessions needed.
+- New `Mcp-Method` / `Mcp-Name` headers allow routing and rate limiting by header.
+- Auth: the server is an OAuth 2.1 resource server and MUST publish Protected Resource Metadata (RFC 9728). Clients
+  send Resource Indicators (RFC 8707), and the server MUST reject tokens not issued for itself. CIMD is preferred and
+  DCR is deprecated but kept for compatibility. Clients validate the issuer (RFC 9207).
+- Extensions framework: **MCP Apps** (interactive HTML UIs) and **Tasks** (long-running operations) ship as
+  extensions. Logging and sampling were removed from core.
+- Tool input schemas support full JSON Schema 2020-12.
+- **SDK v2** (`@modelcontextprotocol/server`, 2.1.x) supports both protocol eras:
+  - `createMcpHandler(factory, { legacy: 'stateless' })` builds a fresh server per request and serves both 2025-era
+    and 2026-07-28 clients over Streamable HTTP
+  - `serveStdio(() => buildServer())` does the same over stdio
+  - 2026-07-28 output is opt-in, so dual-era serving must be configured explicitly
+- **Verified (P0-07, local):** SDK 2.2.0's handler runs unchanged under Hono on Node and workerd, plus stdio, for both eras
+  (see ADR-0005). Real clients (Claude Desktop, claude.ai, mobile, Cursor, VS Code) are still pending deployment approval (P5-06).
+
+## 5. Cloudflare OAuth tooling
+
+Sources: <https://github.com/cloudflare/workers-oauth-provider>, issues #264, #333, #355
+
+- `@cloudflare/workers-oauth-provider` implements the authorization-server side: client registration (DCR), token
+  issuance and validation, and wrapping API handlers. Tokens and grants are stored in KV.
+- CIMD is supported for public clients (`token_endpoint_auth_method: "none"`); `private_key_jwt` is not yet.
+- **Verified (P0-08, local):** v1.2.1 natively supports per-path PRM, `resource_metadata` hints, single-audience tokens,
+  DCR, CIMD, PKCE S256, `iss`, refresh rotation and revocation, and runs on Node unmodified with a SQLite KV adapter. See ADR-0009.
+  Claude hosted apps redirect to `https://claude.ai/api/mcp/auth_callback`; Claude Code uses loopback redirects. Claude
+  picks CIMD when metadata advertises it with `none` auth. Real-client run pending (`spikes/oauth/deploy-and-test.md`).
+- Originally to verify (P0-08):
+  1. whether the library can run on Node with a KV-compatible adapter backed by SQLite (otherwise use a Node-native
+     authorization server such as `oidc-provider`, behind the same interface)
+  2. per-slug resources: a token for `/p/a/mcp` must be rejected at `/p/b/mcp`
+  3. path-based Protected Resource Metadata (`/.well-known/oauth-protected-resource/p/{slug}/mcp`)
+
+## 6. New Relic endpoints
+
+- US: `https://api.newrelic.com/graphql`
+- EU: `https://api.eu.newrelic.com/graphql`
+- **JP: `https://api.jp.newrelic.com/graphql`** (documented; found in P0-09)
+- FedRAMP: **no NerdGraph endpoint documented** (the FedRAMP page lists only ingest endpoints), so it isn't supported unless a user confirms one.
+- Async NRQL is documented together with Data Plus (10-minute max duration). Whether it works on Original Data accounts
+  is still to be measured live (P0-09). `auto` mode must fall back to sync with the maximum timeout.
+- `aiIssues` requires the header `nerd-graph-unsafe-experimental-opt-in: AiIssues` (per docs). Treat it as an unstable API and
+  send the header only for those documents.
+- Errors Inbox (`errorsInbox.errorGroups`) has no public NerdGraph tutorial, so its shape comes from introspection (P0-09 probe).
+- Entity search: single-quoted strings, max 200 per page with `nextCursor`. **Measured (P0-09): `\'` escapes a quote**
+  (`name = 'it\'s'` is valid; `''` and unbalanced quotes → `INVALID_INPUT`). Rule: backslash-escape `\` and `'`.
+- `aiIssues` worked **with and without** the opt-in header (P0-09). Send it anyway, as documented.
+- `Actor.accounts(scope: RegionScope)`: account listing takes a region scope. Pass it explicitly when validating keys.
+- `embeddedChartUrl` creates a **shareable public chart URL**, and **selecting `staticChartUrl` generates a token-signed public
+  snapshot image URL** (observed in P0-09). Neither is ever selected by default (privacy, THREAT_MODEL T26).
+- Full docs-verified table: `spikes/nerdgraph/RESULTS.md` §A.
+- Auth header: `API-Key: NRAK-…` (User key). License and ingest keys are rejected by design.
+- Useful queries:
+  - `actor.user` / `actor.accounts`: validate a key and list the accounts it can reach
+  - `actor.account(id).nrql(query, timeout, async)` and cross-account `actor.nrql(accounts: […])`
+  - `actor.entitySearch(query: "…")`, `actor.entity(guid)`, `relatedEntities`
+  - `entity.goldenMetrics { metrics { title query } }`: returns NRQL to run
+  - `account.aiIssues`, `account.alerts.policiesSearch` / `nrqlConditionsSearch`, `actor.errorsInbox`
+
+## 7. Existing community projects (prior art)
+
+[cloudbring/newrelic-mcp](https://github.com/cloudbring/newrelic-mcp),
+[alanhoff/newrelic-mcp](https://github.com/alanhoff/newrelic-mcp),
+[ulucaydin/mcp-server-newrelic](https://github.com/ulucaydin/mcp-server-newrelic),
+[thrashy/mcp-newrelic](https://github.com/thrashy/mcp-newrelic),
+[piekstra/newrelic-mcp-server](https://github.com/piekstra/newrelic-mcp-server),
+[adjohn/newrelic-mcp-app](https://github.com/adjohn/newrelic-mcp-app),
+[xelber/newrelic-mcp](https://github.com/xelber/newrelic-mcp).
+
+These are all single-user, local, one key from an environment variable. relic-bridge's differentiators: multiple projects
+and credentials, a hosted Worker *or* local deployment, an access model with per-tool grants, OAuth for mobile/web
+clients, an admin panel, an audit log, and security as a documented feature. Task **P0-11** reviews their tool designs
+and known issues before Phase 1.

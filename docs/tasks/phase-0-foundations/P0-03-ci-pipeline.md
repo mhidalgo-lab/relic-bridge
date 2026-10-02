@@ -22,7 +22,7 @@ Every PR is linted, type-checked, tested and built on the supported runtimes.
 - Concurrency group to cancel superseded runs.
 
 ## Acceptance criteria
-- [ ] CI green on a sample PR; red on a PR missing sign-off.
+- [x] CI green on a sample PR; red on a PR missing sign-off.
 - [x] `permissions` least-privilege verified (no write tokens on PR builds).
 
 ## Security notes
@@ -37,4 +37,5 @@ T18 (supply chain). Document the workflow security rules in CONTRIBUTING.
 ## Progress notes
 - 2026-10-01: `.github/workflows/ci.yml` (Node 24 + 26 matrix, lint/typecheck/test/build/license check, DCO, PR title,
   actionlint), all actions pinned by SHA, harden-runner (audit mode), `persist-credentials: false`. actionlint passes locally.
-- **Pending:** "CI green on a sample PR / red without sign-off" needs the GitHub repository.
+- 2026-10-02: verified on private repo `matiashidalgo/relic-bridge`: PR #1 (unsigned commit) → DCO failed, every other
+  check passed; main is green. Private-repo limits are documented in `docs/security/repo-settings.md`.

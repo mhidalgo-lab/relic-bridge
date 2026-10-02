@@ -25,7 +25,7 @@ A clean, reproducible TypeScript monorepo that every later task builds on.
 - Check npm name availability for `relic-bridge` (and the `@relic-bridge` scope); reserve them.
 
 ## Acceptance criteria
-- [ ] `pnpm i && pnpm lint && pnpm typecheck && pnpm test && pnpm build` pass from a clean clone.
+- [x] `pnpm i && pnpm lint && pnpm typecheck && pnpm test && pnpm build` pass from a clean clone.
 - [x] Importing `node:fs` inside `packages/core` fails lint.
 - [x] npm name decision recorded in ADR-0002.
 
@@ -43,5 +43,5 @@ T18: lockfile committed; `pnpm` set to `strict-peer-dependencies` and `only-buil
   `@cloudflare/vitest-pool-workers` compatibility), tsdown 0.23, Changesets, lefthook. Runtime guard: `scripts/check-runtime-imports.ts`
   (packages with `"relicBridge": {"runtime": "web"}`), run by `pnpm lint`.
 - Supply chain: `minimumReleaseAge` 3 days, `trustPolicy: no-downgrade`, `blockExoticSubdeps`, `strictDepBuilds` + `allowBuilds`.
-- Lint/typecheck/test/build pass locally. **Pending:** verify from a clean clone once the first commit exists; reserve the npm
-  name and create the `@relic-bridge` org on npmjs.com (needs the maintainer's npm account).
+- 2026-10-02: clean clone (`pnpm install --frozen-lockfile`) passes lint, typecheck, test, build and the license check.
+  **Pending (maintainer):** `npm login`, create the `relic-bridge` npm org, and publish the 0.0.0 placeholder to secure the name.

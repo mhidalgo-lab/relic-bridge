@@ -75,7 +75,8 @@ jobs:
 
   dependency-review:
     name: Dependency review
-    if: github.event_name == 'pull_request'
+    # Needs a public repo (or GitHub Advanced Security). While private, scripts/check-licenses.ts + pnpm audit cover it.
+    if: github.event_name == 'pull_request' && !github.event.repository.private
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:

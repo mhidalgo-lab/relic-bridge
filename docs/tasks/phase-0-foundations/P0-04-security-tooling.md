@@ -23,7 +23,7 @@ Automated guardrails that catch the common open-source security failures.
 - `docs/security/repo-settings.md`: recommended branch protection / rulesets, required checks, signed commits optional, secret scanning + push protection enabled, private vulnerability reporting enabled.
 
 ## Acceptance criteria
-- [ ] Committing a fake `NRAK-` key is blocked locally and in CI.
+- [x] Committing a fake `NRAK-` key is blocked locally and in CI.
 - [x] Adding a GPL dependency fails CI.
 - [ ] Scorecard runs and the badge is in the README.
 
@@ -43,5 +43,5 @@ T8, T18.
   and commit-msg DCO hook, `scripts/check-licenses.ts` (whole dependency tree, run in CI), `docs/security/repo-settings.md`.
 - Verified locally: gitleaks rules catch a realistic fake NRAK key and `rb_` token and ignore `EXAMPLE` placeholders; license
   checker unit-tested (GPL/AGPL/unknown rejected). Prior-art S13 (dependency audit) covered.
-- **Pending:** local pre-commit block requires gitleaks installed on the dev machine; Scorecard badge + CI behaviour need the
-  GitHub repository and the settings in repo-settings.md.
+- 2026-10-02: gitleaks 8.30.1 installed locally (checksum-verified); a staged fake `NRAK-` key was blocked by the pre-commit
+  hook; CI gitleaks green. **Pending:** Scorecard (and its badge) only runs once the repo is public.

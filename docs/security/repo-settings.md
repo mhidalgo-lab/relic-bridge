@@ -7,7 +7,8 @@ Settings that can't be committed as files. Apply them when the GitHub repository
 Some controls only exist for public repos (or with GitHub Advanced Security). Until the repo goes public:
 - Rulesets / branch protection, secret-scanning push protection and private vulnerability reporting are **unavailable**.
   The local lefthook hooks (DCO + gitleaks) and the CI gitleaks job are the stand-ins.
-- CodeQL runs with `upload: never` (analysis still fails the job on errors). Scorecard is skipped (it needs a PAT on private repos).
+- CodeQL runs with `upload: never` (analysis still fails the job on errors). Scorecard and dependency review are skipped (PAT / GHAS needed on private repos); `scripts/check-licenses.ts` and
+  `pnpm audit` still run in CI.
 - **When making the repo public:** enable everything in this file, then confirm the CodeQL and Scorecard uploads appear.
 
 ## General

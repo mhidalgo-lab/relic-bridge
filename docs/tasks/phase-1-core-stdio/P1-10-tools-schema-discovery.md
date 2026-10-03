@@ -2,11 +2,11 @@
 id: P1-10
 title: "Tools: list_event_types, get_attributes"
 phase: 1
-status: todo
+status: review
 priority: high
 depends_on: [P1-06]
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P1-10 — Tools: schema discovery
@@ -29,10 +29,10 @@ Let agents write *correct* NRQL by discovering what data exists.
 - Counts per event type are out of scope (one query per type; use `run_nrql`).
 
 ## Acceptance criteria
-- [ ] Event type validated via `nrql.identifier()`; tests (injection attempts, charset).
-- [ ] Fixture tests: list, deny/allow lists, keyset result shapes, sample envelope, cache hit/expiry/isolation.
-- [ ] Negative authorization tests: account outside the grant refused, no request sent; cache not shared across credentials.
-- [ ] Attribute names and sample values are inside the untrusted envelope.
+- [x] Event type validated via `nrql.identifier()`; tests (injection attempts, charset).
+- [x] Fixture tests: list, deny/allow lists, keyset result shapes, sample envelope, cache hit/expiry/isolation.
+- [x] Negative authorization tests: account outside the grant refused, no request sent; cache not shared across credentials.
+- [x] Attribute names and sample values are inside the untrusted envelope.
 
 ## Security notes
 T4, T6, T21 (cache keying). Attribute names and sample values are customer data: untrusted.

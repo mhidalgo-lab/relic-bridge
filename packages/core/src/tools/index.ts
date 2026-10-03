@@ -4,6 +4,7 @@ import { createEntityTools } from './entities.ts';
 import { createGoldenMetricTools } from './golden.ts';
 import { createIdentityTools } from './identity.ts';
 import { createQueryTools, type ToolDeps } from './query.ts';
+import { createSchemaTools } from './schema.ts';
 
 export { createTimeTools } from './time.ts';
 
@@ -19,6 +20,13 @@ export {
   type ScopedAccount,
 } from './identity.ts';
 export { createQueryTools, MAX_NRQL_CHARS, MAX_QUERY_ACCOUNTS, type ToolDeps } from './query.ts';
+export {
+  createSchemaTools,
+  DEFAULT_SCHEMA_SINCE,
+  parseEventTypes,
+  parseKeyset,
+  SCHEMA_TTL_MS,
+} from './schema.ts';
 
 /** Every built-in tool, ready for `ToolRegistry.register`. Later tool groups add themselves here. */
 export function createBuiltinTools(deps: ToolDeps = {}): ToolDefinition[] {
@@ -28,5 +36,6 @@ export function createBuiltinTools(deps: ToolDeps = {}): ToolDefinition[] {
     ...createQueryTools(deps),
     ...createEntityTools(deps),
     ...createGoldenMetricTools(deps),
+    ...createSchemaTools(deps),
   ];
 }

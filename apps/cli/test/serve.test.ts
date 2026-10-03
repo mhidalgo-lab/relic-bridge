@@ -90,6 +90,48 @@ describe('serveSettings', () => {
     }
   });
 
+  it('has rate limits on by default, tunable per rule, and refuses nonsense', () => {
+    expect(serveSettings(base)).toMatchObject({
+      trustedProxyHops: 0,
+      rateLimits: {
+        ip: { requests: 600, perSeconds: 60 },
+        authFailures: { requests: 10, perSeconds: 300 },
+        token: { requests: 120, perSeconds: 60 },
+        grant: { requests: 300, perSeconds: 60 },
+      },
+    });
+    const tuned = serveSettings({
+      ...base,
+      env: {
+        RB_RATE_LIMIT_IP: '50/10',
+        RB_RATE_LIMIT_AUTH_FAIL: 'off',
+        RB_RATE_LIMIT_GRANT: ' 5/1 ',
+        RB_TRUSTED_PROXY_HOPS: '1',
+      },
+    });
+    expect(tuned.rateLimits).toMatchObject({
+      ip: { requests: 50, perSeconds: 10 },
+      authFailures: null,
+      grant: { requests: 5, perSeconds: 1 },
+    });
+    expect(tuned.trustedProxyHops).toBe(1);
+    expect(tuned.warnings.join()).toMatch(/not throttled/);
+    const off = serveSettings({ ...base, env: { RB_RATE_LIMIT: 'off' } });
+    expect(off.rateLimits).toBeNull();
+    expect(off.warnings.join()).toMatch(/disables all rate limiting/);
+    for (const env of [
+      { RB_RATE_LIMIT: 'maybe' },
+      { RB_RATE_LIMIT_IP: '600' },
+      { RB_RATE_LIMIT_IP: '0/60' },
+      { RB_RATE_LIMIT_TOKEN: '5/0' },
+      { RB_RATE_LIMIT_GRANT: '1/2/3' },
+      { RB_TRUSTED_PROXY_HOPS: '6' },
+      { RB_TRUSTED_PROXY_HOPS: '-1' },
+    ]) {
+      expect(() => serveSettings({ ...base, env })).toThrow(ConfigError);
+    }
+  });
+
   it('picks the data directory per platform', () => {
     expect(defaultDataDir({ RB_DATA_DIR: '/data' }, 'linux', '/h')).toBe('/data');
     expect(defaultDataDir({ XDG_DATA_HOME: '/x' }, 'linux', '/h')).toBe(join('/x', 'relic-bridge'));

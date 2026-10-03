@@ -138,8 +138,11 @@ describe('redirect login (generic OIDC)', () => {
     expect(start.res.headers.get('set-cookie')).toMatch(
       /^__Host-rb_login=[A-Za-z0-9_-]{43}; Path=\/; Max-Age=600; HttpOnly; SameSite=Lax; Secure$/,
     );
-    expect(done.res.status).toBe(200);
-    expect(done.text).toContain('Signed in as owner@example.com (owner)');
+    expect(done.res.status).toBe(303);
+    expect(done.res.headers.get('location')).toBe('/admin');
+    expect(done.res.headers.get('set-cookie')).toMatch(
+      /^__Host-rb_session=usr_1\.[A-Za-z0-9_-]{43}; Path=\/; Max-Age=43200; HttpOnly; SameSite=Lax; Secure, /,
+    );
     expect(done.res.headers.get('set-cookie')).toContain('Max-Age=0');
     expect(done.res.headers.get('cache-control')).toBe('no-store');
     const user = await storage.users.get('usr_1');
@@ -152,6 +155,37 @@ describe('redirect login (generic OIDC)', () => {
       'oidc',
     ]);
     expect(rows[0]?.details).toMatchObject({ idp: 'oidc:corp', outcome: 'linked', ip: '203.0.113.9' });
+  });
+
+  it('sign-in rotates the session: the one the browser had ends, the new one works (P4-02)', async () => {
+    await storage.users.create({ id: 'usr_1', email: 'owner@example.com', role: 'owner' });
+    const app = makeApp();
+    const sessionOf = (r: Response) =>
+      (r.headers.getSetCookie().find((c) => c.startsWith('__Host-rb_session=')) ?? '').split(
+        ';',
+      )[0] as string;
+    const me = async (cookie: string) =>
+      (await get(app, '/api/admin/v1/session', { cookie, 'sec-fetch-site': 'same-origin' })).res.status;
+    const first = sessionOf((await browserLogin(app, 'oidc', '?next=%2Fadmin%2Fusers')).done.res);
+    expect(await me(first)).toBe(200);
+    // Signing in again from a browser that presents the first session (or a planted one) ends it.
+    const start = await get(app, '/auth/login/oidc');
+    const login = (start.res.headers.get('set-cookie') ?? '').split(';')[0] as string;
+    const cb = await idp.authorize(start.res.headers.get('location') as string);
+    const again = await get(app, `${cb.pathname}${cb.search}`, { cookie: `${login}; ${first}` });
+    expect(again.res.status).toBe(303);
+    const second = sessionOf(again.res);
+    expect(second).not.toBe(first);
+    expect(await me(first)).toBe(401);
+    expect(await me(second)).toBe(200);
+    // The session id never reaches logs or the audit log; the audit names the user and a short reference only.
+    const audit = await storage.auditLog.list({ action: 'session.create' });
+    expect(audit.map((r) => [r.userId, r.details?.['rotated']])).toEqual([
+      ['usr_1', true],
+      ['usr_1', false],
+    ]);
+    const dump = `${logs.join('\n')}\n${JSON.stringify(await storage.auditLog.list({ limit: 100 }))}`;
+    for (const c of [first, second]) expect(dump).not.toContain(c.split('.')[1] as string);
   });
 
   it('an onLogin seam receives the user and the validated next path', async () => {
@@ -197,7 +231,7 @@ describe('redirect login (generic OIDC)', () => {
   it('auto-provisions allowlisted identities only when configured', async () => {
     const app = makeApp({ policy: { domains: ['example.com'], autoProvision: 'member' } });
     const { done } = await browserLogin(app, 'oidc');
-    expect(done.res.status).toBe(200);
+    expect(done.res.status).toBe(303);
     expect((await storage.users.list()).map((u) => [u.email, u.role, u.idp])).toEqual([
       ['owner@example.com', 'member', 'oidc:corp'],
     ]);
@@ -207,7 +241,7 @@ describe('redirect login (generic OIDC)', () => {
     await storage.users.create({ id: 'usr_1', email: 'owner@example.com', role: 'owner' });
     const app = makeApp();
     const { callback, cookie, done } = await browserLogin(app, 'oidc');
-    expect(done.res.status).toBe(200);
+    expect(done.res.status).toBe(303);
     const replay = await get(app, `${callback.pathname}${callback.search}`, { cookie });
     expect(replay.res.status).toBe(400);
     const rows = await auditRows();
@@ -291,14 +325,14 @@ describe('Google and GitHub', () => {
   it('Google signs in a pre-created user', async () => {
     await storage.users.create({ id: 'usr_g', email: 'owner@example.com', role: 'owner' });
     const { done } = await browserLogin(makeApp(), 'google');
-    expect(done.res.status).toBe(200);
+    expect(done.res.status).toBe(303);
     expect((await storage.users.get('usr_g'))?.idp).toBe('google');
   });
 
   it('GitHub: org members are provisioned when allowlisted by org; an unverified primary email is refused', async () => {
     const app = makeApp({ policy: { githubOrgs: ['relic-org'], autoProvision: 'member' } });
     const ok = await browserLogin(app, 'github');
-    expect(ok.done.res.status).toBe(200);
+    expect(ok.done.res.status).toBe(303);
     expect((await storage.users.list()).map((u) => [u.idp, u.idpSubject])).toEqual([['github', '4242']]);
     idp.githubUser = {
       ...idp.githubUser,
@@ -328,7 +362,7 @@ describe('Cloudflare Access', () => {
     await storage.users.create({ id: 'usr_c', email: 'owner@example.com', role: 'owner' });
     const app = makeApp();
     const ok = await get(app, '/auth/cf-access', { 'cf-access-jwt-assertion': await idp.accessAssertion() });
-    expect(ok.res.status).toBe(200);
+    expect(ok.res.status).toBe(303);
     expect((await storage.users.get('usr_c'))?.idp).toBe('cf-access');
     for (const headers of [
       {},
@@ -371,7 +405,7 @@ describe('setup links (first-owner bootstrap)', () => {
     const code = link.searchParams.get('setup') as string;
     expect(code).toMatch(/^rb_setup_[0-9a-f]{64}$/);
     const { done } = await browserLogin(app, 'oidc', link.search);
-    expect(done.res.status).toBe(200);
+    expect(done.res.status).toBe(303);
     expect((await storage.users.list()).map((u) => [u.email, u.role])).toEqual([
       ['owner@example.com', 'owner'],
     ]);
@@ -400,7 +434,7 @@ describe('setup links (first-owner bootstrap)', () => {
     const first = await finish(a);
     idp.user = { ...idp.user, sub: 'user-2', email: 'second@example.com' };
     const second = await finish(b);
-    expect([first, second]).toEqual([200, 403]);
+    expect([first, second]).toEqual([303, 403]);
     expect((await storage.users.list()).filter((u) => u.role === 'owner')).toHaveLength(1);
   });
 
@@ -414,7 +448,7 @@ describe('setup links (first-owner bootstrap)', () => {
       403,
     );
     expect((await get(app, '/auth/cf-access?setup=nonsense', assertion)).res.status).toBe(403);
-    expect((await get(app, `${link.pathname}${link.search}`, assertion)).res.status).toBe(200);
+    expect((await get(app, `${link.pathname}${link.search}`, assertion)).res.status).toBe(303);
     expect((await storage.users.list()).map((u) => u.role)).toEqual(['owner']);
   });
 

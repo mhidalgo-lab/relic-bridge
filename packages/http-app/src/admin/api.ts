@@ -3,8 +3,12 @@
 // tokens and the audit log. Web-standard only (ADR-0004); mounted by `createHttpApp` when an admin token is set.
 //
 // Security rules (THREAT_MODEL T8/T13/T14/T23):
-// - bearer admin token only (no cookies, no query-string credentials), one uniform 401, failures throttled and
+// - the bootstrap admin token (`Authorization: Bearer`, counts as `owner`) or an admin session cookie (P4-02). A
+//   request with an `Authorization` header is judged by it alone and its cookies are ignored, so a browser can never
+//   lend its session to a bearer request; never query-string credentials. One uniform 401, failures throttled and
 //   audited through the same hooks as the MCP routes;
+// - cookie sessions: `Sec-Fetch-Site` must be same-origin (or `none` for reads), unsafe methods need `Origin` =
+//   `RB_PUBLIC_URL` and the session's CSRF token in `X-CSRF-Token`, and every route checks the user's role (`403`);
 // - New Relic keys are accepted in request bodies only and never returned: credentials come back as masked metadata;
 //   token hashes are never returned and a new token's plaintext appears once, in the create response;
 // - every change is written to the audit log and clears the in-process access cache.
@@ -21,6 +25,7 @@ import {
   type KeyValidator,
   revalidateCredential,
   revokeAccessToken,
+  revokeUserSessions,
   rotateCredentialKey,
   rotateCredentialKeysBatch,
   type toTokenSummary,
@@ -48,6 +53,13 @@ import { bodyLimit } from 'hono/body-limit';
 import { HTTPException } from 'hono/http-exception';
 import type { AdminAuditEvent } from '../audit.ts';
 import {
+  type AdminPrincipal,
+  CSRF_HEADER,
+  isUnsafeMethod,
+  ROLE_RANK,
+  type SessionManager,
+} from '../session.ts';
+import {
   ADMIN_RETRY_AFTER_SECONDS,
   AdminApiError,
   adminErrorBody,
@@ -62,22 +74,37 @@ export const ADMIN_API_BASE: '/api/admin/v1' = '/api/admin/v1';
 export const DEFAULT_ADMIN_MAX_BODY_BYTES: number = 64 * 1024;
 const DEFAULT_PAGE = 50;
 const ADMIN_REALM = 'Bearer realm="relic-bridge-admin"';
-/** Recorded as the actor of admin changes until IdP sessions name a user (P4). */
+/** Recorded (`details.via`) for changes made with the bootstrap admin token. */
 export const ADMIN_TOKEN_ACTOR: 'admin_token' = 'admin_token';
+/** Recorded (`details.via`) for changes made in an admin session (the row's `userId` names the user). */
+export const SESSION_ACTOR: 'session' = 'session';
 
 export type StorageForAdmin = Pick<
   Storage,
   'users' | 'credentials' | 'projects' | 'grants' | 'accessTokens' | 'auditLog' | 'settings'
 >;
 
-type Vars = { requestId: string; started: number; log: Record<string, unknown> };
+type Vars = {
+  requestId: string;
+  started: number;
+  log: Record<string, unknown>;
+  principal?: AdminPrincipal;
+};
 export type AdminEnv = { Variables: Vars };
 
 /** What `createHttpApp` hands the admin API (everything request-scoped stays in the handler). */
 export interface AdminApiDeps {
   readonly storage: StorageForAdmin;
   readonly keyring: Keyring;
-  readonly verifier: AdminTokenVerifier;
+  /** The bootstrap admin token; absent when only sessions are configured. */
+  readonly verifier?: AdminTokenVerifier;
+  /** Admin sessions (P4-02); absent when sign-in is not configured. */
+  readonly sessions?: SessionManager;
+  /**
+   * Where sessions live when `sessions` is absent (the CLI on the database): a role change or disable made here still
+   * ends the user's sessions.
+   */
+  readonly sessionKv?: Pick<KvRepository, 'get' | 'put' | 'delete' | 'list'>;
   readonly validateKey: KeyValidator;
   readonly catalog: readonly string[];
   readonly clock: Clock;
@@ -101,7 +128,7 @@ export interface AdminApiDeps {
   readonly onRejected?: (c: Context, status: number) => void;
   /** Background work (`waitUntil` on Workers). */
   readonly runInBackground: (c: Context, task: Promise<unknown>, what: string) => void;
-  /** After every successful change (clears the access cache). */
+  /** After every successful change (clears the access cache and the session user cache). */
   readonly onChange?: () => void;
   /** First-owner setup links (P4-01); absent when sign-in is not configured. */
   readonly setupLinks?: {
@@ -306,7 +333,8 @@ const json = <T extends z.ZodType>(schema: T, description: string) => ({
 
 const ERROR_DESCRIPTIONS: Readonly<Record<number, string>> = {
   400: 'Invalid request (`invalid_request`): unknown field, wrong type, rule broken',
-  401: 'Missing or wrong admin token (`unauthorized`)',
+  401: 'Missing or wrong admin token, or no live session (`unauthorized`)',
+  403: 'Session refused: role too low, missing/invalid CSRF token or cross-origin request (`forbidden`)',
   404: 'No such resource (`not_found`)',
   409: 'Conflicts with existing data (`conflict`, `read_only`)',
   413: 'Body too large (`payload_too_large`)',
@@ -318,7 +346,7 @@ const ERROR_DESCRIPTIONS: Readonly<Record<number, string>> = {
 };
 
 function errors(...codes: number[]) {
-  const all = [400, 401, 429, 503, ...codes];
+  const all = [400, 401, 403, 429, 503, ...codes];
   return Object.fromEntries(
     all.map((code) => [code, json(S.ErrorSchema, ERROR_DESCRIPTIONS[code] ?? 'Error')]),
   ) as Record<number, ReturnType<typeof json<typeof S.ErrorSchema>>>;
@@ -328,8 +356,11 @@ const BODY = <T extends z.ZodType>(schema: T) => ({
   body: { content: { 'application/json': { schema } }, required: true },
 });
 
+/** Either the admin token, or the session cookie with the CSRF header (unsafe methods). */
+const SECURITY = [{ adminToken: [] }, { sessionCookie: [], csrfToken: [] }];
+
 function route<const R extends RouteConfig>(config: R): R {
-  return createRoute({ ...config, security: [{ adminToken: [] }] }) as R;
+  return createRoute({ ...config, security: SECURITY }) as R;
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -370,6 +401,29 @@ const routes = {
     summary: 'Update or disable a user',
     request: { params: S.IdParam, ...BODY(S.UpdateUserBody) },
     responses: { 200: json(S.UserOne, 'Updated'), ...errors(404, 409, 413, 415) },
+  }),
+
+  revokeUserSessions: route({
+    method: 'post',
+    path: '/users/{id}/sessions/revoke',
+    tags: ['sessions'],
+    summary: 'Sign a user out everywhere',
+    description:
+      'Ends every admin session of the user at once (all devices). Members may do this for themselves only; admins ' +
+      'for anyone but an owner. A role change or disabling a user does this automatically.',
+    request: { params: S.IdParam },
+    responses: { 200: json(S.SessionsRevokedOne, 'Sessions ended'), ...errors(404) },
+  }),
+
+  getSession: route({
+    method: 'get',
+    path: '/session',
+    tags: ['sessions'],
+    summary: 'Who is calling: role, user and the CSRF token',
+    description:
+      'Any role. With a session cookie it returns the CSRF token to send as `X-CSRF-Token` on changes. Sign out with ' +
+      '`POST /auth/logout` (form field `_csrf`, `everywhere=1` for every device).',
+    responses: { 200: json(S.SessionOne, 'The caller'), ...errors() },
   }),
 
   listCredentials: route({
@@ -640,9 +694,50 @@ function asAdminRefusal(stop: Response): Response {
   );
 }
 
+/** The path under {@link ADMIN_API_BASE} (`/users/usr_1`). */
+function relPath(c: Context): string {
+  const at = c.req.path.indexOf(ADMIN_API_BASE);
+  return at === -1 ? c.req.path : c.req.path.slice(at + ADMIN_API_BASE.length);
+}
+
+const viaOf = (principal: AdminPrincipal | undefined): string =>
+  principal?.kind === 'session' ? SESSION_ACTOR : ADMIN_TOKEN_ACTOR;
+
+const SELF_SESSIONS = /^\/users\/[^/]+\/sessions\/revoke$/;
+
+/**
+ * The least role a cookie session needs for a route (P4-02). Owner-only: master-key rotation and owner setup links.
+ * Any role: `GET /session` and revoking sessions (the handler limits members to themselves). Everything else, unknown
+ * paths included: `admin`.
+ */
+export function requiredRole(method: string, rel: string): 'owner' | 'admin' | 'member' {
+  if (method === 'GET' && rel === '/session') return 'member';
+  if (method === 'POST' && SELF_SESSIONS.test(rel)) return 'member';
+  if (method === 'POST' && (rel === '/keys/rotate' || rel === '/setup-links')) return 'owner';
+  return 'admin';
+}
+
+const FORBIDDEN_MESSAGES: Readonly<Record<string, string>> = {
+  role: 'your role does not allow this',
+  csrf: 'missing or invalid CSRF token: send the token from GET /session as X-CSRF-Token',
+  cross_site: 'cross-site request refused',
+  origin_mismatch: 'cross-origin request refused',
+  origin_missing: 'request origin unknown: send the Origin header',
+  self: 'you cannot change your own role or disable yourself; ask another owner',
+  owner: 'only an owner can create, change or sign out an owner',
+};
+
 /** Build the admin sub-app (mounted at {@link ADMIN_API_BASE}). */
 export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
   const { storage, clock, logger, catalog } = deps;
+  /** The acting user (sessions) for audit rows; the admin token names nobody. */
+  const actor = (c: Context) => {
+    const principal = c.get('principal') as AdminPrincipal | undefined;
+    return {
+      requestId: c.get('requestId') as string,
+      ...(principal?.kind === 'session' ? { userId: principal.user.id } : {}),
+    };
+  };
   /**
    * Audit a request refused before its handler ran (schema validation, malformed JSON) on a mutating route, so every
    * refused change leaves a row. Nothing the caller submitted goes into the row except the id in the path (redacted),
@@ -650,8 +745,7 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
    */
   const recordRefusal = (c: Context, errorCode: string): void => {
     if (!deps.audit) return;
-    const at = c.req.path.indexOf(ADMIN_API_BASE);
-    const rel = at === -1 ? c.req.path : c.req.path.slice(at + ADMIN_API_BASE.length);
+    const rel = relPath(c);
     for (const [method, pattern, action, targetType] of REFUSAL_ROUTES) {
       if (method !== c.req.method) continue;
       const match = pattern.exec(rel);
@@ -666,13 +760,72 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
           status: 'error',
           errorCode,
           refusal: true,
-          details: { via: ADMIN_TOKEN_ACTOR },
+          details: { via: viaOf(c.get('principal') as AdminPrincipal | undefined) },
         }),
         'admin_audit',
       );
       return;
     }
   };
+  /**
+   * Who is calling. A request with an `Authorization` header is judged by the bearer token alone (its cookies are
+   * ignored, so a browser's session can't be lent to it); without one, the session cookie (when sessions are on).
+   */
+  const authenticate = async (
+    c: Context,
+  ): Promise<{ ok: true; principal: AdminPrincipal } | { ok: false; reason: string }> => {
+    const header = c.req.header('authorization');
+    if (header === undefined && deps.sessions) {
+      const session = await deps.sessions.authenticate(c);
+      if (session.ok) return { ok: true, principal: session.principal };
+      return { ok: false, reason: session.reason === 'none' ? 'admin_missing_token' : session.reason };
+    }
+    const presented = adminBearer(header);
+    const ok = presented !== null && deps.verifier !== undefined && (await deps.verifier.verify(presented));
+    if (ok) return { ok: true, principal: { kind: 'admin_token', role: 'owner' } };
+    return {
+      ok: false,
+      reason:
+        header === undefined
+          ? 'admin_missing_token'
+          : presented === null
+            ? 'admin_malformed_header'
+            : 'admin_bad_token',
+    };
+  };
+
+  /** A session refused by CSRF, fetch-metadata, Origin or role checks: one audited `403`, nothing changes. */
+  const forbidden = (c: Context, reason: string): Response => {
+    const log = c.get('log') as Record<string, unknown>;
+    log['deny'] = reason;
+    const principal = c.get('principal') as AdminPrincipal | undefined;
+    if (deps.audit) {
+      deps.runInBackground(
+        c,
+        deps.audit({
+          actor: actor(c),
+          action: 'admin.forbidden',
+          targetType: 'admin_route',
+          targetId: null,
+          status: 'denied',
+          errorCode: 'forbidden',
+          refusal: true,
+          details: {
+            via: viaOf(principal),
+            reason,
+            method: c.req.method,
+            route: redact(relPath(c)).slice(0, 100),
+            ...(principal ? { role: principal.role } : {}),
+          },
+        }),
+        'admin_audit',
+      );
+    }
+    return adminErrorResponse(
+      new AdminApiError('forbidden', FORBIDDEN_MESSAGES[reason] ?? 'not allowed', { detail: reason }),
+    );
+  };
+
   const api = new OpenAPIHono<AdminEnv>({
     defaultHook: (result, c) => {
       if (!result.success) {
@@ -684,7 +837,23 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
   api.openAPIRegistry.registerComponent('securitySchemes', 'adminToken', {
     type: 'http',
     scheme: 'bearer',
-    description: 'The bootstrap admin token (`RB_ADMIN_TOKEN`). Not an MCP access token.',
+    description: 'The bootstrap admin token (`RB_ADMIN_TOKEN`). Counts as `owner`. Not an MCP access token.',
+  });
+  api.openAPIRegistry.registerComponent('securitySchemes', 'sessionCookie', {
+    type: 'apiKey',
+    in: 'cookie',
+    name: '__Host-rb_session',
+    description:
+      'Admin session from signing in at `/auth/login` (`rb_session` on http://localhost). Ignored when an ' +
+      '`Authorization` header is present. Browser same-origin requests only; role-checked on every route.',
+  });
+  api.openAPIRegistry.registerComponent('securitySchemes', 'csrfToken', {
+    type: 'apiKey',
+    in: 'header',
+    name: 'X-CSRF-Token',
+    description:
+      'With the session cookie, on every POST/PATCH/DELETE: the `csrfToken` from `GET /session`, plus an `Origin` ' +
+      'header equal to the public URL.',
   });
 
   // 1. Declared body size, then pre-authentication hooks (per-IP limit, failed-auth throttle), then the token.
@@ -704,16 +873,9 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
         return asAdminRefusal(stop);
       }
     }
-    const header = c.req.header('authorization');
-    const presented = adminBearer(header);
-    const ok = presented !== null && (await deps.verifier.verify(presented));
-    if (!ok) {
-      const reason =
-        header === undefined
-          ? 'admin_missing_token'
-          : presented === null
-            ? 'admin_malformed_header'
-            : 'admin_bad_token';
+    const authenticated = await authenticate(c);
+    if (!authenticated.ok) {
+      const reason = authenticated.reason;
       log['deny'] = reason;
       try {
         deps.onAuthFailure?.(c, reason);
@@ -731,6 +893,20 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
       return adminErrorResponse(new AdminApiError('unauthorized', 'admin authentication required'), {
         'WWW-Authenticate': ADMIN_REALM,
       });
+    }
+    const principal = authenticated.principal;
+    c.set('principal', principal);
+    log['principal'] = principal.kind;
+    if (principal.kind === 'session' && deps.sessions) {
+      // CSRF (T13): fetch metadata and Origin first, then the synchronizer token on changes, then the role.
+      const unsafe = isUnsafeMethod(c.req.method);
+      const problem =
+        deps.sessions.checkFetchOrigin(c, unsafe) ??
+        (unsafe && !deps.sessions.csrfMatches(principal, c.req.header(CSRF_HEADER)) ? 'csrf' : null);
+      if (problem !== null) return forbidden(c, problem);
+      if (ROLE_RANK[principal.role] < ROLE_RANK[requiredRole(c.req.method, relPath(c))]) {
+        return forbidden(c, 'role');
+      }
     }
     // Bodies: JSON only, bounded while read (a body without Content-Length can't bypass the limit).
     if (c.req.method === 'POST' || c.req.method === 'PATCH' || c.req.method === 'PUT') {
@@ -753,8 +929,6 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
       onError: () => adminErrorResponse(new AdminApiError('payload_too_large', 'request body is too large')),
     }),
   );
-
-  const actor = (c: Context) => ({ requestId: c.get('requestId') as string });
 
   /** Run a change: on success audit `ok` and clear the access cache; on failure audit the error code and rethrow. */
   const change = async <T>(
@@ -785,7 +959,11 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
           // Ids can come straight from the request (a failed change): redact them like any echoed value.
           targetId: cleanId(event.targetId),
           projectId: cleanId(event.projectId),
-          details: { via: ADMIN_TOKEN_ACTOR, ...(meta.details ?? {}), ...(event.details ?? {}) },
+          details: {
+            via: viaOf(c.get('principal') as AdminPrincipal | undefined),
+            ...(meta.details ?? {}),
+            ...(event.details ?? {}),
+          },
         }),
         'admin_audit',
       );
@@ -798,7 +976,7 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
       record({
         targetId: meta.targetId ?? null,
         projectId: meta.projectId ?? null,
-        status: mapped?.code === 'not_permitted' ? 'denied' : 'error',
+        status: mapped?.code === 'not_permitted' || mapped?.code === 'forbidden' ? 'denied' : 'error',
         errorCode: mapped?.code ?? 'internal_error',
       });
       throw error;
@@ -829,6 +1007,35 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
     clock,
   };
 
+  const revokeAll = (userId: string): Promise<number> =>
+    deps.sessions
+      ? deps.sessions.revokeUser(userId)
+      : deps.sessionKv
+        ? revokeUserSessions(deps.sessionKv, userId)
+        : Promise.resolve(0);
+
+  /** A refusal inside a handler (audited by `change` as `denied`). */
+  const denied = (reason: 'self' | 'owner' | 'role') =>
+    new AdminApiError('forbidden', FORBIDDEN_MESSAGES[reason] ?? 'not allowed', { detail: reason });
+  const actsAsOwner = (c: Context) => (c.get('principal') as AdminPrincipal | undefined)?.role === 'owner';
+
+  /** End every session of a user after a privilege change, audited as its own row. */
+  const endSessions = async (c: Context, userId: string, reason: string): Promise<void> => {
+    const revoked = await revokeAll(userId);
+    if (!deps.audit) return;
+    deps.runInBackground(
+      c,
+      deps.audit({
+        actor: actor(c),
+        action: 'session.revoke_all',
+        targetType: 'user',
+        targetId: userId,
+        details: { via: viaOf(c.get('principal') as AdminPrincipal | undefined), reason, revoked },
+      }),
+      'admin_audit',
+    );
+  };
+
   // ---------------------------------------------------------------------------------------------------- users
   api.openapi(routes.listUsers, async (c) => {
     const q = c.req.valid('query');
@@ -841,13 +1048,15 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
     const user = await change(
       c,
       { action: 'user.create', targetType: 'user', details: { role: body.role ?? 'member' } },
-      () =>
-        storage.users.create({
+      async () => {
+        if (body.role === 'owner' && !actsAsOwner(c)) throw denied('owner');
+        return storage.users.create({
           id: newId('usr'),
           email: normalizeEmail(body.email),
           displayName: body.displayName ?? null,
           role: body.role ?? 'member',
-        }),
+        });
+      },
       (u) => ({ targetId: u.id }),
     );
     return c.json({ data: userView(user) }, 201);
@@ -866,15 +1075,94 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
       { action: 'user.update', targetType: 'user', targetId: id, details: { fields: Object.keys(body) } },
       async () => {
         const existing = await must('user', id, (x) => storage.users.get(x));
+        const principal = c.get('principal') as AdminPrincipal | undefined;
+        const privileged = body.role !== undefined || body.disabled !== undefined;
+        // Through a session nobody changes their own role or disables themselves (no self-lockout, no self-promotion);
+        // only owners touch owners or make one.
+        if (principal?.kind === 'session' && principal.user.id === existing.id && privileged)
+          throw denied('self');
+        if ((existing.role === 'owner' || body.role === 'owner') && !actsAsOwner(c)) throw denied('owner');
         const patch: { -readonly [K in keyof UserPatch]: UserPatch[K] } = {};
         if (body.displayName !== undefined) patch.displayName = body.displayName;
         if (body.role !== undefined) patch.role = body.role;
         if (body.disabled !== undefined)
           patch.disabledAt = body.disabled ? (existing.disabledAt ?? clock.now()) : null;
-        return Object.keys(patch).length === 0 ? existing : storage.users.update(existing.id, patch);
+        const updated =
+          Object.keys(patch).length === 0 ? existing : await storage.users.update(existing.id, patch);
+        // A privilege change ends the user's sessions (they sign in again with a fresh session); disabling too.
+        const reason =
+          updated.role !== existing.role
+            ? 'role_change'
+            : updated.disabledAt !== null && existing.disabledAt === null
+              ? 'disabled'
+              : null;
+        if (reason !== null) await endSessions(c, existing.id, reason);
+        return updated;
       },
     );
     return c.json({ data: userView(user) }, 200);
+  });
+
+  api.openapi(routes.revokeUserSessions, async (c) => {
+    const { id } = c.req.valid('param');
+    const principal = c.get('principal') as AdminPrincipal | undefined;
+    const revoked = await change(
+      c,
+      {
+        action: 'session.revoke_all',
+        targetType: 'user',
+        targetId: id,
+        details: { reason: 'admin_request' },
+      },
+      async () => {
+        // Members: themselves only, decided before any lookup (no user enumeration).
+        if (principal?.kind === 'session' && principal.role === 'member' && principal.user.id !== id) {
+          throw denied('role');
+        }
+        const target = await must('user', id, (x) => storage.users.get(x));
+        const self = principal?.kind === 'session' && principal.user.id === target.id;
+        if (target.role === 'owner' && !self && !actsAsOwner(c)) throw denied('owner');
+        return revokeAll(target.id);
+      },
+      (n) => ({ details: { revoked: n } }),
+    );
+    return c.json({ data: { userId: id, revoked } }, 200);
+  });
+
+  // ------------------------------------------------------------------------------------------------- session
+  api.openapi(routes.getSession, async (c) => {
+    const principal = c.get('principal') as AdminPrincipal;
+    if (principal.kind === 'admin_token') {
+      return c.json(
+        {
+          data: {
+            kind: 'admin_token' as const,
+            role: 'owner' as const,
+            user: null,
+            csrfToken: null,
+            provider: null,
+            expiresAt: null,
+            idleExpiresAt: null,
+          },
+        },
+        200,
+      );
+    }
+    const { session } = principal;
+    return c.json(
+      {
+        data: {
+          kind: 'session' as const,
+          role: principal.role,
+          user: userView(principal.user),
+          csrfToken: session.record.csrf,
+          provider: session.record.provider,
+          expiresAt: session.record.expiresAt,
+          idleExpiresAt: session.idleExpiresAt,
+        },
+      },
+      200,
+    );
   });
 
   // ---------------------------------------------------------------------------------------------- credentials
@@ -1191,6 +1479,8 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
 
   // ------------------------------------------------------------------------------------------------ master key
   api.openapi(routes.rotateKeys, async (c) => {
+    // Owner-only (also checked by path in the middleware; this holds whatever path reached the handler).
+    if (!actsAsOwner(c)) throw denied('role');
     const body = c.req.valid('json');
     const batchSize = Math.min(
       body.batchSize ?? S.DEFAULT_ROTATION_BATCH,
@@ -1236,6 +1526,7 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
 
   // -------------------------------------------------------------------------------------------- setup links
   api.openapi(routes.createSetupLink, async (c) => {
+    if (!actsAsOwner(c)) throw denied('role');
     const body = c.req.valid('json');
     const setup = deps.setupLinks;
     if (setup === undefined) {
@@ -1348,10 +1639,11 @@ export function adminOpenApiDocument(api: OpenAPIHono<AdminEnv>): Record<string,
       version: 'v1',
       description:
         'API-first management of a relic-bridge instance: users, New Relic credentials, projects, grants, device ' +
-        'tokens and the audit log. Authenticate with the bootstrap admin token (`Authorization: Bearer …`). New ' +
-        'Relic keys are accepted in request bodies only and never returned; token hashes are never returned.',
+        'tokens and the audit log. Authenticate with the bootstrap admin token (`Authorization: Bearer …`, role ' +
+        '`owner`) or, from a browser, an admin session (cookie + `X-CSRF-Token`; roles `owner` > `admin` > `member`). ' +
+        'New Relic keys are accepted in request bodies only and never returned; token hashes are never returned.',
     },
     servers: [{ url: ADMIN_API_BASE }],
-    security: [{ adminToken: [] }],
+    security: SECURITY,
   }) as unknown as Record<string, unknown>;
 }

@@ -5,9 +5,10 @@
 // Adding a route: add it to MCP_ROUTES / ADMIN_ROUTES / PUBLIC_ROUTES (pattern exactly as Hono registers it, a sample
 // path and a body valid enough to reach authentication). Adding a way to authenticate (OAuth, sessions): add the
 // principals that misuse it, with the stable deny reason the audit row must carry.
-import { generateTokenString } from '@relic-bridge/auth';
+import { generateTokenString, revokeSession, revokeUserSessions } from '@relic-bridge/auth';
+import { expect } from 'vitest';
 import { NR_KEY, T0 } from '../fixtures.ts';
-import { ADMIN_TOKEN, type Harness, NR_KEY_ADMIN } from './harness.ts';
+import { ADMIN_TOKEN, type Harness, NR_KEY_ADMIN, PUBLIC_ORIGIN } from './harness.ts';
 
 export interface RouteCase {
   readonly method: string;
@@ -46,6 +47,9 @@ export const ADMIN_ROUTES: readonly RouteCase[] = [
   { method: 'POST', pattern: `${A}/users`, path: `${A}/users`, body: { email: 'new@example.com' } },
   { method: 'GET', pattern: `${A}/users/:id`, path: `${A}/users/usr_none` },
   { method: 'PATCH', pattern: `${A}/users/:id`, path: `${A}/users/usr_none`, body: { disabled: true } },
+  // Sessions (P4-02): sign a user out everywhere; who is calling.
+  { method: 'POST', pattern: `${A}/users/:id/sessions/revoke`, path: `${A}/users/usr_none/sessions/revoke` },
+  { method: 'GET', pattern: `${A}/session`, path: `${A}/session` },
   { method: 'GET', pattern: `${A}/credentials`, path: `${A}/credentials` },
   {
     method: 'POST',
@@ -120,6 +124,8 @@ export const IDENTITY_ROUTES: readonly RouteCase[] = [
   { method: 'GET', pattern: '/auth/login/:provider', path: '/auth/login/github' },
   { method: 'GET', pattern: '/auth/callback/:provider', path: '/auth/callback/github' },
   { method: 'GET', pattern: '/auth/cf-access', path: '/auth/cf-access' },
+  // Sign-out (P4-02): ends the session the cookie names, only with its CSRF token from our own origin.
+  { method: 'POST', pattern: '/auth/logout', path: '/auth/logout' },
 ];
 
 export const PUBLIC_ROUTES: readonly RouteCase[] = [
@@ -187,6 +193,13 @@ const prod = async (h: Harness): Promise<Presented> => ({
 const token = (p: Presented): string => (p.headers['authorization'] ?? '').replace(/^Bearer /, '');
 
 export const MCP_PRINCIPALS: readonly McpPrincipal[] = [
+  // --- an admin browser session is not an MCP credential (P4-02) ---
+  {
+    name: 'owner admin session cookie instead of a token',
+    reason: 'missing_token',
+    valid: prod,
+    broken: async (h, p) => ({ ...p, headers: (await h.addSession({ role: 'owner' })).headers }),
+  },
   // --- credentials missing or malformed (offline checks) ---
   {
     name: 'no credentials',
@@ -490,6 +503,11 @@ export const PASSTHROUGH_PRINCIPALS: readonly PassthroughPrincipal[] = [
     present: () => ({ headers: { cookie: `x-newrelic-api-key=${NR_KEY}` }, slug: '' }),
   },
   {
+    name: 'owner admin session cookie',
+    reason: 'passthrough_missing_key',
+    present: async (h) => ({ headers: (await h.addSession({ role: 'owner' })).headers, slug: '' }),
+  },
+  {
     name: 'device token in the key header',
     reason: 'passthrough_malformed_key',
     present: (h) => ({ headers: ptKey(h.world.tokens.prod), slug: '' }),
@@ -563,7 +581,116 @@ export const ADMIN_PRINCIPALS: readonly AdminPrincipal[] = [
     reason: 'admin_missing_token',
     present: async () => ({ headers: {}, query: `token=${ADMIN_TOKEN}&access_token=${ADMIN_TOKEN}` }),
   },
+  // --- admin sessions (P4-02): every defect, each with a valid CSRF token and our own Origin ---
+  {
+    name: 'malformed session cookie',
+    reason: 'session_malformed',
+    present: async (h) => withCookie(await h.addSession(), 'rb_session=garbage'),
+  },
+  {
+    name: 'session cookie named twice (cookie tossing)',
+    reason: 'session_malformed',
+    present: async (h) => {
+      const s = await h.addSession();
+      return withCookie(s, `${s.cookie}; ${s.cookie}`);
+    },
+  },
+  {
+    name: 'session cookie under the __Host- name on http',
+    reason: 'admin_missing_token',
+    present: async (h) => {
+      const s = await h.addSession();
+      return withCookie(s, `__Host-rb_session=${s.value}`);
+    },
+  },
+  {
+    name: 'unknown session (forged secret)',
+    reason: 'session_unknown',
+    present: async (h) => {
+      const s = await h.addSession();
+      return withCookie(s, `rb_session=${s.userId}.${'A'.repeat(43)}`);
+    },
+  },
+  {
+    name: "session secret under another user's id",
+    reason: 'session_unknown',
+    present: async (h) => {
+      const s = await h.addSession();
+      return withCookie(s, `rb_session=usr_a.${s.value.split('.')[1]}`);
+    },
+  },
+  {
+    name: 'logged-out session',
+    reason: 'session_unknown',
+    present: async (h) => {
+      const s = await h.addSession();
+      await revokeSession(h.world.storage.kv, s.value);
+      return { headers: s.headers };
+    },
+  },
+  {
+    name: 'session revoked with all of its user’s sessions',
+    reason: 'session_unknown',
+    present: async (h) => {
+      const s = await h.addSession();
+      await revokeUserSessions(h.world.storage.kv, s.userId);
+      return { headers: s.headers };
+    },
+  },
+  {
+    name: 'session past its absolute lifetime',
+    reason: 'session_expired',
+    present: async (h) => {
+      const s = await h.addSession();
+      // Kept active (well inside the idle timeout) until the 12 h lifetime is over.
+      for (let i = 0; i < 24; i++) {
+        h.world.clock.advance(29 * 60_000);
+        expect((await h.send(sessionCheck(s.headers))).status).toBe(200);
+      }
+      h.world.clock.advance(29 * 60_000);
+      return { headers: s.headers };
+    },
+  },
+  {
+    name: 'idle session',
+    reason: 'session_idle',
+    present: async (h) => {
+      const s = await h.addSession();
+      h.world.clock.advance(30 * 60_000);
+      return { headers: s.headers };
+    },
+  },
+  {
+    name: 'session of a disabled user',
+    reason: 'session_user_disabled',
+    present: async (h) => {
+      const s = await h.addSession();
+      await h.world.storage.users.update(s.userId, { disabledAt: T0 });
+      return { headers: s.headers };
+    },
+  },
+  {
+    name: 'owner session next to a wrong bearer token (cookies ignored)',
+    reason: 'admin_bad_token',
+    present: async (h) => ({ headers: { ...(await h.addSession()).headers, ...bearer(`${ADMIN_TOKEN}x`) } }),
+  },
+  {
+    name: 'owner session next to a Basic header (cookies ignored)',
+    reason: 'admin_malformed_header',
+    present: async (h) => ({
+      headers: { ...(await h.addSession()).headers, authorization: `Basic ${btoa('a:b')}` },
+    }),
+  },
 ];
+
+const withCookie = (
+  s: { readonly headers: Readonly<Record<string, string>> },
+  cookie: string,
+): { headers: Record<string, string> } => ({ headers: { ...s.headers, cookie } });
+
+/** `GET /api/admin/v1/session` with these headers (keeps a session active in a principal's setup). */
+export const sessionCheck = (headers: Readonly<Record<string, string>>): Request =>
+  new Request(`${PUBLIC_ORIGIN}${A}/session`, { headers });
 
 /** Build the request for a route and a caller. */
 export function requestFor(

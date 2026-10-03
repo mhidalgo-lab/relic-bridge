@@ -85,6 +85,7 @@ import {
   originHostname,
   safeMcpHeader,
 } from './security.ts';
+import { createSessionManager } from './session.ts';
 
 /** Largest request body accepted on the MCP route by default (a tool call is a few KiB). */
 export const DEFAULT_MAX_BODY_BYTES: number = 1024 * 1024;
@@ -193,8 +194,11 @@ export interface HttpAppHooks {
 
 /** The admin REST API (P2-09). Without it, `/api/admin/*` answers 404. */
 export interface AdminApiOptions {
-  /** The bootstrap admin token (`RB_ADMIN_TOKEN`): 32-512 printable characters. Only its digest is kept. */
-  readonly token: Secret;
+  /**
+   * The bootstrap admin token (`RB_ADMIN_TOKEN`): 32-512 printable characters. Only its digest is kept. Optional
+   * when sign-in (`identity`) is configured: the admin API then takes admin sessions only.
+   */
+  readonly token?: Secret;
   /** Needs the audit log too (the audit query endpoint). */
   readonly storage: StorageForAdmin;
   /** Records every admin change (`createAuditRecorder(...)`); omit only when auditing is off. */
@@ -394,6 +398,9 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
   const allowedOrigins = [
     ...(options.allowedOrigins ?? (allowedHosts === '*' ? defaultAllowedHostnames() : allowedHosts)),
     ...corsHostnames,
+    // The admin pages post from the public URL (P4-02): its origin always passes this coarse check (the admin API
+    // and sign-out then require that exact origin for cookie sessions).
+    ...(options.identity ? [new URL(options.identity.publicUrl).hostname] : []),
   ];
   const maxBodyBytes = checkRange(
     'maxBodyBytes',
@@ -444,7 +451,10 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
   // Scopes created by this app; the factory refuses anything else (defence in depth for `authInfo.extra`).
   const scopes = new WeakSet<RequestScope>();
   // Fails at construction (boot) for an unusable admin token, never per request.
-  const adminVerifier = options.admin ? createAdminTokenVerifier(options.admin.token) : undefined;
+  const adminVerifier = options.admin?.token ? createAdminTokenVerifier(options.admin.token) : undefined;
+  if (options.admin && adminVerifier === undefined && !options.identity) {
+    throw new TypeError('admin needs a token, or sign-in (identity) for admin sessions');
+  }
   // Sign-in redirects come back to the public URL: its host must pass the Host check, or every callback would be 403.
   if (options.identity) {
     const publicHost = new URL(options.identity.publicUrl).hostname;
@@ -606,6 +616,26 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
     return deadline.bound(response);
   };
 
+  // Admin sessions (P4-02): on whenever sign-in is configured. State lives in storage `kv`, never here (T21); the
+  // manager holds configuration and a ≤ 5 s cache of user records.
+  const identity = options.identity;
+  const sessions = identity
+    ? createSessionManager({
+        publicUrl: identity.publicUrl,
+        kv: identity.storage.kv,
+        users: identity.storage.users,
+        clock,
+        logger,
+        runInBackground,
+        ...(identity.session ? { options: identity.session } : {}),
+        ...(identity.audit?.admin
+          ? {
+              audit: (event: AdminAuditEvent) => identity.audit?.admin?.(event) ?? Promise.resolve(),
+            }
+          : {}),
+      })
+    : undefined;
+
   const app = new Hono<Env>();
 
   // 1. Request id + access log (one structured line per request, stderr via the logger).
@@ -710,14 +740,15 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
   app.get('/health', (c) => c.json({ status: 'ok' }));
   app.get('/version', (c) => c.json({ name: 'relic-bridge', version: VERSION }));
 
-  if (options.admin && adminVerifier) {
+  if (options.admin) {
     const admin = options.admin;
     app.route(
       ADMIN_API_BASE,
       createAdminApi({
         storage: admin.storage,
         keyring: options.keyring,
-        verifier: adminVerifier,
+        ...(adminVerifier ? { verifier: adminVerifier } : {}),
+        ...(sessions ? { sessions } : {}),
         validateKey:
           admin.validateKey ??
           nerdGraphKeyValidator({ logger, clock, ...(options.fetch ? { fetch: options.fetch } : {}) }),
@@ -754,8 +785,12 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
             reason: rejectReason(c.get('log')),
           }),
         runInBackground,
-        // A revoked token, grant or key stops at once on this process (other processes: within the cache TTL).
-        onChange: () => cache.clear(),
+        // A revoked token, grant or key stops at once on this process (other processes: within the cache TTL); a
+        // changed role or disabled user is re-read by the next session request here (elsewhere: within 5 s).
+        onChange: () => {
+          cache.clear();
+          sessions?.forgetUsers();
+        },
         ...(options.identity
           ? {
               setupLinks: {
@@ -776,6 +811,7 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
         clock,
         logger,
         runInBackground,
+        ...(sessions ? { sessions } : {}),
         ...(hooks.beforeAuth
           ? {
               beforeAuth: async (c: Context, id: string) => {

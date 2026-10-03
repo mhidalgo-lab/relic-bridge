@@ -14,6 +14,7 @@ import {
 export type AdminErrorCode =
   | 'invalid_request'
   | 'unauthorized'
+  | 'forbidden'
   | 'not_found'
   | 'conflict'
   | 'not_permitted'
@@ -29,6 +30,7 @@ export type AdminErrorCode =
 export const ADMIN_ERROR_CODES: readonly AdminErrorCode[] = Object.freeze([
   'invalid_request',
   'unauthorized',
+  'forbidden',
   'not_found',
   'conflict',
   'not_permitted',
@@ -45,6 +47,7 @@ export const ADMIN_ERROR_CODES: readonly AdminErrorCode[] = Object.freeze([
 const STATUS: Readonly<Record<AdminErrorCode, number>> = Object.freeze({
   invalid_request: 400,
   unauthorized: 401,
+  forbidden: 403,
   not_found: 404,
   conflict: 409,
   not_permitted: 422,

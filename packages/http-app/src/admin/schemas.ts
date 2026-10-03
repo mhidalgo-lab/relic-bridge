@@ -549,3 +549,45 @@ export const SetupLinkSchema = z
   .openapi('SetupLink');
 
 export const SetupLinkOne = z.object({ data: SetupLinkSchema }).openapi('SetupLinkResponse');
+
+// ---------------------------------------------------------------------------------------------------------------
+// Sessions (P4-02)
+// ---------------------------------------------------------------------------------------------------------------
+
+export const SessionSchema = z
+  .object({
+    kind: z.enum(['session', 'admin_token']).openapi({
+      description: '`session`: a signed-in browser (cookie). `admin_token`: the bootstrap admin token.',
+    }),
+    role: z.enum(['owner', 'admin', 'member']).openapi({
+      description: 'Effective role. The admin token counts as `owner`.',
+    }),
+    user: UserSchema.nullable().openapi({ description: 'The signed-in user; null for the admin token.' }),
+    csrfToken: z.string().nullable().openapi({
+      description:
+        'Send it as `X-CSRF-Token` on every POST/PATCH/DELETE made with the session cookie. Null for the admin token.',
+    }),
+    provider: z.string().nullable().openapi({ description: 'Sign-in provider of the session.' }),
+    expiresAt: z
+      .number()
+      .int()
+      .nullable()
+      .openapi({ description: 'Absolute end of the session (epoch ms).' }),
+    idleExpiresAt: z.number().int().nullable().openapi({
+      description: 'When the session ends unless another request comes (epoch ms).',
+    }),
+  })
+  .openapi('Session');
+
+export const SessionOne = z.object({ data: SessionSchema }).openapi('SessionResponse');
+
+export const SessionsRevokedSchema = z
+  .object({
+    userId: z.string(),
+    revoked: z.number().int().openapi({ description: 'How many live sessions were ended.' }),
+  })
+  .openapi('SessionsRevoked');
+
+export const SessionsRevokedOne = z
+  .object({ data: SessionsRevokedSchema })
+  .openapi('SessionsRevokedResponse');

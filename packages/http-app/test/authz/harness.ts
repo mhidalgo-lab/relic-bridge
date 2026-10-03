@@ -7,11 +7,19 @@ import {
   createCloudflareAccessProvider,
   createCredential,
   createGitHubProvider,
+  createSession,
+  DEFAULT_SESSION_TIMEOUTS,
   issueAccessToken,
   type Keyring,
 } from '@relic-bridge/auth';
 import { createLogger, decodeEntityGuid, type FetchLike, type Identity, Secret } from '@relic-bridge/core';
-import { type AuditRecord, newId, type Storage, type StoredLimits } from '@relic-bridge/storage';
+import {
+  type AuditRecord,
+  newId,
+  type Storage,
+  type StoredLimits,
+  type UserRole,
+} from '@relic-bridge/storage';
 import { vi } from 'vitest';
 import { CF_AUD, CF_TEAM, GITHUB_CLIENT_ID, MOCK_CLIENT_SECRET } from '../../../auth/test/mock-idp.ts';
 import {
@@ -254,7 +262,9 @@ export interface Harness {
     readonly reachable?: readonly number[];
     readonly ownerUserId?: string | null;
   }): Promise<string>;
-  addUser(email: string): Promise<string>;
+  addUser(email: string, role?: UserRole): Promise<string>;
+  /** A live admin session of a new user with `role` (or of `userId`). */
+  addSession(opts?: { readonly role?: UserRole; readonly userId?: string }): Promise<SessionCaller>;
   addProject(
     slug: string,
     opts?: {
@@ -292,6 +302,20 @@ export interface Harness {
 export interface Token {
   readonly id: string;
   readonly value: string;
+}
+
+/** Origin of every host under test (`RB_PUBLIC_URL`, http loopback: the session cookie is `rb_session`). */
+export const PUBLIC_ORIGIN = 'http://localhost';
+
+/** An admin session minted straight into storage (P4-02), as sign-in would. */
+export interface SessionCaller {
+  readonly userId: string;
+  /** Cookie value (`<userId>.<secret>`): a secret, scanned for leaks. */
+  readonly value: string;
+  readonly cookie: string;
+  readonly csrf: string;
+  /** What our own admin page sends: cookie, CSRF token, same-origin `Origin` and fetch metadata. */
+  readonly headers: Readonly<Record<string, string>>;
 }
 
 const stub = (reachable: readonly number[]) => async (): Promise<Identity> => ({
@@ -430,6 +454,7 @@ export async function createHarness(opts: { tenants?: Record<string, string> } =
   const logLines: string[] = [];
   const responses: string[] = [];
   const issued: string[] = [];
+  const sessions: string[] = [];
   const idpCalls: string[] = [];
   const idpFetch: FetchLike = async (url) => {
     idpCalls.push(String(url));
@@ -467,10 +492,33 @@ export async function createHarness(opts: { tenants?: Record<string, string> } =
       );
       return cred.id;
     },
-    async addUser(email) {
+    async addUser(email, role = 'member') {
       const id = newId('usr');
-      await storage.users.create({ id, email, role: 'member' });
+      await storage.users.create({ id, email, role });
       return id;
+    },
+    async addSession(o = {}) {
+      const userId = o.userId ?? (await harness.addUser(`${newId('usr')}@example.com`, o.role ?? 'owner'));
+      const issued = await createSession(
+        storage.kv,
+        { userId, provider: 'github', idp: 'github' },
+        DEFAULT_SESSION_TIMEOUTS,
+        clock,
+      );
+      sessions.push(issued.cookieValue);
+      const cookie = `rb_session=${issued.cookieValue}`;
+      return {
+        userId,
+        value: issued.cookieValue,
+        cookie,
+        csrf: issued.record.csrf,
+        headers: {
+          cookie,
+          origin: PUBLIC_ORIGIN,
+          'sec-fetch-site': 'same-origin',
+          'x-csrf-token': issued.record.csrf,
+        },
+      };
     },
     async addProject(slug, o = {}) {
       const id = newId('prj');
@@ -537,6 +585,7 @@ export async function createHarness(opts: { tenants?: Record<string, string> } =
         ADMIN_TOKEN,
         ...Object.values(world.tokens),
         ...issued,
+        ...sessions,
         ...hashes,
       ];
     },

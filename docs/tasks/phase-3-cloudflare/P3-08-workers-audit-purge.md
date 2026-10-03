@@ -2,11 +2,11 @@
 id: P3-08
 title: Audit retention purge on Workers (cron trigger)
 phase: 3
-status: todo
+status: review
 priority: medium
 depends_on: [P3-02]
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P3-08 — Audit retention purge on Workers
@@ -28,17 +28,17 @@ so the Worker needs a `scheduled` handler to keep the D1 audit table bounded (D1
   when rows were removed.
 
 ## Acceptance criteria
-- [ ] Workers-pool test (local D1): the scheduled handler removes rows older than retention and keeps newer ones.
-- [ ] A backlog above the per-run budget is removed in bounded batches and finished by the next run.
-- [ ] Retention `0` deletes nothing; an invalid value is logged and nothing is deleted.
-- [ ] A purge failure is logged and does not throw out of the handler.
-- [ ] `purgeBefore(before, limit)` is covered by the storage contract for every adapter.
+- [x] Workers-pool test (local D1): the scheduled handler removes rows older than retention and keeps newer ones.
+- [x] A backlog above the per-run budget is removed in bounded batches and finished by the next run.
+- [x] Retention `0` deletes nothing; an invalid value is logged and nothing is deleted.
+- [x] A purge failure is logged and does not throw out of the handler.
+- [x] `purgeBefore(before, limit)` is covered by the storage contract for every adapter.
 
 ## Security notes
 none beyond P2-08 (retention bounds stored client IPs and masked NRQL).
 
 ## Docs to update
-- Cloudflare guide (P3-07), `docs/guide/audit-log.md`.
+- `docs/guide/cloudflare-deploy.md`, `docs/guide/audit-log.md`, `apps/worker/README.md`, `docs/THREAT_MODEL.md`.
 
 ## Out of scope
 - —

@@ -24,6 +24,8 @@ export interface WorkerVars {
   readonly RB_AUDIT?: string;
   readonly RB_AUDIT_NRQL?: string;
   readonly RB_AUDIT_CLIENT_IP?: string;
+  /** Whole days to keep audit rows (default 90; `0` keeps everything). The cron trigger deletes older rows. */
+  readonly RB_AUDIT_RETENTION_DAYS?: string;
   readonly RB_RATE_LIMIT?: string;
   readonly RB_PASSTHROUGH?: string;
   readonly RB_LOG_LEVEL?: string;

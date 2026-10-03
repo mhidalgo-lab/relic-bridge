@@ -796,7 +796,15 @@ export async function createD1Storage(
         const sql = `SELECT * FROM audit_log${where.length ? ` WHERE ${where.join(' AND ')}` : ''} ORDER BY id DESC LIMIT ?`;
         return freeze((await all(sql, [...params, limit])).map(auditOf));
       }),
-    purgeBefore: (before) => call(() => run('DELETE FROM audit_log WHERE ts < ?', [before])),
+    purgeBefore: (before, limit) =>
+      call(() =>
+        limit === undefined
+          ? run('DELETE FROM audit_log WHERE ts < ?', [before])
+          : run(
+              'DELETE FROM audit_log WHERE id IN (SELECT id FROM audit_log WHERE ts < ? ORDER BY ts, id LIMIT ?)',
+              [before, limit],
+            ),
+      ),
   };
 
   // --------------------------------------------------------------------------------------------- settings

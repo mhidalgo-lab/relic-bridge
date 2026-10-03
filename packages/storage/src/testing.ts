@@ -228,6 +228,7 @@ export function runStorageContract(options: StorageContractOptions): void {
             s.accessTokens.revoke('t', 1),
             s.auditLog.append({ ts: 1, kind: 'admin', action: 'x', status: 'ok' }),
             s.auditLog.purgeBefore(1),
+            s.auditLog.purgeBefore(1, 1),
             s.settings.set('k', 1),
             s.settings.setIfAbsent('k', 1),
             s.settings.delete('k'),
@@ -734,7 +735,11 @@ export function runStorageContract(options: StorageContractOptions): void {
         expect((await s.auditLog.list({ passthrough: true })).map((r) => r.ts)).toEqual([670, 660]);
         expect(await s.auditLog.list({ keyId: 'pt_cccccccccccc' })).toEqual([]);
         expect((await s.auditLog.list({ keyId: 'pt_aaaaaaaaaaaa' }))[0]?.grantId).toBeNull();
-        expect(await s.auditLog.purgeBefore(300)).toBe(2);
+        // A limit deletes the oldest matching rows first; the rest wait for the next call.
+        expect(await s.auditLog.purgeBefore(300, 1)).toBe(1);
+        expect((await s.auditLog.list()).map((r) => r.ts)).toEqual([670, 660, 650, 600, 500, 400, 300, 200]);
+        expect(await s.auditLog.purgeBefore(300, 5)).toBe(1);
+        expect(await s.auditLog.purgeBefore(300, 5)).toBe(0);
         expect((await s.auditLog.list()).map((r) => r.ts)).toEqual([670, 660, 650, 600, 500, 400, 300]);
         await s.close();
       });

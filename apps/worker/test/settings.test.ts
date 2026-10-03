@@ -56,6 +56,17 @@ describe('parseWorkerSettings', () => {
     expect(s.warnings).toHaveLength(2);
   });
 
+  it('parses the audit retention like the CLI (default 90, 0 keeps everything, junk fails)', () => {
+    expect(parseWorkerSettings({}).audit.retentionDays).toBe(90);
+    expect(parseWorkerSettings({ RB_AUDIT_RETENTION_DAYS: '0' }).audit.retentionDays).toBe(0);
+    expect(
+      parseWorkerSettings({ RB_AUDIT_RETENTION_DAYS: 30 as unknown as string }).audit.retentionDays,
+    ).toBe(30);
+    for (const bad of ['-1', 'x', '1.5', '123456']) {
+      expect(() => parseWorkerSettings({ RB_AUDIT_RETENTION_DAYS: bad })).toThrow(/RB_AUDIT_RETENTION_DAYS/);
+    }
+  });
+
   it('treats * and blank values as defaults', () => {
     expect(parseWorkerSettings({ RB_ALLOWED_HOSTS: '*', RB_PLAN: '  ' })).toMatchObject({
       allowedHosts: '*',

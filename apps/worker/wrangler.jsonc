@@ -25,6 +25,8 @@
   "ratelimits": [
     { "name": "RATE_LIMITER", "namespace_id": "1701", "simple": { "limit": 600, "period": 60 } }
   ],
+  // Audit retention (P3-08): hourly like `relic-bridge serve`; deletes rows older than RB_AUDIT_RETENTION_DAYS.
+  "triggers": { "crons": ["17 * * * *"] },
   "secrets": { "required": ["RB_MASTER_KEY", "RB_ADMIN_TOKEN"] },
   "vars": { "RB_PLAN": "free" }
 }

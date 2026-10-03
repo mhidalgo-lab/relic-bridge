@@ -474,3 +474,29 @@ database.
 - Session guidance (idle 15-30 min, absolute 4-8 h for high-value apps; rotate the id at login; server-side
   invalidation on logout): https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html. We default
   to 30 min / 12 h (a personal admin used from a phone) and let `RB_SESSION_*` tighten it.
+
+## 18. Server-rendered admin UI: Hono JSX, CSP and fetch metadata (P4-03, from documentation 2026-10-03)
+
+- **Hono JSX** (hono 4.13): `jsx: react-jsx` + `jsxImportSource: hono/jsx` (or the per-file pragma
+  `/** @jsxImportSource hono/jsx */`, which esbuild/wrangler, rolldown/tsdown and Vitest all honour). Children and
+  attribute values are escaped; `raw()` / the `html` helper and `dangerouslySetInnerHTML` are the only ways around it.
+  A rendered element's `toString()` is a string when no component is async. `app.route()` keeps a sub-app's
+  `onError` for its routes. Source: https://hono.dev/docs/guides/jsx, https://hono.dev/docs/helpers/html.
+- **CSP**: `default-src 'none'` plus `script-src 'self'` / `style-src 'self'` covers pages with no inline code (no nonce
+  needed). `form-action 'self'` also applies to redirects after a form post in Chromium, so sign-out may redirect only
+  within the origin. `frame-ancestors 'none'` supersedes `X-Frame-Options` (kept for old browsers).
+  `require-trusted-types-for 'script'` makes string-to-HTML sinks throw (Chromium; others ignore it). Source:
+  https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Content-Security-Policy,
+  https://w3c.github.io/trusted-types/dist/spec/.
+- **SRI** on same-origin `<script>`/`<link>` needs no `crossorigin` attribute. Source:
+  https://developer.mozilla.org/en-US/docs/Web/Security/Subresource_Integrity.
+- **Resource isolation with fetch metadata**: allow `Sec-Fetch-Site` `same-origin` / `same-site`* / `none`, plus
+  cross-site requests with `Sec-Fetch-Mode: navigate` and a `GET` method and a `Sec-Fetch-Dest` other than
+  `object`/`embed`; refuse the rest. We are stricter: `same-site` is refused (subdomains are not trusted) and a
+  navigation must be `Sec-Fetch-Dest: document` (frames are refused here too, besides `frame-ancestors`). Source:
+  https://web.dev/articles/fetch-metadata.
+- **`__Host-` cookies need `Path=/`**: the flash cookie (`__Host-rb_flash`) is therefore site-wide, short-lived
+  (60 s) and carries only a message code. Source: RFC 6265bis §4.1.3.2.
+- **axe-core in jsdom**: rules run on the DOM. `color-contrast` needs layout and is reported "incomplete" in jsdom, so
+  token contrast is computed from the stylesheet (WCAG 2.x relative luminance) instead. Source:
+  https://github.com/dequelabs/axe-core/blob/develop/doc/API.md.

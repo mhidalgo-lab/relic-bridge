@@ -67,6 +67,24 @@ await fetch('/api/admin/v1/projects', {
 `GET /session` also returns the role, the user and both expiry times (`expiresAt`, `idleExpiresAt`). A failed CSRF or
 origin check is `403 forbidden` with `detail` `csrf`, `cross_site`, `origin_mismatch` or `origin_missing`.
 
+## The admin panel (`/admin`)
+
+Signing in lands on `/admin`, the admin panel. It is served by the same process as the API (`serve` or the Worker)
+whenever sign-in is configured, and uses the same session:
+
+- Without a session, any `/admin` address redirects to `/auth/login` and comes back to the same page after sign-in.
+  Bearer tokens, including the admin token, never open a page.
+- Every page carries a strict Content Security Policy (no inline script or style, nothing from other origins, no
+  framing). Pages work without JavaScript; the one small script only adds copy buttons.
+- Links into the panel from mail or chat work (a top-level navigation). Other cross-site requests (images, scripts,
+  frames, `fetch`) are refused before the session is read.
+- Each form carries the session's CSRF token and is accepted only from the panel's own origin. Changes go through
+  the admin API as you, so the same role rules and audit rows apply.
+- Sign out (this browser) and sign out everywhere are at the bottom of every page.
+
+The pages exist so far for the overview (who you are, your session, the first users for admins); the management
+screens follow (P4-04). Conventions for contributors: [`docs/dev/admin-ui.md`](../dev/admin-ui.md).
+
 ## What session cookies never do
 
 - They never authenticate MCP endpoints (`/p/<project>/mcp`) or `/passthrough/mcp`: those take device tokens and

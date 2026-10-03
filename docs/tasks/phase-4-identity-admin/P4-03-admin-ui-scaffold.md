@@ -2,7 +2,7 @@
 id: P4-03
 title: "Admin UI scaffold (Hono JSX, strict CSP)"
 phase: 4
-status: in-progress
+status: review
 priority: high
 depends_on: [P4-02]
 adr: [0004]
@@ -58,18 +58,27 @@ P4-02 session, with one strict Content Security Policy and no inline script or s
   broken session are redirected to sign-in; cross-site subresource requests refused; assets public.
 
 ## Acceptance criteria
-- [ ] CSP has no `unsafe-inline` / `unsafe-eval`; a test asserts the full header set on every UI route (Node and
+- [x] CSP has no `unsafe-inline` / `unsafe-eval`; a test asserts the full header set on every UI route (Node and
       Worker), including error, 404 and sign-in pages.
-- [ ] axe-core accessibility checks (WCAG 2.1 A/AA rules) pass on every page and component state in CI; colour
+- [x] axe-core accessibility checks (WCAG 2.1 A/AA rules) pass on every page and component state in CI; colour
       tokens meet 4.5:1 in light and dark.
-- [ ] Snapshot/DOM tests for the layout, flash, forms, tables, error and login pages; hostile strings are escaped
+- [x] Snapshot/DOM tests for the layout, flash, forms, tables, error and login pages; hostile strings are escaped
       everywhere; the escaping lint guard fails on `raw()` / `dangerouslySetInnerHTML`.
-- [ ] Unauthenticated, bearer-only and broken-session requests to `/admin*` never render a page (redirect to sign-in);
+- [x] Unauthenticated, bearer-only and broken-session requests to `/admin*` never render a page (redirect to sign-in);
       `next` stays same-origin; cross-site subresource requests are refused; matrix guard lists the new routes.
-- [ ] `readForm` refuses missing/wrong CSRF tokens, foreign `Origin`, cross-site fetch metadata and oversized bodies;
+- [x] `readForm` refuses missing/wrong CSRF tokens, foreign `Origin`, cross-site fetch metadata and oversized bodies;
       `callAdmin` refuses unsafe methods without a verified form.
-- [ ] Assets: hashed names, SRI on the tags, immutable caching, served by `serve` and the Worker; the Worker CPU
+- [x] Assets: hashed names, SRI on the tags, immutable caching, served by `serve` and the Worker; the Worker CPU
       benchmark still passes.
+
+## Notes for P4-04 (screens)
+- One file per screen in `packages/admin-ui/src/screens/`, registered in `registerScreens` (`app.ts`) and `NAV_ITEMS`;
+  `overview.tsx` is the reference. Conventions: `docs/dev/admin-ui.md`.
+- Pages: `kit.page(minRole, (c, page) => page.html(<Layout viewer={page.principal} current=… flash={page.flash}>…))`.
+- Forms: `<Form action csrf={principal.csrf}>` + `kit.form(minRole, (c, principal, form) => …)`; then
+  `kit.redirect(path, flashCode)` (add codes to `flash.ts`).
+- Data: ``kit.callAdmin(c, principal, { method, path: adminPath`/x/${id}`, query, body }, form)``; unsafe methods
+  need `form`. New routes go into `UI_ROUTES` in the P2-12 matrix and `test/a11y.test.tsx`.
 
 ## Security notes
 T13 (XSS, CSRF, clickjacking), T14 (session use on pages).

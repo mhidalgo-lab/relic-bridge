@@ -205,9 +205,25 @@ describe('mergeHooks', () => {
       },
       { beforeAuth: () => void seen.push('never') },
     );
-    expect((await h.beforeAuth?.({} as Context, 'r'))?.status).toBe(429);
+    expect((await h.beforeAuth?.({} as Context, 'r', 'mcp_token'))?.status).toBe(429);
     h.onAuthFailure?.({} as Context, { requestId: 'r', reason: 'x' });
     expect(seen).toEqual(['a1', 'f1', 'f2']);
+  });
+
+  it('refuseAuthFailure: the first Response wins and a throwing hook is skipped', async () => {
+    const seen: string[] = [];
+    const h = mergeHooks(
+      {
+        refuseAuthFailure: () => {
+          seen.push('r1');
+          throw new Error('boom');
+        },
+      },
+      { refuseAuthFailure: () => new Response('stop', { status: 429 }) },
+      { refuseAuthFailure: () => void seen.push('never') },
+    );
+    expect((await h.refuseAuthFailure?.({} as Context, { requestId: 'r', reason: 'x' }))?.status).toBe(429);
+    expect(seen).toEqual(['r1']);
   });
 });
 
@@ -283,27 +299,59 @@ const none = { ip: null, authFailures: null, token: null, grant: null };
 describe('auth-failure throttling (T1)', () => {
   const rules = { ...none, authFailures: { requests: 3, perSeconds: 30 } };
 
-  it('refuses an IP after N failures, for valid and invalid tokens alike, and recovers', async () => {
+  it('refuses further failures from an IP after N, and recovers', async () => {
     const app = makeApp(hooksFor(rules).hooks);
-    const bad = 'rb_live_' + 'x'.repeat(40);
+    const bad = `rb_live_${'x'.repeat(40)}`;
     for (let i = 0; i < 3; i++) {
       expect((await app.fetch(post(bad, { 'x-test-ip': '203.0.113.1' }))).status).toBe(401);
       await tick();
     }
     const blockedBad = await app.fetch(post(bad, { 'x-test-ip': '203.0.113.1' }));
-    const blockedGood = await app.fetch(post(world.tokens.prod, { 'x-test-ip': '203.0.113.1' }));
     const blockedNone = await app.fetch(post(undefined, { 'x-test-ip': '203.0.113.1' }));
-    for (const r of [blockedBad, blockedGood, blockedNone]) {
+    for (const r of [blockedBad, blockedNone]) {
       expect(r.status).toBe(429);
       expect(Number(r.headers.get('retry-after'))).toBeGreaterThanOrEqual(1);
     }
-    // Identical bodies: nothing distinguishes a valid token (T19).
-    expect(await blockedGood.text()).toBe(await blockedBad.text());
-    // Other IPs are unaffected, including the same valid token.
-    expect((await app.fetch(post(world.tokens.prod, { 'x-test-ip': '203.0.113.2' }))).status).toBe(200);
-    // Recovery: one token per 10 s.
+    // Same body whatever the failure was (T19).
+    expect(await blockedBad.text()).toBe(await blockedNone.text());
+    // Other IPs are unaffected.
+    expect((await app.fetch(post(bad, { 'x-test-ip': '203.0.113.2' }))).status).toBe(401);
+    // Recovery: one failure per 10 s.
     world.clock.advance(10_000);
-    expect((await app.fetch(post(world.tokens.prod, { 'x-test-ip': '203.0.113.1' }))).status).toBe(200);
+    expect((await app.fetch(post(bad, { 'x-test-ip': '203.0.113.1' }))).status).toBe(401);
+    expect((await app.fetch(post(bad, { 'x-test-ip': '203.0.113.1' }))).status).toBe(429);
+  });
+
+  it('never locks out a valid token: served from an IP that sprayed bad tokens (P3-13, review M6)', async () => {
+    const lim = hooksFor(rules);
+    const app = makeApp(lim.hooks);
+    const ip = { 'x-test-ip': '203.0.113.1' };
+    for (let i = 0; i < 20; i++) {
+      await app.fetch(post(`rb_live_${'y'.repeat(30)}${i}`, ip));
+      await tick();
+    }
+    expect((await app.fetch(post('rb_live_nope', ip))).status).toBe(429);
+    // The valid token goes through, again and again, while the IP stays locked for failures.
+    for (let i = 0; i < 5; i++) expect((await app.fetch(post(world.tokens.prod, ip))).status).toBe(200);
+    // A token that is valid but not granted on this project is a failure like any other.
+    const other = await app.fetch(new Request('http://localhost/p/eu/mcp', post(world.tokens.prod, ip)));
+    expect(other.status).toBe(429);
+    expect(lim.preAuthLimiter.peek('fail:203.0.113.1', rules.authFailures).allowed).toBe(false);
+  });
+
+  it('an expired token keeps failing (and charging) from a locked IP; the live one is served', async () => {
+    const app = makeApp(hooksFor(rules).hooks);
+    const ip = { 'x-test-ip': '203.0.113.7' };
+    world.clock.advance(10_001); // `shortLived` has expired
+    for (let i = 0; i < 3; i++) {
+      expect((await app.fetch(post(world.tokens.shortLived, ip))).status).toBe(401);
+      await tick();
+    }
+    expect((await app.fetch(post(world.tokens.shortLived, ip))).status).toBe(429);
+    world.clock.advance(10_000); // one failure refilled
+    expect((await app.fetch(post(world.tokens.shortLived, ip))).status).toBe(401);
+    expect((await app.fetch(post(world.tokens.shortLived, ip))).status).toBe(429);
+    expect((await app.fetch(post(world.tokens.prod, ip))).status).toBe(200);
   });
 
   it('does not count successful requests, and a 429 is not itself a charge', async () => {
@@ -321,7 +369,7 @@ describe('auth-failure throttling (T1)', () => {
       await app.fetch(post('rb_live_nope', { 'x-test-ip': `2001:db8:1:2::${i + 1}` }));
       await tick();
     }
-    const r = await app.fetch(post(world.tokens.prod, { 'x-test-ip': '2001:db8:1:2:ffff::9' }));
+    const r = await app.fetch(post('rb_live_nope', { 'x-test-ip': '2001:db8:1:2:ffff::9' }));
     expect(r.status).toBe(429);
   });
 
@@ -331,7 +379,7 @@ describe('auth-failure throttling (T1)', () => {
       await app.fetch(post('rb_live_nope', { 'x-test-ip': 'not-an-ip' }));
       await tick();
     }
-    expect((await app.fetch(post(world.tokens.prod))).status).toBe(429);
+    expect((await app.fetch(post('rb_live_nope'))).status).toBe(429);
   });
 
   it('X-Forwarded-For cannot be used to dodge or to frame an IP (no trusted proxy)', async () => {
@@ -347,7 +395,7 @@ describe('auth-failure throttling (T1)', () => {
       await app.fetch(post('rb_live_nope', { 'x-forwarded-for': `9.9.9.${i}` }));
       await tick();
     }
-    expect((await app.fetch(post(world.tokens.prod, { 'x-forwarded-for': '8.8.8.8' }))).status).toBe(429);
+    expect((await app.fetch(post('rb_live_nope', { 'x-forwarded-for': '8.8.8.8' }))).status).toBe(429);
     expect(limiter.peek('fail:9.9.9.1', rules.authFailures).remaining).toBe(3);
   });
 });
@@ -510,6 +558,7 @@ describe('defaults', () => {
       await app.fetch(post('rb_live_nope'));
       await tick();
     }
-    expect((await app.fetch(post(world.tokens.prod))).status).toBe(429);
+    expect((await app.fetch(post('rb_live_nope'))).status).toBe(429);
+    expect((await app.fetch(post(world.tokens.prod))).status).toBe(200);
   });
 });

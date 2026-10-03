@@ -16,6 +16,15 @@ import type { Hono } from 'hono';
 /** Shaped like a User key so redaction is exercised; obviously fake. */
 export const NR_KEY = 'NRAK-HTTPAPPTESTKEY0123456789ABC';
 export const CATALOG: readonly string[] = createBuiltinTools().map((t) => t.name);
+/**
+ * A random admin token as `admin-token generate` would make one (P3-13 refuses predictable tokens at boot). Random per
+ * run so no high-entropy literal sits in the repository.
+ */
+export function randomAdminToken(prefix = 'adm-'): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(32));
+  return prefix + Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
 export const T0 = 1_800_000_000_000;
 
 export class ManualClock implements Clock {

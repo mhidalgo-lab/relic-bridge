@@ -418,3 +418,11 @@ database.
   [bulk secrets API](https://developers.cloudflare.com/changelog/post/2026-06-03-bulk-secrets-api/)). The master-key
   rotation runbook sets `RB_MASTER_KEY` and `RB_MASTER_KEY_PREVIOUS` this way.
 
+## 15. WAF rate-limiting rules as an admin-API backstop (P3-13, checked 2026-10-03)
+
+- Rate limiting rules are zone rules (dashboard: Security > Security rules > Create rule > Rate limiting rules). Free
+  plan: 1 rule, counting characteristic preset to IP, 10 s period, action Block, 10 s mitigation; Pro 2 rules, Business 5.
+  Counting only failed responses (`http.response.code in {401 403}` under "Increment counter when") is Business and up.
+  Source: https://developers.cloudflare.com/waf/rate-limiting-rules/ (availability table) and
+  https://developers.cloudflare.com/use-cases/solutions/stop-account-takeover-attacks/.
+

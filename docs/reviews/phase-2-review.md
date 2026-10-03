@@ -163,7 +163,7 @@ None.
   - unverified client snippets;
   - stale pending-decision and task text.
 
-**M6 — The auth-failure throttle also locks out valid tokens on a shared IP** — **pending**
+**M6 — The auth-failure throttle also locks out valid tokens on a shared IP** — **pending** (implemented in P3-13: only failures are refused; owner confirmation pending)
 - `packages/http-app/src/rate-limit-hooks.ts:96-105`.
 - **Impact:** after 10 failures in 5 minutes from an IP, every request from it gets 429, including requests with
   valid tokens (reproduced: the probe locked out its own valid token).

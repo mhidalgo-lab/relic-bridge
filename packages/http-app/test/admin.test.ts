@@ -13,9 +13,9 @@ import {
   MemoryRateLimiter,
   mergeHooks,
 } from '../src/index.ts';
-import { mockNerdGraph, NR_KEY, seedWorld, type World } from './fixtures.ts';
+import { mockNerdGraph, NR_KEY, randomAdminToken, seedWorld, type World } from './fixtures.ts';
 
-const ADMIN = `adm-${'k'.repeat(20)}-${'z'.repeat(20)}`;
+const ADMIN = randomAdminToken();
 /** A second key (rotation), shaped like a User key. */
 const NR_KEY_2 = 'NRAK-ROTATEDTESTKEY0123456789XYZ';
 const BASE = 'http://localhost/api/admin/v1';
@@ -255,10 +255,36 @@ describe('authentication (negative cases on every route)', () => {
         keyring: world.keyring,
         admin: { token: new Secret(`${'a'.repeat(40)} b`), storage: world.storage },
       }),
-    ).toThrow(/invalid characters/);
+    ).toThrow(/printable ASCII/);
   });
 
-  it('records failed admin authentication and throttles it per IP (T1)', async () => {
+  it('refuses predictable and placeholder admin tokens at construction, without echoing them (P3-13)', () => {
+    const weak = [
+      'a'.repeat(32),
+      'abc123'.repeat(6),
+      'abcdefghijklmnopqrstuvwxyz0123456789',
+      'aaaabbbbccccddddeeeeffffgggghhhh',
+      `changeme-${randomAdminToken('')}`,
+      `your-admin-token-${randomAdminToken('')}`,
+    ];
+    for (const value of weak) {
+      let message = '';
+      try {
+        createHttpApp({
+          storage: world.storage,
+          keyring: world.keyring,
+          admin: { token: new Secret(value), storage: world.storage },
+        });
+      } catch (error) {
+        message = String(error);
+      }
+      expect(message, value).toMatch(/too predictable|placeholder/);
+      expect(message).not.toContain(value);
+      expect(message).toContain('openssl rand');
+    }
+  });
+
+  it('records failed admin authentication and throttles it per IP (T1), never the valid token (P3-13)', async () => {
     const limiter = new MemoryRateLimiter({ clock: world.clock });
     const hooks = createRateLimitHooks({
       limiter,
@@ -268,26 +294,31 @@ describe('authentication (negative cases on every route)', () => {
     });
     const app = makeApp({ hooks });
     const ip = { 'x-test-ip': '203.0.113.9' };
+    const wrong = 'wrong-wrong-wrong-wrong-wrong-wrong-wrong';
     for (let i = 0; i < 3; i++) {
-      expect(
-        (await call(app, '/projects', { token: 'wrong-wrong-wrong-wrong-wrong-wrong-wrong', headers: ip }))
-          .status,
-      ).toBe(401);
+      expect((await call(app, '/projects', { token: wrong, headers: ip })).status).toBe(401);
     }
-    // Locked: even the right token is refused from this IP (no oracle), with the admin error shape.
-    const locked = await call(app, '/projects', { headers: ip });
+    // Locked for failures: a further bad token is refused with the admin error shape.
+    const locked = await call(app, '/projects', { token: wrong, headers: ip });
     expect(locked.status).toBe(429);
     expect(locked.json?.['error']?.code).toBe('rate_limited');
     expect(Number(locked.headers.get('retry-after'))).toBeGreaterThan(0);
+    expect((await call(app, '/projects', { token: null, headers: ip })).status).toBe(429);
+    // The valid admin token is still served from this IP (review M6), and does not unlock it for failures.
+    expect((await call(app, '/projects', { headers: ip })).status).toBe(200);
+    expect((await call(app, '/projects', { token: wrong, headers: ip })).status).toBe(429);
     // Another IP is fine.
-    expect((await call(app, '/projects', { headers: { 'x-test-ip': '203.0.113.10' } })).status).toBe(200);
+    expect(
+      (await call(app, '/projects', { token: wrong, headers: { 'x-test-ip': '203.0.113.10' } })).status,
+    ).toBe(401);
     await vi.waitFor(async () => {
       const denied = await world.storage.auditLog.list({ kind: 'auth' });
-      expect(denied.filter((r) => r.errorCode === 'admin_bad_token')).toHaveLength(3);
-      expect(denied.some((r) => r.action === 'request.rejected')).toBe(true);
+      // Every failure is recorded once as `auth.denied`, the throttled ones included; none as `request.rejected`.
+      expect(denied.filter((r) => r.errorCode === 'admin_bad_token')).toHaveLength(6);
+      expect(denied.some((r) => r.action === 'request.rejected')).toBe(false);
     });
-    const row = (await world.storage.auditLog.list({ kind: 'auth', action: 'auth.denied' }))[0];
-    expect(row?.details).toEqual({ ip: '203.0.113.9' });
+    const rows = await world.storage.auditLog.list({ kind: 'auth', action: 'auth.denied' });
+    expect(rows.filter((r) => (r.details as { ip?: string } | null)?.ip === '203.0.113.9')).toHaveLength(6);
   });
 });
 

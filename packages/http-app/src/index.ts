@@ -18,15 +18,19 @@ export {
 } from './admin/api.ts';
 export { ADMIN_ERROR_CODES, AdminApiError, type AdminErrorCode } from './admin/errors.ts';
 export {
+  ADMIN_TOKEN_ADVICE,
   type AdminTokenProblem,
   adminBearer,
+  adminTokenLooksWeak,
   checkAdminToken,
+  describeAdminTokenProblem,
   MAX_ADMIN_TOKEN_CHARS,
   MIN_ADMIN_TOKEN_CHARS,
 } from './admin/token.ts';
 export {
   type AdminApiOptions,
   type AuthFailureInfo,
+  type AuthScope,
   createHttpApp,
   DEFAULT_CALL_BUDGET,
   DEFAULT_MAX_BODY_BYTES,

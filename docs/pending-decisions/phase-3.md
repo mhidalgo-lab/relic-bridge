@@ -244,6 +244,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Options:** (a) let a verified token bypass `fail:<ip>`; (b) shared D1 failure counter; (c) both; plus a minimum
   entropy rule for the admin token.
 - **Needs:** owner's choice before P3-13 starts.
+- **Update:** P3-13 went ahead with (a) plus the entropy rule (see the P3-13 entries below).
 
 ### Review — real-account checks added by the review fixes
 - **Context:** `cf:setup` now deploys with `--keep-vars` and gives a non-default `--name` its own
@@ -251,4 +252,29 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Needs (owner, during the P3-05 real-account run):** (a) set `RB_ALLOWED_HOSTS` in the dashboard, re-run
   `pnpm cf:setup`, confirm it is still set; (b) `pnpm cf:setup --name relic-bridge-staging` creates a second D1
   database `relic-bridge-staging` (not the production one).
+
+## P3-13 — Admin token strength and failure throttle
+
+### P3-13 — M6 decided as "verified tokens bypass the failure throttle" (option a), without a shared D1 counter
+- **Context:** the owner was away; the task title asks that the throttle cannot lock out valid tokens.
+- **Assumption made:** option (a) on Node and Workers: failures are charged and, past the budget, answered 429; a
+  token that verifies is served. No shared D1 failure counter (b): it adds a D1 write per failed request (Free quota) and
+  a read on every failure path, while tokens are 256-bit and the admin token is now strength-checked; the documented
+  interim shared defence is an optional WAF rate-limiting rule on `/api/admin/*` (needs a custom domain; Free plan: one
+  rule, 10 s period). Pass-through keeps the strict pre-auth refusal (a locked IP cannot make the server call NerdGraph).
+- **Options:** keep; revert to "refuse everything from a locked IP" (restore the `peek` in `beforeAuth` for all scopes);
+  add the D1 counter now instead of waiting for the Durable Object limiter (P7-10).
+- **Needs:** owner confirmation (also closes Phase 2 review M6).
+
+### P3-13 — strength thresholds
+- **Context:** the task suggested "fewer than ~10 distinct characters". 32 random hex characters (`openssl rand -hex
+  16`, 128 bits) have fewer than 10 distinct characters about once in 7,700 draws, which would refuse a good token.
+- **Assumption made:** refuse below **8** distinct characters, plus a repeated block (period ≤ half the length), > 60 %
+  runs/±1 steps between neighbours, and a placeholder list (`changeme`, `replace-me`, `placeholder`, `example`,
+  `your-admin-token`, `password`, `admin-token`, …). Warn (boot continues) when estimated entropy < 100 bits, one
+  character class, no digit, > 40 % steps, or a common word (`admin`, `token`, `test`, `relic`, …). No dictionary is
+  shipped, so a long mixed-case word passphrase is not detected. The CLI `--remote` client applies the same check to the
+  token it reads, so a weak token configured on an older server is refused client-side too.
+- **Options:** other thresholds; make warnings refusals; ship a small word list.
+- **Needs:** nothing unless the owner wants stricter rules.
 

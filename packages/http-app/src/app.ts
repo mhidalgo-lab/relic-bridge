@@ -130,14 +130,31 @@ export interface AuthFailureInfo {
 }
 
 /**
+ * Which credential a route authenticates (P3-13): an MCP access token (`/p/:slug/mcp`), the bootstrap admin token
+ * (`/api/admin/*`) or a caller's New Relic key (pass-through). Checking the first two costs no outbound call; checking
+ * a New Relic key asks NerdGraph, so hooks may treat it more strictly.
+ */
+export type AuthScope = 'mcp_token' | 'admin_token' | 'passthrough_key';
+
+/**
  * Extension points for P2-07 (rate limiting) and P2-08 (audit). Hooks receive the Hono context so runtime-specific
  * code (client IP on Node, `waitUntil` on Workers) stays in the host.
  */
 export interface HttpAppHooks {
-  /** Before authentication (e.g. per-IP throttling of auth failures). Return a Response to stop the request. */
-  beforeAuth?(c: Context, requestId: string): Promise<Response | undefined> | Response | undefined;
-  /** After an authentication/authorization failure (the 401 is already decided). Must not throw. */
+  /** Before authentication (e.g. the per-IP request limit). Return a Response to stop the request. */
+  beforeAuth?(
+    c: Context,
+    requestId: string,
+    scope: AuthScope,
+  ): Promise<Response | undefined> | Response | undefined;
+  /** After an authentication/authorization failure (the request is refused). Must not throw. */
   onAuthFailure?(c: Context, info: AuthFailureInfo): void;
+  /**
+   * After an authentication failure and `onAuthFailure`, before the 401 goes out (P3-13): a returned Response (a 429
+   * for an address over its failure budget) is sent instead. Only failures reach it, so a credential that verifies is
+   * never refused by the failure throttle. Must not throw.
+   */
+  refuseAuthFailure?(c: Context, info: AuthFailureInfo): Promise<Response | undefined> | Response | undefined;
   /** After access resolution, before the MCP handler (rate limits). Return a Response (e.g. 429) to stop. */
   beforeMcp?(c: Context, info: McpRequestInfo): Promise<Response | undefined> | Response | undefined;
   /**
@@ -453,6 +470,30 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
       );
   };
 
+  // Every authentication failure: log and audit it (`onAuthFailure`), then let `refuseAuthFailure` answer instead of
+  // the 401 (the failure throttle's 429, P3-13). Never rejects: a failing hook never changes the answer. The audit row
+  // is the `auth.denied` one already written, so a 429 here is not also recorded as `request.rejected`.
+  const denyWith = async (
+    c: Context,
+    info: AuthFailureInfo,
+    log: Record<string, unknown>,
+    fallback: () => Response,
+  ): Promise<Response> => {
+    log['deny'] = info.reason;
+    try {
+      hooks.onAuthFailure?.(c, info);
+    } catch {
+      // A failing hook never changes the answer.
+    }
+    try {
+      const instead = await hooks.refuseAuthFailure?.(c, info);
+      if (instead) return instead;
+    } catch {
+      // As above.
+    }
+    return fallback();
+  };
+
   const mcp = createMcpHandler(
     (ctx: McpRequestContext) => {
       const scope = ctx.authInfo?.extra?.[SCOPE_KEY] as RequestScope | undefined;
@@ -679,9 +720,17 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
         ...(admin.audit
           ? { audit: (event: AdminAuditEvent) => admin.audit?.admin(event) ?? Promise.resolve() }
           : {}),
-        ...(hooks.beforeAuth ? { beforeAuth: hooks.beforeAuth } : {}),
+        ...(hooks.beforeAuth
+          ? { beforeAuth: (c: Context, id: string) => hooks.beforeAuth?.(c, id, 'admin_token') }
+          : {}),
         onAuthFailure: (c, reason) =>
           hooks.onAuthFailure?.(c, { requestId: c.get('requestId') as string, reason }),
+        ...(hooks.refuseAuthFailure
+          ? {
+              refuseAuthFailure: (c: Context, reason: string) =>
+                hooks.refuseAuthFailure?.(c, { requestId: c.get('requestId') as string, reason }),
+            }
+          : {}),
         onRejected: (c, status) =>
           notifyRejected(c, {
             requestId: c.get('requestId') as string,
@@ -707,22 +756,14 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
     if (tooLarge) return tooLarge;
 
     if (hooks.beforeAuth) {
-      const stop = await hooks.beforeAuth(c, requestId);
+      const stop = await hooks.beforeAuth(c, requestId, 'mcp_token');
       if (stop) {
         notifyRejected(c, { requestId, status: stop.status, reason: rejectReason(log) });
         return stop;
       }
     }
 
-    const deny = (reason: string): Response => {
-      log['deny'] = reason;
-      try {
-        hooks.onAuthFailure?.(c, { requestId, reason });
-      } catch {
-        // A failing hook never changes the answer.
-      }
-      return unauthorized();
-    };
+    const deny = (reason: string): Promise<Response> => denyWith(c, { requestId, reason }, log, unauthorized);
 
     // 6. Authenticate, then authorise for this slug. The token is checked before the slug is looked at, so slugs
     // can't be probed without a valid token (T19); every denial is the same 401.
@@ -903,22 +944,15 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
       if (tooLarge) return tooLarge;
 
       if (hooks.beforeAuth) {
-        const stop = await hooks.beforeAuth(c, requestId);
+        const stop = await hooks.beforeAuth(c, requestId, 'passthrough_key');
         if (stop) {
           notifyRejected(c, { requestId, status: stop.status, reason: rejectReason(log) });
           return stop;
         }
       }
 
-      const deny = (reason: string): Response => {
-        log['deny'] = reason;
-        try {
-          hooks.onAuthFailure?.(c, { requestId, reason });
-        } catch {
-          // A failing hook never changes the answer.
-        }
-        return passthroughUnauthorized();
-      };
+      const deny = (reason: string): Promise<Response> =>
+        denyWith(c, { requestId, reason }, log, passthroughUnauthorized);
 
       // The key is wrapped in a `Secret` at once; `Authorization` is not read on this route (T12).
       const presented = readPassthroughHeaders(

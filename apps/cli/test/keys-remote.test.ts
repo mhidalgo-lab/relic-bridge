@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // `keys rotate --remote` (P3-11): end to end against an in-process `serve` holding both master keys, and against a
 // scripted server for the loop's edge cases (rate limits, failures, a cursor that does not advance).
+import { randomBytes } from 'node:crypto';
 import { mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -14,7 +15,7 @@ import type { ManageHost } from '../src/manage/io.ts';
 import { serveSettings, startServer } from '../src/serve.ts';
 import { memoryFs } from './helpers.ts';
 
-const ADMIN = 'adm_'.padEnd(40, 'r');
+const ADMIN = `adm_${randomBytes(32).toString('base64url')}`;
 const K1 = generateMasterKey(1);
 const K2 = generateMasterKey(2);
 const nrKey = (i: number): string => `NRAK-REMOTEROTATION${String(i).padStart(13, '0')}`;

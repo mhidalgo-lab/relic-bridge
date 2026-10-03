@@ -82,3 +82,19 @@ have leaked, also rotate the New Relic User keys in New Relic and update them he
   last four characters).
 
 Details: [ADR-0007](../adr/0007-secrets-envelope-encryption.md), [threat model](../THREAT_MODEL.md) T7.
+
+## The admin token
+
+`RB_ADMIN_TOKEN` (or `RB_ADMIN_TOKEN_FILE` on Node) opens the admin API. It is not a key for encryption, but on
+Cloudflare it guards an internet-facing API, so it must be random:
+
+```bash
+relic-bridge admin-token generate      # or: openssl rand -base64 32
+```
+
+`serve` and the Worker refuse a token at start when it is shorter than 32 characters, has fewer than 8 distinct
+characters, repeats a block (`abc123abc123…`), is mostly runs or steps (`abcdef…`, `aaaabbbb…`) or contains a
+placeholder (`changeme`, `your-admin-token`, `example`, `password`). The error names the rule, never the value. A token
+that passes but does not look generated (low estimated entropy, no digits, common words such as `admin` or `test`)
+starts with a warning in the log. Change it by setting a new value and restarting (`wrangler secret put RB_ADMIN_TOKEN`
+on Cloudflare); `cf:setup` generates one for you.

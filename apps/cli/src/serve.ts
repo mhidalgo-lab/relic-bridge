@@ -12,6 +12,7 @@ import { type FetchLike, type Logger, Secret, VERSION } from '@relic-bridge/core
 import {
   AUDIT_NRQL_MODES,
   type AuditNrqlMode,
+  adminTokenLooksWeak,
   createAuditRecorder,
   createHttpApp,
   createRateLimitHooks,
@@ -41,6 +42,10 @@ export const DEFAULT_HOST = '127.0.0.1';
 /** How often `serve` deletes audit rows past retention. */
 export const AUDIT_PURGE_INTERVAL_MS = 3_600_000;
 export const DB_FILE_NAME = 'relic-bridge.db';
+/** Boot warning for an admin token that passes `checkAdminToken` but does not look generated (P3-13). */
+export const ADMIN_TOKEN_WEAK_WARNING =
+  'RB_ADMIN_TOKEN does not look randomly generated. Anyone who reaches the admin API can guess at it: ' +
+  'use `openssl rand -base64 32` or `relic-bridge admin-token generate`.';
 
 const LOOPBACK = new Set(['127.0.0.1', 'localhost', '::1', '[::1]']);
 
@@ -344,6 +349,9 @@ export async function startServer(options: StartServerOptions): Promise<RunningS
   const keyring = await loadKeyringFromEnv(resolveMasterKeyEnv(options.env, options.fs, options.platform));
   // Admin API (P2-09): on only with a bootstrap admin token; checked before the database is touched.
   const adminToken = resolveAdminToken(options.env, options.fs, options.platform);
+  if (adminToken !== undefined && adminTokenLooksWeak(adminToken)) {
+    logger.warn(ADMIN_TOKEN_WEAK_WARNING);
+  }
   const created = !existsSync(settings.dbPath);
   const storage = await openSqliteStorage({ path: settings.dbPath });
   try {

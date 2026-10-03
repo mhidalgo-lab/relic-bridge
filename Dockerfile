@@ -12,6 +12,7 @@ WORKDIR /src
 RUN corepack enable
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
 COPY apps/cli/package.json apps/cli/
+COPY packages/admin-ui/package.json packages/admin-ui/
 COPY packages/auth/package.json packages/auth/
 COPY packages/core/package.json packages/core/
 COPY packages/http-app/package.json packages/http-app/

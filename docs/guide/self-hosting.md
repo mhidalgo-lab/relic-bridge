@@ -39,6 +39,12 @@ relic-bridge serve --port 9000 --db /var/lib/relic-bridge/relic-bridge.db
 | `RB_ALLOWED_ORIGINS` | = `RB_ALLOWED_HOSTS` | Hostnames allowed in a browser `Origin` header; a request with any other `Origin` (or `null`) is refused with 403. Requests without `Origin` (every non-browser MCP client) pass. |
 | `RB_CORS_ORIGINS` | none (CORS off) | Origins (`https://app.example.com`) that may call the MCP endpoints from a browser. |
 | `RB_ACCESS_CACHE_TTL` | `30` | Seconds a token's resolved access is cached, `0`-`60`. A revoked token, grant or project stops working within this time; `0` disables the cache. Never longer than the token's or grant's expiry. |
+| `RB_RATE_LIMIT` | `on` | `off` disables all rate limiting (not recommended; warned at start). |
+| `RB_RATE_LIMIT_IP` | `600/60` | Requests per client IP before authentication: `<requests>/<seconds>` (bucket size / refill window) or `off`. |
+| `RB_RATE_LIMIT_AUTH_FAIL` | `10/300` | Failed authentications per client IP. Past it, **every** request from that IP gets `429` (valid token or not) until the bucket refills (one failure per 30 s with the default). |
+| `RB_RATE_LIMIT_TOKEN` | `120/60` | Requests per access token. |
+| `RB_RATE_LIMIT_GRANT` | `300/60` | Requests per grant, unless the grant has its own `rateLimit`, which replaces this. |
+| `RB_TRUSTED_PROXY_HOPS` | `0` | Reverse proxies in front of the server (0-5). `X-Forwarded-For` is only believed for that many hops, counted from the right; with `0` the socket address is the client. **Set it behind a proxy**, or all clients share the proxy's address and one bad device can lock the others out. |
 | `RB_HSTS` | `auto` | `Strict-Transport-Security` when the request arrived over https; `true` behind a TLS-terminating proxy. |
 | `RB_LOG_LEVEL` | `info` | One JSON line per request on stderr (never the token or the New Relic key). |
 
@@ -54,6 +60,11 @@ relic-bridge serve --port 9000 --db /var/lib/relic-bridge/relic-bridge.db
 - Security headers on every response: `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`,
   `X-Frame-Options: DENY`, `Content-Security-Policy: default-src 'none'; frame-ancestors 'none'`,
   `Cache-Control: no-store`, and HSTS as configured.
+- **Rate limits** (in memory, per process): `429` with `Retry-After` and a JSON-RPC error telling the agent to slow
+  down. Per-IP request and failed-authentication limits apply before authentication and are the same for valid and
+  invalid tokens, so a `429` never tells a guesser anything; per-token and per-grant limits apply after. IPv6 clients are
+  counted per /64. `subscriptions/listen` isn't counted. Devices behind one NAT share a failure budget: a device
+  retrying an expired token can block the others for a few minutes. Several server processes each keep their own counters.
 - Storage errors answer `503` (fail closed), never "allowed".
 - `subscriptions/listen` (opened by 2026-era clients such as Claude Code) is acknowledged and closed at once: the
   server has no change notifications to push.

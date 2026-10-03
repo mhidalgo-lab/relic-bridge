@@ -243,3 +243,15 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   don't discard a valid token. This reveals only that the server is unhealthy, independent of slug or token.
 - **Options:** as assumed; answer 401 for everything (clients may then prompt for re-authentication during an outage).
 - **Needs:** nothing unless the owner prefers 401.
+
+### P2-07 — Rate limit defaults and failure behaviour
+- **Context:** no figures were specified; the limiter must also not become an oracle for token validity.
+- **Assumption made:** IP 600/min and auth failures 10 per 5 min (pre-auth), token 120/min, grant 300/min (a grant's own
+  `rateLimit` replaces the default). All tunable via `RB_RATE_LIMIT_*` (`off` per rule or `RB_RATE_LIMIT=off`). The
+  failure throttle refuses *every* request from a locked IP (valid token or not), accepting that devices behind one NAT
+  share the budget. A limiter that errors fails **open** (logged). `RB_TRUSTED_PROXY_HOPS` defaults to 0 (forwarded
+  headers ignored).
+- **Options:** as assumed; fail closed on limiter errors (503); let valid tokens through a locked IP (leaks validity,
+  rejected); a global per-credential limit now (P7-10).
+- **Needs:** owner OK of the figures, once real clients (P5-06, Claude mobile) show their request patterns.
+

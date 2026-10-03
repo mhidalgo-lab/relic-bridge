@@ -157,7 +157,10 @@ Implemented by `createHttpApp` in `packages/http-app` (P2-06); `relic-bridge ser
 3. **Resolve grant**: effective tools, accounts, limits and credential (`resolveAccess`), cached per isolate for
    0-60 s (default 30 s), never past the token's or grant's expiry, keyed by token hash + slug, holding no plaintext
    key. Every denial in steps 2-3 is the same 401; storage errors are 503.
-4. **Rate limit**: per grant/token (P2-07, `beforeMcp` hook; Workers Rate Limiting binding or in-memory on Node).
+4. **Rate limit** (P2-07, `createRateLimitHooks` over a pluggable `RateLimiter`; bounded in-memory token bucket on
+   Node, Workers/Durable Object implementations in P3-04/P7-10). Before step 2 (`beforeAuth`): per-IP request limit and
+   the per-IP auth-failure throttle (refuses the IP whatever token it sends); failures are charged in `onAuthFailure`.
+   After step 3 (`beforeMcp`): per token and per grant (the grant's `rateLimit` wins). 429 + `Retry-After`.
    `subscriptions/listen` is flagged so it isn't counted as a tool call.
 5. **Build MCP server**: one `createMcpHandler(factory, { legacy: 'stateless' })` per app; the per-request scope
    (granted tool definitions + `ToolContext { credential (decrypted for this request), accounts, budget, limiter,

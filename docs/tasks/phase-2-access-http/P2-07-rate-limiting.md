@@ -2,7 +2,7 @@
 id: P2-07
 title: Rate limiting (pluggable)
 phase: 2
-status: in-progress
+status: review
 priority: high
 depends_on: [P2-06]
 adr: [0010]
@@ -38,14 +38,14 @@ an interface that Workers (P3-04) and a Durable Object limiter (P7-10) can imple
 - P2-15 (pass-through) reuses the limiter with its own keys (`key:<hash>`, `ip:`); nothing here is grant-specific.
 
 ## Acceptance criteria
-- [ ] Token-bucket tests: burst, refill, retry-after, cost, peek, rule change, clock jumps, bounded memory and
+- [x] Token-bucket tests: burst, refill, retry-after, cost, peek, rule change, clock jumps, bounded memory and
       eviction (idle first, LRU), key isolation.
-- [ ] Auth-failure throttling: after N failures an IP is refused (429) for valid and invalid tokens alike; other IPs
+- [x] Auth-failure throttling: after N failures an IP is refused (429) for valid and invalid tokens alike; other IPs
       unaffected; recovers after the refill; X-Forwarded-For is ignored unless trusted proxies are configured.
-- [ ] Per-token and per-grant limits over HTTP with an SDK client; the grant's `rateLimit` overrides the default;
+- [x] Per-token and per-grant limits over HTTP with an SDK client; the grant's `rateLimit` overrides the default;
       listen requests are not counted; 429 has `Retry-After`.
-- [ ] Negative tests: the 429 for an IP does not depend on token validity; no secret in 429 bodies/logs.
-- [ ] `serve` settings parsing and an end-to-end throttle through Node.
+- [x] Negative tests: the 429 for an IP does not depend on token validity; no secret in 429 bodies/logs.
+- [x] `serve` settings parsing and an end-to-end throttle through Node.
 
 ## Security notes
 T1, T5, T20. Single-process limits only: with several replicas each has its own buckets (P7-10).

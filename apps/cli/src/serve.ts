@@ -260,6 +260,7 @@ export async function startServer(options: StartServerOptions): Promise<RunningS
   for (const w of settings.warnings) logger.warn(w);
 
   // Two bounded in-memory stores: unauthenticated traffic (IP keys) can't push token/grant buckets out of the other.
+  let warnedForwarded = false;
   const hooks =
     settings.rateLimits === null
       ? undefined
@@ -274,6 +275,13 @@ export async function startServer(options: StartServerOptions): Promise<RunningS
               socketIp = getConnInfo(c).remote.address;
             } catch {
               // not served through the Node adaptor (in-process call)
+            }
+            if (!warnedForwarded && settings.trustedProxyHops === 0 && c.req.header('x-forwarded-for')) {
+              warnedForwarded = true;
+              logger.warn(
+                'X-Forwarded-For seen but RB_TRUSTED_PROXY_HOPS=0: behind a reverse proxy every client shares the ' +
+                  "proxy's address for rate limiting. Set RB_TRUSTED_PROXY_HOPS to the number of proxies.",
+              );
             }
             return resolveClientIp({
               socketIp,

@@ -73,9 +73,19 @@ See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) §2 and §8. In short:
 
 ## Testing
 
-- Unit and contract tests with Vitest (`pnpm test`).
-- NerdGraph is mocked with **sanitized** fixtures (`packages/core/test/fixtures/`). Never commit real data.
-- Optional live tests (`pnpm test:live`, from P1-12) read real data using your own key from env vars.
+- `pnpm test` runs unit and contract tests with Vitest. `pnpm test:coverage` adds the coverage gate for
+  `packages/core` (85% lines/statements/functions, 75% branches); CI runs it.
+- NerdGraph is never called over the network in tests. Tools take an injected `fetch`; tests replay **sanitized**
+  fixtures (`packages/core/test/fixtures/nerdgraph/`, loaded through `test/helpers/nerdgraph.ts`) or the routed mock in
+  `test/helpers/mock-nerdgraph.ts`. Never commit real data. (We use an injected `fetch` rather than msw: the core is
+  runtime-agnostic and has no HTTP-interception layer to hook.)
+- **MCP contract tests** (`packages/core/test/contract.test.ts`) iterate the tool registry and drive every tool through
+  an in-memory MCP client (`test/helpers/mcp.ts`): listing, annotations, schemas, a sample call whose structured output
+  must validate, and rejection of bad arguments. Adding a tool without a sample call in that file fails the suite.
+- **Live suite** (`pnpm test:live`, optional, read-only): set `RB_LIVE_API_KEY` (a User key), `RB_LIVE_ACCOUNT_ID` and
+  optionally `RB_LIVE_REGION` (`US` default, `EU`, `JP`). Without them every test is skipped. It never prints the key.
+  It is not part of `pnpm test` or PR CI; the manual `Live` workflow runs it from a protected `live` environment.
+- A new tool or route also needs negative authorization tests.
 
 ## License
 

@@ -1,7 +1,12 @@
 # Quickstart: local stdio
 
 Run relic-bridge on your machine and connect your MCP client to it. You need Node.js 24.11 or later and a New Relic
-**User** API key (`NRAK-…`; create one under *API keys* in New Relic, type *User*). Ingest and license keys don't work.
+**User** API key (`NRAK-…`; create one under *API keys* in New Relic, type *User*; see New Relic's
+[API keys docs](https://docs.newrelic.com/docs/apis/intro-apis/new-relic-api-keys/)). Ingest and license keys don't
+work. Use a dedicated key ([security basics](security-basics.md)).
+
+Your region is where your account lives: `US` for `one.newrelic.com`, `EU` for `one.eu.newrelic.com`, `JP` if New
+Relic set you up in Japan. Your account id is shown in the account picker of the New Relic UI.
 
 > Until v0.1 is published to npm (P1-15), build from a clone instead of `npx`:
 > `pnpm install && pnpm build`, then use `node /path/to/relic-bridge/apps/cli/dist/index.mjs` wherever the examples say
@@ -22,7 +27,7 @@ claude mcp add relic \
   -- npx -y relic-bridge
 ```
 
-**JSON config** (Claude Desktop, Cursor and others use this shape)
+**JSON config** (Claude Desktop, Cursor and others use this shape; VS Code differs, see the [client guides](clients.md))
 
 ```json
 {
@@ -39,8 +44,6 @@ claude mcp add relic \
   }
 }
 ```
-
-Ask the agent "who am I in New Relic?": it calls `whoami` and shows your user, region and default account.
 
 ## 2. Several projects: YAML mode
 
@@ -76,15 +79,14 @@ Use an absolute path for `--config`: the client decides the working directory.
 
 All options: [configuration reference](configuration.md). How limits behave: [query limits](query-limits.md).
 
-## Troubleshooting
+## 4. Check it works
 
-The server logs JSON lines to stderr (Claude Code: `claude --debug`, or the client's MCP log).
+Ask the agent "who am I in New Relic?": it calls `whoami` and shows your user, region and default account. Then try
+"which event types does my account have?" (`list_event_types`) and a query such as
+`SELECT count(*) FROM Transaction SINCE 1 hour ago`.
 
-| Message | Fix |
-|---|---|
-| `NEW_RELIC_API_KEY is not set` | Put the variable in the client's `env` block for this server. |
-| `apiKey refers to ${…}, which is not set` | Same, with the variable named in the message. |
-| `RB_AUTH_INVALID_KEY` | Use a User key (`NRAK-…`). |
-| `… has N projects; choose one with --project` | Add `--project <slug>`. |
-| `Unknown tool name(s)` | Fix the name in `tools` / `RB_TOOLS`; the message lists the valid ones. |
-| Wrong-region error from a tool | Set `region` / `NEW_RELIC_REGION` to the account's data center. |
+## Next steps
+
+- Per-client setup (Claude Code, Claude Desktop, Cursor, VS Code): [client guides](clients.md)
+- [Security basics](security-basics.md): dedicated key, read-only tools, prompt-injection note
+- Something wrong? [Troubleshooting](troubleshooting.md)

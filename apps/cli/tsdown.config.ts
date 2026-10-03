@@ -14,9 +14,10 @@ export default defineConfig({
   platform: 'node',
   dts: false,
   clean: true,
-  // `@relic-bridge/core` is bundled from source; the MCP SDK, zod and yaml stay runtime dependencies.
+  // `@relic-bridge/core` and `@relic-bridge/storage` are bundled from source; the MCP SDK, zod and yaml stay runtime dependencies.
   alias: {
     '@relic-bridge/core': fileURLToPath(new URL('../../packages/core/src/index.ts', import.meta.url)),
+    '@relic-bridge/storage': fileURLToPath(new URL('../../packages/storage/src/index.ts', import.meta.url)),
   },
   define: { __RB_TEST_HOOKS__: JSON.stringify(testHooks) },
 });

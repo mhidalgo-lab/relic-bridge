@@ -52,6 +52,7 @@
   "devDependencies": {
     "@modelcontextprotocol/client": "2.2.0",
     "@relic-bridge/core": "workspace:*",
+    "@relic-bridge/storage": "workspace:*",
     "tsdown": "0.23.0"
   }
 }

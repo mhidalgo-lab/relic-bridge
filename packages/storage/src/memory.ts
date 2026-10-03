@@ -556,6 +556,11 @@ export function createMemoryStorage(options: MemoryStorageOptions = {}): Storage
     async delete(key) {
       kv.delete(key);
     },
+    async take(key) {
+      const value = live(key)?.value ?? null;
+      kv.delete(key);
+      return value;
+    },
     async list(opts = {}): Promise<KvListResult> {
       checkLimit(opts.limit, 'kv.limit');
       const limit = Math.min(Math.max(1, Math.trunc(opts.limit ?? KV_MAX_LIST)), KV_MAX_LIST);

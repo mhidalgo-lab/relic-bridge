@@ -426,6 +426,11 @@ export interface KvRepository {
   get(key: string): Promise<string | null>;
   put(key: string, value: string, options?: KvPutOptions): Promise<void>;
   delete(key: string): Promise<void>;
+  /**
+   * Atomic read-and-delete (P4-01): resolves the live value and removes the key in one step, or `null` when there is
+   * no live value. Of concurrent calls for one key at most one gets the value (single-use login state, setup links).
+   */
+  take(key: string): Promise<string | null>;
   /** Keys in lexicographic order. `limit` default and max 1000. */
   list(options?: {
     readonly prefix?: string;

@@ -2,7 +2,6 @@
 import { z } from 'zod';
 import type { ToolContext } from '../context.ts';
 import { ErrorCode, RbError } from '../errors.ts';
-import { nerdGraphFor } from '../nerdgraph/client.ts';
 import { GOLDEN_METRICS_QUERY } from '../nerdgraph/entities.ts';
 import { type NrqlComplete, runTrustedNrql } from '../nrql/engine.ts';
 import { tokenize } from '../nrql/tokenize.ts';
@@ -12,13 +11,17 @@ import { parseTimeRange } from '../time/range.ts';
 import { defineTool, type ToolDefinition } from '../tool.ts';
 import { checkGuid, isNonNull, outOfScope, requireField } from './entities.ts';
 import { cleanName } from './identity.ts';
-import type { ToolDeps } from './query.ts';
+import {
+  accountIdSchema as accountId,
+  assertWindowWithinLimit,
+  type ToolDeps,
+  toolClient,
+} from './shared.ts';
 
 export const DEFAULT_GOLDEN_SINCE = 'last 30 minutes';
 const DEFAULT_MAX_METRICS = 10;
 const MAX_METRICS = 20;
 const MAX_QUERY_CHARS = 4096;
-const DAY_MS = 86_400_000;
 /** Relative change between the two halves of the window that still counts as flat. */
 export const FLAT_BAND = 0.05;
 /** Fewest data points needed to call a trend. */
@@ -192,11 +195,7 @@ const pct = (r: number | null) => (r === null ? '' : `${r >= 0 ? '+' : ''}${(r *
 
 /** `get_golden_metrics`. */
 export function createGoldenMetricTools(deps: ToolDeps = {}): ToolDefinition[] {
-  const client = (ctx: ToolContext) =>
-    nerdGraphFor(ctx, {
-      ...(deps.fetch ? { fetch: deps.fetch } : {}),
-      ...(deps.sleep ? { sleep: deps.sleep } : {}),
-    });
+  const client = toolClient(deps);
 
   async function runMetric(
     ctx: ToolContext,
@@ -261,13 +260,7 @@ export function createGoldenMetricTools(deps: ToolDeps = {}): ToolDefinition[] {
       const decoded = checkGuid(ctx, args.guid);
       const sinceText = args.since ?? DEFAULT_GOLDEN_SINCE;
       const range = parseTimeRange(sinceText, ctx.clock.now());
-      if (range.windowMs > ctx.limits.maxWindowDays * DAY_MS) {
-        throw new RbError(
-          ErrorCode.LimitQuery,
-          `The window is longer than the ${ctx.limits.maxWindowDays}-day limit of this connection.`,
-          { hint: `Use a shorter window, e.g. "last ${ctx.limits.maxWindowDays} days".` },
-        );
-      }
+      assertWindowWithinLimit(range, ctx.limits);
       const wantSeries = args.timeseries ?? true;
 
       const result = await client(ctx).query(GOLDEN_METRICS_QUERY, { guid: args.guid });

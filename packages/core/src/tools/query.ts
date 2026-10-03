@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 import { z } from 'zod';
 import type { ToolContext } from '../context.ts';
-import { type FetchLike, nerdGraphFor } from '../nerdgraph/client.ts';
 import {
   DEFAULT_MAX_POLLS,
   getQueryResult,
   MAX_NRQL_TIMEOUT_S,
   type NrqlOutcome,
+  QUERY_ID_RE,
   runRawNrql,
 } from '../nrql/engine.ts';
 import { assertRawNrqlAllowed } from '../nrql/limits.ts';
@@ -19,26 +19,14 @@ import {
 } from '../output/format.ts';
 import { nrqlResultSchema, shapeNrqlOutcome } from '../output/nrql.ts';
 import { defineTool, type ToolDefinition } from '../tool.ts';
+import { accountIdSchema as accountId, type ToolDeps, toolClient } from './shared.ts';
 
-/**
- * Runtime dependencies for built-in tools. Set once when the tool list is built (tests, the CLI's mock endpoint);
- * never request data — credentials, accounts and limits always come from the per-request `ToolContext` (T21).
- */
-export interface ToolDeps {
-  /** fetch used for NerdGraph calls. Default: global fetch. */
-  readonly fetch?: FetchLike;
-  /** Wait used between retries and polls. Default: setTimeout. */
-  readonly sleep?: (ms: number) => Promise<void>;
-}
+export type { ToolDeps };
 
 /** Longest NRQL text `run_nrql` accepts. Real queries are far shorter; this bounds parsing work (T5). */
 export const MAX_NRQL_CHARS = 4096;
 /** Most accounts one cross-account `run_nrql` call may name. */
 export const MAX_QUERY_ACCOUNTS = 20;
-
-const QUERY_ID_RE = /^[A-Za-z0-9._:-]{1,256}$/;
-
-const accountId = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
 
 const format = z
   .enum(OUTPUT_FORMATS as [OutputFormat, ...OutputFormat[]])
@@ -120,11 +108,7 @@ Pass the query_id and account from that response. If it is still running you get
 
 /** `run_nrql` and `get_query_result`. Both need raw NRQL enabled on the connection (`limits.rawNrql`). */
 export function createQueryTools(deps: ToolDeps = {}): ToolDefinition[] {
-  const client = (ctx: ToolContext) =>
-    nerdGraphFor(ctx, {
-      ...(deps.fetch ? { fetch: deps.fetch } : {}),
-      ...(deps.sleep ? { sleep: deps.sleep } : {}),
-    });
+  const client = toolClient(deps);
 
   const runNrql = defineTool({
     name: 'run_nrql',

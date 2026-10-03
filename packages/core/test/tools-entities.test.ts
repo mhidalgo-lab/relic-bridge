@@ -157,6 +157,19 @@ describe('search_entities', () => {
     expect(text(r)).toContain('left out');
   });
 
+  it('shows the scope note only for scope drops, not when NerdGraph returns more than limit', async () => {
+    const { client } = await setup([
+      searchBody([
+        entity(A, 'a1', { guid: guidOf(A, 'APM', 'APPLICATION', '1') }),
+        entity(A, 'a2', { guid: guidOf(A, 'APM', 'APPLICATION', '2') }),
+      ]),
+    ]);
+    const r = await client.callTool({ name: 'search_entities', arguments: { limit: 1 } });
+    const s = r.structuredContent as { entities: unknown[] };
+    expect(s.entities).toHaveLength(1);
+    expect(text(r)).not.toContain('left out');
+  });
+
   it('restricts to one requested account and drops the others', async () => {
     const { client, calls } = await setup([searchBody([entity(A, 'a'), entity(B, 'b')])]);
     const r = await client.callTool({ name: 'search_entities', arguments: { account: B } });
@@ -285,6 +298,14 @@ describe('get_entity', () => {
     expect(calls).toHaveLength(0);
   });
 
+  it('refuses an entity whose returned account differs from the GUID, even if allowed', async () => {
+    const { client, calls } = await setup([entityBody(entity(B, 'x', { guid: GUID_A }))]);
+    const r = await client.callTool({ name: 'get_entity', arguments: { guid: GUID_A } });
+    expect(errorCode(r)).toBe(ErrorCode.AuthForbidden);
+    expect(calls).toHaveLength(1);
+    expect(text(r)).not.toContain('"x"');
+  });
+
   it('refuses an entity whose returned account is not allowed', async () => {
     const { client } = await setup([entityBody(entity(OTHER, 'smuggled', { guid: GUID_A }))]);
     const r = await client.callTool({ name: 'get_entity', arguments: { guid: GUID_A } });
@@ -367,6 +388,28 @@ describe('get_related_entities', () => {
     expect(s.hiddenOutsideScope).toBe(true);
     expect(text(r)).not.toContain('secret-other');
     expect(text(r)).not.toContain(String(OTHER));
+  });
+
+  it('refuses a mismatching or missing returned account', async () => {
+    const body = (accountId: number | null) =>
+      json({
+        data: {
+          actor: {
+            entity: {
+              guid: GUID_A,
+              accountId,
+              name: 'self',
+              relatedEntities: { nextCursor: null, results: [] },
+            },
+          },
+        },
+      });
+    const { client, calls } = await setup([body(B), body(null)]);
+    const mismatch = await client.callTool({ name: 'get_related_entities', arguments: { guid: GUID_A } });
+    expect(errorCode(mismatch)).toBe(ErrorCode.AuthForbidden);
+    const missing = await client.callTool({ name: 'get_related_entities', arguments: { guid: GUID_A } });
+    expect(missing.isError).toBe(true);
+    expect(calls).toHaveLength(2);
   });
 
   it('refuses a GUID from another account and bad filters without a request', async () => {

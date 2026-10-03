@@ -237,11 +237,18 @@ function complete(
   };
 }
 
+/** Characters a query handle may contain; `get_query_result` accepts the same. */
+export const QUERY_ID_RE: RegExp = /^[A-Za-z0-9._:-]{1,256}$/;
+
 function pending(container: NrdbContainer, account: number, polls: number): NrqlPending | undefined {
   const p = container.queryProgress;
   if (p?.completed !== false) return undefined;
   if (!p.queryId) {
     throw new RbError(ErrorCode.NerdGraphError, 'NerdGraph reported an unfinished query without a query id.');
+  }
+  // The handle is echoed in text outside the envelope: only a value get_query_result would accept goes through.
+  if (!QUERY_ID_RE.test(p.queryId)) {
+    throw new RbError(ErrorCode.NerdGraphError, 'NerdGraph returned a query id in an unexpected format.');
   }
   return {
     status: 'pending',
@@ -430,7 +437,7 @@ export async function getQueryResult(
   deps: Pick<NrqlDeps, 'client'> = {},
 ): Promise<NrqlOutcome> {
   const [account] = resolveAccounts(ctx, [input.account]);
-  if (typeof input.queryId !== 'string' || !/^[A-Za-z0-9._:-]{1,256}$/.test(input.queryId)) {
+  if (typeof input.queryId !== 'string' || !QUERY_ID_RE.test(input.queryId)) {
     throw new RbError(ErrorCode.InputInvalid, 'queryId is not a valid query handle.');
   }
   const started = ctx.clock.now();

@@ -2,21 +2,26 @@
 id: P1-13
 title: Generated tool reference docs
 phase: 1
-status: todo
+status: in-progress
 priority: medium
 depends_on: [P1-06]
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P1-13 — Generated tool reference docs
 
 ## Scope
-- `pnpm docs:tools` generates `docs/reference/tools.md` from the registry (name, description, inputs, outputs, annotations, cost, phase).
-- CI check: generated file up to date.
+- `pnpm docs:tools` generates `docs/reference/tools.md` from `createBuiltinTools()` (name, title, group, description,
+  input and output fields from the JSON Schema, derived MCP annotations, cost, phase). Output is deterministic.
+- `pnpm docs:tools --check` exits non-zero when the file is stale; it runs as part of `pnpm lint` (so CI).
+- Generator lives in `scripts/gen-tool-docs.ts` (not shipped; may import core since scripts are Node-only) with a unit test.
+- Config-file reference generation is out of scope (new task if wanted).
 
 ## Acceptance criteria
-- [ ] Changing a tool description without regenerating fails CI.
+- [ ] Changing a tool description without regenerating fails `pnpm lint` (and so CI).
+- [ ] `docs/reference/tools.md` lists all 13 tools with inputs, outputs, annotations, cost and phase.
+- [ ] Generator test covers rendering and staleness detection.
 
 ## Security notes
 none.

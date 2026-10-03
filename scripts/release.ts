@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // Release helpers (P1-15), used by .github/workflows/release.yml and `pnpm version-packages`.
 //
-//   node scripts/release.ts plan                 → prints `mode=version|publish|none` and `version=<semver>` lines
+//   node scripts/release.ts plan                 → prints `mode=version|publish|release|none` and `version=<semver>`
+//                                                  lines (needs GITHUB_REPOSITORY, GITHUB_SHA and a GH_TOKEN that can
+//                                                  read the repository when there are no pending changesets)
 //   node scripts/release.ts notes <version>      → prints the CHANGELOG section of <version>
 //   node scripts/release.ts sync-version [--check] → writes (or checks) VERSION in packages/core/src/version.ts
 //
@@ -17,7 +19,28 @@ export const VERSION_FILE = 'packages/core/src/version.ts';
 /** Strict SemVer (no build metadata), so the value is safe to put into workflow outputs and tag names. */
 export const SEMVER_RE = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
 
-export type ReleaseMode = 'version' | 'publish' | 'none';
+/**
+ * - `version`: changesets pending → open/update the version PR.
+ * - `publish`: the version is not on npm → build, publish and create the GitHub Release.
+ * - `release`: the version is on npm but there is no GitHub Release (an earlier run failed after `npm publish`) →
+ *   rebuild, check the tarball is byte-identical to the published one, and create only the GitHub Release.
+ * - `none`: nothing to do.
+ */
+export type ReleaseMode = 'version' | 'publish' | 'release' | 'none';
+
+/** What `plan` knows about the current version. `tagCommit` is the commit `v<version>` points at, if the tag exists. */
+export interface ReleaseState {
+  pending: number;
+  published: boolean;
+  released: boolean;
+  tagCommit: string | undefined;
+  headSha: string;
+}
+
+/** Full 40-hex commit SHA (what GITHUB_SHA and the git refs API return). */
+export const COMMIT_SHA_RE = /^[0-9a-f]{40}$/;
+/** `owner/name`, as in GITHUB_REPOSITORY. */
+export const REPO_RE = /^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/;
 
 /** Changeset files waiting to be versioned (everything in `.changeset/` except its README and config). */
 export function pendingChangesets(files: readonly string[]): string[] {
@@ -28,6 +51,27 @@ export function pendingChangesets(files: readonly string[]): string[] {
 export function decideMode(pending: number, alreadyPublished: boolean): ReleaseMode {
   if (pending > 0) return 'version';
   return alreadyPublished ? 'none' : 'publish';
+}
+
+/**
+ * The release mode, including the idempotent `release` mode for reruns. Throws when releasing would be unsafe:
+ * the tag `v<version>` already exists on a commit other than the one being built, or a GitHub Release exists for a
+ * version npm doesn't have (out-of-order state that needs a human).
+ */
+export function decidePlan(state: ReleaseState): ReleaseMode {
+  if (state.pending > 0) return 'version';
+  if (state.published && state.released) return 'none';
+  if (!state.published && state.released) {
+    throw new Error(
+      'A GitHub Release exists for a version that is not on npm; fix it by hand before releasing',
+    );
+  }
+  if (state.tagCommit !== undefined && state.tagCommit !== state.headSha) {
+    throw new Error(
+      `Tag already exists on commit ${state.tagCommit}, not on ${state.headSha}; refusing to release from another commit`,
+    );
+  }
+  return state.published ? 'release' : 'publish';
 }
 
 /** The body of the `## <version>` section of a Changesets CHANGELOG, without the heading. */
@@ -79,6 +123,56 @@ function isPublished(name: string, version: string): boolean {
   }
 }
 
+/** `gh api <path>` as JSON, or `undefined` on HTTP 404. Any other error is fatal. */
+function ghApi(path: string): unknown {
+  try {
+    const out = execFileSync('gh', ['api', '-H', 'Accept: application/vnd.github+json', path], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    return JSON.parse(out) as unknown;
+  } catch (error) {
+    const stderr = String((error as { stderr?: unknown }).stderr ?? '');
+    if (/HTTP 404/.test(stderr)) return undefined;
+    throw error;
+  }
+}
+
+interface GitObject {
+  object?: { sha?: unknown; type?: unknown };
+}
+
+/**
+ * The commit a tag points at, following annotated tags. `fetchJson` is `ghApi` (injected for tests).
+ * Returns `undefined` when the tag does not exist.
+ */
+export function resolveTagCommit(
+  repo: string,
+  tag: string,
+  fetchJson: (path: string) => unknown,
+): string | undefined {
+  let ref = fetchJson(`repos/${repo}/git/ref/tags/${tag}`) as GitObject | undefined;
+  for (let depth = 0; depth < 5; depth++) {
+    if (ref === undefined) return depth === 0 ? undefined : fail(`dangling annotated tag ${tag}`);
+    const { sha, type } = ref.object ?? {};
+    if (typeof sha !== 'string' || !COMMIT_SHA_RE.test(sha)) return fail(`unexpected ref data for ${tag}`);
+    if (type === 'commit') return sha;
+    if (type !== 'tag') return fail(`tag ${tag} points at a ${String(type)}, not a commit`);
+    ref = fetchJson(`repos/${repo}/git/tags/${sha}`) as GitObject | undefined;
+  }
+  return fail(`tag ${tag} is nested too deeply`);
+}
+
+function fail(message: string): never {
+  throw new Error(message);
+}
+
+function requireEnv(name: string, re: RegExp): string {
+  const value = process.env[name];
+  if (value === undefined || !re.test(value)) throw new Error(`${name} is missing or malformed`);
+  return value;
+}
+
 function main(argv: readonly string[]): number {
   const root = fileURLToPath(new URL('..', import.meta.url));
   const [command, arg] = argv;
@@ -86,7 +180,24 @@ function main(argv: readonly string[]): number {
     case 'plan': {
       const version = cliVersion(root);
       const pending = pendingChangesets(readdirSync(`${root}/.changeset`)).length;
-      const mode = decideMode(pending, pending > 0 ? false : isPublished(PACKAGE_NAME, version));
+      let mode: ReleaseMode = 'version';
+      if (pending === 0) {
+        const tag = `v${version}`;
+        try {
+          const repo = requireEnv('GITHUB_REPOSITORY', REPO_RE);
+          const headSha = requireEnv('GITHUB_SHA', COMMIT_SHA_RE);
+          mode = decidePlan({
+            pending,
+            published: isPublished(PACKAGE_NAME, version),
+            released: ghApi(`repos/${repo}/releases/tags/${tag}`) !== undefined,
+            tagCommit: resolveTagCommit(repo, tag, ghApi),
+            headSha,
+          });
+        } catch (error) {
+          console.error(`✗ release plan for ${tag}: ${(error as Error).message}`);
+          return 1;
+        }
+      }
       process.stdout.write(`mode=${mode}\nversion=${version}\n`);
       return 0;
     }

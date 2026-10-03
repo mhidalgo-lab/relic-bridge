@@ -179,3 +179,39 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   - `docs/guide/*.md` messages and error codes were checked against source; `RB_LIMIT_RATE` is intentionally not documented (unused in code).
 - **Options:** generate the config reference from `configFileSchema`; add per-client screenshots; add Windsurf/Zed guides.
 - **Needs:** owner to run the quickstart once with a real key in at least Claude Code and one JSON-config client, and fix any drift.
+
+### P1-15 — Release pipeline built, nothing published (owner actions required)
+- **Context:** the pipeline and the v0.1.0 bump are ready, but publishing needs npm and repository settings only the
+  owner can change. No tag, GitHub Release or npm version was created; no secrets or settings were touched.
+- **Assumption made:**
+  - Only `relic-bridge` (`apps/cli`) is published; all `packages/*` are now `"private": true` (core stays bundled).
+    Changesets `privatePackages: { version: false, tag: false }`.
+  - v0.1.0 was versioned locally (`pnpm version-packages`: `apps/cli/package.json` 0.1.0, `apps/cli/CHANGELOG.md`,
+    core `VERSION`), so after merge to `main` the workflow plans **publish** directly (no version PR for 0.1.0).
+  - Publish is gated three ways: `main` only, repository variable `RB_RELEASE_ENABLED == 'true'`, and the protected
+    `release` environment. Tag `v<version>` and the GitHub Release are created by the publish job (`gh release create`).
+  - Release artifacts: npm tarball, CycloneDX SBOM (`pnpm sbom`), `SHA256SUMS`, Sigstore provenance + SBOM attestations.
+  - Local dry-run (2026-10-03): `pnpm pack` → 5 files (`LICENSE`, `NOTICE`, `README.md`, `dist/index.mjs`,
+    `package.json`), 56.9 kB; `npm publish <tgz> --dry-run` and `pnpm publish --dry-run` pass;
+    `npx --package <tgz> relic-bridge --version` prints `0.1.0`; packed build refuses `RB_TEST_NERDGRAPH_URL`; a
+    `RB_TEST_HOOKS=1` build is caught by `scripts/check-package.ts`.
+  - The version PR is created with `GITHUB_TOKEN`, so GitHub does not run CI on it automatically (close/reopen it, or
+    give the job a GitHub App token later).
+- **Options:** environment approval (current) vs npm **staged publishing** (`npm stage publish`, approve with 2FA on
+  npmjs.com) or both; publish `@relic-bridge/core` as a library later (needs its own build and a new task).
+- **Needs (owner, in order):**
+  1. Merge the stack into `main` (the release workflow only runs there).
+  2. Make the repository public before the first release (attestations in private repos need GitHub Enterprise; npm
+     provenance links to a public source repo).
+  3. npm: on `relic-bridge` → *Settings → Trusted publisher*, add GitHub Actions `matiashidalgo/relic-bridge`, workflow
+     `release.yml`, environment `release` (or `npm trust github relic-bridge --file release.yml --env release
+     --allow-publish`). Then set *Publishing access* to "Require 2FA and disallow tokens".
+  4. GitHub: create environment `release` with a required reviewer (you), deployment branches limited to `main`; enable
+     *Settings → Actions → Allow GitHub Actions to create and approve pull requests* (version PRs); add a tag ruleset
+     protecting `v*` (only the release workflow / admins create them).
+  5. Set repository variable `RB_RELEASE_ENABLED=true`, push/merge to `main` (or run the workflow manually on `main`),
+     approve the `release` deployment, and check the npm page shows the provenance badge
+     (`npm audit signatures`, `gh attestation verify relic-bridge-0.1.0.tgz --repo matiashidalgo/relic-bridge`).
+  6. Smoke test on macOS, Windows and Linux: `npx -y relic-bridge --version`, then the quickstart with a real key.
+  7. After it is live: remove the pre-release notes in `docs/guide/quickstart-local.md`, `docs/guide/clients.md`
+     and the root `README.md` Install section, tick the last P1-15 criterion and mark it `done`.

@@ -2,7 +2,7 @@
 id: P1-15
 title: Release pipeline and v0.1.0
 phase: 1
-status: in-progress
+status: review
 priority: high
 depends_on: [P1-11, P1-12, P1-14]
 adr: [0003]
@@ -34,15 +34,20 @@ owner: "claude-agent"
   `npm publish --dry-run` on the tarball, packed-tarball run).
 
 ## Acceptance criteria
-- [ ] Release workflow pinned by SHA, harden-runner, least-privilege per-job permissions, no untrusted expression
+- [x] Release workflow pinned by SHA, harden-runner, least-privilege per-job permissions, no untrusted expression
       interpolation in `run:`; triggers only on push to `main` / `workflow_dispatch` (never on pull requests); actionlint
       clean.
-- [ ] `scripts/check-package.ts` with unit tests for its pure checks; runs in CI after `pnpm build`.
-- [ ] Version sync script + lint check; `pnpm version-packages` = `changeset version` + sync.
-- [ ] v0.1.0 prepared (version, CHANGELOG, README install section) and dry-run locally: tarball contents verified,
+- [x] `scripts/check-package.ts` with unit tests for its pure checks; runs in CI after `pnpm build`.
+- [x] Version sync script + lint check; `pnpm version-packages` = `changeset version` + sync.
+- [x] v0.1.0 prepared (version, CHANGELOG, README install section) and dry-run locally: tarball contents verified,
       `npm publish --dry-run` passes, packed CLI runs via `npx`-style install.
 - [ ] v0.1.0 on npm with provenance badge; install + quickstart verified on macOS, Windows, Linux. *(owner: requires
       the npm trusted publisher, the `release` environment and an actual release; see pending decisions)*
+
+## Status notes
+- Not published on purpose (autonomous run): the last criterion needs the npm trusted publisher, the protected
+  `release` environment, `RB_RELEASE_ENABLED=true`, a public repo and a merge to `main`. The owner's checklist is in
+  `docs/pending-decisions/phase-1.md` (P1-15). Local dry-run results are recorded there too.
 
 ## Security notes
 T18: trusted publishing (OIDC), protected environment with required reviewer, opt-in variable, provenance + Sigstore

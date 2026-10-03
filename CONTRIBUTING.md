@@ -53,7 +53,25 @@ See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) §2 and §8. In short:
 - Every commit must be signed off under the [Developer Certificate of Origin](https://developercertificate.org/):
   use `git commit -s`, which adds `Signed-off-by: Your Name <you@example.com>`. The commit-msg hook and CI check it.
 - Every source file starts with `// SPDX-License-Identifier: Apache-2.0` (after a shebang line, if any).
-- If a change affects a published package, add a changeset: `pnpm changeset`.
+- If a change affects the published `relic-bridge` package (`apps/cli`, or `packages/core`, which it bundles), add a
+  changeset for `relic-bridge`: `pnpm changeset`. Internal workspace packages are private and never published.
+
+## Releases
+
+Maintainers only. `.github/workflows/release.yml` does the work; nobody publishes from a laptop.
+
+1. Changesets merged into `main` make the release workflow open a **"chore(release): version packages"** PR
+   (`pnpm version-packages`: bumps `apps/cli/package.json`, writes `apps/cli/CHANGELOG.md`, syncs `VERSION` in
+   `packages/core/src/version.ts`).
+2. Merging that PR leaves no changesets and a version npm doesn't have, so the **publish** job starts and waits for a
+   reviewer to approve the protected `release` environment. It runs only when the repository variable
+   `RB_RELEASE_ENABLED` is `true`.
+3. After approval it runs lint/typecheck/tests, the release build, `scripts/check-package.ts` (tarball allowlist,
+   manifest, secrets scan, packed-install smoke test, test hooks compiled out), writes a CycloneDX SBOM and
+   `SHA256SUMS`, attests all of them (Sigstore), publishes with npm trusted publishing (`--provenance`, no npm token)
+   and creates the GitHub Release `v<version>` from the CHANGELOG entry.
+
+Check the tarball locally at any time: `pnpm build && pnpm check:package` (`--skip-install` offline).
 
 ## Pull request checklist
 

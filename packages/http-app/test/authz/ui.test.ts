@@ -76,8 +76,13 @@ describe('admin UI × principals (P4-03)', () => {
     for (const route of UI_ROUTES) {
       for (const caller of strangers()) {
         const path = `${route.path}${caller.query ? `?${caller.query}` : ''}`;
-        const res = await get(path, caller.headers);
-        expectSignInRedirect(res, path, `${route.path} ${caller.name}`);
+        const res = await get(path, caller.headers, route.method);
+        // A form post comes back to the overview after sign-in, a page to itself.
+        expectSignInRedirect(
+          res,
+          route.method === 'GET' ? path : '/admin',
+          `${route.method} ${route.path} ${caller.name}`,
+        );
         expect(res.headers.get('set-cookie'), caller.name).toBeNull();
       }
     }
@@ -87,16 +92,25 @@ describe('admin UI × principals (P4-03)', () => {
   it('every broken session is sent to sign-in, its cookie cleared, an auth.denied row written', async () => {
     const sessionPrincipals = ADMIN_PRINCIPALS.filter((p) => p.reason.startsWith('session_'));
     expect(sessionPrincipals.length).toBeGreaterThanOrEqual(8);
-    for (const route of UI_ROUTES) {
-      for (const principal of sessionPrincipals) {
-        const presented = await principal.present(h);
-        const res = await get(route.path, { cookie: presented.headers['cookie'] as string });
-        const what = `${route.path} ${principal.name}`;
-        expectSignInRedirect(res, route.path, what);
+    // One broken cookie per kind, sent to every route; the audit rows are checked once at the end (fast on D1 too).
+    const sent: { requestId: string; reason: string; what: string }[] = [];
+    for (const principal of sessionPrincipals) {
+      const presented = await principal.present(h);
+      for (const route of UI_ROUTES) {
+        const res = await get(route.path, { cookie: presented.headers['cookie'] as string }, route.method);
+        const what = `${route.method} ${route.path} ${principal.name}`;
+        expectSignInRedirect(res, route.method === 'GET' ? route.path : '/admin', what);
         expect(res.headers.get('set-cookie'), what).toMatch(/^rb_session=; Path=\/; Max-Age=0; HttpOnly/);
-        const row = await h.deniedRow(res.requestId as string);
-        expect(row, what).toMatchObject({ kind: 'auth', status: 'denied', errorCode: principal.reason });
+        sent.push({ requestId: res.requestId as string, reason: principal.reason, what });
       }
+    }
+    // Every request wrote its auth.denied row (the last one is awaited; the rest were written before it).
+    await h.deniedRow((sent.at(-1) as { requestId: string }).requestId);
+    const rows = new Map(
+      (await h.auditRows()).filter((r) => r.action === 'auth.denied').map((r) => [r.requestId, r]),
+    );
+    for (const { requestId, reason, what } of sent) {
+      expect(rows.get(requestId), what).toMatchObject({ kind: 'auth', status: 'denied', errorCode: reason });
     }
   });
 

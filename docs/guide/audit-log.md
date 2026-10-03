@@ -77,8 +77,8 @@ off entirely (warned at start).
   database to authenticate.
 - **Floods can't fill the table.** Refusal rows are capped at 120 per minute; beyond that they are counted into one
   `auth.suppressed` row for the minute.
-- A tool call that the grant doesn't include is recorded as `tool.not_granted` when the client sends the `Mcp-Name`
-  header (2026-era clients do).
+- A tool call that the grant doesn't include is recorded as `tool.not_granted`, from both 2025- and 2026-era clients
+  (the tool name is read from the request body, not from the `Mcp-Name` header).
 - `tools/list` and other protocol traffic is not audited; only tool calls, refusals and admin changes.
 - The log records that a query ran, not that it was *allowed to see* particular rows: results are never examined.
 

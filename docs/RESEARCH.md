@@ -141,6 +141,12 @@ Sources: <https://modelcontextprotocol.io/specification/2026-07-28/basic/authori
     advertises `listChanged: true` by default unless the constructor's `capabilities` already set it.
   - Modern-era requests must carry `Mcp-Method` (and `Mcp-Name` for named methods) matching the body, or the handler
     rejects them, so these headers are trustworthy for routing and rate-limit keys once the handler accepts the request.
+    **Not for legacy (2025-era) requests** (verified in P2-12 from the 2.2.0 source and a probe): the classifier
+    cross-checks the headers only for modern requests and notifications, so a legacy `tools/call` can carry any
+    `Mcp-Method` / `Mcp-Name` values. Anything that keys on them (rate limiting, audit) must read the body instead.
+  - The 2025-era stateless path still accepts **JSON-RPC batches** (an array body; batching was removed from MCP in
+    2025-06-18) and runs every call in it within one HTTP request (P2-12 probe: three `tools/call` in one POST, three
+    NerdGraph calls). relic-bridge refuses batches before the handler.
   - 2025-era (stateless) `tools/call` answers with an SSE response whose headers arrive before the tool finishes; a
     request deadline must bound the body, not only the time to headers.
   - `maxRequestBodySize` (default 4 MiB) bounds bodies read by the handler, checking `Content-Length` first;

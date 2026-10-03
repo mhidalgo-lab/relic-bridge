@@ -2,7 +2,7 @@
 id: P2-12
 title: Authorization and isolation test suite
 phase: 2
-status: in-progress
+status: review
 priority: high
 depends_on: [P2-06, P2-09]
 adr: [0008]
@@ -42,21 +42,30 @@ Workers pool.
 - Real bugs found while writing the suite are fixed in this task with regression tests.
 
 ## Acceptance criteria
-- [ ] Route × principal matrix over every MCP, admin and public route, with identical-denial, no-NerdGraph-call,
+- [x] Route × principal matrix over every MCP, admin and public route, with identical-denial, no-NerdGraph-call,
   audit-row and secret-scan assertions, and positive controls.
-- [ ] Tool isolation case for every built-in tool against a hostile NerdGraph mock (foreign account arguments refused
+- [x] Tool isolation case for every built-in tool against a hostile NerdGraph mock (foreign account arguments refused
   offline, foreign results never returned).
-- [ ] Cache isolation across credentials and account sets; concurrent two-tenant test; per-request server test.
-- [ ] Guard tests fail on an unlisted route or tool (and on stale matrix entries).
-- [ ] Suite runs in CI as its own job (`pnpm test:authz`); making it a required check is an owner setting (logged).
-- [ ] CONTRIBUTING and `docs/dev/testing.md` explain how a new route or tool adds its cases.
+- [x] Cache isolation across credentials and account sets; concurrent two-tenant test; per-request server test.
+- [x] Guard tests fail on an unlisted route or tool (and on stale matrix entries).
+- [x] Suite runs in CI as its own job (`pnpm test:authz`); making it a required check is an owner setting (logged).
+- [x] CONTRIBUTING and `docs/dev/testing.md` explain how a new route or tool adds its cases.
 
 ## Security notes
 T2, T3, T15, T19, T21.
 
 ## Docs to update
-- CONTRIBUTING, `docs/dev/testing.md`, THREAT_MODEL (implementation status), AGENTS.md pointer.
+- CONTRIBUTING, `docs/dev/testing.md`, THREAT_MODEL (implementation status), RESEARCH (SDK header and batch
+  behaviour), audit-log and self-hosting guides.
 
 ## Out of scope
 - Running the suite under the Workers pool (P3-06).
 - OAuth principals (P5) and admin-panel sessions (P4): they add rows to the matrix when they land.
+
+## Notes
+- Bugs found and fixed here, with regression tests: the MCP method and tool name now come from the request body (a
+  legacy request could skip rate limiting with an `Mcp-Method: subscriptions/listen` header, or hide an ungranted call
+  from the audit behind `Mcp-Name`); JSON-RPC batches are refused; entity rows whose GUID names another account than
+  the reported one are dropped.
+- Making the `Authorization suite` job a required check is a repository setting: see
+  `docs/pending-decisions/phase-2.md` (P2-12 entries).

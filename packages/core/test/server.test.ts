@@ -1,0 +1,157 @@
+// SPDX-License-Identifier: Apache-2.0
+import { Client } from '@modelcontextprotocol/client';
+import { InMemoryTransport } from '@modelcontextprotocol/server';
+import { afterEach, describe, expect, it } from 'vitest';
+import { z } from 'zod';
+import {
+  buildMcpServer,
+  createBudget,
+  defineTool,
+  ERROR_META_KEY,
+  ErrorCode,
+  RbError,
+  type ToolContext,
+  type ToolDefinition,
+} from '../src/index.ts';
+import { FAKE_KEY, testContext } from './helpers/context.ts';
+
+const echo = defineTool({
+  name: 'echo_account',
+  title: 'Echo account',
+  description: 'Echoes text and the default account, for tests only.',
+  inputSchema: z.object({ text: z.string().max(100) }),
+  outputSchema: z.object({ text: z.string(), account: z.number() }),
+  kind: 'read',
+  openWorld: false,
+  cost: 0,
+  group: 'test',
+  phase: 1,
+  handler: async ({ text }, ctx) => ({
+    text: `${text} @ ${ctx.accounts.default}`,
+    structured: { text, account: ctx.accounts.default },
+  }),
+});
+
+const failing = defineTool({
+  name: 'always_fails',
+  title: 'Fails',
+  description: 'Throws an RbError carrying a leaked key, for tests only.',
+  inputSchema: z.object({}),
+  kind: 'read',
+  openWorld: true,
+  cost: 1,
+  group: 'test',
+  phase: 1,
+  handler: async (_input, ctx) => {
+    ctx.budget.spend(1);
+    throw new RbError(ErrorCode.NerdGraphError, `upstream rejected ${ctx.credential.apiKey.reveal()}`);
+  },
+});
+
+const crashing = defineTool({
+  name: 'crashes',
+  title: 'Crashes',
+  description: 'Throws a plain Error with internal details, for tests only.',
+  inputSchema: z.object({}),
+  kind: 'read',
+  openWorld: true,
+  cost: 0,
+  group: 'test',
+  phase: 1,
+  handler: async () => {
+    throw new Error('stack detail /srv/internal.ts');
+  },
+});
+
+let clients: Client[] = [];
+afterEach(async () => {
+  await Promise.all(clients.map((c) => c.close()));
+  clients = [];
+});
+
+async function connect(tools: ToolDefinition[], ctx: ToolContext): Promise<Client> {
+  const server = buildMcpServer({ tools, ctx });
+  const [clientT, serverT] = InMemoryTransport.createLinkedPair();
+  await server.connect(serverT);
+  const client = new Client({ name: 'test', version: '0.0.0' });
+  await client.connect(clientT);
+  clients.push(client);
+  return client;
+}
+
+describe('buildMcpServer', () => {
+  it('lists only the given tools, with derived annotations and 2020-12 input schema', async () => {
+    const client = await connect([echo as ToolDefinition], testContext());
+    const { tools } = await client.listTools();
+    expect(tools.map((t) => t.name)).toEqual(['echo_account']);
+    expect(tools[0]?.annotations).toMatchObject({
+      readOnlyHint: true,
+      destructiveHint: false,
+      openWorldHint: false,
+    });
+    expect(tools[0]?.inputSchema).toMatchObject({ type: 'object', properties: { text: { type: 'string' } } });
+  });
+
+  it('returns text + structuredContent from the per-request context', async () => {
+    const ctx = testContext({ accounts: { allowed: [42], default: 42 } });
+    const client = await connect([echo as ToolDefinition], ctx);
+    const r = await client.callTool({ name: 'echo_account', arguments: { text: 'hi' } });
+    expect(r.isError).toBeFalsy();
+    expect(r.content).toEqual([{ type: 'text', text: 'hi @ 42' }]);
+    expect(r.structuredContent).toEqual({ text: 'hi', account: 42 });
+  });
+
+  it('maps RbError to isError with code, and never leaks the key', async () => {
+    const logs: string[] = [];
+    const ctx = testContext({ budget: createBudget(5) }, (l) => logs.push(l));
+    const client = await connect([failing as ToolDefinition], ctx);
+    const r = await client.callTool({ name: 'always_fails', arguments: {} });
+    expect(r.isError).toBe(true);
+    expect(r._meta?.[ERROR_META_KEY]).toMatchObject({ code: 'RB_NERDGRAPH_ERROR', requestId: 'req-test-1' });
+    expect(JSON.stringify(r)).not.toContain(FAKE_KEY);
+    expect(logs.join('\n')).not.toContain(FAKE_KEY);
+    expect(ctx.budget.used).toBe(1);
+  });
+
+  it('hides unexpected exceptions as RB_INTERNAL', async () => {
+    const client = await connect([crashing as ToolDefinition], testContext());
+    const r = await client.callTool({ name: 'crashes', arguments: {} });
+    expect(r.isError).toBe(true);
+    expect(JSON.stringify(r.content)).not.toContain('/srv/internal.ts');
+    expect(r._meta?.[ERROR_META_KEY]).toMatchObject({ code: 'RB_INTERNAL' });
+  });
+
+  it('rejects tools that were not registered for this caller', async () => {
+    const client = await connect([echo as ToolDefinition], testContext());
+    const r = await client.callTool({ name: 'always_fails', arguments: {} }).catch((e: unknown) => e);
+    // Depending on SDK version this is a protocol error or an isError result; either way it must not run.
+    const failed = r instanceof Error || (r as { isError?: boolean }).isError === true;
+    expect(failed).toBe(true);
+  });
+
+  it('validates input before the handler runs', async () => {
+    const client = await connect([echo as ToolDefinition], testContext());
+    const r = await client
+      .callTool({ name: 'echo_account', arguments: { text: 'x'.repeat(500) } })
+      .catch((e: unknown) => e);
+    const failed = r instanceof Error || (r as { isError?: boolean }).isError === true;
+    expect(failed).toBe(true);
+  });
+
+  it('keeps contexts isolated between servers built for different requests (T21)', async () => {
+    const a = await connect(
+      [echo as ToolDefinition],
+      testContext({ accounts: { allowed: [1], default: 1 } }),
+    );
+    const b = await connect(
+      [echo as ToolDefinition],
+      testContext({ accounts: { allowed: [2], default: 2 } }),
+    );
+    const [ra, rb] = await Promise.all([
+      a.callTool({ name: 'echo_account', arguments: { text: 'a' } }),
+      b.callTool({ name: 'echo_account', arguments: { text: 'b' } }),
+    ]);
+    expect(ra.structuredContent).toEqual({ text: 'a', account: 1 });
+    expect(rb.structuredContent).toEqual({ text: 'b', account: 2 });
+  });
+});

@@ -37,3 +37,4 @@ for 2025-era clients (`initialize` with 2024-11-05, 2025-03-26, 2025-06-18, 2025
   `fromJsonSchema` is decided in P1-01.
 - Known behaviour: 2025-era standalone SSE `GET`/`DELETE` → 405 (stateless). Watch for clients that require it (P5-06).
 - stdio clients don't reliably inherit shell env vars, so docs must use each client's explicit `env` config (P1-11, P1-14).
+- P1-01 (2026-10-03): tool schemas use **zod v4** (already an SDK dependency), not `fromJsonSchema`.

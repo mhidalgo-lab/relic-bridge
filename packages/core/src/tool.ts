@@ -1,0 +1,62 @@
+// SPDX-License-Identifier: Apache-2.0
+import type { ToolAnnotations } from '@modelcontextprotocol/server';
+import type { z } from 'zod';
+import type { ToolContext } from './context.ts';
+
+/**
+ * Tool classification policy (THREAT_MODEL T6, prior-art capability tiers):
+ * - `read`: no side effects in New Relic (the default and the only kind enabled out of the box).
+ * - `write`: creates or changes something (e.g. a change event, acknowledging an issue).
+ * - `destructive`: removes data or suppresses signals (e.g. deleting, muting rules count as destructive).
+ */
+export type ToolKind = 'read' | 'write' | 'destructive';
+
+export type InputSchema = z.ZodObject<z.ZodRawShape>;
+
+/** What a handler returns. The server turns it into an MCP CallToolResult. */
+export interface ToolOutput<O = unknown> {
+  /** Human/agent-readable summary. Always present. */
+  text: string;
+  /** Structured result, required when the tool declares an `outputSchema`. */
+  structured?: O;
+  /** Extra metadata (NRQL actually run, accounts, truncation flags…). */
+  meta?: Record<string, unknown>;
+}
+
+export interface ToolDefinition<I extends InputSchema = InputSchema, O = unknown> {
+  /** snake_case, unique, stable (renaming a tool is a breaking change). */
+  readonly name: string;
+  readonly title: string;
+  /** Written for agents: when to use it, what it returns, pitfalls. */
+  readonly description: string;
+  readonly inputSchema: I;
+  readonly outputSchema?: z.ZodType<O>;
+  readonly kind: ToolKind;
+  /** Whether the tool reaches an external system (New Relic). Pure helpers (e.g. time math) set false. */
+  readonly openWorld: boolean;
+  /** Expected subrequests per call, used for budget planning (ADR-0010). */
+  readonly cost: number;
+  /** Catalogue group, e.g. "query", "discovery", "alerting". */
+  readonly group: string;
+  /** Roadmap phase that introduced the tool. */
+  readonly phase: number;
+  readonly handler: (input: z.infer<I>, ctx: ToolContext) => Promise<ToolOutput<O>>;
+}
+
+/** Identity helper that keeps input types inferred at the definition site. */
+export function defineTool<I extends InputSchema, O = unknown>(
+  def: ToolDefinition<I, O>,
+): ToolDefinition<I, O> {
+  return def;
+}
+
+/** MCP annotations derived from the classification. Never hand-written per tool, so they can't drift. */
+export function annotationsFor(def: Pick<ToolDefinition, 'kind' | 'openWorld' | 'title'>): ToolAnnotations {
+  return {
+    title: def.title,
+    readOnlyHint: def.kind === 'read',
+    destructiveHint: def.kind === 'destructive',
+    idempotentHint: def.kind === 'read',
+    openWorldHint: def.openWorld,
+  };
+}

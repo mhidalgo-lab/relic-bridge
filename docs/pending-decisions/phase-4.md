@@ -128,3 +128,42 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   (it would turn a break-glass secret into a phishable login).
 - **Options:** keep it, or add a token login page with its own session (role `owner`).
 - **Needs:** owner confirmation.
+
+## P4-04 — Admin screens
+
+### P4-04 — HTTP form E2E instead of Playwright; browser run and screenshots moved to P4-11
+- **Context:** The acceptance criterion asked for a Playwright E2E of the personal setup (2 keys US/EU, 2 projects,
+  3 device tokens) and the guide asked for screenshots. The repo has no browser tooling; adding it means a new dev
+  dependency, a browser download in CI and Actions minutes.
+- **Assumption made:** The panel needs no JavaScript, so the same setup is driven through the HTML forms over HTTP
+  in the P2-12 harness, on the HTTP app and on the Worker (`packages/http-app/test/authz/ui-screens.test.ts`): each
+  token appears in exactly one response and works on its MCP endpoint, and the leak scan runs. A real-browser run
+  (CSP and Trusted Types enforcement, copy button, 320 px layout) and the screenshots are task P4-11.
+- **Options:** (a) keep it and do P4-11 as a manual/local run; (b) P4-11 with a CI job; (c) drop the browser run.
+- **Needs:** owner choice for P4-11 (CI minutes vs. manual).
+
+### P4-04 — Reloading the one-time token page issues another token
+- **Context:** A new token is rendered on the answer to the POST that created it (never in a redirect, URL or
+  cookie). Reloading that page makes the browser re-send the form, which issues a second token (the first stays
+  valid until revoked).
+- **Assumption made:** Accepted, with a warning on the page ("Do not reload this page"); the extra token is listed and
+  revocable.
+- **Options:** (a) keep it; (b) Post/Redirect/Get with the token parked in KV for ~60 s under a random single-use
+  handle that the GET page consumes (no re-issue on reload, but the token sits in storage briefly, encrypted or not).
+- **Needs:** owner preference; (b) is a small follow-up.
+
+### P4-04 — Grants cannot be edited, and grant-level query limits are API-only
+- **Context:** The admin API has no grant update (P2-09). The screen offers create, revoke and delete. The API's
+  grant `limits` (narrowing the project's query limits per grant) are not on the form, to keep it short on a phone.
+- **Assumption made:** "Revoke and recreate" is explained on the grant page; per-grant query limits stay API-only.
+- **Options:** add `PATCH /grants/{id}` (label, tools, accounts, rate limit, expiry) and an edit form; add the limit
+  fields to the grant form.
+- **Needs:** owner choice; neither blocks P4-05/P4-06.
+
+### P4-04 — Pickers and lookups load at most 1000 rows
+- **Context:** Selects (keys, users, projects, grants) and name lookups in tables read whole lists through the admin
+  API, which pages at 200.
+- **Assumption made:** Up to 1000 rows per list (5 calls); beyond that, a picker is incomplete. Personal and small-team
+  use is far below.
+- **Options:** server-side search fields for large instances (later), or a higher cap.
+- **Needs:** nothing now.

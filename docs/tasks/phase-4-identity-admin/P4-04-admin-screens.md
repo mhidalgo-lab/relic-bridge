@@ -2,7 +2,7 @@
 id: P4-04
 title: "Admin screens: credentials, projects, grants, tokens, users"
 phase: 4
-status: in-progress
+status: review
 priority: high
 depends_on: [P4-03]
 adr: [0008]
@@ -47,16 +47,16 @@ Every screen is for `admin` and `owner`; members get the `403` page (member self
   every new route in the P2-12 matrix (`UI_ROUTES`) and the axe-core suite.
 
 ## Acceptance criteria
-- [ ] Every screen above renders for admins and owners, is `403` for members, and has an empty state and pagination
+- [x] Every screen above renders for admins and owners, is `403` for members, and has an empty state and pagination
       where it lists rows.
-- [ ] Form flows tested against the in-process app with storage (Node and Worker hosts): CSRF/origin failures refused
+- [x] Form flows tested against the in-process app with storage (Node and Worker hosts): CSRF/origin failures refused
       and audited, role gating, validation errors re-rendered without echoing a key, confirmation required for every
       destructive action.
-- [ ] End-to-end personal setup through the UI forms only (HTTP, no JavaScript needed): 2 credentials (US and EU),
+- [x] End-to-end personal setup through the UI forms only (HTTP, no JavaScript needed): 2 credentials (US and EU),
       2 projects, 3 device tokens; each token appears exactly once in all responses (its one-time page) and works on
       the MCP endpoint; the P2-12 leak scan finds no key, token hash or session secret anywhere.
-- [ ] axe-core passes on every new page and state; every new route is in `UI_ROUTES` (strangers → sign-in).
-- [ ] Docs: admin guide for the screens (`docs/guide/admin-panel.md`), `docs/dev/admin-ui.md`, THREAT_MODEL.
+- [x] axe-core passes on every new page and state; every new route is in `UI_ROUTES` (strangers → sign-in).
+- [x] Docs: admin guide for the screens (`docs/guide/admin-panel.md`), `docs/dev/admin-ui.md`, THREAT_MODEL.
 
 Refinement (2026-10-03, autonomous run): the original criterion was a Playwright browser E2E. The panel needs no
 JavaScript, so the same flow is driven over HTTP in the P2-12 harness (both hosts) here; a real-browser run and the

@@ -82,8 +82,9 @@ whenever sign-in is configured, and uses the same session:
   the admin API as you, so the same role rules and audit rows apply.
 - Sign out (this browser) and sign out everywhere are at the bottom of every page.
 
-The pages exist so far for the overview (who you are, your session, the first users for admins); the management
-screens follow (P4-04). Conventions for contributors: [`docs/dev/admin-ui.md`](../dev/admin-ui.md).
+Admins and owners manage New Relic keys, projects, grants, device tokens and users there: see the
+[admin panel guide](admin-panel.md). Members see the overview only (self-service is planned, P4-10). Conventions for
+contributors: [`docs/dev/admin-ui.md`](../dev/admin-ui.md).
 
 ## What session cookies never do
 

@@ -9,6 +9,7 @@ import {
   type FetchLike,
   type Logger,
   newRequestId,
+  RAW_NRQL_TOOLS,
   systemClock,
   type ToolContext,
   type ToolDefinition,
@@ -21,9 +22,6 @@ import { ConfigError, type ResolvedProject } from './config.ts';
  * ADR-0010; it still bounds runaway polling and fan-out.
  */
 export const STDIO_CALL_BUDGET = 1000;
-
-/** Tools that run agent-written NRQL; not registered when `rawNrql` is off. */
-const RAW_NRQL_TOOLS: ReadonlySet<string> = new Set(['run_nrql', 'get_query_result']);
 
 /**
  * The tools this project exposes: built-in read-only tools ∩ the project allowlist, minus the raw-NRQL tools when
@@ -47,7 +45,7 @@ export function selectTools(project: ResolvedProject, all: readonly ToolDefiniti
   }
   const selected = registry
     .select(project.tools === undefined ? {} : { allowed: project.tools })
-    .filter((t) => project.limits.rawNrql || !RAW_NRQL_TOOLS.has(t.name));
+    .filter((t) => project.limits.rawNrql || !RAW_NRQL_TOOLS.includes(t.name));
   if (selected.length === 0) throw new ConfigError('No tools are enabled for this connection.');
   return selected;
 }

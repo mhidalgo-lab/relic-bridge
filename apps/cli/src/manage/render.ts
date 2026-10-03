@@ -24,7 +24,16 @@ export function table(headers: readonly string[], rows: readonly (readonly strin
 
 const shellQuote = (s: string): string => `'${s.replace(/'/g, `'\\''`)}'`;
 
-export const CLIENTS = ['claude-code', 'claude-desktop', 'cursor', 'vscode'] as const;
+/** PowerShell single-quoted strings are literal; only the quote itself is doubled (`'\''` is not valid there). */
+const psQuote = (s: string): string => `'${s.replace(/'/g, "''")}'`;
+
+export const CLIENTS = [
+  'claude-code',
+  'claude-code-powershell',
+  'claude-desktop',
+  'cursor',
+  'vscode',
+] as const;
 export type ClientName = (typeof CLIENTS)[number];
 
 /** Ready-to-paste connection snippets. They embed the token: print them once, to the person who asked. */
@@ -36,6 +45,8 @@ export function clientConfig(
   switch (client) {
     case 'claude-code':
       return `claude mcp add --transport http ${shellQuote(input.name)} ${shellQuote(input.url)} --header ${shellQuote(`Authorization: ${header}`)}\n`;
+    case 'claude-code-powershell':
+      return `claude mcp add --transport http ${psQuote(input.name)} ${psQuote(input.url)} --header ${psQuote(`Authorization: ${header}`)}\n`;
     case 'cursor':
       return `${JSON.stringify({ mcpServers: { [input.name]: { url: input.url, headers: { Authorization: header } } } }, null, 2)}\n`;
     case 'vscode':
@@ -60,7 +71,8 @@ export function clientConfig(
 }
 
 export const CLIENT_LABEL: Readonly<Record<ClientName, string>> = {
-  'claude-code': 'Claude Code (run in a terminal)',
+  'claude-code': 'Claude Code (bash, zsh)',
+  'claude-code-powershell': 'Claude Code (PowerShell on Windows)',
   'claude-desktop': 'Claude Desktop (claude_desktop_config.json)',
   cursor: 'Cursor (.cursor/mcp.json)',
   vscode: 'VS Code (.vscode/mcp.json)',

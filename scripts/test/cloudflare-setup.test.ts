@@ -6,6 +6,7 @@ import {
   localConfigFor,
   localConfigName,
   parseArgs,
+  rateLimitNamespace,
   runSetup,
   type SetupDeps,
   SetupError,
@@ -20,6 +21,7 @@ const OPTS: SetupOptions = {
   dryRun: false,
   assumeNew: false,
   backupFile: undefined,
+  replaceMasterKey: false,
 };
 
 interface Call {
@@ -28,12 +30,14 @@ interface Call {
 }
 
 const COMMITTED =
-  '{ "name": "relic-bridge", "d1_databases": [{ "binding": "DB", "database_name": "relic-bridge" }] }';
+  '{ "name": "relic-bridge", "d1_databases": [{ "binding": "DB", "database_name": "relic-bridge" }], ' +
+  '"ratelimits": [{ "name": "RATE_LIMITER", "namespace_id": "1701" }] }';
 
 function harness(
   replies: (args: readonly string[]) => Partial<WranglerResult>,
   existingConfig = false,
   existing: readonly string[] = [],
+  localContent?: string,
 ) {
   const calls: Call[] = [];
   const logs: string[] = [];
@@ -50,11 +54,13 @@ function harness(
     log: (l) => logs.push(l),
     reveal: (l) => revealed.push(l),
     workerDir: '/w',
+    repoRoot: '/repo',
     fs: {
       exists: (p) => (p.endsWith('.jsonc') ? existingConfig : existing.includes(p) || files.has(p)),
       read: (p) => {
-        if (p !== '/w/wrangler.jsonc') throw new Error(`unexpected read ${p}`);
-        return COMMITTED;
+        if (p === '/w/wrangler.jsonc') return COMMITTED;
+        if (p.endsWith('.local.jsonc') && localContent !== undefined) return localContent;
+        throw new Error(`unexpected read ${p}`);
       },
       writeNew: (p, content, mode) => {
         if (files.has(p) || existing.includes(p)) throw new Error('EEXIST');
@@ -194,10 +200,74 @@ describe('runSetup', () => {
     expect(none.files.size).toBe(0);
   });
 
-  it('does not copy the config again on a re-run', async () => {
-    const h = harness(ok, true);
+  it('does not copy the config again on a re-run, and stays quiet when only provisioned ids differ', async () => {
+    const withIds = COMMITTED.replace('"binding": "DB",', '"binding": "DB", "database_id": "abc-123",');
+    const h = harness(ok, true, [], withIds);
     await runSetup(OPTS, h.deps);
     expect(h.copies).toEqual([]);
+    expect(h.logs.join('\n')).not.toContain('differs from wrangler.jsonc');
+  });
+
+  it('warns on a re-run when wrangler.jsonc gained something the local copy lacks, without overwriting it', async () => {
+    const old = COMMITTED.replace(', "ratelimits"', ', "x": 1, "ratelimits"').replace('"x": 1, ', '');
+    const stale = old.replace(/, "ratelimits".*\}$/, ' }');
+    const h = harness(ok, true, [], stale);
+    await runSetup(OPTS, h.deps);
+    expect(h.logs.join('\n')).toMatch(/wrangler\.local\.jsonc differs from wrangler\.jsonc/);
+    expect(h.copies).toEqual([]);
+    expect(h.calls.some((c) => c.args[0] === 'deploy')).toBe(true);
+  });
+
+  it('gives each Worker name its own rate-limit namespace', () => {
+    expect(rateLimitNamespace('relic-bridge')).toBe('1701');
+    const a = rateLimitNamespace('rb-staging');
+    expect(a).toMatch(/^\d+$/);
+    expect(a).not.toBe('1701');
+    expect(a).not.toBe(rateLimitNamespace('rb-dev'));
+    expect(localConfigFor(COMMITTED, 'rb-staging')).toContain(`"namespace_id": "${a}"`);
+    expect(() => localConfigFor('{ "d1_databases": [{ "database_name": "relic-bridge" }] }', 'x')).toThrow(
+      SetupError,
+    );
+  });
+
+  it('warns when the backup file is inside the repository, not when it is outside', async () => {
+    const inside = harness(ok);
+    await runSetup({ ...OPTS, backupFile: '/repo/secrets.txt' }, inside.deps);
+    expect(inside.logs.join('\n')).toMatch(/inside the repository/);
+    const outside = harness(ok);
+    await runSetup({ ...OPTS, backupFile: '/home/me/rb.env' }, outside.deps);
+    expect(outside.logs.join('\n')).not.toMatch(/inside the repository/);
+  });
+
+  it('refuses a new master key next to an existing admin token unless --replace-master-key', async () => {
+    const list = (a: readonly string[]) =>
+      a[1] === 'list' ? { stdout: JSON.stringify([{ name: 'RB_ADMIN_TOKEN' }]) } : ok(a);
+    const h = harness(list);
+    await expect(runSetup(OPTS, h.deps)).rejects.toThrow(/undecryptable/);
+    expect(h.calls.some((c) => c.args[1] === 'bulk')).toBe(false);
+    expect(h.calls.some((c) => c.args[0] === 'deploy')).toBe(false);
+    const forced = harness(list);
+    await runSetup({ ...OPTS, replaceMasterKey: true }, forced.deps);
+    const bulk = forced.calls.find((c) => c.args[1] === 'bulk');
+    expect(Object.keys(JSON.parse(bulk?.input ?? '{}'))).toEqual(['RB_MASTER_KEY']);
+    expect(forced.logs.join('\n')).toMatch(/WARNING: --replace-master-key/);
+  });
+
+  it('refuses --assume-new when the Worker already has secrets', async () => {
+    const h = harness((a) =>
+      a[1] === 'list' ? { stdout: JSON.stringify([{ name: 'RB_MASTER_KEY' }]) } : ok(a),
+    );
+    await expect(runSetup({ ...OPTS, assumeNew: true }, h.deps)).rejects.toThrow(/already exists/);
+    expect(h.calls.some((c) => c.args[1] === 'bulk')).toBe(false);
+  });
+
+  it('dry run describes the re-run checks', async () => {
+    const h = harness(ok);
+    await runSetup({ ...OPTS, dryRun: true, name: 'rb-2' }, h.deps);
+    const out = h.logs.join('\n');
+    expect(out).toMatch(/rate-limit namespace/);
+    expect(out).toMatch(/--replace-master-key/);
+    expect(out).toMatch(/wrangler\.jsonc changed/);
   });
 
   it('gives another Worker name its own local config and D1 database (no binding to the first one)', async () => {

@@ -2,11 +2,11 @@
 id: P3-14
 title: cf:setup follow-ups (config refresh, rate-limit namespace, Windows docs, README button)
 phase: 3
-status: todo
+status: review
 priority: low
 depends_on: [P3-05]
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P3-14 — cf:setup follow-ups (config refresh, rate-limit namespace, Windows docs, README button)
@@ -27,8 +27,9 @@ file fixes landed in the review branch).
 - Deploy button in `README.md` (P3-05 criterion) once the repository is public.
 
 ## Acceptance criteria
-- [ ] Each item above tested with the fake Wrangler runner (`scripts/test/cloudflare-setup.test.ts`).
-- [ ] Docs updated; `pnpm cf:setup --dry-run` describes the new steps.
+- [x] Each item above tested with the fake Wrangler runner (`scripts/test/cloudflare-setup.test.ts`; the PowerShell
+      snippet in `apps/cli/test/manage.test.ts`). Exception: the README Deploy button (repository is private).
+- [x] Docs updated; `pnpm cf:setup --dry-run` describes the new steps.
 
 ## Security notes
 T7 / T8 (master key handling): the master key must never be regenerated over stored credentials.
@@ -38,3 +39,11 @@ T7 / T8 (master key handling): the master key must never be regenerated over sto
 
 ## Out of scope
 - Real-account verification (owner, pending decisions P3-05).
+
+## Outcome
+- Config refresh became a **warning** (normalized comparison ignoring comments, whitespace and provisioned ids); the local
+  copy is never overwritten because it may hold deliberate edits (custom domain).
+- Rate-limit namespace derived from the Worker name (FNV-1a); `--replace-master-key` added; `--assume-new` refused when
+  the secret list is non-empty; in-repo backup path warns.
+- `token create --client claude-code-powershell` added; PowerShell snippets in the deploy guide.
+- README Deploy button **not added**: the repository is still private (P3-05 criterion stays open until it is public).

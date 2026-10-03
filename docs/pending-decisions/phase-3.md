@@ -278,3 +278,21 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Options:** other thresholds; make warnings refusals; ship a small word list.
 - **Needs:** nothing unless the owner wants stricter rules.
 
+
+## P3-14 — cf:setup follow-ups
+
+### P3-14 — config drift is a warning, not an automatic refresh
+- **Context:** the task allowed "refresh or warn". The local copy can carry deliberate edits (custom domain, docs say to
+  add it there) and Wrangler-written ids, and the JSONC cannot be merged safely with regexes.
+- **Assumption made:** warn on drift (comments, whitespace, ids ignored) and never overwrite.
+- **Options:** add a JSONC parser and merge new top-level keys automatically; a `--refresh-config` flag.
+- **Needs:** nothing unless the warning proves noisy on the real-account run.
+
+### P3-14 — README Deploy button deferred
+- **Context:** the repository is private (`gh repo view`), and the button needs a public URL.
+- **Assumption made:** left out; the criterion stays open in P3-05. Needs the owner when the repo is made public.
+
+### P3-14 — rate-limit namespace and master-key flag
+- **Assumption made:** non-default names get `1000000 + FNV-1a(name) mod 8e9` as `namespace_id` (collision across names is
+  possible but improbable). The flag is `--replace-master-key`. Both unverified against a real account.
+- **Needs:** owner check in the P3-05 real-account run (two Workers show separate rate-limit counters).

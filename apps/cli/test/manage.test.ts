@@ -159,6 +159,11 @@ describe('client config snippets', () => {
     expect(clientConfig('claude-code', input)).toBe(
       "claude mcp add --transport http 'relic-bridge-prod' 'https://rb.example.com/p/prod/mcp' --header 'Authorization: Bearer rb_live_x'\n",
     );
+    // PowerShell: single quotes are literal and an embedded quote is doubled (the POSIX `'\\''` form is invalid there).
+    expect(clientConfig('claude-code-powershell', input)).toBe(
+      "claude mcp add --transport http 'relic-bridge-prod' 'https://rb.example.com/p/prod/mcp' --header 'Authorization: Bearer rb_live_x'\n",
+    );
+    expect(clientConfig('claude-code-powershell', { ...input, name: "a'b" })).toContain("'a''b'");
     expect(JSON.parse(clientConfig('cursor', input))).toEqual({
       mcpServers: { 'relic-bridge-prod': { url: input.url, headers: { Authorization: 'Bearer rb_live_x' } } },
     });

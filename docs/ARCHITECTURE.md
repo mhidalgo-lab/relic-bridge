@@ -118,16 +118,24 @@ key      = grant.credential ?? project.defaultCredential   (must exist, else 403
 
 ### Data model (SQLite / D1)
 
+Source of truth: `packages/storage/src/schema.ts` (Drizzle, SQLite dialect); migrations in `packages/storage/migrations`.
+Times are epoch milliseconds, ids are caller-generated text, lists/objects are JSON text. See [`dev/storage.md`](dev/storage.md).
+
 | Table | Key columns |
 |---|---|
-| `users` | id, email, idp, idp_subject, role (`owner` \| `admin` \| `member`), disabled_at |
-| `credentials` | id, owner_user_id, label, region, key_ciphertext, key_iv, key_version, nr_user_email, reachable_accounts (json), validated_at |
-| `projects` | id, slug (unique), name, default_account_id, allowed_account_ids (json), enabled_tools (json), limits (json), default_credential_id |
-| `grants` | id, project_id, user_id (nullable for service grants), credential_id (nullable → project default), tools (json), accounts (json), rate_limit (json), expires_at, revoked_at |
-| `access_tokens` | id, grant_id, prefix, hash, label (device), created_at, expires_at, last_used_at, revoked_at |
-| `oauth_*` | Managed by the OAuth server (KV on Workers; adapter on Node). Token props carry `grant_id` and audience. |
-| `audit_log` | ts, user_id, grant_id, token_id/client_id, project_id, tool, nrql_redacted, accounts, status, duration_ms, inspected_count, error_code |
-| `schema_migrations` | version, applied_at |
+| `users` | id, email (lowercase, unique), display_name, idp + idp_subject (unique), role (`owner` \| `admin` \| `member`), created_at, updated_at, disabled_at |
+| `credentials` | id, owner_user_id, label, region, key_ciphertext, key_iv, key_version, key_hint (last 4), validation_status (`unvalidated` \| `valid` \| `invalid`), validation_error_code, validated_at, nr_user_id, nr_user_email, reachable_account_ids (json), created_at, updated_at, revoked_at |
+| `projects` | id, slug (unique), name, default_account_id, allowed_account_ids (json), enabled_tools (json, null = all), limits (json), default_credential_id, created_at, updated_at, disabled_at |
+| `grants` | id, project_id, user_id (null for service grants, which need a label), label, credential_id (null → project default), tools (json, null = project's), account_ids (json, null = project's), limits (json, tightening), rate_limit (json), created_at, updated_at, expires_at, revoked_at |
+| `access_tokens` | id, grant_id, prefix, token_hash (SHA-256 hex, unique), label (device), created_at, expires_at, last_used_at, revoked_at |
+| `oauth_*` | Managed by the OAuth server (KV on Workers; the `kv` table on Node). Token props carry `grant_id` and audience. |
+| `audit_log` | id, ts, kind (`tool_call` \| `admin`), action, status (`ok` \| `error` \| `denied`), request_id, user_id, grant_id, token_id, client_id, project_id, account_ids, nrql (masked), duration_ms, inspected_count, error_code, target_type, target_id, details (json). No foreign keys. |
+| `settings` | key, value (json), updated_at |
+| `kv` | key, value, expires_at — Workers-KV-compatible store for the OAuth provider on Node (ADR-0009) |
+| `schema_migrations` | version, name, checksum, applied_at (owned by the migration runner) |
+
+Deleting a project removes its grants and their tokens; deleting a grant removes its tokens; a credential that a
+project or grant still references can't be deleted (revoke it instead).
 
 ## 5. Request flow (remote MCP call)
 

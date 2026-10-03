@@ -2,7 +2,7 @@
 id: P2-01
 title: Storage interface, Drizzle schema and migrations
 phase: 2
-status: in-progress
+status: review
 priority: high
 depends_on: [P1-15]
 adr: [0006, 0007, 0008, 0009]
@@ -36,20 +36,20 @@ owner: claude-agent
     `Storage` interface; user-visible behaviour and messages are unchanged.
 
 ## Acceptance criteria
-- [ ] Contract suite passes for `yaml` (read paths, writes refused) and the in-memory adapter (everything).
-- [ ] Migrations are forward-only and idempotent: tested against a real SQLite engine (`node:sqlite`, test only):
+- [x] Contract suite passes for `yaml` (read paths, writes refused) and the in-memory adapter (everything).
+- [x] Migrations are forward-only and idempotent: tested against a real SQLite engine (`node:sqlite`, test only):
       applying twice is a no-op, a database newer than the code is refused, a failing migration leaves no partial
       state, and the migrated tables match the Drizzle schema (no drift).
-- [ ] Secrets only as ciphertext columns (no plaintext key column anywhere); tokens only as SHA-256 hashes;
+- [x] Secrets only as ciphertext columns (no plaintext key column anywhere); tokens only as SHA-256 hashes;
       audit log has no update/delete API except retention purge.
-- [ ] `apps/cli` tests pass unchanged in behaviour.
+- [x] `apps/cli` tests pass unchanged in behaviour.
 
 ## Security notes
 T7 (ciphertext columns only), T17 (audit append-only: no update/delete API except retention job), T1/T15 (tokens
 stored as hashes), T21 (no module-level state in adapters).
 
 ## Docs to update
-- ARCHITECTURE §4 if schema changes; `docs/dev/storage.md`.
+- ARCHITECTURE §4 if schema changes; `docs/dev/storage.md`. (Done; also THREAT_MODEL §5a, RESEARCH §8.)
 
 ## Out of scope
 - SQLite/D1 adapters (P2-02, P3-02) — including a Drizzle-backed repository implementation.

@@ -70,3 +70,16 @@ account with APM traffic (optional, before P1-03/P1-09).
 - P1-08: entity-search escaping rule from measurement 13; account filtering from measurement 14.
 - P6-02 / P6-03: API stability notes from measurements 17–18.
 - P7-03: `embeddedChartUrl` creates a shareable chart link — opt-in only; record in THREAT_MODEL if adopted.
+
+## D. NRQL parsing probe (P1-04 follow-up, 2026-10-03)
+
+`nrql-safety.ts`, 31 read-only probes on one US account, over a fixed one-day window holding 2,896 events of a single
+event type. The verdicts are in `results/nrql-safety-summary.json` (local); the facts are in RESEARCH §2.
+
+| Area | Result |
+|---|---|
+| Escaping | `length('it\'s') = 4`; `length('a\\b') = 3`. The injection probe `'x\' OR … \'E'` stayed one literal (0 matches). `'x\\'` closes correctly. relic-bridge's escaping of `it's a \ "q" -- // /* x` round-trips (length and concat equality). `''`, `"…"` and raw newlines are syntax errors |
+| Comments | `//`, `--` and `/* */` are all comments. `count(*)--1` equals `count(*)`, so `--` is a comment, not arithmetic. `// SINCE 3 days ago` was ignored (window 24 h) |
+| Time | Epoch seconds → 48 h, the same as ms. Zone-less dates are UTC (0 h offset); `WITH TIMEZONE 'Asia/Tokyo'` gives −9 h. `1 month ago` = 720 h. `last month` begins 772.8 h ago and ends now. Repeated SINCE/UNTIL are syntax errors; `1e3` is a syntax error |
+| LIMIT | Raw default **10 rows**. Repeated LIMIT and `5e0` are syntax errors. `LIMIT 5 OFFSET 2` and `OFFSET 2 LIMIT 5` both work |
+| Event types | Lower-case name → 0 rows (case-sensitive). `` `E ` `` (trailing space) → 0 rows |

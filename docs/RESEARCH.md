@@ -62,6 +62,17 @@ Sources: <https://docs.newrelic.com/docs/apis/nerdgraph/nerdgraph-usage-limits/>
   `rawResponse.queryUsage { billableMetric scannedEvents ccu }`. Surface them in tool `meta`.
   `rawResponse` is a JSON scalar that **repeats the whole result** (facets, totals), so selecting it roughly doubles the
   payload. P1-03 selects it only on request (`stats: true`, via `@include(if: $stats)`).
+- **NRQL parsing, measured** (`spikes/nerdgraph/nrql-safety.ts`, 2026-10-03, US account):
+  - **Escaping:** `\'` and `\\` are escapes in NRQL string literals. `\'` can't end a literal, and relic-bridge's
+    escaping round-trips quotes, backslashes, `"`, `--`, `//` and `/*`. `''`, double-quoted strings and raw newlines in
+    literals are syntax errors.
+  - **Comments:** `//`, `--` and `/* */` are comments, and `count(*)--1` is `count(*)` plus a comment. So `//` can hide
+    a clause, which is why relic-bridge strips comments before sending.
+  - **Time:** bare epochs are read as seconds or milliseconds. Zone-less quoted dates are UTC, and `WITH TIMEZONE`
+    shifts them (Tokyo: −9 h). `1 month` = 30 days. `SINCE last month` runs until now. Repeated SINCE, UNTIL and LIMIT
+    are syntax errors, and so are `1e3` and `5e0`.
+  - **LIMIT:** a raw query without LIMIT returns **10** rows by default, not 100. OFFSET works before or after LIMIT.
+  - **Event types:** names are case-sensitive, and a backtick name with a trailing space is a different, empty type.
 - Schema (P0-09 introspection): `Actor.nrql(accounts, async, …)` accepts `async`, but progress can only be polled with
   `Account.nrqlQueryProgress(queryId)`. There's no actor-level poll, so **cross-account queries run sync only** in P1-03.
 - Optional fields fail **independently** (GraphQL partial errors alongside `data`). The client must accept `data` + `errors`

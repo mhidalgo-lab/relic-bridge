@@ -8,11 +8,14 @@ import {
   nerdGraphFor,
 } from '../nerdgraph/client.ts';
 import { ACCOUNT_NRQL, CROSS_ACCOUNT_NRQL, NRQL_PROGRESS, type NrdbContainer } from './documents.ts';
+import { assertRawNrqlAllowed, enforceQueryLimits } from './limits.ts';
+import { isNrqlQuery, type NrqlQuery } from './template.ts';
 
 export type NrqlMode = 'auto' | 'sync' | 'async';
 
 export interface RunNrqlInput {
-  readonly nrql: string;
+  /** Built with the `nrql` tag. Arbitrary NRQL strings go through `runRawNrql`. */
+  readonly nrql: NrqlQuery;
   /** Accounts to query. Empty or omitted → the default account. More than one → cross-account (sync only). */
   readonly accounts?: readonly number[];
   /** NerdGraph query timeout in seconds (1–120). Default 10. */
@@ -63,6 +66,8 @@ export interface NrqlComplete {
   readonly warnings: readonly string[];
   readonly stats?: NrqlStats;
   readonly polls: number;
+  /** Adjustments made by query limits (e.g. a lowered LIMIT). Surface them to the agent. */
+  readonly notes: readonly string[];
 }
 
 export interface NrqlPending {
@@ -74,6 +79,8 @@ export interface NrqlPending {
   /** ISO time after which the result is gone. */
   readonly expiresAt?: string;
   readonly polls: number;
+  /** Adjustments made by query limits (e.g. a lowered LIMIT). Surface them to the agent. */
+  readonly notes: readonly string[];
 }
 
 export type NrqlOutcome = NrqlComplete | NrqlPending;
@@ -218,6 +225,7 @@ function complete(
     warnings: warnings.map((w) => w.message),
     ...(stats ? { stats } : {}),
     polls,
+    notes: [],
   };
 }
 
@@ -234,6 +242,7 @@ function pending(container: NrdbContainer, account: number, polls: number): Nrql
     retryAfterS: Math.max(MIN_POLL_WAIT_S, Math.ceil(p.retryAfter ?? MIN_POLL_WAIT_S)),
     ...(p.resultExpiration ? { expiresAt: new Date(p.resultExpiration).toISOString() } : {}),
     polls,
+    notes: [],
   };
 }
 
@@ -241,21 +250,64 @@ function pending(container: NrdbContainer, account: number, polls: number): Nrql
  * Run NRQL within platform limits (ADR-0010). Budget is spent by the client (one unit per attempt); polling stops when
  * the budget can't cover another poll and returns the handle instead.
  */
+/** Run NRQL built with the `nrql` tag. Query limits are enforced first (T5). */
 export async function runNrql(
   ctx: ToolContext,
   input: RunNrqlInput,
   deps: NrqlDeps = {},
 ): Promise<NrqlOutcome> {
+  if (!isNrqlQuery(input.nrql)) {
+    throw new RbError(
+      ErrorCode.Internal,
+      'runNrql needs a query built with the nrql tag; use runRawNrql for strings.',
+    );
+  }
+  return run(ctx, input, input.nrql.text, deps);
+}
+
+export interface RawNrqlInput extends Omit<RunNrqlInput, 'nrql'> {
+  /** Arbitrary NRQL from the agent. Only `run_nrql` should use this. */
+  readonly nrql: string;
+}
+
+/** Run arbitrary NRQL (`run_nrql`). Fails with RB_TOOL_DISABLED when the connection turns raw NRQL off. */
+export async function runRawNrql(
+  ctx: ToolContext,
+  input: RawNrqlInput,
+  deps: NrqlDeps = {},
+): Promise<NrqlOutcome> {
+  assertRawNrqlAllowed(ctx.limits);
+  if (typeof input.nrql !== 'string')
+    throw new RbError(ErrorCode.InputInvalid, 'The NRQL query must be a string.');
+  return run(ctx, input, input.nrql, deps);
+}
+
+async function run(
+  ctx: ToolContext,
+  input: Omit<RunNrqlInput, 'nrql'>,
+  text: string,
+  deps: NrqlDeps,
+): Promise<NrqlOutcome> {
+  if (text.trim() === '') throw new RbError(ErrorCode.InputInvalid, 'The NRQL query is empty.');
   const accounts = resolveAccounts(ctx, input.accounts);
+  const checked = enforceQueryLimits(text, ctx.limits, ctx.clock.now());
+  if (checked.notes.length > 0) ctx.logger.info('nrql adjusted by limits', { notes: checked.notes });
+  const outcome = await execute(ctx, { ...input, nrql: checked.nrql }, accounts, deps);
+  return { ...outcome, notes: checked.notes };
+}
+
+async function execute(
+  ctx: ToolContext,
+  input: Omit<RunNrqlInput, 'nrql'> & { readonly nrql: string },
+  accounts: number[],
+  deps: NrqlDeps,
+): Promise<NrqlOutcome> {
   const mode = input.mode ?? 'auto';
   const timeoutS = intInRange(input.timeoutS, DEFAULT_NRQL_TIMEOUT_S, 1, MAX_NRQL_TIMEOUT_S, 'timeoutS');
   const maxPolls =
     mode === 'auto' ? intInRange(input.maxPolls, DEFAULT_MAX_POLLS, 0, MAX_POLLS, 'maxPolls') : 0;
   const stats = input.stats ?? false;
   const client = deps.client ?? nerdGraphFor(ctx);
-  if (typeof input.nrql !== 'string' || input.nrql.trim() === '') {
-    throw new RbError(ErrorCode.InputInvalid, 'The NRQL query is empty.');
-  }
 
   if (accounts.length > 1) {
     if (mode === 'async') {

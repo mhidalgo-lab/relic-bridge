@@ -110,9 +110,38 @@ build step and a large generated file for little gain. Revisit if the document c
 
 Never select `staticChartUrl` or `embeddedChartUrl`: selecting them creates public chart links (T26).
 
+## Building NRQL safely
+
+Tools build NRQL **only** with the `nrql` tagged template (THREAT_MODEL T4). It returns an `NrqlQuery`, which `runNrql`
+accepts directly:
+
+```ts
+import { nrql } from '@relic-bridge/core';
+
+const where = appName ? nrql`WHERE appName = ${appName}` : nrql``;
+const query = nrql`SELECT count(*) FROM ${nrql.identifier(eventType)} ${where} FACET ${nrql.identifier(attr)}
+  SINCE ${minutes} minutes ago`;
+```
+
+| Interpolated value | Becomes |
+|---|---|
+| `string` | `'…'`, with `\` and `'` backslash-escaped. Control characters, lone surrogates and values over 4096 characters are rejected. |
+| `number` / `bigint` / `boolean` / `Date` | plain decimal (no `1e21`, `NaN` or `Infinity`) / digits / `true`·`false` / epoch ms |
+| array | `('a', 'b')` for `IN` (non-empty, scalars only) |
+| `nrql.identifier(name)` | `` `name` ``; only `A-Z a-z 0-9 _ . : - /`, starting with a letter or `_`, max 255 characters |
+| an `NrqlQuery` | inserted as a fragment (composition) |
+
+Rejected values throw `RB_INPUT_INVALID`. There is no raw-string escape hatch. `pnpm lint` runs
+`scripts/check-nrql-templates.ts`, which fails on untagged NRQL template literals and on NRQL built by concatenation.
+
+`runNrql` accepts **only** an `NrqlQuery`. Arbitrary NRQL from the agent goes through `runRawNrql`, which is for
+`run_nrql` only and fails with `RB_TOOL_DISABLED` when the connection turns raw NRQL off. Both paths run
+`enforceQueryLimits` (`src/nrql/limits.ts`): LIMIT, time window and event types; comments are removed before sending. Behaviour and known gaps
+are in `docs/guide/query-limits.md`.
+
 ## Running NRQL
 
-Tools never write NRQL documents themselves. They call the engine in `src/nrql/`:
+Tools never write NerdGraph documents themselves. They call the engine in `src/nrql/`:
 
 ```ts
 const out = await runNrql(ctx, { nrql, accounts: [id], timeoutS: 10, mode: 'auto', maxPolls: 3, stats: false });

@@ -2,7 +2,7 @@
 id: P1-03
 title: NRQL execution engine (sync, async, cross-account)
 phase: 1
-status: review
+status: done
 priority: high
 depends_on: [P1-02]
 adr: [0005, 0010]

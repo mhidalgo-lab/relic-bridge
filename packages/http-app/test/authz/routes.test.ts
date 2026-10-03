@@ -250,7 +250,11 @@ function controlStatus(route: RouteCase): number {
 }
 
 const UNSAFE = new Set(['POST', 'PATCH', 'PUT', 'DELETE']);
-const OWNER_ONLY = new Set(['POST /api/admin/v1/keys/rotate', 'POST /api/admin/v1/setup-links']);
+const OWNER_ONLY = new Set([
+  'POST /api/admin/v1/keys/rotate',
+  'POST /api/admin/v1/setup-links',
+  'POST /api/admin/v1/users/:id/unbind',
+]);
 const ANY_ROLE = new Set(['GET /api/admin/v1/session', 'GET /api/admin/v1/audit']);
 
 describe('admin routes × session principals (P4-02)', () => {

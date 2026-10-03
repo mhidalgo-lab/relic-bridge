@@ -21,6 +21,8 @@ const OPTS: SetupOptions = {
   dryRun: false,
   assumeNew: false,
   backupFile: undefined,
+  signIn: false,
+  publicUrl: undefined,
   replaceMasterKey: false,
 };
 
@@ -300,5 +302,108 @@ describe('runSetup', () => {
     expect(h.revealed.join('\n')).toMatch(/RB_MASTER_KEY=v1:/);
     expect(h.logs.join('\n')).toMatch(/could not write/);
     expect(h.calls.some((c) => c.args[0] === 'deploy')).toBe(true);
+  });
+
+  describe('--sign-in (P4-09)', () => {
+    const SECRET = 'GOCSPX-super-secret-value';
+    const base: SetupOptions = { ...OPTS, signIn: true };
+
+    it('parses the flags', () => {
+      expect(parseArgs(['--sign-in', '--public-url', 'https://rb.example.com'])).toMatchObject({
+        signIn: true,
+        publicUrl: 'https://rb.example.com',
+      });
+      expect(() => parseArgs(['--google-client-secret', 'x'])).toThrow(SetupError);
+    });
+
+    it('prompts, sends client secrets on stdin only and ids as --var', async () => {
+      const h = harness(ok);
+      const answers = ['https://rb.example.com', 'google-id.apps.example', '', ''];
+      const asked: string[] = [];
+      const deps: SetupDeps = {
+        ...h.deps,
+        env: {},
+        prompt: async (q) => {
+          asked.push(q);
+          return answers.shift() ?? '';
+        },
+        promptSecret: async (q) => {
+          asked.push(q);
+          return SECRET;
+        },
+      };
+      await runSetup(base, deps);
+      const bulk = h.calls.find((c) => c.args[1] === 'bulk');
+      const sent = JSON.parse(bulk?.input ?? '{}') as Record<string, string>;
+      expect(sent['RB_GOOGLE_CLIENT_SECRET']).toBe(SECRET);
+      expect(Object.keys(sent)).toEqual(['RB_MASTER_KEY', 'RB_ADMIN_TOKEN', 'RB_GOOGLE_CLIENT_SECRET']);
+      const deploy = h.calls.find((c) => c.args[0] === 'deploy');
+      expect(deploy?.args).toEqual(
+        expect.arrayContaining([
+          '--var',
+          'RB_PUBLIC_URL:https://rb.example.com',
+          'RB_GOOGLE_CLIENT_ID:google-id.apps.example',
+        ]),
+      );
+      // The secret is in no argument, no log line, no revealed line and no file written.
+      for (const c of h.calls) expect(c.args.join(' ')).not.toContain(SECRET);
+      expect(h.logs.join('\n')).not.toContain(SECRET);
+      expect(h.revealed.join('\n')).not.toContain(SECRET);
+      expect(h.logs.join('\n')).toContain('RB_GOOGLE_CLIENT_SECRET');
+      for (const [, content] of h.copies) expect(content).not.toContain(SECRET);
+      expect(h.logs.join('\n')).toContain('https://rb.example.com/auth/callback/google');
+      expect(asked.some((q) => q.includes('Public URL'))).toBe(true);
+    });
+
+    it('works without a terminal from the environment', async () => {
+      const h = harness(ok);
+      await runSetup(
+        { ...base, publicUrl: 'https://rb.example.com' },
+        {
+          ...h.deps,
+          env: { RB_GITHUB_CLIENT_ID: 'gh-id', RB_GITHUB_CLIENT_SECRET: SECRET },
+        },
+      );
+      const bulk = h.calls.find((c) => c.args[1] === 'bulk');
+      expect(JSON.parse(bulk?.input ?? '{}')).toMatchObject({ RB_GITHUB_CLIENT_SECRET: SECRET });
+      expect(h.calls.find((c) => c.args[0] === 'deploy')?.args).toContain('RB_GITHUB_CLIENT_ID:gh-id');
+    });
+
+    it('keeps a stored client secret when none is given now, and asks nothing in a dry run', async () => {
+      const kept = harness((args) =>
+        args[0] === 'secret' && args[1] === 'list'
+          ? {
+              stdout: JSON.stringify(
+                ['RB_MASTER_KEY', 'RB_ADMIN_TOKEN', 'RB_GITHUB_CLIENT_SECRET'].map((name) => ({ name })),
+              ),
+            }
+          : ok(args),
+      );
+      await runSetup(
+        { ...base, publicUrl: 'https://rb.example.com' },
+        { ...kept.deps, env: { RB_GITHUB_CLIENT_ID: 'gh-id' } },
+      );
+      expect(kept.calls.some((c) => c.args[1] === 'bulk')).toBe(false);
+      const dry = harness(ok);
+      const prompt = async (): Promise<string> => {
+        throw new Error('must not ask');
+      };
+      await runSetup({ ...base, dryRun: true }, { ...dry.deps, prompt, promptSecret: prompt });
+      expect(dry.calls).toEqual([]);
+    });
+
+    it('refuses bad answers before anything is sent', async () => {
+      for (const [publicUrl, env] of [
+        ['http://rb.example.com', { RB_GITHUB_CLIENT_ID: 'x', RB_GITHUB_CLIENT_SECRET: 's' }],
+        ['https://rb.example.com/path', { RB_GITHUB_CLIENT_ID: 'x', RB_GITHUB_CLIENT_SECRET: 's' }],
+        ['https://rb.example.com', {}],
+        ['https://rb.example.com', { RB_GITHUB_CLIENT_ID: 'x' }],
+        ['https://rb.example.com', { RB_OIDC_CLIENT_ID: 'x', RB_OIDC_CLIENT_SECRET: 's' }],
+      ] as const) {
+        const h = harness(ok);
+        await expect(runSetup({ ...base, publicUrl }, { ...h.deps, env })).rejects.toThrow(SetupError);
+        expect(h.calls.some((c) => c.args[1] === 'bulk' || c.args[0] === 'deploy')).toBe(false);
+      }
+    });
   });
 });

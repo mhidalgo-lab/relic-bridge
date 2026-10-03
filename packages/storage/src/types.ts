@@ -468,6 +468,12 @@ export interface KvRepository {
    * no live value. Of concurrent calls for one key at most one gets the value (single-use login state, setup links).
    */
   take(key: string): Promise<string | null>;
+  /**
+   * Housekeeping (P4-09): deletes up to `limit` rows (default and max 1000) whose expiry has passed (abandoned login
+   * transactions, unused setup links, ended sessions) and resolves how many it removed. Expired rows are already
+   * invisible to every other method, so this only reclaims space. Callers loop while the count equals `limit`.
+   */
+  purgeExpired(limit?: number): Promise<number>;
   /** Keys in lexicographic order. `limit` default and max 1000. */
   list(options?: {
     readonly prefix?: string;

@@ -298,6 +298,7 @@ Sign-in (serve; off until a provider is set; docs/guide/identity-providers.md):
                          <RB_PUBLIC_URL>/auth/callback/<provider>.
   RB_GOOGLE_CLIENT_ID, RB_GOOGLE_CLIENT_SECRET, RB_GOOGLE_HOSTED_DOMAIN
   RB_GITHUB_CLIENT_ID, RB_GITHUB_CLIENT_SECRET
+  (each *_CLIENT_SECRET also as *_CLIENT_SECRET_FILE, a file with mode 0600)
   RB_OIDC_ISSUER, RB_OIDC_CLIENT_ID, RB_OIDC_CLIENT_SECRET, RB_OIDC_NAME, RB_OIDC_LABEL, RB_OIDC_SCOPES
   RB_CF_ACCESS_TEAM, RB_CF_ACCESS_AUD
                          One block per provider; a client id needs its secret.

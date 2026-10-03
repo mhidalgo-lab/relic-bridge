@@ -117,6 +117,31 @@ Request body (`UpdateUser`):
 | 413 | `Error` | Body too large (`payload_too_large`) |
 | 415 | `Error` | Body is not JSON (`unsupported_media_type`) |
 
+### POST /users/{id}/unbind
+
+Clear a user's sign-in identity so they can sign in with another provider
+
+Owners only (the admin token counts as owner). Clears the provider and subject the user is bound to and signs them out everywhere. The next verified sign-in whose email matches binds the user again, to whichever provider it came from, so anyone who controls that email at a configured provider can take the account: confirm the move with the user first. `confirm` must repeat the user's email address. Audited as `user.unbind`.
+
+| Parameter | In | Type | Required | Description |
+| --- | --- | --- | --- | --- |
+| `id` | path | `string` | yes |  |
+
+Request body (`UnbindUser`):
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `confirm` | `string` | yes | The user's current email address, typed again as a confirmation. Anyone who then signs in with a provider that asserts this verified email takes over the account. |
+
+| Status | Body | Description |
+| --- | --- | --- |
+| 200 | `UserResponse` | Unbound |
+| 403 | `Error` | Session refused: role too low, missing/invalid CSRF token or cross-origin request (`forbidden`) |
+| 404 | `Error` | No such resource (`not_found`) |
+| 409 | `Error` | Conflicts with existing data (`conflict`, `read_only`) |
+| 413 | `Error` | Body too large (`payload_too_large`) |
+| 415 | `Error` | Body is not JSON (`unsupported_media_type`) |
+
 ## Sessions
 
 ### POST /users/{id}/sessions/revoke
@@ -1009,6 +1034,12 @@ Query limits; absent fields fall back to the defaults.
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `data` | `SetupLink` | yes |  |
+
+### UnbindUser
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `confirm` | `string` | yes | The user's current email address, typed again as a confirmation. Anyone who then signs in with a provider that asserts this verified email takes over the account. |
 
 ### UpdateCredential
 

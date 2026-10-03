@@ -612,6 +612,19 @@ export function createMemoryStorage(options: MemoryStorageOptions = {}): Storage
       kv.delete(key);
       return value;
     },
+    async purgeExpired(limit) {
+      checkLimit(limit, 'kv.limit');
+      const max = Math.min(Math.max(1, Math.trunc(limit ?? KV_MAX_LIST)), KV_MAX_LIST);
+      let removed = 0;
+      for (const [k, e] of [...kv]) {
+        if (removed >= max) break;
+        if (e.expiresAt !== null && e.expiresAt <= now()) {
+          kv.delete(k);
+          removed++;
+        }
+      }
+      return removed;
+    },
     async list(opts = {}): Promise<KvListResult> {
       checkLimit(opts.limit, 'kv.limit');
       const limit = Math.min(Math.max(1, Math.trunc(opts.limit ?? KV_MAX_LIST)), KV_MAX_LIST);

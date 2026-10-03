@@ -29,7 +29,7 @@ import {
   normalizeClientIp,
   SECURITY_HEADERS,
 } from '@relic-bridge/http-app';
-import { type Storage, StorageError } from '@relic-bridge/storage';
+import { type KvPurgeBudget, purgeExpiredKv, type Storage, StorageError } from '@relic-bridge/storage';
 import { createD1Storage } from '@relic-bridge/storage/d1';
 import type { Context } from 'hono';
 import type { WorkerEnv } from './env.ts';
@@ -88,6 +88,8 @@ export interface WorkerOptions {
   readonly bootWaitMs?: number;
   /** Retention purge budget per run (tests). Default: `PURGE_BATCH_ROWS`, `PURGE_MAX_BATCHES`, `PURGE_BUDGET_MS`. */
   readonly purge?: Partial<PurgeBudget>;
+  /** Expired `kv` row purge budget per run (tests). Default: `DEFAULT_KV_PURGE_BUDGET`. */
+  readonly kvPurge?: Partial<KvPurgeBudget>;
 }
 
 /** What one scheduled run may spend on deleting audit rows. */
@@ -465,9 +467,25 @@ export function createWorker(options: WorkerOptions = {}): WorkerHandler {
     }
   };
 
+  /**
+   * Expired `kv` rows (P4-09): abandoned `login:*` transactions, unused `setup:*` links, ended sessions. Independent of
+   * the audit retention (which may be 0 or misconfigured) and of the master key. Bounded batches; failures are logged,
+   * never thrown.
+   */
+  const purgeKv = async (env: WorkerEnv): Promise<void> => {
+    try {
+      const storage = await (options.openStorage ?? openD1Storage)(env);
+      const result = await purgeExpiredKv(storage.kv, options.kvPurge, now);
+      logger.info('kv purge finished', { ...result });
+    } catch (error) {
+      logger.error('kv purge failed', bootFailure(error));
+    }
+  };
+
   return {
     async scheduled(_controller, env) {
       await purgeAudit(env);
+      await purgeKv(env);
     },
     async fetch(request, env, ctx) {
       const runtime = await runtimeFor(env);

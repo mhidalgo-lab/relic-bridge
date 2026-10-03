@@ -148,6 +148,7 @@ export function main(rt: CliRuntime): MainResult {
         ...(args.db === undefined ? {} : { db: args.db }),
         env: rt.env,
         platform: rt.platform,
+        fs: rt.fs,
         ...(rt.homeDir === undefined ? {} : { homeDir: rt.homeDir }),
       });
       fetch = nerdGraphFetch(rt.env, logger);

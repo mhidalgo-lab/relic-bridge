@@ -21,6 +21,12 @@ export {
 } from './audit-stats.ts';
 export * from './errors.ts';
 export { newId } from './ids.ts';
+export {
+  DEFAULT_KV_PURGE_BUDGET,
+  type KvPurgeBudget,
+  type KvPurgeResult,
+  purgeExpiredKv,
+} from './kv-purge.ts';
 export { createMemoryStorage, type MemoryStorageOptions } from './memory.ts';
 export {
   type MigrateResult,

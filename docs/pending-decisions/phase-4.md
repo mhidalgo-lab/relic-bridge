@@ -260,3 +260,41 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Context:** The original P4-07 scope included a ZAP baseline scan in CI; CI is unavailable (billing).
 - **Assumption made:** Manual review plus probe suites now; the scan is task P4-12 (low priority).
 - **Needs:** owner choice of CI job vs. manual run when CI is back.
+
+## P4-09 — Sign-in operations
+
+### P4-09 — Unbinding a user leaves the account claimable by email
+- **Context:** Clearing `(idp, idp_subject)` lets the next verified sign-in with the same email bind the account, at
+  whichever configured provider asserts it (P4-01's rule for unbound users). During that window anyone who controls the
+  address at any configured provider (a generic OIDC provider can assert any address) can take the account.
+- **Assumption made:** Accepted, with safeguards: owner only (admin token counts), never yourself through a session,
+  the email must be retyped, sessions end, audited as `user.unbind`; the guide spells out the risk. No expiry on the
+  unbound state and no way to name the provider the user may move to.
+- **Options:** (a) keep it; (b) let the owner name the target provider (`bindTo: "github"`) and refuse binds from others
+  until a deadline; (c) several identities per user (the P4-01 option c), which makes unbinding rare.
+- **Needs:** owner choice; (b) is a small change in `decideLogin` plus one `kv` or user column.
+
+### P4-09 — `cf:setup --sign-in` sets non-secret sign-in settings with `--var`
+- **Context:** The client ids, issuer and `RB_PUBLIC_URL` are deployed as `wrangler deploy --var NAME:value`, like
+  `RB_PLAN`, and re-runs use `--keep-vars`. Only the fake Wrangler runner was exercised (no real deploy is allowed).
+- **Assumption made:** Wrangler keeps vars deployed this way on a later `--keep-vars` deploy. If it does not, a plain
+  re-run without `--sign-in` would drop them and sign-in would turn off until `--sign-in` is run again.
+- **Options:** keep; or write the vars into the git-ignored `wrangler.local.jsonc` `vars` (durable, still no secrets).
+- **Needs:** owner: run `pnpm cf:setup --sign-in` and a plain re-run once against a staging Worker and check Settings,
+  Variables.
+
+### P4-09 — Local `setup-link` needs the provider variables in the CLI's environment
+- **Context:** Locally the CLI builds the link itself, so it needs `RB_PUBLIC_URL` and the provider block (including the
+  client secret, or its `_FILE`) as `serve` has them, only to learn the public URL and the provider ids.
+- **Assumption made:** Accepted (same environment as `serve`; `--remote` needs only the admin token).
+- **Options:** a `--public-url` flag plus provider id without secrets for local use.
+- **Needs:** nothing unless that is awkward in practice.
+
+### P4-09 — Expired `kv` purge writes no audit row and has no manual command
+- **Context:** The Worker cron and `serve` purge expired `kv` rows hourly and log counts. Unlike `audit.purge`, no admin
+  audit row is written (one per hour of a few rows would be noise), and `relic-bridge audit purge` does not touch `kv`.
+- **Assumption made:** Logging is enough; expired rows are invisible anyway.
+- **Needs:** nothing.
+
+### P4-09 — Follow-ups split into tasks
+- GitHub OAuth token revocation after the lookup: P4-13. Unbind in the admin panel: P4-14.

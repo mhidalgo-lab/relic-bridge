@@ -48,8 +48,8 @@ Always refused:
 - an email the provider doesn't mark as verified (for GitHub: the **primary** address must be verified);
 - a disabled user;
 - an email that belongs to a user who is already bound to **another** provider account. Email alone never moves an
-  account to a different identity, so one user signs in with one provider account. Re-binding a user to another
-  provider is not available yet (tracked in P4-09); until then, sign in with the provider the user is bound to.
+  account to a different identity, so one user signs in with one provider account. To move a user to another provider
+  on purpose, an owner clears the binding first: see [Moving a user to another provider](#moving-a-user-to-another-provider).
 
 ## 3. First owner: setup link
 
@@ -66,6 +66,40 @@ The account you sign in with becomes `owner` (an existing user is promoted, else
 **once** and expires after `ttlMinutes` (default 60, at most 7 days). Only its hash is stored. Leave out `provider`
 to get the provider list instead. Treat the link like a password until it is used.
 
+The CLI does the same without curl, against a remote instance or on the machine that runs `serve`:
+
+```bash
+relic-bridge setup-link --remote https://bridge.example.com --provider google --ttl 30   # admin token from RB_ADMIN_TOKEN
+RB_PUBLIC_URL=... RB_GOOGLE_CLIENT_ID=... RB_GOOGLE_CLIENT_SECRET_FILE=... relic-bridge setup-link   # local database
+```
+
+The link is printed once on stdout (nothing else goes there), with the expiry on stderr. Locally the command reads
+`RB_PUBLIC_URL` and the provider variables from the environment, like `serve`, and writes the single-use code into the
+SQLite database that `serve` uses. The code is never logged, and the audit row records only the lifetime and provider.
+A refused sign-in still uses the link up (disabled user, `identity_conflict`): ask for a new one.
+
+## Moving a user to another provider
+
+A user is bound to one provider account. To let someone sign in with a different provider (say, from Google to GitHub),
+an **owner** clears the binding:
+
+```bash
+relic-bridge user unbind usr_abc123            # asks you to retype the user's email
+relic-bridge user unbind usr_abc123 --confirm ana@example.com --remote https://bridge.example.com   # scripts
+# or: POST /api/admin/v1/users/{id}/unbind  {"confirm": "ana@example.com"}
+```
+
+What happens: the user's provider and subject are cleared and every session of the user ends. The user's role, keys,
+grants and tokens are untouched. The **next verified sign-in whose email matches binds the account**, at whichever
+configured provider it comes from. That is the account-takeover risk: anyone who controls that email address at a
+provider you configured gets the account, so move a user only after checking with them, and keep the configured
+providers to ones whose email verification you trust (a generic OIDC provider can assert any address).
+
+Rules: owners only (an admin session gets `403`; the admin token counts as owner); not yourself through a session (ask
+another owner, or use the admin token); the request must repeat the user's current email (`400` otherwise); a user with
+no binding is a `409`. It is audited as `user.unbind` with the previous provider id (never the subject) and the
+sessions as `session.revoke_all` with reason `unbind`.
+
 ## 4. Providers
 
 ### Google
@@ -78,7 +112,7 @@ to get the provider list instead. Treat the link like a password until it is use
 
    ```bash
    RB_GOOGLE_CLIENT_ID=1234-abc.apps.googleusercontent.com
-   RB_GOOGLE_CLIENT_SECRET=…            # Worker: wrangler secret put RB_GOOGLE_CLIENT_SECRET
+   RB_GOOGLE_CLIENT_SECRET=…            # Worker: wrangler secret put RB_GOOGLE_CLIENT_SECRET (or pnpm cf:setup --sign-in)
    RB_GOOGLE_HOSTED_DOMAIN=example.com  # optional: only accounts of this Workspace domain
    ```
 
@@ -150,6 +184,23 @@ character. The provider must:
 
 Some providers (Microsoft Entra ID by default, for example) don't send `email_verified`, and their users are refused.
 Put Cloudflare Access in front with that provider behind it, or configure the provider to assert verification.
+
+### Secrets from files and on the Worker
+
+On `serve`, each client secret can come from a file instead of the environment: `RB_GOOGLE_CLIENT_SECRET_FILE`,
+`RB_GITHUB_CLIENT_SECRET_FILE`, `RB_OIDC_CLIENT_SECRET_FILE` (the file holds only the secret, mode `0600`; setting both
+the variable and the `_FILE` form is an error; errors never print the value). Use it with Docker or systemd secrets,
+like `RB_ADMIN_TOKEN_FILE`. `relic-bridge setup-link` reads the same files.
+
+On the Worker, `pnpm cf:setup --sign-in` asks for the public URL and each provider's client id and secret (or reads
+`RB_PUBLIC_URL`, `RB_GOOGLE_CLIENT_ID`, `RB_GOOGLE_CLIENT_SECRET`, ... from your shell, so it works without a terminal)
+and sets the secrets as Worker secrets; see [Cloudflare deploy](cloudflare-deploy.md#sign-in-on-the-worker).
+
+### Housekeeping
+
+Abandoned sign-ins (`login:*`) and unused setup links (`setup:*`) expire by themselves and are invisible once expired.
+The rows are deleted in small batches every hour: by the Worker's cron trigger and by `serve`'s timer (also at start-up),
+independently of the audit retention.
 
 ## 5. What is checked (security notes)
 

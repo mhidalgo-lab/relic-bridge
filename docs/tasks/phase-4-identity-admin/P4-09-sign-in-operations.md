@@ -2,7 +2,7 @@
 id: P4-09
 title: "Sign-in operations: identity re-binding, setup-link CLI, Worker setup for IdP secrets"
 phase: 4
-status: in-progress
+status: review
 priority: medium
 depends_on: [P4-01]
 adr: [0009]
@@ -36,12 +36,12 @@ user to another provider account on purpose, and set the IdP secrets on a Worker
   retention and of the master key) and from `serve`'s hourly timer (also at start-up).
 
 ## Acceptance criteria
-- [ ] Re-binding is owner-only, confirmed, audited, ends the user's sessions, and is covered by the P2-12 matrix.
-- [ ] `setup-link` works locally and with `--remote`; the code never reaches logs, stderr or the audit log.
-- [ ] `cf:setup --sign-in` tests cover the prompts and the environment path; client secrets are never in an argument,
+- [x] Re-binding is owner-only, confirmed, audited, ends the user's sessions, and is covered by the P2-12 matrix.
+- [x] `setup-link` works locally and with `--remote`; the code never reaches logs, stderr or the audit log.
+- [x] `cf:setup --sign-in` tests cover the prompts and the environment path; client secrets are never in an argument,
   log line, revealed output or `wrangler.local.jsonc`.
-- [ ] `*_CLIENT_SECRET_FILE` works on `serve` (0600 enforced, both forms refused, no value in errors).
-- [ ] Expired `kv` rows are purged by the Worker cron and by `serve`, in bounded batches, on SQLite, D1 and memory.
+- [x] `*_CLIENT_SECRET_FILE` works on `serve` (0600 enforced, both forms refused, no value in errors).
+- [x] Expired `kv` rows are purged by the Worker cron and by `serve`, in bounded batches, on SQLite, D1 and memory.
 
 ## Security notes
 T14 (account takeover through re-binding: admin-only, audited), T7/T8 (client secrets as secrets only).

@@ -9,6 +9,14 @@ Usage:
                     --default-account <id>] [--device <name>] [--url <https://host>]
   relic-bridge admin-token generate
   relic-bridge user add --email <e> [--name <n>] [--role owner|admin|member] | user list
+  relic-bridge user unbind <id> [--confirm <email>]
+                    Owner only. Clear the user's sign-in identity so they can sign in with another
+                    provider (they are signed out everywhere). Whoever then signs in with that
+                    verified email, at any configured provider, takes the account.
+  relic-bridge setup-link [--provider google|github|cf-access|<oidc name>] [--ttl <minutes>]
+                    Print a single-use link that makes whoever signs in with it an owner. Locally
+                    it needs RB_PUBLIC_URL and the provider variables as for serve; with --remote
+                    it asks the server.
   relic-bridge credential add --label <l> --region US|EU|JP [--owner <user id>] [key source]
   relic-bridge credential list | rotate <id> [key source] | revalidate <id> | remove <id> [--yes]
   relic-bridge project add --slug <s> --default-account <id> [--accounts 1,2] [--tools a,b]

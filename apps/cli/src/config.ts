@@ -370,8 +370,12 @@ export function loadYamlConfig(options: LoadConfigOptions & { configPath: string
   if (stat.size > MAX_CONFIG_BYTES) {
     throw new ConfigError(`Config file ${file} is larger than ${MAX_CONFIG_BYTES} bytes.`);
   }
-  if (options.platform !== 'win32' && (stat.mode & 0o004) !== 0) {
-    warnings.push(`Config file ${file} is readable by every user on this machine; run: chmod 600 ${file}`);
+  if (options.platform !== 'win32') {
+    if ((stat.mode & 0o004) !== 0) {
+      warnings.push(`Config file ${file} is readable by every user on this machine; run: chmod 600 ${file}`);
+    } else if ((stat.mode & 0o040) !== 0) {
+      warnings.push(`Config file ${file} is readable by its group; run: chmod 600 ${file}`);
+    }
   }
   let text: string;
   try {
@@ -412,5 +416,15 @@ export function loadConfig(options: LoadConfigOptions): LoadedConfig {
   if (options.project !== undefined) {
     throw new ConfigError('--project needs a config file (--config or RB_CONFIG).');
   }
-  return loadEnvConfig(options.env);
+  const loaded = loadEnvConfig(options.env);
+  if (envString(options.env, 'RB_PROJECT') !== undefined) {
+    return {
+      ...loaded,
+      warnings: [
+        ...loaded.warnings,
+        'RB_PROJECT is ignored in env mode (no config file); set --config or RB_CONFIG to choose a project.',
+      ],
+    };
+  }
+  return loaded;
 }

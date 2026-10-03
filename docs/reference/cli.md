@@ -59,8 +59,9 @@ relic-bridge audit tail [--limit <n>] [--follow] [--kind --action --status --pro
 The earlier maintenance commands are unchanged: `serve`, `db backup`, `keys generate|rotate`,
 `credential revalidate` (no id: every stored key, local), `audit purge`.
 
-- **`init`**: creates the master key file (`<data dir>/master.key`, mode `0600`, never overwritten) unless one is
-  configured, creates the database, and, when you give a label (or answer the prompts on a terminal), adds the first
+- **`init`**: creates the master key file unless one is configured (`--master-key-file`, default
+  `~/.config/relic-bridge/master.key` (`$XDG_CONFIG_HOME`, `%APPDATA%\relic-bridge` on Windows), mode `0600`, never
+  overwritten; a path in the database's own directory is refused, so a copy of the data never carries its key), creates the database, and, when you give a label (or answer the prompts on a terminal), adds the first
   credential, a project, a service grant and a device token. It refuses an existing database without its master key.
   Anything not given is skipped; add it later with the individual commands.
 - **`token create`** prints the token (stdout) and ready-to-paste configuration for Claude Code

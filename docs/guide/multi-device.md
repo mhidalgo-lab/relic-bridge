@@ -76,9 +76,9 @@ relic-bridge init --master-key-file /etc/relic-bridge/master.key \
 
 `init` asks for the New Relic key on a hidden prompt (or reads it from stdin, `--key-file` or `--key-env`), validates it
 against New Relic, stores it encrypted, creates the project `prod` and a grant for your devices (`prod-devices`), and
-prints the **first device token once**, with the configuration for each client. Put the key file outside the data
-directory so a backup of the data never contains it (the default, `<data dir>/master.key`, is convenient for a quick
-trial only), and back it up separately ([secrets](secrets.md)). Replace `1234567` with the id of your default account.
+prints the **first device token once**, with the configuration for each client. The key file must live outside the data
+directory so a backup of the data never contains it (the default is `~/.config/relic-bridge/master.key`; `init`
+refuses a path next to the database), and back it up separately ([secrets](secrets.md)). Replace `1234567` with the id of your default account.
 
 Then run it as a service. A systemd unit (Linux; adapt paths; not run by the maintainers' CI):
 

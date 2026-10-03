@@ -21,8 +21,8 @@ relic-bridge --help | --version
 | `--config <file>` | `RB_CONFIG` | YAML config file. Use an absolute path in client configs (`~/` is expanded). Without it, env mode is used. |
 | `--project <slug>` | `RB_PROJECT` | Project to serve from the file. Optional when the file has one project. |
 | `--log-level <level>` | `RB_LOG_LEVEL` | `debug`, `info` (default), `warn`, `error`. |
-| `--db <path>` | `RB_DB_PATH` | SQLite database for `db` commands and `keys rotate` (see [self-hosting](self-hosting.md)). |
-| — | `RB_MASTER_KEY` / `RB_MASTER_KEY_FILE` | Master key that encrypts stored New Relic keys (remote modes, `keys rotate`). See [secrets](secrets.md). |
+| `--db <path>` | `RB_DB_PATH` | SQLite database for `db` commands, `keys rotate` and `credential revalidate` (see [self-hosting](self-hosting.md)). |
+| — | `RB_MASTER_KEY` / `RB_MASTER_KEY_FILE` | Master key that encrypts stored New Relic keys (remote modes, `keys rotate`, `credential revalidate`). See [secrets](secrets.md). |
 | — | `RB_MASTER_KEY_PREVIOUS` / `RB_MASTER_KEY_PREVIOUS_FILE` | Previous master key, only while rotating. |
 | `--key-version <n>` | — | Version written into a key by `keys generate` (default 1). |
 

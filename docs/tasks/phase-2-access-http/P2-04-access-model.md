@@ -2,7 +2,7 @@
 id: P2-04
 title: Access model and effective-permission resolver
 phase: 2
-status: in-progress
+status: review
 priority: high
 depends_on: [P2-01, P2-03]
 adr: [0008]
@@ -25,7 +25,8 @@ owner: claude-agent
   - Fail closed (deny) on: project missing/disabled, grant missing/revoked/expired/for another project, principal
     not matching the grant's user, grant user missing/disabled, no credential, credential missing/revoked/invalid/
     unvalidated (reachable accounts unknown), explicit grant credential owned by another user (and not the
-    project default), stored limits that fail validation, empty tool set, empty account set.
+    project default), credential owner disabled/deleted, stored limits that fail validation, empty tool set,
+    empty account set.
 - **Async wrapper** `resolveAccess({ storage, projectSlug, principal, catalog, now })` loading the records, and
   `openCredential(access, keyring)` returning a core `Credential` (decrypted `Secret`) for the `ToolContext`.
 - **Domain services**: `createCredential` (format check, `actor.user`/`actor.accounts` validation, encrypt, store
@@ -36,9 +37,9 @@ owner: claude-agent
 - `RAW_NRQL_TOOLS` moves to core so stdio and the resolver share one definition.
 
 ## Acceptance criteria
-- [ ] Table-driven tests for every intersection case, incl. grant asking for more than project allows (gets the intersection, never more).
-- [ ] Negative tests for every deny reason (account not in project, tool not in grant, revoked/expired grant, disabled project, credential mismatch, …) and property tests: the result is always a subset of the project and of the grant, and limits are never looser than either.
-- [ ] Credential revalidation job/command (detect revoked NR keys).
+- [x] Table-driven tests for every intersection case, incl. grant asking for more than project allows (gets the intersection, never more).
+- [x] Negative tests for every deny reason (account not in project, tool not in grant, revoked/expired grant, disabled project, credential mismatch, …) and property tests: the result is always a subset of the project and of the grant, and limits are never looser than either.
+- [x] Credential revalidation job/command (detect revoked NR keys).
 
 ## Security notes
 T2, T3. Fail closed everywhere. Deny reasons are for logs and audit only; HTTP (P2-06) maps them to one generic
@@ -46,8 +47,14 @@ T2, T3. Fail closed everywhere. Deny reasons are for logs and audit only; HTTP (
 
 ## Docs to update
 - `docs/guide/access-model.md` (diagrams, personal vs team examples, BYO-key pattern).
-- `docs/THREAT_MODEL.md` (T2/T3 row), CLI help.
+- `docs/THREAT_MODEL.md` (T2/T3 row), CLI help, `docs/ARCHITECTURE.md` §4, configuration and self-hosting guides.
 
 ## Out of scope
 - UI (P4). HTTP wiring and isolate cache (P2-06). Token verification (P2-05). Admin API (P2-09) and the other
   CLI management commands (P2-10).
+
+## Outcome
+- `packages/auth/src/access`: `computeAccess` (pure), `resolveAccess` / `openCredential` / `listEffectivePermissions`,
+  `createCredential`, `revalidateCredential(s)`, `createProject`, `createGrant`. Tests:
+  `packages/auth/test/access-*.test.ts`, `apps/cli/test/credentials.test.ts`.
+- Assumptions recorded in `docs/pending-decisions/phase-2.md` (P2-04 section).

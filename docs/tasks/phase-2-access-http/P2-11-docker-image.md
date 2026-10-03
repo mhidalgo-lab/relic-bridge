@@ -2,11 +2,11 @@
 id: P2-11
 title: Docker image (signed, SBOM)
 phase: 2
-status: todo
+status: in-progress
 priority: medium
 depends_on: [P2-06, P2-02]
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P2-11 — Docker image

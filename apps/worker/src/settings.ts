@@ -10,10 +10,35 @@ import {
 } from '@relic-bridge/http-app';
 import type { WorkerVars } from './env.ts';
 
-/** NerdGraph subrequests per MCP request (ADR-0010 provisional presets; P3-03 finalises them). */
-export const PLAN_CALL_BUDGET: Readonly<Record<WorkerPlan, number>> = Object.freeze({ free: 50, paid: 1000 });
-
 export type WorkerPlan = 'free' | 'paid';
+
+/** What a plan preset fixes (ADR-0010, P0-06 measurements, Cloudflare limits as of 2026-10-03; see RESEARCH §1). */
+export interface PlanPreset {
+  /**
+   * NerdGraph calls (external `fetch`) per MCP request. Free allows 50 external subrequests; D1 and KV count against a
+   * separate 1,000 internal allowance, so the budget keeps a margin of 5 for redirects and other fetches. Paid
+   * defaults to 10,000; we stay at 1,000, far above any tool's plan.
+   */
+  readonly callBudget: number;
+  /** Ceiling for a NerdGraph response body. Body read and parse cost about 5 ms CPU per MB; Free has 10 ms. */
+  readonly maxResponseBytes: number;
+  /** NerdGraph calls in flight per credential; Workers allows 6 simultaneous outgoing connections per request. */
+  readonly concurrency: number;
+}
+
+export const PLAN_PRESETS: Readonly<Record<WorkerPlan, PlanPreset>> = Object.freeze({
+  free: Object.freeze({ callBudget: 45, maxResponseBytes: 512 * 1024, concurrency: 5 }),
+  paid: Object.freeze({ callBudget: 1000, maxResponseBytes: 8 * 1024 * 1024, concurrency: 5 }),
+});
+
+/** Kept for callers that only need the budget. */
+export const PLAN_CALL_BUDGET: Readonly<Record<WorkerPlan, number>> = Object.freeze({
+  free: PLAN_PRESETS.free.callBudget,
+  paid: PLAN_PRESETS.paid.callBudget,
+});
+
+/** Workers allows 6 connections waiting for response headers at once per request (RESEARCH §1). */
+export const MAX_WORKER_CONCURRENCY = 6;
 
 const LOG_LEVELS: readonly LogLevel[] = ['debug', 'info', 'warn', 'error'];
 
@@ -30,6 +55,8 @@ export class WorkerConfigError extends Error {
 export interface WorkerSettings {
   readonly plan: WorkerPlan;
   readonly callBudget: number;
+  readonly maxResponseBytes: number;
+  readonly concurrency: number;
   readonly allowedHosts: readonly string[] | '*';
   readonly allowedOrigins?: readonly string[];
   readonly corsOrigins: readonly string[];
@@ -74,6 +101,33 @@ export function parseWorkerSettings(vars: WorkerVars): WorkerSettings {
     throw new WorkerConfigError('RB_PLAN', 'RB_PLAN must be free or paid');
   }
   const plan: WorkerPlan = planRaw;
+  const preset = PLAN_PRESETS[plan];
+
+  // Explicit overrides win over the preset. Out-of-range values fail closed rather than being clamped, so a typo
+  // never silently becomes a different budget.
+  const intVar = (name: keyof WorkerVars, fallback: number, min: number, max: number): number => {
+    const v = text(vars, name);
+    if (v === undefined) return fallback;
+    if (!/^\d{1,9}$/.test(v) || Number(v) < min || Number(v) > max) {
+      throw new WorkerConfigError(name, `${name} must be an integer from ${min} to ${max}`);
+    }
+    return Number(v);
+  };
+  const callBudget = intVar('RB_CALL_BUDGET', preset.callBudget, 1, 10_000);
+  const maxResponseBytes = intVar('RB_MAX_RESPONSE_BYTES', preset.maxResponseBytes, 1024, 64 * 1024 * 1024);
+  const concurrency = intVar('RB_CONCURRENCY', preset.concurrency, 1, MAX_WORKER_CONCURRENCY);
+  if (plan === 'free') {
+    if (callBudget > 50) {
+      warnings.push(
+        `RB_CALL_BUDGET=${callBudget} is above the Free plan's 50 external subrequests: a long call will be cut off by Cloudflare.`,
+      );
+    }
+    if (maxResponseBytes > preset.maxResponseBytes) {
+      warnings.push(
+        'RB_MAX_RESPONSE_BYTES is above the Free preset: parsing large responses can exceed the 10 ms CPU limit.',
+      );
+    }
+  }
 
   // A Worker is reached only through the hostnames Cloudflare routes to it, so the DNS-rebinding check that guards
   // a server on a private network adds nothing by default; operators may still pin their hostnames.
@@ -146,7 +200,9 @@ export function parseWorkerSettings(vars: WorkerVars): WorkerSettings {
 
   return {
     plan,
-    callBudget: PLAN_CALL_BUDGET[plan],
+    callBudget,
+    maxResponseBytes,
+    concurrency,
     allowedHosts,
     ...(allowedOrigins === undefined ? {} : { allowedOrigins }),
     corsOrigins,

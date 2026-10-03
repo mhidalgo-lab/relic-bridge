@@ -33,6 +33,7 @@ import {
   LimiterPool,
   type Logger,
   newRequestId,
+  type QueryLimits,
   type Secret,
   silentLogger,
   systemClock,
@@ -205,6 +206,11 @@ export interface HttpAppOptions {
   readonly maxBodyBytes?: number;
   readonly requestTimeoutMs?: number;
   readonly callBudget?: number;
+  /**
+   * Platform ceiling for NerdGraph response bodies in bytes (Workers plan presets, P3-03). A project's own
+   * `maxResponseBytes` still applies; the smaller of the two wins. Default: no ceiling.
+   */
+  readonly maxResponseBytes?: number;
   /** NerdGraph calls in flight per credential (1-25, default 5). */
   readonly concurrencyPerCredential?: number;
   /** `'auto'` (default): HSTS when the request URL is https. `true` for a TLS-terminating proxy. */
@@ -379,6 +385,30 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
     600_000,
   );
   const callBudget = checkRange('callBudget', options.callBudget ?? DEFAULT_CALL_BUDGET, 1, 100_000);
+  const responseCeiling =
+    options.maxResponseBytes === undefined
+      ? undefined
+      : checkRange('maxResponseBytes', options.maxResponseBytes, 1024, 64 * 1024 * 1024);
+  /** Apply the platform ceiling on top of a project's limits. */
+  const capLimits = (limits: QueryLimits): QueryLimits =>
+    responseCeiling === undefined || limits.maxResponseBytes <= responseCeiling
+      ? limits
+      : Object.freeze({ ...limits, maxResponseBytes: responseCeiling });
+  /** Split granted tools into those the request budget can pay for and those it cannot (hidden, explained in whoami). */
+  const affordable = (granted: readonly ToolDefinition[]) => {
+    const tools: ToolDefinition[] = [];
+    const unavailable: { name: string; reason: string }[] = [];
+    for (const t of granted) {
+      if (t.cost <= callBudget) tools.push(t);
+      else {
+        unavailable.push({
+          name: t.name,
+          reason: `needs about ${t.cost} NerdGraph calls, above this deployment's budget of ${callBudget} per request`,
+        });
+      }
+    }
+    return { tools, unavailable: Object.freeze(unavailable.map((u) => Object.freeze(u))) };
+  };
   const cache = new AccessCache(
     options.accessCacheTtlMs ?? DEFAULT_ACCESS_CACHE_TTL_MS,
     options.accessCacheMaxEntries ?? DEFAULT_ACCESS_CACHE_ENTRIES,
@@ -775,16 +805,21 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
     try {
       const credential = await openCredential(access, resolved.credential, { keyring: options.keyring });
       const toolLogger = logger.child({ requestId, project: access.projectSlug, grantId: access.grantId });
+      const granted = affordable(allTools.filter((t) => access.tools.includes(t.name)));
       scope = Object.freeze({
-        tools: allTools.filter((t) => access.tools.includes(t.name)),
+        tools: granted.tools,
         ctx: Object.freeze({
           requestId,
           credential,
           accounts: access.accounts,
           budget: createBudget(callBudget),
           limiter: limiters.for(credential.id),
-          limits: access.limits,
-          connection: Object.freeze({ project: access.projectSlug, allowedTools: access.tools }),
+          limits: capLimits(access.limits),
+          connection: Object.freeze({
+            project: access.projectSlug,
+            allowedTools: access.tools,
+            unavailableTools: granted.unavailable,
+          }),
           logger: toolLogger,
           clock,
         }),
@@ -841,9 +876,10 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
     const validateKey =
       pt.validateKey ??
       nerdGraphKeyValidator({ logger, clock, ...(options.fetch ? { fetch: options.fetch } : {}) });
-    const ptLimits = pt.limits ?? DEFAULT_LIMITS;
+    const ptLimits = capLimits(pt.limits ?? DEFAULT_LIMITS);
     // Read-only tools only, whatever the catalog grows into (a caller's own key gets no write access through here).
-    const ptTools = Object.freeze(allTools.filter((t) => t.kind === 'read'));
+    const ptGranted = affordable(allTools.filter((t) => t.kind === 'read'));
+    const ptTools = Object.freeze(ptGranted.tools);
     const ptToolNames = Object.freeze(ptTools.map((t) => t.name));
     const requireTls = pt.requireTls ?? true;
     const concurrency = options.concurrencyPerCredential ?? DEFAULT_CONCURRENCY;
@@ -957,7 +993,7 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
           // Per request: no per-key state that grows with the number of keys seen (the rate limiter bounds the rest).
           limiter: createSemaphoreLimiter(concurrency),
           limits: ptLimits,
-          connection: Object.freeze({ allowedTools: ptToolNames }),
+          connection: Object.freeze({ allowedTools: ptToolNames, unavailableTools: ptGranted.unavailable }),
           logger: logger.child({ requestId, keyId }),
           clock,
         }),

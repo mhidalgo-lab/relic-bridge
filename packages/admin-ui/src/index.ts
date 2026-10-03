@@ -3,8 +3,11 @@
 export { ADMIN_UI_BASE, createAdminUi } from './app.ts';
 export { ASSET_BASE, ASSET_CACHE_CONTROL, ASSETS, assetHref, findAsset, type StaticAsset } from './assets.ts';
 export {
+  Badge,
+  type BadgeTone,
   Button,
   Checkbox,
+  CONFIRM_FIELD,
   type Column,
   ConfirmAction,
   CSRF_FIELD,
@@ -16,9 +19,12 @@ export {
   Form,
   Layout,
   type LayoutProps,
+  LinkButton,
   localHref,
   NAV_ITEMS,
   type NavItem,
+  Pager,
+  QueryForm,
   SecretOnce,
   SelectField,
   SignOut,
@@ -50,9 +56,11 @@ export {
   type PageContext,
   type PageHandler,
   pageFetchProblem,
+  requestIdOf,
   type UiAuthResult,
   type UiKit,
   type UiPrincipal,
+  type UiTool,
   type VerifiedForm,
 } from './kit.ts';
 export {

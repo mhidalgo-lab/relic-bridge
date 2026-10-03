@@ -10,13 +10,75 @@ export interface FlashMessage {
 }
 
 /** Every flash code. Screens add theirs here and in the catalogue below. */
-export type FlashCode = 'saved' | 'deleted' | 'revoked' | 'not_found' | 'not_allowed' | 'failed';
+export type FlashCode =
+  | 'saved'
+  | 'created'
+  | 'created_with_notes'
+  | 'deleted'
+  | 'revoked'
+  | 'disabled'
+  | 'enabled'
+  | 'signed_out_everywhere'
+  | 'user_added'
+  | 'key_added'
+  | 'key_rotated'
+  | 'key_rotated_other_user'
+  | 'key_valid'
+  | 'key_invalid'
+  | 'key_check_failed'
+  | 'key_in_use'
+  | 'key_not_checkable'
+  | 'changed_meanwhile'
+  | 'read_only'
+  | 'not_found'
+  | 'not_allowed'
+  | 'failed';
 
 /** Every flash message the UI can show. */
 export const FLASH_MESSAGES: Readonly<Record<FlashCode, FlashMessage>> = Object.freeze({
   saved: { kind: 'success', text: 'Saved.' },
+  created: { kind: 'success', text: 'Created.' },
+  created_with_notes: {
+    kind: 'info',
+    text: 'Created. Some of what it asks for has no effect on this project: see the notes below.',
+  },
   deleted: { kind: 'success', text: 'Deleted.' },
   revoked: { kind: 'success', text: 'Revoked.' },
+  disabled: { kind: 'success', text: 'Disabled.' },
+  enabled: { kind: 'success', text: 'Enabled.' },
+  signed_out_everywhere: { kind: 'success', text: 'Signed out on every device.' },
+  user_added: {
+    kind: 'success',
+    text: 'User added. They can sign in with a provider that confirms this email address.',
+  },
+  key_added: { kind: 'success', text: 'Key added. New Relic accepted it.' },
+  key_rotated: { kind: 'success', text: 'Key replaced. New Relic accepted the new key.' },
+  key_rotated_other_user: {
+    kind: 'info',
+    text: 'Key replaced. The new key belongs to a different New Relic user: check the accounts it reaches.',
+  },
+  key_valid: { kind: 'success', text: 'New Relic accepted the key. Its accounts are up to date.' },
+  key_invalid: {
+    kind: 'error',
+    text: 'New Relic refused the key. Everything using it stops until you replace it.',
+  },
+  key_check_failed: {
+    kind: 'error',
+    text: 'New Relic could not be reached. Nothing changed. Try again in a moment.',
+  },
+  key_not_checkable: {
+    kind: 'info',
+    text: 'This key is not stored in the database (it comes from the environment or a config file), so it is checked when the server starts.',
+  },
+  key_in_use: {
+    kind: 'error',
+    text: 'This key is still used by a project or grant. Point them at another key first.',
+  },
+  changed_meanwhile: {
+    kind: 'error',
+    text: 'Someone changed this at the same time. Check it and try again.',
+  },
+  read_only: { kind: 'error', text: 'The storage is read-only right now. Nothing changed.' },
   not_found: { kind: 'error', text: 'That item no longer exists.' },
   not_allowed: { kind: 'error', text: 'Your role does not allow that.' },
   failed: { kind: 'error', text: 'That did not work. Try again in a moment.' },

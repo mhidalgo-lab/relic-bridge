@@ -99,6 +99,10 @@ const ERROR_TEXT: Readonly<Record<number, { title: string; text: string }>> = {
   404: { title: 'Page not found', text: 'There is no admin page at this address.' },
   413: { title: 'Request too large', text: 'The form you sent is too large.' },
   415: { title: 'Unsupported request', text: 'Send the form from the admin pages.' },
+  429: {
+    title: 'Too many requests',
+    text: 'Too many requests from this address. Wait a minute, then try again.',
+  },
   500: { title: 'Something went wrong', text: 'The page could not be shown. Try again in a moment.' },
   503: { title: 'Unavailable', text: 'The service is unavailable right now. Try again in a moment.' },
 };

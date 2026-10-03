@@ -2,11 +2,11 @@
 id: P1-05
 title: Output shaping v1 and untrusted-data envelope
 phase: 1
-status: todo
+status: in-progress
 priority: high
 depends_on: [P1-03]
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P1-05 — Output shaping v1 and untrusted-data envelope
@@ -24,8 +24,32 @@ Tool results that are compact for LLM context, predictable, and clearly marked a
 - Envelope: telemetry fields (log messages, error messages, span names…) wrapped in a delimited block with a one-line notice that the content is data, not instructions.
 - `meta`: NRQL actually executed, accounts, duration, truncated flag, inspected count (if available).
 
+## Refined scope (before starting)
+- Lives in `packages/core/src/output/` (web-standard only). Pure functions; no I/O, no module-level request state.
+- `shapeRows(rows, options)` → `{ text, structured, meta }` building block for every list/row tool; `shapeNrqlOutcome(outcome, options)`
+  on top of it for `NrqlComplete` / `NrqlPending` (used by P1-06).
+- Formats: `auto` (default: `table` when ≤ 8 columns, else `csv`), `table`, `csv`, `json`. Nested values are
+  rendered as compact JSON in `table`/`csv`.
+- Defaults: 100 rows, 300 chars per cell, 24 000 chars for the whole text. Caps can only be lowered by callers
+  (hard maximums: 1000 rows, 4000 chars per cell, 100 000 chars).
+- Envelope: one delimited block per result, with an unpredictable per-call marker (WebCrypto) so data can't close it,
+  and a one-line notice. Applied to all rendered data by default (`untrusted: false` only for values we generate).
+- `meta` under the namespaced key `relic-bridge/result` (like `relic-bridge/error`): format, rows total / returned,
+  truncated, token estimate, and for NRQL: executed NRQL, accounts, duration, inspected count, notes. The engine
+  outcome gains `nrql` (the text actually sent) and `durationMs`.
+- Compaction helpers: `flattenTags`, `pickFields` (`minimal_output`), `encodeCursor` / `decodeCursor` / `paginate`
+  (opaque, validated offset cursors).
+- Output schema (zod) for the NRQL result, so P1-06 can declare `outputSchema`.
+
 ## Acceptance criteria
-- [ ] Snapshot tests per format; truncation correctness; envelope present on log/error outputs.
+- [ ] Snapshot tests per format (table, csv, json, auto) and for NRQL complete / pending outcomes.
+- [ ] Truncation correctness: row cap, cell cap, total-char cap (never cuts inside the envelope markers, notice
+      always present and says how to narrow), caps clamped to hard maximums.
+- [ ] Envelope present on every rendered data block (incl. log/error message rows); data containing a fake closing
+      marker or "ignore previous instructions" stays inside the block (test).
+- [ ] Escaping: markdown table pipes/newlines, CSV quoting (RFC 4180) and formula-injection prefixes.
+- [ ] `flattenTags`, `pickFields`, cursor round trip and rejection of tampered cursors tested.
+- [ ] `docs/guide/output-formats.md` written; THREAT_MODEL T6 row in the mitigation log.
 
 ## Security notes
 T6 (prompt injection) — envelope + docs.

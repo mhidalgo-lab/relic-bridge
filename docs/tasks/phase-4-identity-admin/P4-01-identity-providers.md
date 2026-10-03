@@ -2,7 +2,7 @@
 id: P4-01
 title: "Identity providers: Google, GitHub, Cloudflare Access, generic OIDC"
 phase: 4
-status: in-progress
+status: review
 priority: high
 depends_on: [P3-07]
 adr: [0009]
@@ -49,23 +49,36 @@ turning that into a browser session (cookie, CSRF, roles) is P4-02, which plugs 
 - P2-12 authorization matrix: the new routes (Node and Worker hosts).
 
 ## Acceptance criteria
-- [ ] Mock-IdP tests (self-generated JWKS, no network): wrong `aud`, wrong `iss`, expired, `alg: none`, HS256 key
+- [x] Mock-IdP tests (self-generated JWKS, no network): wrong `aud`, wrong `iss`, expired, `alg: none`, HS256 key
       confusion, unknown `kid` → JWKS refetch (rotation), wrong `nonce`, unverified email, not in allowlist, GitHub
       unverified primary email and org membership, Google `hd` mismatch, CF Access wrong AUD / expired / missing header.
-- [ ] State replay, missing/foreign binding cookie, provider mix-up (state of provider A at callback B) and RFC 9207
+- [x] State replay, missing/foreign binding cookie, provider mix-up (state of provider A at callback B) and RFC 9207
       `iss` mismatch are refused; `next` cannot redirect off-origin.
-- [ ] Setup link: single use, expires, makes the identity `owner`.
-- [ ] `kv.take` in the storage contract suite (memory, SQLite, D1).
-- [ ] Works on Node (localhost redirect, `serve` with a local mock IdP) and Workers (workerd tests).
-- [ ] New routes in the P2-12 matrix (guard test passes on both hosts).
+- [x] Setup link: single use, expires, makes the identity `owner`.
+- [x] `kv.take` in the storage contract suite (memory, SQLite, D1).
+- [x] Works on Node (localhost redirect, `serve` with a local mock IdP) and Workers (workerd tests).
+- [x] New routes in the P2-12 matrix (guard test passes on both hosts).
 - [ ] Real Google / GitHub / Cloudflare Access apps exercised end to end (owner, see pending decisions).
+      *Not done: needs real OAuth apps and an Access application, which the autonomous run may not create. Steps in
+      `docs/pending-decisions/phase-4.md` (P4-01) and `docs/guide/identity-providers.md`.*
 
 ## Security notes
 T14 (and T13 for the login cookie). State + nonce + PKCE everywhere; deny by default.
 
 ## Docs to update
 - `docs/guide/identity-providers.md` (how to create Google/GitHub OAuth apps, CF Access app).
-- `docs/guide/configuration.md`, `docs/ARCHITECTURE.md`, `docs/THREAT_MODEL.md`, `docs/RESEARCH.md`, admin API reference.
+- `docs/guide/self-hosting.md`, `apps/worker/README.md`, `docs/ARCHITECTURE.md`, `docs/THREAT_MODEL.md`,
+  `docs/RESEARCH.md`, admin API reference (generated), README.
+
+## Notes for P4-02
+- Sign-in ends in `IdentityOptions.onLogin(c, CompletedLogin)` (`packages/http-app/src/identity.ts`): `user` (the
+  verified, allowed `UserRecord`), `identity`, `outcome`, `provider` and a validated same-origin `next`. P4-02 creates
+  the server-side session there, sets `__Host-rb_session`, and redirects to `next`. The default handler only shows
+  "Signed in as …".
+- Wire `onLogin` where `identity` is built: `apps/cli/src/serve.ts` and `apps/worker/src/worker.ts`.
+- Login state already lives in storage `kv` (`login:*`, `setup:*`), and `kv.take` is atomic, so sessions and CSRF
+  tokens can use the same primitives.
+- Follow-ups: P4-09 (identity re-binding, `setup-link` CLI, `cf:setup` prompts, `_FILE` secrets).
 
 ## Out of scope
 - Sessions, CSRF, roles enforcement in the admin API (P4-02); the admin UI (P4-03+).

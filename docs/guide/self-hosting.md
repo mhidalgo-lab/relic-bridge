@@ -63,6 +63,13 @@ relic-bridge serve --port 9000 --db /var/lib/relic-bridge/relic-bridge.db
 | `RB_PASSTHROUGH_IDENTITY_TTL` | `60` | Seconds a pass-through key's reachable accounts are cached, `0`-`300` (`0` asks New Relic on every request). |
 | `RB_HSTS` | `auto` | `Strict-Transport-Security` when the request arrived over https; `true` behind a TLS-terminating proxy. |
 | `RB_LOG_LEVEL` | `info` | One JSON line per request on stderr (never the token or the New Relic key). |
+| `RB_PUBLIC_URL` | unset | Origin browsers use to reach the server (`https://…`, or `http://localhost:8787` locally). Needed by [admin sign-in](identity-providers.md); its host must be in `RB_ALLOWED_HOSTS`. |
+| `RB_GOOGLE_CLIENT_ID` / `RB_GOOGLE_CLIENT_SECRET` | unset | Google sign-in. `RB_GOOGLE_HOSTED_DOMAIN` limits it to one Workspace domain. |
+| `RB_GITHUB_CLIENT_ID` / `RB_GITHUB_CLIENT_SECRET` | unset | GitHub sign-in (OAuth app). |
+| `RB_OIDC_ISSUER` / `RB_OIDC_CLIENT_ID` / `RB_OIDC_CLIENT_SECRET` | unset | Any OpenID Connect provider, by discovery. Optional `RB_OIDC_NAME`, `RB_OIDC_LABEL`, `RB_OIDC_SCOPES`. |
+| `RB_CF_ACCESS_TEAM` / `RB_CF_ACCESS_AUD` | unset | Cloudflare Access in front of the server (team name and application AUD tag). |
+| `RB_LOGIN_ALLOW_EMAILS` / `RB_LOGIN_ALLOW_DOMAINS` / `RB_LOGIN_ALLOW_GITHUB_ORGS` | unset | Who may sign in without a pre-created user. Deny by default. |
+| `RB_LOGIN_AUTO_PROVISION` | `off` | `member` or `admin`: create a user for an allowlisted identity on its first sign-in. Never `owner`. |
 
 ### What the server enforces
 

@@ -253,6 +253,7 @@ export function createYamlStorage(
     settings: {
       get: async () => undefined,
       set: readOnly,
+      setIfAbsent: readOnly,
       delete: readOnly,
       list: async () => Object.freeze({}),
     },

@@ -35,6 +35,8 @@ runtime-specific code lives in the adapters' hosts (P2-02 Node SQLite, P3-02 D1)
 - `credentials.update(id, { key, ifKey })` is a compare-and-swap: with `ifKey` the patch applies only while the stored
   key is still exactly `ifKey` (ciphertext, IV, version), else `ConflictError` (`credentials.key`). SQL adapters must
   check it inside the `UPDATE` statement, not with a separate read. Master-key rotation relies on it.
+- `settings.setIfAbsent(key, value)` is an atomic insert-if-absent (`true` when this call wrote the value). SQL
+  adapters use `INSERT … ON CONFLICT(key) DO NOTHING`. Key check values are registered with it (P2-06, SR-4).
 - The `yaml` adapter yields `{ kind: 'env', variable }` or `{ kind: 'inline', reveal() }` instead; `reveal` is
   non-enumerable, so a credential serialises without the literal.
 - Access tokens: only `tokenHash` (SHA-256, lowercase hex) and a display `prefix` (≤ 12 chars). Format and hashing

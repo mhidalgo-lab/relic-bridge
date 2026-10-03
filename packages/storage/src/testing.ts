@@ -229,6 +229,7 @@ export function runStorageContract(options: StorageContractOptions): void {
             s.auditLog.append({ ts: 1, kind: 'admin', action: 'x', status: 'ok' }),
             s.auditLog.purgeBefore(1),
             s.settings.set('k', 1),
+            s.settings.setIfAbsent('k', 1),
             s.settings.delete('k'),
             s.kv.put('k', 'v'),
             s.kv.delete('k'),
@@ -712,6 +713,23 @@ export function runStorageContract(options: StorageContractOptions): void {
         await s.settings.delete('nested');
         await s.settings.delete('never-set');
         expect(await s.settings.get('nested')).toBeUndefined();
+        await s.close();
+      });
+
+      it('setIfAbsent writes once and never overwrites', async () => {
+        const { s } = await fresh();
+        expect(await s.settings.setIfAbsent('once', 'first')).toBe(true);
+        expect(await s.settings.setIfAbsent('once', 'second')).toBe(false);
+        expect(await s.settings.get('once')).toBe('first');
+        await s.settings.set('existing', 1);
+        expect(await s.settings.setIfAbsent('existing', 2)).toBe(false);
+        expect(await s.settings.get('existing')).toBe(1);
+        // Racing writers: exactly one wins.
+        const results = await Promise.all([1, 2, 3, 4].map((n) => s.settings.setIfAbsent('race', n)));
+        expect(results.filter(Boolean)).toHaveLength(1);
+        expect(results.indexOf(true) + 1).toBe(await s.settings.get('race'));
+        await s.settings.delete('once');
+        expect(await s.settings.setIfAbsent('once', 'again')).toBe(true);
         await s.close();
       });
     });

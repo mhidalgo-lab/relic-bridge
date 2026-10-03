@@ -500,6 +500,11 @@ export function createMemoryStorage(options: MemoryStorageOptions = {}): Storage
     async set(key, value) {
       settings.set(key, JSON.stringify(value));
     },
+    async setIfAbsent(key, value) {
+      if (settings.has(key)) return false;
+      settings.set(key, JSON.stringify(value));
+      return true;
+    },
     async delete(key) {
       settings.delete(key);
     },

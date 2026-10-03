@@ -28,6 +28,9 @@ export function principalFor(role: UiRole, over: Partial<UiPrincipal> = {}): UiP
   });
 }
 
+/** A single-use form handle every fresh fake holds once per role (posts to `/admin/tokens` need one). */
+export const ONCE_HANDLE = 'onceHandleForTests0000';
+
 export interface Fake {
   readonly deps: AdminUiDeps;
   readonly calls: AdminCall[];
@@ -36,6 +39,8 @@ export interface Fake {
   /** Principals by cookie value (`rb_session=<value>`). */
   readonly sessions: Map<string, UiPrincipal>;
   adminAnswer: (call: AdminCall) => AdminCallResult;
+  /** Live single-use form handles (`onceStore` keys). */
+  readonly once: Set<string>;
 }
 
 export function fakeDeps(over: Partial<AdminUiDeps> = {}): Fake {
@@ -48,6 +53,7 @@ export function fakeDeps(over: Partial<AdminUiDeps> = {}): Fake {
     calls: [],
     forbidden: [],
     errors: [],
+    once: new Set(['owner', 'admin', 'member'].map((r) => `ui-once:usr_${r}:${ONCE_HANDLE}`)),
     sessions,
     adminAnswer: () => ({
       status: 200,
@@ -78,6 +84,14 @@ export function fakeDeps(over: Partial<AdminUiDeps> = {}): Fake {
         return site === 'same-origin' ? null : 'origin_missing';
       },
       csrfMatches: (p, presented) => presented === p.csrf,
+      onceStore: {
+        async put(key) {
+          fake.once.add(key);
+        },
+        async take(key) {
+          return fake.once.delete(key);
+        },
+      },
       async callAdmin(_c, _p, call) {
         fake.calls.push(call);
         return fake.adminAnswer(call);

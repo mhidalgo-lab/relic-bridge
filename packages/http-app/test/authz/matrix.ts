@@ -596,6 +596,8 @@ export const PASSTHROUGH_PRINCIPALS: readonly PassthroughPrincipal[] = [
 export interface AdminPrincipal {
   readonly name: string;
   readonly reason: string;
+  /** The reason on later requests when the first refusal ends the credential (a disabled user's session, P4-07). */
+  readonly reasonAfterFirst?: string;
   present(
     h: Harness,
   ): Promise<{ readonly headers: Readonly<Record<string, string>>; readonly query?: string }>;
@@ -726,6 +728,8 @@ export const ADMIN_PRINCIPALS: readonly AdminPrincipal[] = [
   {
     name: 'session of a disabled user',
     reason: 'session_user_disabled',
+    // The refusal deletes the session, so re-enabling the user does not revive it (P4-07).
+    reasonAfterFirst: 'session_unknown',
     present: async (h) => {
       const s = await h.addSession();
       await h.world.storage.users.update(s.userId, { disabledAt: T0 });

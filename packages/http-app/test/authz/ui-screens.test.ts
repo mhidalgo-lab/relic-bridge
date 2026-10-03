@@ -176,6 +176,7 @@ describe('admin screens: personal setup through the forms (P4-04)', () => {
     }
 
     const tokens: { value: string; slug: string }[] = [];
+    const before = (await h.world.storage.accessTokens.list()).length;
     for (const [p, device] of [
       ['us', 'laptop'],
       ['us', 'phone'],
@@ -183,11 +184,9 @@ describe('admin screens: personal setup through the forms (P4-04)', () => {
     ] as const) {
       const pick = await open(owner, `/admin/tokens/new?grant=${grants[p]}`);
       expect(pick.text).toContain('name="label"');
-      const issued = await submit(owner, '/admin/tokens', {
-        grantId: grants[p] as string,
-        label: device,
-        lifetime: '90',
-      });
+      const once = /name="_once" value="([^"]+)"/.exec(pick.text)?.[1] as string;
+      const fields = { grantId: grants[p] as string, label: device, lifetime: '90', _once: once };
+      const issued = await submit(owner, '/admin/tokens', fields);
       // The one-time page: a 200 answer to the POST, never a redirect, never cached.
       expect(issued.status).toBe(200);
       expect(issued.headers.get('cache-control')).toBe('no-store');
@@ -197,7 +196,12 @@ describe('admin screens: personal setup through the forms (P4-04)', () => {
       expect(value).toMatch(/^rb_/);
       expect(issued.text).toContain(`http://localhost/p/work-${p}/mcp`);
       tokens.push({ value, slug: `work-${p}` });
+      // A reload re-sends the same form (P4-07): no second token, back to the list, the token not shown again.
+      const reloaded = await submit(owner, '/admin/tokens', fields);
+      expect(reloaded.status).toBe(303);
+      expect(reloaded.text).not.toContain(value);
     }
+    expect((await h.world.storage.accessTokens.list()).length).toBe(before + 3);
 
     // Each token works on its project's MCP endpoint and nowhere else.
     for (const t of tokens) {

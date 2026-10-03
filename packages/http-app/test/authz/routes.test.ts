@@ -190,6 +190,7 @@ describe('admin routes × principals', () => {
       const presented = await principal.present(h);
       const users = (await h.world.storage.users.list()).length;
       const adminRows = (await h.world.storage.auditLog.list({ kind: 'admin' })).length;
+      let reason = principal.reason;
       for (const route of ADMIN_ROUTES) {
         const reference = await h.send(requestFor(route, { headers: {} }));
         expect(reference.status).toBe(401);
@@ -198,7 +199,8 @@ describe('admin routes × principals', () => {
         });
         expect(reference.headers.get('www-authenticate')).toBe('Bearer realm="relic-bridge-admin"');
         const res = await h.send(requestFor(route, presented));
-        await expectDenied(route, reference, res, principal.reason, principal.name);
+        await expectDenied(route, reference, res, reason, principal.name);
+        reason = principal.reasonAfterFirst ?? principal.reason;
       }
       // Nothing changed and no admin action was recorded.
       expect((await h.world.storage.users.list()).length).toBe(users);

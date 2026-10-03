@@ -3,7 +3,7 @@
 // gating, confirmations, error mapping, escaping, and that secrets never come back (keys) or come back once (tokens).
 import { describe, expect, it } from 'vitest';
 import type { AdminCall, AdminCallResult } from '../src/index.ts';
-import { type Fake, fakeDeps, ORIGIN, same, T, uiApp } from './fixtures.ts';
+import { type Fake, fakeDeps, ONCE_HANDLE, ORIGIN, same, T, uiApp } from './fixtures.ts';
 import { sample, scriptedApi, TOOLS } from './screens-fixture.ts';
 
 const KEY = 'NRAK-SCREENTESTKEY0123456789ABCD';
@@ -30,6 +30,7 @@ async function post(
   role = 'admin',
 ) {
   const body = new URLSearchParams({ _csrf: csrf(role) });
+  if (path === '/admin/tokens' && !('_once' in fields)) body.set('_once', ONCE_HANDLE);
   for (const [k, v] of Object.entries(fields))
     for (const one of Array.isArray(v) ? v : [v]) body.append(k, one);
   const res = await app.request(`${ORIGIN}${path}`, {
@@ -500,6 +501,62 @@ describe('device tokens', () => {
     const list = await get(app, '/admin/tokens');
     expect(list.html).not.toContain(TOKEN);
     expect(list.html).toContain('rb_live_Ab3d…');
+  });
+
+  it('a re-sent token form (reload of the one-time page) issues no second token (P4-07)', async () => {
+    const { app, fake } = issuing();
+    const fields = { grantId: 'grt_me', label: 'phone', lifetime: '90', _once: ONCE_HANDLE };
+    const first = await post(app, '/admin/tokens', fields);
+    expect(first.html).toContain(TOKEN);
+    // The browser's reload re-sends the same body: the handle is used up, nothing reaches the API, no token shown.
+    const again = await post(app, '/admin/tokens', fields);
+    expect(again.res.status).toBe(303);
+    expect(again.res.headers.get('location')).toBe('/admin/tokens?grant=grt_me');
+    expect(again.res.headers.get('set-cookie')).toContain('rb_flash=token_form_used');
+    expect(again.html).not.toContain(TOKEN);
+    expect(changes(fake)).toHaveLength(1);
+    // A missing, malformed or forged handle issues nothing either.
+    for (const once of [undefined, 'x', 'A'.repeat(22)]) {
+      const { _once: _, ...rest } = fields;
+      const res = await post(
+        app,
+        '/admin/tokens',
+        once === undefined ? { ...rest, _once: [] } : { ...rest, _once: once },
+      );
+      expect(res.res.status).toBe(303);
+    }
+    expect(changes(fake)).toHaveLength(1);
+  });
+
+  it('the token form carries a fresh single-use handle; a validation error hands out a new one', async () => {
+    const { app, fake } = issuing();
+    const form = await get(app, '/admin/tokens/new?grant=grt_me');
+    const handle = /name="_once" value="([A-Za-z0-9_-]{22})"/.exec(form.html)?.[1];
+    expect(handle).toBeDefined();
+    expect(fake.once.has(`ui-once:usr_admin:${handle}`)).toBe(true);
+    const bad = await post(app, '/admin/tokens', {
+      grantId: 'grt_me',
+      label: '',
+      lifetime: '90',
+      _once: handle ?? '',
+    });
+    expect(bad.res.status).toBe(422);
+    expect(bad.html).toMatch(/name="_once" value="[A-Za-z0-9_-]{22}"/);
+    // A handle belongs to the user it was issued to.
+    const other = await post(
+      app,
+      '/admin/tokens',
+      { grantId: 'grt_me', label: 'phone', lifetime: '90', _once: handle ?? '' },
+      'owner',
+    );
+    expect(other.res.status).toBe(303);
+    const ok = await post(app, '/admin/tokens', {
+      grantId: 'grt_me',
+      label: 'phone',
+      lifetime: '90',
+      _once: handle ?? '',
+    });
+    expect(ok.html).toContain(TOKEN);
   });
 
   it('lifetimes are days; an unknown lifetime or a blank name is refused before the API', async () => {

@@ -159,6 +159,29 @@ describe('serveSettings', () => {
     }
   });
 
+  it('keeps pass-through off by default and validates its settings (P2-15)', () => {
+    expect(serveSettings(base).passthrough).toBeNull();
+    expect(serveSettings(base).rateLimits?.passthroughKey).toEqual({ requests: 120, perSeconds: 60 });
+    const on = serveSettings({
+      ...base,
+      env: { RB_PASSTHROUGH: 'on', RB_PASSTHROUGH_IDENTITY_TTL: '0', RB_RATE_LIMIT_PASSTHROUGH_KEY: '10/60' },
+    });
+    expect(on.passthrough).toEqual({ identityTtlMs: 0 });
+    expect(on.rateLimits?.passthroughKey).toEqual({ requests: 10, perSeconds: 60 });
+    expect(on.warnings.join()).toMatch(/X-NewRelic-Api-Key.*HTTPS/);
+    expect(serveSettings({ ...base, env: { RB_PASSTHROUGH: 'true' } }).passthrough).toEqual({
+      identityTtlMs: 60_000,
+    });
+    for (const env of [
+      { RB_PASSTHROUGH: 'maybe' },
+      { RB_PASSTHROUGH_IDENTITY_TTL: '301' },
+      { RB_PASSTHROUGH_IDENTITY_TTL: '1m' },
+      { RB_RATE_LIMIT_PASSTHROUGH_KEY: '5' },
+    ]) {
+      expect(() => serveSettings({ ...base, env }), JSON.stringify(env)).toThrow(ConfigError);
+    }
+  });
+
   it('picks the data directory per platform', () => {
     expect(defaultDataDir({ RB_DATA_DIR: '/data' }, 'linux', '/h')).toBe('/data');
     expect(defaultDataDir({ XDG_DATA_HOME: '/x' }, 'linux', '/h')).toBe(join('/x', 'relic-bridge'));

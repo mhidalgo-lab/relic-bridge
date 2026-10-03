@@ -13,6 +13,7 @@ import {
   checkTokenFormat,
   type EffectiveAccess,
   hashToken,
+  isKeyRejection,
   type Keyring,
   type KeyValidator,
   nerdGraphKeyValidator,
@@ -25,6 +26,9 @@ import {
   type Clock,
   createBudget,
   createBuiltinTools,
+  createSemaphoreLimiter,
+  DEFAULT_CONCURRENCY,
+  DEFAULT_LIMITS,
   type FetchLike,
   LimiterPool,
   type Logger,
@@ -55,6 +59,22 @@ import {
 import { createAdminTokenVerifier } from './admin/token.ts';
 import type { AdminAuditEvent } from './audit.ts';
 import { peekJsonRpc, type RpcPeek } from './jsonrpc.ts';
+import {
+  credentialIdOf,
+  DEFAULT_PASSTHROUGH_IDENTITY_ENTRIES,
+  DEFAULT_PASSTHROUGH_IDENTITY_TTL_MS,
+  IdentityCache,
+  isLoopbackHost,
+  KeyFingerprinter,
+  keyIdOf,
+  PASSTHROUGH_KEY_HEADER,
+  PASSTHROUGH_PATH,
+  PASSTHROUGH_REGION_HEADER,
+  type PassthroughOptions,
+  type PassthroughRequestInfo,
+  reachableAccounts,
+  readPassthroughHeaders,
+} from './passthrough.ts';
 import {
   applySecurityHeaders,
   checkHost,
@@ -117,7 +137,15 @@ export interface HttpAppHooks {
   onAuthFailure?(c: Context, info: AuthFailureInfo): void;
   /** After access resolution, before the MCP handler (rate limits). Return a Response (e.g. 429) to stop. */
   beforeMcp?(c: Context, info: McpRequestInfo): Promise<Response | undefined> | Response | undefined;
-  /** After `beforeAuth` or `beforeMcp` refused a request (audit). Runs in the background; must not throw. */
+  /**
+   * Pass-through route (P2-15), after the caller's New Relic key was validated, before the MCP handler (per-key rate
+   * limits). Return a Response (e.g. 429) to stop. The info carries a key fingerprint id, never the key.
+   */
+  beforePassthrough?(
+    c: Context,
+    info: PassthroughRequestInfo,
+  ): Promise<Response | undefined> | Response | undefined;
+  /** After `beforeAuth`, `beforeMcp` or `beforePassthrough` refused a request (audit). Runs in the background; must not throw. */
   onRejected?(c: Context, info: RejectInfo): Promise<void> | void;
   /** After each tool call finished, success or error (audit). Runs in the background; must not throw. */
   onToolCall?(c: Context, info: McpRequestInfo, event: ToolCallEvent): Promise<void> | void;
@@ -172,6 +200,8 @@ export interface HttpAppOptions {
   readonly hooks?: HttpAppHooks;
   /** Enables `/api/admin/v1` (P2-09). */
   readonly admin?: AdminApiOptions;
+  /** Enables `/passthrough/mcp` (P2-15): callers bring their own New Relic key per request. Off when absent. */
+  readonly passthrough?: PassthroughOptions;
 }
 
 type Env = { Variables: { requestId: string; started: number; log: Record<string, unknown> } };
@@ -263,6 +293,8 @@ class Deadline {
 
 const UNAUTHORIZED_BODY = '{"error":"unauthorized"}';
 const WWW_AUTHENTICATE = 'Bearer realm="relic-bridge"';
+/** Not `Bearer`: a client must not start OAuth discovery for a route that takes a New Relic key. */
+const PASSTHROUGH_WWW_AUTHENTICATE = 'NewRelic-Api-Key realm="relic-bridge-passthrough"';
 const BATCH_REFUSED_BODY =
   '{"jsonrpc":"2.0","id":null,"error":{"code":-32600,"message":"Batch requests are not supported: send one JSON-RPC message per request."}}';
 
@@ -288,6 +320,11 @@ function json(status: number, body: string, extra: Record<string, string> = {}):
 /** The single answer for every authentication and authorization failure (T19: nothing to enumerate). */
 function unauthorized(): Response {
   return json(401, UNAUTHORIZED_BODY, { 'WWW-Authenticate': WWW_AUTHENTICATE });
+}
+
+/** The pass-through route's single answer for every key problem. */
+function passthroughUnauthorized(): Response {
+  return json(401, UNAUTHORIZED_BODY, { 'WWW-Authenticate': PASSTHROUGH_WWW_AUTHENTICATE });
 }
 
 function checkRange(name: string, value: number, min: number, max: number): number {
@@ -393,6 +430,84 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
     },
   );
 
+  /** `413` for a declared body length over the limit (or an unparseable one), before any authentication work. */
+  const refuseDeclaredBody = (c: Context<Env>): Response | undefined => {
+    const declared = c.req.header('content-length');
+    if (declared !== undefined && (!/^\d{1,15}$/.test(declared) || Number(declared) > maxBodyBytes)) {
+      c.get('log')['reject'] = 'body_size';
+      return json(413, '{"error":"payload_too_large"}');
+    }
+    return undefined;
+  };
+
+  /**
+   * What the request asks for comes from the body, never from the `Mcp-Method` / `Mcp-Name` headers alone: the SDK
+   * cross-checks those only for modern requests, so a legacy request could name `subscriptions/listen` in a header to
+   * skip rate limiting, or a granted tool to hide an ungranted call from the audit (P2-12). Batches are refused.
+   */
+  const readRpc = async (
+    c: Context<Env>,
+  ): Promise<{ readonly mcpMethod: string | null; readonly mcpName: string | null } | Response> => {
+    const log = c.get('log');
+    let mcpMethod: string | null = null;
+    let mcpName: string | null = null;
+    if (c.req.method === 'POST') {
+      const peek = await peekWithin(c.req.raw, maxBodyBytes, timeoutMs);
+      // Refused without reading the rest: release the unread original as well (never awaited, it may be stalled).
+      const release = () => void c.req.raw.body?.cancel().catch(() => undefined);
+      if (peek === 'timeout') {
+        log['timeout'] = true;
+        release();
+        return json(504, '{"error":"timeout"}');
+      }
+      if (peek.kind === 'too_large') {
+        log['reject'] = 'body_size';
+        release();
+        return json(413, '{"error":"payload_too_large"}');
+      }
+      if (peek.kind === 'batch') {
+        // JSON-RPC batches left MCP in 2025-06-18; one request must be one call (rate limits and audit count calls).
+        log['reject'] = 'batch';
+        return json(400, BATCH_REFUSED_BODY);
+      }
+      if (peek.kind === 'message') {
+        mcpMethod = safeMcpHeader(peek.method);
+        mcpName = safeMcpHeader(peek.name);
+      }
+    }
+    if (mcpMethod !== null) log['mcpMethod'] = mcpMethod;
+    if (mcpName !== null) log['mcpName'] = mcpName;
+    return { mcpMethod, mcpName };
+  };
+
+  /**
+   * Hand the request to the MCP handler under one deadline for the whole exchange: before the headers it answers 504;
+   * after them (SSE) it ends the stream, so a tool that never finishes can't hold the connection open.
+   */
+  const serveMcp = async (
+    c: Context<Env>,
+    authInfo: AuthInfo,
+    mcpMethod: string | null,
+    mcpName: string | null,
+  ): Promise<Response> => {
+    const requestId = c.get('requestId');
+    const deadline = new Deadline(timeoutMs, () => {
+      c.get('log')['timeout'] = true;
+      logger.warn('mcp request timed out', { requestId, ms: timeoutMs, mcpMethod, mcpName });
+    });
+    let response: Response;
+    try {
+      response = await Promise.race([
+        mcp.fetch(c.req.raw, { authInfo }),
+        deadline.expired.then(() => json(504, '{"error":"timeout"}')),
+      ]);
+    } catch (error) {
+      deadline.clear();
+      throw error;
+    }
+    return deadline.bound(response);
+  };
+
   const app = new Hono<Env>();
 
   // 1. Request id + access log (one structured line per request, stderr via the logger).
@@ -469,6 +584,29 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
         credentials: false,
       }),
     );
+    if (options.passthrough) {
+      app.use(
+        `${PASSTHROUGH_PATH}`,
+        cors({
+          origin: corsOrigins,
+          allowMethods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
+          allowHeaders: [
+            PASSTHROUGH_KEY_HEADER,
+            PASSTHROUGH_REGION_HEADER,
+            'Content-Type',
+            'Accept',
+            'Mcp-Protocol-Version',
+            'Mcp-Method',
+            'Mcp-Name',
+            'Mcp-Session-Id',
+            'Last-Event-ID',
+          ],
+          exposeHeaders: ['Mcp-Protocol-Version', 'Mcp-Session-Id', 'WWW-Authenticate', 'X-Request-Id'],
+          maxAge: 600,
+          credentials: false,
+        }),
+      );
+    }
   }
 
   app.get('/health', (c) => c.json({ status: 'ok' }));
@@ -521,11 +659,8 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
 
     // 5. Body size: a declared length over the limit is refused before authentication does any work. Bodies without
     // a length are bounded while the MCP handler reads them (same limit).
-    const declared = c.req.header('content-length');
-    if (declared !== undefined && (!/^\d{1,15}$/.test(declared) || Number(declared) > maxBodyBytes)) {
-      log['reject'] = 'body_size';
-      return json(413, '{"error":"payload_too_large"}');
-    }
+    const tooLarge = refuseDeclaredBody(c);
+    if (tooLarge) return tooLarge;
 
     if (hooks.beforeAuth) {
       const stop = await hooks.beforeAuth(c, requestId);
@@ -597,34 +732,9 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
     // What the request asks for comes from the body, never from the `Mcp-Method` / `Mcp-Name` headers alone: the SDK
     // cross-checks those only for modern requests, so a legacy request could name `subscriptions/listen` in a header
     // to skip rate limiting, or a granted tool to hide an ungranted call from the audit (P2-12).
-    let mcpMethod: string | null = null;
-    let mcpName: string | null = null;
-    if (c.req.method === 'POST') {
-      const peek = await peekWithin(c.req.raw, maxBodyBytes, timeoutMs);
-      // Refused without reading the rest: release the unread original as well (never awaited, it may be stalled).
-      const release = () => void c.req.raw.body?.cancel().catch(() => undefined);
-      if (peek === 'timeout') {
-        log['timeout'] = true;
-        release();
-        return json(504, '{"error":"timeout"}');
-      }
-      if (peek.kind === 'too_large') {
-        log['reject'] = 'body_size';
-        release();
-        return json(413, '{"error":"payload_too_large"}');
-      }
-      if (peek.kind === 'batch') {
-        // JSON-RPC batches left MCP in 2025-06-18; one request must be one call (rate limits and audit count calls).
-        log['reject'] = 'batch';
-        return json(400, BATCH_REFUSED_BODY);
-      }
-      if (peek.kind === 'message') {
-        mcpMethod = safeMcpHeader(peek.method);
-        mcpName = safeMcpHeader(peek.name);
-      }
-    }
-    if (mcpMethod !== null) log['mcpMethod'] = mcpMethod;
-    if (mcpName !== null) log['mcpName'] = mcpName;
+    const rpc = await readRpc(c);
+    if (rpc instanceof Response) return rpc;
+    const { mcpMethod, mcpName } = rpc;
     const info: McpRequestInfo = Object.freeze({
       requestId,
       projectSlug: access.projectSlug,
@@ -694,23 +804,7 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
     };
 
     const started = clock.now();
-    // One deadline for the whole exchange: before the headers it answers 504; after them (SSE) it ends the stream,
-    // so a tool that never finishes can't hold the connection open.
-    const deadline = new Deadline(timeoutMs, () => {
-      log['timeout'] = true;
-      logger.warn('mcp request timed out', { requestId, ms: timeoutMs, mcpMethod, mcpName });
-    });
-    let response: Response;
-    try {
-      response = await Promise.race([
-        mcp.fetch(c.req.raw, { authInfo }),
-        deadline.expired.then(() => json(504, '{"error":"timeout"}')),
-      ]);
-    } catch (error) {
-      deadline.clear();
-      throw error;
-    }
-    response = deadline.bound(response);
+    const response = await serveMcp(c, authInfo, mcpMethod, mcpName);
     if (hooks.afterMcp) {
       const after = hooks.afterMcp;
       const outcome = Object.freeze({ status: response.status, durationMs: clock.now() - started });
@@ -722,6 +816,149 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
     }
     return response;
   });
+
+  if (options.passthrough) {
+    const pt = options.passthrough;
+    const fingerprinter = new KeyFingerprinter(pt.fingerprintSecret);
+    const identities = new IdentityCache(
+      pt.identityTtlMs ?? DEFAULT_PASSTHROUGH_IDENTITY_TTL_MS,
+      pt.identityCacheMaxEntries ?? DEFAULT_PASSTHROUGH_IDENTITY_ENTRIES,
+    );
+    const validateKey =
+      pt.validateKey ??
+      nerdGraphKeyValidator({ logger, clock, ...(options.fetch ? { fetch: options.fetch } : {}) });
+    const ptLimits = pt.limits ?? DEFAULT_LIMITS;
+    // Read-only tools only, whatever the catalog grows into (a caller's own key gets no write access through here).
+    const ptTools = Object.freeze(allTools.filter((t) => t.kind === 'read'));
+    const ptToolNames = Object.freeze(ptTools.map((t) => t.name));
+    const requireTls = pt.requireTls ?? true;
+    const concurrency = options.concurrencyPerCredential ?? DEFAULT_CONCURRENCY;
+    createSemaphoreLimiter(concurrency); // validate at boot
+
+    app.on(['GET', 'POST', 'DELETE'], PASSTHROUGH_PATH, async (c) => {
+      const requestId = c.get('requestId');
+      const log = c.get('log');
+      log['passthrough'] = true;
+
+      // A key must never travel in clear text: refuse plain HTTP unless a TLS proxy is declared or it stays on this
+      // machine. Checked before anything reads the key header.
+      if (
+        requireTls &&
+        !c.req.url.startsWith('https:') &&
+        options.hsts !== true &&
+        !isLoopbackHost(c.req.header('host') ?? new URL(c.req.url).host)
+      ) {
+        log['reject'] = 'tls_required';
+        return json(403, '{"error":"tls_required"}');
+      }
+      const tooLarge = refuseDeclaredBody(c);
+      if (tooLarge) return tooLarge;
+
+      if (hooks.beforeAuth) {
+        const stop = await hooks.beforeAuth(c, requestId);
+        if (stop) {
+          notifyRejected(c, { requestId, status: stop.status, reason: rejectReason(log) });
+          return stop;
+        }
+      }
+
+      const deny = (reason: string): Response => {
+        log['deny'] = reason;
+        try {
+          hooks.onAuthFailure?.(c, { requestId, reason });
+        } catch {
+          // A failing hook never changes the answer.
+        }
+        return passthroughUnauthorized();
+      };
+
+      // The key is wrapped in a `Secret` at once; `Authorization` is not read on this route (T12).
+      const presented = readPassthroughHeaders(
+        c.req.header(PASSTHROUGH_KEY_HEADER),
+        c.req.header(PASSTHROUGH_REGION_HEADER),
+      );
+      if (!presented.ok) {
+        if (presented.reason === 'passthrough_bad_region') {
+          log['reject'] = 'bad_region';
+          return json(400, '{"error":"invalid_region"}');
+        }
+        return deny(presented.reason);
+      }
+      const { key, region } = presented;
+      const fingerprint = await fingerprinter.fingerprint(key, region);
+      const keyId = keyIdOf(fingerprint);
+      const credentialId = credentialIdOf(fingerprint);
+      log['keyId'] = keyId;
+      log['region'] = region;
+
+      const now = clock.now();
+      let accounts = identities.get(fingerprint, now);
+      if (accounts === undefined) {
+        let reachable: number[];
+        try {
+          const identity = await validateKey(Object.freeze({ id: credentialId, region, apiKey: key }));
+          reachable = reachableAccounts(identity.accounts);
+        } catch (error) {
+          if (isKeyRejection(error)) return deny('passthrough_invalid_key');
+          // New Relic could not be asked: neither allowed nor a 401 that makes the client drop its key.
+          log['error'] = error instanceof Error ? error.name : typeof error;
+          logger.warn('pass-through key validation unavailable', { requestId, keyId, error: log['error'] });
+          return json(503, '{"error":"unavailable"}', { 'Retry-After': '5' });
+        }
+        if (reachable.length === 0) return deny('passthrough_no_accounts');
+        identities.set(fingerprint, reachable, now);
+        accounts = reachable;
+      } else {
+        log['cached'] = true;
+      }
+
+      const rpc = await readRpc(c);
+      if (rpc instanceof Response) return rpc;
+      const { mcpMethod, mcpName } = rpc;
+      const info: PassthroughRequestInfo = Object.freeze({
+        requestId,
+        keyId,
+        region,
+        mcpMethod,
+        mcpName,
+        listen: mcpMethod === 'subscriptions/listen',
+        accounts,
+      });
+      if (hooks.beforePassthrough) {
+        const stop = await hooks.beforePassthrough(c, info);
+        if (stop) {
+          notifyRejected(c, { requestId, status: stop.status, reason: rejectReason(log) });
+          return stop;
+        }
+      }
+
+      const scope: RequestScope = Object.freeze({
+        tools: ptTools,
+        ctx: Object.freeze({
+          requestId,
+          // Lives for this request only; tool caches key on the fingerprint id, never on the key.
+          credential: Object.freeze({ id: credentialId, region, apiKey: key }),
+          accounts: Object.freeze({ allowed: accounts, default: accounts[0] as number }),
+          budget: createBudget(callBudget),
+          // Per request: no per-key state that grows with the number of keys seen (the rate limiter bounds the rest).
+          limiter: createSemaphoreLimiter(concurrency),
+          limits: ptLimits,
+          connection: Object.freeze({ allowedTools: ptToolNames }),
+          logger: logger.child({ requestId, keyId }),
+          clock,
+        }),
+      });
+      scopes.add(scope);
+      const authInfo: AuthInfo = {
+        // The fingerprint id, never the key: the SDK treats this as opaque pass-through data.
+        token: keyId,
+        clientId: keyId,
+        scopes: [],
+        extra: { [SCOPE_KEY]: scope },
+      };
+      return serveMcp(c, authInfo, mcpMethod, mcpName);
+    });
+  }
 
   app.notFound(() => json(404, '{"error":"not_found"}'));
   app.onError((error, c) => {

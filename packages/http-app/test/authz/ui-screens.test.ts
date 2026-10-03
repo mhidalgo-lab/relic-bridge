@@ -217,7 +217,9 @@ describe('admin screens: personal setup through the forms (P4-04)', () => {
     expect(devices.text).toContain('laptop');
     expect(devices.text).toContain('phone');
     await open(owner, `/admin/grants/${grants['us']}`);
-    for (const t of tokens) expect(occurrences(t.value), 'token shown more than once').toBe(1);
+    // Only on the one-time answer (P4-06): in the secret box, and once in the Claude Desktop snippet, whose bridge
+    // config cannot expand a variable. No later page shows it.
+    for (const t of tokens) expect(occurrences(t.value), 'token shown outside its one-time page').toBe(2);
     // Keys: never in any answer (the leak scan checks NR_KEY_ADMIN and NR_KEY_B too).
     for (const key of [NR_KEY_ADMIN, NR_KEY_B]) expect(occurrences(key)).toBe(0);
   });

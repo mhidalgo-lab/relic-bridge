@@ -69,6 +69,16 @@ lists, and the admin API, not the page, limits a member to their own rows), bars
 style), and a file download is a `kit.page` handler returning its own `Response` with `UI_PAGE_HEADERS`, `no-store`,
 `nosniff` and a `Content-Disposition`. Text going into CSV passes `csvCell`.
 
+## Connect page (P4-06)
+
+`screens/connect.tsx` (`/admin/connect`, admin) renders `SnippetList` (`snippets.tsx`) from the pure `clientSnippets`
+in `snippets.ts`, which the one-time token page in `tokens.tsx` reuses with the new token. To support another client,
+add an entry there and a row to the format test in `test/connect.test.ts`. Rules: the endpoint comes from
+`deps.publicUrl` (never a request header); interpolated values are JSON-stringified or shell-quoted; a real token may
+appear only in a snippet whose client has no variable expansion (today only Claude Desktop), only when `token` is passed,
+and the test asserts which snippets contain it. Snippets are `<pre tabindex=0><code id>` with a `data-copy` button
+that `admin.js` reveals.
+
 ## Rules
 
 - **Escaping.** Strings go into JSX as children or attribute values and are escaped by Hono. Never use `raw()`, the

@@ -28,6 +28,7 @@ import {
 import { FLASH_MESSAGES, type FlashMessage } from '../flash.ts';
 import { adminPath, type UiKit, type UiPrincipal, type UiTool, type VerifiedForm } from '../kit.ts';
 import { htmlResponse } from '../pages.tsx';
+import { endpointFor } from '../snippets.ts';
 import { credentialOption } from './credentials.tsx';
 import {
   type Credential,
@@ -77,8 +78,7 @@ const ROUTE = '/projects';
 const SLUG_RE = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 const NO_KEY = 'none';
 
-export const endpointOf = (publicUrl: string | undefined, slug: string): string =>
-  `${publicUrl === undefined ? '' : publicUrl.replace(/\/+$/, '')}/p/${slug}/mcp`;
+export const endpointOf: (publicUrl: string | undefined, slug: string) => string = endpointFor;
 
 const toolsText = (tools: readonly string[] | null): string =>
   tools === null ? 'all (including later ones)' : `${tools.length}: ${tools.join(', ')}`;

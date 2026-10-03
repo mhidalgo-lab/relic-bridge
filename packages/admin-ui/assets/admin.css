@@ -548,3 +548,24 @@ meter {
   font-size: 1rem;
   user-select: all;
 }
+
+.snippet pre {
+  margin: 0 0 0.75rem;
+  padding: 0.75rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow-x: auto;
+  max-width: 100%;
+  font-size: 0.875rem;
+}
+
+.snippet pre code {
+  overflow-wrap: normal;
+  white-space: pre;
+}
+
+.notes-list {
+  margin: 0.5rem 0 0;
+  padding-left: 1.25rem;
+}

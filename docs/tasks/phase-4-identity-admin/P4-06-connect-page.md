@@ -2,7 +2,7 @@
 id: P4-06
 title: "Connect page: client config snippets"
 phase: 4
-status: in-progress
+status: review
 priority: high
 depends_on: [P4-04]
 adr: []
@@ -24,11 +24,11 @@ owner: claude-agent
 - Copy buttons are progressive enhancement (existing static `admin.js`); phone-friendly (scrolling `<pre>`).
 
 ## Acceptance criteria
-- [ ] Snippet formats checked against current official docs (Claude Code, Cursor; VS Code and Desktop as in the clients guide).
-- [ ] Endpoint comes from the public origin; a hostile Host header changes nothing.
-- [ ] No token in any snippet on the Connect page; the real token appears only on the one-time page, never in a shell command.
-- [ ] Authorization matrix row, member/anonymous refusals, axe, escaping tests.
-- [ ] Client guides link to the page; admin-ui guide and threat model updated.
+- [x] Snippet formats checked against current official docs (Claude Code, Cursor; VS Code and Desktop as in the clients guide; not run in real clients, see pending decisions).
+- [x] Endpoint comes from the public origin; a hostile Host header changes nothing.
+- [x] No token in any snippet on the Connect page; the real token appears only on the one-time page, never in a shell command.
+- [x] Authorization matrix row, member/anonymous refusals, axe, escaping tests.
+- [x] Client guides link to the page; admin-ui guide and threat model updated.
 
 ## Security notes
 Token shown once; warn against pasting in shared places.

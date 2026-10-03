@@ -17,7 +17,7 @@ import { isManageArgv, parseManageArgs } from './manage/args.ts';
 import { MANAGE_HELP } from './manage/help.ts';
 import type { ManageHost } from './manage/io.ts';
 import { runManage } from './manage/run.ts';
-import { isBootError, type RunningServer, serveSettings, startServer } from './serve.ts';
+import { isBootError, type RunningServer, resolveDbPath, serveSettings, startServer } from './serve.ts';
 import { serveProjectOverStdio } from './stdio.ts';
 import { nerdGraphFetch } from './test-hooks.ts';
 
@@ -81,12 +81,21 @@ export function main(rt: CliRuntime): MainResult {
     logger.warn('RB_LOG_LEVEL ignored: unknown level', { value: envLevel });
   }
 
-  if (args.command === 'db' && args.file !== undefined) {
-    const dbPath = (args.db ?? rt.env['RB_DB_PATH'] ?? '').trim();
-    if (dbPath === '') {
-      logger.error('no database given', { hint: 'pass --db <path> or set RB_DB_PATH' });
-      return exit(2);
+  // `--db`, `RB_DB_PATH`, else the data directory (`RB_DATA_DIR`, as in the Docker image): the same database `serve`
+  // and the management commands use, so `db backup` and `keys rotate` work where the docs run them.
+  const maintenanceDbPath = (flag: string | undefined): string | null => {
+    try {
+      return resolveDbPath(flag, rt.env, rt.platform, rt.homeDir);
+    } catch (error) {
+      if (!(error instanceof ConfigError)) throw error;
+      logger.error('no database given', { hint: 'pass --db <path>, or set RB_DB_PATH or RB_DATA_DIR' });
+      return null;
     }
+  };
+
+  if (args.command === 'db' && args.file !== undefined) {
+    const dbPath = maintenanceDbPath(args.db);
+    if (dbPath === null) return exit(2);
     try {
       backupDatabase(dbPath, args.file);
     } catch (error) {
@@ -98,11 +107,8 @@ export function main(rt: CliRuntime): MainResult {
   }
 
   if (args.command === 'keys' && args.keysAction === 'rotate') {
-    const dbPath = (args.db ?? rt.env['RB_DB_PATH'] ?? '').trim();
-    if (dbPath === '') {
-      logger.error('no database given', { hint: 'pass --db <path> or set RB_DB_PATH' });
-      return exit(2);
-    }
+    const dbPath = maintenanceDbPath(args.db);
+    if (dbPath === null) return exit(2);
     return {
       kind: 'pending',
       done: keysRotate({ dbPath, env: rt.env, fs: rt.fs, platform: rt.platform, stdout: rt.stdout, logger }),
@@ -110,11 +116,8 @@ export function main(rt: CliRuntime): MainResult {
   }
 
   if (args.command === 'audit' && args.auditAction === 'purge') {
-    const dbPath = (args.db ?? rt.env['RB_DB_PATH'] ?? '').trim();
-    if (dbPath === '') {
-      logger.error('no database given', { hint: 'pass --db <path> or set RB_DB_PATH' });
-      return exit(2);
-    }
+    const dbPath = maintenanceDbPath(args.db);
+    if (dbPath === null) return exit(2);
     return {
       kind: 'pending',
       done: auditPurge({
@@ -165,11 +168,8 @@ export function main(rt: CliRuntime): MainResult {
   }
 
   if (args.command === 'credential' && args.credentialAction === 'revalidate') {
-    const dbPath = (args.db ?? rt.env['RB_DB_PATH'] ?? '').trim();
-    if (dbPath === '') {
-      logger.error('no database given', { hint: 'pass --db <path> or set RB_DB_PATH' });
-      return exit(2);
-    }
+    const dbPath = maintenanceDbPath(args.db);
+    if (dbPath === null) return exit(2);
     let fetch: ReturnType<typeof nerdGraphFetch>;
     try {
       fetch = nerdGraphFetch(rt.env, logger);

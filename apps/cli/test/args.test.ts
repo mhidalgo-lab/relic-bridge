@@ -77,6 +77,24 @@ describe('parseCliArgs', () => {
     expect(() => parseCliArgs(['keys', 'rotate', '--master-key', 'abc'])).toThrow(UsageError);
   });
 
+  it('parses credential revalidate', () => {
+    expect(parseCliArgs(['credential', 'revalidate', '--db', 'x.db'])).toEqual({
+      command: 'credential',
+      credentialAction: 'revalidate',
+      db: 'x.db',
+    });
+    expect(parseCliArgs(['credential', 'revalidate'])).toEqual({
+      command: 'credential',
+      credentialAction: 'revalidate',
+    });
+    expect(parseCliArgs(['credential', '--help'])).toEqual({ command: 'help' });
+    expect(() => parseCliArgs(['credential'])).toThrow(/credential revalidate/);
+    expect(() => parseCliArgs(['credential', 'add'])).toThrow(/credential revalidate/);
+    expect(() => parseCliArgs(['credential', 'revalidate', 'cred_x'])).toThrow(/credential revalidate/);
+    // Keys are never flags.
+    expect(() => parseCliArgs(['credential', 'revalidate', '--api-key', 'NRAK-X'])).toThrow(UsageError);
+  });
+
   it('parses db backup', () => {
     expect(parseCliArgs(['db', 'backup', 'out.db', '--db', 'x.db'])).toEqual({
       command: 'db',

@@ -32,29 +32,38 @@ are redacted from the error. Process lists and shell history would leak them.
 ## Output and exit codes
 
 Human tables by default. `--json` prints the API's JSON (one document per line; `audit tail` one row per line) and
-errors as `{"error":{"code","message"}}` on stderr. Exit codes: `0` ok, `1` failed (API refusal, unreachable, missing
-config), `2` usage error. `credential revalidate` exits `1` unless the key is valid.
+errors as `{"error":{"code","message","status"?}}` on stderr (`status` is the admin API's HTTP status and is present
+only for API refusals; configuration and storage errors have just `code` and `message`). Usage errors (exit `2`) are
+always plain text on stderr, with or without `--json`. List commands (`user|credential|project|grant|token list`)
+follow every page and print `{"data":[...]}` with no `nextCursor`; `--limit` caps the rows (1-10000). Exit codes: `0`
+ok, `1` failed (API refusal, unreachable, missing config), `2` usage error. `credential revalidate` exits `1` unless
+the key is valid.
 
 ## Commands
 
 ```text
 relic-bridge init [--db <path>] [--master-key-file <path>] [--label <l> --region US|EU|JP [key source]]
-                  [--slug <s> --default-account <id>] [--device <name>] [--url <https://host>]
+                  [--slug <s> --default-account <id> --accounts 1,2] [--device <name>] [--url <https://host>]
+                  [--client claude-code|claude-desktop|cursor|vscode|all] [--no-config]
 relic-bridge admin-token generate
-relic-bridge user add --email <e> [--name <n>] [--role owner|admin|member] | user list
+relic-bridge user add --email <e> [--name <n>] [--role owner|admin|member] | user list [--limit <n>]
 relic-bridge credential add --label <l> --region US|EU|JP [--owner <user id>] [key source]
-relic-bridge credential list | rotate <id> [key source] | revalidate <id> | remove <id> [--yes]
+relic-bridge credential list [--owner <user id>] [--limit <n>] | rotate <id> [key source] | revalidate <id> | remove <id> [--yes]
 relic-bridge project add --slug <s> --default-account <id> [--accounts 1,2] [--tools a,b] [--name <n>] [--default-credential <id>]
-relic-bridge project list | update <slug|id> [--slug --name --default-account --accounts --tools all|a,b
+relic-bridge project list [--slug <s>] [--limit <n>] | update <slug|id> [--slug --name --default-account --accounts --tools all|a,b
                   --default-credential <id>|none --disable|--enable]
 relic-bridge grant create --project <slug|id> [--user <id>] [--label <l>] [--credential <id>] [--tools a,b]
                   [--accounts 1,2] [--expires-in-days <n>]
-relic-bridge grant list [--project <slug|id>] [--user <id>] | grant revoke <id>
+relic-bridge grant list [--project <slug|id>] [--user <id>] [--limit <n>] | grant revoke <id>
 relic-bridge token create --grant <id> --label <device> [--ttl-days <n> | --never] [--url <https://host>]
                   [--client claude-code|claude-desktop|cursor|vscode|all] [--no-config]
-relic-bridge token list [--grant <id>] | token revoke <id>
+relic-bridge token list [--grant <id>] [--limit <n>] | token revoke <id>
 relic-bridge audit tail [--limit <n>] [--follow] [--kind --action --status --project --user --grant --token-id --key-id --since --until]
 ```
+
+Options for every management command: `--db <path>` (local), `--remote <url>`, `--insecure`, `--json`,
+`--log-level <level>` and `-h/--help`. `credential remove` also takes `--yes`. Option names are checked per command; an
+option that does not belong to the command is a usage error.
 
 The earlier maintenance commands are unchanged: `serve`, `db backup`, `keys generate|rotate`,
 `credential revalidate` (no id: every stored key, local), `audit purge`.
@@ -63,7 +72,8 @@ The earlier maintenance commands are unchanged: `serve`, `db backup`, `keys gene
   `~/.config/relic-bridge/master.key` (`$XDG_CONFIG_HOME`, `%APPDATA%\relic-bridge` on Windows), mode `0600`, never
   overwritten; a path in the database's own directory is refused, so a copy of the data never carries its key), creates the database, and, when you give a label (or answer the prompts on a terminal), adds the first
   credential, a project, a service grant and a device token. It refuses an existing database without its master key.
-  Anything not given is skipped; add it later with the individual commands.
+  Anything not given is skipped; add it later with the individual commands. `init` always works on the local database:
+`--remote` is a usage error and `RB_REMOTE` is ignored.
 - **`token create`** prints the token (stdout) and ready-to-paste configuration for Claude Code
   (`claude mcp add ...`) and JSON for Claude Desktop (through `mcp-remote`), Cursor and VS Code (stderr). The URL is the
   remote origin, `--url`, or `http://127.0.0.1:8787` when local (a note says so). Tokens last 90 days by default;
@@ -71,6 +81,7 @@ The earlier maintenance commands are unchanged: `serve`, `db backup`, `keys gene
 - **`credential remove`** asks for confirmation on a terminal; without one it requires `--yes`. The API refuses it
   (`conflict`) while a project or grant uses the key.
 - `--tools all` clears a tool restriction; `--default-credential none` clears the project's default key.
-- **`audit tail`** prints the newest rows oldest-first; `--follow` polls every two seconds until interrupted.
+- **`audit tail`** prints the newest `--limit` rows (default 20, at most 200) oldest-first; `--follow` polls every two
+  seconds until interrupted.
 
 See the [self-hosting guide](../guide/self-hosting.md#management-cli) for a walk-through.

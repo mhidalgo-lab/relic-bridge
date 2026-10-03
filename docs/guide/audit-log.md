@@ -27,8 +27,11 @@ One row per event, with these fields (empty when they don't apply):
 bodies, or any result rows. Everything written passes through the same redaction as the logs, and a test scans the
 audit rows for secrets.
 
-Failed authentication and rate-limit rows (`kind = auth`) also carry the client address in `details.ip`, because there
-is nothing else to identify a stranger by. Turn that off with `RB_AUDIT_CLIENT_IP=off`.
+Rows for requests that failed **before** a token was accepted (`auth.denied`, and `request.rejected` for the per-IP
+limits) also carry the client address in `details.ip`, because there is nothing else to identify a stranger by. Turn
+that off with `RB_AUDIT_CLIENT_IP=off`. A `request.rejected` row for an authenticated caller (a per-token or per-grant
+rate limit) or for a pass-through key names the user, grant, token or `key_id` instead and has no `details.ip`; its
+`details` is `{"status": 429}`.
 
 ## Pass-through calls
 

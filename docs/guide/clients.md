@@ -145,6 +145,12 @@ claude mcp add --transport http --scope user relic-prod https://mcp.example.com/
   --header "Authorization: Bearer rb_live_<your device token>"
 ```
 
+This line contains the token, so it ends up in your shell history (and `relic-bridge token create` prints it that way
+too). Keep it out: start the command with a space (bash with `HISTCONTROL=ignorespace`, zsh with
+`setopt HIST_IGNORE_SPACE`), or skip the literal token and use the `${RELIC_BRIDGE_TOKEN}` JSON form below, or read it
+from a file (`--header "Authorization: Bearer $(cat ~/.config/relic-bridge/prod.token)"`, file mode `0600`). If a token
+did land in history, remove that entry and revoke the token (`relic-bridge token revoke <id>`).
+
 The same in a JSON file (`.mcp.json`, or `~/.claude.json` for user scope). Claude Code expands `${VAR}` in `headers`,
 so the token can stay in the environment; define `RELIC_BRIDGE_TOKEN` where Claude Code starts (a shell profile, or a
 user environment variable on Windows) and restart it:
@@ -220,8 +226,8 @@ Windows):
 
 Restart Desktop fully after editing; the `command`/`PATH` notes in the Claude Desktop section above apply.
 
-The Claude Code and Cursor formats were checked against the clients' documentation and the Claude Code one against
-its CLI; the VS Code and Desktop snippets follow the documentation but haven't been run by the maintainers. For
+Only the Claude Code snippet was checked (against its documentation and its CLI). The Cursor, VS Code and Claude
+Desktop snippets follow each client's documentation but haven't been run by the maintainers. For
 problems, see [troubleshooting](troubleshooting.md#hosted-self-hosted-server).
 
 ## Other clients and MCP Inspector

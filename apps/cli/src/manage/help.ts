@@ -31,7 +31,7 @@ Options for every command:
   --insecure       Allow http://localhost for --remote.
   --db <path>      Local mode: SQLite database (or RB_DB_PATH, else the default data dir).
   --json           Print the API's JSON (one document per line) for scripts. Errors go to
-                   stderr as {"error":{"code","message"}}.
+                   stderr as {"error":{"code","message","status"?}} (status: the API's HTTP status).
   --log-level <l>  debug | info | warn | error (default warn).
 
 Secrets (never accepted as option values):

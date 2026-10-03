@@ -18,7 +18,7 @@ token), which a pass-through request doesn't have.
 ## Scope
 - A hook for pass-through tool calls (e.g. `onPassthroughToolCall(c, info: PassthroughRequestInfo, event)`), merged
   by `mergeHooks`, wired into `createAuditRecorder`.
-- Audit row: `kind: tool`, tool name, accounts, outcome, error code, duration, NRQL per `RB_AUDIT_NRQL`, and the
+- Audit row: `kind: tool_call`, tool name, accounts, outcome, error code, duration, NRQL per `RB_AUDIT_NRQL`, and the
   key's fingerprint id (`pt_…`) as the actor (decided: a new nullable, indexed column `audit_log.key_id`, migration `0002_audit_key_id`;
   the storage contract suite, memory and SQLite adapters, admin API `keyId` filter and `audit tail --key-id` follow). Never the key; the fingerprint id changes across restarts (per-process HMAC secret) unless
   `passthrough.fingerprintSecret` is set.

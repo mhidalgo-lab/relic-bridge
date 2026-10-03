@@ -2,11 +2,11 @@
 id: P2-18
 title: Phase 2 docs accuracy sweep
 phase: 2
-status: todo
+status: review
 priority: medium
 depends_on: [P2-13]
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P2-18 — Phase 2 docs accuracy sweep
@@ -37,8 +37,8 @@ Every flag, variable, status code and response shape in the Phase 2 docs matches
 - A doc test that the env variables named in `self-hosting.md` are the ones `serveSettings` reads (and vice versa).
 
 ## Acceptance criteria
-- [ ] Each item above fixed or explicitly dropped with a reason.
-- [ ] The doc/env parity test fails when a variable is added to `serve.ts` without a docs row.
+- [x] Each item above fixed or explicitly dropped with a reason. (All fixed. Beyond the list: `--help` of the management commands now shows `status` in the `--json` error shape; the `Cross-Origin-Resource-Policy` and image notes landed in `self-hosting.md`.)
+- [x] The doc/env parity test fails when a variable is added to `serve.ts` without a docs row.
 
 ## Security notes
 None beyond accuracy (wrong security docs lead to unsafe deployments, T13).

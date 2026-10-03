@@ -133,3 +133,24 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Options:** gate on `rawNrql`; longer default window; add counts as a separate task.
 - **Needs:** one live run against an account with APM data.
 
+
+### P1-11 — CLI packaging, config discovery and stdio defaults
+- **Context:** first runnable entry point; several product choices weren't fixed by the task.
+- **Assumption made:**
+  - npm package and bin `relic-bridge` (as already in `apps/cli/package.json`); bin-only bundle `dist/index.mjs` with
+    `@relic-bridge/core` **bundled from source** (core is not published separately for v0.1); runtime deps are the MCP
+    SDK, zod and yaml.
+  - No config auto-discovery: YAML mode only with `--config` / `RB_CONFIG` (no implicit `./relic-bridge.yaml` or
+    `~/.config/relic-bridge/`). Keys only from env (`${VAR}` in YAML); no keychain source yet.
+  - Env mode adds `RB_ACCOUNTS` (extra allowed accounts). In YAML mode `RB_*` / `NEW_RELIC_*` are ignored except as
+    `${VAR}` targets. A plaintext `apiKey` is allowed with a warning (not refused).
+  - Budget 1000 NerdGraph calls per tool call in stdio (ADR-0010 "paid" figure), concurrency 5 per process.
+  - With `rawNrql: false` the stdio CLI does not register `run_nrql` / `get_query_result` (answers the P1-06 entry for
+    stdio; HTTP still needs the same filter in Phase 2 grant resolution).
+  - Test hook `RB_TEST_NERDGRAPH_URL` is compiled in only with `RB_TEST_HOOKS=1` at build time; the default `pnpm build`
+    is the release build. P1-15 must publish the default build.
+  - Claude Code compatibility verified with the SDK stdio client (same transport) and `claude mcp add --env` syntax
+    checked against `claude mcp add --help`; not yet run against a live key.
+- **Options:** auto-discover a config file; refuse plaintext keys; publish `@relic-bridge/core` as a library; keychain
+  support (macOS Keychain / libsecret) as a later task.
+- **Needs:** owner's confirmation; one live `claude mcp add` run with a real key.

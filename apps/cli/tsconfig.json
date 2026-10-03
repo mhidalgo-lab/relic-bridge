@@ -1,5 +1,11 @@
 {
   "extends": "../../tsconfig.base.json",
-  "compilerOptions": { "types": ["node"] },
+  "compilerOptions": {
+    "types": ["node"],
+    // Bin-only package (no published types), so declaration-level checks don't apply.
+    "declaration": false,
+    "isolatedDeclarations": false,
+    "paths": { "@relic-bridge/core": ["../../packages/core/src/index.ts"] }
+  },
   "include": ["src", "test"]
 }

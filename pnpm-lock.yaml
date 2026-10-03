@@ -189,7 +189,23 @@ importers:
         version: 2.9.1
 
   apps/cli:
+    dependencies:
+      '@modelcontextprotocol/server':
+        specifier: 2.2.0
+        version: 2.2.0
+      yaml:
+        specifier: 2.9.1
+        version: 2.9.1
+      zod:
+        specifier: 4.6.5
+        version: 4.6.5
     devDependencies:
+      '@modelcontextprotocol/client':
+        specifier: 2.2.0
+        version: 2.2.0
+      '@relic-bridge/core':
+        specifier: workspace:*
+        version: link:../../packages/core
       tsdown:
         specifier: 0.23.0
         version: 0.23.0(typescript@7.0.2)

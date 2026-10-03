@@ -97,7 +97,7 @@ afterEach(async () => {
   clients = [];
 });
 
-async function connect(tools: ToolDefinition[], ctx: ToolContext): Promise<Client> {
+async function connect(tools: ToolDefinition[], ctx: ToolContext | (() => ToolContext)): Promise<Client> {
   const server = buildMcpServer({ tools, ctx });
   const [clientT, serverT] = InMemoryTransport.createLinkedPair();
   await server.connect(serverT);
@@ -196,5 +196,22 @@ describe('buildMcpServer', () => {
     ]);
     expect(ra.structuredContent).toEqual({ text: 'a', account: 1 });
     expect(rb.structuredContent).toEqual({ text: 'b', account: 2 });
+  });
+
+  it('calls a context factory once per tool call (stdio: fresh request id and budget per call)', async () => {
+    let n = 0;
+    const client = await connect([failing as ToolDefinition], () => {
+      n++;
+      return testContext({ requestId: `req-${n}`, budget: createBudget(1) });
+    });
+    const first = await client.callTool({ name: 'always_fails', arguments: {} });
+    const second = await client.callTool({ name: 'always_fails', arguments: {} });
+    expect(n).toBe(2);
+    // Each call spends 1 of a fresh budget of 1: neither call is refused for budget.
+    for (const [i, r] of [first, second].entries()) {
+      const meta = r._meta?.[ERROR_META_KEY] as { code?: string; requestId?: string } | undefined;
+      expect(meta?.code).toBe(ErrorCode.NerdGraphError);
+      expect(JSON.stringify(r)).toContain(`req-${i + 1}`);
+    }
   });
 });

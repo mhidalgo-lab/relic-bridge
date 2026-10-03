@@ -2,7 +2,7 @@
 id: P1-11
 title: CLI with stdio mode (env and YAML config)
 phase: 1
-status: in-progress
+status: review
 priority: high
 depends_on: [P1-06, P1-07]
 adr: [0005, 0006]
@@ -42,21 +42,23 @@ owner: claude-agent
 - Docs use each client's explicit `env` block for `NEW_RELIC_*`: stdio clients don't reliably inherit shell env (P0-07).
 
 ## Acceptance criteria
-- [ ] Unit tests: argument parsing, env config, YAML schema (valid, unknown keys, duplicate slugs, missing env var,
+- [x] Unit tests: argument parsing, env config, YAML schema (valid, unknown keys, duplicate slugs, missing env var,
       plaintext key warning, permission warning, project selection), tool selection incl. `rawNrql: false`.
-- [ ] E2E test spawning the built CLI over stdio with fixtures (mock NerdGraph via `RB_TEST_NERDGRAPH_URL`, test
+- [x] E2E test spawning the built CLI over stdio with fixtures (mock NerdGraph via `RB_TEST_NERDGRAPH_URL`, test
       build only): initialize + `tools/list` + `tools/call whoami` in env and YAML mode; stdout carries only JSON-RPC;
       stderr never contains the key; the release build refuses the override.
-- [ ] Works with Claude Code `claude mcp add relic-acme -- npx -y relic-bridge --project acme --config …`
-      (same stdio transport as the SDK client used in the E2E test).
-- [ ] `relic-bridge --version`, `--help`.
+- [x] Works with Claude Code `claude mcp add relic-acme -- npx -y relic-bridge --project acme --config …`
+      (same stdio transport as the SDK client used in the E2E test; `--env` syntax checked against `claude mcp add
+      --help`. A live run with a real key is listed in `docs/pending-decisions/phase-1.md`.)
+- [x] `relic-bridge --version`, `--help`.
 
 ## Security notes
 T8: never print keys; config file permission warning if world-readable. T21: per-call context, no module state.
 T23: no secret flags. Test endpoint override limited to loopback and test builds.
 
 ## Docs to update
-- `docs/guide/quickstart-local.md`, `docs/guide/configuration.md` (configuration reference), THREAT_MODEL.
+- `docs/guide/quickstart-local.md`, `docs/guide/configuration.md` (configuration reference), THREAT_MODEL. Done, plus
+  `docs/guide/query-limits.md` (rawNrql row) and `docs/dev/core.md` (context factory).
 
 ## Out of scope
 - HTTP serve (P2-06). `init` wizard and management commands (P2-10). Keychain key sources. Full client guides (P1-14).

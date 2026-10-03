@@ -1,4 +1,63 @@
+#!/usr/bin/env node
 // SPDX-License-Identifier: Apache-2.0
+import { readFileSync, statSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { main } from './main.ts';
 
-/** Package identifier, replaced by real exports as tasks land. */
-export const packageName: string = 'relic-bridge';
+// stdout is the MCP channel. Anything a dependency prints with console.log/info/debug goes to stderr instead.
+const toStderr = (...args: unknown[]): void => console.error(...args);
+console.log = toStderr;
+console.info = toStderr;
+console.debug = toStderr;
+
+const stderr = (line: string): void => {
+  process.stderr.write(line.endsWith('\n') ? line : `${line}\n`);
+};
+
+const result = main({
+  argv: process.argv.slice(2),
+  env: process.env,
+  platform: process.platform,
+  homeDir: homedir(),
+  fs: {
+    stat: (path) => statSync(path),
+    readFile: (path) => readFileSync(path, 'utf8'),
+  },
+  stdout: (text) => {
+    process.stdout.write(text);
+  },
+  stderr,
+});
+
+if (result.kind === 'exit') {
+  process.exitCode = result.code;
+} else {
+  const { close } = result;
+  let closing = false;
+  const shutdown = (reason: string): void => {
+    if (closing) return;
+    closing = true;
+    stderr(JSON.stringify({ ts: new Date().toISOString(), level: 'info', msg: 'shutting down', reason }));
+    // Don't let a stuck close keep the process alive.
+    setTimeout(() => process.exit(0), 2000).unref();
+    close().then(
+      () => process.exit(0),
+      () => process.exit(0),
+    );
+  };
+  process.once('SIGINT', () => shutdown('SIGINT'));
+  process.once('SIGTERM', () => shutdown('SIGTERM'));
+  // The client closing our stdin ends the session (MCP stdio binding).
+  process.stdin.once('end', () => shutdown('stdin closed'));
+  process.on('uncaughtException', (error) => {
+    stderr(
+      JSON.stringify({
+        ts: new Date().toISOString(),
+        level: 'error',
+        msg: 'uncaught exception',
+        name: error.name,
+      }),
+    );
+    process.exit(1);
+  });
+}

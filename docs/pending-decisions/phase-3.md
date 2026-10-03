@@ -15,3 +15,39 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Options:** merge the stack bottom-up (retarget each PR to `main` after its parent merges), or squash-merge the
   tip into `main` in one go.
 - **Needs:** owner's merge strategy; then mark merged tasks `done` and run `pnpm tasks index`.
+
+## P3-01 — Worker entry
+
+### P3-01 — `Host` check off by default on Workers
+- **Context:** `serve` refuses a non-loopback bind without `RB_ALLOWED_HOSTS` (DNS-rebinding protection, T24). A Worker's
+  hostname (`<name>.<subdomain>.workers.dev` or a custom domain) isn't known at build time, and Cloudflare only routes
+  the Worker's own hostnames to it, so DNS rebinding against a private network does not apply.
+- **Assumption made:** `RB_ALLOWED_HOSTS` defaults to "any" on Workers; `Origin` is still validated (loopback default),
+  and operators can pin hostnames.
+- **Options:** keep; or require `RB_ALLOWED_HOSTS` and have the P3-05 setup script fill it in with the workers.dev name.
+- **Needs:** owner's call (P3-05 can set it either way).
+
+### P3-01 — committed `wrangler.jsonc` without ids instead of a `.example` file
+- **Context:** the task asked for `wrangler.jsonc.example`. Wrangler's automatic provisioning (wrangler ≥ 4.45, open
+  beta) accepts D1/KV bindings without ids, uses local resources in `wrangler dev` and creates them on the first
+  deploy. Tests and `wrangler dev` need a real config file.
+- **Assumption made:** `apps/worker/wrangler.jsonc` is committed with no account or resource ids; nothing secret.
+  A deploy writes the created ids back into that file, which would show up as a local change.
+- **Options:** (a) keep, and have P3-05 deploy from a git-ignored copy (`wrangler.deploy.jsonc`) or tell users not to
+  commit the ids; (b) rely on provisioning (resources stay linked without ids) and discard the write-back; (c) use
+  explicit `wrangler d1 create` + ids in a git-ignored file only.
+- **Needs:** decide with P3-05 (deploy button / setup script).
+
+### P3-01 — `RB_ADMIN_TOKEN` listed as a required secret
+- **Context:** on Node the admin API is optional. On Workers there is no local CLI with database access, so the admin
+  API is the only way to create projects, credentials and tokens until Phase 4 identity login.
+- **Assumption made:** `secrets.required` lists both `RB_MASTER_KEY` and `RB_ADMIN_TOKEN` (deploy fails without them);
+  the code still runs with the admin API off when the token is absent.
+- **Options:** keep; or make the admin token optional and document the consequence.
+- **Needs:** owner's call.
+
+### P3-01 — Workers tests not in the coverage gate; new CI job not yet required
+- **Context:** V8 coverage cannot attach to workerd, so `pnpm test:coverage` runs `--project=!worker`, and a new CI
+  job **Workers runtime tests** runs `pnpm test:workers`.
+- **Assumption made:** P3-06 makes the job a required check (branch protection is an owner setting).
+- **Needs:** add "Workers runtime tests" to the required checks once P3-06 lands.

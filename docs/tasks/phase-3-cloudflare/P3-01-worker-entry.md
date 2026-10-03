@@ -2,7 +2,7 @@
 id: P3-01
 title: Cloudflare Worker entry and bindings
 phase: 3
-status: in-progress
+status: review
 priority: high
 depends_on: [P2-13]
 adr: [0004, 0005]
@@ -26,7 +26,7 @@ per-isolate caches, so P3-02 (D1) and P3-04 (rate limiting) only have to plug th
   `.dev.vars.example` for local secrets.
 - Per-isolate runtime, built lazily on the first request and cached: keyring from the secret bindings
   (`loadKeyringFromEnv` + `verifyKeyChecks`, so imported `CryptoKey`s live per isolate), the access cache
-  (`RB_ACCESS_CACHE_TTL`), the app. A failed boot is not cached (next request retries) and answers 503 without detail.
+  (`RB_ACCESS_CACHE_TTL`), the app. A failed boot is not cached (retried after 5 s) and answers 503 without detail.
 - Request plumbing: `waitUntil` = `ctx.waitUntil` (audit writes), client IP from `CF-Connecting-IP`, NerdGraph call
   budget from `RB_PLAN` (`free` = 50 default, `paid` = 1000; ADR-0010 provisional presets, finalised in P3-03).
 - Worker settings from `vars`: `RB_PLAN`, `RB_ALLOWED_HOSTS`, `RB_ALLOWED_ORIGINS`, `RB_CORS_ORIGINS`,
@@ -36,13 +36,18 @@ per-isolate caches, so P3-02 (D1) and P3-04 (rate limiting) only have to plug th
   binding-backed one).
 
 ## Acceptance criteria
-- [ ] Workers-runtime test (`@cloudflare/vitest-plugin`, workerd): MCP `initialize` + `tools/list` with a device token
+- [x] Workers-runtime test (`@cloudflare/vitest-plugin`, workerd): MCP `initialize` + `tools/list` with a device token
       through the Worker's `fetch`; wrong token → 401.
-- [ ] Missing/invalid `RB_MASTER_KEY` or an unopenable storage → 503 with a generic body; the next request retries the boot.
-- [ ] Audit rows are written through `ctx.waitUntil`; the client IP comes from `CF-Connecting-IP`.
-- [ ] Invalid `vars` fail closed; settings parsing has unit tests.
-- [ ] `wrangler dev` boots the Worker locally with local D1/KV/rate-limit bindings and answers `/health`
-      (MCP routes answer 503 until P3-02).
+- [x] Missing/invalid `RB_MASTER_KEY` or an unopenable storage → 503 with a generic body; a request after the 5 s retry window boots again.
+- [x] Audit rows are written through `ctx.waitUntil`; the client IP comes from `CF-Connecting-IP`.
+- [x] Invalid `vars` fail closed; settings parsing has unit tests.
+- [x] `wrangler dev` boots the Worker locally with local D1/KV/rate-limit bindings (checked by hand with wrangler
+      4.144.0) and answers; every route, `/health` included, is `503 unavailable` with the log line
+      "the D1 storage adapter is not available yet (P3-02)" until P3-02. `pnpm build` bundles it
+      (`wrangler deploy --dry-run`, 339 KiB gzip).
+
+The boot retry is 5 s (`BOOT_RETRY_MS`) so a broken deployment doesn't hit storage on every request; concurrent cold
+requests each boot (no request awaits another request's I/O in workerd), and the first finished runtime is kept.
 
 Moved out of the original criterion "`wrangler dev` serves `/p/:slug/mcp` with D1 local; the authz suite passes
 against it": the D1 part needs the adapter (P3-02), running the P2-12 suite against the Worker is P3-06.

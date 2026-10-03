@@ -597,6 +597,8 @@ Request body (`CreateSetupLink`):
 
 Query the audit log (newest first)
 
+Admins and owners read every row. A member (session) reads only rows whose `userId` is their own: the filter is forced, and asking for another `userId` is `403`.
+
 | Parameter | In | Type | Required | Description |
 | --- | --- | --- | --- | --- |
 | `kind` | query | `"tool_call" \| "admin" \| "auth"` | no |  |
@@ -609,12 +611,36 @@ Query the audit log (newest first)
 | `keyId` | query | `string` | no | Pass-through rows: one key fingerprint id (`pt_…`), or `any` for all pass-through rows. |
 | `since` | query | `string` | no | Inclusive lower bound: epoch ms or an ISO 8601 date-time. |
 | `until` | query | `string` | no | Exclusive upper bound: epoch ms or an ISO 8601 date-time. |
+| `order` | query | `"newest" \| "slowest"` | no | `newest` (default) pages with `cursor`. `slowest`: rows that recorded a duration, longest first; one page of `limit` rows, no cursor. |
 | `limit` | query | `integer` | no | Page size, 1-200 (default 50). |
 | `cursor` | query | `string` | no | `nextCursor` from the previous page. |
 
 | Status | Body | Description |
 | --- | --- | --- |
 | 200 | `AuditPage` | Audit rows |
+| 403 | `Error` | Session refused: role too low, missing/invalid CSRF token or cross-origin request (`forbidden`) |
+
+### GET /audit/stats
+
+Tool-call statistics over a time window
+
+One bounded aggregate over `tool_call` rows in `[since, until)` (at most 90 days, default the last 7): calls, errors, denied, durations and inspected events per tool, project, grant, device token or day. Admins and owners only.
+
+| Parameter | In | Type | Required | Description |
+| --- | --- | --- | --- | --- |
+| `groupBy` | query | `"action" \| "project" \| "grant" \| "token" \| "day"` | no | Group tool calls by tool (`action`, default), project, grant, device token or UTC day. |
+| `since` | query | `string` | no | Inclusive lower bound (default: 7 days before `until`; at most 90 days): epoch ms or an ISO 8601 date-time. |
+| `until` | query | `string` | no | Exclusive upper bound (default: now): epoch ms or an ISO 8601 date-time. |
+| `action` | query | `string` | no | Only this tool. |
+| `projectId` | query | `string` | no | Only this project. |
+| `userId` | query | `string` | no | Only this user. |
+| `grantId` | query | `string` | no | Only this grant. |
+| `tokenId` | query | `string` | no | Only this access token. |
+| `limit` | query | `integer` | no | Groups returned, 1-100 (default 50): most calls first; `day`: newest first. |
+
+| Status | Body | Description |
+| --- | --- | --- |
+| 200 | `AuditStats` | Statistics |
 | 403 | `Error` | Session refused: role too low, missing/invalid CSRF token or cross-origin request (`forbidden`) |
 
 ## Schemas
@@ -687,6 +713,26 @@ Token metadata. The token hash is never returned.
 | --- | --- | --- | --- |
 | `data` | `AuditEntry[]` | yes |  |
 | `nextCursor` | `string \| null` | yes | Pass as `cursor` for the next page; null at the end. |
+
+### AuditStats
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `data` | `AuditStatsRow[]` | yes |  |
+| `window` | `object` | yes |  |
+
+### AuditStatsRow
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `key` | `string \| null` | yes | The group value (null: calls without one, e.g. no project). |
+| `calls` | `integer` | yes |  |
+| `errors` | `integer` | yes | Calls with status `error`. |
+| `denied` | `integer` | yes | Calls with status `denied`. |
+| `durationSumMs` | `integer` | yes | Sum of recorded durations; mean = sum / durationCount. |
+| `durationCount` | `integer` | yes | Calls that recorded a duration. |
+| `maxDurationMs` | `integer \| null` | yes |  |
+| `inspectedCount` | `integer` | yes | Events New Relic reported inspecting, summed. |
 
 ### CreateCredential
 

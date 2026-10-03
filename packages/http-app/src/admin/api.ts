@@ -649,8 +649,23 @@ const routes = {
     path: '/audit',
     tags: ['audit'],
     summary: 'Query the audit log (newest first)',
+    description:
+      'Admins and owners read every row. A member (session) reads only rows whose `userId` is their own: the filter ' +
+      'is forced, and asking for another `userId` is `403`.',
     request: { query: S.AuditQuerySchema },
     responses: { 200: json(S.AuditPage, 'Audit rows'), ...errors() },
+  }),
+
+  auditStats: route({
+    method: 'get',
+    path: '/audit/stats',
+    tags: ['audit'],
+    summary: 'Tool-call statistics over a time window',
+    description:
+      'One bounded aggregate over `tool_call` rows in `[since, until)` (at most 90 days, default the last 7): calls, ' +
+      'errors, denied, durations and inspected events per tool, project, grant, device token or day. Admins and owners only.',
+    request: { query: S.AuditStatsQuerySchema },
+    responses: { 200: json(S.AuditStatsResponse, 'Statistics'), ...errors() },
   }),
 };
 
@@ -707,11 +722,12 @@ const SELF_SESSIONS = /^\/users\/[^/]+\/sessions\/revoke$/;
 
 /**
  * The least role a cookie session needs for a route (P4-02). Owner-only: master-key rotation and owner setup links.
- * Any role: `GET /session` and revoking sessions (the handler limits members to themselves). Everything else, unknown
+ * Any role: `GET /session`, `GET /audit` (the handler limits members to their own rows) and revoking sessions (the
+ * handler limits members to themselves). Everything else, unknown
  * paths included: `admin`.
  */
 export function requiredRole(method: string, rel: string): 'owner' | 'admin' | 'member' {
-  if (method === 'GET' && rel === '/session') return 'member';
+  if (method === 'GET' && (rel === '/session' || rel === '/audit')) return 'member';
   if (method === 'POST' && SELF_SESSIONS.test(rel)) return 'member';
   if (method === 'POST' && (rel === '/keys/rotate' || rel === '/setup-links')) return 'owner';
   return 'admin';
@@ -1565,6 +1581,11 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
   // ---------------------------------------------------------------------------------------------------- audit
   api.openapi(routes.listAudit, async (c) => {
     const q = c.req.valid('query');
+    const principal = c.get('principal') as AdminPrincipal | undefined;
+    // Members read their own rows only: the filter is forced here, whatever the caller asked for.
+    const own = principal?.kind === 'session' && principal.role === 'member' ? principal.user.id : undefined;
+    if (own !== undefined && q.userId !== undefined && q.userId !== own)
+      throw new HTTPException(403, { res: forbidden(c, 'role') });
     const limit = q.limit ?? DEFAULT_PAGE;
     let beforeId: number | undefined;
     if (q.cursor !== undefined) {
@@ -1579,10 +1600,11 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
       ...(q.action === undefined ? {} : { action: q.action }),
       ...(q.status === undefined ? {} : { status: q.status }),
       ...(q.projectId === undefined ? {} : { projectId: q.projectId }),
-      ...(q.userId === undefined ? {} : { userId: q.userId }),
+      ...(own !== undefined ? { userId: own } : q.userId === undefined ? {} : { userId: q.userId }),
       ...(q.grantId === undefined ? {} : { grantId: q.grantId }),
       ...(q.tokenId === undefined ? {} : { tokenId: q.tokenId }),
       ...(q.keyId === undefined ? {} : q.keyId === 'any' ? { passthrough: true } : { keyId: q.keyId }),
+      ...(q.order === 'slowest' ? { order: 'slowest' as const } : {}),
       ...(since === undefined ? {} : { since }),
       ...(until === undefined ? {} : { until }),
       ...(beforeId === undefined ? {} : { beforeId }),
@@ -1591,8 +1613,34 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
     const rows = await storage.auditLog.list(query);
     const page = rows.slice(0, limit);
     const last = page.at(-1);
-    const nextCursor = rows.length > limit && last ? b64urlEncode(`a:${last.id}`) : null;
+    const nextCursor =
+      q.order !== 'slowest' && rows.length > limit && last ? b64urlEncode(`a:${last.id}`) : null;
     return c.json({ data: page.map(auditView), nextCursor }, 200);
+  });
+
+  api.openapi(routes.auditStats, async (c) => {
+    const q = c.req.valid('query');
+    const until = parseTime(q.until, 'until') ?? clock.now();
+    const since = parseTime(q.since, 'since') ?? until - 7 * 86_400_000;
+    if (since >= until || until - since > S.AUDIT_STATS_MAX_DAYS * 86_400_000) {
+      throw new AdminApiError(
+        'invalid_request',
+        `the window must be positive and at most ${S.AUDIT_STATS_MAX_DAYS} days`,
+        { field: 'since' },
+      );
+    }
+    const rows = await storage.auditLog.stats({
+      groupBy: q.groupBy ?? 'action',
+      since,
+      until,
+      ...(q.action === undefined ? {} : { action: q.action }),
+      ...(q.projectId === undefined ? {} : { projectId: q.projectId }),
+      ...(q.userId === undefined ? {} : { userId: q.userId }),
+      ...(q.grantId === undefined ? {} : { grantId: q.grantId }),
+      ...(q.tokenId === undefined ? {} : { tokenId: q.tokenId }),
+      ...(q.limit === undefined ? {} : { limit: q.limit }),
+    });
+    return c.json({ data: rows.map((r) => ({ ...r })), window: { since, until } }, 200);
   });
 
   // ------------------------------------------------------------------------------------------------- document
@@ -1613,6 +1661,8 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
       return c.json(adminErrorBody(mapped), mapped.status as 400);
     }
     if (error instanceof HTTPException) {
+      // A refusal a handler already built (and audited) through `forbidden`.
+      if (error.status === 403) return error.getResponse();
       if (error.status === 400) recordRefusal(c, 'invalid_request');
       // Hono's own refusals: malformed JSON, oversized bodies.
       const code = error.status === 413 ? 'payload_too_large' : 'invalid_request';

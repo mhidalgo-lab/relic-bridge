@@ -195,6 +195,7 @@ const ROUTES: readonly [string, string, unknown?][] = [
   ['GET', '/tokens/tok_x'],
   ['POST', '/tokens/tok_x/revoke'],
   ['GET', '/audit'],
+  ['GET', '/audit/stats'],
   ['POST', '/keys/rotate', {}],
   ['GET', '/no-such-endpoint'],
 ];
@@ -895,6 +896,58 @@ describe('audit', () => {
         'data'
       ],
     ).toHaveLength(5);
+  });
+
+  it('aggregates tool-call statistics over a bounded window and lists the slowest', async () => {
+    const app = makeApp();
+    const now = world.clock.now();
+    for (const [action, status, ms] of [
+      ['run_nrql', 'ok', 100],
+      ['run_nrql', 'error', 300],
+      ['list_accounts', 'ok', 20],
+    ] as const) {
+      await world.storage.auditLog.append({
+        ts: now - 1000,
+        kind: 'tool_call',
+        action,
+        status,
+        durationMs: ms,
+        inspectedCount: 7,
+        projectId: world.projectIds.prod,
+      });
+    }
+    const stats = await admin(app, '/audit/stats');
+    expect(stats.status).toBe(200);
+    expect(stats.json?.['data']).toEqual([
+      {
+        key: 'run_nrql',
+        calls: 2,
+        errors: 1,
+        denied: 0,
+        durationSumMs: 400,
+        durationCount: 2,
+        maxDurationMs: 300,
+        inspectedCount: 14,
+      },
+      expect.objectContaining({ key: 'list_accounts', calls: 1 }),
+    ]);
+    expect(stats.json?.['window']).toEqual({ since: now - 7 * 86_400_000, until: now });
+    expect((await admin(app, '/audit/stats?groupBy=project')).json?.['data']).toHaveLength(1);
+    expect((await admin(app, '/audit/stats?groupBy=day&limit=1')).json?.['data']).toHaveLength(1);
+    // Unbounded, inverted or unknown inputs are 400 and never reach the database.
+    for (const q of [
+      `since=${now - 91 * 86_400_000}`,
+      `since=${now + 5}`,
+      'groupBy=nrql',
+      'limit=1000',
+      'userId=a%20b',
+      'x=1',
+    ]) {
+      expect((await admin(app, `/audit/stats?${q}`)).status, q).toBe(400);
+    }
+    const slow = await admin(app, '/audit?kind=tool_call&order=slowest&limit=2');
+    expect(slow.json?.['data'].map((r: AuditRecord) => r.durationMs)).toEqual([300, 100]);
+    expect(slow.json?.['nextCursor']).toBeNull();
   });
 
   it('finds tool calls by grant and status', async () => {

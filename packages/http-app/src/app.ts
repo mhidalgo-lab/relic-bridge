@@ -54,6 +54,7 @@ import {
 } from './admin/api.ts';
 import { createAdminTokenVerifier } from './admin/token.ts';
 import type { AdminAuditEvent } from './audit.ts';
+import { peekJsonRpc, type RpcPeek } from './jsonrpc.ts';
 import {
   applySecurityHeaders,
   checkHost,
@@ -80,9 +81,9 @@ export interface McpRequestInfo {
   readonly grantId: string;
   readonly tokenId: string;
   readonly userId: string | null;
-  /** `Mcp-Method` header (sanitised), when the client sent one (2026-era clients do). */
+  /** The JSON-RPC method of a POST body (sanitised); null for GET/DELETE or a body without one. Never header-only. */
   readonly mcpMethod: string | null;
-  /** `Mcp-Name` header (sanitised): the tool name for `tools/call`. */
+  /** `params.name` of the body (sanitised): the tool name for `tools/call`. */
   readonly mcpName: string | null;
   /** A `subscriptions/listen` request: answered at once, not a tool call (don't rate-limit it like one). */
   readonly listen: boolean;
@@ -261,6 +262,23 @@ class Deadline {
 }
 
 const UNAUTHORIZED_BODY = '{"error":"unauthorized"}';
+const BATCH_REFUSED_BODY =
+  '{"jsonrpc":"2.0","id":null,"error":{"code":-32600,"message":"Batch requests are not supported: send one JSON-RPC message per request."}}';
+
+/** {@link peekJsonRpc} bounded in time as well as size (a slowly trickled body can't hold the request forever). */
+async function peekWithin(request: Request, maxBytes: number, ms: number): Promise<RpcPeek | 'timeout'> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      peekJsonRpc(request, maxBytes),
+      new Promise<'timeout'>((resolve) => {
+        timer = setTimeout(() => resolve('timeout'), ms);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
 const WWW_AUTHENTICATE = 'Bearer realm="relic-bridge"';
 
 function json(status: number, body: string, extra: Record<string, string> = {}): Response {
@@ -576,8 +594,31 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
     log['tokenId'] = tokenId;
     log['grantId'] = access.grantId;
 
-    const mcpMethod = safeMcpHeader(c.req.header('mcp-method'));
-    const mcpName = safeMcpHeader(c.req.header('mcp-name'));
+    // What the request asks for comes from the body, never from the `Mcp-Method` / `Mcp-Name` headers alone: the SDK
+    // cross-checks those only for modern requests, so a legacy request could name `subscriptions/listen` in a header
+    // to skip rate limiting, or a granted tool to hide an ungranted call from the audit (P2-12).
+    let mcpMethod: string | null = null;
+    let mcpName: string | null = null;
+    if (c.req.method === 'POST') {
+      const peek = await peekWithin(c.req.raw, maxBodyBytes, timeoutMs);
+      if (peek === 'timeout') {
+        log['timeout'] = true;
+        return json(504, '{"error":"timeout"}');
+      }
+      if (peek.kind === 'too_large') {
+        log['reject'] = 'body_size';
+        return json(413, '{"error":"payload_too_large"}');
+      }
+      if (peek.kind === 'batch') {
+        // JSON-RPC batches left MCP in 2025-06-18; one request must be one call (rate limits and audit count calls).
+        log['reject'] = 'batch';
+        return json(400, BATCH_REFUSED_BODY);
+      }
+      if (peek.kind === 'message') {
+        mcpMethod = safeMcpHeader(peek.method);
+        mcpName = safeMcpHeader(peek.name);
+      }
+    }
     if (mcpMethod !== null) log['mcpMethod'] = mcpMethod;
     if (mcpName !== null) log['mcpName'] = mcpName;
     const info: McpRequestInfo = Object.freeze({

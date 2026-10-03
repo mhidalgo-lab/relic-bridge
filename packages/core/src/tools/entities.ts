@@ -236,6 +236,19 @@ export function checkGuid(ctx: ToolContext, value: string): DecodedEntityGuid {
   return decoded;
 }
 
+/**
+ * Whether a returned entity's GUID agrees with the account NerdGraph reported for it. A GUID encodes its account, so a
+ * mismatch is inconsistent data and the row can't be vouched for (T3). GUIDs that don't decode are judged by the
+ * reported account alone.
+ */
+function guidAgrees(guid: string, account: number): boolean {
+  try {
+    return decodeEntityGuid(guid).accountId === account;
+  } catch {
+    return true;
+  }
+}
+
 export function outOfScope(account: number): RbError {
   return new RbError(
     ErrorCode.AuthForbidden,
@@ -319,7 +332,10 @@ export function createEntityTools(deps: ToolDeps = {}): ToolDefinition[] {
       const scope = new Set(accounts);
       const all = (es.results?.entities ?? []).filter(isNonNull);
       const inScope = (e: (typeof all)[number]) =>
-        typeof e.accountId === 'number' && scope.has(e.accountId) && typeof e.guid === 'string';
+        typeof e.accountId === 'number' &&
+        scope.has(e.accountId) &&
+        typeof e.guid === 'string' &&
+        guidAgrees(e.guid, e.accountId);
       // Defence in depth (T3): the filter already names the accounts; drop anything else NerdGraph returns.
       const entities = all
         .filter(inScope)
@@ -475,7 +491,11 @@ export function createEntityTools(deps: ToolDeps = {}): ToolDefinition[] {
         const other = outgoing ? edge.target : edge.source;
         if (!other || typeof other.guid !== 'string') continue;
         const account = other.accountId ?? other.entity?.accountId;
-        if (typeof account !== 'number' || !ctx.accounts.allowed.includes(account)) {
+        if (
+          typeof account !== 'number' ||
+          !ctx.accounts.allowed.includes(account) ||
+          !guidAgrees(other.guid, account)
+        ) {
           hiddenOutsideScope = true;
           continue;
         }

@@ -117,3 +117,24 @@ describe('Dockerfile and .dockerignore (P2-11)', () => {
     expect(ignore).toMatch(/\*\.db/);
   });
 });
+
+describe('deploy/docker-compose.example.yml (P2-review)', () => {
+  const compose = parse(read('../../deploy/docker-compose.example.yml')) as {
+    services: { [name: string]: { environment?: Record<string, string>; ports?: string[] } };
+  };
+  const env = compose.services['relic-bridge']?.environment ?? {};
+
+  it('declares the TLS proxy to the app: HSTS on, one trusted hop, a Host allowlist, no published app port', () => {
+    // Caddy terminates TLS, so the app sees plain HTTP: without RB_HSTS=true no HSTS is sent and the pass-through
+    // route refuses every request with `403 tls_required`.
+    expect(env['RB_HSTS']).toBe('true');
+    expect(env['RB_TRUSTED_PROXY_HOPS']).toBe('1');
+    expect(env['RB_ALLOWED_HOSTS']).toBeTruthy();
+    expect(compose.services['relic-bridge']?.ports).toBeUndefined();
+  });
+
+  it('never puts the master key in the data volume or the environment', () => {
+    expect(env['RB_MASTER_KEY']).toBeUndefined();
+    expect(env['RB_MASTER_KEY_FILE']).toMatch(/^\/run\/secrets\//);
+  });
+});

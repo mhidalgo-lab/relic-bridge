@@ -2,6 +2,7 @@
 // Project and grant domain services (ADR-0008). They validate input the storage layer can't (tool names against the
 // catalog, accounts against the project, credential ownership) before writing. The resolver re-checks everything
 // at request time anyway, so a row changed behind these services still can't widen access.
+import { redact } from '@relic-bridge/core';
 import {
   type GrantRecord,
   limitsSchema,
@@ -51,7 +52,7 @@ function checkTools(value: readonly string[], catalog: readonly string[], field:
   if (unknown.length > 0) {
     throw new AccessError(
       'invalid_input',
-      `${field}: unknown tool name(s) ${unknown.map((t) => String(t).slice(0, 64)).join(', ')}`,
+      redact(`${field}: unknown tool name(s) ${unknown.map((t) => String(t).slice(0, 64)).join(', ')}`),
       field,
     );
   }

@@ -362,6 +362,32 @@ describe('computeAccess: deny by default', () => {
       reason: 'credential_not_permitted',
     },
     {
+      name: 'project default key whose owner is disabled',
+      over: {
+        project: project({ defaultCredentialId: 'cred_b' }),
+        credential: credential({ id: 'cred_b', ownerUserId: 'usr_b' }),
+        credentialOwner: user({ id: 'usr_b', disabledAt: 1 }),
+      },
+      reason: 'credential_owner_disabled',
+    },
+    {
+      name: 'project default key whose owner is gone (or not loaded)',
+      over: {
+        project: project({ defaultCredentialId: 'cred_b' }),
+        credential: credential({ id: 'cred_b', ownerUserId: 'usr_b' }),
+      },
+      reason: 'credential_owner_disabled',
+    },
+    {
+      name: 'owner record is not the credential owner',
+      over: {
+        project: project({ defaultCredentialId: 'cred_b' }),
+        credential: credential({ id: 'cred_b', ownerUserId: 'usr_b' }),
+        credentialOwner: user({ id: 'usr_c' }),
+      },
+      reason: 'credential_owner_disabled',
+    },
+    {
       name: 'tool not in grant (empty intersection)',
       over: { project: project({ enabledTools: ['whoami'] }), grant: grant({ tools: ['run_nrql'] }) },
       reason: 'no_tools',
@@ -448,7 +474,12 @@ describe('computeAccess: deny by default', () => {
 
   it('allows: matching user principal, service grant with label, shared and default credentials', () => {
     expect(computeAccess(input({ principal: { grantId: 'grt_a', userId: 'usr_a' } })).ok).toBe(true);
-    expect(computeAccess(input({ grant: grant({ userId: null, label: 'ci' }), user: null })).ok).toBe(true);
+    // Service grant on the project default key, owned by an active user.
+    expect(
+      computeAccess(
+        input({ grant: grant({ userId: null, label: 'ci' }), user: null, credentialOwner: user() }),
+      ).ok,
+    ).toBe(true);
     // Shared (unowned) credential.
     expect(
       computeAccess(
@@ -465,6 +496,7 @@ describe('computeAccess: deny by default', () => {
           project: project({ defaultCredentialId: 'cred_b' }),
           grant: grant({ credentialId: null }),
           credential: credential({ id: 'cred_b', ownerUserId: 'usr_b' }),
+          credentialOwner: user({ id: 'usr_b' }),
         }),
       ).ok,
     ).toBe(true);
@@ -474,6 +506,7 @@ describe('computeAccess: deny by default', () => {
           project: project({ defaultCredentialId: 'cred_b' }),
           grant: grant({ credentialId: 'cred_b' }),
           credential: credential({ id: 'cred_b', ownerUserId: 'usr_b' }),
+          credentialOwner: user({ id: 'usr_b' }),
         }),
       ).ok,
     ).toBe(true);

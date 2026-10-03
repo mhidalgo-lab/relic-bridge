@@ -51,6 +51,7 @@ export type DenyReason =
   | 'credential_invalid'
   | 'credential_unvalidated'
   | 'credential_not_permitted'
+  | 'credential_owner_disabled'
   | 'invalid_config'
   | 'no_tools'
   | 'no_accounts';
@@ -72,6 +73,7 @@ export const DENY_REASONS: readonly DenyReason[] = Object.freeze([
   'credential_invalid',
   'credential_unvalidated',
   'credential_not_permitted',
+  'credential_owner_disabled',
   'invalid_config',
   'no_tools',
   'no_accounts',
@@ -109,6 +111,11 @@ export interface ComputeAccessInput {
   readonly user: UserRecord | null;
   /** The credential the grant resolves to (`grant.credentialId ?? project.defaultCredentialId`), null if not found. */
   readonly credential: CredentialRecord | null;
+  /**
+   * The credential's owner when it is not the grant's user (null when not found; omit when the credential has no
+   * owner or the grant's user owns it). A disabled or deleted owner's key stops working for every grant.
+   */
+  readonly credentialOwner?: UserRecord | null;
   /** Every tool this build can serve (built-in read-only tools). Names outside it are never granted. */
   readonly catalog: readonly string[];
   /** Epoch milliseconds. */
@@ -258,6 +265,12 @@ export function computeAccess(input: ComputeAccessInput): AccessDecision {
     return deny('credential_unvalidated');
   }
   if (!credentialPermitted(project, grant, credential)) return deny('credential_not_permitted');
+  if (credential.ownerUserId !== null) {
+    const owner = credential.ownerUserId === grant.userId ? user : (input.credentialOwner ?? null);
+    if (owner === null || owner.id !== credential.ownerUserId || owner.disabledAt !== null) {
+      return deny('credential_owner_disabled');
+    }
+  }
   if (!(NR_REGIONS as readonly string[]).includes(credential.region)) return deny('invalid_config');
 
   // Stored shapes (JSON columns) are checked, never trusted.

@@ -422,6 +422,25 @@ describe('createProject / createGrant', () => {
 });
 
 describe('resolveAccess', () => {
+  it('team default key: disabling its owner stops it for every grant (and a service grant reads the owner)', async () => {
+    const { proj } = await personalSetup();
+    const { grant: bobs } = await createGrant(storage, { projectId: proj.id, userId: 'usr_b' }, CATALOG, NOW);
+    const { grant: ci } = await createGrant(storage, { projectId: proj.id, label: 'ci' }, CATALOG, NOW);
+    const r = (grantId: string) =>
+      resolveAccess({ storage, projectSlug: 'prod', principal: { grantId }, catalog: CATALOG, now: NOW });
+    expect((await r(bobs.id)).ok).toBe(true);
+    expect((await r(ci.id)).ok).toBe(true);
+    await storage.users.update('usr_a', { disabledAt: NOW });
+    expect(await r(bobs.id)).toEqual({ ok: false, reason: 'credential_owner_disabled' });
+    expect(await r(ci.id)).toEqual({ ok: false, reason: 'credential_owner_disabled' });
+    const listed = await listEffectivePermissions({ storage, catalog: CATALOG, now: NOW });
+    expect(listed.map((e) => (e.decision.ok ? 'ok' : e.decision.reason)).sort()).toEqual([
+      'credential_owner_disabled',
+      'credential_owner_disabled',
+      'user_disabled',
+    ]);
+  });
+
   it('denies unknown and malformed slugs and grants without leaking which', async () => {
     const { grant } = await personalSetup();
     const r = (projectSlug: string, grantId: string) =>

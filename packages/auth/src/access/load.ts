@@ -42,7 +42,7 @@ export type ResolvedAccess =
   | { readonly ok: false; readonly reason: DenyReason };
 
 /**
- * Resolve a request's effective access from storage (at most four reads, two round trips). Storage errors propagate:
+ * Resolve a request's effective access from storage (at most five reads, three round trips). Storage errors propagate:
  * the caller must treat them as a denial (fail closed), never as "no restriction".
  */
 export async function resolveAccess(input: ResolveAccessInput): Promise<ResolvedAccess> {
@@ -67,7 +67,18 @@ export async function resolveAccess(input: ResolveAccessInput): Promise<Resolved
     grant.userId === null ? Promise.resolve(null) : storage.users.get(grant.userId),
     credentialId === null ? Promise.resolve(null) : storage.credentials.get(credentialId),
   ]);
-  const decision = computeAccess({ ...input, project, grant, user, credential });
+  // A third read only for a key owned by someone other than the grant's user (team default or shared-by-owner key).
+  const ownerId = credential?.ownerUserId ?? null;
+  const credentialOwner =
+    ownerId === null || ownerId === grant.userId ? undefined : await storage.users.get(ownerId);
+  const decision = computeAccess({
+    ...input,
+    project,
+    grant,
+    user,
+    credential,
+    ...(credentialOwner === undefined ? {} : { credentialOwner }),
+  });
   if (!decision.ok) return decision;
   // computeAccess denies when the credential is missing; this narrows the type.
   if (credential === null) return { ok: false, reason: 'credential_not_found' };
@@ -143,12 +154,16 @@ export async function listEffectivePermissions(input: {
   return grants.map((grant) => {
     const project = projectsById.get(grant.projectId) ?? null;
     const credentialId = project === null ? null : credentialIdFor(project, grant);
+    const credential = credentialId === null ? null : (credentialsById.get(credentialId) ?? null);
     const decision = computeAccess({
       principal: { grantId: grant.id },
       project,
       grant,
       user: grant.userId === null ? null : (usersById.get(grant.userId) ?? null),
-      credential: credentialId === null ? null : (credentialsById.get(credentialId) ?? null),
+      credential,
+      ...(credential?.ownerUserId == null || credential.ownerUserId === grant.userId
+        ? {}
+        : { credentialOwner: usersById.get(credential.ownerUserId) ?? null }),
       catalog,
       now,
     });

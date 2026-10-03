@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Admin identity (P4-01, ADR-0009 step 2): Google, GitHub, Cloudflare Access and generic OIDC providers, login
-// transactions, setup links and the sign-in policy.
+// transactions, setup links and the sign-in policy; admin sessions (P4-02).
 export {
   CF_ACCESS_HEADER,
   type CloudflareAccessOptions,
@@ -70,6 +70,32 @@ export {
   matchAllowlist,
   resolveLoginUser,
 } from './policy.ts';
+export {
+  type ActiveSession,
+  checkSessionTimeouts,
+  createSession,
+  csrfTokenMatches,
+  DEFAULT_SESSION_ABSOLUTE_MS,
+  DEFAULT_SESSION_IDLE_MS,
+  DEFAULT_SESSION_TIMEOUTS,
+  INSECURE_SESSION_COOKIE,
+  type IssuedSession,
+  loadSession,
+  MAX_SESSION_ABSOLUTE_MS,
+  MAX_SESSION_IDLE_MS,
+  MIN_SESSION_ABSOLUTE_MS,
+  MIN_SESSION_IDLE_MS,
+  parseSessionCookie,
+  revokeSession,
+  revokeSessionByHash,
+  revokeUserSessions,
+  SESSION_COOKIE,
+  SESSION_TOUCH_INTERVAL_MS,
+  type SessionFailure,
+  type SessionLookup,
+  type SessionRecord,
+  type SessionTimeouts,
+} from './session.ts';
 export {
   type AuthorizationRequest,
   type AuthorizationResult,

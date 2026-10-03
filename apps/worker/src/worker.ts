@@ -4,12 +4,22 @@
 // per-isolate runtime (keyring with its imported CryptoKeys, access cache, rate-limit buckets, the app) built lazily
 // on the first request. The runtime holds configuration and caches only, never request data (THREAT_MODEL T21).
 import type { ExecutionContext, ScheduledController } from '@cloudflare/workers-types';
-import { CryptoError, describeUnreadableKeys, loadKeyringFromEnv, verifyKeyChecks } from '@relic-bridge/auth';
+import {
+  CryptoError,
+  createIdentityProviders,
+  describeUnreadableKeys,
+  IdentityConfigError,
+  type IdentitySettings,
+  identitySettingsFromEnv,
+  loadKeyringFromEnv,
+  verifyKeyChecks,
+} from '@relic-bridge/auth';
 import { createLogger, type FetchLike, type Logger, type LogSink, Secret, VERSION } from '@relic-bridge/core';
 import {
   ADMIN_TOKEN_ADVICE,
   adminTokenLooksWeak,
   checkAdminToken,
+  checkHost,
   createAuditRecorder,
   createHttpApp,
   createRateLimitHooks,
@@ -66,6 +76,8 @@ export interface WorkerOptions {
   readonly openStorage?: OpenStorage;
   /** NerdGraph fetch override (tests). */
   readonly fetch?: FetchLike;
+  /** Identity provider fetch override (tests: the mock IdP). */
+  readonly identityFetch?: FetchLike;
   /** Log sink override (tests). Default: `console.error` → Workers Logs. */
   readonly logSink?: LogSink;
   /** Cap on refusal rows per minute (tests that provoke thousands of refusals). Default: the recorder's. */
@@ -111,6 +123,8 @@ interface Runtime {
   readonly settings: WorkerSettings;
   readonly log: Logger;
   readonly adminApi: boolean;
+  /** Sign-in provider ids (empty: sign-in off). */
+  readonly identity: readonly string[];
   /** Where rate limits are counted: the binding plus the isolate, the isolate alone, or nowhere. */
   readonly limiter: 'binding+isolate' | 'isolate' | 'off';
   readonly app: {
@@ -172,6 +186,26 @@ async function boot(env: WorkerEnv, options: WorkerOptions): Promise<Runtime> {
     }
   }
 
+  let identity: IdentitySettings | null;
+  try {
+    identity = identitySettingsFromEnv(env as unknown as Record<string, string | undefined>);
+  } catch (error) {
+    if (error instanceof IdentityConfigError) throw new WorkerConfigError(error.variable, error.message);
+    throw error;
+  }
+  if (identity !== null) {
+    for (const w of identity.warnings) log.warn(w);
+    if (
+      settings.allowedHosts !== '*' &&
+      !checkHost(new URL(identity.publicUrl).hostname, settings.allowedHosts).ok
+    ) {
+      throw new WorkerConfigError(
+        'RB_PUBLIC_URL',
+        'RB_PUBLIC_URL must name a host listed in RB_ALLOWED_HOSTS.',
+      );
+    }
+  }
+
   const storage = await (options.openStorage ?? openD1Storage)(env);
   const { registered, unreadable } = await verifyKeyChecks(storage, keyring);
   if (registered.length > 0) log.info('master key registered', { versions: registered });
@@ -226,6 +260,13 @@ async function boot(env: WorkerEnv, options: WorkerOptions): Promise<Runtime> {
       ? undefined
       : mergeHooks(rateLimitHooks, audit?.hooks);
 
+  const identityProviders =
+    identity === null
+      ? undefined
+      : createIdentityProviders(identity, {
+          ...(options.identityFetch === undefined ? {} : { fetch: options.identityFetch }),
+        });
+
   const app = createHttpApp({
     storage,
     keyring,
@@ -242,6 +283,17 @@ async function boot(env: WorkerEnv, options: WorkerOptions): Promise<Runtime> {
     ...(hooks === undefined ? {} : { hooks }),
     ...(fingerprintSecret === undefined ? {} : { passthrough: { fingerprintSecret } }),
     ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
+    ...(identityProviders === undefined || identity === null
+      ? {}
+      : {
+          identity: {
+            publicUrl: identity.publicUrl,
+            providers: identityProviders,
+            policy: identity.policy,
+            storage,
+            ...(audit === undefined ? {} : { audit }),
+          },
+        }),
     ...(adminRaw === ''
       ? {}
       : {
@@ -256,7 +308,14 @@ async function boot(env: WorkerEnv, options: WorkerOptions): Promise<Runtime> {
   });
 
   const limiter = !settings.rateLimit ? 'off' : binding === undefined ? 'isolate' : 'binding+isolate';
-  return { settings, log, adminApi: adminRaw !== '', limiter, app };
+  return {
+    settings,
+    log,
+    adminApi: adminRaw !== '',
+    identity: (identityProviders ?? []).map((p) => p.id),
+    limiter,
+    app,
+  };
 }
 
 /**
@@ -307,6 +366,7 @@ export function createWorker(options: WorkerOptions = {}): WorkerHandler {
       maxResponseBytes: settings.maxResponseBytes,
       concurrency: settings.concurrency,
       adminApi: runtime.adminApi,
+      signIn: runtime.identity,
       audit: settings.audit.enabled ? settings.audit.nrql : 'off',
       rateLimit: runtime.limiter,
       passthrough: settings.passthrough,

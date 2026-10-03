@@ -59,6 +59,7 @@ import {
 } from './admin/api.ts';
 import { createAdminTokenVerifier } from './admin/token.ts';
 import type { AdminAuditEvent } from './audit.ts';
+import { createIdentityRoutes, IDENTITY_BASE, type IdentityOptions } from './identity.ts';
 import { peekJsonRpc, type RpcPeek } from './jsonrpc.ts';
 import {
   credentialIdOf,
@@ -132,9 +133,10 @@ export interface AuthFailureInfo {
 /**
  * Which credential a route authenticates (P3-13): an MCP access token (`/p/:slug/mcp`), the bootstrap admin token
  * (`/api/admin/*`) or a caller's New Relic key (pass-through). Checking the first two costs no outbound call; checking
- * a New Relic key asks NerdGraph, so hooks may treat it more strictly.
+ * a New Relic key asks NerdGraph, so hooks may treat it more strictly. `identity` is the sign-in routes (P4-01), which
+ * check IdP answers, not a credential of ours.
  */
-export type AuthScope = 'mcp_token' | 'admin_token' | 'passthrough_key';
+export type AuthScope = 'mcp_token' | 'admin_token' | 'passthrough_key' | 'identity';
 
 /**
  * Extension points for P2-07 (rate limiting) and P2-08 (audit). Hooks receive the Hono context so runtime-specific
@@ -241,6 +243,8 @@ export interface HttpAppOptions {
   readonly admin?: AdminApiOptions;
   /** Enables `/passthrough/mcp` (P2-15): callers bring their own New Relic key per request. Off when absent. */
   readonly passthrough?: PassthroughOptions;
+  /** Enables the `/auth/*` sign-in routes (P4-01) and admin setup links. Off when absent. */
+  readonly identity?: IdentityOptions;
 }
 
 type Env = { Variables: { requestId: string; started: number; log: Record<string, unknown> } };
@@ -441,6 +445,13 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
   const scopes = new WeakSet<RequestScope>();
   // Fails at construction (boot) for an unusable admin token, never per request.
   const adminVerifier = options.admin ? createAdminTokenVerifier(options.admin.token) : undefined;
+  // Sign-in redirects come back to the public URL: its host must pass the Host check, or every callback would be 403.
+  if (options.identity) {
+    const publicHost = new URL(options.identity.publicUrl).hostname;
+    if (allowedHosts !== '*' && !checkHost(publicHost, allowedHosts).ok) {
+      throw new TypeError('identity.publicUrl must name a host in allowedHosts');
+    }
+  }
 
   const runInBackground = (c: Context, task: Promise<unknown>, what: string): void => {
     const guarded = task.catch((error: unknown) =>
@@ -745,6 +756,41 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
         runInBackground,
         // A revoked token, grant or key stops at once on this process (other processes: within the cache TTL).
         onChange: () => cache.clear(),
+        ...(options.identity
+          ? {
+              setupLinks: {
+                publicUrl: options.identity.publicUrl,
+                kv: options.identity.storage.kv,
+                providers: options.identity.providers.map((p) => ({ id: p.id, kind: p.kind })),
+              },
+            }
+          : {}),
+      }),
+    );
+  }
+
+  if (options.identity) {
+    app.route(
+      IDENTITY_BASE,
+      createIdentityRoutes(options.identity, {
+        clock,
+        logger,
+        runInBackground,
+        ...(hooks.beforeAuth
+          ? {
+              beforeAuth: async (c: Context, id: string) => {
+                const stop = await hooks.beforeAuth?.(c, id, 'identity');
+                if (stop) {
+                  notifyRejected(c, {
+                    requestId: id,
+                    status: stop.status,
+                    reason: rejectReason(c.get('log')),
+                  });
+                }
+                return stop;
+              },
+            }
+          : {}),
       }),
     );
   }

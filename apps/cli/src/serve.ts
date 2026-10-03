@@ -7,12 +7,22 @@ import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
 import { createAdaptorServer } from '@hono/node-server';
 import { getConnInfo } from '@hono/node-server/conninfo';
-import { CryptoError, describeUnreadableKeys, loadKeyringFromEnv, verifyKeyChecks } from '@relic-bridge/auth';
+import {
+  CryptoError,
+  createIdentityProviders,
+  describeUnreadableKeys,
+  IdentityConfigError,
+  type IdentitySettings,
+  identitySettingsFromEnv,
+  loadKeyringFromEnv,
+  verifyKeyChecks,
+} from '@relic-bridge/auth';
 import { type FetchLike, type Logger, Secret, VERSION } from '@relic-bridge/core';
 import {
   AUDIT_NRQL_MODES,
   type AuditNrqlMode,
   adminTokenLooksWeak,
+  checkHost,
   createAuditRecorder,
   createHttpApp,
   createRateLimitHooks,
@@ -228,7 +238,34 @@ export interface ServeSettings {
   readonly audit: AuditSettings;
   /** Pass-through mode (`RB_PASSTHROUGH`); `null` when off. */
   readonly passthrough: PassthroughSettings | null;
+  /** Admin sign-in (P4-01, `RB_PUBLIC_URL` + provider variables); `null` when no provider is configured. */
+  readonly identity: IdentitySettings | null;
   readonly warnings: readonly string[];
+}
+
+function identitySettings(
+  env: Env,
+  allowedHosts: readonly string[] | '*',
+  warnings: string[],
+): IdentitySettings | null {
+  let settings: IdentitySettings | null;
+  try {
+    settings = identitySettingsFromEnv(env);
+  } catch (error) {
+    if (error instanceof IdentityConfigError) {
+      throw new ConfigError(error.message, 'See docs/guide/identity-providers.md.');
+    }
+    throw error;
+  }
+  if (settings === null) return null;
+  if (allowedHosts !== '*' && !checkHost(new URL(settings.publicUrl).hostname, allowedHosts).ok) {
+    throw new ConfigError(
+      'RB_PUBLIC_URL must name a host listed in RB_ALLOWED_HOSTS.',
+      'Sign-in redirects come back to RB_PUBLIC_URL; requests for other hosts are refused.',
+    );
+  }
+  warnings.push(...settings.warnings);
+  return settings;
 }
 
 /** Validate flags and `RB_*` variables for `serve`. Throws `ConfigError` with a hint. */
@@ -320,6 +357,7 @@ export function serveSettings(input: {
     trustedProxyHops: Number(hopsRaw),
     audit: auditSettings(env, warnings),
     passthrough: passthroughSettings(env, warnings),
+    identity: identitySettings(env, allowedHosts, warnings),
     warnings,
   };
 }
@@ -338,6 +376,8 @@ export interface StartServerOptions {
   readonly logger: Logger;
   /** NerdGraph fetch override (test hook). */
   readonly fetch?: FetchLike;
+  /** Identity provider fetch override (tests). */
+  readonly identityFetch?: FetchLike;
 }
 
 /**
@@ -445,6 +485,19 @@ export async function startServer(options: StartServerOptions): Promise<RunningS
     ...(settings.passthrough === null
       ? {}
       : { passthrough: { identityTtlMs: settings.passthrough.identityTtlMs } }),
+    ...(settings.identity === null
+      ? {}
+      : {
+          identity: {
+            publicUrl: settings.identity.publicUrl,
+            providers: createIdentityProviders(settings.identity, {
+              ...(options.identityFetch === undefined ? {} : { fetch: options.identityFetch }),
+            }),
+            policy: settings.identity.policy,
+            storage,
+            ...(audit === undefined ? {} : { audit }),
+          },
+        }),
   });
 
   const server = createAdaptorServer({
@@ -494,6 +547,10 @@ export async function startServer(options: StartServerOptions): Promise<RunningS
     adminApi: adminToken === undefined ? 'off' : `${url}/api/admin/v1`,
     trustedProxyHops: settings.trustedProxyHops,
     passthrough: settings.passthrough === null ? 'off' : `${url}${PASSTHROUGH_PATH}`,
+    signIn:
+      settings.identity === null
+        ? 'off'
+        : `${settings.identity.publicUrl}/auth/login (${settings.identity.providers.map((p) => p.kind).join(', ')})`,
   });
 
   let closing: Promise<void> | undefined;

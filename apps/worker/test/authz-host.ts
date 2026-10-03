@@ -9,7 +9,7 @@ import { Keyring } from '@relic-bridge/auth';
 import type { HttpAppOptions } from '@relic-bridge/http-app';
 import { createD1Storage } from '@relic-bridge/storage/d1';
 import { vi } from 'vitest';
-import { ADMIN_TOKEN, type AuthzHost } from '../../../packages/http-app/test/authz/harness.ts';
+import { ADMIN_TOKEN, type AuthzHost, IDENTITY_ENV } from '../../../packages/http-app/test/authz/harness.ts';
 import { ManualClock, T0 } from '../../../packages/http-app/test/fixtures.ts';
 import type { WorkerEnv } from '../src/env.ts';
 import { createWorker } from '../src/worker.ts';
@@ -38,6 +38,7 @@ function envFor(over: Partial<HttpAppOptions>): WorkerEnv {
     RB_ACCESS_CACHE_TTL: String(Math.round((over.accessCacheTtlMs ?? 0) / 1000)),
     RB_AUDIT_NRQL: 'full',
     RB_AUDIT_CLIENT_IP: 'on',
+    ...IDENTITY_ENV,
   };
   if (over.passthrough !== undefined) {
     vars['RB_PASSTHROUGH'] = 'on';
@@ -62,7 +63,7 @@ export const workerHost: AuthzHost = {
       clock: new SystemClock(),
     };
   },
-  create({ nerdGraph, log }) {
+  create({ nerdGraph, log, idpFetch }) {
     const ctx = fakeCtx();
     return {
       recorderHooks: {},
@@ -72,6 +73,7 @@ export const workerHost: AuthzHost = {
         // One Worker (isolate) per app, like a fresh deployment.
         const worker = createWorker({
           fetch: nerdGraph.fetch,
+          identityFetch: idpFetch,
           logSink: log,
           auditMaxAuthRowsPerMinute: 1_000_000,
         });

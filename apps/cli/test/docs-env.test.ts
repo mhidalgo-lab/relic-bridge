@@ -7,6 +7,8 @@ import { describe, expect, it } from 'vitest';
 
 const ROOT = join(import.meta.dirname, '..', '..', '..');
 const SRC = join(ROOT, 'apps', 'cli', 'src');
+/** Sign-in variables (P4-01): `serve` reads them through `identitySettingsFromEnv` in the auth package. */
+const IDENTITY_CONFIG = join(ROOT, 'packages', 'auth', 'src', 'identity', 'config.ts');
 const VAR = /\bRB_[A-Z][A-Z0-9_]*[A-Z0-9]\b/g;
 
 function names(text: string): Set<string> {
@@ -27,8 +29,12 @@ const INTERNAL = new Set(['RB_TEST_HOOKS', 'RB_TEST_NERDGRAPH_URL']);
 describe('self-hosting guide and the environment', () => {
   const guide = readFileSync(join(ROOT, 'docs', 'guide', 'self-hosting.md'), 'utf8');
   const documented = names(guide);
-  const serveVars = names(readFileSync(join(SRC, 'serve.ts'), 'utf8'));
-  const allVars = new Set(sourceFiles(SRC).flatMap((f) => [...names(readFileSync(f, 'utf8'))]));
+  const identityVars = names(readFileSync(IDENTITY_CONFIG, 'utf8'));
+  const serveVars = new Set([...names(readFileSync(join(SRC, 'serve.ts'), 'utf8')), ...identityVars]);
+  const allVars = new Set([
+    ...sourceFiles(SRC).flatMap((f) => [...names(readFileSync(f, 'utf8'))]),
+    ...identityVars,
+  ]);
   for (const v of INTERNAL) allVars.delete(v);
 
   it('documents every variable serve.ts reads', () => {

@@ -513,6 +513,28 @@ Request body (`RotateKeys`):
 | 413 | `Error` | Body too large (`payload_too_large`) |
 | 415 | `Error` | Body is not JSON (`unsupported_media_type`) |
 
+## Identity
+
+### POST /setup-links
+
+Issue a single-use owner setup link
+
+First-owner bootstrap (P4-01): the identity that signs in through this link becomes `owner` (the sign-in allowlist does not apply; email verification and identity conflicts still do). Single use; expires after `ttlMinutes` (default 60). The link is shown once, only its hash is stored. Needs sign-in to be configured (`RB_PUBLIC_URL` and an identity provider), else `422 not_permitted`.
+
+Request body (`CreateSetupLink`):
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `ttlMinutes` | `integer` | no | Lifetime in minutes, 1-10080 (default 60). |
+| `provider` | `string` | no | Link straight to one sign-in provider (`google`, `github`, `cf-access`, …). |
+
+| Status | Body | Description |
+| --- | --- | --- |
+| 201 | `SetupLinkResponse` | Issued |
+| 413 | `Error` | Body too large (`payload_too_large`) |
+| 415 | `Error` | Body is not JSON (`unsupported_media_type`) |
+| 422 | `Error` | Refused by a rule (`not_permitted`) or New Relic refused the key (`key_rejected`) |
+
 ## Audit
 
 ### GET /audit
@@ -643,6 +665,13 @@ Token metadata. The token hash is never returned.
 | `enabledTools` | `string[] \| null` | no | Upper limit of tools; null = all. |
 | `limits` | `Limits` | no | Query limits; absent fields fall back to the defaults. |
 | `defaultCredentialId` | `string \| null` | no | Credential used by grants that name none. |
+
+### CreateSetupLink
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `ttlMinutes` | `integer` | no | Lifetime in minutes, 1-10080 (default 60). |
+| `provider` | `string` | no | Link straight to one sign-in provider (`google`, `github`, `cf-access`, …). |
 
 ### CreateToken
 
@@ -832,6 +861,20 @@ Query limits; absent fields fall back to the defaults.
 | --- | --- | --- | --- |
 | `batchSize` | `integer` | no | Rows to re-encrypt in this call, 1-100 (default 25). A Worker on the Free plan lowers the ceiling to 40 (one call stays under 50 D1 queries); a larger value is reduced, not refused, and `nextCursor` resumes. |
 | `after` | `string \| null` | no | `nextCursor` of the previous call; omit to start from the first row. |
+
+### SetupLink
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `url` | `string` | yes | Open it in a browser and sign in: that identity becomes `owner`. Shown once; single use. |
+| `expiresAt` | `integer` | yes | Epoch milliseconds. |
+| `provider` | `string \| null` | yes |  |
+
+### SetupLinkResponse
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `data` | `SetupLink` | yes |  |
 
 ### UpdateCredential
 

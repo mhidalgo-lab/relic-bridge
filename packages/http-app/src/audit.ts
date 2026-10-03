@@ -11,6 +11,7 @@ import { type Clock, type Logger, redact, redactValue, silentLogger, systemClock
 import type { AuditEntry, AuditKind, AuditLogRepository, AuditStatus } from '@relic-bridge/storage';
 import type { Context } from 'hono';
 import type { AuthFailureInfo, HttpAppHooks, McpRequestInfo, RejectInfo } from './app.ts';
+import type { LoginAuditEvent } from './identity.ts';
 import type { PassthroughRequestInfo } from './passthrough.ts';
 
 /** How NRQL text is stored. `mask` is the default: enough to see what was asked, without the values. */
@@ -144,6 +145,11 @@ export interface AuditRecorder {
   readonly hooks: HttpAppHooks;
   /** Record an admin action. Resolves when the write finished; never rejects (failures are logged). */
   admin(event: AdminAuditEvent): Promise<void>;
+  /**
+   * Record a sign-in attempt (P4-01): `auth` / `login.ok` or `login.denied` (refusals capped like other `auth` rows).
+   * Never rejects.
+   */
+  login(c: Context, event: LoginAuditEvent): Promise<void>;
   /** Delete rows older than `retentionDays` (0 or less: keep everything). Returns how many were removed. */
   purge(retentionDays: number, options?: { readonly limit?: number }): Promise<number>;
 }
@@ -365,6 +371,26 @@ export function createAuditRecorder(options: AuditRecorderOptions): AuditRecorde
         targetId: event.targetId ?? null,
         details: sanitizeDetails(event.details),
       });
+    },
+    async login(c, event) {
+      const entry: AuditEntry = {
+        ts: clock.now(),
+        kind: 'auth',
+        action: event.status === 'ok' ? 'login.ok' : 'login.denied',
+        status: event.status === 'ok' ? 'ok' : 'denied',
+        requestId: event.requestId,
+        userId: event.userId ?? null,
+        errorCode: event.reason ?? null,
+        targetType: 'identity_provider',
+        targetId: event.provider,
+        details: {
+          idp: event.idp,
+          ...(event.outcome ? { outcome: event.outcome } : {}),
+          ...ipDetails(c),
+        },
+      };
+      if (event.status === 'ok') await write(entry);
+      else await writeAuth(entry);
     },
     async purge(retentionDays, purgeOptions) {
       if (!Number.isFinite(retentionDays) || retentionDays <= 0) return 0;

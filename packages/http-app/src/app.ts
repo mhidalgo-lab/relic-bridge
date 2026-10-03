@@ -855,6 +855,8 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
             options.admin?.audit?.admin.bind(options.admin.audit) ??
             options.identity.audit?.admin?.bind(options.identity.audit),
           adminApi: options.admin !== undefined,
+          onRejected: (c, status) =>
+            notifyRejected(c, { requestId: c.get('requestId'), status, reason: rejectReason(c.get('log')) }),
           fetchApp: (request, c) => {
             let ctx: ExecutionContext | undefined;
             try {
@@ -1200,6 +1202,8 @@ interface AdminUiWiring {
   readonly logger: Logger;
   readonly runInBackground: (c: Context, task: Promise<unknown>, what: string) => void;
   readonly audit: ((event: AdminAuditEvent) => Promise<void>) | undefined;
+  /** A pre-authentication hook refused a page (audit `request.rejected`). */
+  readonly onRejected: (c: Context, status: number) => void;
   /** The admin API is mounted (else every `callAdmin` is a 404). */
   readonly adminApi: boolean;
   /** The whole app, for in-process admin API calls. */
@@ -1240,7 +1244,11 @@ function adminUiDeps(w: AdminUiWiring): AdminUiDeps {
   return {
     secureCookies: publicOrigin.startsWith('https:'),
     clearSessionCookie: sessions.clearCookie,
-    beforeAuth: (c) => hooks.beforeAuth?.(c, requestId(c), 'admin_session'),
+    async beforeAuth(c) {
+      const stop = await hooks.beforeAuth?.(c, requestId(c), 'admin_session');
+      if (stop) w.onRejected(c, stop.status);
+      return stop;
+    },
 
     async authenticate(c) {
       const auth = await sessions.authenticate(c);

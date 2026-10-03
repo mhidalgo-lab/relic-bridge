@@ -108,12 +108,16 @@ const LOGIN_PATH = '/auth/login';
 
 /**
  * An admin API path with every interpolated value percent-encoded as one path segment (ids from a form can't add
- * segments, `..` or a query): adminPath`/users/${id}/sessions/revoke`.
+ * segments, a query or a fragment): adminPath`/users/${id}/sessions/revoke`. Empty, `.` and `..` values throw: URL
+ * parsing would turn them into another route.
  */
 export function adminPath(strings: TemplateStringsArray, ...values: readonly (string | number)[]): string {
   let out = strings[0] ?? '';
   values.forEach((v, i) => {
-    out += encodeURIComponent(String(v)) + (strings[i + 1] ?? '');
+    const segment = String(v);
+    if (segment === '' || segment === '.' || segment === '..')
+      throw new TypeError('invalid admin API path segment');
+    out += encodeURIComponent(segment) + (strings[i + 1] ?? '');
   });
   return out;
 }

@@ -6,8 +6,16 @@
 import { ASSET_CACHE_CONTROL, ASSETS, PERMISSIONS_POLICY, UI_CSP } from '@relic-bridge/admin-ui';
 import { revokeSession } from '@relic-bridge/auth';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { mergeHooks } from '../../src/index.ts';
 import { NR_KEY, T0 } from '../fixtures.ts';
-import { ADMIN_TOKEN, type Captured, createHarness, type Harness, PUBLIC_ORIGIN } from './harness.ts';
+import {
+  ADMIN_TOKEN,
+  authzHostKind,
+  type Captured,
+  createHarness,
+  type Harness,
+  PUBLIC_ORIGIN,
+} from './harness.ts';
 import { ADMIN_PRINCIPALS, UI_ASSET_ROUTES, UI_ROUTES } from './matrix.ts';
 
 let h: Harness;
@@ -162,6 +170,28 @@ describe('admin UI × principals (P4-03)', () => {
         expect(res.text).toContain('<h1>Page not found</h1>');
       }
     }
+  });
+});
+
+describe.skipIf(authzHostKind() !== 'http-app')('admin UI pre-authentication hook (P4-03)', () => {
+  it('runs with the admin_session scope before the session is read; a refusal is audited', async () => {
+    const scopes: string[] = [];
+    const app = h.makeApp({
+      hooks: mergeHooks(h.recorderHooks, {
+        beforeAuth: (_c, _id, scope) => {
+          scopes.push(scope);
+          return scope === 'admin_session'
+            ? new Response('{"error":"rate_limited"}', { status: 429 })
+            : undefined;
+        },
+      }),
+    });
+    const s = await h.addSession({ role: 'owner' });
+    const res = await h.send(new Request(`${PUBLIC_ORIGIN}/admin`, { headers: navigation(s.cookie) }), app);
+    expect(res.status).toBe(429);
+    expect(scopes).toEqual(['admin_session']);
+    const rows = await h.auditRows();
+    expect(rows.map((r) => `${r.kind}:${r.action}`)).toEqual(['auth:request.rejected']);
   });
 });
 

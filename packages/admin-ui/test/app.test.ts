@@ -258,6 +258,8 @@ describe('helpers', () => {
     expect(adminPath`/users/${'usr_1'}/sessions/revoke`).toBe('/users/usr_1/sessions/revoke');
     expect(adminPath`/users/${'../keys/rotate'}`).toBe('/users/..%2Fkeys%2Frotate');
     expect(adminPath`/tokens/${'a?b#c'}`).toBe('/tokens/a%3Fb%23c');
+    for (const bad of ['', '.', '..'])
+      expect(() => adminPath`/users/${bad}/sessions/revoke`, bad).toThrow(TypeError);
   });
 
   it('flash cookies carry known codes only', () => {

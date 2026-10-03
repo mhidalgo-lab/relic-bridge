@@ -12,6 +12,7 @@
   "observability": { "enabled": true },
   // Build from the workspace sources (no `pnpm build` needed before `wrangler dev`).
   "alias": {
+    "@relic-bridge/admin-ui": "../../packages/admin-ui/src/index.ts",
     "@relic-bridge/auth": "../../packages/auth/src/index.ts",
     "@relic-bridge/core": "../../packages/core/src/index.ts",
     "@relic-bridge/http-app": "../../packages/http-app/src/index.ts",

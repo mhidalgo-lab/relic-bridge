@@ -22,6 +22,7 @@ export default defineProject({
   ],
   resolve: {
     alias: {
+      '@relic-bridge/admin-ui': src('../../packages/admin-ui/src/index.ts'),
       '@relic-bridge/auth': src('../../packages/auth/src/index.ts'),
       '@relic-bridge/core': src('../../packages/core/src/index.ts'),
       '@relic-bridge/http-app': src('../../packages/http-app/src/index.ts'),

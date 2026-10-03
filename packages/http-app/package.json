@@ -25,6 +25,7 @@
   "dependencies": {
     "@hono/zod-openapi": "1.6.3",
     "@modelcontextprotocol/server": "2.2.0",
+    "@relic-bridge/admin-ui": "workspace:*",
     "@relic-bridge/auth": "workspace:*",
     "@relic-bridge/core": "workspace:*",
     "@relic-bridge/storage": "workspace:*",

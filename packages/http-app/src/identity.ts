@@ -11,6 +11,8 @@
 // session (P4-02, `session.ts`).
 // Every outcome is audited (`auth` / `login.ok` | `login.denied`); the browser gets one generic failure page whose
 // only detail is the request id. Nothing here reads the `Authorization` header: bearer tokens confer nothing.
+
+import { htmlResponse, LoginPage, MessagePage } from '@relic-bridge/admin-ui';
 import {
   CF_ACCESS_HEADER,
   consumeSetupLink,
@@ -110,12 +112,18 @@ const ESCAPES: Record<string, string> = {
 };
 export const escapeHtml = (s: string): string => s.replace(/[&<>"']/g, (ch) => ESCAPES[ch] as string);
 
-function page(status: number, title: string, body: string, headers: Record<string, string> = {}): Response {
-  const html =
-    `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">` +
-    `<meta name="robots" content="noindex"><title>${escapeHtml(title)} · relic-bridge</title></head>` +
-    `<body><main><h1>${escapeHtml(title)}</h1>${body}</main></body></html>`;
-  return new Response(html, { status, headers: { 'Content-Type': 'text/html; charset=utf-8', ...headers } });
+/** A sign-in page in the admin UI layout, with its CSP (P4-03). Fixed sentences only, plus the request id. */
+function page(
+  status: number,
+  title: string,
+  paragraphs: readonly string[],
+  opts: { link?: { href: string; label: string }; requestId?: string; headers?: Record<string, string> } = {},
+): Response {
+  return htmlResponse(
+    MessagePage({ title, paragraphs, link: opts.link, requestId: opts.requestId }),
+    status,
+    opts.headers ?? {},
+  );
 }
 
 /**
@@ -198,13 +206,11 @@ export function createIdentityRoutes(
           : status === 500
             ? 'Sign-in failed unexpectedly. Try again in a moment.'
             : 'Sign-in was refused. If you should have access, ask an administrator.';
-    return page(
-      status,
-      'Sign-in failed',
-      `<p>${escapeHtml(text)}</p><p><a href="${IDENTITY_BASE}/login">Sign in again</a></p>` +
-        `<p><small>Request id: ${escapeHtml(c.get('requestId') as string)}</small></p>`,
-      extra,
-    );
+    return page(status, 'Sign-in failed', [text], {
+      link: { href: `${IDENTITY_BASE}/login`, label: 'Sign in again' },
+      requestId: c.get('requestId') as string,
+      headers: extra,
+    });
   };
 
   /** Shared tail of both login kinds: setup link, user mapping, audit, hand-off. */
@@ -242,12 +248,10 @@ export function createIdentityRoutes(
       ? await options.onLogin(c, login)
       : deps.sessions
         ? await deps.sessions.login(c, login)
-        : page(
-            200,
-            'Signed in',
-            `<p>Signed in as ${escapeHtml(decision.user.email)} (${escapeHtml(decision.user.role)}).</p>` +
-              '<p>Admin sessions are not available on this version yet; use the admin token for the admin API.</p>',
-          );
+        : page(200, 'Signed in', [
+            `Signed in as ${decision.user.email} (${decision.user.role}).`,
+            'Admin sessions are not configured; use the admin token for the admin API.',
+          ]);
     for (const [k, v] of Object.entries(extra)) res.headers.append(k, v);
     return res;
   };
@@ -280,17 +284,11 @@ export function createIdentityRoutes(
     const setup = c.req.query('setup');
     if (setup !== undefined && (await setupCodeHash(setup)) !== null) params.set('setup', setup);
     const qs = params.size > 0 ? `?${params.toString()}` : '';
-    const items = [...providers.values()]
-      .map((p) => {
-        const href =
-          p.kind === 'header' ? `${IDENTITY_BASE}/cf-access${qs}` : `${IDENTITY_BASE}/login/${p.id}${qs}`;
-        return `<li><a href="${escapeHtml(href)}">Sign in with ${escapeHtml(p.label)}</a></li>`;
-      })
-      .join('');
-    const intro = params.has('setup')
-      ? '<p>Setup link: the account you sign in with becomes the owner of this instance.</p>'
-      : '';
-    return page(200, 'Sign in', `${intro}<ul>${items}</ul>`);
+    const list = [...providers.values()].map((p) => ({
+      href: p.kind === 'header' ? `${IDENTITY_BASE}/cf-access${qs}` : `${IDENTITY_BASE}/login/${p.id}${qs}`,
+      label: p.label,
+    }));
+    return htmlResponse(LoginPage({ providers: list, setup: params.has('setup') }));
   });
 
   app.get('/login/:provider', async (c) => {
@@ -404,7 +402,7 @@ export function createIdentityRoutes(
 
     const capped = bodyLimit({
       maxSize: MAX_LOGOUT_BODY,
-      onError: () => page(413, 'Sign-out refused', '<p>The request is too large.</p>'),
+      onError: () => page(413, 'Sign-out refused', ['The request is too large.']),
     });
 
     app.post('/logout', capped, async (c) => {
@@ -444,11 +442,9 @@ export function createIdentityRoutes(
           },
           userId,
         );
-        return page(
-          403,
-          'Sign-out refused',
-          '<p>This sign-out request did not come from this site. Use the sign-out button in the admin panel.</p>',
-        );
+        return page(403, 'Sign-out refused', [
+          'This sign-out request did not come from this site. Use the sign-out button in the admin panel.',
+        ]);
       }
       if (everywhere) {
         const revoked = await sessions.revokeUser(userId);

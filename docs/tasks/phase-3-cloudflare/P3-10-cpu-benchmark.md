@@ -2,7 +2,7 @@
 id: P3-10
 title: CPU benchmark per tool to catch regressions
 phase: 3
-status: in-progress
+status: review
 priority: low
 depends_on: [P3-03]
 adr: [0010]
@@ -36,10 +36,10 @@ Notice when a change makes a tool's CPU cost on Workers jump (Free allows 10 ms)
   job summary; the job fails on a regression (`--report` prints only).
 
 ## Acceptance criteria
-- [ ] Baseline file and a script to refresh it (`pnpm bench:cpu --update`).
-- [ ] CI job prints the per-scenario table and fails on a large regression; path-filtered, not required.
-- [ ] Comparison logic unit-tested (tolerance, machine-speed scaling, noise floor, missing/new scenarios, dead clock).
-- [ ] Measured numbers and the method's limits recorded in `docs/RESEARCH.md`; `docs/dev/testing.md` and
+- [x] Baseline file and a script to refresh it (`pnpm bench:cpu --update`).
+- [x] CI job prints the per-scenario table and fails on a large regression; path-filtered, not required.
+- [x] Comparison logic unit-tested (tolerance, machine-speed scaling, noise floor, missing/new scenarios, dead clock).
+- [x] Measured numbers and the method's limits recorded in `docs/RESEARCH.md`; `docs/dev/testing.md` and
   `docs/guide/cloudflare-limits.md` updated.
 
 ## Security notes

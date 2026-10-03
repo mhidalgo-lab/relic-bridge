@@ -343,6 +343,23 @@ Sources: <https://developers.cloudflare.com/workers/wrangler/configuration/>,
   **339 KiB gzip** at P3-01, well under the Free plan's 3 MiB compressed limit. `pnpm build` runs this for `apps/worker`.
 - No `nodejs_compat` flag is needed: every package is web-standard (ADR-0004).
 
+## 11b. Measuring Worker CPU in CI (P3-10, 2026-10-03)
+
+- In the **local** workerd that `@cloudflare/vitest-plugin` starts, `performance.now()`/`Date.now()` advance during CPU
+  work (a 3e7-iteration busy loop read ~51 ms). Production workerd freezes timers until I/O (Spectre mitigation), so
+  this only works locally. The clock ticks in whole milliseconds: per-iteration readings are quantised, so the
+  benchmark compares a trimmed mean (fastest 90%) and times sub-millisecond work in batches.
+- `console.log` output from tests inside this pool does not reach the terminal; results travel in `task.meta`, read from
+  Vitest's JSON reporter (`--reporter=json`, `meta` per assertion).
+- Numbers (`pnpm bench:cpu`, WSL2 dev machine, warm isolate, local D1 simulator; trimmed mean, ms): calibration job
+  3.6; `crypto.decrypt` 0.013; `token.verify.d1` 4.1; `access.resolve.miss.d1` 4.7; `initialize` 4.5; `tools/list`
+  cache hit 6.7 / miss 13.0; `whoami` 5.7; `run_nrql` 10 KB 7.3, 100 KB 9.4, ~500 KB 15.3; fresh Worker boot + first
+  request 35.6. They run about 2-3x the production figures of P0-06 (2.8 ms p50 for 10 KB) because the wall time includes
+  the local D1 simulator's latency and a slower machine. Only the **ratio to the baseline** is meaningful; the absolute
+  values are not a prediction for Workers Free.
+- What the numbers say: the D1 round trip is most of a miss (hit 6.7 vs miss 13.0 ms for `tools/list`); decrypting the
+  stored key is negligible; the large-result cost scales with payload (about +6 ms from 100 KB to 500 KB).
+
 ## 12. Cloudflare D1 facts (P3-02, verified 2026-10-03)
 
 Sources: <https://developers.cloudflare.com/d1/worker-api/d1-database/>,

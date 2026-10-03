@@ -38,6 +38,10 @@ Measured on a real Free Worker (P0-06): warm CPU per call is about 3 ms for 10-1
 10 ms for 1 MB; a cold isolate adds 17-35 ms once. Cloudflare tolerated overruns up to 61 ms without killing requests
 during the spike, but that is not a guarantee, so the Free preset keeps calls near 5 ms.
 
+The repository benchmarks these paths in CI against a committed baseline (`pnpm bench:cpu`, see `docs/dev/testing.md`)
+so a change that makes a call much more expensive is noticed before it reaches a Free account. It runs in a local
+workerd, so its absolute numbers are higher than production and only the trend matters.
+
 | Tool / payload | Free | Notes |
 |---|---|---|
 | `whoami`, `list_accounts`, `time` | fine | 0-1 calls |

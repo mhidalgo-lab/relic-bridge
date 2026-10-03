@@ -43,6 +43,24 @@ too; rate limiting is off in this suite (its own tests are in `rate-limit.test.t
 migrations on the first request, the 503 for a wrong `RB_MASTER_KEY`, and a check that the suite really runs on the
 Worker host. The suite adds about a minute to the job.
 
+## Worker CPU benchmark
+
+`pnpm bench:cpu` (`scripts/bench-cpu.ts`) runs `apps/worker/bench/cpu.bench.ts` in workerd (config
+`apps/worker/vitest.bench.config.ts`; not part of `pnpm test`) and compares the result with
+`apps/worker/bench/baseline.json`. Scenarios go through the Worker's `fetch` with local D1 and a mocked NerdGraph: token
+verification, access resolution on a cache miss, `initialize`, `tools/list` (cache hit and miss), `whoami`, `run_nrql`
+against 10 KB / 100 KB / ~500 KB responses (output shaping included), key decryption and a fresh Worker's first request.
+About 30 seconds.
+
+- Timers: local workerd measures CPU with `performance.now()` (production freezes timers), in whole-millisecond ticks,
+  so the figure is a trimmed mean over many iterations. D1 scenarios include the simulator's latency.
+- Comparison: CI runners vary, so every scenario is judged as a ratio to a fixed `calibration` job measured in the same
+  run. It **regresses** only when the ratio is more than 2x the baseline's **and** it is more than 1 ms slower
+  (calibrated), so neither tiny scenarios nor 20% drifts fail. `--report` prints the table without failing.
+- Refresh after an intended change (quiet machine; commit the file): `pnpm bench:cpu --update`.
+- CI: `.github/workflows/bench.yml` (not a required check) runs on pull requests that touch Worker-path code, weekly and
+  on demand, and writes the table to the job summary.
+
 ## Staging smoke (optional, nightly)
 
 `.github/workflows/staging-smoke.yml` curls a deployed staging Worker (`/health`, `/version`, 401 without credentials,

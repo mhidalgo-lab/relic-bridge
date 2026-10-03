@@ -19,7 +19,7 @@ The key is printed once on stdout and stored nowhere. Give it to the server as:
 | Variable | Meaning |
 |---|---|
 | `RB_MASTER_KEY` | The current master key, `v<n>:<base64>`. A bare base64 value is read as version 1. |
-| `RB_MASTER_KEY_FILE` | Path to a file holding it instead (Node only). Refused when group or others can read it. |
+| `RB_MASTER_KEY_FILE` | Path to a file holding it instead (Node only). Refused when group or others can read it (Docker and Kubernetes mount secrets `0444`/`0644` by default: set the mode to `0400`/`0600`, e.g. `defaultMode: 0400`). |
 | `RB_MASTER_KEY_PREVIOUS` / `RB_MASTER_KEY_PREVIOUS_FILE` | The previous key, only while rotating. |
 
 On Cloudflare, store it with `wrangler secret put RB_MASTER_KEY`. Never put it in `wrangler.toml`, a config file, a
@@ -29,6 +29,9 @@ The HTTP server (`relic-bridge serve`, landing later in v0.2) refuses to start w
 length, not base64, or a placeholder such as all zeros). It and `keys rotate` also remember a one-way **key check
 value** for each key version in the database, so starting with a different key under an existing version number fails
 at once (`key_mismatch`) instead of failing on every request.
+They also refuse to start with a key whose version is lower than one the database already uses
+(`key_version_retired`: after a rotation, the old key must never encrypt new credentials), and a key that is already
+registered under another version number (every version needs its own new key).
 
 ## Rotate the key
 

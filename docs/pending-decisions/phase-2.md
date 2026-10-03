@@ -104,3 +104,24 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   can read them (POSIX); setting both the variable and the file is an error.
 - **Options:** as assumed; env only.
 - **Needs:** nothing.
+
+### P2-03 — Security review: key check registration is not atomic (SR-4 residual)
+- **Context:** `settings` has only `get`/`set`, so registering a key check value is check-then-set. The review added a
+  read-back after writing, which makes at least one of two racing processes (different keys, same new version) fail,
+  but an interleaving where both pass still exists.
+- **Assumption made:** acceptable for now: it needs two instances booting at the same moment with different keys under
+  the same version, a misconfiguration the read-back catches in almost every interleaving.
+- **Options:** add `settings.setIfAbsent(key, value)` (SQLite `INSERT … ON CONFLICT DO NOTHING`, D1 the same) to the
+  storage contract and use it in `verifyKeyChecks` (recommended, small, P2-06 or a follow-up); keep as is.
+- **Needs:** owner OK; best done together with wiring the boot check into `serve` (P2-06).
+
+### P2-03 — Security review: replay of an older ciphertext of the same credential
+- **Context:** AAD binds a ciphertext to its credential id and key version, not to a row revision. Someone who can write
+  the database and holds an older backup can put back that credential's previous ciphertext (e.g. an older NR key) as
+  long as its version is still loaded.
+- **Assumption made:** accepted: database write access is already game over for availability, and the old value is
+  that credential's own earlier key. The rotation guide says to destroy pre-rotation backups when the old key may have
+  leaked.
+- **Options:** as assumed; add a per-row revision counter to the AAD (format change, needs a migration).
+- **Needs:** nothing unless the owner wants rollback protection.
+

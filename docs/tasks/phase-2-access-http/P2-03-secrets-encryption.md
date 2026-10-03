@@ -49,6 +49,29 @@ owner: "claude-agent"
 ## Security notes
 T7. Needs second reviewer.
 
+## Security review
+Second reviewer (independent agent), 2026-10-03. Checked: IV generation (fresh `getRandomValues` per encryption, no
+caller-supplied IV), AAD binding (purpose, id and version length-prefixed; swaps and relabels fail), HKDF parameters
+(fixed salt is fine for a uniformly random 32-byte IKM; separate `info` for data key and KCV), KCV oracle (one-way,
+only confirms a guess of a 256-bit key), master-key parsing (strict canonical base64, length, placeholder, version
+range, trim; `*_FILE` follows symlinks on purpose for Kubernetes-style mounts and checks the target's mode), key
+material in errors / `JSON.stringify` / `util.inspect` / `toString` (`Secret`, `Keyring`, `CryptoError`), rotation
+compare-and-swap on memory and SQLite, web-standard APIs only. Findings, all with regression tests in
+`packages/auth/test/security-review.test.ts` (written first, failing before the fix):
+
+| # | Severity | Finding | Fix |
+|---|---|---|---|
+| SR-1 | Medium | Rollback to a retired master key was accepted: after rotating v1 → v2 (e.g. because v1 leaked), a process started with `RB_MASTER_KEY=v1` passed the boot check and would encrypt new credentials under the retired key. | `verifyKeyChecks` fails with the new code `key_version_retired` when a higher version is registered or used by any row; `rotateCredentialKeys` inherits it. |
+| SR-2 | Low | The same master key could be reused under a new version number (`v3:<old v1 bytes>`), silently defeating the rotation. | A loaded key whose KCV equals another version's stored KCV fails with `key_mismatch`. |
+| SR-3 | Low | A plaintext with a lone UTF-16 surrogate was silently altered by `TextEncoder` (U+FFFD), so the stored key differed from the one given. | `encryptCredentialKey` refuses non-well-formed strings (`invalid_input`). |
+| SR-4 | Low | KCV registration was check-then-set: two processes registering different keys for the same version could both pass. | Values are read back after writing, so at least one side fails with `key_mismatch`. Residual race (no insert-if-absent in `settings`) logged in `docs/pending-decisions/phase-2.md`. |
+| — | Info | `Keyring.create` did not zero the previous key's bytes if deriving the current key threw. | Zeroed (best effort; JS gives no hard guarantee). |
+
+Accepted / deferred (pending decisions): replay of an older ciphertext of the *same* credential from a backup while
+the previous key is loaded (inherent without per-row freshness; the rotation guide already says to destroy pre-rotation
+backups if the old key may have leaked); container secret mounts that are `0444`/`0644` by default are refused by the
+`*_FILE` mode check (documented in the secrets guide).
+
 ## Docs to update
 - `docs/guide/secrets.md` (backup the master key!), THREAT_MODEL, `docs/guide/configuration.md` (env vars),
   `docs/RESEARCH.md` (WebCrypto AES-GCM / HKDF facts).

@@ -20,6 +20,7 @@
     "lint:fix": "biome check --write .",
     "tasks": "node scripts/tasks.ts",
     "docs:tools": "node scripts/gen-tool-docs.ts",
+    "docs:admin-api": "vitest run --project http-app test/admin-docs.test.ts -u",
     "changeset": "changeset",
     "prepare": "lefthook install || true",
     "version-packages": "changeset version && node scripts/release.ts sync-version",

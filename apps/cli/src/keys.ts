@@ -11,6 +11,7 @@ import {
   rotateCredentialKeys,
 } from '@relic-bridge/auth';
 import type { Logger } from '@relic-bridge/core';
+import { checkAdminToken, MAX_ADMIN_TOKEN_CHARS, MIN_ADMIN_TOKEN_CHARS } from '@relic-bridge/http-app';
 import { StorageError } from '@relic-bridge/storage';
 import { openSqliteStorage } from '@relic-bridge/storage-sqlite';
 import { ConfigError, type ConfigFs, type Env } from './config.ts';
@@ -36,7 +37,7 @@ export function resolveMasterKeyEnv(env: Env, fs: ConfigFs, platform: string): R
   return out;
 }
 
-function readKeyFile(variable: string, path: string, fs: ConfigFs, platform: string): string {
+export function readKeyFile(variable: string, path: string, fs: ConfigFs, platform: string): string {
   let stat: ReturnType<ConfigFs['stat']>;
   try {
     stat = fs.stat(path);
@@ -44,7 +45,7 @@ function readKeyFile(variable: string, path: string, fs: ConfigFs, platform: str
     throw new ConfigError(`${variable}: ${path} not found or not readable.`);
   }
   if (!stat.isFile() || stat.size > MAX_KEY_FILE_BYTES) {
-    throw new ConfigError(`${variable}: ${path} is not a master key file.`);
+    throw new ConfigError(`${variable}: ${path} is not a key file.`);
   }
   if (platform !== 'win32' && (stat.mode & 0o077) !== 0) {
     throw new ConfigError(
@@ -53,6 +54,35 @@ function readKeyFile(variable: string, path: string, fs: ConfigFs, platform: str
     );
   }
   return fs.readFile(path).trim();
+}
+
+export const ADMIN_TOKEN_ENV = 'RB_ADMIN_TOKEN';
+
+/**
+ * The bootstrap admin token (P2-09) from `RB_ADMIN_TOKEN` or a `0600` file named by `RB_ADMIN_TOKEN_FILE`, or
+ * `undefined` when neither is set (the admin API stays off). A token that is too short or holds spaces is refused.
+ */
+export function resolveAdminToken(env: Env, fs: ConfigFs, platform: string): string | undefined {
+  const direct = env[ADMIN_TOKEN_ENV]?.trim() ?? '';
+  const file = env[`${ADMIN_TOKEN_ENV}_FILE`]?.trim() ?? '';
+  if (direct !== '' && file !== '') {
+    throw new ConfigError(
+      `Both ${ADMIN_TOKEN_ENV} and ${ADMIN_TOKEN_ENV}_FILE are set.`,
+      'Set only one of them.',
+    );
+  }
+  const value =
+    direct !== '' ? direct : file !== '' ? readKeyFile(`${ADMIN_TOKEN_ENV}_FILE`, file, fs, platform) : '';
+  if (value === '') return undefined;
+  const problem = checkAdminToken(value);
+  if (problem !== null) {
+    throw new ConfigError(
+      `${ADMIN_TOKEN_ENV} is ${problem.replace('_', ' ')}.`,
+      `Use ${MIN_ADMIN_TOKEN_CHARS}-${MAX_ADMIN_TOKEN_CHARS} printable characters without spaces, e.g. the output of ` +
+        '`openssl rand -base64 32`.',
+    );
+  }
+  return value;
 }
 
 /** `keys generate`: the key goes to stdout only (pipe it into your secret store), guidance to stderr. */

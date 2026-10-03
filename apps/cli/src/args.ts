@@ -268,6 +268,11 @@ Audit log (serve):
                          startup and hourly.
   RB_AUDIT_CLIENT_IP     on (default) or off: record the client address on refused requests.
 
+Admin API (serve):
+  RB_ADMIN_TOKEN         Bootstrap admin token (32+ printable characters, e.g. from
+                         "openssl rand -base64 32"; or RB_ADMIN_TOKEN_FILE, mode 0600).
+                         Enables /api/admin/v1; unset keeps it off.
+
 Master key (serve / keys rotate / credential revalidate):
   RB_MASTER_KEY            Current master key, v<n>:<base64> (or RB_MASTER_KEY_FILE).
   RB_MASTER_KEY_PREVIOUS   Previous key while rotating (or RB_MASTER_KEY_PREVIOUS_FILE).

@@ -10,7 +10,7 @@
 
 | File | What it checks |
 |---|---|
-| `matrix.ts` | The data: every route (`MCP_ROUTES`, `ADMIN_ROUTES`, `PUBLIC_ROUTES`, `WILDCARD_ROUTES`) and every kind of caller (`MCP_PRINCIPALS`, `ADMIN_PRINCIPALS`), each with the stable deny reason its audit row carries. |
+| `matrix.ts` | The data: every route (`MCP_ROUTES`, `PASSTHROUGH_ROUTES`, `ADMIN_ROUTES`, `PUBLIC_ROUTES`, `WILDCARD_ROUTES`) and every kind of caller (`MCP_PRINCIPALS`, `PASSTHROUGH_PRINCIPALS`, `ADMIN_PRINCIPALS`), each with the stable deny reason its audit row carries. |
 | `routes.test.ts` | Route × principal: `401` byte-identical to the route family's reference denial (only `X-Request-Id` differs), an `auth.denied` audit row with the reason and no identity, no NerdGraph call, nothing changed by a refused admin call; a positive control per MCP principal (the same caller without the defect gets in). Guards: Hono's route table equals the matrix; every resolver deny reason is covered. |
 | `tools.test.ts` | One `TOOL_CASES` entry per built-in tool (guarded against the catalog), run through the HTTP app against `hostileNerdGraph`: foreign account arguments and GUIDs refused before any NerdGraph call, no foreign data in any result, every NerdGraph call names allowed accounts only; a tool outside the grant is not listed, not callable and audited. |
 | `isolation.test.ts` | Tool-set caches never cross credentials or account sets and re-check limits on a hit; concurrent requests of two tenants with different keys never mix (T21); interleaved grants each get their own per-request MCP server. |

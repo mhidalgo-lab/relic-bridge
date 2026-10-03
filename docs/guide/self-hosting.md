@@ -44,12 +44,15 @@ relic-bridge serve --port 9000 --db /var/lib/relic-bridge/relic-bridge.db
 | `RB_RATE_LIMIT_AUTH_FAIL` | `10/300` | Failed authentications per client IP. Past it, **every** request from that IP gets `429` (valid token or not) until the bucket refills (one failure per 30 s with the default). |
 | `RB_RATE_LIMIT_TOKEN` | `120/60` | Requests per access token. |
 | `RB_RATE_LIMIT_GRANT` | `300/60` | Requests per grant, unless the grant has its own `rateLimit`, which replaces this. |
+| `RB_RATE_LIMIT_PASSTHROUGH_KEY` | `120/60` | [Pass-through](#pass-through-mode) requests per New Relic key. |
 | `RB_TRUSTED_PROXY_HOPS` | `0` | Reverse proxies in front of the server (0-5). `X-Forwarded-For` is only believed for that many hops, counted from the right; with `0` the socket address is the client. **Set it behind a proxy**, or all clients share the proxy's address and one bad device can lock the others out. |
 | `RB_AUDIT` | `on` | `off` stops recording tool calls, refusals and admin changes. See the [audit log](audit-log.md). |
 | `RB_AUDIT_NRQL` | `mask` | `mask` (literal values hidden), `hash`, `full` or `off`: how NRQL text is stored. |
 | `RB_AUDIT_RETENTION_DAYS` | `90` | Days to keep audit rows (`0` = forever). Purged at startup and hourly; `relic-bridge audit purge` does it by hand. |
 | `RB_AUDIT_CLIENT_IP` | `on` | Record the client address on refused requests. |
 | `RB_ADMIN_TOKEN` | unset (admin API off) | Bootstrap admin token that enables `/api/admin/v1` ([admin API](#admin-api)). 32-512 printable characters, no spaces. Or `RB_ADMIN_TOKEN_FILE` (a `0600` file). |
+| `RB_PASSTHROUGH` | `off` | `on` adds `/passthrough/mcp`, where callers bring their own New Relic key ([pass-through mode](#pass-through-mode)). |
+| `RB_PASSTHROUGH_IDENTITY_TTL` | `60` | Seconds a pass-through key's reachable accounts are cached, `0`-`300` (`0` asks New Relic on every request). |
 | `RB_HSTS` | `auto` | `Strict-Transport-Security` when the request arrived over https; `true` behind a TLS-terminating proxy. |
 | `RB_LOG_LEVEL` | `info` | One JSON line per request on stderr (never the token or the New Relic key). |
 
@@ -76,6 +79,48 @@ relic-bridge serve --port 9000 --db /var/lib/relic-bridge/relic-bridge.db
 - Storage errors answer `503` (fail closed), never "allowed".
 - `subscriptions/listen` (opened by 2026-era clients such as Claude Code) is acknowledged and closed at once: the
   server has no change notifications to push.
+
+## Pass-through mode
+
+For a shared instance that should hold **no** New Relic keys: each request carries the caller's own User key, the
+server uses it for that request and forgets it. It is **off** by default (the route answers `404`); turn it on with
+`RB_PASSTHROUGH=on`. It works without any project, grant or device token, and doesn't replace them: the per-project
+endpoints keep working beside it.
+
+```bash
+RB_PASSTHROUGH=on RB_HOST=0.0.0.0 RB_ALLOWED_HOSTS=mcp.example.com RB_HSTS=true relic-bridge serve   # behind TLS
+```
+
+Clients point at `https://mcp.example.com/passthrough/mcp` and send two headers:
+
+| Header | Value |
+|---|---|
+| `X-NewRelic-Api-Key` | A New Relic **User** key (`NRAK-…`). Anything else is refused. |
+| `X-NewRelic-Region` | `US` (default), `EU` or `JP`. Another value answers `400`. |
+
+```json
+{ "mcpServers": { "newrelic": { "type": "http", "url": "https://mcp.example.com/passthrough/mcp",
+  "headers": { "X-NewRelic-Api-Key": "${NEW_RELIC_API_KEY}", "X-NewRelic-Region": "US" } } } }
+```
+
+- **HTTPS only.** The key travels in every request. A plain-HTTP request is refused (`403 tls_required`) unless it
+  came over https, `RB_HSTS=true` declares a TLS-terminating proxy, or the `Host` is loopback. This guard catches a
+  misconfiguration; it can't protect a key a client already sent in clear text, so never expose the port without TLS.
+- **Nothing is stored.** The key is never written to the database, the audit log or the log, never echoed in a
+  response and only sent to NerdGraph. The server keeps, for at most `RB_PASSTHROUGH_IDENTITY_TTL` seconds, the
+  accounts a key reaches, filed under a keyed HMAC fingerprint whose secret is random per process (a fingerprint is
+  useless outside that process and changes at every restart). Logs name the key by `keyId` (`pt_` + 12 hex characters
+  of that fingerprint).
+- **Access** is what the key reaches: every read-only tool, the default query limits (raw NRQL on), every account the
+  key can see (the lowest id is the default; tools take an `account` argument).
+- **Refusals**: a missing, malformed or refused key, or one that reaches no account, gets one `401` with
+  `WWW-Authenticate: NewRelic-Api-Key` (the reason is in the log and an `auth.denied` audit row:
+  `passthrough_missing_key`, `passthrough_malformed_key`, `passthrough_invalid_key`, `passthrough_no_accounts`). The
+  `Authorization` header is ignored here: device tokens don't work on this route and are never forwarded. When New
+  Relic can't be reached the answer is `503`.
+- **Rate limits**: the per-IP request limit and failed-authentication throttle apply as on every route (a refused key
+  counts as a failure, so key guessing through the server is slow), plus `RB_RATE_LIMIT_PASSTHROUGH_KEY` per key.
+- Tool calls on this route are not in the audit log yet (refusals are); see task P2-16.
 
 ## Management CLI
 

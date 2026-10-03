@@ -145,7 +145,10 @@ export interface HttpAppHooks {
     c: Context,
     info: PassthroughRequestInfo,
   ): Promise<Response | undefined> | Response | undefined;
-  /** After `beforeAuth`, `beforeMcp` or `beforePassthrough` refused a request (audit). Runs in the background; must not throw. */
+  /**
+   * After `beforeAuth`, `beforeMcp` or `beforePassthrough` refused a request (audit). Runs in the background; must not
+   * throw.
+   */
   onRejected?(c: Context, info: RejectInfo): Promise<void> | void;
   /** After each tool call finished, success or error (audit). Runs in the background; must not throw. */
   onToolCall?(c: Context, info: McpRequestInfo, event: ToolCallEvent): Promise<void> | void;

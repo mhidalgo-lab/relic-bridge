@@ -2,7 +2,7 @@
 id: P2-15
 title: Pass-through mode (client-supplied New Relic key)
 phase: 2
-status: in-progress
+status: review
 priority: low
 depends_on: [P2-06, P2-07]
 adr: [0008]
@@ -41,12 +41,12 @@ tool and never a tool argument (T23); there is no project, grant or access token
 - Logs: one access-log line per request with `keyId` (a 12-hex prefix of the fingerprint) and region.
 
 ## Acceptance criteria
-- [ ] Disabled by default (route answers 404); enabled tests over HTTP with an SDK client (both protocol eras).
-- [ ] Key never appears in logs, responses or audit rows (scan test); missing/malformed/invalid key → 401.
-- [ ] Rate limits apply (per key and per IP; failed keys charge the per-IP failure throttle).
-- [ ] Plain HTTP to a non-loopback host refused; caches isolated per key (two keys interleaved never share data).
-- [ ] The P2-12 authorization matrix lists the new routes (guard test) with their denials and a positive control.
-- [ ] `serve`: `RB_PASSTHROUGH`, `RB_PASSTHROUGH_IDENTITY_TTL`, `RB_RATE_LIMIT_PASSTHROUGH_KEY`, with a start-up warning.
+- [x] Disabled by default (route answers 404); enabled tests over HTTP with an SDK client (both protocol eras).
+- [x] Key never appears in logs, responses or audit rows (scan test); missing/malformed/invalid key → 401.
+- [x] Rate limits apply (per key and per IP; failed keys charge the per-IP failure throttle).
+- [x] Plain HTTP to a non-loopback host refused; caches isolated per key (two keys interleaved never share data).
+- [x] The P2-12 authorization matrix lists the new routes (guard test) with their denials and a positive control.
+- [x] `serve`: `RB_PASSTHROUGH`, `RB_PASSTHROUGH_IDENTITY_TTL`, `RB_RATE_LIMIT_PASSTHROUGH_KEY`, with a start-up warning.
 
 ## Security notes
 T8, T12, T20, T23. Resolve the THREAT_MODEL open question on Workers defaults.
@@ -56,5 +56,5 @@ T8, T12, T20, T23. Resolve the THREAT_MODEL open question on Workers defaults.
 
 ## Out of scope
 - Storing pass-through keys.
-- Audit rows for pass-through tool calls (refusals are audited) → P2-16.
+- Audit rows for pass-through tool calls (refusals are audited) → [P2-16](P2-16-passthrough-audit.md).
 - Choosing the default account per request (a header) — tools take an `account` argument.

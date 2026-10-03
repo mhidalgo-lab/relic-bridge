@@ -159,6 +159,9 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Options:** (a) keep it; (b) Post/Redirect/Get with the token parked in KV for ~60 s under a random single-use
   handle that the GET page consumes (no re-issue on reload, but the token sits in storage briefly, encrypted or not).
 - **Needs:** owner preference; (b) is a small follow-up.
+- **Update (P4-07):** resolved without parking the token: every token form carries a single-use handle stored in
+  `kv`; a re-sent form (reload, back button) issues nothing and returns to the token list with a notice. The token is
+  still never stored. Nothing for the owner to decide unless (b)'s "show it again on reload" is wanted.
 
 ### P4-04 — Grants cannot be edited, and grant-level query limits are API-only
 - **Context:** The admin API has no grant update (P2-09). The screen offers create, revoke and delete. The API's
@@ -218,3 +221,42 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Assumption made:** Accepted and warned about on the one-time page.
 - **Options:** document an OS-keychain wrapper script; wait for Phase 5 OAuth (Desktop connectors).
 - **Needs:** nothing now.
+
+## P4-07 — Admin panel security review
+
+### P4-07 — Admins manage other admins
+- **Context:** Today an `admin` may promote a member to admin and demote or disable another admin; only owners touch
+  owners (review I2).
+- **Assumption made:** Kept: a personal or small-team instance has one or two owners who are also the admins.
+- **Options:** (a) keep; (b) only owners make, demote or disable admins (admins manage members only).
+- **Needs:** owner choice; (b) is a few lines in `PATCH /users/{id}` plus matrix rows.
+
+### P4-07 — Non-ASCII email addresses are refused at sign-in
+- **Context:** Lowercasing folds some non-ASCII characters onto ASCII ones (the Kelvin sign onto `k`), which could let
+  an IdP account claim another user's unbound row (review L2).
+- **Assumption made:** Sign-in requires a printable-ASCII email from every IdP (`email_missing` otherwise).
+  Internationalised addresses (`user@bücher.example` in Unicode form) cannot sign in.
+- **Options:** keep; or accept Unicode after NFKC normalisation and compare normalised forms everywhere (users table
+  included, needs a migration of stored emails).
+- **Needs:** nothing unless someone needs internationalised addresses.
+
+### P4-07 — Sign-in rate limit default and Workers scope
+- **Context:** New per-IP rule for `/auth/*` (review L4): 60 requests per 5 minutes (about 20 sign-ins), on top of the
+  general per-IP limit. On Workers it is counted per isolate (not by the Rate Limiting binding), like the auth-failure
+  throttle.
+- **Assumption made:** The default fits personal and small-team use; `RB_RATE_LIMIT_SIGN_IN` tunes it on `serve`.
+- **Options:** a tighter default; add `signin:` to the binding's shared prefixes (needs a second binding with its own
+  limit, since the binding's limit is fixed per namespace).
+- **Needs:** nothing now.
+
+### P4-07 — A refused sign-in uses up a setup link
+- **Context:** The setup link is consumed before the user decision, so a sign-in that is then refused (disabled user,
+  identity conflict) burns it (review I1).
+- **Assumption made:** Accepted: it fails closed, and the owner issues a new link.
+- **Options:** consume only after a successful decision (still atomic `take`, two code paths to keep race-free).
+- **Needs:** nothing unless it bites during the P4-01 owner run.
+
+### P4-07 — ZAP baseline scan moved to P4-12
+- **Context:** The original P4-07 scope included a ZAP baseline scan in CI; CI is unavailable (billing).
+- **Assumption made:** Manual review plus probe suites now; the scan is task P4-12 (low priority).
+- **Needs:** owner choice of CI job vs. manual run when CI is back.

@@ -2,7 +2,7 @@
 id: P4-07
 title: "Admin panel security review"
 phase: 4
-status: in-progress
+status: review
 priority: high
 depends_on: [P4-04]
 adr: []
@@ -29,14 +29,14 @@ before the admin panel ships, with every real finding fixed or tracked.
 - Report: `docs/reviews/phase-4-admin-security-review.md` (findings table: severity, file:line, impact, fix/status).
 
 ## Acceptance criteria
-- [ ] Every attack class above probed; the report lists each finding with severity, location, impact and status.
-- [ ] Every real finding fixed on this branch with a regression test, or tracked as a new task file / pending
+- [x] Every attack class above probed; the report lists each finding with severity, location, impact and status.
+- [x] Every real finding fixed on this branch with a regression test, or tracked as a new task file / pending
       decision.
-- [ ] The one-time token page no longer issues a second token on reload (or a tracked reason why not).
-- [ ] CSV export neutralises spreadsheet formulas.
-- [ ] P2-12 authorization matrix green on Node and the Worker; `pnpm lint && pnpm typecheck && pnpm test &&
+- [x] The one-time token page no longer issues a second token on reload (or a tracked reason why not).
+- [x] CSV export neutralises spreadsheet formulas.
+- [x] P2-12 authorization matrix green on Node and the Worker; `pnpm lint && pnpm typecheck && pnpm test &&
       pnpm test:workers && pnpm build && pnpm bench:cpu` green.
-- [ ] THREAT_MODEL updated (T13, T14 and any new threat).
+- [x] THREAT_MODEL updated (T13, T14 and any new threat).
 
 ## Security notes
 T13, T14; T4 (NRQL in audit filters), T20 (stats queries), T23.

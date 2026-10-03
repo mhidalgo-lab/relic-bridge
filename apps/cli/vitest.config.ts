@@ -7,6 +7,9 @@ export default defineProject({
     alias: {
       '@relic-bridge/core': fileURLToPath(new URL('../../packages/core/src/index.ts', import.meta.url)),
       '@relic-bridge/storage': fileURLToPath(new URL('../../packages/storage/src/index.ts', import.meta.url)),
+      '@relic-bridge/storage-sqlite': fileURLToPath(
+        new URL('../../packages/storage-sqlite/src/index.ts', import.meta.url),
+      ),
     },
   },
   test: { name: 'cli' },

@@ -1,0 +1,14 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["node"],
+    // Source-only workspace package, bundled into the CLI: no published declarations.
+    "declaration": false,
+    "isolatedDeclarations": false,
+    "paths": {
+      "@relic-bridge/storage": ["../storage/src/index.ts"],
+      "@relic-bridge/storage/testing": ["../storage/src/testing.ts"]
+    }
+  },
+  "include": ["src", "test"]
+}

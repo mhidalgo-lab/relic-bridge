@@ -43,6 +43,28 @@ jobs:
         run: node scripts/check-package.ts
       - run: node scripts/check-licenses.ts
 
+  # P2-02: the SQLite adapter and the CLI's `db backup` on every OS the CLI supports (node:sqlite has no native build).
+  sqlite-os:
+    name: SQLite adapter (${{ matrix.os }}, Node 24)
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm vitest run --project storage-sqlite --project storage
+      - run: pnpm vitest run --project cli apps/cli/test/args.test.ts apps/cli/test/main.test.ts
+
   actionlint:
     name: Workflow lint
     runs-on: ubuntu-latest

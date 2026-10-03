@@ -2,7 +2,7 @@
 id: P2-02
 title: SQLite adapter for Node
 phase: 2
-status: in-progress
+status: review
 priority: high
 depends_on: [P2-01]
 adr: [0006]
@@ -25,20 +25,20 @@ owner: claude-agent
 - CI: run the SQLite tests on Linux, macOS and Windows.
 
 ## Acceptance criteria
-- [ ] Storage contract suite passes against the SQLite adapter (file and `:memory:`); works on macOS/Windows/Linux CI.
-- [ ] `node:sqlite` vs `better-sqlite3` decision recorded in ADR-0006 with the reasons.
-- [ ] File mode `0600` (POSIX), WAL, busy timeout and foreign keys on are asserted by tests.
-- [ ] Migrations run on open; `migrate: false` refuses an out-of-date database.
-- [ ] `relic-bridge db backup <file>` produces an openable, equal copy with mode `0600` and never overwrites.
-- [ ] Self-hosting guide documents the DB file, permissions, backup, and the DB + master key warning (T7).
+- [x] Storage contract suite passes against the SQLite adapter (file and `:memory:`); works on macOS/Windows/Linux CI.
+- [x] `node:sqlite` vs `better-sqlite3` decision recorded in ADR-0006 with the reasons.
+- [x] File mode `0600` (POSIX), WAL, busy timeout and foreign keys on are asserted by tests.
+- [x] Migrations run on open; `migrate: false` refuses an out-of-date database.
+- [x] `relic-bridge db backup <file>` produces an openable, equal copy with mode `0600` and never overwrites.
+- [x] Self-hosting guide documents the DB file, permissions, backup, and the DB + master key warning (T7).
 
 ## Security notes
 T7: DB file permissions; docs warn the DB + master key together expose all keys. The adapter only ever stores
 ciphertext, hashes and metadata (schema guarantees); the backup file inherits the same `0600` rule.
 
 ## Docs to update
-- Self-hosting guide (`docs/guide/self-hosting.md`, created here as the DB part; P2-06 extends it).
-- `docs/dev/storage.md`, ADR-0006, `docs/THREAT_MODEL.md` (T7 row).
+- Self-hosting guide (`docs/guide/self-hosting.md`, created here with the database part; P2-06/P2-11/P2-13 extend it).
+- `docs/dev/storage.md`, `docs/guide/configuration.md`, ADR-0006, `docs/THREAT_MODEL.md` (T7 row) - done.
 
 ## Out of scope
 - Serving MCP from the database, `db migrate` / `db restore` commands, encryption (P2-03), D1 (P3-02).

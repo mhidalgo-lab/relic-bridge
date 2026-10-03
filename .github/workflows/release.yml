@@ -43,6 +43,8 @@ jobs:
           package-manager-cache: false
       - id: plan
         name: Pending changesets or unpublished version?
+        # Explicit bash enables pipefail, so a failing plan fails the step instead of passing with empty outputs.
+        shell: bash
         run: node scripts/release.ts plan | tee -a "$GITHUB_OUTPUT"
 
   version:

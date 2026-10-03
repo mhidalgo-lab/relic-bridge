@@ -110,6 +110,39 @@ build step and a large generated file for little gain. Revisit if the document c
 
 Never select `staticChartUrl` or `embeddedChartUrl`: selecting them creates public chart links (T26).
 
+## Running NRQL
+
+Tools never write NRQL documents themselves. They call the engine in `src/nrql/`:
+
+```ts
+const out = await runNrql(ctx, { nrql, accounts: [id], timeoutS: 10, mode: 'auto', maxPolls: 3, stats: false });
+if (out.status === 'pending') {
+  // Return the handle. The agent continues later with getQueryResult(ctx, { queryId: out.queryId, account: out.account }).
+}
+```
+
+| Mode | Single account | Several accounts |
+|---|---|---|
+| `sync` | `account(id).nrql(timeout)`; a timeout becomes `RB_NERDGRAPH_TIMEOUT` with a narrowing hint | `actor.nrql(accounts)` |
+| `async` | submit with `async: true`; returns `pending` if not done within `timeoutS` (no polling) | rejected (`RB_INPUT_INVALID`) |
+| `auto` (default) | as `async`, then polls up to `maxPolls` times while budget remains, then returns `pending` | runs as `sync` |
+
+- **Accounts:** the default is `ctx.accounts.default`. Every id must be in `ctx.accounts.allowed`, checked before any
+  request. Duplicates are removed.
+- **Cross-account is sync only:** NerdGraph has no actor-level progress query (`Account.nrqlQueryProgress` only).
+- **Polling:** waits `retryAfter` (clamped to 1–10 s). It stops before a poll the budget can't cover, so it never errors
+  on budget; it returns the handle instead. The client spends one unit per attempt, including its own retries.
+- **Async unavailable:** if NerdGraph rejects `async` (docs tie it to Data Plus), `auto` and `async` retry once as sync
+  with the 120 s maximum.
+- **Fields:** `results`, `metadata`, `totalResult`, `otherResult` and `queryProgress` only. `rawResponse` is selected only
+  with `stats: true` (it repeats the whole result), and gives `inspectedCount`, `matchCount`, `wallClockMs` and
+  `scannedEvents`.
+- **Output:** `metadata.timeseries` is set when rows carry `beginTimeSeconds`. NRDB `messages` (e.g. "No events found") are
+  kept, and failed optional fields are listed in `warnings`.
+- **Errors:**
+  - NRQL syntax errors → `RB_INPUT_INVALID`, with the NRDB message and a link to the syntax docs;
+  - an account New Relic denies → `RB_AUTH_FORBIDDEN`.
+
 ## Testing
 
 - Unit tests live in `packages/core/test/`. `test/helpers/context.ts` builds a `ToolContext` with a fake key.

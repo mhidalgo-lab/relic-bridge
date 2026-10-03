@@ -60,6 +60,10 @@ Sources: <https://docs.newrelic.com/docs/apis/nerdgraph/nerdgraph-usage-limits/>
 - A burst of 30 parallel light queries all returned 200 in 0.3–1.7 s (queued, no 429). The 429 body is still unobserved.
 - Cost signals live in `rawResponse.performanceStats { inspectedCount matchCount omittedCount wallClockTime }` and
   `rawResponse.queryUsage { billableMetric scannedEvents ccu }`. Surface them in tool `meta`.
+  `rawResponse` is a JSON scalar that **repeats the whole result** (facets, totals), so selecting it roughly doubles the
+  payload. P1-03 selects it only on request (`stats: true`, via `@include(if: $stats)`).
+- Schema (P0-09 introspection): `Actor.nrql(accounts, async, …)` accepts `async`, but progress can only be polled with
+  `Account.nrqlQueryProgress(queryId)`. There's no actor-level poll, so **cross-account queries run sync only** in P1-03.
 - Optional fields fail **independently** (GraphQL partial errors alongside `data`). The client must accept `data` + `errors`
   and map field-level errors.
 - Wrong region: **HTTP 403** `not authorized for account region`. Invalid, ingest-style and empty keys: **HTTP 401**

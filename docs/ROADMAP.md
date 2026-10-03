@@ -80,8 +80,8 @@ Generated from task front matter (`pnpm tasks index` once P0-05 lands). Status l
 | ID | Task | Priority | Depends on | Status |
 |---|---|---|---|---|
 | P1-01 | [Core package skeleton, tool registry and error model](tasks/phase-1-core-stdio/P1-01-core-skeleton.md) | high | P0-11 | done |
-| P1-02 | [NerdGraph client (regions, retries, limiter, budget)](tasks/phase-1-core-stdio/P1-02-nerdgraph-client.md) | high | P1-01 | review |
-| P1-03 | [NRQL execution engine (sync, async, cross-account)](tasks/phase-1-core-stdio/P1-03-nrql-engine.md) | high | P1-02 | todo |
+| P1-02 | [NerdGraph client (regions, retries, limiter, budget)](tasks/phase-1-core-stdio/P1-02-nerdgraph-client.md) | high | P1-01 | done |
+| P1-03 | [NRQL execution engine (sync, async, cross-account)](tasks/phase-1-core-stdio/P1-03-nrql-engine.md) | high | P1-02 | review |
 | P1-04 | [NRQL safety (escaping) and query limits](tasks/phase-1-core-stdio/P1-04-nrql-safety-limits.md) | high | P1-03 | todo |
 | P1-05 | [Output shaping v1 and untrusted-data envelope](tasks/phase-1-core-stdio/P1-05-output-shaping.md) | high | P1-03 | todo |
 | P1-06 | [Tools: run_nrql and get_query_result](tasks/phase-1-core-stdio/P1-06-tools-query.md) | high | P1-04, P1-05 | todo |

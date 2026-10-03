@@ -98,6 +98,8 @@ Trust boundaries:
 | T5 | Per-credential semaphore (`LimiterPool`, default 5); response cap enforced while streaming, before `JSON.parse`; one budget unit per attempt, retries only within budget | P1-02 |
 | T8 | NerdGraph errors mapped to `RB_*` codes; non-2xx bodies only classified (≤ 4 KiB read), never returned; GraphQL messages redacted and truncated (500 chars); tested with an upstream that echoes the key | P1-02 |
 | T12 | The NR key is read only inside `NerdGraphClient` (`API-Key` header); documents can't override reserved headers (`API-Key`, `Authorization`, `Cookie`, …) | P1-02 |
+| T5 | `runNrql`: timeout 1–120 s, at most 10 polls, waits capped at 10 s, polling stops when the budget can't cover another call (then returns a handle); account ids checked against the connection scope before any request | P1-03 |
+| T26 | NRQL documents never select `staticChartUrl` / `embeddedChartUrl` (test-enforced) | P1-03 |
 
 ## 6. Open questions
 

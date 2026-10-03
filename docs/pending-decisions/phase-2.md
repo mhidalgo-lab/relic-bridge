@@ -196,3 +196,50 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   Issuing requires a live grant; a disabled project or user does not block issuing (the resolver denies at use).
 - **Options:** as assumed; cap TTLs (e.g. 1 year) unless `never`; clamp to the grant's expiry.
 - **Needs:** owner OK (P2-10 CLI wording).
+
+## P2-06 — HTTP app and `serve`
+
+### P2-06 — Default data directory and database path
+- **Context:** P2-02 left the default database location to `serve`.
+- **Assumption made:** `--db` > `RB_DB_PATH` > `<data dir>/relic-bridge.db`, where the data directory is `RB_DATA_DIR`,
+  else `$XDG_DATA_HOME/relic-bridge` or `~/.local/share/relic-bridge` (Linux and others),
+  `~/Library/Application Support/relic-bridge` (macOS), `%LOCALAPPDATA%\relic-bridge` (Windows). Docker (P2-11) will
+  set `RB_DATA_DIR=/data`. The other DB commands (`db backup`, `keys rotate`, `credential revalidate`) still require
+  `--db` / `RB_DB_PATH`.
+- **Options:** as assumed; make every DB command use the same default (convenient, but a typo'd environment could then
+  silently act on the default database); a config file listing the path.
+- **Needs:** owner OK; decide whether P2-10 commands should share the default.
+
+### P2-06 — `subscriptions/listen` is closed at once
+- **Context:** Claude Code 2.1.287 opens a `subscriptions/listen` and holds it. We push no notifications yet.
+- **Assumption made:** advertise `tools.listChanged: false` on HTTP; the SDK acknowledges the listen with an empty
+  honoured filter and ends it gracefully in the same response. Nothing is held open (cheap on Workers, no rate-limit
+  slot). The request is flagged (`listen: true`) for P2-07.
+- **Options:** as assumed; hold it open with a capped duration (e.g. 5 min) and keep-alives, which only matters once
+  grants can change tools live and we publish `tools/list_changed`.
+- **Needs:** confirm against real clients (P5-06): if a client re-opens a closed listen in a tight loop, switch to the
+  capped hold.
+
+### P2-06 — Pass-through mode split into P2-15
+- **Context:** the task listed an optional pass-through mode (client-supplied NR key) that must "still be rate-limited";
+  rate limiting is P2-07, which depends on P2-06.
+- **Assumption made:** moved to a new task P2-15 (depends on P2-06 and P2-07), off by default.
+- **Options:** as assumed; drop pass-through from v0.2 entirely.
+- **Needs:** owner OK.
+
+### P2-06 — HTTP defaults
+- **Context:** several limits had no specified values.
+- **Assumption made:** access cache 30 s (configurable 0-60 s); request body 1 MiB; one 180 s deadline for the whole
+  MCP exchange (tools poll NRQL for up to 120 s); Node `headersTimeout` 20 s, `requestTimeout` 200 s, keep-alive 5 s;
+  per-request subrequest budget 1000 on Node; `/version` public (behind the Host check). A non-loopback bind without
+  `RB_ALLOWED_HOSTS` refuses to start rather than guessing the public name; `RB_ALLOWED_HOSTS=*` is allowed with a
+  warning.
+- **Options:** as assumed; shorter cache (10 s) for faster revocation; hide `/version` behind auth.
+- **Needs:** owner OK.
+
+### P2-06 — Storage failures answer 503, not 401
+- **Context:** T19 asks for one answer for every *denial*; a database outage is not a denial.
+- **Assumption made:** storage errors during authentication answer `503` + `Retry-After` (fail closed), so clients
+  don't discard a valid token. This reveals only that the server is unhealthy, independent of slug or token.
+- **Options:** as assumed; answer 401 for everything (clients may then prompt for re-authentication during an outage).
+- **Needs:** nothing unless the owner prefers 401.

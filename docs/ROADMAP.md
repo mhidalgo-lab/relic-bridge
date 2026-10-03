@@ -106,7 +106,7 @@ Generated from task front matter (`pnpm tasks index` once P0-05 lands). Status l
 | P2-03 | [Secrets encryption and master-key rotation](tasks/phase-2-access-http/P2-03-secrets-encryption.md) | high | P2-01 | review |
 | P2-04 | [Access model and effective-permission resolver](tasks/phase-2-access-http/P2-04-access-model.md) | high | P2-01, P2-03 | review |
 | P2-05 | [Access tokens (per device)](tasks/phase-2-access-http/P2-05-access-tokens.md) | high | P2-04 | review |
-| P2-06 | [HTTP app (Hono) with per-project MCP endpoints](tasks/phase-2-access-http/P2-06-http-app.md) | high | P2-05 | in-progress |
+| P2-06 | [HTTP app (Hono) with per-project MCP endpoints](tasks/phase-2-access-http/P2-06-http-app.md) | high | P2-05 | review |
 | P2-07 | [Rate limiting (pluggable)](tasks/phase-2-access-http/P2-07-rate-limiting.md) | high | P2-06 | todo |
 | P2-08 | [Audit log](tasks/phase-2-access-http/P2-08-audit-log.md) | high | P2-06 | todo |
 | P2-09 | [Admin REST API (API-first management)](tasks/phase-2-access-http/P2-09-admin-api.md) | high | P2-04, P2-05, P2-08 | todo |

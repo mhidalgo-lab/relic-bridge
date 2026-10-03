@@ -2,7 +2,7 @@
 id: P2-06
 title: HTTP app (Hono) with per-project MCP endpoints
 phase: 2
-status: in-progress
+status: review
 priority: high
 depends_on: [P2-05]
 adr: [0004, 0005]
@@ -54,18 +54,18 @@ Phase 3); the Node server entry is `relic-bridge serve`.
   contract test, used by `verifyKeyChecks` to register key check values atomically.
 
 ## Acceptance criteria
-- [ ] Integration tests over HTTP with an SDK client (both protocol eras): allowed tools only listed; disallowed call
+- [x] Integration tests over HTTP with an SDK client (both protocol eras): allowed tools only listed; disallowed call
   rejected; token for another project → 401.
-- [ ] Negative authz tests for every route: missing token, malformed header, bad checksum, unknown/revoked/expired
+- [x] Negative authz tests for every route: missing token, malformed header, bad checksum, unknown/revoked/expired
   token, wrong/unknown slug, token for another project, disabled project; all 401 responses byte-identical.
-- [ ] Revocation takes effect within the cache TTL and immediately with TTL 0; cache never outlives token/grant expiry.
-- [ ] Security headers present (HSTS when TLS, `X-Content-Type-Options`, `Referrer-Policy`, CSP); Host/Origin
+- [x] Revocation takes effect within the cache TTL and immediately with TTL 0; cache never outlives token/grant expiry.
+- [x] Security headers present (HSTS when TLS, `X-Content-Type-Options`, `Referrer-Policy`, CSP); Host/Origin
   rejection; CORS off by default; body limit → 413; `/health` leaks nothing.
-- [ ] `subscriptions/listen` is acknowledged and closed immediately.
-- [ ] No secret (NR key, token) in logs (scan test).
-- [ ] E2E: the built CLI `serve` on an ephemeral port, SQLite seeded with a project/grant/token, SDK Streamable HTTP
+- [x] `subscriptions/listen` is acknowledged and closed immediately.
+- [x] No secret (NR key, token) in logs (scan test).
+- [x] E2E: the built CLI `serve` on an ephemeral port, SQLite seeded with a project/grant/token, SDK Streamable HTTP
   client with the token, NerdGraph mocked.
-- [ ] `settings.setIfAbsent` contract test; `verifyKeyChecks` uses it.
+- [x] `settings.setIfAbsent` contract test; `verifyKeyChecks` uses it.
 
 ## Security notes
 T2, T3, T15, T19, T20, T21, T24. T12 is unchanged (client tokens never forwarded; pass-through mode moved to P2-15).

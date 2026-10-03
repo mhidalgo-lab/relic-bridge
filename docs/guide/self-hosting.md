@@ -1,11 +1,62 @@
-# Self-hosting: the database
+# Self-hosting: the HTTP server and its database
 
-Self-hosted mode (Phase 2) keeps projects, encrypted credentials, grants, device tokens, the audit log and OAuth state
-in one SQLite file. This page covers that file; the HTTP server, Docker, TLS and multi-device setup are added by the
-rest of Phase 2 (P2-06, P2-11, P2-13).
+Self-hosted mode (Phase 2) serves MCP over HTTP to your other devices with `relic-bridge serve`, and keeps projects,
+encrypted credentials, grants, device tokens, the audit log and OAuth state in one SQLite file. Docker, TLS and the
+multi-device walkthrough are added by the rest of Phase 2 (P2-11, P2-13).
 
 stdio mode does not use a database: it reads `relic-bridge.yaml` or environment variables
 ([configuration](configuration.md)).
+
+## Run the server
+
+```bash
+export RB_MASTER_KEY_FILE=~/.config/relic-bridge/master.key   # 0600; see secrets.md
+relic-bridge serve                       # http://127.0.0.1:8787, database in the data directory
+relic-bridge serve --port 9000 --db /var/lib/relic-bridge/relic-bridge.db
+```
+
+- Each project is one MCP endpoint: `http://<host>:<port>/p/<project-slug>/mcp` (Streamable HTTP, both the 2025 and
+  2026-07-28 protocol eras). Clients authenticate with a per-device token: `Authorization: Bearer rb_live_…`
+  ([access model](access-model.md#devices-and-access-tokens)). Until the management CLI lands (P2-10), projects,
+  grants and tokens are created with the `@relic-bridge/auth` services.
+- **Database**: `--db`, else `RB_DB_PATH`, else `relic-bridge.db` in the data directory: `RB_DATA_DIR`, else
+  `$XDG_DATA_HOME/relic-bridge` or `~/.local/share/relic-bridge` (Linux), `~/Library/Application Support/relic-bridge`
+  (macOS), `%LOCALAPPDATA%\relic-bridge` (Windows). It is created (`0600`) and migrated on first start.
+- **Master key**: required. The server refuses to start without it, with a wrong key (`key_mismatch`) or a retired
+  one, and registers a new key version on first use ([secrets](secrets.md)).
+- **Binding**: `127.0.0.1` by default, so only this machine can connect. To serve other devices, bind another address
+  **and** list the hostnames clients use, so requests for any other `Host` are refused (DNS rebinding protection):
+  `RB_HOST=0.0.0.0 RB_ALLOWED_HOSTS=mcp.example.com relic-bridge serve`. Put it behind a TLS reverse proxy before it
+  leaves your LAN, and set `RB_HSTS=true` there.
+- `GET /health` answers `{"status":"ok"}` (for health checks; it reveals nothing else). `GET /version` names the
+  version.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `RB_PORT` / `--port` | `8787` | TCP port; `0` picks a free one (logged). |
+| `RB_HOST` / `--host` | `127.0.0.1` | Address to bind. |
+| `RB_ALLOWED_HOSTS` | `localhost,127.0.0.1,[::1]` | Hostnames allowed in `Host` (port-agnostic). Required for a non-loopback bind. `*` disables the check (not recommended). |
+| `RB_ALLOWED_ORIGINS` | = `RB_ALLOWED_HOSTS` | Hostnames allowed in a browser `Origin` header; a request with any other `Origin` (or `null`) is refused with 403. Requests without `Origin` (every non-browser MCP client) pass. |
+| `RB_CORS_ORIGINS` | none (CORS off) | Origins (`https://app.example.com`) that may call the MCP endpoints from a browser. |
+| `RB_ACCESS_CACHE_TTL` | `30` | Seconds a token's resolved access is cached, `0`-`60`. A revoked token, grant or project stops working within this time; `0` disables the cache. Never longer than the token's or grant's expiry. |
+| `RB_HSTS` | `auto` | `Strict-Transport-Security` when the request arrived over https; `true` behind a TLS-terminating proxy. |
+| `RB_LOG_LEVEL` | `info` | One JSON line per request on stderr (never the token or the New Relic key). |
+
+### What the server enforces
+
+- **One answer for every refusal**: a missing, malformed, unknown, revoked or expired token, a token for another
+  project, an unknown or disabled project, a disabled user or an unusable key all get the same `401` with
+  `WWW-Authenticate: Bearer`. The token is checked before the project is looked up, so project names can't be probed.
+  The reason is in the server log (`"deny":"…"`).
+- Each request gets a fresh MCP server with **only the tools its grant allows**; others are neither listed nor
+  callable. `run_nrql` / `get_query_result` are hidden when raw NRQL is off.
+- Request bodies over 1 MiB are refused (`413`); a request (including its response stream) is cut off after 180 s.
+- Security headers on every response: `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`,
+  `X-Frame-Options: DENY`, `Content-Security-Policy: default-src 'none'; frame-ancestors 'none'`,
+  `Cache-Control: no-store`, and HSTS as configured.
+- Storage errors answer `503` (fail closed), never "allowed".
+- `subscriptions/listen` (opened by 2026-era clients such as Claude Code) is acknowledged and closed at once: the
+  server has no change notifications to push.
 
 ## The database file
 

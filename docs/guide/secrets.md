@@ -25,7 +25,7 @@ The key is printed once on stdout and stored nowhere. Give it to the server as:
 On Cloudflare, store it with `wrangler secret put RB_MASTER_KEY`. Never put it in `wrangler.toml`, a config file, a
 Docker image, the same volume as the database, or a repository. There is no command-line flag for it on purpose.
 
-The HTTP server (`relic-bridge serve`, landing later in v0.2) refuses to start without a valid key (missing, wrong
+The HTTP server (`relic-bridge serve`, [self-hosting](self-hosting.md)) refuses to start without a valid key (missing, wrong
 length, not base64, or a placeholder such as all zeros). It and `keys rotate` also remember a one-way **key check
 value** for each key version in the database, so starting with a different key under an existing version number fails
 at once (`key_mismatch`) instead of failing on every request.

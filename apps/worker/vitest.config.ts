@@ -25,6 +25,9 @@ export default defineProject({
       '@relic-bridge/auth': src('../../packages/auth/src/index.ts'),
       '@relic-bridge/core': src('../../packages/core/src/index.ts'),
       '@relic-bridge/http-app': src('../../packages/http-app/src/index.ts'),
+      // Subpaths first: an alias also matches `<name>/…`.
+      '@relic-bridge/storage/d1': src('../../packages/storage/src/d1.ts'),
+      '@relic-bridge/storage/testing': src('../../packages/storage/src/testing.ts'),
       '@relic-bridge/storage': src('../../packages/storage/src/index.ts'),
     },
   },

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Shared fixtures for the Worker tests: a seeded in-memory storage encrypted under the test master key, a fake
 // execution context that records `waitUntil` work, a NerdGraph stand-in and an MCP client wired to the Worker.
-import type { ExecutionContext } from '@cloudflare/workers-types';
+import type { D1Database, ExecutionContext } from '@cloudflare/workers-types';
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import { createCredential, createGrant, createProject, issueAccessToken, Keyring } from '@relic-bridge/auth';
 import { createBuiltinTools, type FetchLike, type Identity, Secret } from '@relic-bridge/core';
@@ -19,10 +19,12 @@ export interface Seeded {
   readonly token: string;
 }
 
-/** A storage with one user, one credential (encrypted under `masterKey`), project `prod`, a grant and a token. */
-export async function seed(masterKey: string): Promise<Seeded> {
+/**
+ * Seeds one user, one credential (encrypted under `masterKey`), project `prod`, a grant and a token into `storage`
+ * (default: a new in-memory storage).
+ */
+export async function seed(masterKey: string, storage: Storage = createMemoryStorage()): Promise<Seeded> {
   const now = Date.now();
-  const storage = createMemoryStorage();
   const keyring = await Keyring.create({ current: masterKey });
   await storage.users.create({ id: 'usr_a', email: 'a@example.com', role: 'owner' });
   const validate = async (): Promise<Identity> => ({
@@ -106,4 +108,22 @@ export async function connect(
   const client = new Client({ name: 'worker-test', version: '0' });
   await client.connect(transport);
   return client;
+}
+
+/** Tables the migrations create, children before parents so dropping never trips a foreign key. */
+const TABLES = [
+  'access_tokens',
+  'grants',
+  'projects',
+  'credentials',
+  'users',
+  'audit_log',
+  'settings',
+  'kv',
+  'schema_migrations',
+];
+
+/** Empty the local D1 database (every table dropped), so the next open migrates from scratch. */
+export async function wipeD1(db: D1Database): Promise<void> {
+  await db.batch(TABLES.map((t) => db.prepare(`DROP TABLE IF EXISTS \`${t}\``)));
 }

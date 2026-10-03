@@ -18,6 +18,7 @@ import {
   SECURITY_HEADERS,
 } from '@relic-bridge/http-app';
 import { type Storage, StorageError } from '@relic-bridge/storage';
+import { createD1Storage } from '@relic-bridge/storage/d1';
 import type { Context } from 'hono';
 import type { WorkerEnv } from './env.ts';
 import { parseWorkerSettings, WorkerConfigError, type WorkerSettings } from './settings.ts';
@@ -25,7 +26,7 @@ import { parseWorkerSettings, WorkerConfigError, type WorkerSettings } from './s
 /** After a failed boot, requests within this window answer 503 at once instead of retrying the boot. */
 export const BOOT_RETRY_MS = 5_000;
 
-/** Opens the storage for this isolate. P3-02 makes the D1 adapter the default. */
+/** Opens the storage for this isolate (default: D1). */
 export type OpenStorage = (env: WorkerEnv) => Storage | Promise<Storage>;
 
 /** The storage could not be opened (no adapter, missing binding). */
@@ -36,10 +37,13 @@ export class WorkerStorageUnavailableError extends Error {
   }
 }
 
-/** Default storage until P3-02 lands the D1 adapter: refuses, so the Worker fails closed with a clear log line. */
+/**
+ * Default storage: the D1 adapter on the `DB` binding (P3-02). Pending migrations are applied here, so they run once
+ * per isolate as part of the lazy boot; a missing binding fails the boot closed.
+ */
 export const openD1Storage: OpenStorage = (env) => {
   if (env.DB === undefined) throw new WorkerStorageUnavailableError('the DB (D1) binding is missing');
-  throw new WorkerStorageUnavailableError('the D1 storage adapter is not available yet (P3-02)');
+  return createD1Storage(env.DB);
 };
 
 export interface WorkerOptions {

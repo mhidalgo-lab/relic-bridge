@@ -385,7 +385,8 @@ export function loadYamlConfig(options: LoadConfigOptions & { configPath: string
   const key = resolveApiKey(selected.apiKey, options.env, where);
   if (key.plaintext) {
     warnings.push(
-      `${where} has a plaintext apiKey. Prefer apiKey: \${NEW_RELIC_API_KEY_${selected.slug.toUpperCase().replaceAll('-', '_')}} and set that variable in the MCP client's "env" block.`,
+      // Worded so the redacting logger leaves the suggestion readable (an `…API_KEY: ${…}` pair would be redacted).
+      `${where} has a plaintext apiKey. Replace it with a \${VAR} reference such as \${NEW_RELIC_API_KEY_${selected.slug.toUpperCase().replaceAll('-', '_')}} and set that variable in the MCP client's "env" block.`,
     );
   }
   return {

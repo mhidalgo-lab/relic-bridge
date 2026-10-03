@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-import { DEFAULT_LIMITS } from '@relic-bridge/core';
+import { DEFAULT_LIMITS, redact } from '@relic-bridge/core';
 import { describe, expect, it } from 'vitest';
 import {
   ConfigError,
@@ -201,6 +201,8 @@ describe('YAML mode', () => {
     expect(warnings).toHaveLength(1);
     expect(warnings[0]).toContain('plaintext apiKey');
     expect(warnings[0]).toContain('${NEW_RELIC_API_KEY_ACME}');
+    // The logger redacts every line: the suggestion must survive it (review P1-R).
+    expect(redact(warnings[0] ?? '')).toContain('${NEW_RELIC_API_KEY_ACME}');
     expect(warnings.join()).not.toContain(FAKE_KEY);
   });
 

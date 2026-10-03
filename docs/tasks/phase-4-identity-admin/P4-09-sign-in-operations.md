@@ -24,6 +24,8 @@ user to another provider account on purpose, and set the IdP secrets on a Worker
   `wrangler secret bulk`, never `vars`.
 - `serve`: `RB_GOOGLE_CLIENT_SECRET_FILE` / `RB_GITHUB_CLIENT_SECRET_FILE` / `RB_OIDC_CLIENT_SECRET_FILE` (`0600`),
   like `RB_ADMIN_TOKEN_FILE`.
+- Purge expired `kv` rows (abandoned `login:*` transactions, unused `setup:*` links) from the hourly Worker cron and
+  `serve`'s purge timer (P3-15 deferred this until something used `kv`; P4-01 now does).
 - Optional: revoke the GitHub OAuth token after the identity lookup (`DELETE /applications/{client_id}/token`).
 
 ## Acceptance criteria

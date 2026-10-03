@@ -80,7 +80,7 @@ Trust boundaries:
 - [ ] All MCP and admin routes require authentication in remote modes; only `/health` and `/.well-known/*` are public.
 - [ ] Read-only by default; any tool with side effects is `annotations.readOnlyHint=false` and disabled by default.
 - [ ] No secret is ever written to logs, errors, audit, tool output or telemetry.
-- [ ] Every value sent to NerdGraph travels as a **GraphQL variable**; values embedded in NRQL templates go through the `nrql` tag / `nrql.identifier()`.
+- [x] Every value sent to NerdGraph travels as a **GraphQL variable**; values embedded in NRQL templates go through the `nrql` tag / `nrql.identifier()` (P1-02, P1-04; lint-enforced).
 - [ ] No module-level mutable state holds request credentials or grants.
 - [ ] No MCP tool accepts a secret as an argument or manages credentials.
 - [ ] Every new endpoint has authz tests, including negative cases.
@@ -100,6 +100,8 @@ Trust boundaries:
 | T12 | The NR key is read only inside `NerdGraphClient` (`API-Key` header); documents can't override reserved headers (`API-Key`, `Authorization`, `Cookie`, …) | P1-02 |
 | T5 | `runNrql`: timeout 1–120 s, at most 10 polls, waits capped at 10 s, polling stops when the budget can't cover another call (then returns a handle); account ids checked against the connection scope before any request | P1-03 |
 | T26 | NRQL documents never select `staticChartUrl` / `embeddedChartUrl` (test-enforced) | P1-03 |
+| T4 | `nrql` tagged template: strings single-quoted with `\` and `'` backslash-escaped, control characters, lone surrogates and > 4096 chars rejected; numbers finite, in plain notation and parenthesised when negative; `nrql.identifier()` strict charset in backticks; no raw-string API. Property-based tests (fast-check) round-trip arbitrary strings through the tokenizer; mutation-checked. `scripts/check-nrql-templates.ts` (in `pnpm lint`) fails on untagged or concatenated NRQL | P1-04 |
+| T5 | `enforceQueryLimits` on every query (`runNrql` typed-only, `runRawNrql` for `run_nrql` with the `rawNrql` switch): comments rejected (fail closed), every LIMIT clamped and LIMIT MAX replaced, one top-level LIMIT, LIMIT injected on raw event queries, time window (single SINCE/UNTIL/COMPARE WITH; unreadable forms, exponents and non-ms epochs rejected) ≤ `maxWindowDays`, event-type allow/deny in every FROM (glued or unresolvable names rejected when lists are set). Second-agent adversarial review done; findings fixed with regression tests. Known gaps: `docs/guide/query-limits.md` | P1-04 |
 
 ## 6. Open questions
 

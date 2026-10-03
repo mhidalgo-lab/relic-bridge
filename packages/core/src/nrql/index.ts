@@ -22,7 +22,21 @@ export {
   type NrqlOutcome,
   type NrqlPending,
   type NrqlStats,
+  type RawNrqlInput,
   type RunNrqlInput,
   resolveAccounts,
   runNrql,
+  runRawNrql,
 } from './engine.ts';
+export { assertRawNrqlAllowed, type CheckedNrql, enforceQueryLimits } from './limits.ts';
+export {
+  isNrqlQuery,
+  type NrqlIdentifier,
+  type NrqlQuery,
+  type NrqlTag,
+  NrqlTemplateError,
+  type NrqlValue,
+  nrql,
+  quoteString,
+} from './template.ts';
+export { type Token, type TokenKind, tokenize } from './tokenize.ts';

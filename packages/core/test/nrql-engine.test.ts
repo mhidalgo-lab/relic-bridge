@@ -11,7 +11,7 @@ import {
   type NrqlPending,
   nerdGraphFor,
   RbError,
-  runNrql,
+  runRawNrql,
 } from '../src/index.ts';
 import { testContext } from './helpers/context.ts';
 import { fixtureResponse, json, loadFixture, scriptedFetch } from './helpers/nerdgraph.ts';
@@ -71,7 +71,7 @@ const polled = (completed: boolean, results: unknown[] | null = null, retryAfter
 describe('runNrql: sync and fields', () => {
   it('runs a sync query and keeps metadata, messages and field warnings (fixture)', async () => {
     const { ctx, calls, deps } = setup([fixtureResponse('nrql_sync_1')]);
-    const out = (await runNrql(ctx, { nrql: NRQL, mode: 'sync' }, deps)) as NrqlComplete;
+    const out = (await runRawNrql(ctx, { nrql: NRQL, mode: 'sync' }, deps)) as NrqlComplete;
     expect(out).toMatchObject({
       status: 'complete',
       accounts: [A],
@@ -107,7 +107,7 @@ describe('runNrql: sync and fields', () => {
 
   it('extracts cost stats only when asked', async () => {
     const { ctx, calls, deps } = setup([fixtureResponse('nrql_sync_1')]);
-    const out = (await runNrql(ctx, { nrql: NRQL, mode: 'sync', stats: true }, deps)) as NrqlComplete;
+    const out = (await runRawNrql(ctx, { nrql: NRQL, mode: 'sync', stats: true }, deps)) as NrqlComplete;
     expect(calls[0]?.body.variables['stats']).toBe(true);
     expect(out.stats).toEqual({
       inspectedCount: expect.any(Number),
@@ -120,7 +120,7 @@ describe('runNrql: sync and fields', () => {
   it('flags TIMESERIES results', async () => {
     const rows = [{ beginTimeSeconds: 1, endTimeSeconds: 2, count: 3 }];
     const { ctx, deps } = setup([submitted(true, rows)]);
-    const out = (await runNrql(ctx, { nrql: NRQL }, deps)) as NrqlComplete;
+    const out = (await runRawNrql(ctx, { nrql: NRQL }, deps)) as NrqlComplete;
     expect(out.metadata.timeseries).toBe(true);
   });
 
@@ -134,14 +134,14 @@ describe('runNrql: sync and fields', () => {
       { nrql: NRQL, maxPolls: 11 },
       { nrql: NRQL, accounts: [-1] },
     ]) {
-      expect((await failure(runNrql(ctx, input, deps))).code).toBe(ErrorCode.InputInvalid);
+      expect((await failure(runRawNrql(ctx, input, deps))).code).toBe(ErrorCode.InputInvalid);
     }
     expect(calls).toHaveLength(0);
   });
 
   it('refuses accounts outside the connection scope without calling New Relic', async () => {
     const { ctx, calls, deps } = setup([submitted(true, [])]);
-    const error = await failure(runNrql(ctx, { nrql: NRQL, accounts: [999] }, deps));
+    const error = await failure(runRawNrql(ctx, { nrql: NRQL, accounts: [999] }, deps));
     expect(error.code).toBe(ErrorCode.AuthForbidden);
     expect(calls).toHaveLength(0);
   });
@@ -150,7 +150,7 @@ describe('runNrql: sync and fields', () => {
 describe('runNrql: errors (fixtures)', () => {
   it('passes NRQL syntax errors back with a hint', async () => {
     const { ctx, deps } = setup([fixtureResponse('error_bad_nrql')]);
-    const error = await failure(runNrql(ctx, { nrql: 'SELEC count(* FROM Nowhere' }, deps));
+    const error = await failure(runRawNrql(ctx, { nrql: 'SELEC count(* FROM Nowhere' }, deps));
     expect(error.code).toBe(ErrorCode.InputInvalid);
     expect(error.message).toContain("NRQL Syntax Error: Error at line 1 position 1, unexpected 'SELEC'");
     expect(error.hint).toContain('docs.newrelic.com');
@@ -159,7 +159,7 @@ describe('runNrql: errors (fixtures)', () => {
 
   it('maps an account New Relic denies to RB_AUTH_FORBIDDEN', async () => {
     const { ctx, deps } = setup([fixtureResponse('error_unknown_account')]);
-    expect((await failure(runNrql(ctx, { nrql: NRQL, accounts: [B] }, deps))).code).toBe(
+    expect((await failure(runRawNrql(ctx, { nrql: NRQL, accounts: [B] }, deps))).code).toBe(
       ErrorCode.AuthForbidden,
     );
   });
@@ -176,7 +176,7 @@ describe('runNrql: errors (fixtures)', () => {
       ],
     };
     const { ctx, deps } = setup([json(body)]);
-    const error = await failure(runNrql(ctx, { nrql: NRQL, mode: 'sync', timeoutS: 5 }, deps));
+    const error = await failure(runRawNrql(ctx, { nrql: NRQL, mode: 'sync', timeoutS: 5 }, deps));
     expect(error.code).toBe(ErrorCode.NerdGraphTimeout);
     expect(error.hint).toContain('SINCE');
   });
@@ -185,7 +185,7 @@ describe('runNrql: errors (fixtures)', () => {
 describe('runNrql: async', () => {
   it('returns at once when the async submit completes (fixture)', async () => {
     const { ctx, calls, deps } = setup([fixtureResponse('nrql_async_start')]);
-    const out = await runNrql(ctx, { nrql: NRQL, timeoutS: 1 }, deps);
+    const out = await runRawNrql(ctx, { nrql: NRQL, timeoutS: 1 }, deps);
     expect(out).toMatchObject({ status: 'complete', results: [], polls: 0 });
     expect(calls).toHaveLength(1);
     expect(calls[0]?.body.variables).toMatchObject({ async: true, timeout: 1 });
@@ -197,7 +197,7 @@ describe('runNrql: async', () => {
       polled(false, null, 3),
       polled(true, [{ count: 7 }]),
     ]);
-    const out = (await runNrql(ctx, { nrql: NRQL, accounts: [B] }, deps)) as NrqlComplete;
+    const out = (await runRawNrql(ctx, { nrql: NRQL, accounts: [B] }, deps)) as NrqlComplete;
     expect(out).toMatchObject({ status: 'complete', results: [{ count: 7 }], polls: 2, accounts: [B] });
     expect(sleeps).toEqual([2000, 3000]);
     expect(calls[1]?.body.operationName).toBe('RbNrqlProgress');
@@ -206,7 +206,7 @@ describe('runNrql: async', () => {
 
   it('returns a pending handle after maxPolls', async () => {
     const { ctx, calls, deps } = setup([submitted(false), polled(false, null, 60)]);
-    const out = (await runNrql(ctx, { nrql: NRQL, maxPolls: 2 }, deps)) as NrqlPending;
+    const out = (await runRawNrql(ctx, { nrql: NRQL, maxPolls: 2 }, deps)) as NrqlPending;
     expect(out).toEqual({
       status: 'pending',
       queryId: 'q-123e4567-e89b',
@@ -214,6 +214,7 @@ describe('runNrql: async', () => {
       retryAfterS: 60,
       expiresAt: new Date(EXPIRES).toISOString(),
       polls: 2,
+      notes: [],
     });
     expect(calls).toHaveLength(3);
   });
@@ -221,13 +222,13 @@ describe('runNrql: async', () => {
   it('caps the wait between polls', async () => {
     // The first wait comes from the submit's retryAfter (2 s); the next one is capped at 10 s.
     const poll = setup([submitted(false), polled(false, null, 600), polled(false, null, 600)]);
-    await runNrql(poll.ctx, { nrql: NRQL, maxPolls: 2 }, poll.deps);
+    await runRawNrql(poll.ctx, { nrql: NRQL, maxPolls: 2 }, poll.deps);
     expect(poll.sleeps).toEqual([2000, 10_000]);
   });
 
   it('never polls beyond the budget', async () => {
     const { ctx, calls, deps } = setup([submitted(false), polled(false)], 3);
-    const out = await runNrql(ctx, { nrql: NRQL, maxPolls: 10 }, deps);
+    const out = await runRawNrql(ctx, { nrql: NRQL, maxPolls: 10 }, deps);
     expect(out.status).toBe('pending');
     expect(calls).toHaveLength(3);
     expect(ctx.budget.used).toBe(3);
@@ -235,7 +236,7 @@ describe('runNrql: async', () => {
 
   it('async mode returns the handle without polling', async () => {
     const { ctx, calls, deps } = setup([submitted(false)]);
-    const out = await runNrql(ctx, { nrql: NRQL, mode: 'async', maxPolls: 5 }, deps);
+    const out = await runRawNrql(ctx, { nrql: NRQL, mode: 'async', maxPolls: 5 }, deps);
     expect(out.status).toBe('pending');
     expect(calls).toHaveLength(1);
   });
@@ -246,7 +247,7 @@ describe('runNrql: async', () => {
       errors: [{ message: 'Async queries require Data Plus', path: ['actor', 'account', 'nrql'] }],
     });
     const { ctx, calls, deps } = setup([unavailable, fixtureResponse('nrql_sync_1')]);
-    const out = await runNrql(ctx, { nrql: NRQL }, deps);
+    const out = await runRawNrql(ctx, { nrql: NRQL }, deps);
     expect(out.status).toBe('complete');
     expect(calls[1]?.body.variables).toMatchObject({ async: false, timeout: 120 });
   });
@@ -262,14 +263,14 @@ describe('runNrql: malformed progress', () => {
         },
       }),
     ]);
-    expect((await failure(runNrql(ctx, { nrql: NRQL }, deps))).code).toBe(ErrorCode.NerdGraphError);
+    expect((await failure(runRawNrql(ctx, { nrql: NRQL }, deps))).code).toBe(ErrorCode.NerdGraphError);
   });
 });
 
 describe('runNrql: cross-account', () => {
   it('uses actor.nrql for several accounts (fixture)', async () => {
     const { ctx, calls, deps } = setup([fixtureResponse('cross_account')]);
-    const out = (await runNrql(ctx, { nrql: NRQL, accounts: [A, B, A] }, deps)) as NrqlComplete;
+    const out = (await runRawNrql(ctx, { nrql: NRQL, accounts: [A, B, A] }, deps)) as NrqlComplete;
     expect(calls[0]?.body.operationName).toBe('RbNrqlCrossAccount');
     expect(calls[0]?.body.variables).toEqual({ accounts: [A, B], nrql: NRQL, timeout: 10, stats: false });
     expect(out).toMatchObject({
@@ -284,7 +285,7 @@ describe('runNrql: cross-account', () => {
 
   it('rejects async mode for several accounts', async () => {
     const { ctx, deps } = setup([fixtureResponse('cross_account')]);
-    expect((await failure(runNrql(ctx, { nrql: NRQL, accounts: [A, B], mode: 'async' }, deps))).code).toBe(
+    expect((await failure(runRawNrql(ctx, { nrql: NRQL, accounts: [A, B], mode: 'async' }, deps))).code).toBe(
       ErrorCode.InputInvalid,
     );
   });

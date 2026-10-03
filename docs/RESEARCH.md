@@ -62,6 +62,8 @@ Sources: <https://docs.newrelic.com/docs/apis/nerdgraph/nerdgraph-usage-limits/>
   `rawResponse.queryUsage { billableMetric scannedEvents ccu }`. Surface them in tool `meta`.
   `rawResponse` is a JSON scalar that **repeats the whole result** (facets, totals), so selecting it roughly doubles the
   payload. P1-03 selects it only on request (`stats: true`, via `@include(if: $stats)`).
+- **To verify live (P1-04 follow-up):** whether NRQL string literals honour `\'` and `\\` (confirmed so far only in
+  `entitySearch`), and whether NRQL supports `--`, `//` and `/* */` comments. relic-bridge rejects comments until then.
 - Schema (P0-09 introspection): `Actor.nrql(accounts, async, …)` accepts `async`, but progress can only be polled with
   `Account.nrqlQueryProgress(queryId)`. There's no actor-level poll, so **cross-account queries run sync only** in P1-03.
 - Optional fields fail **independently** (GraphQL partial errors alongside `data`). The client must accept `data` + `errors`

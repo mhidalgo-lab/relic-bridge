@@ -13,7 +13,7 @@
     "typecheck": "tsc -p scripts && pnpm -r run typecheck",
     "test": "vitest run",
     "test:watch": "vitest",
-    "lint": "biome check . && node scripts/check-runtime-imports.ts && node scripts/check-spdx.ts && node scripts/tasks.ts check",
+    "lint": "biome check . && node scripts/check-runtime-imports.ts && node scripts/check-nrql-templates.ts && node scripts/check-spdx.ts && node scripts/tasks.ts check",
     "format": "biome format --write .",
     "lint:fix": "biome check --write .",
     "tasks": "node scripts/tasks.ts",

@@ -30,7 +30,7 @@ export interface Budget {
   spend(n?: number, what?: string): void;
 }
 
-/** Bounds concurrent work (e.g. NerdGraph calls) for one credential (ADR-0010). Implemented in P1-02. */
+/** Bounds concurrent work (e.g. NerdGraph calls) for one credential (ADR-0010). See `createSemaphoreLimiter`. */
 export interface Limiter {
   run<T>(task: () => Promise<T>): Promise<T>;
 }
@@ -101,7 +101,7 @@ export function createBudget(limit: number): Budget {
   };
 }
 
-/** A limiter that applies no bound. Placeholder until the per-credential semaphore lands (P1-02). */
+/** A limiter that applies no bound (tests, one-shot scripts). Servers use `LimiterPool` per credential. */
 export const unboundedLimiter: Limiter = Object.freeze({ run: <T>(task: () => Promise<T>) => task() });
 
 /** Generate a request id with WebCrypto (works on Node and Workers). */

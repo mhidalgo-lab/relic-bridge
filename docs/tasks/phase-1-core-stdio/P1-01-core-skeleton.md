@@ -2,7 +2,7 @@
 id: P1-01
 title: Core package skeleton, tool registry and error model
 phase: 1
-status: review
+status: done
 priority: high
 depends_on: [P0-11]
 adr: [0004, 0005]

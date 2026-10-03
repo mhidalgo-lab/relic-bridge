@@ -3,6 +3,7 @@ import { type CallToolResult, McpServer } from '@modelcontextprotocol/server';
 import type { ToolContext } from './context.ts';
 import { ERROR_META_KEY, toToolErrorResult } from './errors.ts';
 import { annotationsFor, type ToolDefinition } from './tool.ts';
+import { VERSION } from './version.ts';
 
 export interface ServerInfo {
   name: string;
@@ -16,7 +17,7 @@ export interface BuildServerOptions {
   info?: ServerInfo;
 }
 
-export const DEFAULT_SERVER_INFO: ServerInfo = Object.freeze({ name: 'relic-bridge', version: '0.0.0' });
+export const DEFAULT_SERVER_INFO: ServerInfo = Object.freeze({ name: 'relic-bridge', version: VERSION });
 
 /**
  * Build a fresh MCP server for one request (ADR-0005: stateless, one server per request).

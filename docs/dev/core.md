@@ -74,7 +74,46 @@ Codes live in `ErrorCode` (`src/errors.ts`). They are a public contract, so add 
 Everything request-specific comes from `ctx`: credential, accounts, budget, limiter, limits, logger, clock. Module-level
 values must be immutable (definitions, constants). Tests assert two concurrent servers never see each other's context.
 
+## Calling NerdGraph
+
+All New Relic traffic goes through `NerdGraphClient` (`src/nerdgraph/`). Build one per request with `nerdGraphFor(ctx)`.
+It uses the request's credential, budget, limiter, logger and response cap.
+
+```ts
+import { defineDocument, nerdGraphFor } from '@relic-bridge/core';
+
+// Module-level constant. Hand-written types: TData first, then the variables.
+const ENTITY = defineDocument<
+  { actor: { entity: { name: string } | null } },
+  { guid: string }
+>('query RbEntity($guid: EntityGuid!) { actor { entity(guid: $guid) { name } } }');
+
+const { data, warnings } = await nerdGraphFor(ctx).query(ENTITY, { guid });
+```
+
+**Typing decision (P1-02): hand-written types, no codegen.** We use a few dozen small documents that select only the
+fields they need (lean selections are what make NerdGraph fast, P0-09). Codegen from the introspected schema would add a
+build step and a large generated file for little gain. Revisit if the document count grows past ~50.
+
+| Behaviour | Detail |
+|---|---|
+| Documents | `defineDocument` needs a named operation and rejects string literals, so every value must be a variable (T4). Extra headers (e.g. `nerd-graph-unsafe-experimental-opt-in: AiIssues`) are set per document; reserved headers can't be overridden. |
+| Regions | `US`, `EU` and `JP` endpoints (`NERDGRAPH_ENDPOINTS`); the region comes from the credential. |
+| Key check | Keys that don't start with `NRAK-` fail with `RB_AUTH_INVALID_KEY` before any request (a 401 can't tell an ingest key from a bad key). `validateKey(client)` returns the user and accounts. |
+| Budget | One unit per attempt, spent before the request. A retry only happens if budget remains; otherwise the upstream error is reported. |
+| Retries | 429, 5xx and network errors: up to 3 attempts, full-jitter backoff (250 ms base, 4 s cap), at least `Retry-After`. A `Retry-After` over 10 s fails right away. Auth errors, GraphQL errors and timeouts are not retried. |
+| Concurrency | `ctx.limiter`. Servers keep one `LimiterPool` (default 5 per credential, max 25) for the life of the process or isolate. The slot is released during backoff. |
+| Size cap | `ctx.limits.maxResponseBytes`, checked against `content-length` and while streaming, before `JSON.parse` → `RB_LIMIT_RESPONSE_TOO_LARGE`. |
+| Timeout | 30 s per attempt by default (`{ timeoutMs }`) → `RB_NERDGRAPH_TIMEOUT`. |
+| Partial errors | If `data` is present, it is returned and field errors come back as sanitized `warnings`. The caller decides whether a missing field is fatal (`graphQLErrorToRbError` maps one). No `data` at all → thrown. |
+| Error mapping | 401 → `RB_AUTH_INVALID_KEY`; 403 "not authorized for account region" → `RB_AUTH_WRONG_REGION` with a hint naming the other regions; other 403 / `ACCESS_DENIED` → `RB_AUTH_FORBIDDEN`; `INVALID_INPUT` → `RB_INPUT_INVALID`; 429 → `RB_NERDGRAPH_RATE_LIMITED`; 5xx/network → `RB_NERDGRAPH_UNAVAILABLE`. Upstream bodies are never returned; messages are redacted and truncated. |
+
+Never select `staticChartUrl` or `embeddedChartUrl`: selecting them creates public chart links (T26).
+
 ## Testing
 
 - Unit tests live in `packages/core/test/`. `test/helpers/context.ts` builds a `ToolContext` with a fake key.
 - Contract tests connect a real SDK `Client` to `buildMcpServer` over `InMemoryTransport` (see `test/server.test.ts`).
+- NerdGraph tests inject `fetch` (`test/helpers/nerdgraph.ts`: `scriptedFetch`, `fixtureResponse`, `streamingResponse`)
+  and replay the sanitized P0-09 captures. They use no HTTP mocking library and no `node:*` imports, so they can also
+  run in the Workers pool.

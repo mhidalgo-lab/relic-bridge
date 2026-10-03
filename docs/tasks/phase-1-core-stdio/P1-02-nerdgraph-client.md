@@ -2,7 +2,7 @@
 id: P1-02
 title: NerdGraph client (regions, retries, limiter, budget)
 phase: 1
-status: todo
+status: review
 priority: high
 depends_on: [P1-01]
 adr: [0010]
@@ -34,8 +34,8 @@ One robust, typed client for every NerdGraph call.
 - Key validation helper: `actor.user { email id }` + `actor.accounts { id name }`; reject non-`NRAK` keys early with a clear message.
 
 ## Acceptance criteria
-- [ ] Tests with fixtures/msw: 429 retry then success; 3×429 → `RB_NERDGRAPH_RATE_LIMITED`; byte cap triggers `RB_LIMIT_RESPONSE_TOO_LARGE`; EU URL used for EU credentials.
-- [ ] No secret appears in any thrown error or log line (test).
+- [x] Tests with fixtures/msw: 429 retry then success; 3×429 → `RB_NERDGRAPH_RATE_LIMITED`; byte cap triggers `RB_LIMIT_RESPONSE_TOO_LARGE`; EU URL used for EU credentials.
+- [x] No secret appears in any thrown error or log line (test).
 
 ## Security notes
 T5, T8, T12.
@@ -45,3 +45,20 @@ T5, T8, T12.
 
 ## Out of scope
 - NRQL-specific logic (P1-03).
+
+## Progress notes
+- 2026-10-03: `src/nerdgraph/` holds `client`, `document`, `endpoints`, `limiter` and `identity`; the client is built
+  per request with `nerdGraphFor(ctx)`.
+- **Typing:** hand-written TS types per document via `defineDocument<TData, TVars>()`; no codegen (rationale in
+  `docs/dev/core.md`).
+- **T4 guard:** `defineDocument` rejects anonymous operations, string literals and reserved headers.
+- **Tests:** an injected `fetch` replays the P0-09 fixtures (no msw, no `node:*`). Fixtures load through JSON imports.
+- **Budget:** each attempt spends its own unit before it runs, so no separate `cost` option on `query()`. A tool's
+  declared `cost` (P1-01) still covers planning.
+- **Limiter:** `LimiterPool` is owned by the caller (CLI or http-app), not held in module state (T21). The slot is
+  released during backoff.
+- **Not retried:** timeouts (a heavy query would be amplified) and GraphQL errors. No NerdGraph errorClass is known to be
+  transient yet; revisit if one shows up.
+- **Bodies:** unread bodies are cancelled without awaiting. Awaiting can block on a tee'd stream, and Workers allow only
+  6 connections.
+- **RESEARCH.md:** no NerdGraph behaviour differed from P0-09, so unchanged.

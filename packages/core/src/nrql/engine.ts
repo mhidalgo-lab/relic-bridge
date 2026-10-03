@@ -290,6 +290,20 @@ export async function runRawNrql(
   return run(ctx, input, input.nrql, deps);
 }
 
+/**
+ * Run NRQL that New Relic itself supplied (e.g. golden-metric queries), never text from the agent. Skips the
+ * raw-NRQL switch, but query limits (window, LIMIT, length, comment rejection) are enforced exactly as for `run_nrql`.
+ */
+export async function runTrustedNrql(
+  ctx: ToolContext,
+  input: RawNrqlInput,
+  deps: NrqlDeps = {},
+): Promise<NrqlOutcome> {
+  if (typeof input.nrql !== 'string')
+    throw new RbError(ErrorCode.InputInvalid, 'The NRQL query must be a string.');
+  return run(ctx, input, input.nrql, deps);
+}
+
 async function run(
   ctx: ToolContext,
   input: Omit<RunNrqlInput, 'nrql'>,

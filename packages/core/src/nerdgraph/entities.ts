@@ -122,3 +122,24 @@ export const ENTITY_TYPES_QUERY: GraphQLDocument<EntityTypesData, { query: strin
   'query RbEntityTypes($query: String) { actor { entitySearch(query: $query) { count ' +
     'types { domain type entityType count } } } }',
 );
+
+export interface GoldenMetricsData {
+  actor: {
+    entity: {
+      guid?: string | null;
+      accountId?: number | null;
+      name?: string | null;
+      domain?: string | null;
+      type?: string | null;
+      goldenMetrics?: {
+        metrics?: ({ title?: string | null; query?: string | null } | null)[] | null;
+      } | null;
+    } | null;
+  };
+}
+
+/** The NRQL New Relic defines as an entity's health metrics (`goldenMetrics`). */
+export const GOLDEN_METRICS_QUERY: GraphQLDocument<GoldenMetricsData, { guid: string }> = defineDocument(
+  'query RbGoldenMetrics($guid: EntityGuid!) { actor { entity(guid: $guid) { guid accountId name domain type ' +
+    'goldenMetrics { metrics { title query } } } } }',
+);

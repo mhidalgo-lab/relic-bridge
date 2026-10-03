@@ -115,3 +115,15 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   catalogue. It stores only domain/type names and counts.
 - **Options:** keep; move to the Phase 7 cache layer; drop caching (one subrequest per call).
 - **Needs:** owner's confirmation when the Worker shares tool instances across tenants (Phase 3).
+
+### P1-09 — Golden metrics run when raw NRQL is off
+- **Context:** golden-metric NRQL is supplied by New Relic, but `run_nrql`'s `rawNrql` switch exists to stop agent-written NRQL.
+- **Assumption made:** `get_golden_metrics` is not gated by `rawNrql` (new `runTrustedNrql` engine entry point); query limits still apply.
+- **Options:** keep; gate the tool on `rawNrql` as well; add its own grant in Phase 2.
+- **Needs:** owner's call once per-tool grants exist (Phase 2).
+
+### P1-09 — Trend definition and defaults
+- **Assumption made:** window default "last 30 minutes" with `TIMESERIES AUTO`; trend compares the mean of the later half of the series with the earlier half (flat within +/-5%, at least 4 points); faceted metrics get a value-less row pointing to `run_nrql`. Metrics with their own SINCE/TIMESERIES keep them. At most 10 metrics by default (max 20); the `title`/`query` fields are the only ones selected (`unit` unverified live).
+- **Options:** other thresholds or a `COMPARE WITH` baseline; select `unit` once checked against the live schema.
+- **Needs:** one live run against an APM entity.
+

@@ -87,3 +87,31 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Options:** mask by default; drop the email.
 - **Needs:** owner's preference.
 
+
+## P1-08 — Entity tools
+
+### P1-08 — Unverified entity-search details
+- **Context:** P0-09 measured quoting (`\'`) and `accountId = '…'`, but not `accountId IN (…)`, `options.limit`
+  semantics, `relatedEntities(filter:)` or `entitySearch.types` against a live account (the probed account had no APM
+  entities).
+- **Assumption made:** every search carries `accountId IN ('<id>', …)` (quoted, like the probe), passes
+  `options: { limit }` and `results(cursor:)`; related entities use `EntityRelationshipEdgeFilter { direction,
+  entityDomainTypes { include } }` from the introspected schema; the type catalogue reads `entitySearch.types`.
+  Results are filtered by `accountId` client-side regardless, so a wrong guess can only hide entities, never leak them.
+- **Options:** verify with the P0-09 spike profile; switch to unquoted ids or one search per account if `IN` is rejected.
+- **Needs:** one live run against an account with APM entities.
+
+### P1-08 — Tag keys and name matching
+- **Assumption made:** tag-key filters accept only `[A-Za-z0-9_.]` (bare `tags.<key>`), because backtick quoting inside
+  entity search is undocumented; keys like `team-name` are refused with a hint. `name` is a substring match
+  (`LIKE '%…%'`) and a `%` typed by the agent stays a wildcard (no documented escape; it can't end the literal).
+- **Options:** probe backtick quoting live and widen the charset; offer an exact-name option.
+- **Needs:** nothing now.
+
+### P1-08 — `list_entity_types` cache scope
+- **Context:** the task asks for a per-isolate cache; AGENTS.md forbids module-level request state (T21).
+- **Assumption made:** a bounded map (64 entries, 10-minute TTL) held by each `createEntityTools()` instance (not module
+  state), keyed by credential id + region + sorted account set, so one credential or grant never sees another's
+  catalogue. It stores only domain/type names and counts.
+- **Options:** keep; move to the Phase 7 cache layer; drop caching (one subrequest per call).
+- **Needs:** owner's confirmation when the Worker shares tool instances across tenants (Phase 3).

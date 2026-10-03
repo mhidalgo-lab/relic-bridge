@@ -2,6 +2,12 @@
 
 import type { FetchLike } from '../../src/index.ts';
 import cross_account from '../fixtures/nerdgraph/cross_account.json' with { type: 'json' };
+import entity_search_like_wildcard from '../fixtures/nerdgraph/entity_search_like_wildcard.json' with {
+  type: 'json',
+};
+import entity_search_quote_doubled from '../fixtures/nerdgraph/entity_search_quote_doubled.json' with {
+  type: 'json',
+};
 import error_bad_nrql from '../fixtures/nerdgraph/error_bad_nrql.json' with { type: 'json' };
 import error_invalid_user_key from '../fixtures/nerdgraph/error_invalid_user_key.json' with { type: 'json' };
 import error_missing_variable from '../fixtures/nerdgraph/error_missing_variable.json' with { type: 'json' };
@@ -28,6 +34,8 @@ export type FixtureName =
   | 'error_wrong_region_A_US_key_on_EU'
   | 'identity_A'
   | 'cross_account'
+  | 'entity_search_like_wildcard'
+  | 'entity_search_quote_doubled'
   | 'nrql_async_start'
   | 'nrql_sync_1'
   | 'nrql_sync_3';
@@ -40,6 +48,8 @@ const FIXTURES: Record<FixtureName, Fixture> = {
   error_wrong_region_A_US_key_on_EU,
   identity_A,
   cross_account,
+  entity_search_like_wildcard,
+  entity_search_quote_doubled,
   nrql_async_start,
   nrql_sync_1,
   nrql_sync_3,

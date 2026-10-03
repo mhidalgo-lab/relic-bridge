@@ -1,15 +1,41 @@
 {
   "name": "relic-bridge",
-  "version": "0.0.0",
-  "description": "Unofficial MCP server for New Relic via NerdGraph (CLI: stdio and serve)",
+  "version": "0.1.0",
+  "description": "Unofficial MCP server for New Relic via NerdGraph: query telemetry from AI agents with a User API key",
   "license": "Apache-2.0",
-  "private": false,
+  "author": "Matias Hidalgo",
+  "homepage": "https://github.com/matiashidalgo/relic-bridge#readme",
+  "bugs": {
+    "url": "https://github.com/matiashidalgo/relic-bridge/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/matiashidalgo/relic-bridge.git",
+    "directory": "apps/cli"
+  },
   "type": "module",
   "bin": {
     "relic-bridge": "./dist/index.mjs"
   },
   "files": [
-    "dist"
+    "dist",
+    "NOTICE"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "engines": {
+    "node": ">=24.11.0"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "new-relic",
+    "nerdgraph",
+    "nrql",
+    "observability",
+    "ai-agents"
   ],
   "scripts": {
     "build": "tsdown",
@@ -27,22 +53,5 @@
     "@modelcontextprotocol/client": "2.2.0",
     "@relic-bridge/core": "workspace:*",
     "tsdown": "0.23.0"
-  },
-  "keywords": [
-    "mcp",
-    "model-context-protocol",
-    "new-relic",
-    "nerdgraph",
-    "nrql",
-    "observability",
-    "ai-agents"
-  ],
-  "engines": {
-    "node": ">=24.11.0"
-  },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/matiashidalgo/relic-bridge.git",
-    "directory": "apps/cli"
   }
 }

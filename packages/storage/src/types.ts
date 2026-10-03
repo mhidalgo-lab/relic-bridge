@@ -365,16 +365,53 @@ export interface AuditQuery {
   readonly since?: number;
   /** Exclusive upper bound on `ts`. */
   readonly until?: number;
-  /** Only rows with `id` below this (next page, newest first). */
+  /** Only rows with `id` below this (next page, newest first). Ignored by `order: 'slowest'`. */
   readonly beforeId?: number;
+  /**
+   * `newest` (default): newest first, pageable with `beforeId`. `slowest`: rows that recorded a duration, longest
+   * first (one page, no cursor).
+   */
+  readonly order?: 'newest' | 'slowest';
   /** Default 100, max 1000. */
   readonly limit?: number;
+}
+
+/** What `auditLog.stats` groups `tool_call` rows by (`day` is the UTC day, `YYYY-MM-DD`). */
+export type AuditStatsGroup = 'action' | 'project' | 'grant' | 'token' | 'day';
+
+/** One bounded aggregate over `tool_call` rows in `[since, until)`. */
+export interface AuditStatsQuery {
+  readonly groupBy: AuditStatsGroup;
+  readonly since: number;
+  readonly until: number;
+  readonly projectId?: string;
+  readonly userId?: string;
+  readonly grantId?: string;
+  readonly tokenId?: string;
+  readonly action?: string;
+  /** Groups returned (default 50, max 100): most calls first (`day`: newest first). */
+  readonly limit?: number;
+}
+
+export interface AuditStatsRow {
+  /** The group's value (tool name, project id, grant id, token id or day); null for rows without one. */
+  readonly key: string | null;
+  readonly calls: number;
+  readonly errors: number;
+  readonly denied: number;
+  /** Sum and count of recorded durations (mean = sum / count), and the longest. */
+  readonly durationSumMs: number;
+  readonly durationCount: number;
+  readonly maxDurationMs: number | null;
+  readonly inspectedCount: number;
 }
 
 export interface AuditLogRepository {
   append(entry: AuditEntry): Promise<void>;
   /** Newest first. */
   list(query?: AuditQuery): Promise<readonly AuditRecord[]>;
+  /** Read-only aggregate of tool calls (one query, bounded by the window and the group limit). */
+  stats(query: AuditStatsQuery): Promise<readonly AuditStatsRow[]>;
   /**
    * Retention job only: deletes rows with `ts` < `before` (oldest first, at most `limit` when given, so a job with a
    * time or row budget can work in batches); returns the count.

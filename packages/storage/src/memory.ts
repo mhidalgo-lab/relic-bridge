@@ -2,6 +2,7 @@
 // In-memory adapter: the reference implementation of the `Storage` contract (tests, ephemeral servers). It enforces
 // the same unique, referential and row rules as the SQL schema. State lives in the instance (THREAT_MODEL T21);
 // records are copied in and out, so callers can't mutate stored rows.
+import { auditStatsSql, utcDay } from './audit-stats.ts';
 import { ConflictError, keyChangedError, NotFoundError } from './errors.ts';
 import type {
   AccessTokenRecord,
@@ -10,6 +11,8 @@ import type {
   AuditLogRepository,
   AuditQuery,
   AuditRecord,
+  AuditStatsQuery,
+  AuditStatsRow,
   CredentialRecord,
   CredentialsRepository,
   EncryptedKey,
@@ -477,8 +480,10 @@ export function createMemoryStorage(options: MemoryStorageOptions = {}): Storage
       checkLimit(query.limit, 'auditLog.limit');
       const limit = Math.min(Math.max(1, Math.trunc(query.limit ?? AUDIT_DEFAULT_LIMIT)), AUDIT_MAX_LIMIT);
       const rows: AuditRecord[] = [];
-      for (let i = audit.length - 1; i >= 0 && rows.length < limit; i--) {
+      const slowest = query.order === 'slowest';
+      for (let i = audit.length - 1; i >= 0 && (slowest || rows.length < limit); i--) {
         const r = audit[i] as AuditRecord;
+        if (slowest && r.durationMs === null) continue;
         if (query.projectId !== undefined && r.projectId !== query.projectId) continue;
         if (query.userId !== undefined && r.userId !== query.userId) continue;
         if (query.grantId !== undefined && r.grantId !== query.grantId) continue;
@@ -490,10 +495,56 @@ export function createMemoryStorage(options: MemoryStorageOptions = {}): Storage
         if (query.status !== undefined && r.status !== query.status) continue;
         if (query.since !== undefined && r.ts < query.since) continue;
         if (query.until !== undefined && r.ts >= query.until) continue;
-        if (query.beforeId !== undefined && r.id >= query.beforeId) continue;
+        if (!slowest && query.beforeId !== undefined && r.id >= query.beforeId) continue;
         rows.push(r);
       }
+      if (slowest)
+        rows.sort((a, b) => (b.durationMs as number) - (a.durationMs as number) || b.id - a.id).splice(limit);
       return out(rows);
+    },
+    async stats(q: AuditStatsQuery) {
+      const { params } = auditStatsSql(q); // same validation (window, group, limit) as the SQL adapters
+      const limit = params.at(-1) as number;
+      const groups = new Map<string | null, AuditStatsRow>();
+      for (const r of audit) {
+        if (r.kind !== 'tool_call' || r.ts < q.since || r.ts >= q.until) continue;
+        if (q.projectId !== undefined && r.projectId !== q.projectId) continue;
+        if (q.userId !== undefined && r.userId !== q.userId) continue;
+        if (q.grantId !== undefined && r.grantId !== q.grantId) continue;
+        if (q.tokenId !== undefined && r.tokenId !== q.tokenId) continue;
+        if (q.action !== undefined && r.action !== q.action) continue;
+        const key =
+          q.groupBy === 'action'
+            ? r.action
+            : q.groupBy === 'project'
+              ? r.projectId
+              : q.groupBy === 'grant'
+                ? r.grantId
+                : q.groupBy === 'token'
+                  ? r.tokenId
+                  : utcDay(r.ts);
+        const cur = groups.get(key);
+        groups.set(key, {
+          key,
+          calls: (cur?.calls ?? 0) + 1,
+          errors: (cur?.errors ?? 0) + (r.status === 'error' ? 1 : 0),
+          denied: (cur?.denied ?? 0) + (r.status === 'denied' ? 1 : 0),
+          durationSumMs: (cur?.durationSumMs ?? 0) + (r.durationMs ?? 0),
+          durationCount: (cur?.durationCount ?? 0) + (r.durationMs === null ? 0 : 1),
+          maxDurationMs:
+            r.durationMs === null
+              ? (cur?.maxDurationMs ?? null)
+              : Math.max(cur?.maxDurationMs ?? 0, r.durationMs),
+          inspectedCount: (cur?.inspectedCount ?? 0) + (r.inspectedCount ?? 0),
+        });
+      }
+      // SQL orders a null key first (`ORDER BY k`) and the day newest first; mirror both.
+      const cmp = (a: string | null, b: string | null) =>
+        a === b ? 0 : a === null ? -1 : b === null ? 1 : a < b ? -1 : 1;
+      const rows = [...groups.values()].sort((a, b) =>
+        q.groupBy === 'day' ? cmp(b.key, a.key) : b.calls - a.calls || cmp(a.key, b.key),
+      );
+      return out(rows.slice(0, limit));
     },
     async purgeBefore(before, limit) {
       checkLimit(limit, 'auditLog.limit');

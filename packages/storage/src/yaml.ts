@@ -249,7 +249,7 @@ export function createYamlStorage(
       markUsed: readOnly,
       revoke: readOnly,
     },
-    auditLog: { append: readOnly, list: empty, purgeBefore: readOnly },
+    auditLog: { append: readOnly, list: empty, stats: empty, purgeBefore: readOnly },
     settings: {
       get: async () => undefined,
       set: readOnly,

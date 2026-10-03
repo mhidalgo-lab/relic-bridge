@@ -14,7 +14,11 @@ import {
   type AuditLogRepository,
   type AuditQuery,
   type AuditRecord,
+  type AuditStatsQuery,
   accessRecordsParams,
+  auditOrder,
+  auditStatsRowOf,
+  auditStatsSql,
   type CredentialRecord,
   type CredentialsRepository,
   checkEncryptedKey,
@@ -604,9 +608,16 @@ export function createRepositories(
         add('status = ?', q.status);
         add('ts >= ?', q.since);
         add('ts < ?', q.until);
-        add('id < ?', q.beforeId);
-        const sql = `SELECT * FROM audit_log${where.length ? ` WHERE ${where.join(' AND ')}` : ''} ORDER BY id DESC LIMIT ?`;
+        const order = auditOrder(q.order);
+        if (order.where === null) add('id < ?', q.beforeId);
+        else where.push(order.where);
+        const sql = `SELECT * FROM audit_log${where.length ? ` WHERE ${where.join(' AND ')}` : ''} ORDER BY ${order.orderBy} LIMIT ?`;
         return freeze(all(sql, [...params, limit]).map(auditOf));
+      }),
+    stats: (q: AuditStatsQuery) =>
+      call(() => {
+        const { sql, params } = auditStatsSql(q);
+        return freeze(all(sql, params).map(auditStatsRowOf));
       }),
     purgeBefore: (before, limit) =>
       call(() => {

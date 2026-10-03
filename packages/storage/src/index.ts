@@ -10,6 +10,15 @@ export {
   accessRecordsParams,
   NO_ACCESS_RECORDS,
 } from './access-records.ts';
+export {
+  AUDIT_STATS_DEFAULT_GROUPS,
+  AUDIT_STATS_MAX_GROUPS,
+  AUDIT_STATS_MAX_WINDOW_MS,
+  auditOrder,
+  auditStatsRowOf,
+  auditStatsSql,
+  utcDay,
+} from './audit-stats.ts';
 export * from './errors.ts';
 export { newId } from './ids.ts';
 export { createMemoryStorage, type MemoryStorageOptions } from './memory.ts';

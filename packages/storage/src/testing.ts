@@ -821,7 +821,87 @@ export function runStorageContract(options: StorageContractOptions): void {
 
       it('is append-only: the repository has no update or delete besides retention purge', async () => {
         const { s } = await fresh();
-        expect(Object.keys(s.auditLog).sort()).toEqual(['append', 'list', 'purgeBefore']);
+        expect(Object.keys(s.auditLog).sort()).toEqual(['append', 'list', 'purgeBefore', 'stats']);
+        await s.close();
+      });
+
+      it('aggregates tool calls in a bounded window, and lists the slowest', async () => {
+        const { s } = await fresh();
+        const day = 86_400_000;
+        const row = (
+          ts: number,
+          action: string,
+          status: 'ok' | 'error' | 'denied',
+          ms: number | null,
+          extra = {},
+        ) =>
+          s.auditLog.append({
+            ts,
+            kind: 'tool_call',
+            action,
+            status,
+            durationMs: ms,
+            inspectedCount: ms === null ? null : 10,
+            projectId: 'p1',
+            tokenId: 't1',
+            ...extra,
+          });
+        await row(day + 1, 'run_nrql', 'ok', 100);
+        await row(day + 2, 'run_nrql', 'error', 300);
+        await row(2 * day + 3, 'run_nrql', 'ok', 200, { projectId: 'p2', tokenId: null });
+        await row(2 * day + 4, 'list_accounts', 'denied', null);
+        await s.auditLog.append({ ts: day + 5, kind: 'admin', action: 'token.create', status: 'ok' });
+        await row(9 * day, 'run_nrql', 'ok', 5); // outside the window
+        const w = { since: day, until: 3 * day };
+        expect(await s.auditLog.stats({ ...w, groupBy: 'action' })).toEqual([
+          {
+            key: 'run_nrql',
+            calls: 3,
+            errors: 1,
+            denied: 0,
+            durationSumMs: 600,
+            durationCount: 3,
+            maxDurationMs: 300,
+            inspectedCount: 30,
+          },
+          {
+            key: 'list_accounts',
+            calls: 1,
+            errors: 0,
+            denied: 1,
+            durationSumMs: 0,
+            durationCount: 0,
+            maxDurationMs: null,
+            inspectedCount: 0,
+          },
+        ]);
+        expect((await s.auditLog.stats({ ...w, groupBy: 'day' })).map((r) => [r.key, r.calls])).toEqual([
+          ['1970-01-03', 2],
+          ['1970-01-02', 2],
+        ]);
+        expect((await s.auditLog.stats({ ...w, groupBy: 'project' })).map((r) => [r.key, r.calls])).toEqual([
+          ['p1', 3],
+          ['p2', 1],
+        ]);
+        expect(
+          (await s.auditLog.stats({ ...w, groupBy: 'token', action: 'run_nrql' })).map((r) => [
+            r.key,
+            r.calls,
+          ]),
+        ).toEqual([
+          ['t1', 2],
+          [null, 1],
+        ]);
+        expect(await s.auditLog.stats({ ...w, groupBy: 'action', projectId: 'p2' })).toHaveLength(1);
+        expect(await s.auditLog.stats({ ...w, groupBy: 'action', limit: 1 })).toHaveLength(1);
+        // An unbounded or inverted window is refused (D1 row reads).
+        await rejects(s.auditLog.stats({ since: 0, until: 91 * day, groupBy: 'action' }), InvalidInputError);
+        await rejects(s.auditLog.stats({ since: 5, until: 5, groupBy: 'action' }), InvalidInputError);
+        await rejects(s.auditLog.stats({ ...w, groupBy: 'action', limit: Number.NaN }), InvalidInputError);
+
+        expect(
+          (await s.auditLog.list({ kind: 'tool_call', order: 'slowest', limit: 3 })).map((r) => r.durationMs),
+        ).toEqual([300, 200, 100]);
         await s.close();
       });
 

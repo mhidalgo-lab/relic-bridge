@@ -3,7 +3,7 @@
 
 # Admin API reference
 
-API-first management of a relic-bridge instance: users, New Relic credentials, projects, grants, device tokens and the audit log. Authenticate with the bootstrap admin token (`Authorization: Bearer …`). New Relic keys are accepted in request bodies only and never returned; token hashes are never returned.
+API-first management of a relic-bridge instance: users, New Relic credentials, projects, grants, device tokens and the audit log. Authenticate with the bootstrap admin token (`Authorization: Bearer …`, role `owner`) or, from a browser, an admin session (cookie + `X-CSRF-Token`; roles `owner` > `admin` > `member`). New Relic keys are accepted in request bodies only and never returned; token hashes are never returned.
 
 Base path: `/api/admin/v1`. OpenAPI 3.1 document: `GET /api/admin/v1/openapi.json` (admin token required).
 Guide: [self-hosting](../guide/self-hosting.md#admin-api).
@@ -54,6 +54,7 @@ List users
 | Status | Body | Description |
 | --- | --- | --- |
 | 200 | `UserPage` | Users |
+| 403 | `Error` | Session refused: role too low, missing/invalid CSRF token or cross-origin request (`forbidden`) |
 
 ### POST /users
 
@@ -72,6 +73,7 @@ Request body (`CreateUser`):
 | Status | Body | Description |
 | --- | --- | --- |
 | 201 | `UserResponse` | Created |
+| 403 | `Error` | Session refused: role too low, missing/invalid CSRF token or cross-origin request (`forbidden`) |
 | 409 | `Error` | Conflicts with existing data (`conflict`, `read_only`) |
 | 413 | `Error` | Body too large (`payload_too_large`) |
 | 415 | `Error` | Body is not JSON (`unsupported_media_type`) |
@@ -87,6 +89,7 @@ Get a user
 | Status | Body | Description |
 | --- | --- | --- |
 | 200 | `UserResponse` | The user |
+| 403 | `Error` | Session refused: role too low, missing/invalid CSRF token or cross-origin request (`forbidden`) |
 | 404 | `Error` | No such resource (`not_found`) |
 
 ### PATCH /users/{id}
@@ -108,10 +111,40 @@ Request body (`UpdateUser`):
 | Status | Body | Description |
 | --- | --- | --- |
 | 200 | `UserResponse` | Updated |
+| 403 | `Error` | Session refused: role too low, missing/invalid CSRF token or cross-origin request (`forbidden`) |
 | 404 | `Error` | No such resource (`not_found`) |
 | 409 | `Error` | Conflicts with existing data (`conflict`, `read_only`) |
 | 413 | `Error` | Body too large (`payload_too_large`) |
 | 415 | `Error` | Body is not JSON (`unsupported_media_type`) |
+
+## Sessions
+
+### POST /users/{id}/sessions/revoke
+
+Sign a user out everywhere
+
+Ends every admin session of the user at once (all devices). Members may do this for themselves only; admins for anyone but an owner. A role change or disabling a user does this automatically.
+
+| Parameter | In | Type | Required | Description |
+| --- | --- | --- | --- | --- |
+| `id` | path | `string` | yes |  |
+
+| Status | Body | Description |
+| --- | --- | --- |
+| 200 | `SessionsRevokedResponse` | Sessions ended |
+| 403 | `Error` | Session refused: role too low, missing/invalid CSRF token or cross-origin request (`forbidden`) |
+| 404 | `Error` | No such resource (`not_found`) |
+
+### GET /session
+
+Who is calling: role, user and the CSRF token
+
+Any role. With a session cookie it returns the CSRF token to send as `X-CSRF-Token` on changes. Sign out with `POST /auth/logout` (form field `_csrf`, `everywhere=1` for every device).
+
+| Status | Body | Description |
+| --- | --- | --- |
+| 200 | `SessionResponse` | The caller |
+| 403 | `Error` | Session refused: role too low, missing/invalid CSRF token or cross-origin request (`forbidden`) |
 
 ## Credentials
 
@@ -128,6 +161,7 @@ List credentials (masked)
 | Status | Body | Description |
 | --- | --- | --- |
 | 200 | `CredentialPage` | Credentials, without key material |
+| 403 | `Error` | Session refused: role too low, missing/invalid CSRF token or cross-origin request (`forbidden`) |
 
 ### POST /credentials
 
@@ -147,6 +181,7 @@ Request body (`CreateCredential`):
 | Status | Body | Description |
 | --- | --- | --- |
 | 201 | `CredentialResponse` | Created (masked) |
+| 403 | `Error` | Session refused: role too low, missing/invalid CSRF token or cross-origin request (`forbidden`) |
 | 404 | `Error` | No such resource (`not_found`) |
 | 409 | `Error` | Conflicts with existing data (`conflict`, `read_only`) |
 | 413 | `Error` | Body too large (`payload_too_large`) |
@@ -165,6 +200,7 @@ Get a credential (masked)
 | Status | Body | Description |
 | --- | --- | --- |
 | 200 | `CredentialResponse` | The credential, without key material |
+| 403 | `Error` | Session refused: role too low, missing/invalid CSRF token or cross-origin request (`forbidden`) |
 | 404 | `Error` | No such resource (`not_found`) |
 
 ### PATCH /credentials/{id}
@@ -184,6 +220,7 @@ Request body (`UpdateCredential`):
 | Status | Body | Description |
 | --- | --- | --- |
 | 200 | `CredentialResponse` | Updated |
+| 403 | `Error` | Session refused: role too low, missing/invalid CSRF token or cross-origin request (`forbidden`) |
 | 404 | `Error` | No such resource (`not_found`) |
 | 409 | `Error` | Conflicts with existing data (`conflict`, `read_only`) |
 | 413 | `Error` | Body too large (`payload_too_large`) |
@@ -202,6 +239,7 @@ Refused (`409`) while a project or grant uses it.
 | Status | Body | Description |
 | --- | --- | --- |
 | 204 | — | Deleted |
+| 403 | `Error` | Session refused: role too low, missing/invalid CSRF token or cross-origin request (`forbidden`) |
 | 404 | `Error` | No such resource (`not_found`) |
 | 409 | `Error` | Conflicts with existing data (`conflict`, `read_only`) |
 
@@ -224,6 +262,7 @@ Request body (`RotateCredential`):
 | Status | Body | Description |
 | --- | --- | --- |
 | 200 | `CredentialResponse` | Rotated (masked) |
+| 403 | `Error` | Session refused: role too low, missing/invalid CSRF token or cross-origin request (`forbidden`) |
 | 404 | `Error` | No such resource (`not_found`) |
 | 409 | `Error` | Conflicts with existing data (`conflict`, `read_only`) |
 | 413 | `Error` | Body too large (`payload_too_large`) |
@@ -244,6 +283,7 @@ A refused key is marked `invalid` (every grant using it fails closed); a valid k
 | Status | Body | Description |
 | --- | --- | --- |
 | 200 | `RevalidationResponse` | Outcome |
+| 403 | `Error` | Session refused: role too low, missing/invalid CSRF token or cross-origin request (`forbidden`) |
 | 404 | `Error` | No such resource (`not_found`) |
 
 ## Projects
@@ -261,6 +301,7 @@ List projects
 | Status | Body | Description |
 | --- | --- | --- |
 | 200 | `ProjectPage` | Projects |
+| 403 | `Error` | Session refused: role too low, missing/invalid CSRF token or cross-origin request (`forbidden`) |
 
 ### POST /projects
 
@@ -281,6 +322,7 @@ Request body (`CreateProject`):
 | Status | Body | Description |
 | --- | --- | --- |
 | 201 | `ProjectResponse` | Created |
+| 403 | `Error` | Session refused: role too low, missing/invalid CSRF token or cross-origin request (`forbidden`) |
 | 404 | `Error` | No such resource (`not_found`) |
 | 409 | `Error` | Conflicts with existing data (`conflict`, `read_only`) |
 | 413 | `Error` | Body too large (`payload_too_large`) |
@@ -297,6 +339,7 @@ Get a project
 | Status | Body | Description |
 | --- | --- | --- |
 | 200 | `ProjectResponse` | The project |
+| 403 | `Error` | Session refused: role too low, missing/invalid CSRF token or cross-origin request (`forbidden`) |
 | 404 | `Error` | No such resource (`not_found`) |
 
 ### PATCH /projects/{id}
@@ -325,6 +368,7 @@ Request body (`UpdateProject`):
 | Status | Body | Description |
 | --- | --- | --- |
 | 200 | `ProjectResponse` | Updated |
+| 403 | `Error` | Session refused: role too low, missing/invalid CSRF token or cross-origin request (`forbidden`) |
 | 404 | `Error` | No such resource (`not_found`) |
 | 409 | `Error` | Conflicts with existing data (`conflict`, `read_only`) |
 | 413 | `Error` | Body too large (`payload_too_large`) |
@@ -341,6 +385,7 @@ Delete a project with its grants and tokens
 | Status | Body | Description |
 | --- | --- | --- |
 | 204 | — | Deleted |
+| 403 | `Error` | Session refused: role too low, missing/invalid CSRF token or cross-origin request (`forbidden`) |
 | 404 | `Error` | No such resource (`not_found`) |
 
 ## Grants
@@ -359,6 +404,7 @@ List grants
 | Status | Body | Description |
 | --- | --- | --- |
 | 200 | `GrantPage` | Grants |
+| 403 | `Error` | Session refused: role too low, missing/invalid CSRF token or cross-origin request (`forbidden`) |
 
 ### POST /grants
 
@@ -383,6 +429,7 @@ Request body (`CreateGrant`):
 | Status | Body | Description |
 | --- | --- | --- |
 | 201 | `GrantResponse` | Created |
+| 403 | `Error` | Session refused: role too low, missing/invalid CSRF token or cross-origin request (`forbidden`) |
 | 404 | `Error` | No such resource (`not_found`) |
 | 409 | `Error` | Conflicts with existing data (`conflict`, `read_only`) |
 | 413 | `Error` | Body too large (`payload_too_large`) |
@@ -400,6 +447,7 @@ Get a grant
 | Status | Body | Description |
 | --- | --- | --- |
 | 200 | `GrantResponse` | The grant |
+| 403 | `Error` | Session refused: role too low, missing/invalid CSRF token or cross-origin request (`forbidden`) |
 | 404 | `Error` | No such resource (`not_found`) |
 
 ### DELETE /grants/{id}
@@ -413,6 +461,7 @@ Delete a grant with its tokens
 | Status | Body | Description |
 | --- | --- | --- |
 | 204 | — | Deleted |
+| 403 | `Error` | Session refused: role too low, missing/invalid CSRF token or cross-origin request (`forbidden`) |
 | 404 | `Error` | No such resource (`not_found`) |
 
 ### POST /grants/{id}/revoke
@@ -426,6 +475,7 @@ Revoke a grant (all its tokens stop working)
 | Status | Body | Description |
 | --- | --- | --- |
 | 200 | `GrantResponse` | Revoked |
+| 403 | `Error` | Session refused: role too low, missing/invalid CSRF token or cross-origin request (`forbidden`) |
 | 404 | `Error` | No such resource (`not_found`) |
 
 ## Tokens
@@ -443,6 +493,7 @@ List access tokens
 | Status | Body | Description |
 | --- | --- | --- |
 | 200 | `AccessTokenPage` | Tokens, without hashes |
+| 403 | `Error` | Session refused: role too low, missing/invalid CSRF token or cross-origin request (`forbidden`) |
 
 ### POST /tokens
 
@@ -461,6 +512,7 @@ Request body (`CreateToken`):
 | Status | Body | Description |
 | --- | --- | --- |
 | 201 | `AccessTokenCreated` | Issued |
+| 403 | `Error` | Session refused: role too low, missing/invalid CSRF token or cross-origin request (`forbidden`) |
 | 404 | `Error` | No such resource (`not_found`) |
 | 409 | `Error` | Conflicts with existing data (`conflict`, `read_only`) |
 | 413 | `Error` | Body too large (`payload_too_large`) |
@@ -477,6 +529,7 @@ Get an access token
 | Status | Body | Description |
 | --- | --- | --- |
 | 200 | `AccessTokenResponse` | The token, without its hash |
+| 403 | `Error` | Session refused: role too low, missing/invalid CSRF token or cross-origin request (`forbidden`) |
 | 404 | `Error` | No such resource (`not_found`) |
 
 ### POST /tokens/{id}/revoke
@@ -490,6 +543,7 @@ Revoke an access token
 | Status | Body | Description |
 | --- | --- | --- |
 | 200 | `AccessTokenResponse` | Revoked |
+| 403 | `Error` | Session refused: role too low, missing/invalid CSRF token or cross-origin request (`forbidden`) |
 | 404 | `Error` | No such resource (`not_found`) |
 
 ## Keys
@@ -510,6 +564,7 @@ Request body (`RotateKeys`):
 | Status | Body | Description |
 | --- | --- | --- |
 | 200 | `KeyRotationResponse` | What this batch did |
+| 403 | `Error` | Session refused: role too low, missing/invalid CSRF token or cross-origin request (`forbidden`) |
 | 413 | `Error` | Body too large (`payload_too_large`) |
 | 415 | `Error` | Body is not JSON (`unsupported_media_type`) |
 
@@ -531,6 +586,7 @@ Request body (`CreateSetupLink`):
 | Status | Body | Description |
 | --- | --- | --- |
 | 201 | `SetupLinkResponse` | Issued |
+| 403 | `Error` | Session refused: role too low, missing/invalid CSRF token or cross-origin request (`forbidden`) |
 | 413 | `Error` | Body too large (`payload_too_large`) |
 | 415 | `Error` | Body is not JSON (`unsupported_media_type`) |
 | 422 | `Error` | Refused by a rule (`not_permitted`) or New Relic refused the key (`key_rejected`) |
@@ -559,6 +615,7 @@ Query the audit log (newest first)
 | Status | Body | Description |
 | --- | --- | --- |
 | 200 | `AuditPage` | Audit rows |
+| 403 | `Error` | Session refused: role too low, missing/invalid CSRF token or cross-origin request (`forbidden`) |
 
 ## Schemas
 
@@ -861,6 +918,37 @@ Query limits; absent fields fall back to the defaults.
 | --- | --- | --- | --- |
 | `batchSize` | `integer` | no | Rows to re-encrypt in this call, 1-100 (default 25). A Worker on the Free plan lowers the ceiling to 40 (one call stays under 50 D1 queries); a larger value is reduced, not refused, and `nextCursor` resumes. |
 | `after` | `string \| null` | no | `nextCursor` of the previous call; omit to start from the first row. |
+
+### Session
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `kind` | `"session" \| "admin_token"` | yes | `session`: a signed-in browser (cookie). `admin_token`: the bootstrap admin token. |
+| `role` | `"owner" \| "admin" \| "member"` | yes | Effective role. The admin token counts as `owner`. |
+| `user` | `object` | yes |  |
+| `csrfToken` | `string \| null` | yes | Send it as `X-CSRF-Token` on every POST/PATCH/DELETE made with the session cookie. Null for the admin token. |
+| `provider` | `string \| null` | yes | Sign-in provider of the session. |
+| `expiresAt` | `integer \| null` | yes | Absolute end of the session (epoch ms). |
+| `idleExpiresAt` | `integer \| null` | yes | When the session ends unless another request comes (epoch ms). |
+
+### SessionResponse
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `data` | `Session` | yes |  |
+
+### SessionsRevoked
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `userId` | `string` | yes |  |
+| `revoked` | `integer` | yes | How many live sessions were ended. |
+
+### SessionsRevokedResponse
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `data` | `SessionsRevoked` | yes |  |
 
 ### SetupLink
 

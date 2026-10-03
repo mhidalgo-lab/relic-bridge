@@ -3,11 +3,12 @@
 relic-bridge lets people sign in to its admin side with an identity they already have. This is for **administration**
 (the admin panel from Phase 4). MCP clients keep using device tokens until OAuth for MCP clients arrives in Phase 5.
 
-What you get today (P4-01):
+What you get today (P4-01, P4-02):
 
 - `/auth/login`: a page that lists the configured providers.
-- Sign-in that ends at a verified, allowed **user record**. Sessions and the admin panel that use it come with P4-02
-  and later. Until then a successful sign-in shows "Signed in as …", and the admin API still uses the admin token.
+- Sign-in that ends at a verified, allowed **user record** and then an **admin session** (cookie `__Host-rb_session`)
+  that the admin API accepts with the user's role. Sessions, roles, CSRF and sign-out are described in
+  [admin access](admin-access.md). The admin panel that uses them comes with P4-03 and later.
 - **Setup links**: a single-use, expiring link that makes the first person who signs in through it the `owner`.
 
 Sign-in is **off** until at least one provider is configured. Each provider is one block of variables. The same names
@@ -163,6 +164,8 @@ Put Cloudflare Access in front with that provider behind it, or configure the pr
   never `alg: none` or HMAC, exact issuer, audience = your client id (`azp` checked), expiry with 60 s clock skew,
   issued within 10 minutes, `nonce` equal to the transaction's.
 - `next` (where to go after sign-in) only accepts paths on your own origin.
+- A successful sign-in replaces whatever session the browser had with a new one (no session fixation), audited as
+  `session.create`. See [admin access](admin-access.md) for timeouts, roles and sign-out.
 - Every attempt is in the audit log: `auth` / `login.ok` (user id, provider, outcome) or `login.denied` with a stable
   reason (`not_allowed`, `not_provisioned`, `identity_conflict`, `email_unverified`, `wrong_audience`, `unknown_state`,
   …). The browser only sees a generic message and the request id. Codes, tokens, client secrets and setup links are

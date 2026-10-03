@@ -2,7 +2,7 @@
 id: P4-02
 title: "Admin sessions, CSRF and roles"
 phase: 4
-status: in-progress
+status: review
 priority: high
 depends_on: [P4-01]
 adr: [0009]
@@ -54,21 +54,32 @@ the admin API accepts next to the bootstrap admin token, with CSRF protection an
   bearer header) on every admin route; session cookies confer nothing on MCP and pass-through routes; Node + Worker.
 
 ## Acceptance criteria
-- [ ] Unit tests for the session store: hashing, idle/absolute expiry, touch, revoke, revoke-all, malformed cookies.
-- [ ] Tests for CSRF rejection (token and Origin / fetch metadata), role enforcement and session expiry on every admin
+- [x] Unit tests for the session store: hashing, idle/absolute expiry, touch, revoke, revoke-all, malformed cookies.
+- [x] Tests for CSRF rejection (token and Origin / fetch metadata), role enforcement and session expiry on every admin
       route, on the HTTP app and the Worker (P2-12 matrix).
-- [ ] Login sets `__Host-rb_session` with the right attributes and rotates an existing session; logout revokes
+- [x] Login sets `__Host-rb_session` with the right attributes and rotates an existing session; logout revokes
       server-side; revoke-all and role change / disable end sessions.
-- [ ] Bearer requests ignore cookies; cookie sessions never authenticate MCP or pass-through routes.
-- [ ] Audit rows for login, logout, revocations, role refusals.
+- [x] Bearer requests ignore cookies; cookie sessions never authenticate MCP or pass-through routes.
+- [x] Audit rows for login, logout, revocations, role refusals.
+
+## Notes for P4-03 (admin UI)
+- Authenticate UI pages with the same session: `createSessionManager` (`packages/http-app/src/session.ts`) is built
+  by `createHttpApp` when sign-in is on; call `sessions.authenticate(c)` (→ `SessionPrincipal` with `user`, `role`,
+  `session.record.csrf`) and redirect to `/auth/login?next=<path>` on failure. Use `ROLE_RANK` / `requiredRole` for
+  page-level role checks; the API enforces them again.
+- Embed `session.record.csrf` in every form as `_csrf` (`CSRF_FIELD`) or send it as `X-CSRF-Token` (`CSRF_HEADER`)
+  from scripts; check unsafe form posts with `sessions.checkFetchOrigin(c, true)` and `sessions.csrfMatches(...)`.
+- Sign-out is `POST /auth/logout` (form with `_csrf`, optional `everywhere=1`). `GET /api/admin/v1/session` gives
+  scripts the role and token.
+- UI routes are new entries in the P2-12 matrix (guard test) and must never accept bearer tokens as page auth.
 
 ## Security notes
 T13 (CSRF), T14 (session theft / fixation / privilege escalation).
 
 ## Docs to update
 - `docs/guide/admin-access.md` (new: sessions, roles, CSRF for API clients), `docs/guide/identity-providers.md`,
-  `docs/guide/configuration.md`, `docs/reference/admin-api.md` (generated), `docs/THREAT_MODEL.md`,
-  `docs/ARCHITECTURE.md`.
+  `docs/guide/self-hosting.md`, `apps/worker/README.md`, `docs/reference/admin-api.md` (generated),
+  `docs/THREAT_MODEL.md`, `docs/ARCHITECTURE.md`, README.
 
 ## Out of scope
 - Member self-service on credentials, grants and tokens (P4-10).

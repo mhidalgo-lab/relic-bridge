@@ -59,3 +59,43 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   verified. The assertion is verified against the team JWKS and AUD, and service tokens (no email) are refused.
 - **Options:** keep it, or require the Access policy to use specific IdPs only (a documentation recommendation).
 - **Needs:** owner confirmation.
+
+## P4-02 — Admin sessions, CSRF and roles
+
+### P4-02 — The bootstrap admin token acts as `owner`
+- **Context:** The admin API now takes a session (with a role) or `RB_ADMIN_TOKEN`. The token had no role before.
+- **Assumption made:** The token is break-glass and automation (`keys rotate --remote`, setup links, CI): it counts
+  as `owner` on every route and needs no CSRF token (browsers can't attach an `Authorization` header cross-site, and
+  cookies are ignored on any request that has one).
+- **Options:** (a) keep it; (b) a lesser role, with owner-only actions needing a session (safer if the token leaks,
+  but the first owner and recovery then depend on sign-in working); (c) a separate, optional owner token.
+- **Needs:** owner confirmation.
+
+### P4-02 — `SameSite=Lax`, 30 min idle / 12 h absolute
+- **Context:** The task allowed Lax or Strict. Strict withholds the cookie on the first page after the IdP redirect
+  chain and on every link into the admin from mail or chat (RESEARCH §17).
+- **Assumption made:** Lax, with every unsafe request needing the CSRF token **and** `Origin` = `RB_PUBLIC_URL`, and
+  cookie requests with `Sec-Fetch-Site` other than `same-origin` (or `none` for reads) refused. Defaults 30 min idle,
+  12 h absolute (`RB_SESSION_IDLE_MINUTES`, `RB_SESSION_MAX_HOURS`).
+- **Options:** Strict plus a same-origin bounce page after sign-in; shorter defaults (OWASP suggests 4-8 h absolute
+  for high-value apps).
+- **Needs:** owner confirmation of the defaults.
+
+### P4-02 — What each role may do
+- **Context:** ROADMAP names owner, admin, member; nothing said where the lines are.
+- **Assumption made:** `owner`: everything; only owners rotate the master key, issue owner setup links and create,
+  change or sign out owners. `admin`: every other admin route. `member`: `GET /session` and their own sign-out only;
+  self-service on their own keys, grants and tokens is P4-10. Nobody changes their own role or disables themselves
+  through a session (so a session can't lock the last owner out). A role change or disable ends all the user's
+  sessions.
+- **Options:** let admins manage other admins only by owners; let members read the project list; allow an owner to
+  step down when another owner exists.
+- **Needs:** owner confirmation; P4-10 refines members.
+
+### P4-02 — User records cached ≤ 5 s per isolate
+- **Context:** "Disabled users lose sessions immediately (checked per request, cached briefly)".
+- **Assumption made:** Disabling (or a role change) through the admin API deletes the user's sessions in storage, so
+  it is immediate everywhere. The per-request user check (for a user disabled some other way) reads the user record
+  through a 5 s per-isolate cache, cleared on that isolate by any admin change.
+- **Options:** no cache (one more D1 read per admin request).
+- **Needs:** nothing unless the owner prefers no cache.

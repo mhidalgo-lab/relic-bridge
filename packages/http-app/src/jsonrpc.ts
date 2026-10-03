@@ -44,7 +44,9 @@ export async function peekJsonRpc(request: Request, maxBytes: number): Promise<R
   }
   let body: unknown;
   try {
-    body = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
+    // Decode exactly as the SDK's MCP handler does (lenient: invalid bytes become U+FFFD). A stricter decoder here
+    // would call a body "unparsable" that the handler then dispatches, hiding the call from the audit (P2-review).
+    body = JSON.parse(new TextDecoder('utf-8').decode(bytes));
   } catch {
     return { kind: 'unparsable' };
   }

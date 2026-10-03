@@ -32,6 +32,20 @@ describe('peekJsonRpc', () => {
     expect(await peekJsonRpc(req(`{"method":"${'x'.repeat(2000)}"}`), 1024)).toEqual({ kind: 'too_large' });
   });
 
+  it('decodes like the MCP handler: invalid UTF-8 inside a string still names the method (P2-review)', async () => {
+    const bytes = new TextEncoder().encode(
+      '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"run_nrql","x":"~~"}}',
+    );
+    const at = bytes.indexOf(0x7e); // the first `~` of "~~"
+    bytes[at] = 0xff;
+    bytes[at + 1] = 0xfe;
+    expect(await peekJsonRpc(req(bytes), 1024)).toEqual({
+      kind: 'message',
+      method: 'tools/call',
+      name: 'run_nrql',
+    });
+  });
+
   it('bounds a streamed body without a length', async () => {
     const stream = new ReadableStream<Uint8Array>({
       pull(c) {

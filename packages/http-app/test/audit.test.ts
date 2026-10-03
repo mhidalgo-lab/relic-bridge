@@ -212,7 +212,7 @@ describe('tool calls', () => {
       }),
     ]);
   });
-  it('records an ungranted call from a legacy client (no headers) or behind a spoofed Mcp-Name (P2-12)', async () => {
+  it('records an ungranted call from a legacy client (no headers), behind a spoofed Mcp-Name (P2-12) or in a body with invalid UTF-8 (P2-review)', async () => {
     const { app } = makeApp();
     const body = {
       jsonrpc: '2.0',
@@ -227,9 +227,16 @@ describe('tool calls', () => {
       const r = await app.fetch(post(world.tokens.limited, headers, body));
       expect(await r.text()).toContain('not found');
     }
-    await waitForRows(2);
+    // Invalid UTF-8 somewhere in the body: the SDK decodes it leniently and answers the call, so it must be audited too.
+    const raw = new TextEncoder().encode(JSON.stringify({ ...body, params: { ...body.params, pad: '~~' } }));
+    const at = raw.indexOf(0x7e);
+    raw[at] = 0xff;
+    const bad = post(world.tokens.limited, { 'mcp-protocol-version': '2025-11-25' });
+    const r = await app.fetch(new Request(bad, { body: raw }));
+    expect(await r.text()).toContain('not found');
+    await waitForRows(3);
     const denied = (await rows()).filter((r) => r.action === 'tool.not_granted');
-    expect(denied).toHaveLength(2);
+    expect(denied).toHaveLength(3);
     for (const row of denied) expect(row.details).toEqual({ project: 'prod', tool: 'run_nrql' });
   });
 });

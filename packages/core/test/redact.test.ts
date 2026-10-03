@@ -30,6 +30,35 @@ describe('redact', () => {
     expect(redact('{"apiKey":"plainvalue"}')).toBe(`{"apiKey":"${REDACTED}"}`);
   });
 
+  it('redacts any Authorization scheme and prefixed secret names (review P1-R)', () => {
+    const cases: [string, string][] = [
+      ['Authorization: Basic dXNlcjpwYXNzd29yZA==', `Authorization: Basic ${REDACTED}`],
+      ['"authorization": "Token ghp_abcdef123456"', `"authorization": "Token ${REDACTED}"`],
+      ['Proxy-Authorization: Digest abc123def', `Proxy-Authorization: Digest ${REDACTED}`],
+      ['DB_PASSWORD=hunter2xyz', `DB_PASSWORD=${REDACTED}`],
+      ['client_secret=abcdef123', `client_secret=${REDACTED}`],
+      ['GET /cb?access_token=abcdef123456&state=1', `GET /cb?access_token=${REDACTED}&state=1`],
+      ['aws_secret_access_key=wJalrXUtnFEMI', `aws_secret_access_key=${REDACTED}`],
+      ['x-api-key: s3cr3tvalue', `x-api-key: ${REDACTED}`],
+      ['{"refresh_token":"r1-abc"}', `{"refresh_token":"${REDACTED}"}`],
+    ];
+    for (const [input, expected] of cases) {
+      expect(redact(input)).toBe(expected);
+      expect(redact(redact(input))).toBe(expected);
+    }
+  });
+
+  it('does not redact ordinary words that merely contain a secret-ish name', () => {
+    for (const plain of [
+      'max_tokens=100',
+      'secretary=Jane',
+      'tokens: 5',
+      'password reset requested for user 42',
+    ]) {
+      expect(redact(plain)).toBe(plain);
+    }
+  });
+
   it('is idempotent and leaves ordinary text alone', () => {
     const once = redact(`key ${KEYS.user}`);
     expect(redact(once)).toBe(once);

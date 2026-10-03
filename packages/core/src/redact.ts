@@ -13,9 +13,15 @@ const VALUE_PATTERNS: ReadonlyArray<[RegExp, (match: string, ...groups: string[]
   [/\brb_[A-Za-z0-9_]{16,}/g, () => `rb_${REDACTED}`],
   // Bearer credentials in headers or messages.
   [/\b(Bearer)\s+[A-Za-z0-9._~+/=-]{8,}/gi, (_m, scheme) => `${scheme} ${REDACTED}`],
-  // key/value assignments: API-Key: x, apiKey=x, "authorization": "x", RB_MASTER_KEY=x, NEW_RELIC_API_KEY=x.
+  // Authorization headers with any scheme (Basic, Token, Digest…): the scheme stays, the credential goes.
   [
-    /\b((?:[A-Z0-9_]*(?:API|MASTER|LICENSE|INGEST)[_-]?KEY)|api[-_]?key|authorization|password|secret)("?\s*[:=]\s*"?)([^\s",;}]+)/gi,
+    /\b((?:proxy-)?authorization"?\s*[:=]\s*"?)([A-Za-z][A-Za-z0-9-]*\s+)?([^\s",;}]+)/gi,
+    (_m, name, scheme = '') => `${name}${scheme}${REDACTED}`,
+  ],
+  // key/value assignments: API-Key: x, apiKey=x, RB_MASTER_KEY=x, NEW_RELIC_API_KEY=x, DB_PASSWORD=x,
+  // client_secret=x, access_token=x, aws_secret_access_key=x. A name prefix (`DB_`, `client_`, `x-`) is allowed.
+  [
+    /\b([A-Za-z0-9_.-]*?(?:api[_-]?key|(?:master|license|ingest|access)[_-]?key|passw(?:or)?d|secret|token|credentials?|private[_-]?key))("?\s*[:=]\s*"?)([^\s",;}&]+)/gi,
     (_m, name, sep) => `${name}${sep}${REDACTED}`,
   ],
 ];

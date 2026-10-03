@@ -2,11 +2,11 @@
 id: P1-16
 title: Isolate the OIDC publish step and make release reruns idempotent
 phase: 1
-status: todo
+status: review
 priority: high
 depends_on: [P1-15]
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P1-16 — Isolate the OIDC publish step and make release reruns idempotent
@@ -28,12 +28,12 @@ consolidation review (`docs/reviews/phase-1-review.md`, M1 and M3).
 - Tag safety: fail when tag `v<version>` already exists and points at a commit other than `GITHUB_SHA`.
 
 ## Acceptance criteria
-- [ ] No job that runs `pnpm install` or project scripts has `id-token: write` (actionlint passes; a script check or
+- [x] No job that runs `pnpm install` or project scripts has `id-token: write` (actionlint passes; a script check or
       test asserts it on `release.yml`).
-- [ ] The publish job verifies the artifact checksum before publishing.
-- [ ] Rerunning after a failed `gh release create` creates the release without republishing.
-- [ ] An existing `v<version>` tag on another commit stops the release.
-- [ ] `docs/dev/release.md` (or the release section of CONTRIBUTING.md) describes the two jobs.
+- [x] The publish job verifies the artifact checksum before publishing.
+- [x] Rerunning after a failed `gh release create` creates the release without republishing.
+- [x] An existing `v<version>` tag on another commit stops the release.
+- [x] `docs/dev/release.md` (or the release section of CONTRIBUTING.md) describes the two jobs.
 
 ## Security notes
 T18 (malicious dependency / compromised Action): an OIDC token minted by a compromised install script could publish
@@ -41,6 +41,14 @@ through trusted publishing. Update THREAT_MODEL T18 row and §5a.
 
 ## Docs to update
 - `docs/THREAT_MODEL.md` (T18), CONTRIBUTING.md release section, `docs/pending-decisions/phase-1.md` owner steps.
+
+## Notes
+- The tag check lives in `scripts/release.ts plan` and again in the `publish` job (no checkout there, so it is a short
+  `gh api` loop) because a tag could appear while the deployment waits for approval.
+- "Re-run failed jobs" reuses the old `plan` outputs (mode `publish`), so `publish` also asks npm at runtime and
+  skips `npm publish` when the identical tarball is already there.
+- `scripts/test/release.test.ts` parses `release.yml` and asserts the OIDC rules (only `publish` has `id-token`, no
+  checkout/pnpm/node/npm scripts in it, `--ignore-scripts`, checksum verification before attest and publish).
 
 ## Out of scope
 - harden-runner block mode and other CI hardening (P8-07).

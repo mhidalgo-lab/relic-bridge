@@ -16,6 +16,9 @@ owner: ""
 - Middleware order: request id → security headers → body size limit → auth (bearer) → access resolution (isolate cache, TTL ≤ 60 s, configurable) → rate limit → MCP handler (server factory with only allowed tools) → audit.
 - Unknown slug and bad token return the **same** 401 challenge (no enumeration). `http-app` resolves the slug before delegating to the OAuth provider (P0-08).
 - Use the SDK's `validateHostHeader` / `validateOriginHeader` helpers for T24.
+- Handle `subscriptions/listen` (opened by Claude Code 2.1.287 and held open) deliberately: we have no server-initiated
+  notifications yet, so decide between closing it immediately or holding it with a capped duration. Either way, never block
+  isolate resources or count it against rate limits like a tool call.
 - CORS: disabled by default; allowlist option. `Host` + `Origin` validation against an allowlist (DNS-rebinding protection for local `serve`) (T24).
 - `Mcp-Method`/`Mcp-Name` headers used for logging/rate-limit keys where present.
 - Optional **pass-through mode** (`RB_PASSTHROUGH=true`, off by default): client supplies `X-NewRelic-Api-Key` + region; nothing stored; still rate-limited.

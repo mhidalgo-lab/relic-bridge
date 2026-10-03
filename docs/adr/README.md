@@ -16,4 +16,4 @@ Statuses: `proposed` · `accepted` · `accepted (pending spike PX-NN)` · `super
 | [0007](0007-secrets-envelope-encryption.md) | AES-256-GCM encryption of NR keys | accepted |
 | [0008](0008-access-model.md) | Credentials, projects, grants, tokens | accepted |
 | [0009](0009-authentication.md) | Bearer tokens first, OAuth 2.1 next; Google, GitHub, Cloudflare Access | accepted (spike P0-08) |
-| [0010](0010-platform-limits-strategy.md) | Budgets, concurrency and retries for Workers and NerdGraph limits | accepted (spike P0-06, local) |
+| [0010](0010-platform-limits-strategy.md) | Budgets, concurrency and retries for Workers and NerdGraph limits | accepted (spike P0-06) |

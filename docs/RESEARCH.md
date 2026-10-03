@@ -31,7 +31,9 @@ Source: <https://developers.cloudflare.com/workers/platform/limits/>
 ### Measured (spike P0-06, local)
 
 See ADR-0010 for the local and **production** CPU tables and presets. Production p50: 2.8 ms (10 KB), 3.7 ms (100 KB),
-10.2 ms (1 MB), 45.8 ms (5 MB). Cold first call: 17–35 ms. No request was killed (plan to be confirmed by the maintainer).
+10.2 ms (1 MB), 45.8 ms (5 MB). Cold first call: 17–35 ms. **Workers Free plan (confirmed):** no request was killed even at
+61 ms CPU, so Free tolerated overruns here. The 512 KiB cap stays as the safe design point. Per-request CPU is visible in
+Workers Logs (`$workers.cpuTimeMs`).
 Per-request CPU comes from the dashboard or GraphQL Analytics (`workersInvocationsAdaptive`). `wrangler tail` only
 reports `outcome: "exceededCpu"`.
 
@@ -92,6 +94,10 @@ Sources: <https://claude.com/docs/connectors/building/authentication>,
   spec's preferred method) must be supported.
 
 ## 4. MCP spec 2026-07-28 and TypeScript SDK v2
+
+- Observed (P0-07, deployed): Claude Code 2.1.287 speaks 2026-07-28, sends `mcp-method` / `mcp-name` headers, and opens a
+  long-lived `subscriptions/listen` POST. GitHub Copilot Desktop also connected (bearer and OAuth). claude.ai / Claude mobile
+  custom connectors weren't available on the maintainer's account, so those clients are untested (P5-06).
 
 Sources: <https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization/authorization-server-discovery>,
 <https://workos.com/blog/mcp-2026-spec-agent-authentication>, <https://ts.sdk.modelcontextprotocol.io/v2/protocol-versions>

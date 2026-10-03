@@ -52,6 +52,7 @@ flowchart LR
 | 2026-10-01 | TS monorepo, Hono, SDK v2 stateless dual-era, SQLite/D1, AES-GCM, access model, auth sequencing | ADR-0004..0010 |
 | 2026-10-01 | Phone requires OAuth → Phase 5; laptops served by bearer tokens from Phase 2/3 | RESEARCH §3 |
 | 2026-10-01 | BYO-key recommended for teams (NerdGraph concurrency is per NR user) | RESEARCH §2, ADR-0008 |
+| 2026-10-03 | Phase 0 spikes complete. **GO for Phase 1.** claude.ai / mobile client checks deferred to P5-06 | P0-11 |
 
 ## Task index
 
@@ -63,16 +64,16 @@ Generated from task front matter (`pnpm tasks index` once P0-05 lands). Status l
 | ID | Task | Priority | Depends on | Status |
 |---|---|---|---|---|
 | P0-01 | [Bootstrap the monorepo](tasks/phase-0-foundations/P0-01-repo-bootstrap.md) | high | — | review |
-| P0-02 | [License and community files](tasks/phase-0-foundations/P0-02-license-community.md) | high | P0-01 | review |
-| P0-03 | [CI pipeline](tasks/phase-0-foundations/P0-03-ci-pipeline.md) | high | P0-01 | review |
+| P0-02 | [License and community files](tasks/phase-0-foundations/P0-02-license-community.md) | high | P0-01 | done |
+| P0-03 | [CI pipeline](tasks/phase-0-foundations/P0-03-ci-pipeline.md) | high | P0-01 | done |
 | P0-04 | [Security tooling baseline](tasks/phase-0-foundations/P0-04-security-tooling.md) | high | P0-03 | review |
-| P0-05 | [AI-agent workflow and task tooling](tasks/phase-0-foundations/P0-05-agent-workflow.md) | high | P0-01 | review |
-| P0-06 | [Spike: Workers free-plan CPU and subrequest budget](tasks/phase-0-foundations/P0-06-spike-workers-limits.md) | high | P0-01 | review |
-| P0-07 | [Spike: MCP SDK v2 dual-era handler on Workers and Node with real clients](tasks/phase-0-foundations/P0-07-spike-mcp-sdk-v2.md) | high | P0-01 | blocked |
-| P0-08 | [Spike: OAuth 2.1 server on Workers and Node, per-slug resources](tasks/phase-0-foundations/P0-08-spike-oauth-portability.md) | high | P0-07 | blocked |
-| P0-09 | [Spike: NerdGraph behaviour, limits and fixtures](tasks/phase-0-foundations/P0-09-spike-nerdgraph-behaviour.md) | high | P0-01 | review |
-| P0-10 | [Review community New Relic MCP servers](tasks/phase-0-foundations/P0-10-prior-art-review.md) | medium | — | review |
-| P0-11 | [Spike results and go/no-go for Phase 1](tasks/phase-0-foundations/P0-11-spike-results-go-no-go.md) | high | P0-06, P0-07, P0-08, P0-09, P0-10 | in-progress |
+| P0-05 | [AI-agent workflow and task tooling](tasks/phase-0-foundations/P0-05-agent-workflow.md) | high | P0-01 | done |
+| P0-06 | [Spike: Workers free-plan CPU and subrequest budget](tasks/phase-0-foundations/P0-06-spike-workers-limits.md) | high | P0-01 | done |
+| P0-07 | [Spike: MCP SDK v2 dual-era handler on Workers and Node with real clients](tasks/phase-0-foundations/P0-07-spike-mcp-sdk-v2.md) | high | P0-01 | done |
+| P0-08 | [Spike: OAuth 2.1 server on Workers and Node, per-slug resources](tasks/phase-0-foundations/P0-08-spike-oauth-portability.md) | high | P0-07 | done |
+| P0-09 | [Spike: NerdGraph behaviour, limits and fixtures](tasks/phase-0-foundations/P0-09-spike-nerdgraph-behaviour.md) | high | P0-01 | done |
+| P0-10 | [Review community New Relic MCP servers](tasks/phase-0-foundations/P0-10-prior-art-review.md) | medium | — | done |
+| P0-11 | [Spike results and go/no-go for Phase 1](tasks/phase-0-foundations/P0-11-spike-results-go-no-go.md) | high | P0-06, P0-07, P0-08, P0-09, P0-10 | done |
 
 ### Phase 1
 

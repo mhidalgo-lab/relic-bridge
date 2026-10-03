@@ -2,7 +2,7 @@
 id: P0-03
 title: CI pipeline
 phase: 0
-status: review
+status: done
 priority: high
 depends_on: [P0-01]
 adr: [0004]

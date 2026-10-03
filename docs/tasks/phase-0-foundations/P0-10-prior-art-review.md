@@ -2,7 +2,7 @@
 id: P0-10
 title: Review community New Relic MCP servers
 phase: 0
-status: review
+status: done
 priority: medium
 depends_on: []
 adr: []

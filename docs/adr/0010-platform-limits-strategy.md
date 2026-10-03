@@ -61,6 +61,7 @@ production free-plan deployment can show whether cold calls exceed the limit. Th
 | 1 MB | 10.2 ms | 14.9 ms | 39.7 ms |
 | 5 MB | 45.8 ms | 54.1 ms | 61.9 ms |
 
-Cold first call: 17–35 ms CPU (n=5). **No request was terminated**, so the account's plan or Free's leniency is unconfirmed (see
-`spikes/workers-limits/RESULTS.md`). The presets above stand: 512 KiB keeps warm calls at about 5 ms. NerdGraph latency for
+Cold first call: 17–35 ms CPU (n=5). **No request was terminated on the Workers Free plan** (confirmed by the maintainer;
+Workers Logs show `cpuTimeMs` up to 61 ms with `outcome: ok`). Free tolerates overruns in practice but it isn't guaranteed,
+so we don't rely on it. The presets above stand: 512 KiB keeps warm calls at about 5 ms. NerdGraph latency for
 lean queries is ~230–470 ms (P0-09), so wall time is dominated by NerdGraph, not by the Worker.

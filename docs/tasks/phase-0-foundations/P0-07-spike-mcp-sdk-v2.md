@@ -2,7 +2,7 @@
 id: P0-07
 title: "Spike: MCP SDK v2 dual-era handler on Workers and Node with real clients"
 phase: 0
-status: blocked
+status: done
 priority: high
 depends_on: [P0-01]
 adr: [0005]
@@ -21,9 +21,9 @@ Prove one Hono app with `createMcpHandler(factory, { legacy: 'stateless' })` ser
 - Check: tool listing per request (factory filters tools by a fake grant), error mapping, JSON Schema 2020-12 inputs, `annotations` (`readOnlyHint`).
 
 ## Acceptance criteria
-- [ ] Compatibility matrix table added to RESEARCH.md §4 "Measured".
+- [x] Compatibility matrix table added to RESEARCH.md §4 "Measured".
 - [x] Any client that fails has a documented workaround or an ADR-0005 amendment.
-- [ ] Authless test deployment deleted after the spike.
+- [x] Authless test deployment deleted after the spike.
 
 ## Security notes
 The authless test Worker must expose only the `echo` tool and be deleted afterwards (T20).
@@ -40,8 +40,5 @@ The authless test Worker must expose only the `echo` tool and be deleted afterwa
 
 - 2026-10-02: echo Worker deployed (`relic-bridge-spike-echo`). Inspector CLI and Claude Code 2.1.287 (http, http+header,
   stdio) verified; remaining clients need the maintainer (see Blocker).
-
-## Blocker
-Real-client matrix (Claude Desktop, claude.ai web, Claude mobile, Cursor, VS Code) needs the short-lived echo-only test
-Worker in `spikes/mcp-sdk-v2/deploy-and-test.md`. Waiting for maintainer approval. This doesn't block Phase 1; if it's still
-open at P0-11, it moves into P5-06.
+- 2026-10-03: GitHub Copilot Desktop verified by the maintainer. claude.ai / Desktop connectors / mobile can't be tested
+  (custom connectors unavailable on the account), so that check moves to P5-06. Echo Worker deleted.

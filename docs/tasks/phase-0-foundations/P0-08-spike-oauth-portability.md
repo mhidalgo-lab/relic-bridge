@@ -2,7 +2,7 @@
 id: P0-08
 title: "Spike: OAuth 2.1 server on Workers and Node, per-slug resources"
 phase: 0
-status: blocked
+status: done
 priority: high
 depends_on: [P0-07]
 adr: [0009]
@@ -26,7 +26,7 @@ Decide the OAuth implementation path before the access model is built, so tokens
 ## Acceptance criteria
 - [x] Decision written to ADR-0009 (library per runtime, KV adapter yes/no).
 - [x] Per-slug audience isolation demonstrated with a negative test.
-- [ ] Notes on which clients use DCR vs CIMD added to RESEARCH.md §3.
+- [x] Notes on which clients use DCR vs CIMD added to RESEARCH.md §3.
 
 ## Security notes
 T2, T9, T10, T11. Spike deployment protected or deleted after use.
@@ -44,7 +44,5 @@ T2, T9, T10, T11. Spike deployment protected or deleted after use.
 - 2026-10-02: OAuth Worker deployed (`relic-bridge-spike-oauth`). CIMD and DCR flows pass against production; confirmed that
   the project list must come from storage (isolates don't share memory). claude.ai, mobile and Claude Code browser login need
   the maintainer.
-
-## Blocker
-Real OAuth run with claude.ai web, Claude mobile and Claude Code needs the protected test Worker in
-`spikes/oauth/deploy-and-test.md`. Waiting for maintainer approval. Then fill in "Real-client results" and the DCR/CIMD notes in RESEARCH §3.
+- 2026-10-03: OAuth verified end to end with Claude Code and GitHub Copilot Desktop on the deployed Worker; CIMD + DCR e2e
+  passed against production. claude.ai / mobile moved to P5-06. Worker + KV deleted.

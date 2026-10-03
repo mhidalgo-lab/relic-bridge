@@ -130,3 +130,8 @@ Manual (maintainer):
 
 | Client + version | Registration used (CIMD/DCR) | Connected? | echo OK? | Refresh seen after 1 h? | Notes |
 |---|---|---|---|---|---|
+| Claude Code 2.1.287 | CIMD expected (not visible in exported logs) | yes | yes | not observed | Maintainer test, 2026-10-02 |
+| GitHub Copilot Desktop | not recorded | yes | yes | not observed | Maintainer test, 2026-10-02 |
+| claude.ai web / Claude mobile | — | — | — | — | Custom connectors unavailable on the maintainer's account; deferred to P5-06 |
+
+The test Worker and KV namespace were deleted on 2026-10-03.

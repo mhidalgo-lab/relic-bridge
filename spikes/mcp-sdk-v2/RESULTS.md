@@ -115,8 +115,13 @@ pnpm exec tsx test/run.ts stdio
 | Claude Code (http) | 2.1.287 | yes | yes | **modern** | Via a temporary `--mcp-config` (user config untouched) |
 | Claude Code (http + `Authorization` header) | 2.1.287 | yes | yes | modern | Header accepted alongside |
 | Claude Code (stdio, local) | 2.1.287 | yes | yes | modern | `env` block in the MCP config reached the server (`SPIKE_SLUG=b`) |
-| Claude Desktop | | | | | pending: maintainer |
-| claude.ai web | | | | | pending: maintainer |
-| Claude mobile | | | | | pending: maintainer |
-| Cursor | | | | | pending: maintainer (optional) |
-| VS Code (Copilot agent) | | | | | pending: maintainer (optional) |
+| GitHub Copilot Desktop | (2026-10) | yes | yes | — | Tested by maintainer on the deployed Worker |
+| Claude Desktop / claude.ai web / Claude mobile | — | — | — | — | **Not testable:** custom connectors aren't available on the maintainer's Claude account. Deferred to P5-06 |
+| Cursor / VS Code | — | — | — | — | Optional; not tested |
+
+**Log observations (Workers Logs, maintainer's export):**
+- Claude Code 2.1.287 sends `server/discover`, `tools/list`, `tools/call` with `mcp-protocol-version: 2026-07-28` plus
+  `mcp-method` / `mcp-name` headers. It also opens a **`subscriptions/listen`** POST that stays open until the client cancels it
+  (~5.7 s wall, 3–5 ms CPU). P2-06 must handle it deliberately.
+- A 2025-era client (`mcp-protocol-version: 2025-11-25`) sent its standalone SSE `GET` → 405 as designed and carried on normally.
+- Cold `server/discover`: 21–23 ms CPU; warm calls: 4–8 ms.

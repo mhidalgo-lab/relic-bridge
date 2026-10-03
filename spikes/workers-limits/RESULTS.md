@@ -148,7 +148,11 @@ Findings:
   counts only one of them. Our budget keeps counting both (conservative).
 - Workers Logs: not checked for a CPU field (analytics was enough). Low priority.
 
-Remaining: confirm the account's Workers plan; if it's Paid, re-run the 1 MB/5 MB windows on a Free account before P3-03.
+**Confirmed by the maintainer: the account is on the Workers Free plan.** Workers Logs (exported) show per-request
+`$workers.cpuTimeMs` / `wallTimeMs` / `outcome`. 5 MB calls ran at 29–61 ms CPU and 1 MB calls at 8–14 ms, all `outcome: ok`.
+Wall times (~150–250 ms) show no queueing. Conclusion: in this test, Free **did not enforce 10 ms per request**, which is
+consistent with Cloudflare's documented tolerance for occasional overruns. It's not something to design on, so the presets stay.
+Workers Logs `cpuTimeMs` is the per-request CPU field (it answers the open question above).
 
 ## Files
 

@@ -2,7 +2,7 @@
 id: P0-09
 title: "Spike: NerdGraph behaviour, limits and fixtures"
 phase: 0
-status: review
+status: done
 priority: high
 depends_on: [P0-01]
 adr: [0010]

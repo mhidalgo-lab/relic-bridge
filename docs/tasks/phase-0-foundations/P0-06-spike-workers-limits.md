@@ -2,7 +2,7 @@
 id: P0-06
 title: "Spike: Workers free-plan CPU and subrequest budget"
 phase: 0
-status: review
+status: done
 priority: high
 depends_on: [P0-01]
 adr: [0010]
@@ -44,3 +44,4 @@ Use synthetic data only; no real NR keys in the spike.
 - 2026-10-02: deployed on the maintainer's account, measured production CPU (warm per size + 5 cold starts) via GraphQL
   Analytics, then deleted all spike resources (2 Workers, 1 D1). Results in `spikes/workers-limits/RESULTS.md` and ADR-0010.
 - **Open question for the maintainer:** is the account on Workers Free or Paid? No request was terminated even at 46–62 ms.
+- 2026-10-02: maintainer confirmed Workers **Free** plan; Workers Logs show per-request `cpuTimeMs`; no kills observed up to 61 ms.

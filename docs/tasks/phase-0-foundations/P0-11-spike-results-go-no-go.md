@@ -2,7 +2,7 @@
 id: P0-11
 title: Spike results and go/no-go for Phase 1
 phase: 0
-status: in-progress
+status: done
 priority: high
 depends_on: [P0-06, P0-07, P0-08, P0-09, P0-10]
 adr: [0005, 0009, 0010]
@@ -21,8 +21,8 @@ Combine the spike findings, update decisions, and adjust later task files **befo
 - Short summary in ROADMAP.md "Decision log".
 
 ## Acceptance criteria
-- [ ] No ADR left "pending spike".
-- [ ] `pnpm tasks check` passes after edits.
+- [x] No ADR left "pending spike".
+- [x] `pnpm tasks check` passes after edits.
 
 ## Security notes
 Re-read THREAT_MODEL.md against spike findings.
@@ -39,3 +39,7 @@ Re-read THREAT_MODEL.md against spike findings.
 - **Remaining:** fold in the live results (P0-06 production CPU, P0-07/P0-08 real clients, P0-09 NerdGraph measurements),
   then decide go/no-go. **Proposed:** Phase 1 can start on local evidence. Only P1-03 (async fallback) and P1-08 (escaping
   rule) depend on P0-09, and both have safe defaults.
+- 2026-10-03 **Decision: GO for Phase 1.** All ADRs accepted (no "pending spike" left). Evidence: SDK v2 dual-era works on Node,
+  Workers and stdio with real clients; OAuth library verified on both runtimes; Workers Free handles realistic payloads
+  (512 KiB cap); NerdGraph behaviour and fixtures captured. Carried forward: claude.ai / mobile validation (P5-06); optional
+  NerdGraph re-probe on an account with APM data (before P1-03/P1-09).

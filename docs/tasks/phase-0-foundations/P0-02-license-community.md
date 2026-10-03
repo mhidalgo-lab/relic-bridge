@@ -2,7 +2,7 @@
 id: P0-02
 title: License and community files
 phase: 0
-status: review
+status: done
 priority: high
 depends_on: [P0-01]
 adr: [0002, 0003]

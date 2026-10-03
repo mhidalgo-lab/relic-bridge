@@ -2,7 +2,7 @@
 id: P0-05
 title: AI-agent workflow and task tooling
 phase: 0
-status: review
+status: done
 priority: high
 depends_on: [P0-01]
 adr: [0001]

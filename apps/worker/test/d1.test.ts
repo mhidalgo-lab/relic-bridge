@@ -30,16 +30,15 @@ runStorageContract({
 
 describe('access resolution equivalence (d1)', () => {
   // P3-09: the one-batch path decides exactly like the repository path, on the real D1 engine. Fewer runs than on
-  // Node: every run writes a fresh world through the local D1 simulator. Allowed outcomes are a few percent of runs, so
-  // 30 random runs often reached none (a flaky CI failure): the seed is fixed; the SQLite run stays random.
+  // Node (every run writes a fresh world through the local D1 simulator), random seed: see the phase-3 review for why
+  // the earlier pinned seed hid only a coverage flake, not a divergence.
   runAccessEquivalence({
     name: 'd1',
     open: async () => {
       await wipe();
       return createD1Storage(db);
     },
-    runs: 30,
-    seed: 1,
+    runs: 60,
     timeout: 120_000,
   });
 });

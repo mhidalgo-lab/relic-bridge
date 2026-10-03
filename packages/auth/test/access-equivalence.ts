@@ -18,12 +18,39 @@ const NOW = 1_800_000_000_000;
 const CATALOG = ['whoami', 'run_nrql', 'search_entities', 'list_accounts'] as const;
 const ACCOUNTS = [1, 2, 3, 4] as const;
 
-/** Mostly live: a state that is off one time in six keeps allowed outcomes common enough. */
-const rarely = fc.constantFrom(false, false, false, false, false, true);
+/**
+ * How hostile a generated world is. `mixed`: any state is off one time in six (revoked, disabled, expired, invalid…),
+ * which mostly yields denials, each for a different reason. `live`: nothing is revoked, disabled, expired or
+ * unvalidated, so the outcome turns on the structural checks (project binding, credential ownership, tool and account
+ * intersections) and allowed decisions are common. Half the worlds are each: in `mixed` worlds alone only ~5% of runs
+ * reach an allowed decision, so a short run (D1: 30) often compared denials only (the P3-11 "flaky" coverage check).
+ */
+interface Hostility {
+  readonly off: fc.Arbitrary<boolean>;
+  /** Disabled users: also in `live` worlds, where a disabled key owner is the only thing that can deny a shared key. */
+  readonly userOff: fc.Arbitrary<boolean>;
+  readonly status: fc.Arbitrary<'valid' | 'invalid' | 'unvalidated'>;
+  readonly expiry: fc.Arbitrary<number | null>;
+  /** Weight of presented tokens that are not in storage (unknown, malformed, bad checksum) and of foreign slugs. */
+  readonly stray: number;
+}
 const subset = <T>(values: readonly T[]) => fc.subarray([...values]);
 const nullable = <T>(arb: fc.Arbitrary<T>) => fc.option(arb, { nil: null, freq: 2 });
-/** Expiry relative to NOW: mostly none or future; sometimes past or exactly now (both expired). */
-const expiry = fc.constantFrom<number | null>(null, null, null, 60_000, 60_000, 60_000, -60_000, 0);
+const MIXED: Hostility = {
+  off: fc.constantFrom(false, false, false, false, false, true),
+  userOff: fc.constantFrom(false, false, false, false, false, true),
+  status: fc.constantFrom('valid', 'valid', 'valid', 'valid', 'invalid', 'unvalidated'),
+  /** Expiry relative to NOW: mostly none or future; sometimes past or exactly now (both expired). */
+  expiry: fc.constantFrom<number | null>(null, null, null, 60_000, 60_000, 60_000, -60_000, 0),
+  stray: 1,
+};
+const LIVE: Hostility = {
+  off: fc.constant(false),
+  userOff: fc.constantFrom(false, false, false, true),
+  status: fc.constant('valid'),
+  expiry: fc.constantFrom<number | null>(null, 60_000),
+  stray: 0,
+};
 const limits: fc.Arbitrary<StoredLimits> = fc.constantFrom<StoredLimits>(
   {},
   { rawNrql: false },
@@ -31,72 +58,72 @@ const limits: fc.Arbitrary<StoredLimits> = fc.constantFrom<StoredLimits>(
   { eventTypes: { allow: ['Transaction'] } },
 );
 
-const worldArb = fc.record({
-  users: fc.array(fc.record({ disabled: rarely }), { minLength: 1, maxLength: 3 }),
-  credentials: fc.array(
-    fc.record({
-      owner: nullable(fc.nat(2)),
-      revoked: rarely,
-      status: fc.constantFrom('valid', 'valid', 'valid', 'valid', 'invalid', 'unvalidated'),
-      reachable: fc.oneof(subset(ACCOUNTS), fc.constant([...ACCOUNTS])),
-      region: fc.constantFrom('US', 'EU'),
-    }),
-    { minLength: 1, maxLength: 3 },
-  ),
-  projects: fc.array(
-    fc.record({
-      disabled: rarely,
-      defaultCredential: nullable(fc.nat(2)),
-      allowed: subset(ACCOUNTS).filter((a) => a.length > 0),
-      defaultAccount: fc.constantFrom(...ACCOUNTS),
-      enabledTools: fc.oneof(fc.constant(null), fc.constant(null), subset(CATALOG)),
-      limits,
-    }),
-    { minLength: 1, maxLength: 3 },
-  ),
-  grants: fc.array(
-    fc.record({
-      project: fc.nat(2),
-      user: nullable(fc.nat(2)),
-      credential: nullable(fc.nat(2)),
-      revoked: rarely,
-      expires: expiry,
-      tools: fc.oneof(fc.constant(null), fc.constant(null), subset(CATALOG)),
-      accounts: fc.oneof(fc.constant(null), fc.constant(null), subset(ACCOUNTS)),
-      limits,
-    }),
-    { minLength: 1, maxLength: 4 },
-  ),
-  tokens: fc.array(
-    fc.record({
-      grant: fc.nat(3),
-      revoked: rarely,
-      expires: expiry,
-      lastUsed: nullable(
-        fc.constantFrom(1_000, LAST_USED_WRITE_INTERVAL_MS, 2 * LAST_USED_WRITE_INTERVAL_MS),
-      ),
-    }),
-    { minLength: 1, maxLength: 4 },
-  ),
-  queries: fc.array(
-    fc.record({
-      token: fc.oneof(
-        fc.nat(3),
-        fc.nat(3),
-        fc.nat(3),
-        fc.constantFrom('unknown', 'malformed', 'bad_checksum'),
-      ),
-      // `own`: the project of the token's grant (the usual request); a number: any project.
-      slug: fc.oneof(
-        fc.constant('own'),
-        fc.constant('own'),
-        fc.nat(2),
-        fc.constantFrom('nope', 'Bad Slug!', ''),
-      ),
-    }),
-    { minLength: 1, maxLength: 6 },
-  ),
-});
+const worldOf = ({ off: rarely, userOff, status, expiry, stray }: Hostility) =>
+  fc.record({
+    users: fc.array(fc.record({ disabled: userOff }), { minLength: 1, maxLength: 3 }),
+    credentials: fc.array(
+      fc.record({
+        owner: nullable(fc.nat(2)),
+        revoked: rarely,
+        status,
+        reachable: fc.oneof(subset(ACCOUNTS), fc.constant([...ACCOUNTS])),
+        region: fc.constantFrom('US', 'EU'),
+      }),
+      { minLength: 1, maxLength: 3 },
+    ),
+    projects: fc.array(
+      fc.record({
+        disabled: rarely,
+        defaultCredential: nullable(fc.nat(2)),
+        allowed: subset(ACCOUNTS).filter((a) => a.length > 0),
+        defaultAccount: fc.constantFrom(...ACCOUNTS),
+        enabledTools: fc.oneof(fc.constant(null), fc.constant(null), subset(CATALOG)),
+        limits,
+      }),
+      { minLength: 1, maxLength: 3 },
+    ),
+    grants: fc.array(
+      fc.record({
+        project: fc.nat(2),
+        user: nullable(fc.nat(2)),
+        credential: nullable(fc.nat(2)),
+        revoked: rarely,
+        expires: expiry,
+        tools: fc.oneof(fc.constant(null), fc.constant(null), subset(CATALOG)),
+        accounts: fc.oneof(fc.constant(null), fc.constant(null), subset(ACCOUNTS)),
+        limits,
+      }),
+      { minLength: 1, maxLength: 4 },
+    ),
+    tokens: fc.array(
+      fc.record({
+        grant: fc.nat(3),
+        revoked: rarely,
+        expires: expiry,
+        lastUsed: nullable(
+          fc.constantFrom(1_000, LAST_USED_WRITE_INTERVAL_MS, 2 * LAST_USED_WRITE_INTERVAL_MS),
+        ),
+      }),
+      { minLength: 1, maxLength: 4 },
+    ),
+    queries: fc.array(
+      fc.record({
+        token: fc.oneof(
+          { arbitrary: fc.nat(3), weight: 3 },
+          { arbitrary: fc.constantFrom('unknown', 'malformed', 'bad_checksum'), weight: stray },
+        ),
+        // `own`: the project of the token's grant (the usual request); a number: any project.
+        slug: fc.oneof(
+          { arbitrary: fc.constant('own'), weight: 2 + 2 * (1 - stray) },
+          { arbitrary: fc.nat(2), weight: 1 },
+          { arbitrary: fc.constantFrom('nope', 'Bad Slug!', ''), weight: stray },
+        ),
+      }),
+      { minLength: 1, maxLength: 6 },
+    ),
+  });
+
+const worldArb = fc.oneof(worldOf(MIXED), worldOf(LIVE));
 
 type WorldSpec = typeof worldArb extends fc.Arbitrary<infer T> ? T : never;
 
@@ -267,11 +294,6 @@ export interface AccessEquivalenceOptions {
   readonly open: () => Promise<Storage>;
   readonly runs: number;
   readonly timeout?: number;
-  /**
-   * fast-check seed. Allowed outcomes are rare in the generated worlds (a few percent of runs), so a short random run
-   * can miss them and fail the "reaches both outcomes" check; a fixed seed makes that check deterministic.
-   */
-  readonly seed?: number;
 }
 
 export function runAccessEquivalence(options: AccessEquivalenceOptions): void {
@@ -327,9 +349,10 @@ export function runAccessEquivalence(options: AccessEquivalenceOptions): void {
           }
           await base.close();
         }),
-        { numRuns: options.runs, ...(options.seed === undefined ? {} : { seed: options.seed }) },
+        { numRuns: options.runs },
       );
-      // The generator reaches both outcomes (otherwise the property says little).
+      // The generator reaches both outcomes (otherwise the property says little). About one run in five reaches an
+      // allowed decision, so 60 random runs miss it with probability ~1e-6: a failure here is a generator regression.
       expect(allowed).toBeGreaterThan(0);
       expect(denied).toBeGreaterThan(0);
     },

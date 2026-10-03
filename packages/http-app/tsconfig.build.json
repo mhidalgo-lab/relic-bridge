@@ -1,0 +1,9 @@
+{
+  // Build (declarations): resolve sibling packages through their published `dist`, never their sources.
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "types": [],
+    "lib": ["es2023", "webworker"]
+  },
+  "include": ["src"]
+}

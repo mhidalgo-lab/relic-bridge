@@ -22,7 +22,15 @@
   "relicBridge": {
     "runtime": "web"
   },
+  "dependencies": {
+    "@modelcontextprotocol/server": "2.2.0",
+    "@relic-bridge/auth": "workspace:*",
+    "@relic-bridge/core": "workspace:*",
+    "@relic-bridge/storage": "workspace:*",
+    "hono": "4.13.11"
+  },
   "devDependencies": {
+    "@modelcontextprotocol/client": "2.2.0",
     "tsdown": "0.23.0"
   }
 }

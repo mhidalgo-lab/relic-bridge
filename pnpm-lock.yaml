@@ -196,9 +196,15 @@ importers:
 
   apps/cli:
     dependencies:
+      '@hono/node-server':
+        specifier: 2.1.3
+        version: 2.1.3(hono@4.13.11)
       '@modelcontextprotocol/server':
         specifier: 2.2.0
         version: 2.2.0
+      hono:
+        specifier: 4.13.11
+        version: 4.13.11
       yaml:
         specifier: 2.9.1
         version: 2.9.1
@@ -215,6 +221,9 @@ importers:
       '@relic-bridge/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@relic-bridge/http-app':
+        specifier: workspace:*
+        version: link:../../packages/http-app
       '@relic-bridge/storage':
         specifier: workspace:*
         version: link:../../packages/storage
@@ -273,7 +282,26 @@ importers:
         version: 0.23.0(tsx@4.23.15)(typescript@7.0.2)
 
   packages/http-app:
+    dependencies:
+      '@modelcontextprotocol/server':
+        specifier: 2.2.0
+        version: 2.2.0
+      '@relic-bridge/auth':
+        specifier: workspace:*
+        version: link:../auth
+      '@relic-bridge/core':
+        specifier: workspace:*
+        version: link:../core
+      '@relic-bridge/storage':
+        specifier: workspace:*
+        version: link:../storage
+      hono:
+        specifier: 4.13.11
+        version: 4.13.11
     devDependencies:
+      '@modelcontextprotocol/client':
+        specifier: 2.2.0
+        version: 2.2.0
       tsdown:
         specifier: 0.23.0
         version: 0.23.0(tsx@4.23.15)(typescript@7.0.2)
@@ -777,6 +805,12 @@ packages:
     engines: {node: '>=18'}
     cpu: [x64]
     os: [win32]
+
+  '@hono/node-server@2.1.3':
+    resolution: {integrity: sha512-TA//nWMqPhbfdfneACk6t5a9eqbS9lABEPyKn0/xZTah3H3U2XaVg85rJFl0/Fyit0I552YDHgXGVSf3GwqbUw==}
+    engines: {node: '>=20'}
+    peerDependencies:
+      hono: ^4
 
   '@jridgewell/resolve-uri@3.1.2':
     resolution: {integrity: sha512-bRISgCIjP20/tbWSPWMEi54QVPRZExkuD9lJL+UIxUKtwVJA8wW1Trb1jMs1RFXo1CBTNZ/5hpC9QvmKWdopKw==}
@@ -1438,6 +1472,10 @@ packages:
   has-flag@4.0.0:
     resolution: {integrity: sha512-EykJT/Q1KjTWctppgIAgfSO0tKVuZUjhgMr17kqTumMl6Afv3EISleU7qZUzoXDFTAHTDC4NOoG/ZxU3EvlMPQ==}
     engines: {node: '>=8'}
+
+  hono@4.13.11:
+    resolution: {integrity: sha512-/SMX/RQNJn7oNmFwH6DtwDqcrzZU2otm1FD6OJe2cWF6cfy/F8hq0XVBv7xW3FTJshRQwuBnXHDq2kNsdZnshg==}
+    engines: {node: '>=16.9.0'}
 
   hookable@6.1.2:
     resolution: {integrity: sha512-+abwxtiEA52GCVIsQqut3S/uKTbUwYIp4Pe/vv+6py5XiXBCqMZHg6pA6Y5qhgLSEys0/cYuPbO0z1QFj5ZCmg==}
@@ -2262,6 +2300,10 @@ snapshots:
   '@esbuild/win32-x64@0.28.2':
     optional: true
 
+  '@hono/node-server@2.1.3(hono@4.13.11)':
+    dependencies:
+      hono: 4.13.11
+
   '@jridgewell/resolve-uri@3.1.2': {}
 
   '@jridgewell/sourcemap-codec@1.6.0': {}
@@ -2705,6 +2747,8 @@ snapshots:
       resolve-pkg-maps: 1.0.0
 
   has-flag@4.0.0: {}
+
+  hono@4.13.11: {}
 
   hookable@6.1.2: {}
 

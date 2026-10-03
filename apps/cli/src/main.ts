@@ -12,6 +12,7 @@ import { HELP_TEXT, isLogLevel, parseCliArgs, UsageError } from './args.ts';
 import { ConfigError, type ConfigFs, type Env, loadConfig } from './config.ts';
 import { credentialRevalidate } from './credentials.ts';
 import { keysGenerate, keysRotate } from './keys.ts';
+import { isBootError, type RunningServer, serveSettings, startServer } from './serve.ts';
 import { serveProjectOverStdio } from './stdio.ts';
 import { nerdGraphFetch } from './test-hooks.ts';
 
@@ -31,7 +32,9 @@ export type MainResult =
   | { readonly kind: 'exit'; readonly code: number }
   /** An async command (`keys rotate`); `done` resolves to its exit code. */
   | { readonly kind: 'pending'; readonly done: Promise<number> }
-  | { readonly kind: 'serving'; readonly close: () => Promise<void> };
+  | { readonly kind: 'serving'; readonly close: () => Promise<void> }
+  /** `serve`: resolves to the running HTTP server, or to an exit code when it could not start. */
+  | { readonly kind: 'server'; readonly started: Promise<RunningServer | number> };
 
 const exit = (code: number): MainResult => ({ kind: 'exit', code });
 
@@ -95,6 +98,43 @@ export function main(rt: CliRuntime): MainResult {
     return {
       kind: 'pending',
       done: keysRotate({ dbPath, env: rt.env, fs: rt.fs, platform: rt.platform, stdout: rt.stdout, logger }),
+    };
+  }
+
+  if (args.command === 'serve') {
+    const bootError = (error: unknown): number => {
+      if (!isBootError(error)) throw error;
+      logger.error(error.message, {
+        ...('code' in error && typeof error.code === 'string' ? { code: error.code } : {}),
+        ...('hint' in error && typeof error.hint === 'string' ? { hint: error.hint } : {}),
+      });
+      return 1;
+    };
+    let settings: ReturnType<typeof serveSettings>;
+    let fetch: ReturnType<typeof nerdGraphFetch>;
+    try {
+      settings = serveSettings({
+        ...(args.port === undefined ? {} : { port: args.port }),
+        ...(args.host === undefined ? {} : { host: args.host }),
+        ...(args.db === undefined ? {} : { db: args.db }),
+        env: rt.env,
+        platform: rt.platform,
+        ...(rt.homeDir === undefined ? {} : { homeDir: rt.homeDir }),
+      });
+      fetch = nerdGraphFetch(rt.env, logger);
+    } catch (error) {
+      return exit(bootError(error));
+    }
+    return {
+      kind: 'server',
+      started: startServer({
+        settings,
+        env: rt.env,
+        fs: rt.fs,
+        platform: rt.platform,
+        logger,
+        ...(fetch === undefined ? {} : { fetch }),
+      }).catch(bootError),
     };
   }
 

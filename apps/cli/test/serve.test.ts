@@ -1,0 +1,148 @@
+// SPDX-License-Identifier: Apache-2.0
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { generateMasterKey } from '@relic-bridge/auth';
+import { createLogger } from '@relic-bridge/core';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { parseCliArgs, UsageError } from '../src/args.ts';
+import { ConfigError } from '../src/config.ts';
+import { main } from '../src/main.ts';
+import { defaultDataDir, resolveDbPath, serveSettings, startServer } from '../src/serve.ts';
+import { memoryFs } from './helpers.ts';
+
+describe('serve arguments', () => {
+  it('parses serve with --port, --host and --db', () => {
+    expect(parseCliArgs(['serve', '--port', '0', '--host', '::1', '--db', 'x.db'])).toEqual({
+      command: 'serve',
+      port: '0',
+      host: '::1',
+      db: 'x.db',
+    });
+  });
+
+  it('refuses --port/--host outside serve and --config with serve', () => {
+    expect(() => parseCliArgs(['--port', '1'])).toThrow(UsageError);
+    expect(() => parseCliArgs(['keys', 'generate', '--host', 'x'])).toThrow(UsageError);
+    expect(() => parseCliArgs(['serve', '--config', 'a.yaml'])).toThrow(UsageError);
+    expect(() => parseCliArgs(['serve', 'extra'])).toThrow(UsageError);
+  });
+});
+
+describe('serveSettings', () => {
+  const base = { env: {}, platform: 'linux', homeDir: '/home/u' };
+
+  it('defaults to 127.0.0.1:8787, loopback Host allowlist and the per-user data directory', () => {
+    const s = serveSettings(base);
+    expect(s).toMatchObject({
+      port: 8787,
+      host: '127.0.0.1',
+      dbPath: '/home/u/.local/share/relic-bridge/relic-bridge.db',
+      corsOrigins: [],
+      hsts: 'auto',
+    });
+    expect(s.allowedHosts).toEqual(expect.arrayContaining(['localhost', '127.0.0.1']));
+  });
+
+  it('reads RB_* variables; flags win', () => {
+    const s = serveSettings({
+      ...base,
+      port: '9000',
+      env: {
+        RB_PORT: '1',
+        RB_HOST: '0.0.0.0',
+        RB_ALLOWED_HOSTS: 'MCP.example.com, other.example.com',
+        RB_CORS_ORIGINS: 'https://app.example.com',
+        RB_ACCESS_CACHE_TTL: '0',
+        RB_HSTS: 'true',
+        RB_DB_PATH: '/srv/rb.db',
+      },
+    });
+    expect(s).toMatchObject({
+      port: 9000,
+      host: '0.0.0.0',
+      allowedHosts: ['mcp.example.com', 'other.example.com'],
+      corsOrigins: ['https://app.example.com'],
+      accessCacheTtlMs: 0,
+      hsts: true,
+      dbPath: '/srv/rb.db',
+    });
+  });
+
+  it('needs RB_ALLOWED_HOSTS for a non-loopback bind; * is accepted with a warning', () => {
+    expect(() => serveSettings({ ...base, host: '0.0.0.0' })).toThrow(/RB_ALLOWED_HOSTS/);
+    const s = serveSettings({ ...base, host: '0.0.0.0', env: { RB_ALLOWED_HOSTS: '*' } });
+    expect(s.allowedHosts).toBe('*');
+    expect(s.warnings[0]).toMatch(/disables Host validation/);
+  });
+
+  it('refuses bad values', () => {
+    for (const bad of [
+      { port: '70000' },
+      { port: 'abc' },
+      { host: 'a b' },
+      { env: { RB_ACCESS_CACHE_TTL: '61' } },
+      { env: { RB_ACCESS_CACHE_TTL: '-1' } },
+      { env: { RB_HSTS: 'maybe' } },
+      { env: { RB_CORS_ORIGINS: 'app.example.com' } },
+    ]) {
+      expect(() => serveSettings({ ...base, ...bad })).toThrow(ConfigError);
+    }
+  });
+
+  it('picks the data directory per platform', () => {
+    expect(defaultDataDir({ RB_DATA_DIR: '/data' }, 'linux', '/h')).toBe('/data');
+    expect(defaultDataDir({ XDG_DATA_HOME: '/x' }, 'linux', '/h')).toBe(join('/x', 'relic-bridge'));
+    expect(defaultDataDir({}, 'darwin', '/h')).toBe(
+      join('/h', 'Library', 'Application Support', 'relic-bridge'),
+    );
+    expect(defaultDataDir({ LOCALAPPDATA: 'C:\\L' }, 'win32', 'C:\\h')).toBe(join('C:\\L', 'relic-bridge'));
+    expect(defaultDataDir({}, 'linux', undefined)).toBeNull();
+    expect(() => resolveDbPath(undefined, {}, 'linux', undefined)).toThrow(ConfigError);
+  });
+});
+
+describe('startServer (in process)', () => {
+  let tmp: string;
+  beforeEach(() => {
+    tmp = mkdtempSync(join(tmpdir(), 'rb-serve-'));
+  });
+  afterEach(() => rmSync(tmp, { recursive: true, force: true }));
+
+  it('creates the database, registers the key and serves /health; a different key is then refused', async () => {
+    const lines: string[] = [];
+    const logger = createLogger({ sink: (l) => lines.push(l) });
+    const key = generateMasterKey(1);
+    const settings = serveSettings({ port: '0', db: join(tmp, 'd', 'rb.db'), env: {}, platform: 'linux' });
+    const common = { settings, fs: memoryFs({}), platform: 'linux', logger };
+    const server = await startServer({ ...common, env: { RB_MASTER_KEY: key } });
+    try {
+      const res = await fetch(`${server.url}/health`);
+      expect(await res.json()).toEqual({ status: 'ok' });
+    } finally {
+      await server.close();
+    }
+    expect(lines.join('\n')).toContain('master key registered');
+    expect(lines.join('\n')).not.toContain(key);
+    await expect(
+      startServer({ ...common, env: { RB_MASTER_KEY: generateMasterKey(1) } }),
+    ).rejects.toMatchObject({ code: 'key_mismatch' });
+    await expect(startServer({ ...common, env: {} })).rejects.toMatchObject({ code: 'master_key_missing' });
+  });
+
+  it('main reports boot errors as exit code 1', async () => {
+    const lines: string[] = [];
+    const r = main({
+      argv: ['serve', '--port', '0', '--db', join(tmp, 'rb.db')],
+      env: {},
+      platform: 'linux',
+      fs: memoryFs({}),
+      stdout: () => undefined,
+      stderr: (l) => lines.push(l),
+    });
+    expect(r.kind).toBe('server');
+    if (r.kind !== 'server') return;
+    expect(await r.started).toBe(1);
+    expect(lines.join('\n')).toContain('RB_MASTER_KEY is not set');
+  });
+});

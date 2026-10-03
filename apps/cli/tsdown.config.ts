@@ -14,10 +14,12 @@ export default defineConfig({
   platform: 'node',
   dts: false,
   clean: true,
-  // The workspace packages (core, auth, storage, storage-sqlite) are bundled from source; the MCP SDK, zod and yaml stay runtime dependencies.
+  // The workspace packages (core, auth, storage, storage-sqlite, http-app) are bundled from source; the MCP SDK, zod,
+  // yaml and hono stay runtime dependencies.
   alias: {
     '@relic-bridge/auth': fileURLToPath(new URL('../../packages/auth/src/index.ts', import.meta.url)),
     '@relic-bridge/core': fileURLToPath(new URL('../../packages/core/src/index.ts', import.meta.url)),
+    '@relic-bridge/http-app': fileURLToPath(new URL('../../packages/http-app/src/index.ts', import.meta.url)),
     '@relic-bridge/storage': fileURLToPath(new URL('../../packages/storage/src/index.ts', import.meta.url)),
     '@relic-bridge/storage-sqlite': fileURLToPath(
       new URL('../../packages/storage-sqlite/src/index.ts', import.meta.url),

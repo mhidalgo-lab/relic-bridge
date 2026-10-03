@@ -17,42 +17,76 @@ export const keyCheckSettingKey = (version: number): string => `crypto.key_check
 /** How many existing rows of a version are tried before registering its key check value. */
 const SAMPLE_ROWS = 3;
 
+const KEY_CHECK_RE = /^crypto\.key_check\.v([1-9][0-9]{0,5})$/;
+
 /**
  * Compare each master key in `keyring` with the key check value stored for its version (constant time). Fails with
  * `key_mismatch` when a version is registered with a different key, so a wrong `RB_MASTER_KEY` is caught at boot
  * instead of failing on every credential.
  *
+ * Also fails (security review of P2-03):
+ * - `key_version_retired` when a higher version than the current one is registered or used by a row: running on a
+ *   retired (possibly leaked) key after a rotation would encrypt new credentials under it;
+ * - `key_mismatch` when a loaded key is already registered under another version: reusing an old key under a new
+ *   number would defeat the rotation.
+ *
  * A version with no stored value is registered only when it is provably right: rows already encrypted under it must
  * decrypt with it (up to three are tried, so one tampered row doesn't block), and with no such rows only the current
- * version is registered (it is the one that will write). A previous key is never registered on trust.
+ * version is registered (it is the one that will write). A previous key is never registered on trust. After writing,
+ * the stored values are read back, so a concurrent registration of a different key is caught by at least one side.
  */
 export async function verifyKeyChecks(
   storage: Pick<Storage, 'settings' | 'credentials'>,
   keyring: Keyring,
   options: { readonly register?: boolean } = {},
 ): Promise<{ readonly registered: readonly number[] }> {
+  const settings = await storage.settings.list();
+  const stored = new Map<number, Uint8Array | null>();
+  for (const [key, value] of Object.entries(settings)) {
+    const m = KEY_CHECK_RE.exec(key);
+    if (m) stored.set(Number(m[1]), typeof value === 'string' ? fromBase64(value) : null);
+  }
+  const rows = await storage.credentials.list();
+  const current = keyring.currentVersion;
+  const newest = Math.max(
+    0,
+    ...stored.keys(),
+    ...rows.map((c) => (c.key.kind === 'encrypted' ? c.key.keyVersion : 0)),
+  );
+  if (newest > current) throw retired(current, newest);
+
   const registered: number[] = [];
-  let rows: readonly CredentialRecord[] | undefined;
   for (const version of keyring.versions) {
     const expected = keyring.keyCheckValue(version);
-    const stored = await storage.settings.get(keyCheckSettingKey(version));
-    if (stored !== undefined) {
-      const bytes = typeof stored === 'string' ? fromBase64(stored) : null;
+    for (const [other, bytes] of stored) {
+      if (other !== version && bytes !== null && timingSafeEqual(bytes, expected)) {
+        throw reused(version, other, keyring);
+      }
+    }
+    if (stored.has(version)) {
+      const bytes = stored.get(version) ?? null;
       if (bytes === null || !timingSafeEqual(bytes, expected)) throw mismatch(version, keyring);
       continue;
     }
     if (!(options.register ?? true)) continue;
-    rows ??= await storage.credentials.list();
     const sample = rows
       .filter((c) => c.key.kind === 'encrypted' && c.key.keyVersion === version)
       .slice(0, SAMPLE_ROWS);
-    if (sample.length === 0 && version !== keyring.currentVersion) continue;
+    if (sample.length === 0 && version !== current) continue;
     if (sample.length > 0 && !(await anyDecrypts(keyring, sample))) throw mismatch(version, keyring);
     registered.push(version);
   }
   // Write only after every version checked out, so a bad key registers nothing.
   for (const version of registered) {
     await storage.settings.set(keyCheckSettingKey(version), toBase64(keyring.keyCheckValue(version)));
+  }
+  // Read back: another process may have registered a different key for the same version meanwhile (the settings
+  // repository has no insert-if-absent; see docs/pending-decisions/phase-2.md).
+  for (const version of registered) {
+    const back = await storage.settings.get(keyCheckSettingKey(version));
+    const bytes = typeof back === 'string' ? fromBase64(back) : null;
+    if (bytes === null || !timingSafeEqual(bytes, keyring.keyCheckValue(version)))
+      throw mismatch(version, keyring);
   }
   return { registered };
 }
@@ -77,6 +111,24 @@ function mismatch(version: number, keyring: Keyring): CryptoError {
     version === keyring.currentVersion
       ? 'Check RB_MASTER_KEY. A new key needs a new version number (`relic-bridge keys generate --key-version <N>`).'
       : 'Check RB_MASTER_KEY_PREVIOUS: it must be the key the existing rows were encrypted with.',
+  );
+}
+
+function retired(current: number, newest: number): CryptoError {
+  return new CryptoError(
+    'key_version_retired',
+    `master key version ${current} is older than version ${newest}, which this database already uses`,
+    `Set RB_MASTER_KEY to the version ${newest} key (or a newer one). A retired key must not encrypt new credentials.`,
+  );
+}
+
+function reused(version: number, other: number, keyring: Keyring): CryptoError {
+  return new CryptoError(
+    'key_mismatch',
+    `the master key given for version ${version} is the key already registered for version ${other}`,
+    version === keyring.currentVersion
+      ? 'A new version needs a new key: `relic-bridge keys generate --key-version <N>`.'
+      : 'Check RB_MASTER_KEY_PREVIOUS: it must be the key of the version it is labelled with.',
   );
 }
 

@@ -11,6 +11,8 @@ export type CryptoErrorCode =
   | 'key_version_unknown'
   /** A master key does not match the key check value registered for its version. */
   | 'key_mismatch'
+  /** The current master key's version is below a version already registered or in use (rollback to a retired key). */
+  | 'key_version_retired'
   /** AES-GCM authentication failed: wrong key, wrong credential id or version (AAD), or tampered data. */
   | 'decrypt_failed'
   /** Bad arguments (empty plaintext, IV of the wrong size, …). */

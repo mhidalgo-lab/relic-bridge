@@ -152,8 +152,9 @@ describe('rotateCredentialKeys', () => {
 
   it('reports rows it cannot read and leaves them untouched', async () => {
     const s = createMemoryStorage();
-    await seed(s, await Keyring.create({ current: K1 }), 2);
-    const stranger = await Keyring.create({ current: K3 });
+    await seed(s, await Keyring.create({ current: K2, previous: K1 }), 2);
+    // An older version that is no longer loaded (a higher one is refused outright: key_version_retired).
+    const stranger = await Keyring.create({ current: K1 });
     await s.credentials.create({
       id: 'cred_old',
       label: 'x',
@@ -165,8 +166,8 @@ describe('rotateCredentialKeys', () => {
     const c0 = await s.credentials.get('cred_0');
     if (c1?.key.kind !== 'encrypted' || c0?.key.kind !== 'encrypted') throw new Error('unexpected');
     await s.credentials.update('cred_0', { key: c1.key });
-    const r21 = await Keyring.create({ current: K2, previous: K1 });
-    const report = await rotateCredentialKeys(s, r21);
+    const r32 = await Keyring.create({ current: K3, previous: K2 });
+    const report = await rotateCredentialKeys(s, r32);
     expect(report.reencrypted).toEqual(['cred_1']);
     expect(report.failed).toEqual([
       { id: 'cred_0', code: 'decrypt_failed' },
@@ -174,7 +175,7 @@ describe('rotateCredentialKeys', () => {
     ]);
     expect(report.versionsInUse).toEqual([1, 2, 3]);
     const after = await s.credentials.get('cred_0');
-    expect(after?.key.kind === 'encrypted' && after.key.keyVersion).toBe(1);
+    expect(after?.key.kind === 'encrypted' && after.key.keyVersion).toBe(2);
   });
 
   it('never overwrites a key replaced while rotating (compare-and-swap)', async () => {

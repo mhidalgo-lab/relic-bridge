@@ -39,6 +39,9 @@ export interface ParsedMasterKey {
   readonly bytes: Uint8Array<ArrayBuffer>;
 }
 
+/** With the `u` flag, a surrogate range matches only unpaired surrogates. */
+const LONE_SURROGATE_RE = /[\uD800-\uDFFF]/u;
+
 const KEY_RE = /^(?:v([1-9][0-9]{0,5}):)?([A-Za-z0-9+/_=-]+)$/;
 
 /**
@@ -210,7 +213,13 @@ export class Keyring {
       );
     }
     const keys = new Map<number, VersionKeys>();
-    const current = await deriveVersionKeys(cur.bytes);
+    let current: VersionKeys;
+    try {
+      current = await deriveVersionKeys(cur.bytes);
+    } catch (error) {
+      prev?.bytes.fill(0);
+      throw error;
+    }
     keys.set(cur.version, current);
     if (prev !== undefined) {
       const p = await deriveVersionKeys(prev.bytes);
@@ -243,6 +252,10 @@ export class Keyring {
     checkCredentialId(credentialId);
     if (typeof plaintext !== 'string' || plaintext === '') {
       throw new CryptoError('invalid_input', 'nothing to encrypt');
+    }
+    // A lone surrogate would be silently replaced by U+FFFD on encoding, so the stored key would not be the one given.
+    if (LONE_SURROGATE_RE.test(plaintext)) {
+      throw new CryptoError('invalid_input', 'plaintext is not well-formed Unicode');
     }
     const bytes = utf8(plaintext);
     try {

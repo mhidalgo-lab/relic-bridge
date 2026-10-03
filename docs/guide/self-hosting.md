@@ -120,7 +120,8 @@ Clients point at `https://mcp.example.com/passthrough/mcp` and send two headers:
   Relic can't be reached the answer is `503`.
 - **Rate limits**: the per-IP request limit and failed-authentication throttle apply as on every route (a refused key
   counts as a failure, so key guessing through the server is slow), plus `RB_RATE_LIMIT_PASSTHROUGH_KEY` per key.
-- Tool calls on this route are not in the audit log yet (refusals are); see task P2-16.
+- **Audit**: every tool call is a `tool_call` row whose actor is the key's `pt_…` id (no user or grant), found with
+  `relic-bridge audit tail --key-id any`; see the [audit log](audit-log.md#pass-through-calls).
 
 ## Management CLI
 

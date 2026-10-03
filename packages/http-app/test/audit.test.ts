@@ -234,6 +234,62 @@ describe('tool calls', () => {
   });
 });
 
+describe('pass-through tool calls (P2-16)', () => {
+  const info = {
+    requestId: 'req_1',
+    keyId: 'pt_0123456789ab',
+    region: 'EU',
+    mcpMethod: 'tools/call',
+    mcpName: 'run_nrql',
+    listen: false,
+    accounts: [1],
+  } as const;
+  const event = {
+    tool: 'run_nrql',
+    status: 'error',
+    errorCode: 'RB_QUERY_TIMEOUT',
+    durationMs: 12.4,
+    input: { nrql: "SELECT count(*) FROM Log WHERE msg = 'SECRET-VALUE' SINCE 1 hour ago", accounts: [1] },
+    meta: undefined,
+  } as const;
+
+  it('records the key id as the actor, masked NRQL, accounts, outcome and no grant', async () => {
+    const { recorder } = makeApp();
+    await recorder.hooks.onPassthroughToolCall?.({} as never, info, event);
+    expect((await rows())[0]).toMatchObject({
+      kind: 'tool_call',
+      action: 'run_nrql',
+      status: 'error',
+      errorCode: 'RB_QUERY_TIMEOUT',
+      keyId: 'pt_0123456789ab',
+      requestId: 'req_1',
+      grantId: null,
+      tokenId: null,
+      projectId: null,
+      accountIds: [1],
+      durationMs: 12,
+      nrql: 'SELECT count(*) FROM Log WHERE msg = ? SINCE 1 hour ago',
+      details: { mode: 'passthrough', region: 'EU' },
+    });
+  });
+
+  it('honours the NRQL mode', async () => {
+    const { recorder } = makeApp({ nrql: 'off' });
+    await recorder.hooks.onPassthroughToolCall?.({} as never, info, event);
+    expect((await rows())[0]?.nrql).toBeNull();
+  });
+
+  it('is merged by mergeHooks and never rejects when the write fails', async () => {
+    const broken = {
+      ...world.storage,
+      auditLog: { ...world.storage.auditLog, append: () => Promise.reject(new Error('disk full')) },
+    } as Storage;
+    const recorder = createAuditRecorder({ storage: broken, logger, clock: world.clock });
+    const merged = mergeHooks(recorder.hooks);
+    await expect(merged.onPassthroughToolCall?.({} as never, info, event)).resolves.toBeUndefined();
+  });
+});
+
 describe('refusals', () => {
   it('records failed authentication with the reason and client address, never the token', async () => {
     const { app } = makeApp();

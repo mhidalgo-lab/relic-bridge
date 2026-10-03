@@ -450,6 +450,7 @@ function auditLine(r: Rec): string {
     r['userId'] && `user=${plain(r['userId'])}`,
     r['grantId'] && `grant=${plain(r['grantId'])}`,
     r['tokenId'] && `token=${plain(r['tokenId'])}`,
+    r['keyId'] && `key=${plain(r['keyId'])}`,
   ]
     .filter(Boolean)
     .join(' ');
@@ -474,6 +475,7 @@ async function auditTail(run: Run): Promise<number> {
     userId: values.user,
     grantId: values.grant,
     tokenId: values['token-id'],
+    keyId: values['key-id'],
     since: values.since,
     until: values.until,
   };

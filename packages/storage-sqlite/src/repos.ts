@@ -535,6 +535,7 @@ export function createRepositories(
       grantId: strOrNull(r['grant_id']),
       tokenId: strOrNull(r['token_id']),
       clientId: strOrNull(r['client_id']),
+      keyId: strOrNull(r['key_id']),
       projectId: strOrNull(r['project_id']),
       accountIds: jsonOrNull<number[]>(r['account_ids']),
       nrql: strOrNull(r['nrql']),
@@ -549,7 +550,7 @@ export function createRepositories(
     append: (e: AuditEntry) =>
       call(() => {
         run(
-          'INSERT INTO audit_log (ts, kind, action, status, request_id, user_id, grant_id, token_id, client_id, project_id, account_ids, nrql, duration_ms, inspected_count, error_code, target_type, target_id, details) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+          'INSERT INTO audit_log (ts, kind, action, status, request_id, user_id, grant_id, token_id, client_id, key_id, project_id, account_ids, nrql, duration_ms, inspected_count, error_code, target_type, target_id, details) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
           [
             e.ts,
             e.kind,
@@ -560,6 +561,7 @@ export function createRepositories(
             e.grantId ?? null,
             e.tokenId ?? null,
             e.clientId ?? null,
+            e.keyId ?? null,
             e.projectId ?? null,
             toJson(e.accountIds),
             e.nrql ?? null,
@@ -586,6 +588,8 @@ export function createRepositories(
         add('user_id = ?', q.userId);
         add('grant_id = ?', q.grantId);
         add('token_id = ?', q.tokenId);
+        add('key_id = ?', q.keyId);
+        if (q.passthrough === true) where.push('key_id IS NOT NULL');
         add('kind = ?', q.kind);
         add('action = ?', q.action);
         add('status = ?', q.status);

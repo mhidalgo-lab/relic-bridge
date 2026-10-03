@@ -7,7 +7,12 @@ import { createCredential, issueAccessToken } from '@relic-bridge/auth';
 import { createLogger, decodeEntityGuid, type FetchLike, type Identity, Secret } from '@relic-bridge/core';
 import { type AuditRecord, newId, type StoredLimits } from '@relic-bridge/storage';
 import { vi } from 'vitest';
-import { createAuditRecorder, createHttpApp, type HttpAppOptions } from '../../src/index.ts';
+import {
+  createAuditRecorder,
+  createHttpApp,
+  type HttpAppHooks,
+  type HttpAppOptions,
+} from '../../src/index.ts';
 import { NR_KEY, seedWorld, T0, type World } from '../fixtures.ts';
 
 /** Bootstrap admin token of the app under test (≥ 32 printable characters). */
@@ -227,6 +232,8 @@ export interface Harness {
   readonly responses: string[];
   /** The app under test (one per harness; access cache off unless a test builds its own). */
   readonly app: { fetch(request: Request): Response | Promise<Response> };
+  /** The audit recorder's hooks (compose with others via `mergeHooks`). */
+  readonly recorderHooks: HttpAppHooks;
   makeApp(over?: Partial<HttpAppOptions>): { fetch(request: Request): Response | Promise<Response> };
   send(request: Request, app?: { fetch(request: Request): Response | Promise<Response> }): Promise<Captured>;
   /** A validated credential reaching `reachable` (default 1, 2, 3 and FOREIGN). */
@@ -325,6 +332,7 @@ export async function createHarness(opts: { tenants?: Record<string, string> } =
     responses,
     app,
     makeApp,
+    recorderHooks: recorder.hooks,
     async send(request, target = app) {
       const res = await target.fetch(request);
       const text = await res.text();

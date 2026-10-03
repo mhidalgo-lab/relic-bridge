@@ -2,7 +2,7 @@
 id: P1-06
 title: "Tools: run_nrql and get_query_result"
 phase: 1
-status: in-progress
+status: review
 priority: high
 depends_on: [P1-04, P1-05]
 adr: []
@@ -36,19 +36,30 @@ The single most important tool, done really well.
 - Both `kind: 'read'`, `openWorld: true`, `group: 'query'`; annotations derived (`readOnlyHint: true`).
 
 ## Acceptance criteria
-- [ ] In-memory MCP client tests: success, syntax error, limit violation, pending handle round trip.
-- [ ] Listing: both tools listed with `readOnlyHint: true`, `destructiveHint: false`, `openWorldHint: true`, output
+- [x] In-memory MCP client tests: success, syntax error, limit violation, pending handle round trip.
+- [x] Listing: both tools listed with `readOnlyHint: true`, `destructiveHint: false`, `openWorldHint: true`, output
       schema present, no secret-like inputs (registry accepts them).
-- [ ] Negative tests: account outside the connection scope (no request sent), `rawNrql=false` (no request sent),
+- [x] Negative tests: account outside the connection scope (no request sent), `rawNrql=false` (no request sent),
       invalid inputs (out-of-range `timeout_s` / `max_rows`, bad `query_id`) rejected by the schema.
-- [ ] Output is enveloped and capped (`max_rows`), structured content validates against `nrqlResultSchema`.
-- [ ] Descriptions cover when to use, NRQL tips and pointers to discovery tools.
+- [x] Output is enveloped and capped (`max_rows`), structured content validates against `nrqlResultSchema`.
+- [x] Descriptions cover when to use, NRQL tips and pointers to discovery tools.
 
 ## Security notes
 T4/T5 via P1-04; tool disabled when `rawNrql=false`.
 
 ## Docs to update
-- Generated tool reference (P1-14).
+- [x] THREAT_MODEL.md (implementation status: T4/T5 row for the query tools), `docs/pending-decisions/phase-1.md`.
+- [ ] Generated tool reference — produced by P1-13 (`pnpm docs:tools`), which doesn't exist yet; it picks these
+  tools up from `createBuiltinTools()`.
+
+## Notes for the next tasks
+- New tools go in `packages/core/src/tools/<group>.ts` as a `create<Group>Tools(deps: ToolDeps)` factory and are added
+  to `createBuiltinTools()` (P1-07, P1-08, P1-09, P1-10). `ToolDeps` carries `fetch` / `sleep` only (tests, the CLI's
+  mock endpoint in P1-11) — never request data.
+- Input schemas are `z.strictObject` with snake_case fields; unknown arguments are rejected.
+- Tool descriptions can't contain NRQL-looking text (`SELECT `/`FROM ` in upper case): `scripts/check-nrql-templates.ts`
+  flags every string literal. Describe clauses in prose.
+- P1-11 builds the registry with `createBuiltinTools({ fetch })` and the server with `registry.select(...)`.
 
 ## Out of scope
 - Natural-language-to-NRQL (the agent writes NRQL itself).

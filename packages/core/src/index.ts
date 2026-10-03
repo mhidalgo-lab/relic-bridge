@@ -53,4 +53,5 @@ export {
   type ToolKind,
   type ToolOutput,
 } from './tool.ts';
+export * from './tools/index.ts';
 export { REPOSITORY_URL, USER_AGENT, VERSION } from './version.ts';

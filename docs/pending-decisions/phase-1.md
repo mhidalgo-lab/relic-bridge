@@ -41,3 +41,22 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   renders a table up to 8 columns, CSV above. Hard maximums 1000 / 4000 / 100 000 / 200.
 - **Options:** tune after P1-12 evals or real usage.
 - **Needs:** nothing now; revisit with data.
+
+## P1-06 — Query tools
+
+### P1-06 — `run_nrql` still listed when raw NRQL is off
+- **Context:** The task says the tool is disabled when `rawNrql=false`. ARCHITECTURE prefers tools a caller may not
+  use to be absent from `tools/list`. Phase 1 has no grant resolution yet that feeds limits into `ToolRegistry.select`.
+- **Assumption made:** `run_nrql` and `get_query_result` stay listed and fail with `RB_TOOL_DISABLED` plus a hint to
+  use purpose-built tools. No request reaches New Relic.
+- **Options:** keep; filter in the stdio CLI (P1-11) when its config sets `rawNrql: false`; filter centrally in the
+  Phase 2 grant resolution (P2-xx).
+- **Needs:** owner's preference on where the filter lives; nothing blocks Phase 1.
+
+### P1-06 — Polling behaviour of `run_nrql`
+- **Context:** The engine supports `sync`, `async` and `auto` modes. Agents only see `timeout_s`.
+- **Assumption made:** `run_nrql` always uses `auto`: wait up to `timeout_s` (default 10 s), then poll up to 3 times
+  within budget (waits capped at 10 s each) before handing back a `query_id`. Worst case is roughly `timeout_s` + 30 s
+  per call.
+- **Options:** keep; expose a `wait` / `mode` input; return the handle right after `timeout_s` (no polling).
+- **Needs:** nothing now; revisit after P1-12 evals or real usage.

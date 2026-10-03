@@ -120,6 +120,12 @@ export interface CredentialPatch {
   readonly label?: string;
   /** Re-encryption (master-key rotation, P2-03) or a replaced key. */
   readonly key?: EncryptedKey;
+  /**
+   * Compare-and-swap guard: apply the patch only if the stored key is still exactly this one (ciphertext, IV and
+   * version); otherwise fail with `ConflictError` (`credentials.key`) and change nothing. Rotation (P2-03) uses it
+   * so a key replaced while it re-encrypts is never overwritten with the old one.
+   */
+  readonly ifKey?: EncryptedKey;
   readonly keyHint?: string | null;
   readonly validation?: CredentialValidation;
   readonly revokedAt?: number | null;

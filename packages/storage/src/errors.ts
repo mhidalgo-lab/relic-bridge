@@ -55,3 +55,8 @@ export class MigrationError extends StorageError {
     this.name = 'MigrationError';
   }
 }
+
+/** `CredentialPatch.ifKey` did not match: the stored key changed since it was read. */
+export function keyChangedError(credentialId: string): ConflictError {
+  return new ConflictError('credentials.key', `credential ${credentialId} key changed since it was read`);
+}

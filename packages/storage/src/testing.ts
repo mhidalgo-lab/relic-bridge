@@ -414,6 +414,32 @@ export function runStorageContract(options: StorageContractOptions): void {
         await s.close();
       });
 
+      it('applies a key compare-and-swap (ifKey) only when the stored key is unchanged', async () => {
+        const { s } = await fresh();
+        await s.credentials.create({ id: 'c1', label: 'a', region: 'US', key: fakeEncryptedKey(1) });
+        const swapped = await s.credentials.update('c1', {
+          key: fakeEncryptedKey(2, 2),
+          ifKey: fakeEncryptedKey(1),
+        });
+        expect(swapped.key.kind === 'encrypted' && swapped.key.keyVersion).toBe(2);
+        // Stale guards: old key, same IV with another version, same version with other ciphertext.
+        for (const ifKey of [
+          fakeEncryptedKey(1),
+          fakeEncryptedKey(2, 1),
+          { ...fakeEncryptedKey(2, 2), ciphertext: fakeEncryptedKey(3, 2).ciphertext },
+        ]) {
+          await rejects(s.credentials.update('c1', { key: fakeEncryptedKey(4, 3), ifKey }), ConflictError);
+        }
+        const still = await s.credentials.get('c1');
+        expect(still?.key.kind === 'encrypted' && [...still.key.iv]).toEqual([...fakeEncryptedKey(2).iv]);
+        expect(still?.key.kind === 'encrypted' && still.key.keyVersion).toBe(2);
+        await rejects(
+          s.credentials.update('missing', { key: fakeEncryptedKey(), ifKey: fakeEncryptedKey() }),
+          NotFoundError,
+        );
+        await s.close();
+      });
+
       it('refuses to delete a credential a project or grant still uses', async () => {
         const { s } = await fresh();
         await seedFixture(s);

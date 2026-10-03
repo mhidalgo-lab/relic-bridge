@@ -2,7 +2,7 @@
 // In-memory adapter: the reference implementation of the `Storage` contract (tests, ephemeral servers). It enforces
 // the same unique, referential and row rules as the SQL schema. State lives in the instance (THREAT_MODEL T21);
 // records are copied in and out, so callers can't mutate stored rows.
-import { ConflictError, NotFoundError } from './errors.ts';
+import { ConflictError, keyChangedError, NotFoundError } from './errors.ts';
 import type {
   AccessTokenRecord,
   AccessTokensRepository,
@@ -69,6 +69,18 @@ function copyKey(key: EncryptedKey): EncryptedKey {
     iv: new Uint8Array(key.iv),
     keyVersion: key.keyVersion,
   };
+}
+
+const sameBytes = (a: Uint8Array, b: Uint8Array): boolean =>
+  a.byteLength === b.byteLength && a.every((x, i) => x === b[i]);
+
+function sameKey(stored: CredentialRecord['key'], expected: EncryptedKey): boolean {
+  return (
+    stored.kind === 'encrypted' &&
+    stored.keyVersion === expected.keyVersion &&
+    sameBytes(stored.iv, expected.iv) &&
+    sameBytes(stored.ciphertext, expected.ciphertext)
+  );
 }
 
 /** Apply only the keys present in `patch`. */
@@ -212,6 +224,7 @@ export function createMemoryStorage(options: MemoryStorageOptions = {}): Storage
     async update(id, patch) {
       const cur = credentials.get(id);
       if (!cur) throw new NotFoundError('credential', id);
+      if (patch.ifKey !== undefined && !sameKey(cur.key, patch.ifKey)) throw keyChangedError(id);
       if (patch.key !== undefined) checkEncryptedKey(patch.key);
       if (patch.keyHint !== undefined) checkKeyHint(patch.keyHint);
       const v = patch.validation;

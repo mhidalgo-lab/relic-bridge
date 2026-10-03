@@ -1,0 +1,147 @@
+# Release (P1-15). Actions are pinned by commit SHA; Renovate keeps them updated.
+#
+# Flow: a changeset on `main` → the `version` job opens/updates the "Version Packages" PR. Merging it leaves no
+# changesets and a version npm doesn't have → the `publish` job builds, checks, attests and publishes `relic-bridge`
+# with npm trusted publishing (OIDC, no npm token) and creates the GitHub Release `v<version>`.
+#
+# Safety rails (THREAT_MODEL T18): never runs on pull requests; publish runs only on `main`, only when the repository
+# variable RB_RELEASE_ENABLED is 'true', and only after a reviewer approves the protected `release` environment.
+name: Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    name: Plan
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      mode: ${{ steps.plan.outputs.mode }}
+      version: ${{ steps.plan.outputs.version }}
+    steps:
+      - uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - id: plan
+        name: Pending changesets or unpublished version?
+        run: node scripts/release.ts plan | tee -a "$GITHUB_OUTPUT"
+
+  version:
+    name: Version PR
+    needs: plan
+    if: needs.plan.outputs.mode == 'version'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - run: pnpm install --frozen-lockfile
+      # Commits through the GitHub API (signed by GitHub), so no git credentials are persisted in the checkout.
+      - uses: changesets/action/version@ae32849d5ba541f9ae29e40e22a623bc13562f51 # v2.1.2
+        with:
+          script: pnpm version-packages
+          commit-message: 'chore(release): version packages'
+          pr-title: 'chore(release): version packages'
+
+  publish:
+    name: Publish to npm
+    needs: plan
+    if: needs.plan.outputs.mode == 'publish' && vars.RB_RELEASE_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment:
+      name: release
+      url: https://www.npmjs.com/package/relic-bridge
+    permissions:
+      contents: write # create the tag and GitHub Release
+      id-token: write # npm trusted publishing + provenance, Sigstore attestations
+      attestations: write
+      artifact-metadata: write
+    env:
+      VERSION: ${{ needs.plan.outputs.version }}
+    steps:
+      - uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      # No dependency cache in the release job: a poisoned cache must not reach the published build.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+          package-manager-cache: false
+      - name: Re-check the planned version
+        run: |
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || { echo "::error::bad version"; exit 1; }
+          test "$(node -p 'require("./apps/cli/package.json").version')" = "$VERSION"
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm test
+      - name: Release build (test hooks compiled out)
+        run: pnpm build
+        env:
+          RB_TEST_HOOKS: '0'
+      - name: Pack and verify the tarball
+        run: node scripts/check-package.ts --out release
+      - name: SBOM and checksums
+        run: |
+          pnpm --filter relic-bridge sbom --sbom-format cyclonedx --sbom-type application --prod \
+            --out "release/relic-bridge-${VERSION}.cdx.json"
+          cd release && sha256sum -- * > SHA256SUMS && cat SHA256SUMS
+      - name: Attest build provenance (tarball, SBOM, checksums)
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: release/*
+      - name: Attest SBOM (tarball)
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: release/relic-bridge-${{ needs.plan.outputs.version }}.tgz
+          sbom-path: release/relic-bridge-${{ needs.plan.outputs.version }}.cdx.json
+      # npm >= 11.5.1 (bundled with Node 24) exchanges the OIDC token for a short-lived publish credential.
+      - name: Publish (trusted publishing, provenance)
+        run: npm publish "release/relic-bridge-${VERSION}.tgz" --provenance --access public
+      - name: GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          node scripts/release.ts notes "$VERSION" > release-notes.md
+          gh release create "v${VERSION}" release/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "v${VERSION}" \
+            --notes-file release-notes.md

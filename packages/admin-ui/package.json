@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "description": "Server-rendered admin panel",
   "license": "Apache-2.0",
-  "private": false,
+  "private": true,
   "type": "module",
   "sideEffects": false,
   "exports": {

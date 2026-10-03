@@ -16,8 +16,26 @@ export {
   type HttpAppHooks,
   type HttpAppOptions,
   type McpRequestInfo,
+  type RejectInfo,
   type StorageForHttp,
 } from './app.ts';
+export {
+  type AdminAuditEvent,
+  AUDIT_MAX_DETAILS_CHARS,
+  AUDIT_MAX_NRQL_CHARS,
+  AUDIT_NRQL_MODES,
+  type AuditActor,
+  type AuditNrqlMode,
+  type AuditRecorder,
+  type AuditRecorderOptions,
+  createAuditRecorder,
+  DEFAULT_AUDIT_AUTH_ROWS_PER_MINUTE,
+  DEFAULT_AUDIT_RETENTION_DAYS,
+  maskNrql,
+  nrqlForAudit,
+  type StorageForAudit,
+  sanitizeDetails,
+} from './audit.ts';
 export { normalizeClientIp, resolveClientIp } from './client-ip.ts';
 export {
   DEFAULT_RATE_LIMIT_MAX_KEYS,

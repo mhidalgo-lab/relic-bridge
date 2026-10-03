@@ -10,12 +10,16 @@ import { getConnInfo } from '@hono/node-server/conninfo';
 import { CryptoError, loadKeyringFromEnv, verifyKeyChecks } from '@relic-bridge/auth';
 import { type FetchLike, type Logger, VERSION } from '@relic-bridge/core';
 import {
+  AUDIT_NRQL_MODES,
+  type AuditNrqlMode,
+  createAuditRecorder,
   createHttpApp,
   createRateLimitHooks,
   DEFAULT_RATE_LIMITS,
   defaultAllowedHostnames,
   MAX_ACCESS_CACHE_TTL_MS,
   MemoryRateLimiter,
+  mergeHooks,
   originHostname,
   type RateLimitRule,
   type RateLimitRules,
@@ -23,11 +27,15 @@ import {
 } from '@relic-bridge/http-app';
 import { StorageError } from '@relic-bridge/storage';
 import { openSqliteStorage } from '@relic-bridge/storage-sqlite';
+import type { Context } from 'hono';
+import { parseRetentionDays } from './audit.ts';
 import { ConfigError, type ConfigFs, type Env } from './config.ts';
 import { resolveMasterKeyEnv } from './keys.ts';
 
 export const DEFAULT_PORT = 8787;
 export const DEFAULT_HOST = '127.0.0.1';
+/** How often `serve` deletes audit rows past retention. */
+export const AUDIT_PURGE_INTERVAL_MS = 3_600_000;
 export const DB_FILE_NAME = 'relic-bridge.db';
 
 const LOOPBACK = new Set(['127.0.0.1', 'localhost', '::1', '[::1]']);
@@ -117,6 +125,43 @@ function rateLimitSettings(env: Env, warnings: string[]): RateLimitRules | null 
   return rules;
 }
 
+export interface AuditSettings {
+  readonly enabled: boolean;
+  readonly nrql: AuditNrqlMode;
+  /** Days to keep rows; 0 keeps everything. */
+  readonly retentionDays: number;
+  readonly clientIp: boolean;
+}
+
+function onOff(env: Env, name: string, fallback: boolean): boolean {
+  const v = env[name]?.trim().toLowerCase();
+  if (v === undefined || v === '') return fallback;
+  if (v === 'on' || v === 'true' || v === '1') return true;
+  if (v === 'off' || v === 'false' || v === '0') return false;
+  throw new ConfigError(`${name} must be on or off.`);
+}
+
+function auditSettings(env: Env, warnings: string[]): AuditSettings {
+  const enabled = onOff(env, 'RB_AUDIT', true);
+  const nrqlRaw = (env['RB_AUDIT_NRQL']?.trim().toLowerCase() ?? '') || 'mask';
+  if (!(AUDIT_NRQL_MODES as readonly string[]).includes(nrqlRaw)) {
+    throw new ConfigError(`RB_AUDIT_NRQL must be one of ${AUDIT_NRQL_MODES.join(', ')}.`);
+  }
+  const retentionDays = parseRetentionDays(env['RB_AUDIT_RETENTION_DAYS']);
+  if (!enabled) warnings.push('RB_AUDIT=off: tool calls and refused requests are not recorded.');
+  if (nrqlRaw === 'full') {
+    warnings.push(
+      'RB_AUDIT_NRQL=full stores query text including literal values (redacted for secrets only).',
+    );
+  }
+  return {
+    enabled,
+    nrql: nrqlRaw as AuditNrqlMode,
+    retentionDays,
+    clientIp: onOff(env, 'RB_AUDIT_CLIENT_IP', true),
+  };
+}
+
 export interface ServeSettings {
   readonly port: number;
   readonly host: string;
@@ -130,6 +175,7 @@ export interface ServeSettings {
   readonly rateLimits: RateLimitRules | null;
   /** Reverse proxies in front of the server (`X-Forwarded-For` is trusted for that many hops from the right). */
   readonly trustedProxyHops: number;
+  readonly audit: AuditSettings;
   readonly warnings: readonly string[];
 }
 
@@ -220,6 +266,7 @@ export function serveSettings(input: {
     hsts,
     rateLimits,
     trustedProxyHops: Number(hopsRaw),
+    audit: auditSettings(env, warnings),
     warnings,
   };
 }
@@ -259,9 +306,30 @@ export async function startServer(options: StartServerOptions): Promise<RunningS
   if (created) logger.info('database created', { path: settings.dbPath });
   for (const w of settings.warnings) logger.warn(w);
 
-  // Two bounded in-memory stores: unauthenticated traffic (IP keys) can't push token/grant buckets out of the other.
   let warnedForwarded = false;
-  const hooks =
+  const getClientIp = (c: Context): string | null => {
+    let socketIp: string | undefined;
+    try {
+      socketIp = getConnInfo(c).remote.address;
+    } catch {
+      // not served through the Node adaptor (in-process call)
+    }
+    if (!warnedForwarded && settings.trustedProxyHops === 0 && c.req.header('x-forwarded-for')) {
+      warnedForwarded = true;
+      logger.warn(
+        'X-Forwarded-For seen but RB_TRUSTED_PROXY_HOPS=0: behind a reverse proxy every client shares the ' +
+          "proxy's address for rate limiting. Set RB_TRUSTED_PROXY_HOPS to the number of proxies.",
+      );
+    }
+    return resolveClientIp({
+      socketIp,
+      forwardedFor: c.req.header('x-forwarded-for'),
+      trustedProxyHops: settings.trustedProxyHops,
+    });
+  };
+
+  // Two bounded in-memory stores: unauthenticated traffic (IP keys) can't push token/grant buckets out of the other.
+  const rateLimitHooks =
     settings.rateLimits === null
       ? undefined
       : createRateLimitHooks({
@@ -269,27 +337,36 @@ export async function startServer(options: StartServerOptions): Promise<RunningS
           preAuthLimiter: new MemoryRateLimiter(),
           rules: settings.rateLimits,
           logger,
-          getClientIp: (c) => {
-            let socketIp: string | undefined;
-            try {
-              socketIp = getConnInfo(c).remote.address;
-            } catch {
-              // not served through the Node adaptor (in-process call)
-            }
-            if (!warnedForwarded && settings.trustedProxyHops === 0 && c.req.header('x-forwarded-for')) {
-              warnedForwarded = true;
-              logger.warn(
-                'X-Forwarded-For seen but RB_TRUSTED_PROXY_HOPS=0: behind a reverse proxy every client shares the ' +
-                  "proxy's address for rate limiting. Set RB_TRUSTED_PROXY_HOPS to the number of proxies.",
-              );
-            }
-            return resolveClientIp({
-              socketIp,
-              forwardedFor: c.req.header('x-forwarded-for'),
-              trustedProxyHops: settings.trustedProxyHops,
-            });
-          },
+          getClientIp,
         });
+
+  // Audit (P2-08): records after the rate limiter so a refusal is seen by both.
+  const audit = settings.audit.enabled
+    ? createAuditRecorder({
+        storage,
+        logger,
+        nrql: settings.audit.nrql,
+        ...(settings.audit.clientIp ? { getClientIp } : {}),
+      })
+    : undefined;
+  const purgeAudit = (): void => {
+    if (audit === undefined || settings.audit.retentionDays <= 0) return;
+    audit.purge(settings.audit.retentionDays).then(
+      (removed) => {
+        if (removed > 0)
+          logger.info('audit rows purged', { removed, retentionDays: settings.audit.retentionDays });
+      },
+      (error: unknown) =>
+        logger.warn('audit purge failed', { error: error instanceof Error ? error.name : typeof error }),
+    );
+  };
+  purgeAudit();
+  const purgeTimer = setInterval(purgeAudit, AUDIT_PURGE_INTERVAL_MS);
+  purgeTimer.unref();
+  const hooks =
+    rateLimitHooks === undefined && audit === undefined
+      ? undefined
+      : mergeHooks(rateLimitHooks, audit?.hooks);
 
   const app = createHttpApp({
     storage,
@@ -325,6 +402,7 @@ export async function startServer(options: StartServerOptions): Promise<RunningS
       });
     });
   } catch (error) {
+    clearInterval(purgeTimer);
     await storage.close();
     const code = (error as { code?: string }).code;
     throw new ConfigError(
@@ -346,6 +424,7 @@ export async function startServer(options: StartServerOptions): Promise<RunningS
     allowedHosts: settings.allowedHosts,
     cors: settings.corsOrigins.length > 0,
     rateLimit: settings.rateLimits !== null,
+    audit: settings.audit.enabled ? settings.audit.nrql : 'off',
     trustedProxyHops: settings.trustedProxyHops,
   });
 
@@ -353,6 +432,7 @@ export async function startServer(options: StartServerOptions): Promise<RunningS
   return {
     url,
     close: () => {
+      clearInterval(purgeTimer);
       closing ??= (async () => {
         await new Promise<void>((resolve) => {
           server.close(() => resolve());

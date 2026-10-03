@@ -2,7 +2,7 @@
 import { parseArgs } from 'node:util';
 import { type LogLevel, redact } from '@relic-bridge/core';
 
-export type Command = 'stdio' | 'serve' | 'db' | 'keys' | 'credential' | 'help' | 'version';
+export type Command = 'stdio' | 'serve' | 'db' | 'keys' | 'credential' | 'audit' | 'help' | 'version';
 
 export interface CliArgs {
   readonly command: Command;
@@ -20,6 +20,9 @@ export interface CliArgs {
   readonly keysAction?: 'generate' | 'rotate';
   /** `keys generate --key-version <n>` (default 1). */
   readonly keyVersion?: number;
+  /** `audit purge [--older-than-days <n>]`. */
+  readonly auditAction?: 'purge';
+  readonly olderThanDays?: string;
   /** `serve --port <n>` / `--host <addr>` (validated by `serveSettings`). */
   readonly port?: string;
   readonly host?: string;
@@ -33,7 +36,16 @@ export class UsageError extends Error {
   }
 }
 
-const COMMANDS: readonly Command[] = ['stdio', 'serve', 'db', 'keys', 'credential', 'help', 'version'];
+const COMMANDS: readonly Command[] = [
+  'stdio',
+  'serve',
+  'db',
+  'keys',
+  'credential',
+  'audit',
+  'help',
+  'version',
+];
 export const LOG_LEVELS: readonly LogLevel[] = ['debug', 'info', 'warn', 'error'];
 
 export function isLogLevel(value: string): value is LogLevel {
@@ -64,6 +76,7 @@ export function parseCliArgs(argv: readonly string[]): CliArgs {
   let file: string | undefined;
   let keysAction: 'generate' | 'rotate' | undefined;
   let credentialAction: 'revalidate' | undefined;
+  let auditAction: 'purge' | undefined;
   if (command === 'db' && !values.help && !values.version) {
     if (positionals[1] !== 'backup')
       throw new UsageError('Usage: relic-bridge db backup <file> [--db <path>].');
@@ -85,7 +98,18 @@ export function parseCliArgs(argv: readonly string[]): CliArgs {
       throw new UsageError('Usage: relic-bridge credential revalidate [--db <path>].');
     }
     credentialAction = 'revalidate';
-  } else if (command !== 'db' && command !== 'keys' && command !== 'credential' && positionals.length > 1) {
+  } else if (command === 'audit' && !values.help && !values.version) {
+    if (positionals[1] !== 'purge' || positionals.length !== 2) {
+      throw new UsageError('Usage: relic-bridge audit purge [--older-than-days <n>] [--db <path>].');
+    }
+    auditAction = 'purge';
+  } else if (
+    command !== 'db' &&
+    command !== 'keys' &&
+    command !== 'credential' &&
+    command !== 'audit' &&
+    positionals.length > 1
+  ) {
     throw new UsageError(`Expected at most one command, got ${positionals.length}.`);
   }
   if (values.help) command = 'help';
@@ -115,6 +139,13 @@ export function parseCliArgs(argv: readonly string[]): CliArgs {
   if (values.db !== undefined && command === 'keys' && keysAction !== 'rotate') {
     throw new UsageError('--db only applies to keys rotate.');
   }
+  const olderThan = values['older-than-days'];
+  if (olderThan !== undefined) {
+    if (auditAction !== 'purge') throw new UsageError('--older-than-days only applies to audit purge.');
+    if (!/^\d{1,5}$/.test(olderThan.trim()) || Number(olderThan) < 1) {
+      throw new UsageError('--older-than-days must be an integer of at least 1.');
+    }
+  }
   for (const flag of ['port', 'host'] as const) {
     const v = values[flag];
     if (v === undefined) continue;
@@ -130,6 +161,8 @@ export function parseCliArgs(argv: readonly string[]): CliArgs {
     ...(values.db === undefined ? {} : { db: values.db }),
     ...(keysAction === undefined ? {} : { keysAction }),
     ...(credentialAction === undefined ? {} : { credentialAction }),
+    ...(auditAction === undefined ? {} : { auditAction }),
+    ...(olderThan === undefined ? {} : { olderThanDays: olderThan.trim() }),
     ...(keyVersion === undefined ? {} : { keyVersion }),
     ...(values.config === undefined ? {} : { config: values.config }),
     ...(values.project === undefined ? {} : { project: values.project }),
@@ -151,6 +184,7 @@ function parse(argv: readonly string[]) {
       port: { type: 'string' },
       host: { type: 'string' },
       'key-version': { type: 'string' },
+      'older-than-days': { type: 'string' },
       'log-level': { type: 'string' },
       help: { type: 'boolean', short: 'h' },
       version: { type: 'boolean', short: 'v' },
@@ -167,6 +201,7 @@ Usage:
   relic-bridge keys generate [--key-version <n>]
   relic-bridge keys rotate [--db <path>]
   relic-bridge credential revalidate [--db <path>]
+  relic-bridge audit purge [--older-than-days <n>] [--db <path>]
   relic-bridge --help | --version
 
 Commands:
@@ -185,6 +220,8 @@ Commands:
                      refuses is marked invalid and every grant using it stops working;
                      reachable accounts are refreshed. Exit 1 if any key is invalid or
                      could not be checked (run it from cron to get alerted).
+  audit purge        Delete audit log rows older than --older-than-days (default
+                     RB_AUDIT_RETENTION_DAYS, else 90). Safe while the server is running.
   help               Show this help.
   version            Print the version.
 
@@ -198,6 +235,8 @@ Options:
   --port <n>         serve: TCP port (or RB_PORT; default 8787, 0 = any free port).
   --host <addr>      serve: address to bind (or RB_HOST; default 127.0.0.1). A non-loopback
                      address also needs RB_ALLOWED_HOSTS.
+  --older-than-days <n>
+                     audit purge: delete rows older than this many days.
   --key-version <n>  Version written into a generated key (default 1).
   --log-level <lvl>  debug | info | warn | error (or RB_LOG_LEVEL; default info).
   -h, --help         Show this help.
@@ -221,6 +260,13 @@ HTTP server (serve):
                          A revoked token stops working within this time.
   RB_HSTS                auto (default: when the request is https), true (behind a TLS
                          proxy) or false.
+
+Audit log (serve):
+  RB_AUDIT               on (default) or off.
+  RB_AUDIT_NRQL          mask (default: literal values hidden) | hash | full | off.
+  RB_AUDIT_RETENTION_DAYS  Days to keep rows (default 90; 0 keeps everything). Purged at
+                         startup and hourly.
+  RB_AUDIT_CLIENT_IP     on (default) or off: record the client address on refused requests.
 
 Master key (serve / keys rotate / credential revalidate):
   RB_MASTER_KEY            Current master key, v<n>:<base64> (or RB_MASTER_KEY_FILE).

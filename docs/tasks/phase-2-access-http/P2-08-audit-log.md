@@ -2,7 +2,7 @@
 id: P2-08
 title: Audit log
 phase: 2
-status: in-progress
+status: review
 priority: high
 depends_on: [P2-06]
 adr: []
@@ -30,11 +30,11 @@ owner: claude-agent
   `relic-bridge audit purge`. `RB_AUDIT=off` disables recording.
 
 ## Acceptance criteria
-- [ ] Tests: entries written for ok/error/denied tool calls, auth failures and rate limits; masking modes work; a scan
+- [x] Tests: entries written for ok/error/denied tool calls, auth failures and rate limits; masking modes work; a scan
   test finds no secret (token, NR key, fixture literal) in any audit row; write failure leaves the response intact
   and is logged; retention purge; admin API.
-- [ ] Contract suite and both adapters accept kind `auth`; migration applies on top of an existing database.
-- [ ] `serve` wires it (env, startup + periodic purge); `audit purge` command.
+- [x] Contract suite and both adapters accept kind `auth`; migration applies on top of an existing database.
+- [x] `serve` wires it (env, startup + periodic purge); `audit purge` command.
 
 ## Security notes
 T8, T17, T20. Privacy: document what is stored.

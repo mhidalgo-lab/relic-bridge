@@ -29,6 +29,7 @@ import {
   newRequestId,
   silentLogger,
   systemClock,
+  type ToolCallEvent,
   type ToolContext,
   type ToolDefinition,
   VERSION,
@@ -77,6 +78,16 @@ export interface McpRequestInfo {
   readonly access: EffectiveAccess;
 }
 
+/** A request refused by a hook before the MCP handler ran (a 429 from rate limiting, …). */
+export interface RejectInfo {
+  readonly requestId: string;
+  readonly status: number;
+  /** Stable reason (`rate_limit_ip`, `rate_limit_token`, …), or `null` when the hook gave none. */
+  readonly reason: string | null;
+  /** Set once the caller is authenticated (a `beforeMcp` refusal); absent for pre-authentication refusals. */
+  readonly request?: McpRequestInfo;
+}
+
 export interface AuthFailureInfo {
   readonly requestId: string;
   /** Stable reason for logs/audit only; the client always gets the same 401. */
@@ -94,6 +105,10 @@ export interface HttpAppHooks {
   onAuthFailure?(c: Context, info: AuthFailureInfo): void;
   /** After access resolution, before the MCP handler (rate limits). Return a Response (e.g. 429) to stop. */
   beforeMcp?(c: Context, info: McpRequestInfo): Promise<Response | undefined> | Response | undefined;
+  /** After `beforeAuth` or `beforeMcp` refused a request (audit). Runs in the background; must not throw. */
+  onRejected?(c: Context, info: RejectInfo): Promise<void> | void;
+  /** After each tool call finished, success or error (audit). Runs in the background; must not throw. */
+  onToolCall?(c: Context, info: McpRequestInfo, event: ToolCallEvent): Promise<void> | void;
   /** After the MCP handler answered (audit). Runs in the background (`waitUntil`); errors are logged. */
   afterMcp?(
     c: Context,
@@ -137,6 +152,7 @@ type Env = { Variables: { requestId: string; started: number; log: Record<string
 interface RequestScope {
   readonly tools: readonly ToolDefinition[];
   readonly ctx: ToolContext;
+  readonly onToolCall?: (event: ToolCallEvent) => void;
 }
 
 const SCOPE_KEY = 'relicBridgeScope';
@@ -297,6 +313,18 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
     }
   };
 
+  const rejectReason = (log: Record<string, unknown>): string | null =>
+    typeof log['reject'] === 'string' ? log['reject'] : null;
+  const notifyRejected = (c: Context, info: RejectInfo): void => {
+    const hook = hooks.onRejected;
+    if (hook)
+      runInBackground(
+        c,
+        Promise.resolve().then(() => hook(c, info)),
+        'on_rejected',
+      );
+  };
+
   const mcp = createMcpHandler(
     (ctx: McpRequestContext) => {
       const scope = ctx.authInfo?.extra?.[SCOPE_KEY] as RequestScope | undefined;
@@ -304,7 +332,12 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
         // Unreachable: the route authenticates first. Fail closed rather than serve an unscoped server.
         throw new Error('MCP request without a resolved access scope');
       }
-      return buildMcpServer({ tools: scope.tools, ctx: scope.ctx, toolsListChanged: false });
+      return buildMcpServer({
+        tools: scope.tools,
+        ctx: scope.ctx,
+        toolsListChanged: false,
+        ...(scope.onToolCall ? { onToolCall: scope.onToolCall } : {}),
+      });
     },
     {
       legacy: 'stateless',
@@ -410,7 +443,10 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
 
     if (hooks.beforeAuth) {
       const stop = await hooks.beforeAuth(c, requestId);
-      if (stop) return stop;
+      if (stop) {
+        notifyRejected(c, { requestId, status: stop.status, reason: rejectReason(log) });
+        return stop;
+      }
     }
 
     const deny = (reason: string): Response => {
@@ -491,7 +527,10 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
 
     if (hooks.beforeMcp) {
       const stop = await hooks.beforeMcp(c, info);
-      if (stop) return stop;
+      if (stop) {
+        notifyRejected(c, { requestId, status: stop.status, reason: rejectReason(log), request: info });
+        return stop;
+      }
     }
 
     // 7. Per-request scope: decrypt the key for this request only, register only the granted tools.
@@ -512,6 +551,19 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
           logger: toolLogger,
           clock,
         }),
+        ...(hooks.onToolCall
+          ? {
+              onToolCall: (event: ToolCallEvent) => {
+                const hook = hooks.onToolCall;
+                if (hook)
+                  runInBackground(
+                    c,
+                    Promise.resolve().then(() => hook(c, info, event)),
+                    'on_tool_call',
+                  );
+              },
+            }
+          : {}),
       });
     } catch (error) {
       log['error'] = error instanceof Error ? error.name : typeof error;

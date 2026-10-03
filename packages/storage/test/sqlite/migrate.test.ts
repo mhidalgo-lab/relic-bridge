@@ -53,6 +53,21 @@ describe('migrate (node:sqlite)', () => {
     expect(rows).toEqual(MIGRATIONS.map((m) => ({ version: m.version, name: m.name, applied_at: 42 })));
   });
 
+  it('0001 widens the audit kind check and keeps existing audit rows', async () => {
+    const { db, driver } = open();
+    await migrate(driver, MIGRATIONS.slice(0, 1));
+    const insert = db.prepare("INSERT INTO audit_log (ts, kind, action, status) VALUES (?, ?, 'x', 'ok')");
+    insert.run(1, 'tool_call');
+    expect(() => insert.run(2, 'auth')).toThrow(/CHECK/);
+    await migrate(driver, MIGRATIONS);
+    insert.run(3, 'auth');
+    expect(() => insert.run(4, 'bogus')).toThrow(/CHECK/);
+    expect(db.prepare('SELECT id, ts, kind FROM audit_log ORDER BY id').all()).toEqual([
+      { id: 1, ts: 1, kind: 'tool_call' },
+      { id: 2, ts: 3, kind: 'auth' },
+    ]);
+  });
+
   it('matches the Drizzle schema (no drift)', async () => {
     const { db, driver } = open();
     await migrate(driver, MIGRATIONS);

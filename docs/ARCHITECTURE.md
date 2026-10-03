@@ -174,7 +174,9 @@ Implemented by `createHttpApp` in `packages/http-app` (P2-06); `relic-bridge ser
    - async polling within budget
 7. **Shape output**: format, caps, truncation notice, "untrusted telemetry" envelope. The whole exchange, including a
    streamed response, is bounded by a request deadline (180 s).
-8. **Audit**: write a redacted record (P2-08, `afterMcp` hook, run with `waitUntil` on Workers).
+8. **Audit** (P2-08, `createAuditRecorder` hooks, each write run in the background, `waitUntil` on Workers): one row per
+   tool call (`onToolCall`, fed by `buildMcpServer`'s observer), per refusal (`onAuthFailure`, `onRejected`) and per
+   ungranted tool (`afterMcp`); admin actions call `recorder.admin(...)`. A failed write is logged, never surfaced.
 
 ## 6. Cross-cutting concerns
 

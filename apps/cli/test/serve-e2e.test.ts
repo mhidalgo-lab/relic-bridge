@@ -217,6 +217,21 @@ describe('relic-bridge serve (built CLI)', () => {
         req.end();
       });
       expect(rebinding).toBe(403);
+
+      // The audit log (P2-08) holds the calls and the refusals, with no token or key anywhere in it.
+      let dump = '';
+      for (let i = 0; i < 40; i++) {
+        const s = await openSqliteStorage({ path: dbPath });
+        const rows = await s.auditLog.list();
+        await s.close();
+        dump = JSON.stringify(rows);
+        if (rows.some((r) => r.action === 'whoami') && rows.some((r) => r.action === 'auth.denied')) break;
+        await new Promise((r) => setTimeout(r, 100));
+      }
+      expect(dump).toContain('"action":"whoami"');
+      expect(dump).toContain('"action":"auth.denied"');
+      expect(dump).not.toContain(FAKE_KEY);
+      for (const t of Object.values(tokens)) expect(dump).not.toContain(t);
     } finally {
       server.child.kill('SIGTERM');
       expect(await server.exit()).toBe(0);

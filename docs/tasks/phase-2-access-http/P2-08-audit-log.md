@@ -2,11 +2,11 @@
 id: P2-08
 title: Audit log
 phase: 2
-status: todo
+status: in-progress
 priority: high
 depends_on: [P2-06]
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P2-08 — Audit log

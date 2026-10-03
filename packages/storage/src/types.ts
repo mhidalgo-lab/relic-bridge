@@ -309,7 +309,8 @@ export interface AccessTokensRepository {
 // Audit log (append-only, THREAT_MODEL T17)
 // ---------------------------------------------------------------------------------------------------------------
 
-export type AuditKind = 'tool_call' | 'admin';
+/** `auth`: a request refused before or at authentication or by a rate limit (no tool ran). */
+export type AuditKind = 'tool_call' | 'admin' | 'auth';
 export type AuditStatus = 'ok' | 'error' | 'denied';
 
 /** One audit row. Never holds secret values (P2-08 masks NRQL literals before calling `append`). */

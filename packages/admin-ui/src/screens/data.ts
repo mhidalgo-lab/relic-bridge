@@ -241,3 +241,87 @@ export const validCursor = (v: string | undefined): string | undefined =>
 /** An id the admin API could know (anything else is a 404 without asking). */
 export const isId = (v: unknown): v is string =>
   typeof v === 'string' && /^[A-Za-z0-9_.:-]{1,64}$/.test(v) && v !== '.' && v !== '..';
+
+// ---------------------------------------------------------------------------------------------------------------
+// Audit and usage (P4-05)
+// ---------------------------------------------------------------------------------------------------------------
+
+export type AuditStatus = 'ok' | 'error' | 'denied';
+
+/** One audit row. Every string in it can be influenced by a caller (tool names, error codes, details): escape it. */
+export interface AuditRow {
+  readonly id: number;
+  readonly ts: number;
+  readonly kind: string;
+  readonly action: string;
+  readonly status: AuditStatus;
+  readonly requestId: string | null;
+  readonly userId: string | null;
+  readonly grantId: string | null;
+  readonly tokenId: string | null;
+  readonly clientId: string | null;
+  readonly keyId: string | null;
+  readonly projectId: string | null;
+  readonly accountIds: number[] | null;
+  readonly nrql: string | null;
+  readonly durationMs: number | null;
+  readonly inspectedCount: number | null;
+  readonly errorCode: string | null;
+  readonly targetType: string | null;
+  readonly targetId: string | null;
+  readonly details: Row | null;
+}
+
+export function parseAudit(r: Row): AuditRow | null {
+  const id = r['id'];
+  if (typeof id !== 'number' || !Number.isSafeInteger(id)) return null;
+  const status = r['status'];
+  return {
+    id,
+    ts: int(r['ts']),
+    kind: str(r['kind']),
+    action: str(r['action']),
+    status: status === 'ok' || status === 'error' ? status : 'denied',
+    requestId: strOrNull(r['requestId']),
+    userId: strOrNull(r['userId']),
+    grantId: strOrNull(r['grantId']),
+    tokenId: strOrNull(r['tokenId']),
+    clientId: strOrNull(r['clientId']),
+    keyId: strOrNull(r['keyId']),
+    projectId: strOrNull(r['projectId']),
+    accountIds: intsOrNull(r['accountIds']),
+    nrql: strOrNull(r['nrql']),
+    durationMs: intOrNull(r['durationMs']),
+    inspectedCount: intOrNull(r['inspectedCount']),
+    errorCode: strOrNull(r['errorCode']),
+    targetType: strOrNull(r['targetType']),
+    targetId: strOrNull(r['targetId']),
+    details: r['details'] === null || r['details'] === undefined ? null : obj(r['details']),
+  };
+}
+
+/** One group of `GET /audit/stats`. */
+export interface UsageRow {
+  readonly key: string | null;
+  readonly calls: number;
+  readonly errors: number;
+  readonly denied: number;
+  readonly durationSumMs: number;
+  readonly durationCount: number;
+  readonly maxDurationMs: number | null;
+  readonly inspectedCount: number;
+}
+
+export function parseUsage(r: Row): UsageRow | null {
+  if (typeof r['calls'] !== 'number') return null;
+  return {
+    key: strOrNull(r['key']),
+    calls: int(r['calls']),
+    errors: int(r['errors']),
+    denied: int(r['denied']),
+    durationSumMs: int(r['durationSumMs']),
+    durationCount: int(r['durationCount']),
+    maxDurationMs: intOrNull(r['maxDurationMs']),
+    inspectedCount: int(r['inspectedCount']),
+  };
+}

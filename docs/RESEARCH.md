@@ -230,3 +230,20 @@ and known issues before Phase 1.
 - `drizzle-kit` 0.31 still depends on the deprecated `@esbuild-kit/*` loader, which pulls esbuild 0.18
   (GHSA-67mh-4wv8-2f99, dev-server only). Overridden to esbuild 0.25.12 in `pnpm-workspace.yaml`; generation works.
 - Sources: npm registry metadata; orm.drizzle.team docs (SQLite column types, indexes & constraints).
+
+## 9. WebCrypto AES-GCM and HKDF (P2-03, checked 2026-10-03)
+
+- `crypto.subtle` AES-GCM: `encrypt({ name: 'AES-GCM', iv, additionalData, tagLength: 128 })` returns
+  `ciphertext || tag` in one buffer; `decrypt` takes the same layout and rejects with `OperationError` on any
+  authentication failure (no partial plaintext). Same API and behaviour on Node 24 and Workers.
+- A 96-bit IV is the recommended size (NIST SP 800-38D §8.2); with random IVs the limit is 2^32 encryptions per key,
+  far above the number of stored NR keys (each write and rotation is one encryption).
+- HKDF: import the master key as `'HKDF'` (non-extractable, `deriveKey`/`deriveBits` only); `deriveKey` straight into
+  a non-extractable AES-GCM key; `deriveBits(…, 256)` for the key check value. Different `info` labels give
+  independent outputs (RFC 5869).
+- `Uint8Array.fromBase64` is not in Node 24 (only newer releases), so base64 uses `atob`/`btoa`.
+- Under `@types/node`, `CryptoKey` is a value, not a global type; use
+  `Awaited<ReturnType<typeof crypto.subtle.importKey>>` in code type-checked under both libs.
+- Known answers: NIST GCM test cases 13, 14, 16 (McGrew & Viega, *The Galois/Counter Mode of Operation*); our own
+  format vectors were cross-checked with OpenSSL through `node:crypto` (`hkdfSync`, `aes-256-gcm`).
+- Sources: W3C Web Cryptography API; MDN SubtleCrypto (encrypt, deriveKey, deriveBits); NIST SP 800-38D; RFC 5869.

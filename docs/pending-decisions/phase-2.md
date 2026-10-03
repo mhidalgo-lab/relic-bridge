@@ -68,3 +68,39 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   decides the data-directory layout.
 - **Options:** as assumed; publish the adapter as a separate npm package; add `db migrate` / `db restore` in P2-10.
 - **Needs:** nothing unless the owner wants a default data directory earlier.
+
+## P2-03 — Secrets encryption
+
+### P2-03 — Master key format `v<N>:<base64>`
+- **Context:** ADR-0007 says "32 random bytes, base64" and "key_version", but not how a process learns which version
+  a key is.
+- **Assumption made:** the version is part of the value (`v2:…`); a bare base64 value is version 1, so plain keys
+  from the ADR keep working. `keys generate --key-version <n>` writes the prefix. Recorded as an update in ADR-0007.
+- **Options:** as assumed; a separate `RB_MASTER_KEY_VERSION` variable; versions looked up by key check value in the
+  database (no prefix, but the database must exist before the key is usable).
+- **Needs:** owner OK.
+
+### P2-03 — Derived data key and stored key check values
+- **Context:** ADR-0007 allows a data key "derived from or wrapped by" the master key.
+- **Assumption made:** HKDF-derived (no wrapped data key to store or lose), plus a one-way key check value per
+  version in `settings` (`crypto.key_check.v<N>`) so a wrong key fails at boot with `key_mismatch`. A new key under an
+  already-registered version number is refused, which forces a version bump on every new key.
+- **Options:** as assumed; wrapped random data keys (rotation would re-wrap one value instead of re-encrypting rows,
+  but adds a second secret to back up); no key check values.
+- **Needs:** owner OK.
+
+### P2-03 — Rotation is per row (compare-and-swap), not one transaction
+- **Context:** the task asked for transactional/resumable rotation; the `Storage` interface has no transactions and D1
+  has no interactive ones.
+- **Assumption made:** each row is re-encrypted and written with `CredentialPatch.ifKey` (new, enforced in the SQL
+  `UPDATE`); a run that stops halfway leaves a mix of versions that the two-key keyring reads, and re-running resumes.
+  Rows that change concurrently are reported, not overwritten.
+- **Options:** as assumed; add a `Storage.transaction()` for SQLite only.
+- **Needs:** nothing unless the owner wants all-or-nothing rotation.
+
+### P2-03 — Master key file support on Node
+- **Context:** ADR-0007 mentions "env or a file with 0600 permissions" on Node.
+- **Assumption made:** `RB_MASTER_KEY_FILE` / `RB_MASTER_KEY_PREVIOUS_FILE` in the CLI, refused when group or others
+  can read them (POSIX); setting both the variable and the file is an error.
+- **Options:** as assumed; env only.
+- **Needs:** nothing.

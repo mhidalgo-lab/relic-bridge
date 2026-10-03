@@ -2,7 +2,7 @@
 id: P2-03
 title: Secrets encryption and master-key rotation
 phase: 2
-status: in-progress
+status: review
 priority: high
 depends_on: [P2-01]
 adr: [0007]
@@ -34,17 +34,17 @@ owner: "claude-agent"
   (refused when group/other can read them, ADR-0007).
 
 ## Acceptance criteria
-- [ ] Tests: round trip; tampered ciphertext / IV / tag fails (every single-bit flip, property test); swapped row
+- [x] Tests: round trip; tampered ciphertext / IV / tag fails (every single-bit flip, property test); swapped row
       (other credential id) fails; relabelled key version fails; wrong master key fails.
-- [ ] Known-answer test vectors: NIST GCM AES-256 vectors through the same WebCrypto path, plus pinned vectors for
+- [x] Known-answer test vectors: NIST GCM AES-256 vectors through the same WebCrypto path, plus pinned vectors for
       the key derivation, the AAD layout and a full credential ciphertext.
-- [ ] Property tests: round trip for arbitrary ids and keys; IVs never repeat.
-- [ ] Master key parsing and env loading: missing / malformed / short / duplicate / previous ≥ current refused, and
+- [x] Property tests: round trip for arbitrary ids and keys; IVs never repeat.
+- [x] Master key parsing and env loading: missing / malformed / short / duplicate / previous ≥ current refused, and
       error messages never contain the key.
-- [ ] Rotation re-encrypts all rows (incl. revoked), is idempotent and resumable after a partial run, reports
+- [x] Rotation re-encrypts all rows (incl. revoked), is idempotent and resumable after a partial run, reports
       unknown versions and concurrent changes, and verifies key check values first. Runs against memory and SQLite.
-- [ ] Storage contract: `CredentialPatch.ifKey` compare-and-swap on memory and SQLite.
-- [ ] CLI `keys generate` / `keys rotate` with tests; no key ever reaches stderr.
+- [x] Storage contract: `CredentialPatch.ifKey` compare-and-swap on memory and SQLite.
+- [x] CLI `keys generate` / `keys rotate` with tests; no key ever reaches stderr.
 
 ## Security notes
 T7. Needs second reviewer.

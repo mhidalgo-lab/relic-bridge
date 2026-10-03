@@ -230,7 +230,8 @@ export function shapeRows(
   const omittedColumns = Math.max(0, allColumns.length - caps.maxColumns);
   const counter: Counter = { cut: 0 };
   const sourceColumns = allColumns.slice(0, caps.maxColumns);
-  const columns = displayNames(sourceColumns);
+  // Column names are data too (attribute names, facet labels): redacted like values when redaction is on.
+  const columns = displayNames(redactSecrets ? sourceColumns.map(redact) : sourceColumns);
 
   const requested = options.format ?? 'auto';
   if (!OUTPUT_FORMATS.includes(requested)) {

@@ -230,6 +230,25 @@ describe('runNrql: async', () => {
     expect(calls).toHaveLength(3);
   });
 
+  it('ignores an unreadable resultExpiration instead of failing (review P1-R)', async () => {
+    const bad = json({
+      data: {
+        actor: {
+          account: {
+            nrql: {
+              ...progress(false),
+              queryProgress: { ...progress(false).queryProgress, resultExpiration: 1e300 },
+            },
+          },
+        },
+      },
+    });
+    const { ctx, deps } = setup([bad]);
+    const out = (await runRawNrql(ctx, { nrql: NRQL, mode: 'async' }, deps)) as NrqlPending;
+    expect(out.status).toBe('pending');
+    expect(out.expiresAt).toBeUndefined();
+  });
+
   it('caps the wait between polls', async () => {
     // The first wait comes from the submit's retryAfter (2 s); the next one is capped at 10 s.
     const poll = setup([submitted(false), polled(false, null, 600), polled(false, null, 600)]);

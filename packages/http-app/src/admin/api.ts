@@ -44,7 +44,13 @@ import type { Context } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { HTTPException } from 'hono/http-exception';
 import type { AdminAuditEvent } from '../audit.ts';
-import { AdminApiError, adminErrorBody, adminErrorResponse, toAdminApiError } from './errors.ts';
+import {
+  ADMIN_RETRY_AFTER_SECONDS,
+  AdminApiError,
+  adminErrorBody,
+  adminErrorResponse,
+  toAdminApiError,
+} from './errors.ts';
 import * as S from './schemas.ts';
 import { type AdminTokenVerifier, adminBearer } from './token.ts';
 
@@ -547,6 +553,22 @@ const routes = {
   }),
 };
 
+/** Actions that take no request body (`POST …/revoke`, `POST …/revalidate`). */
+const BODYLESS_ACTION = /\/(?:revoke|revalidate)\/?$/;
+
+/** Mutating routes whose schema-refused requests are audited: [method, path under the base, action, target type]. */
+const REFUSAL_ROUTES: readonly (readonly [string, RegExp, string, string])[] = [
+  ['POST', /^\/users$/, 'user.create', 'user'],
+  ['PATCH', /^\/users\/([^/]+)$/, 'user.update', 'user'],
+  ['POST', /^\/credentials$/, 'credential.create', 'credential'],
+  ['PATCH', /^\/credentials\/([^/]+)$/, 'credential.update', 'credential'],
+  ['POST', /^\/credentials\/([^/]+)\/rotate$/, 'credential.rotate', 'credential'],
+  ['POST', /^\/projects$/, 'project.create', 'project'],
+  ['PATCH', /^\/projects\/([^/]+)$/, 'project.update', 'project'],
+  ['POST', /^\/grants$/, 'grant.create', 'grant'],
+  ['POST', /^\/tokens$/, 'token.create', 'token'],
+];
+
 function validationError(error: z.ZodError): AdminApiError {
   const issue = error.issues[0];
   if (issue === undefined) return new AdminApiError('invalid_request', 'invalid request');
@@ -562,9 +584,42 @@ function validationError(error: z.ZodError): AdminApiError {
 /** Build the admin sub-app (mounted at {@link ADMIN_API_BASE}). */
 export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
   const { storage, clock, logger, catalog } = deps;
+  /**
+   * Audit a request refused before its handler ran (schema validation, malformed JSON) on a mutating route, so every
+   * refused change leaves a row. Nothing the caller submitted goes into the row except the id in the path (redacted),
+   * and the write is capped like other refusal rows.
+   */
+  const recordRefusal = (c: Context, errorCode: string): void => {
+    if (!deps.audit) return;
+    const at = c.req.path.indexOf(ADMIN_API_BASE);
+    const rel = at === -1 ? c.req.path : c.req.path.slice(at + ADMIN_API_BASE.length);
+    for (const [method, pattern, action, targetType] of REFUSAL_ROUTES) {
+      if (method !== c.req.method) continue;
+      const match = pattern.exec(rel);
+      if (match === null) continue;
+      deps.runInBackground(
+        c,
+        deps.audit({
+          actor: { requestId: c.get('requestId') as string },
+          action,
+          targetType,
+          targetId: cleanId(match[1] ?? null),
+          status: 'error',
+          errorCode,
+          refusal: true,
+          details: { via: ADMIN_TOKEN_ACTOR },
+        }),
+        'admin_audit',
+      );
+      return;
+    }
+  };
   const api = new OpenAPIHono<AdminEnv>({
-    defaultHook: (result) => {
-      if (!result.success) throw validationError(result.error);
+    defaultHook: (result, c) => {
+      if (!result.success) {
+        recordRefusal(c, 'invalid_request');
+        throw validationError(result.error);
+      }
     },
   });
   api.openAPIRegistry.registerComponent('securitySchemes', 'adminToken', {
@@ -619,7 +674,9 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
     if (c.req.method === 'POST' || c.req.method === 'PATCH' || c.req.method === 'PUT') {
       const type = c.req.header('content-type') ?? '';
       const hasBody = declared !== '0' && (declared !== undefined || c.req.raw.body !== null);
-      if (hasBody && !/^application\/json\s*(;|$)/i.test(type)) {
+      // Body-less actions take no body at all, so a plain `curl -X POST` (no Content-Type) is fine.
+      const bodyless = BODYLESS_ACTION.test(c.req.path);
+      if (hasBody && !bodyless && !/^application\/json\s*(;|$)/i.test(type)) {
         return adminErrorResponse(
           new AdminApiError('unsupported_media_type', 'send the body as application/json'),
         );
@@ -1029,7 +1086,14 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
       (r) => ({
         targetId: r.result.record.id,
         projectId: r.projectId,
-        details: { warnings: [...r.result.warnings] },
+        // The effective TTL (the instance default when the request gave none), not what was asked for.
+        details: {
+          warnings: [...r.result.warnings],
+          ttlSeconds:
+            r.result.record.expiresAt === null
+              ? 'never'
+              : Math.round((r.result.record.expiresAt - r.result.record.createdAt) / 1000),
+        },
       }),
     );
     // The only place a token's plaintext is ever returned.
@@ -1109,8 +1173,12 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
 
   api.onError((error, c) => {
     const mapped = toAdminApiError(error);
-    if (mapped !== null) return c.json(adminErrorBody(mapped), mapped.status as 400);
+    if (mapped !== null) {
+      if (mapped.code === 'unavailable') c.header('Retry-After', String(ADMIN_RETRY_AFTER_SECONDS));
+      return c.json(adminErrorBody(mapped), mapped.status as 400);
+    }
     if (error instanceof HTTPException) {
+      if (error.status === 400) recordRefusal(c, 'invalid_request');
       // Hono's own refusals: malformed JSON, oversized bodies.
       const code = error.status === 413 ? 'payload_too_large' : 'invalid_request';
       const message =

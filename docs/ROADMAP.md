@@ -118,7 +118,7 @@ Generated from task front matter (`pnpm tasks index` once P0-05 lands). Status l
 | P2-14 | [Core tool consistency and envelope coverage clean-up](tasks/phase-2-access-http/P2-14-core-output-consistency.md) | low | — | review |
 | P2-15 | [Pass-through mode (client-supplied New Relic key)](tasks/phase-2-access-http/P2-15-passthrough-mode.md) | low | P2-06, P2-07 | review |
 | P2-16 | [Audit tool calls on the pass-through route](tasks/phase-2-access-http/P2-16-passthrough-audit.md) | low | P2-08, P2-15 | review |
-| P2-17 | [Admin API audit and error-model follow-ups](tasks/phase-2-access-http/P2-17-admin-audit-followups.md) | medium | P2-09 | todo |
+| P2-17 | [Admin API audit and error-model follow-ups](tasks/phase-2-access-http/P2-17-admin-audit-followups.md) | medium | P2-09 | review |
 | P2-18 | [Phase 2 docs accuracy sweep](tasks/phase-2-access-http/P2-18-docs-accuracy-sweep.md) | medium | P2-13 | todo |
 | P2-19 | [Docker release hardening and an end-to-end image smoke test](tasks/phase-2-access-http/P2-19-docker-release-hardening.md) | medium | P2-11 | todo |
 

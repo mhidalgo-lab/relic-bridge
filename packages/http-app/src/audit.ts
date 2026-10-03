@@ -115,6 +115,11 @@ export interface AdminAuditEvent {
   /** Default `ok`. Use `denied` for an authorization refusal and `error` for a failure. */
   readonly status?: AuditStatus;
   readonly errorCode?: string | null;
+  /**
+   * A refused request (validation failure) rather than a change attempt: written through a per-minute cap like
+   * `auth` refusal rows, so a flood of bad requests can't fill the table (T20).
+   */
+  readonly refusal?: boolean;
   /** Small non-secret facts (label, region, which fields changed). Redacted and size-bounded before storage. */
   readonly details?: Readonly<Record<string, unknown>>;
 }
@@ -172,24 +177,28 @@ export function createAuditRecorder(options: AuditRecorderOptions): AuditRecorde
 
   // Refusal rows can be provoked by anyone who can reach the port, so they are capped (T20). This is bookkeeping
   // for one recorder, not request data.
-  let windowStart = 0;
-  let windowRows = 0;
-  let suppressed = 0;
-  const admitAuthRow = (now: number): { admit: boolean; flushed: number } => {
-    let flushed = 0;
-    if (now - windowStart >= MINUTE_MS) {
-      flushed = suppressed;
-      windowStart = now;
-      windowRows = 0;
-      suppressed = 0;
-    }
-    if (windowRows >= authCap) {
-      suppressed += 1;
-      return { admit: false, flushed };
-    }
-    windowRows += 1;
-    return { admit: true, flushed };
+  const createCap = (cap: number) => {
+    let windowStart = 0;
+    let windowRows = 0;
+    let suppressed = 0;
+    return (now: number): { admit: boolean; flushed: number } => {
+      let flushed = 0;
+      if (now - windowStart >= MINUTE_MS) {
+        flushed = suppressed;
+        windowStart = now;
+        windowRows = 0;
+        suppressed = 0;
+      }
+      if (windowRows >= cap) {
+        suppressed += 1;
+        return { admit: false, flushed };
+      }
+      windowRows += 1;
+      return { admit: true, flushed };
+    };
   };
+  const admitAuthRow = createCap(authCap);
+  const admitAdminRefusal = createCap(authCap);
 
   const writeAuth = async (entry: AuditEntry): Promise<void> => {
     const { admit, flushed } = admitAuthRow(entry.ts);
@@ -327,6 +336,19 @@ export function createAuditRecorder(options: AuditRecorderOptions): AuditRecorde
     hooks,
     async admin(event) {
       const kind: AuditKind = 'admin';
+      if (event.refusal) {
+        const { admit, flushed } = admitAdminRefusal(clock.now());
+        if (flushed > 0) {
+          await write({
+            ts: clock.now(),
+            kind,
+            action: 'admin.suppressed',
+            status: 'denied',
+            details: { suppressedRows: flushed, perMinuteCap: authCap },
+          });
+        }
+        if (!admit) return;
+      }
       await write({
         ts: clock.now(),
         kind,

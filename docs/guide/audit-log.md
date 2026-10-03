@@ -12,7 +12,7 @@ One row per event, with these fields (empty when they don't apply):
 |---|---|
 | `ts` | When, epoch milliseconds. |
 | `kind` | `tool_call`, `auth` (a refused request) or `admin` (a change to credentials, projects, grants, tokens). |
-| `action` | The tool name (`run_nrql`), or `auth.denied`, `request.rejected`, `tool.not_granted`, `auth.suppressed`, or an admin verb such as `token.create`. |
+| `action` | The tool name (`run_nrql`), or `auth.denied`, `request.rejected`, `tool.not_granted`, `auth.suppressed`, `admin.suppressed`, or an admin verb such as `token.create`. |
 | `status` | `ok`, `error` (the tool failed) or `denied`. |
 | `request_id` | Matches the `requestId` in the server log. |
 | `user_id`, `grant_id`, `token_id`, `project_id` | Who, by id. Labels and names live on those records; the project's slug is also kept in `details` so the row stays readable after a deletion. |
@@ -72,7 +72,7 @@ curl -s -H "Authorization: Bearer $RB_ADMIN_TOKEN" \
   'http://127.0.0.1:8787/api/admin/v1/audit?kind=auth&since=2026-10-01T00:00:00Z&limit=100'
 ```
 
-Admin changes made through the API carry `details.via = "admin_token"` (no user identity until Phase 4 sign-in);
+A change request the API refuses as invalid (schema or malformed JSON) is recorded too (`status` `error`, `error_code` `invalid_request`, no submitted values); these rows are capped per minute like `auth` rows, with an `admin.suppressed` summary. Admin changes made through the API carry `details.via = "admin_token"` (no user identity until Phase 4 sign-in);
 failed attempts are recorded too, with `status` `error` (or `denied`) and the API error code.
 
 ## Retention

@@ -15,6 +15,7 @@ import {
   type AdminUiDeps,
   createAdminUi,
   type UiPrincipal,
+  type UiTool,
 } from '@relic-bridge/admin-ui';
 import {
   type AuthenticatedAccess,
@@ -855,6 +856,8 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
             options.admin?.audit?.admin.bind(options.admin.audit) ??
             options.identity.audit?.admin?.bind(options.identity.audit),
           adminApi: options.admin !== undefined,
+          tools: allTools.map((t) => ({ name: t.name, title: t.title, group: t.group, kind: t.kind })),
+          now: () => clock.now(),
           onRejected: (c, status) =>
             notifyRejected(c, { requestId: c.get('requestId'), status, reason: rejectReason(c.get('log')) }),
           fetchApp: (request, c) => {
@@ -1206,6 +1209,9 @@ interface AdminUiWiring {
   readonly onRejected: (c: Context, status: number) => void;
   /** The admin API is mounted (else every `callAdmin` is a 404). */
   readonly adminApi: boolean;
+  /** The tool catalogue the project and grant screens choose from (P4-04). */
+  readonly tools: readonly UiTool[];
+  readonly now: () => number;
   /** The whole app, for in-process admin API calls. */
   readonly fetchApp: (request: Request, c: Context) => Response | Promise<Response>;
 }
@@ -1243,6 +1249,9 @@ function adminUiDeps(w: AdminUiWiring): AdminUiDeps {
 
   return {
     secureCookies: publicOrigin.startsWith('https:'),
+    tools: w.tools,
+    publicUrl: publicOrigin,
+    now: w.now,
     clearSessionCookie: sessions.clearCookie,
     async beforeAuth(c) {
       const stop = await hooks.beforeAuth?.(c, requestId(c), 'admin_session');

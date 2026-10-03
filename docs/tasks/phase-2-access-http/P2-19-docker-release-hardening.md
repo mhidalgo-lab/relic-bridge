@@ -17,15 +17,16 @@ project code), but a few release properties are not enforced and the image has n
 
 ## Goal
 `:latest` only ever moves forward, the release path is protected by settings the docs require, and every PR proves
-the built image starts, serves `/health` and answers MCP behind its own `Host` allowlist.
+the built image answers MCP and the documented operator commands.
 
 ## Scope
 - `docker.yml`: move `:latest` only when the version is the highest non-prerelease release (a re-run for an older tag
   must not roll it back); test in `scripts/test/docker-workflow.test.ts`.
 - Scan the arm64 image too (or document why the amd64 scan covers it).
 - A test that no `run:` step interpolates `${{ github.event... }}` / `${{ github.head_ref }}`.
-- A PR job (no secrets, no push) that runs the built image with a throwaway master key and checks `/health`, a `403`
-  for a foreign `Host`, `db backup` through `docker exec`, and that the root filesystem is read-only.
+- Extend `scripts/docker-smoke.sh` (the review already added the foreign-`Host` `403` and `db backup` through
+  `docker exec`): create a project and token with the CLI in the container and answer an MCP `tools/list` through the
+  image; run the compose example with a local Caddy (internal CA) once.
 - Docs: the `release` environment must have required reviewers and a `main`-only deployment rule; pin images by
   digest rather than `:latest`; compose `depends_on: condition: service_healthy` for Caddy.
 

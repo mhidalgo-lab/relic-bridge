@@ -25,7 +25,12 @@ for _ in $(seq 1 30); do
     [[ "$body" == '{"status":"ok"}' ]] || { echo "unexpected /health body: $body" >&2; exit 1; }
     uid="$(docker inspect --format '{{.Config.User}}' "$image")"
     [[ "$uid" == "65532:65532" ]] || { echo "image user is '$uid', expected 65532:65532" >&2; exit 1; }
-    echo "ok: /health answered, running as ${uid}, read-only root filesystem"
+    code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 2 -H 'Host: evil.example' "http://localhost:${port}/health")"
+    [[ "$code" == "403" ]] || { echo "a foreign Host got $code, expected 403" >&2; exit 1; }
+    # The maintenance commands find the database through RB_DATA_DIR, as the docs run them (P2-review H2).
+    docker exec "$name" /nodejs/bin/node /app/dist/index.mjs db backup /data/smoke-backup.db >/dev/null ||
+      { echo "db backup failed inside the image" >&2; exit 1; }
+    echo "ok: /health answered, foreign Host refused, db backup works, running as ${uid}, read-only root filesystem"
     exit 0
   fi
   sleep 1

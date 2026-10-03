@@ -50,8 +50,8 @@
   tokens, audit log, admin API + CLI. Not yet done:
   1. **Nothing has run against real New Relic or real remote clients**, same as Phase 1. Client snippets are
      unverified.
-  2. **No image has been published, and CI never runs the image.** This review built and smoke-ran it locally once.
-     P2-19 makes that a PR job and closes the release gaps.
+  2. **No image has been published, and compose/Caddy have never run.** The PR smoke test now also covers the Host
+     check and `db backup` in the image; P2-19 adds MCP through the image and closes the release gaps.
 
 ## Per-task completeness
 
@@ -67,7 +67,7 @@
 | P2-08 audit | met | masked NRQL by default, capped refusal rows, retention purge. Gap in ungranted-call recording: **fixed** (M1) |
 | P2-09 admin API | mostly met | constant-time digest compare, strict schemas, 64 KiB cap, masked outputs, cache cleared on change. "Every failed change is audited" is overstated (schema refusals aren't); storage errors are 500 not 503 → P2-17 |
 | P2-10 CLI | met (with fixes) | no secrets as flags, https-only remote, no redirects. Master key default location (**H1**) and DB path for maintenance commands (**H2**) fixed |
-| P2-11 Docker | partially met | digest-pinned distroless non-root image, SHA-pinned actions, signing in a job that runs no project code. Compose lacked `RB_HSTS`: **fixed** (M2). `:latest` can roll back, arm64 unscanned, image never run in CI → P2-19. Last box (signed + clean) open by design |
+| P2-11 Docker | partially met | digest-pinned distroless non-root image, SHA-pinned actions, signing in a job that runs no project code. Compose lacked `RB_HSTS`: **fixed** (M2). `:latest` can roll back, arm64 unscanned, smoke test shallow (extended here) → P2-19. Last box (signed + clean) open by design |
 | P2-12 authz suite | met | every route × caller kind, per-tool hostile NerdGraph, interleaved tenants. Positive control only "not 401/403" → P2-17 |
 | P2-13 docs | partially met | "validated end to end" is ticked, but Docker/compose/systemd were never run and two documented commands failed (H2). Roadmap status was stale: **fixed**. Remaining contradictions → P2-18 |
 | P2-14 core output | met | — |
@@ -140,12 +140,14 @@ None.
     - `token.create` audits `ttlSeconds: null` when the default TTL applied;
     - the authz matrix's positive control is only "not 401/403".
 
-**M4 — Release path: `:latest` can move backwards; image never exercised in CI** — **task P2-19**
+**M4 — Release path: `:latest` can move backwards; the image smoke test was shallow** — **task P2-19** (smoke test extended here)
 - `.github/workflows/docker.yml:253-256`.
 - **Impact:**
   - A re-run for an older stable tag (or a delayed `workflow_run`) retags `:latest` to the older image.
   - The `release` environment's reviewers and branch rule are assumed but not documented as required.
-  - No PR job runs the built image. The Docker flow in P2-13 was never executed, which is how H2 shipped.
+  - The PR smoke test (`scripts/docker-smoke.sh`) only checked `/health` and the user, so the documented maintenance
+    commands were never run in the image, which is how H2 shipped. Extended here: a foreign `Host` must get `403`
+    and `db backup` must work through `docker exec`. MCP through the image and the compose/Caddy path remain → P2-19.
 
 **M5 — Docs disagree with the code in many small places** — **task P2-18** (partly fixed here)
 - Fixed here: the roadmap status and decision log, `configuration.md` `--db`, `cli.md` `init`, and the master key

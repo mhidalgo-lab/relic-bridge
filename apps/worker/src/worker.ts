@@ -23,8 +23,15 @@ import type { WorkerEnv } from './env.ts';
 import { WorkersRateLimiter } from './rate-limit.ts';
 import { parseWorkerSettings, WorkerConfigError, type WorkerSettings } from './settings.ts';
 
-/** After a failed boot, requests within this window answer 503 at once instead of retrying the boot. */
-export const BOOT_RETRY_MS = 5_000;
+/**
+ * After failed boots, requests answer 503 at once instead of retrying: 5 s after the first failure, 15 s after the
+ * second, 60 s after the third and every later one. A successful boot resets the sequence.
+ */
+export const BOOT_BACKOFF_MS: readonly number[] = Object.freeze([5_000, 15_000, 60_000]);
+/** The first backoff step. */
+export const BOOT_RETRY_MS = BOOT_BACKOFF_MS[0] as number;
+/** How long a request waits for another request's boot before it boots itself (default). */
+export const BOOT_WAIT_MS = 3_000;
 
 /** Opens the storage for this isolate (default: D1). */
 export type OpenStorage = (env: WorkerEnv) => Storage | Promise<Storage>;
@@ -55,8 +62,10 @@ export interface WorkerOptions {
   readonly logSink?: LogSink;
   /** Cap on refusal rows per minute (tests that provoke thousands of refusals). Default: the recorder's. */
   readonly auditMaxAuthRowsPerMinute?: number;
-  /** Epoch-ms clock for the boot retry window (tests). */
+  /** Epoch-ms clock for the boot backoff (tests). */
   readonly now?: () => number;
+  /** How long a request waits for the boot in flight before it boots itself (tests). Default: `BOOT_WAIT_MS`. */
+  readonly bootWaitMs?: number;
   /** Retention purge budget per run (tests). Default: `PURGE_BATCH_ROWS`, `PURGE_MAX_BATCHES`, `PURGE_BUDGET_MS`. */
   readonly purge?: Partial<PurgeBudget>;
 }
@@ -115,10 +124,14 @@ function bootFailure(error: unknown): Record<string, unknown> {
   return { error: error instanceof Error ? error.name : typeof error };
 }
 
-function unavailable(): Response {
+function unavailable(retryAfterSeconds: number): Response {
   return new Response('{"error":"unavailable"}', {
     status: 503,
-    headers: { ...SECURITY_HEADERS, 'Content-Type': 'application/json', 'Retry-After': '5' },
+    headers: {
+      ...SECURITY_HEADERS,
+      'Content-Type': 'application/json',
+      'Retry-After': String(retryAfterSeconds),
+    },
   });
 }
 
@@ -222,31 +235,38 @@ async function boot(env: WorkerEnv, options: WorkerOptions): Promise<Runtime> {
  * The Worker's handler. One instance per isolate (the default export), so its runtime cache is per isolate: an
  * admin change clears only the serving isolate's access cache; other isolates follow within the cache TTL.
  *
- * A request that finds no runtime boots one itself and never awaits another request's boot: the boot does storage
- * I/O, and workerd ties I/O to the request that started it (a promise settled from a request that was cancelled
- * meanwhile would leave its waiters hanging). Concurrent cold requests therefore each boot; the first runtime to finish
- * is kept and the others are dropped, so every later request shares one set of caches.
+ * Boot is single-flight per isolate (P3-12): the first request that finds no runtime starts the boot and concurrent
+ * requests wait for that promise, so a cold isolate opens the storage once however many requests arrive. workerd ties
+ * I/O to the request that started it, so a boot whose owner was cancelled may never settle; a waiter therefore waits
+ * at most `bootWaitMs`, then starts a boot of its own (which later waiters share). Failed boots back off
+ * (`BOOT_BACKOFF_MS`) and are logged once, by the request that ran the boot. The promise and the failure record hold
+ * no request data (T21).
  */
 export function createWorker(options: WorkerOptions = {}): WorkerHandler {
   const now = options.now ?? Date.now;
+  const bootWaitMs = options.bootWaitMs ?? BOOT_WAIT_MS;
   const logger = createLogger(options.logSink === undefined ? {} : { sink: options.logSink });
   // `env` is fixed for an isolate's lifetime (new secrets or vars mean a new deployment and new isolates); keying the
   // cache on it still rebuilds when a caller hands in a different one (tests).
   let ready: { readonly env: WorkerEnv; readonly runtime: Runtime } | undefined;
-  let failed: { readonly env: WorkerEnv; readonly at: number } | undefined;
+  let inflight: { readonly env: WorkerEnv; readonly promise: Promise<Runtime | null> } | undefined;
+  /** The most recent boot, settled or not: a waiter that times out joins it if it is newer than the one it waited for. */
+  let latest: { readonly env: WorkerEnv; readonly promise: Promise<Runtime | null> } | undefined;
+  let failed: { readonly env: WorkerEnv; readonly until: number; readonly count: number } | undefined;
 
-  const runtimeFor = async (env: WorkerEnv): Promise<Runtime | null> => {
-    if (ready?.env === env) return ready.runtime;
-    if (failed?.env === env && now() - failed.at < BOOT_RETRY_MS) return null;
+  /** Boots once and records the outcome; never rejects. */
+  const bootOnce = async (env: WorkerEnv): Promise<Runtime | null> => {
     let runtime: Runtime;
     try {
       runtime = await boot(env, options);
     } catch (error) {
       logger.error('worker boot failed', bootFailure(error));
-      failed = { env, at: now() };
+      const count = failed?.env === env ? failed.count : 0;
+      const step = BOOT_BACKOFF_MS[Math.min(count, BOOT_BACKOFF_MS.length - 1)] as number;
+      failed = { env, until: now() + step, count: count + 1 };
       return null;
     }
-    // Another request may have finished booting first: keep its runtime (one set of caches per isolate).
+    // Another boot (a waiter that gave up on a stuck one) may have finished first: keep its runtime.
     if (ready?.env === env) return ready.runtime;
     ready = { env, runtime };
     failed = undefined;
@@ -264,6 +284,47 @@ export function createWorker(options: WorkerOptions = {}): WorkerHandler {
       passthrough: settings.passthrough,
     });
     return runtime;
+  };
+
+  const startBoot = (env: WorkerEnv): Promise<Runtime | null> => {
+    const promise = bootOnce(env);
+    const entry = { env, promise };
+    inflight = entry;
+    latest = entry;
+    void promise.then(() => {
+      if (inflight === entry) inflight = undefined;
+    });
+    return promise;
+  };
+
+  /** The runtime, or the seconds after which a retry makes sense. */
+  const runtimeFor = async (env: WorkerEnv): Promise<Runtime | number> => {
+    if (ready?.env === env) return ready.runtime;
+    const backoff = (): number =>
+      failed === undefined ? 1 : Math.max(1, Math.ceil((failed.until - now()) / 1000));
+    if (failed?.env === env && now() < failed.until) return backoff();
+
+    let result: Runtime | null;
+    const current = inflight?.env === env ? inflight : undefined;
+    if (current === undefined) {
+      result = await startBoot(env);
+    } else {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      // The boot in flight did not settle in time (its owner may be gone): boot here, unless another waiter already
+      // replaced it. Decided inside the timer callback, so waiters whose timers fire together share one new boot.
+      const replacement = new Promise<Runtime | null>((resolve) => {
+        timer = setTimeout(() => {
+          resolve(
+            latest !== undefined && latest.env === env && latest !== current
+              ? latest.promise
+              : startBoot(env),
+          );
+        }, bootWaitMs);
+      });
+      result = await Promise.race([current.promise, replacement]);
+      clearTimeout(timer);
+    }
+    return result ?? backoff();
   };
 
   /**
@@ -319,7 +380,7 @@ export function createWorker(options: WorkerOptions = {}): WorkerHandler {
     },
     async fetch(request, env, ctx) {
       const runtime = await runtimeFor(env);
-      if (runtime === null) return unavailable();
+      if (typeof runtime === 'number') return unavailable(runtime);
       return runtime.app.fetch(request, env, ctx);
     },
   };

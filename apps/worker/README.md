@@ -42,13 +42,16 @@ first deploy.
 | `RB_LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error`. Logs go to Workers Logs, redacted. |
 
 An invalid value (or a missing/wrong master key) fails closed: every request answers 503 and one log line names the
-problem, never a secret value. The Worker retries the boot after 5 seconds.
+problem, never a secret value. Failed boots back off (5 s, then 15 s, then 60 s between attempts; a success resets it)
+and requests meanwhile answer 503 with `Retry-After`.
 
 ## Behaviour on Workers
 
 - **Per-isolate runtime.** The first request into an isolate builds the keyring (imported `CryptoKey`s), checks it
   against the stored key checks, and builds the app with its access cache and rate-limit buckets; later requests reuse
-  them. Nothing request-specific is kept (THREAT_MODEL T21).
+  them. Nothing request-specific is kept (THREAT_MODEL T21). The boot is single-flight: concurrent cold requests wait
+  for one boot (one migration check and one set of key checks on D1). A waiter gives up after 3 s and boots itself, so
+  a boot whose request was cancelled cannot hang the others.
 - **Caches are per isolate.** An admin change (revoking a token, editing a grant) clears the access cache of the
   isolate that served the admin call only; other isolates pick it up within `RB_ACCESS_CACHE_TTL` (default 30 s).
 - **Storage is D1** (`DB`). The schema is migrated by the Worker itself when an isolate boots (the same embedded,

@@ -2,7 +2,7 @@
 id: P1-03
 title: NRQL execution engine (sync, async, cross-account)
 phase: 1
-status: todo
+status: review
 priority: high
 depends_on: [P1-02]
 adr: [0005, 0010]
@@ -28,8 +28,8 @@ Run any NRQL reliably within platform limits, returning a handle when it can't f
 - Fixtures: `packages/core/test/fixtures/nerdgraph/` (sanitized P0-09 captures).
 
 ## Acceptance criteria
-- [ ] Fixture tests for sync, async-complete, async-pending-handle, cross-account, NRQL syntax error message passed back helpfully.
-- [ ] Polling never exceeds the budget (test with tiny budget).
+- [x] Fixture tests for sync, async-complete, async-pending-handle, cross-account, NRQL syntax error message passed back helpfully.
+- [x] Polling never exceeds the budget (test with tiny budget).
 
 ## Security notes
 T5.
@@ -39,3 +39,16 @@ T5.
 
 ## Out of scope
 - Query limits (P1-04).
+
+## Progress notes
+- 2026-10-03: `src/nrql/` holds `documents` (three static documents sharing one lean selection) and `engine`
+  (`runNrql`, `getQueryResult`, `resolveAccounts`).
+- **Async:** `auto` submits with NerdGraph's native `async: true` + `timeout`, which returns results if they finish in
+  time and a `queryId` otherwise; then it polls. `async` mode returns the handle without polling.
+- **Cross-account is sync only:** the schema has no actor-level progress query. Recorded in RESEARCH §2.
+- **Stats** are opt-in (`stats: true`): `rawResponse` repeats the whole result. Recorded in RESEARCH §2.
+- **Async unavailable:** the fallback triggers on a container-level error that mentions async or Data Plus. The real
+  message is unobserved: P0-09 accounts completed async queries immediately. Revisit once it's seen live.
+- **Synthesized tests:** pending and progress bodies are built from the documented shape, because P0-09 never got a
+  `queryId` back. The other tests replay fixtures.
+- **Defence in depth:** account ids are checked against `ctx.accounts.allowed` before any request.

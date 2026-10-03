@@ -2,7 +2,7 @@
 id: P1-02
 title: NerdGraph client (regions, retries, limiter, budget)
 phase: 1
-status: review
+status: done
 priority: high
 depends_on: [P1-01]
 adr: [0010]

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import type { FetchLike } from '../../src/index.ts';
+import cross_account from '../fixtures/nerdgraph/cross_account.json' with { type: 'json' };
 import error_bad_nrql from '../fixtures/nerdgraph/error_bad_nrql.json' with { type: 'json' };
 import error_invalid_user_key from '../fixtures/nerdgraph/error_invalid_user_key.json' with { type: 'json' };
 import error_missing_variable from '../fixtures/nerdgraph/error_missing_variable.json' with { type: 'json' };
@@ -9,6 +10,9 @@ import error_wrong_region_A_US_key_on_EU from '../fixtures/nerdgraph/error_wrong
   type: 'json',
 };
 import identity_A from '../fixtures/nerdgraph/identity_A.json' with { type: 'json' };
+import nrql_async_start from '../fixtures/nerdgraph/nrql_async_start.json' with { type: 'json' };
+import nrql_sync_1 from '../fixtures/nerdgraph/nrql_sync_1.json' with { type: 'json' };
+import nrql_sync_3 from '../fixtures/nerdgraph/nrql_sync_3.json' with { type: 'json' };
 
 interface Fixture {
   request: { query: string; variables: Record<string, unknown> };
@@ -22,7 +26,11 @@ export type FixtureName =
   | 'error_missing_variable'
   | 'error_unknown_account'
   | 'error_wrong_region_A_US_key_on_EU'
-  | 'identity_A';
+  | 'identity_A'
+  | 'cross_account'
+  | 'nrql_async_start'
+  | 'nrql_sync_1'
+  | 'nrql_sync_3';
 
 const FIXTURES: Record<FixtureName, Fixture> = {
   error_bad_nrql,
@@ -31,6 +39,10 @@ const FIXTURES: Record<FixtureName, Fixture> = {
   error_unknown_account,
   error_wrong_region_A_US_key_on_EU,
   identity_A,
+  cross_account,
+  nrql_async_start,
+  nrql_sync_1,
+  nrql_sync_3,
 };
 
 export function loadFixture(name: FixtureName): Fixture {

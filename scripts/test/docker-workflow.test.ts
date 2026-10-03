@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { parse } from 'yaml';
 
@@ -82,6 +82,30 @@ describe('.github/workflows/docker.yml (THREAT_MODEL T18, P2-11)', () => {
     expect(at('cosign sign')).toBeLessThan(at('actions/attest@'));
   });
 
+  it('moves :latest only for the highest stable release, decided in plan (P2-19)', () => {
+    const plan = (workflow.jobs.plan.steps ?? []).find((s) => s.run?.includes('latest=')) ?? {};
+    const run = plan.run ?? '';
+    // Prereleases never qualify; the version must sort at or above every published stable release.
+    expect(run).toContain('--exclude-pre-releases');
+    expect(run).toContain('--exclude-drafts');
+    expect(run).toMatch(/sort -V/);
+    expect(run).toMatch(/echo "latest=\$\{latest\}"/);
+    // The push step copies :latest only when plan said so; the prerelease flag alone is not enough.
+    const push = (workflow.jobs.publish.steps ?? []).find((s) => s.run?.includes(':latest')) ?? {};
+    expect(push.run).toMatch(/if \[\[ "\$LATEST" == true \]\]; then[\s\S]*:latest/);
+    expect(push.run).not.toContain('PRERELEASE');
+  });
+
+  it('scans the arm64 image as well as the amd64 one', () => {
+    const scans = (workflow.jobs.build.steps ?? []).filter((s) =>
+      s.uses?.startsWith('aquasecurity/trivy-action@'),
+    );
+    expect(scans.length).toBe(2);
+    const raw = read('../../.github/workflows/docker.yml');
+    expect(raw).toMatch(/platforms: linux\/arm64\n[\s\S]*type=docker,dest=/);
+    expect(raw).toMatch(/input: \$\{\{ runner\.temp \}\}\/relic-bridge-arm64\.tar/);
+  });
+
   it('every action is pinned by commit SHA', () => {
     for (const [, job] of jobs) {
       for (const step of job.steps ?? []) {
@@ -89,6 +113,32 @@ describe('.github/workflows/docker.yml (THREAT_MODEL T18, P2-11)', () => {
       }
     }
   });
+});
+
+// Script injection (THREAT_MODEL T18): attacker-influenced context values (branch names, titles, bodies, refs) must reach
+// shell steps through `env:`, never by interpolation inside `run:`.
+describe('workflow `run:` steps never interpolate untrusted context (P2-19)', () => {
+  const dir = new URL('../../.github/workflows/', import.meta.url);
+  const UNTRUSTED =
+    /\$\{\{[^}]*\b(github\.event\.|github\.head_ref|github\.ref_name|github\.base_ref|inputs\.|steps\.[\w-]+\.outputs\.|needs\.[\w-]+\.outputs\.)/;
+  const files = readdirSync(dir).filter((f) => /\.ya?ml$/.test(f));
+
+  it('finds the workflows', () => {
+    expect(files).toContain('docker.yml');
+  });
+
+  for (const file of files) {
+    it(`${file}: no \${{ }} expression with event, ref or output data inside run:`, () => {
+      const doc = parse(readFileSync(new URL(file, dir), 'utf8')) as { jobs: { [name: string]: Job } };
+      for (const [name, job] of Object.entries(doc.jobs)) {
+        for (const step of job.steps ?? []) {
+          if (step.run !== undefined) {
+            expect(step.run, `${file} job ${name}`).not.toMatch(UNTRUSTED);
+          }
+        }
+      }
+    });
+  }
 });
 
 describe('Dockerfile and .dockerignore (P2-11)', () => {
@@ -120,7 +170,13 @@ describe('Dockerfile and .dockerignore (P2-11)', () => {
 
 describe('deploy/docker-compose.example.yml (P2-review)', () => {
   const compose = parse(read('../../deploy/docker-compose.example.yml')) as {
-    services: { [name: string]: { environment?: Record<string, string>; ports?: string[] } };
+    services: {
+      [name: string]: {
+        environment?: Record<string, string>;
+        ports?: string[];
+        depends_on?: Record<string, { condition?: string }>;
+      };
+    };
   };
   const env = compose.services['relic-bridge']?.environment ?? {};
 
@@ -131,6 +187,10 @@ describe('deploy/docker-compose.example.yml (P2-review)', () => {
     expect(env['RB_TRUSTED_PROXY_HOPS']).toBe('1');
     expect(env['RB_ALLOWED_HOSTS']).toBeTruthy();
     expect(compose.services['relic-bridge']?.ports).toBeUndefined();
+  });
+
+  it('starts Caddy only once the server is healthy (P2-19)', () => {
+    expect(compose.services['caddy']?.depends_on?.['relic-bridge']?.condition).toBe('service_healthy');
   });
 
   it('never puts the master key in the data volume or the environment', () => {

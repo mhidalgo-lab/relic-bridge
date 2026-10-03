@@ -493,3 +493,24 @@ Questions raised by `docs/reviews/phase-2-review.md`. Nothing here blocks Phase 
 - **Assumption made:** an explicit `RB_HSTS=true` is clearer than trusting a header.
 - **Options:** keep; trust `X-Forwarded-Proto` only when `RB_TRUSTED_PROXY_HOPS > 0`.
 - **Needs:** nothing unless the owner prefers the header.
+
+## P2-19 Docker release hardening
+
+### P2-19 — Repository settings for the release path cannot be set or verified from code
+- **Context:** the `release` environment must have required reviewers (not self-review) and a `main`-only deployment
+  rule, `v*` tags and `main` need rulesets, and the GHCR package must be linked to the repository. Agents must not
+  change repository settings, so `docs/dev/releasing.md` lists them and nothing verifies them.
+- **Assumption made:** the owner applies the settings before setting `RB_RELEASE_ENABLED=true`.
+- **Options:** apply by hand (once); later add a scheduled workflow or script that reads the settings with a
+  read-only token and fails when they drift.
+- **Needs:** owner action before the first release.
+
+### P2-19 — The release-time arm64 scan is a rebuild, not the published archive
+- **Context:** Trivy cannot read a multi-arch OCI archive, so the arm64 scan runs on a docker archive built from the
+  same Dockerfile and inputs just before the multi-arch archive. Base images are digest-pinned and the build has no
+  cache in releases, so they match unless a build step is non-deterministic.
+- **Assumption made:** acceptable; the published digest is the one built from the OCI archive, signed and attested.
+- **Options:** keep; or unpack per-platform images from the OCI archive with `skopeo copy` to docker archives in
+  `build` and scan those (exact, a few more steps).
+- **Needs:** nothing unless the owner wants the exact-archive scan.
+

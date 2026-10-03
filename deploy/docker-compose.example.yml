@@ -43,7 +43,9 @@ services:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-data:/data
       - caddy-config:/config
-    depends_on: [relic-bridge]
+    depends_on:
+      relic-bridge:
+        condition: service_healthy # the image's HEALTHCHECK: Caddy starts only once the server answers
 
 secrets:
   rb_master_key:

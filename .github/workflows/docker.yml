@@ -1,7 +1,8 @@
 # Docker image (P2-11). Actions are pinned by commit SHA; Renovate keeps them updated.
 #
-# Pull requests: build the image (amd64 + arm64) without pushing, scan it with Trivy (fails on fixed high/critical
-# findings) and smoke-test it (hardened `docker run`, `serve` starts, /health answers). Nothing is pushed or signed.
+# Pull requests: build the image (amd64 + arm64) without pushing, scan both architectures with Trivy (fails on fixed
+# high/critical findings) and smoke-test the amd64 image (hardened `docker run`, `serve` starts, an operator creates a
+# project and a token with the CLI, MCP `tools/list` answers). Nothing is pushed or signed.
 #
 # Release: runs after the `Release` workflow succeeded on `main` (GITHUB_TOKEN events cannot trigger workflows, so the
 # GitHub Release created there cannot start this one directly). `plan` proceeds only when the repository variable
@@ -26,6 +27,7 @@ on:
       - pnpm-workspace.yaml
       - package.json
       - scripts/docker-smoke.sh
+      - scripts/docker-smoke/**
   workflow_run:
     workflows: [Release]
     types: [completed]
@@ -54,7 +56,7 @@ jobs:
       release: ${{ steps.plan.outputs.release }}
       version: ${{ steps.plan.outputs.version }}
       sha: ${{ steps.plan.outputs.sha }}
-      prerelease: ${{ steps.plan.outputs.prerelease }}
+      latest: ${{ steps.plan.outputs.latest }}
     steps:
       - uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
         with:
@@ -85,11 +87,21 @@ jobs:
             ref="$(gh api "repos/${GITHUB_REPOSITORY}/git/tags/${sha}" --jq '{object: .object}')"
           done
           [[ "$type" == commit && "$sha" == "$HEAD_SHA" ]] || none "tag v${version} is not this commit: nothing to publish"
+          # `:latest` moves only for the highest stable release: a re-run for an older tag (or a delayed workflow_run)
+          # must never roll it back. Prereleases never move it.
+          latest=false
+          if [[ "$(jq -r .isPrerelease <<<"$rel")" == false ]]; then
+            highest="$(gh release list --repo "$GITHUB_REPOSITORY" --exclude-drafts --exclude-pre-releases --limit 1000 \
+              --json tagName --jq '.[].tagName' | sed -n 's/^v\([0-9]\+\.[0-9]\+\.[0-9]\+\)$/\1/p' |
+              sort -V | tail -n1)"
+            top="$(printf '%s\n%s\n' "${highest:-0.0.0}" "$version" | sort -V | tail -n1)"
+            if [[ "$top" == "$version" ]]; then latest=true; fi
+          fi
           {
             echo "release=true"
             echo "version=${version}"
             echo "sha=${HEAD_SHA}"
-            echo "prerelease=$(jq -r .isPrerelease <<<"$rel")"
+            echo "latest=${latest}"
           } >> "$GITHUB_OUTPUT"
 
   # Pull requests and releases. Runs dependency and project code (the Dockerfile installs and builds): no OIDC token, no
@@ -134,7 +146,7 @@ jobs:
           # No cache import/export in release builds: a poisoned cache must not reach the published image.
           cache-from: ${{ env.RELEASE != 'true' && 'type=gha' || '' }}
           cache-to: ${{ env.RELEASE != 'true' && 'type=gha,mode=max' || '' }}
-      - name: Trivy scan (high and critical, fixed vulnerabilities)
+      - name: Trivy scan, linux/amd64 (high and critical, fixed vulnerabilities)
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: relic-bridge:scan
@@ -145,21 +157,34 @@ jobs:
           hide-progress: true
         env:
           TRIVY_DISABLE_VEX_NOTICE: 'true'
-      - name: Smoke test (hardened run, /health)
+      - name: Smoke test (hardened run, CLI setup, MCP tools/list)
         run: scripts/docker-smoke.sh relic-bridge:scan
-      - name: Build (linux/amd64 + linux/arm64) without pushing
-        if: env.RELEASE != 'true'
+      # The arm64 image is cross-built (no emulation: the runtime stage only copies files) into a docker archive and
+      # scanned like the amd64 one: its distroless base layers differ per architecture. For releases this is a second
+      # build of the same Dockerfile and inputs, scanned before the multi-arch archive below is created.
+      - name: Build (linux/arm64) into an archive for the scan
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
-          platforms: linux/amd64,linux/arm64
-          push: false
+          platforms: linux/arm64
           provenance: false
           sbom: false
+          outputs: type=docker,dest=${{ runner.temp }}/relic-bridge-arm64.tar
           build-args: |
             VERSION=${{ env.VERSION }}
             REVISION=${{ env.REVISION }}
-          cache-from: type=gha
+          cache-from: ${{ env.RELEASE != 'true' && 'type=gha' || '' }}
+      - name: Trivy scan, linux/arm64 (high and critical, fixed vulnerabilities)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          input: ${{ runner.temp }}/relic-bridge-arm64.tar
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
+          scanners: vuln,secret
+          hide-progress: true
+        env:
+          TRIVY_DISABLE_VEX_NOTICE: 'true'
       - name: Build the release archive (linux/amd64 + linux/arm64, OCI layout)
         if: env.RELEASE == 'true'
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
@@ -210,7 +235,7 @@ jobs:
       artifact-metadata: write
     env:
       VERSION: ${{ needs.plan.outputs.version }}
-      PRERELEASE: ${{ needs.plan.outputs.prerelease }}
+      LATEST: ${{ needs.plan.outputs.latest }}
       ARTIFACT_ID: ${{ needs.build.outputs.artifact-id }}
       ARCHIVE_SHA256: ${{ needs.build.outputs.archive-sha256 }}
     steps:
@@ -220,7 +245,7 @@ jobs:
       - name: Check the inputs
         run: |
           [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || { echo "::error::bad version"; exit 1; }
-          [[ "$PRERELEASE" == true || "$PRERELEASE" == false ]] || { echo "::error::bad prerelease flag"; exit 1; }
+          [[ "$LATEST" == true || "$LATEST" == false ]] || { echo "::error::bad latest flag"; exit 1; }
           [[ "$ARTIFACT_ID" =~ ^[0-9]+$ ]] || { echo "::error::bad artifact id"; exit 1; }
           [[ "$ARCHIVE_SHA256" =~ ^[0-9a-f]{64}$ ]] || { echo "::error::bad checksum digest"; exit 1; }
       # Downloads by id from this run; the action fails on an artifact digest mismatch.
@@ -250,7 +275,8 @@ jobs:
             skopeo copy --all --preserve-digests --dest-authfile "$HOME/.docker/config.json" \
               "oci-archive:image/relic-bridge-oci.tar" "docker://${repo}:${VERSION}"
           fi
-          if [[ "$PRERELEASE" == false ]]; then
+          # Only the highest stable release moves :latest (decided in `plan`; it is never moved backwards).
+          if [[ "$LATEST" == true ]]; then
             skopeo copy --all --preserve-digests --authfile "$HOME/.docker/config.json" \
               "docker://${repo}@${built}" "docker://${repo}:latest"
           fi

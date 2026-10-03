@@ -111,8 +111,8 @@ function nerdgraph(nrqlBody: string): FetchLike {
   };
 }
 
-const record = (task: { meta: Record<string, unknown> }, summary: CpuSummary): void => {
-  task.meta['cpu'] = summary;
+const record = (task: { readonly meta: object }, summary: CpuSummary): void => {
+  (task.meta as Record<string, unknown>)['cpu'] = summary;
 };
 
 describe('cpu', () => {

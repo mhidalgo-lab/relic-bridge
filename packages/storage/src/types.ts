@@ -348,7 +348,12 @@ export interface AuditRecord extends Required<AuditEntry> {
 export interface AuditQuery {
   readonly projectId?: string;
   readonly userId?: string;
+  readonly grantId?: string;
+  readonly tokenId?: string;
   readonly kind?: AuditKind;
+  /** Exact action (`run_nrql`, `token.create`, `auth.denied`). */
+  readonly action?: string;
+  readonly status?: AuditStatus;
   /** Inclusive lower bound on `ts`. */
   readonly since?: number;
   /** Exclusive upper bound on `ts`. */

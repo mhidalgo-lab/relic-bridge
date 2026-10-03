@@ -700,8 +700,22 @@ export function runStorageContract(options: StorageContractOptions): void {
           errorCode: 'missing_token',
         });
         expect((await s.auditLog.list({ kind: 'auth' })).map((r) => r.action)).toEqual(['auth.denied']);
+        await s.auditLog.append({
+          ts: 650,
+          kind: 'tool_call',
+          action: 'whoami',
+          status: 'error',
+          grantId: 'g1',
+          tokenId: 't1',
+        });
+        expect((await s.auditLog.list({ action: 'token.create' })).map((r) => r.ts)).toEqual([400, 200]);
+        expect((await s.auditLog.list({ status: 'denied' })).map((r) => r.ts)).toEqual([600]);
+        expect((await s.auditLog.list({ status: 'error' })).map((r) => r.ts)).toEqual([650]);
+        expect((await s.auditLog.list({ grantId: 'g1' })).map((r) => r.ts)).toEqual([650]);
+        expect((await s.auditLog.list({ tokenId: 't1', kind: 'tool_call' })).map((r) => r.ts)).toEqual([650]);
+        expect(await s.auditLog.list({ grantId: 'g2' })).toEqual([]);
         expect(await s.auditLog.purgeBefore(300)).toBe(2);
-        expect((await s.auditLog.list()).map((r) => r.ts)).toEqual([600, 500, 400, 300]);
+        expect((await s.auditLog.list()).map((r) => r.ts)).toEqual([650, 600, 500, 400, 300]);
         await s.close();
       });
     });

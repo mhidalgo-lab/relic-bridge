@@ -116,7 +116,10 @@ its own user's. Details and examples: [access model guide](guide/access-model.md
 
 - Tools a client may not use are **not listed** at all; the MCP server is built per request with only the allowed tools.
   Calls to them are rejected anyway, as defence in depth.
-- Each device gets its own token or OAuth session, so losing a device means revoking one entry.
+- Each device gets its own token or OAuth session, so losing a device means revoking one entry. Static tokens
+  (`packages/auth/src/tokens`, P2-05) are `rb_<env>_<43 base62, 256-bit>_<CRC-32 in 6 base62>`; the checksum is
+  checked before any storage read, then the SHA-256 is looked up and compared in constant time, then revocation and
+  expiry; `last_used_at` is written at most once per 5 minutes.
 - **Bring-your-own-key** team pattern: each member's grant points at their own credential, which keeps NR RBAC
   and per-user concurrency (see RESEARCH §2).
 - A token is bound to **one project** (its audience). Using it at another slug is rejected with 401.

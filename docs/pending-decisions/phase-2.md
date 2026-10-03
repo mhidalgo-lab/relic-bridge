@@ -167,3 +167,32 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Options:** as assumed; refuse such grants outright; store only the intersection (then widening the project never
   widens the grant).
 - **Needs:** owner OK (the admin API/UI will surface the warnings).
+
+## P2-05 — Access tokens
+
+### P2-05 — Token shape and the `env` segment
+- **Context:** the task sketched `rb_<env?>_<base62 32 bytes>_<crc32>` and an 8-character display prefix; the schema
+  allows a 12-character prefix and the gitleaks rule expects a 2-8 character env.
+- **Assumption made:** `env` is always present, 2-4 lowercase letters/digits, default `live` (no deployment sets anything
+  else yet); the secret is 43 uniform base62 characters (≈ 256 bits); the checksum is CRC-32 in 6 base62 characters; the
+  display prefix is the first 12 characters (`rb_live_Ab3d`), so tokens of the same env can be told apart.
+- **Options:** as assumed; make `env` configurable per deployment (`RB_TOKEN_ENV`, e.g. `home`, `work`) in P2-06/P2-10;
+  drop `env` altogether (then the second gitleaks alternative must change).
+- **Needs:** owner OK before the first real token is issued (changing the shape later invalidates nothing stored, since
+  only hashes are kept, but scanners and docs would need updating).
+
+### P2-05 — Unkeyed SHA-256 at rest
+- **Context:** an HMAC with a server-side pepper would make a stolen DB dump useless even for (impossible) brute force,
+  but ties every token to a second secret (rotation, Worker secret) and diverges from ADR-0009 / the schema comment.
+- **Assumption made:** plain SHA-256: the input is a uniformly random 256-bit secret, so the hash is not invertible or
+  guessable; matches ADR-0009.
+- **Options:** as assumed; HMAC-SHA-256 keyed from the master key (would need a new ADR and a re-issue of all tokens).
+- **Needs:** nothing unless the owner prefers defence in depth here.
+
+### P2-05 — Token lifetime rules
+- **Context:** the task set a 90-day default and allows `never` with a warning.
+- **Assumption made:** any positive TTL is accepted (no upper cap); `never` and "longer than the grant" only warn
+  (`token_never_expires`, `token_outlives_grant`), because the grant's expiry is enforced on every request anyway.
+  Issuing requires a live grant; a disabled project or user does not block issuing (the resolver denies at use).
+- **Options:** as assumed; cap TTLs (e.g. 1 year) unless `never`; clamp to the grant's expiry.
+- **Needs:** owner OK (P2-10 CLI wording).

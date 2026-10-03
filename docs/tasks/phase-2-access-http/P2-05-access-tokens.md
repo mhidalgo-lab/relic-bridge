@@ -2,7 +2,7 @@
 id: P2-05
 title: Access tokens (per device)
 phase: 2
-status: in-progress
+status: review
 priority: high
 depends_on: [P2-04]
 adr: [0009]
@@ -38,16 +38,16 @@ so the HTTP app (P2-06) can authenticate MCP requests and the CLI/admin API (P2-
     `bearerToken(header)` (parses `Authorization: Bearer …`).
 
 ## Acceptance criteria
-- [ ] Tests: create, verify, revoked, expired (boundary `now == expires_at`), bad checksum and malformed tokens
+- [x] Tests: create, verify, revoked, expired (boundary `now == expires_at`), bad checksum and malformed tokens
   rejected **without a storage read**.
-- [ ] Property tests: generated tokens match the format and the gitleaks/redaction patterns; any single-character
+- [x] Property tests: generated tokens match the format and the gitleaks/redaction patterns; any single-character
   change is rejected offline; tokens are unique.
-- [ ] Storage holds no plaintext (no row field contains the token); errors, `JSON.stringify` and `String()` of the
+- [x] Storage holds no plaintext (no row field contains the token); errors, `JSON.stringify` and `String()` of the
   issue result never contain it.
-- [ ] A storage adapter returning a record whose hash differs from the presented token's is refused (constant-time
+- [x] A storage adapter returning a record whose hash differs from the presented token's is refused (constant-time
   comparison, not trust in the lookup).
-- [ ] `last_used_at` throttled to ≤ 1 write / 5 min; a failing write never fails verification.
-- [ ] Issue refuses unknown, revoked and expired grants and bad labels/TTLs; `'never'` warns.
+- [x] `last_used_at` throttled to ≤ 1 write / 5 min; a failing write never fails verification.
+- [x] Issue refuses unknown, revoked and expired grants and bad labels/TTLs; `'never'` warns.
 
 ## Security notes
 T1 (token theft: per-device, revocable, expiring, hashed at rest, redacted), T15 (revocation is read on every

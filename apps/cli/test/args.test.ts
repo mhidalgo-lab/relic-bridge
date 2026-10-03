@@ -52,6 +52,31 @@ describe('parseCliArgs', () => {
     expect(() => parseCliArgs(['--config'])).toThrow(UsageError);
   });
 
+  it('parses keys generate and keys rotate', () => {
+    expect(parseCliArgs(['keys', 'generate'])).toEqual({ command: 'keys', keysAction: 'generate' });
+    expect(parseCliArgs(['keys', 'generate', '--key-version', '3'])).toEqual({
+      command: 'keys',
+      keysAction: 'generate',
+      keyVersion: 3,
+    });
+    expect(parseCliArgs(['keys', 'rotate', '--db', 'x.db'])).toEqual({
+      command: 'keys',
+      keysAction: 'rotate',
+      db: 'x.db',
+    });
+    expect(parseCliArgs(['keys', '--help'])).toEqual({ command: 'help' });
+    expect(() => parseCliArgs(['keys'])).toThrow(/keys generate/);
+    expect(() => parseCliArgs(['keys', 'show'])).toThrow(/keys generate/);
+    expect(() => parseCliArgs(['keys', 'rotate', 'extra'])).toThrow(/keys generate/);
+    for (const bad of ['0', '-1', '1.5', 'x', '1000000']) {
+      expect(() => parseCliArgs(['keys', 'generate', '--key-version', bad])).toThrow(/--key-version/);
+    }
+    expect(() => parseCliArgs(['keys', 'rotate', '--key-version', '2'])).toThrow(/--key-version/);
+    expect(() => parseCliArgs(['keys', 'generate', '--db', 'x.db'])).toThrow(/--db/);
+    // There is no flag that takes a master key.
+    expect(() => parseCliArgs(['keys', 'rotate', '--master-key', 'abc'])).toThrow(UsageError);
+  });
+
   it('parses db backup', () => {
     expect(parseCliArgs(['db', 'backup', 'out.db', '--db', 'x.db'])).toEqual({
       command: 'db',
@@ -70,6 +95,6 @@ describe('parseCliArgs', () => {
   it('help text documents the env block and never suggests key flags', () => {
     expect(HELP_TEXT).toContain('NEW_RELIC_API_KEY');
     expect(HELP_TEXT).toContain('"env" block');
-    expect(HELP_TEXT).not.toMatch(/--api-key|--key/);
+    expect(HELP_TEXT).not.toMatch(/--api-key|--(?:master-)?key(?![-\w])/);
   });
 });

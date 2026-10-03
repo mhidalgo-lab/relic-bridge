@@ -2,6 +2,7 @@
 import { existsSync, mkdtempSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { generateMasterKey, Keyring } from '@relic-bridge/auth';
 import { VERSION } from '@relic-bridge/core';
 import { openSqliteStorage } from '@relic-bridge/storage-sqlite';
 import { afterAll, describe, expect, it } from 'vitest';
@@ -20,7 +21,16 @@ function run(argv: string[], env: Record<string, string> = {}, files: Parameters
     stderr: (t) => err.push(t),
   };
   const result = main(rt);
-  return { result, stdout: out.join(''), stderr: err.join('\n') };
+  // Getters: async commands (keys rotate) keep writing after `main` returns.
+  return {
+    result,
+    get stdout() {
+      return out.join('');
+    },
+    get stderr() {
+      return err.join('\n');
+    },
+  };
 }
 
 describe('main', () => {
@@ -116,6 +126,138 @@ describe('main', () => {
       expect(missing.result).toEqual({ kind: 'exit', code: 1 });
       expect(existsSync(join(dir, 'nope.db'))).toBe(false);
       expect(existsSync(join(dir, 'c.db'))).toBe(false);
+    });
+  });
+
+  describe('keys', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'rb-cli-keys-'));
+    afterAll(() => rmSync(dir, { recursive: true, force: true, maxRetries: 5 }));
+    const NR = 'NRAK-CLIROTATIONTEST000000000000';
+
+    it('generate prints one key on stdout and guidance (no key) on stderr', () => {
+      const r = run(['keys', 'generate', '--key-version', '4']);
+      expect(r.result).toEqual({ kind: 'exit', code: 0 });
+      expect(r.stdout).toMatch(/^v4:[A-Za-z0-9+/]{43}=\n$/);
+      const key = r.stdout.trim();
+      expect(r.stderr).toContain('keep a backup');
+      expect(r.stderr).not.toContain(key.slice(3));
+      expect(run(['keys', 'generate']).stdout).toMatch(/^v1:/);
+    });
+
+    async function seedDb(path: string, ring: Keyring): Promise<void> {
+      const s = await openSqliteStorage({ path });
+      for (const id of ['cred_a', 'cred_b']) {
+        await s.credentials.create({
+          id,
+          label: id,
+          region: 'US',
+          key: await ring.encryptCredentialKey(id, NR),
+        });
+      }
+      await s.close();
+    }
+
+    it('rotate re-encrypts every row, is resumable, and never prints a key', async () => {
+      const db = join(dir, 'rot.db');
+      const k1 = generateMasterKey(1);
+      const k2 = generateMasterKey(2);
+      await seedDb(db, await Keyring.create({ current: k1 }));
+      const env = { RB_MASTER_KEY: k2, RB_MASTER_KEY_PREVIOUS: k1, RB_DB_PATH: db };
+      const r = run(['keys', 'rotate'], env);
+      expect(r.result.kind).toBe('pending');
+      if (r.result.kind !== 'pending') throw new Error('unreachable');
+      expect(await r.result.done).toBe(0);
+      const s = await openSqliteStorage({ path: db });
+      const ring2 = await Keyring.create({ current: k2 });
+      for (const c of await s.credentials.list()) {
+        if (c.key.kind !== 'encrypted') throw new Error('unexpected');
+        expect(c.key.keyVersion).toBe(2);
+        expect((await ring2.decryptCredentialKey(c.id, c.key)).reveal()).toBe(NR);
+      }
+      await s.close();
+      const again = run(['keys', 'rotate', '--db', db], { RB_MASTER_KEY: k2 });
+      if (again.result.kind !== 'pending') throw new Error('unreachable');
+      expect(await again.result.done).toBe(0);
+      const out = [r, again].map((x) => x.stdout + x.stderr).join('\n');
+      expect(out).toContain('2 re-encrypted');
+      expect(out).toContain('0 re-encrypted, 2 already current');
+      for (const secret of [k1.slice(3), k2.slice(3), NR]) expect(out).not.toContain(secret);
+    });
+
+    it('rotate without the previous key reports rows it cannot read and exits 1', async () => {
+      const db = join(dir, 'partial.db');
+      const k1 = generateMasterKey(1);
+      await seedDb(db, await Keyring.create({ current: k1 }));
+      const r = run(['keys', 'rotate', '--db', db], { RB_MASTER_KEY: generateMasterKey(2) });
+      if (r.result.kind !== 'pending') throw new Error('unreachable');
+      expect(await r.result.done).toBe(1);
+      expect(r.stderr).toContain('key_version_unknown');
+      expect(r.stdout).toContain('Versions still in use: 1');
+    });
+
+    it('rotate reads key files, refusing loose permissions and double sources', async () => {
+      const db = join(dir, 'files.db');
+      const k1 = generateMasterKey(1);
+      const k2 = generateMasterKey(2);
+      await seedDb(db, await Keyring.create({ current: k1 }));
+      const files = {
+        '/k/current': { text: `${k2}\n`, mode: 0o100600 },
+        '/k/previous': { text: k1, mode: 0o100400 },
+        '/k/loose': { text: k1, mode: 0o100644 },
+      };
+      const loose = run(
+        ['keys', 'rotate', '--db', db],
+        { RB_MASTER_KEY_FILE: '/k/current', RB_MASTER_KEY_PREVIOUS_FILE: '/k/loose' },
+        files,
+      );
+      if (loose.result.kind !== 'pending') throw new Error('unreachable');
+      expect(await loose.result.done).toBe(1);
+      expect(loose.stderr).toContain('chmod 600');
+      const both = run(
+        ['keys', 'rotate', '--db', db],
+        { RB_MASTER_KEY: k2, RB_MASTER_KEY_FILE: '/k/current' },
+        files,
+      );
+      if (both.result.kind !== 'pending') throw new Error('unreachable');
+      expect(await both.result.done).toBe(1);
+      expect(both.stderr).toContain('Both RB_MASTER_KEY and RB_MASTER_KEY_FILE');
+      const ok = run(
+        ['keys', 'rotate', '--db', db],
+        { RB_MASTER_KEY_FILE: '/k/current', RB_MASTER_KEY_PREVIOUS_FILE: '/k/previous' },
+        files,
+      );
+      if (ok.result.kind !== 'pending') throw new Error('unreachable');
+      expect(await ok.result.done).toBe(0);
+    });
+
+    it('rotate fails closed on a missing or bad master key, a mismatched key and a missing database', async () => {
+      const db = join(dir, 'bad.db');
+      const k1 = generateMasterKey(1);
+      await seedDb(db, await Keyring.create({ current: k1 }));
+      const codes: Array<[Record<string, string>, string]> = [
+        [{}, 'master_key_missing'],
+        [{ RB_MASTER_KEY: 'not-a-key-but-long-enough-to-check' }, 'master_key_invalid'],
+      ];
+      for (const [env, code] of codes) {
+        const r = run(['keys', 'rotate', '--db', db], env);
+        if (r.result.kind !== 'pending') throw new Error('unreachable');
+        expect(await r.result.done).toBe(1);
+        expect(r.stderr).toContain(code);
+        expect(r.stderr).not.toContain('not-a-key-but-long-enough');
+      }
+      // Register v1, then present a different v1 key.
+      const first = run(['keys', 'rotate', '--db', db], { RB_MASTER_KEY: k1 });
+      if (first.result.kind !== 'pending') throw new Error('unreachable');
+      expect(await first.result.done).toBe(0);
+      const wrong = run(['keys', 'rotate', '--db', db], { RB_MASTER_KEY: generateMasterKey(1) });
+      if (wrong.result.kind !== 'pending') throw new Error('unreachable');
+      expect(await wrong.result.done).toBe(1);
+      expect(wrong.stderr).toContain('key_mismatch');
+      const missing = run(['keys', 'rotate', '--db', join(dir, 'nope.db')], { RB_MASTER_KEY: k1 });
+      if (missing.result.kind !== 'pending') throw new Error('unreachable');
+      expect(await missing.result.done).toBe(1);
+      expect(existsSync(join(dir, 'nope.db'))).toBe(false);
+      expect(run(['keys', 'rotate'], { RB_MASTER_KEY: k1 }).result).toEqual({ kind: 'exit', code: 2 });
     });
   });
 });

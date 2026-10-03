@@ -10,6 +10,7 @@ import {
 import { backupDatabase } from '@relic-bridge/storage-sqlite';
 import { HELP_TEXT, isLogLevel, parseCliArgs, UsageError } from './args.ts';
 import { ConfigError, type ConfigFs, type Env, loadConfig } from './config.ts';
+import { keysGenerate, keysRotate } from './keys.ts';
 import { serveProjectOverStdio } from './stdio.ts';
 import { nerdGraphFetch } from './test-hooks.ts';
 
@@ -27,6 +28,8 @@ export interface CliRuntime {
 
 export type MainResult =
   | { readonly kind: 'exit'; readonly code: number }
+  /** An async command (`keys rotate`); `done` resolves to its exit code. */
+  | { readonly kind: 'pending'; readonly done: Promise<number> }
   | { readonly kind: 'serving'; readonly close: () => Promise<void> };
 
 const exit = (code: number): MainResult => ({ kind: 'exit', code });
@@ -53,6 +56,10 @@ export function main(rt: CliRuntime): MainResult {
     return exit(0);
   }
 
+  if (args.command === 'keys' && args.keysAction === 'generate') {
+    return exit(keysGenerate(args.keyVersion ?? 1, rt.stdout, rt.stderr));
+  }
+
   const envLevel = rt.env['RB_LOG_LEVEL']?.trim().toLowerCase();
   let level: LogLevel = 'info';
   if (args.logLevel) level = args.logLevel;
@@ -76,6 +83,18 @@ export function main(rt: CliRuntime): MainResult {
     }
     rt.stdout(`Backed up ${dbPath} to ${args.file}\n`);
     return exit(0);
+  }
+
+  if (args.command === 'keys' && args.keysAction === 'rotate') {
+    const dbPath = (args.db ?? rt.env['RB_DB_PATH'] ?? '').trim();
+    if (dbPath === '') {
+      logger.error('no database given', { hint: 'pass --db <path> or set RB_DB_PATH' });
+      return exit(2);
+    }
+    return {
+      kind: 'pending',
+      done: keysRotate({ dbPath, env: rt.env, fs: rt.fs, platform: rt.platform, stdout: rt.stdout, logger }),
+    };
   }
 
   try {

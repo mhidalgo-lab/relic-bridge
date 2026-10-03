@@ -31,6 +31,24 @@ const result = main({
 
 if (result.kind === 'exit') {
   process.exitCode = result.code;
+} else if (result.kind === 'pending') {
+  result.done.then(
+    (code) => {
+      process.exitCode = code;
+    },
+    (error: unknown) => {
+      // Name only: an unexpected error's message could carry data we have not vetted.
+      stderr(
+        JSON.stringify({
+          ts: new Date().toISOString(),
+          level: 'error',
+          msg: 'command failed',
+          name: error instanceof Error ? error.name : typeof error,
+        }),
+      );
+      process.exitCode = 1;
+    },
+  );
 } else {
   const { close } = result;
   let closing = false;

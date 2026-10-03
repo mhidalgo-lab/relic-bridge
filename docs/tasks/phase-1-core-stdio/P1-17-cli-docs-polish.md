@@ -2,11 +2,11 @@
 id: P1-17
 title: CLI warnings and docs accuracy follow-ups from the Phase 1 review
 phase: 1
-status: todo
+status: review
 priority: low
 depends_on: [P1-11, P1-14]
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P1-17 — CLI warnings and docs accuracy follow-ups from the Phase 1 review
@@ -31,9 +31,9 @@ Close the small CLI and documentation gaps found in the Phase 1 consolidation re
   the wording.
 
 ## Acceptance criteria
-- [ ] Unit tests for both new warnings (and that they never contain key material).
-- [ ] Every flag, env var and error code in `docs/guide/*.md` matches the code (re-check after the edits).
-- [ ] `pnpm docs:tools` regenerated if a tool description changed.
+- [x] Unit tests for both new warnings (and that they never contain key material).
+- [x] Every flag, env var and error code in `docs/guide/*.md` matches the code (re-check after the edits).
+- [x] `pnpm docs:tools` regenerated if a tool description changed.
 
 ## Security notes
 T8: the group-readable warning helps users keep a plaintext key private. Warnings go through the redacting logger.

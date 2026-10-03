@@ -39,6 +39,7 @@ export * from './output/index.ts';
 export { isSecretKeyName, REDACTED, redact, redactValue } from './redact.ts';
 export {
   inputJsonSchema,
+  outputJsonSchema,
   RegistryError,
   type RegistryOptions,
   type SelectOptions,

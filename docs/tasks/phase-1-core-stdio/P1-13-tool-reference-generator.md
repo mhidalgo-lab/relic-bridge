@@ -2,7 +2,7 @@
 id: P1-13
 title: Generated tool reference docs
 phase: 1
-status: in-progress
+status: review
 priority: medium
 depends_on: [P1-06]
 adr: []
@@ -19,15 +19,16 @@ owner: claude-agent
 - Config-file reference generation is out of scope (new task if wanted).
 
 ## Acceptance criteria
-- [ ] Changing a tool description without regenerating fails `pnpm lint` (and so CI).
-- [ ] `docs/reference/tools.md` lists all 13 tools with inputs, outputs, annotations, cost and phase.
-- [ ] Generator test covers rendering and staleness detection.
+- [x] Changing a tool description without regenerating fails `pnpm lint` (and so CI).
+- [x] `docs/reference/tools.md` lists all 13 tools with inputs, outputs, annotations, cost and phase.
+- [x] Generator test covers rendering and staleness detection.
 
 ## Security notes
 none.
 
 ## Docs to update
 - `docs/reference/tools.md` (generated).
+- `package.json` scripts (`docs:tools`, lint).
 
 ## Out of scope
 - Docs site (P8-04).

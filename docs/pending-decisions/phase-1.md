@@ -162,3 +162,11 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   - Live suite in `packages/core/test/live/*.live.ts` (excluded from `pnpm test`), env `RB_LIVE_API_KEY`, `RB_LIVE_ACCOUNT_ID`, `RB_LIVE_REGION`; manual-only `.github/workflows/live.yml` using a GitHub environment named `live`.
 - **Options:** adopt msw later for the HTTP app (Phase 2); raise thresholds; run live nightly.
 - **Needs:** owner to create the `live` environment (required reviewers) with the secrets, and **one manual `pnpm test:live` run with a real key**: the live suite has never been executed.
+
+### P1-13 — Generated tool reference: scope and shape
+- **Context:** the task asked for a generated `docs/reference/tools.md` and a CI staleness check.
+- **Assumption made:**
+  - Generator is `scripts/gen-tool-docs.ts` (imports core source directly), checked by `pnpm lint` via `pnpm docs:tools --check`; core now exports `outputJsonSchema` next to `inputJsonSchema`.
+  - Only top-level input/output fields are tabulated (nested shapes shown as `object` / `object[]`); no config-file reference generated.
+- **Options:** nested field rendering; generate the CLI config reference from `configFileSchema`; publish the reference on the docs site (P8-04).
+- **Needs:** nothing urgent; owner may request a config-reference task.

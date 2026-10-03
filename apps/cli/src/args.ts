@@ -89,7 +89,7 @@ export function parseCliArgs(argv: readonly string[]): CliArgs {
     const action = positionals[1];
     if ((action !== 'generate' && action !== 'rotate') || positionals.length !== 2) {
       throw new UsageError(
-        'Usage: relic-bridge keys generate [--key-version <n>] | keys rotate [--db <path>].',
+        'Usage: relic-bridge keys generate [--key-version <n>] | keys rotate [--db <path> | --remote <url>].',
       );
     }
     keysAction = action;
@@ -200,6 +200,7 @@ Usage:
   relic-bridge db backup <file> [--db <path>]
   relic-bridge keys generate [--key-version <n>]
   relic-bridge keys rotate [--db <path>]
+  relic-bridge keys rotate --remote <url> [--batch-size <n>]
   relic-bridge credential revalidate [--db <path>]
   relic-bridge audit purge [--older-than-days <n>] [--db <path>]
   relic-bridge init | admin-token | user | credential | project | grant | token | audit tail
@@ -218,6 +219,8 @@ Commands:
                      Store it in a secret manager and back it up.
   keys rotate        Re-encrypt every stored New Relic key under RB_MASTER_KEY, reading
                      old rows with RB_MASTER_KEY_PREVIOUS. Resumable; safe to run again.
+                     With --remote <url> the server does it (both keys set there; a
+                     Worker on D1): needs RB_ADMIN_TOKEN, see "relic-bridge init --help".
   credential revalidate
                      Re-check every stored New Relic key with New Relic. A key New Relic
                      refuses is marked invalid and every grant using it stops working;

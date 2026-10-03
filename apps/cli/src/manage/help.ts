@@ -24,6 +24,9 @@ Usage:
   relic-bridge token list [--grant <id>] | token revoke <id>
   relic-bridge audit tail [--limit <n>] [--follow] [--kind --action --status --project
                     --user --grant --token-id --key-id (pt_… or any) --since --until]
+  relic-bridge keys rotate --remote <url> [--batch-size <1-100>]
+                    Re-encrypt every stored key under the server's RB_MASTER_KEY (the server
+                    reads old rows with RB_MASTER_KEY_PREVIOUS), in batches, until done.
 
 Options for every command:
   --remote <url>   Manage the instance at <url> (or RB_REMOTE). https is required; plain http

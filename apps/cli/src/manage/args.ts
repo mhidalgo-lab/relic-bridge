@@ -48,6 +48,7 @@ const OPTIONS = {
   url: { type: 'string' },
   client: { type: 'string' },
   'no-config': { type: 'boolean' },
+  'batch-size': { type: 'string' },
 } as const;
 
 export type ManageOptionName = keyof typeof OPTIONS;
@@ -117,6 +118,7 @@ const SPECS: Readonly<Record<string, Spec>> = {
   'token create': { args: 0, flags: ['grant', 'label', 'ttl-days', 'never', 'url', 'client', 'no-config'] },
   'token list': { args: 0, flags: ['grant', 'limit'] },
   'token revoke': { args: 1, flags: [] },
+  'keys rotate': { args: 0, flags: ['batch-size'] },
   'audit tail': {
     args: 0,
     flags: [
@@ -173,6 +175,9 @@ export function isManageArgv(argv: readonly string[]): boolean {
   if (first === 'grant' || first === 'token') return true;
   if (first === 'credential') return second !== 'revalidate' || words.length > 2;
   if (first === 'audit') return second === 'tail';
+  // `keys rotate --remote <url>` (P3-11) runs on the server through the Admin API; without it, on a local file.
+  if (first === 'keys')
+    return second === 'rotate' && argv.some((a) => a === '--remote' || a.startsWith('--remote='));
   return false;
 }
 
@@ -184,6 +189,7 @@ const WORDS: Readonly<Record<string, readonly string[]>> = {
   grant: ['create', 'list', 'revoke'],
   token: ['create', 'list', 'revoke'],
   audit: ['tail'],
+  keys: ['rotate'],
 };
 
 /** Parse a management command line. Strict: an unknown flag (e.g. `--api-key`, `--admin-token`) is refused. */

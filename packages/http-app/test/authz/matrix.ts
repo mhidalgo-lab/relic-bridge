@@ -9,8 +9,6 @@ import { generateTokenString } from '@relic-bridge/auth';
 import { NR_KEY, T0 } from '../fixtures.ts';
 import { ADMIN_TOKEN, type Harness } from './harness.ts';
 
-export type RouteFamily = 'mcp' | 'admin' | 'public';
-
 export interface RouteCase {
   readonly method: string;
   /** As Hono registers it (`/api/admin/v1/users/:id`). */

@@ -86,6 +86,15 @@ Trust boundaries:
 - [ ] Every new endpoint has authz tests, including negative cases.
 - [ ] Docs explain the prompt-injection risk and the read-only default.
 
+## 5a. Implementation status
+
+| Threat | Control in code | Since |
+|---|---|---|
+| T8 | `redact` / `redactValue` (NR keys, `rb_` tokens, Bearer, `*_KEY=` assignments, secret-named fields); mandatory in `createLogger` and `toToolErrorResult`; `Secret` wrapper; unknown errors → `RB_INTERNAL` with no message leak | P1-01 |
+| T21 | `ToolContext` per request, `buildMcpServer` per request; isolation test with two concurrent servers | P1-01 |
+| T23 | `ToolRegistry.register` rejects secret-like input properties anywhere in the schema | P1-01 |
+| T6 / P7-09 | `ToolRegistry` refuses `write` / `destructive` tools unless `allowNonRead`; MCP annotations derived from `kind` | P1-01 |
+
 ## 6. Open questions
 
 - Pass-through mode: should it be off by default on Workers? (Proposed: yes.)

@@ -2,11 +2,11 @@
 id: P3-07
 title: Docs — Cloudflare deployment, limits and costs
 phase: 3
-status: todo
+status: review
 priority: high
 depends_on: [P3-05, P3-03]
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P3-07 — Docs: Cloudflare deployment, limits and costs
@@ -31,12 +31,16 @@ checks them against the code:
 - [ ] Guide validated by fresh deployment on a clean account (needs a real Cloudflare account and the v0.3.0 release;
   not possible in an unattended run, left for the owner).
 - [ ] Release v0.3.0 published (maintainer action, not done here).
-- [ ] Deployment guide covers: button and CLI path, custom domain, updating, backups and restore, master-key backup.
-- [ ] Limits and costs page cites current Cloudflare pricing with the date and marks estimates.
-- [ ] Cloudflare Access section explains why `/p/*/mcp` stays outside Access.
-- [ ] Multi-device walkthrough for Workers (MacBook, PC, W365) with per-device tokens and `--remote`.
-- [ ] Documented behaviour matches the code (checked by running the CLI and `pnpm cf:setup --dry-run`).
-- [ ] README available/planned lists and ROADMAP status updated.
+- [x] Deployment guide covers: button and CLI path, custom domain, updating, backups and restore, master-key backup.
+- [x] Limits and costs page cites current Cloudflare pricing with the date and marks estimates.
+- [x] Cloudflare Access section explains why `/p/*/mcp` stays outside Access.
+- [x] Multi-device walkthrough for Workers (MacBook, PC, W365) with per-device tokens and `--remote`.
+- [x] Documented behaviour matches the code (checked by running the CLI and `pnpm cf:setup --dry-run`).
+- [x] README available/planned lists and ROADMAP status updated.
+
+## Notes
+The two unticked criteria need a real Cloudflare account and a maintainer-run release, so they remain for the owner
+(see `docs/pending-decisions/phase-3.md`). Cost figures are estimates and are marked as such in the guide.
 
 ## Security notes
 T7 (backups and exports contain ciphertext only; master key kept apart), T20 (cost of a public instance, rate limits,

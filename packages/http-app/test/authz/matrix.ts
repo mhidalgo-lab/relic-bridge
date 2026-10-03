@@ -7,7 +7,7 @@
 // principals that misuse it, with the stable deny reason the audit row must carry.
 import { generateTokenString } from '@relic-bridge/auth';
 import { NR_KEY, T0 } from '../fixtures.ts';
-import { ADMIN_TOKEN, type Harness } from './harness.ts';
+import { ADMIN_TOKEN, type Harness, NR_KEY_ADMIN } from './harness.ts';
 
 export interface RouteCase {
   readonly method: string;
@@ -51,7 +51,7 @@ export const ADMIN_ROUTES: readonly RouteCase[] = [
     method: 'POST',
     pattern: `${A}/credentials`,
     path: `${A}/credentials`,
-    body: { label: 'k', region: 'US', apiKey: 'NRAK-MATRIXTESTKEY0123456789ABCDE' },
+    body: { label: 'k', region: 'US', apiKey: NR_KEY_ADMIN },
   },
   { method: 'GET', pattern: `${A}/credentials/:id`, path: `${A}/credentials/cred_none` },
   {
@@ -65,7 +65,7 @@ export const ADMIN_ROUTES: readonly RouteCase[] = [
     method: 'POST',
     pattern: `${A}/credentials/:id/rotate`,
     path: `${A}/credentials/cred_none/rotate`,
-    body: { apiKey: 'NRAK-MATRIXTESTKEY0123456789ABCDE' },
+    body: { apiKey: NR_KEY_ADMIN },
   },
   {
     method: 'POST',

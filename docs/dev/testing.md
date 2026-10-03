@@ -16,9 +16,10 @@
 | `isolation.test.ts` | Tool-set caches never cross credentials or account sets and re-check limits on a hit; concurrent requests of two tenants with different keys never mix (T21); interleaved grants each get their own per-request MCP server. |
 | `harness.ts` | The seeded world (`addCredential` / `addProject` / `addGrant` / `addToken` for odd states), the app with the admin API and audit recorder, `hostileNerdGraph` (every key also reaches a `FOREIGN` account; list answers mix in foreign and forged rows; single-entity answers lie about the account) and the leak scan run after every test. |
 
-How to extend it is in [CONTRIBUTING](../../CONTRIBUTING.md#testing). The files import no `node:*` module, so P3-06 can
-run them under the Workers Vitest integration (`@cloudflare/vitest-plugin`, formerly `@cloudflare/vitest-pool-workers`)
-by swapping the app factory.
+How to extend it is in [CONTRIBUTING](../../CONTRIBUTING.md#testing). The files import no `node:*` module and the harness
+runs against a pluggable host (`useAuthzHost`): the HTTP app on in-memory storage by default, the Worker under the
+Workers pool (below). Tests that need HTTP app internals (Hono's route table, the admin-off app) skip themselves with
+`authzHostKind()`.
 
 ## Workers runtime tests
 
@@ -31,8 +32,22 @@ and passed as Miniflare bindings; nothing is committed. The tests drive the Work
 skips them because V8 coverage cannot attach to workerd, so CI runs them as the **Workers runtime tests** job. Most
 host tests inject the in-memory storage; `test/entry.test.ts` drives the deployed entry on the local D1 database, and
 `test/d1.test.ts` runs the storage contract suite plus D1 concurrency, foreign-key and migration tests against local D1
-(P3-02). The local D1 database is shared by a file's tests, so tests that need it empty call `wipeD1`. P3-06 adds the
-authorization suite under this pool.
+(P3-02). The local D1 database is shared by a file's tests, so tests that need it empty call `wipeD1`.
+
+**The authorization suite runs against the Worker** (P3-06): `vitest.config.ts` also includes
+`packages/http-app/test/authz/*.test.ts` and a setup file (`test/authz-setup.ts`) installs the Worker host
+(`test/authz-host.ts`). Each test wipes and migrates local D1, seeds the world under the Worker's `RB_MASTER_KEY`, and
+sends every request through `createWorker` (lazy boot, key checks, `waitUntil` audit rows) with the hostile NerdGraph as
+its `fetch`. The system time is faked (`Date` only) so `clock.advance` expires tokens and cache entries in the Worker
+too; rate limiting is off in this suite (its own tests are in `rate-limit.test.ts`). `test/boot-d1.test.ts` adds
+migrations on the first request, the 503 for a wrong `RB_MASTER_KEY`, and a check that the suite really runs on the
+Worker host. The suite adds about a minute to the job.
+
+## Staging smoke (optional, nightly)
+
+`.github/workflows/staging-smoke.yml` curls a deployed staging Worker (`/health`, `/version`, 401 without credentials,
+an admin read) from the protected `staging` environment (variable `STAGING_URL`, secret `STAGING_ADMIN_TOKEN`). It skips
+cleanly while those are unset, never deploys and never runs on pull requests.
 
 ## Live tests
 

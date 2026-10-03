@@ -2,11 +2,11 @@
 id: P3-06
 title: Workers integration tests in CI
 phase: 3
-status: todo
+status: review
 priority: high
 depends_on: [P3-02]
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P3-06 — Workers integration tests in CI
@@ -23,11 +23,11 @@ owner: ""
   so the workflow is committed disabled-by-default (skips cleanly without secrets) and the owner steps are logged.
 
 ## Acceptance criteria
-- [ ] The P2-12 matrix, tools and isolation suites run against the Worker in the Workers pool.
-- [ ] Migrations on startup, wrong-master-key 503, plan budget enforcement, `waitUntil` audit rows and two-project
+- [x] The P2-12 matrix, tools and isolation suites run against the Worker in the Workers pool.
+- [x] Migrations on startup, wrong-master-key 503, plan budget enforcement, `waitUntil` audit rows and two-project
       isolation are each asserted against the Worker.
-- [ ] CI job "Workers runtime tests" runs on PRs (making it a required check is a repo setting: owner step).
-- [ ] Nightly staging smoke workflow skips cleanly without secrets.
+- [x] CI job "Workers runtime tests" runs on PRs (making it a required check is a repo setting: owner step, see pending decisions).
+- [x] Nightly staging smoke workflow skips cleanly without secrets.
 
 ## Security notes
 Staging credentials only in protected environment.

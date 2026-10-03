@@ -49,9 +49,13 @@ export interface World {
   readonly grantIds: { readonly prod: string };
 }
 
-export async function seedWorld(storage: Storage = createMemoryStorage({ now: () => T0 })): Promise<World> {
-  const clock = new ManualClock();
-  const keyring = await Keyring.create({ current: generateMasterKey(1) });
+/** `parts` lets a host bring its own keyring (the Worker's master key) and a clock that also moves the system time. */
+export async function seedWorld(
+  storage: Storage = createMemoryStorage({ now: () => T0 }),
+  parts: { readonly keyring?: Keyring; readonly clock?: ManualClock } = {},
+): Promise<World> {
+  const clock = parts.clock ?? new ManualClock();
+  const keyring = parts.keyring ?? (await Keyring.create({ current: generateMasterKey(1) }));
   await storage.users.create({ id: 'usr_a', email: 'a@example.com', role: 'owner' });
   const validate = async (): Promise<Identity> => ({
     user: { id: 7, email: 'a@example.com', name: 'A' },

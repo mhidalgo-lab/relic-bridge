@@ -53,6 +53,8 @@ export interface WorkerOptions {
   readonly fetch?: FetchLike;
   /** Log sink override (tests). Default: `console.error` → Workers Logs. */
   readonly logSink?: LogSink;
+  /** Cap on refusal rows per minute (tests that provoke thousands of refusals). Default: the recorder's. */
+  readonly auditMaxAuthRowsPerMinute?: number;
   /** Epoch-ms clock for the boot retry window (tests). */
   readonly now?: () => number;
 }
@@ -155,6 +157,9 @@ async function boot(env: WorkerEnv, options: WorkerOptions): Promise<Runtime> {
         storage,
         logger: log,
         nrql: settings.audit.nrql,
+        ...(options.auditMaxAuthRowsPerMinute === undefined
+          ? {}
+          : { maxAuthRowsPerMinute: options.auditMaxAuthRowsPerMinute }),
         ...(settings.audit.clientIp ? { getClientIp: workersClientIp } : {}),
       })
     : undefined;

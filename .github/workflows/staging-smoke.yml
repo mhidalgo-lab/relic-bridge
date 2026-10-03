@@ -1,0 +1,40 @@
+# Nightly smoke test of a staging Worker (P3-06). Needs a deployed staging Worker and the protected `staging` environment
+# (required reviewers recommended) with the variable STAGING_URL and the secret STAGING_ADMIN_TOKEN. Without them the
+# job skips cleanly. It only reads: /health, /version and one admin read; it never deploys and never runs on pull requests.
+name: Staging smoke
+
+on:
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: Staging Worker smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: staging
+    steps:
+      - name: Smoke test
+        env:
+          STAGING_URL: ${{ vars.STAGING_URL }}
+          STAGING_ADMIN_TOKEN: ${{ secrets.STAGING_ADMIN_TOKEN }}
+        run: |
+          if [ -z "$STAGING_URL" ] || [ -z "$STAGING_ADMIN_TOKEN" ]; then
+            echo "STAGING_URL / STAGING_ADMIN_TOKEN are not configured: skipping."
+            exit 0
+          fi
+          base="${STAGING_URL%/}"
+          code() { curl -sS -o /dev/null -w '%{http_code}' --max-time 20 "$@"; }
+          test "$(code "$base/health")" = 200
+          test "$(code "$base/version")" = 200
+          # Authentication is enforced: no credentials, no data.
+          test "$(code "$base/api/admin/v1/projects")" = 401
+          test "$(code "$base/p/smoke/mcp" -X POST)" = 401
+          # The admin token works (reads only; the token is passed through a header file, never echoed).
+          printf 'Authorization: Bearer %s\n' "$STAGING_ADMIN_TOKEN" > "$RUNNER_TEMP/h"
+          test "$(code -H "@$RUNNER_TEMP/h" "$base/api/admin/v1/projects")" = 200
+          rm -f "$RUNNER_TEMP/h"

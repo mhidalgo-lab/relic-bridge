@@ -1,4 +1,66 @@
 // SPDX-License-Identifier: Apache-2.0
-
-/** Package identifier, replaced by real exports as tasks land. */
-export const packageName: string = '@relic-bridge/admin-ui';
+// `@relic-bridge/admin-ui`: the server-rendered admin panel (P4-03, ADR-0004). Web-standard only; depends on Hono.
+export { ADMIN_UI_BASE, createAdminUi } from './app.ts';
+export { ASSET_BASE, ASSET_CACHE_CONTROL, ASSETS, assetHref, findAsset, type StaticAsset } from './assets.ts';
+export {
+  Button,
+  Checkbox,
+  type Column,
+  ConfirmAction,
+  CSRF_FIELD,
+  DataTable,
+  Document,
+  Facts,
+  type FieldProps,
+  Flash,
+  Form,
+  Layout,
+  type LayoutProps,
+  localHref,
+  NAV_ITEMS,
+  type NavItem,
+  SecretOnce,
+  SelectField,
+  SignOut,
+  TextField,
+  Time,
+  UI_ROLE_RANK,
+  type UiRole,
+  type UiViewer,
+} from './components.tsx';
+export {
+  clearFlashCookie,
+  FLASH_MESSAGES,
+  type FlashCode,
+  type FlashKind,
+  type FlashMessage,
+  flashCookie,
+  flashCookieName,
+  readFlash,
+} from './flash.ts';
+export { PERMISSIONS_POLICY, UI_CSP, UI_PAGE_HEADERS } from './headers.ts';
+export {
+  type AdminCall,
+  type AdminCallResult,
+  type AdminUiDeps,
+  adminPath,
+  createUiKit,
+  DEFAULT_MAX_FORM_BYTES,
+  type FormHandler,
+  type PageContext,
+  type PageHandler,
+  pageFetchProblem,
+  type UiAuthResult,
+  type UiKit,
+  type UiPrincipal,
+  type VerifiedForm,
+} from './kit.ts';
+export {
+  errorPage,
+  htmlResponse,
+  LoginPage,
+  type LoginProvider,
+  MessagePage,
+  type MessagePageProps,
+  renderDocument,
+} from './pages.tsx';

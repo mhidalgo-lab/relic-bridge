@@ -282,6 +282,9 @@ importers:
       '@relic-bridge/storage':
         specifier: workspace:*
         version: link:../storage
+      jose:
+        specifier: 6.2.12
+        version: 6.2.12
     devDependencies:
       fast-check:
         specifier: 4.10.2

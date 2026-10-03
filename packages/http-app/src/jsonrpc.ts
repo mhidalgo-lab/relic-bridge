@@ -27,7 +27,8 @@ export async function peekJsonRpc(request: Request, maxBytes: number): Promise<R
       if (done) break;
       size += value.byteLength;
       if (size > maxBytes) {
-        await reader.cancel().catch(() => undefined);
+        // Not awaited: a tee branch's cancel settles only once the other branch (the original body) is cancelled too.
+        reader.cancel().catch(() => undefined);
         return { kind: 'too_large' };
       }
       chunks.push(value);

@@ -262,6 +262,7 @@ class Deadline {
 }
 
 const UNAUTHORIZED_BODY = '{"error":"unauthorized"}';
+const WWW_AUTHENTICATE = 'Bearer realm="relic-bridge"';
 const BATCH_REFUSED_BODY =
   '{"jsonrpc":"2.0","id":null,"error":{"code":-32600,"message":"Batch requests are not supported: send one JSON-RPC message per request."}}';
 
@@ -279,7 +280,6 @@ async function peekWithin(request: Request, maxBytes: number, ms: number): Promi
     clearTimeout(timer);
   }
 }
-const WWW_AUTHENTICATE = 'Bearer realm="relic-bridge"';
 
 function json(status: number, body: string, extra: Record<string, string> = {}): Response {
   return new Response(body, { status, headers: { 'Content-Type': 'application/json', ...extra } });
@@ -601,12 +601,16 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
     let mcpName: string | null = null;
     if (c.req.method === 'POST') {
       const peek = await peekWithin(c.req.raw, maxBodyBytes, timeoutMs);
+      // Refused without reading the rest: release the unread original as well (never awaited, it may be stalled).
+      const release = () => void c.req.raw.body?.cancel().catch(() => undefined);
       if (peek === 'timeout') {
         log['timeout'] = true;
+        release();
         return json(504, '{"error":"timeout"}');
       }
       if (peek.kind === 'too_large') {
         log['reject'] = 'body_size';
+        release();
         return json(413, '{"error":"payload_too_large"}');
       }
       if (peek.kind === 'batch') {

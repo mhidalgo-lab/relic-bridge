@@ -7,8 +7,11 @@ export { CryptoError, type CryptoErrorCode, isCryptoError } from './errors.ts';
 export { generateMasterKey, Keyring, MASTER_KEY_BYTES, MAX_KEY_VERSION } from './keyring.ts';
 export {
   keyCheckSettingKey,
+  MAX_ROTATION_BATCH,
+  type RotationBatchReport,
   type RotationFailureCode,
   type RotationReport,
   rotateCredentialKeys,
+  rotateCredentialKeysBatch,
   verifyKeyChecks,
 } from './rotate.ts';

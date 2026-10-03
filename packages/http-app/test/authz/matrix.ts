@@ -102,6 +102,8 @@ export const ADMIN_ROUTES: readonly RouteCase[] = [
   { method: 'GET', pattern: `${A}/tokens/:id`, path: `${A}/tokens/tok_none` },
   { method: 'POST', pattern: `${A}/tokens/:id/revoke`, path: `${A}/tokens/tok_none/revoke` },
   { method: 'GET', pattern: `${A}/audit`, path: `${A}/audit` },
+  // Master-key rotation (P3-11): every row is already current in the fixture, so the control call changes nothing.
+  { method: 'POST', pattern: `${A}/keys/rotate`, path: `${A}/keys/rotate`, body: {} },
   // Not a registered route: the admin catch-all (`ALL /api/admin/v1/*`) must authenticate before saying 404.
   { method: 'GET', pattern: `${A}/*`, path: `${A}/no-such-endpoint` },
 ];

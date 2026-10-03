@@ -2,7 +2,7 @@
 id: P1-05
 title: Output shaping v1 and untrusted-data envelope
 phase: 1
-status: in-progress
+status: review
 priority: high
 depends_on: [P1-03]
 adr: []
@@ -42,20 +42,27 @@ Tool results that are compact for LLM context, predictable, and clearly marked a
 - Output schema (zod) for the NRQL result, so P1-06 can declare `outputSchema`.
 
 ## Acceptance criteria
-- [ ] Snapshot tests per format (table, csv, json, auto) and for NRQL complete / pending outcomes.
-- [ ] Truncation correctness: row cap, cell cap, total-char cap (never cuts inside the envelope markers, notice
+- [x] Snapshot tests per format (table, csv, json, auto) and for NRQL complete / pending outcomes.
+- [x] Truncation correctness: row cap, cell cap, total-char cap (never cuts inside the envelope markers, notice
       always present and says how to narrow), caps clamped to hard maximums.
-- [ ] Envelope present on every rendered data block (incl. log/error message rows); data containing a fake closing
+- [x] Envelope present on every rendered data block (incl. log/error message rows); data containing a fake closing
       marker or "ignore previous instructions" stays inside the block (test).
-- [ ] Escaping: markdown table pipes/newlines, CSV quoting (RFC 4180) and formula-injection prefixes.
-- [ ] `flattenTags`, `pickFields`, cursor round trip and rejection of tampered cursors tested.
-- [ ] `docs/guide/output-formats.md` written; THREAT_MODEL T6 row in the mitigation log.
+- [x] Escaping: markdown table pipes/newlines, CSV quoting (RFC 4180) and formula-injection prefixes.
+- [x] `flattenTags`, `pickFields`, cursor round trip and rejection of tampered cursors tested.
+- [x] `docs/guide/output-formats.md` written; THREAT_MODEL T6 row in the mitigation log.
 
 ## Security notes
 T6 (prompt injection) — envelope + docs.
 
 ## Docs to update
-- `docs/guide/output-formats.md`, THREAT_MODEL.md.
+- [x] `docs/guide/output-formats.md` (new), THREAT_MODEL.md (mitigation log: T6, T8, T5), ARCHITECTURE.md (output
+  contract), `docs/pending-decisions/phase-1.md`.
+
+## Notes for the next tasks
+- P1-06: declare `outputSchema: nrqlResultSchema` and return `shapeNrqlOutcome(outcome, { format, maxRows })`. The
+  engine outcome now carries `nrql` (text actually sent) and `durationMs`.
+- List tools (P1-07/08/10): `shapeRows` for rows, `flattenTags`, `pickFields` for `minimal_output`, `paginate` /
+  `encodeCursor` / `decodeCursor` for `next_cursor`. Put `RESULT_META_KEY` metadata in `meta`.
 
 ## Out of scope
 - Summarization of huge results, charts (Phase 7).

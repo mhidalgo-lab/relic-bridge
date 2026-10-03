@@ -68,6 +68,10 @@ export interface NrqlComplete {
   readonly polls: number;
   /** Adjustments made by query limits (e.g. a lowered LIMIT). Surface them to the agent. */
   readonly notes: readonly string[];
+  /** The NRQL actually sent (after limits). Absent when only polling a handle (`getQueryResult`). */
+  readonly nrql?: string;
+  /** Wall time of this call (submit + polls), measured with `ctx.clock`. */
+  readonly durationMs?: number;
 }
 
 export interface NrqlPending {
@@ -81,6 +85,10 @@ export interface NrqlPending {
   readonly polls: number;
   /** Adjustments made by query limits (e.g. a lowered LIMIT). Surface them to the agent. */
   readonly notes: readonly string[];
+  /** The NRQL actually sent (after limits). Absent when only polling a handle (`getQueryResult`). */
+  readonly nrql?: string;
+  /** Wall time of this call (submit + polls), measured with `ctx.clock`. */
+  readonly durationMs?: number;
 }
 
 export type NrqlOutcome = NrqlComplete | NrqlPending;
@@ -292,8 +300,14 @@ async function run(
   const accounts = resolveAccounts(ctx, input.accounts);
   const checked = enforceQueryLimits(text, ctx.limits, ctx.clock.now());
   if (checked.notes.length > 0) ctx.logger.info('nrql adjusted by limits', { notes: checked.notes });
+  const started = ctx.clock.now();
   const outcome = await execute(ctx, { ...input, nrql: checked.nrql }, accounts, deps);
-  return { ...outcome, notes: checked.notes };
+  return {
+    ...outcome,
+    notes: checked.notes,
+    nrql: checked.nrql,
+    durationMs: Math.max(0, ctx.clock.now() - started),
+  };
 }
 
 async function execute(
@@ -400,7 +414,8 @@ export async function getQueryResult(
   if (typeof input.queryId !== 'string' || !/^[A-Za-z0-9._:-]{1,256}$/.test(input.queryId)) {
     throw new RbError(ErrorCode.InputInvalid, 'queryId is not a valid query handle.');
   }
-  return pollOnce(
+  const started = ctx.clock.now();
+  const outcome = await pollOnce(
     ctx,
     deps.client ?? nerdGraphFor(ctx),
     account as number,
@@ -408,4 +423,5 @@ export async function getQueryResult(
     input.stats ?? false,
     1,
   );
+  return { ...outcome, durationMs: Math.max(0, ctx.clock.now() - started) };
 }

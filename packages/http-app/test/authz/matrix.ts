@@ -106,6 +106,8 @@ export const ADMIN_ROUTES: readonly RouteCase[] = [
   { method: 'GET', pattern: `${A}/tokens/:id`, path: `${A}/tokens/tok_none` },
   { method: 'POST', pattern: `${A}/tokens/:id/revoke`, path: `${A}/tokens/tok_none/revoke` },
   { method: 'GET', pattern: `${A}/audit`, path: `${A}/audit` },
+  // P4-05: usage statistics (admins and owners only).
+  { method: 'GET', pattern: `${A}/audit/stats`, path: `${A}/audit/stats` },
   // Master-key rotation (P3-11): every row is already current in the fixture, so the control call changes nothing.
   { method: 'POST', pattern: `${A}/keys/rotate`, path: `${A}/keys/rotate`, body: {} },
   // Owner setup link (P4-01): the control call issues one (a single-use code in `kv`, nothing else changes).
@@ -172,6 +174,10 @@ export const UI_ROUTES: readonly RouteCase[] = [
   ui('POST', '/admin/users/:id/disable', '/admin/users/usr_none/disable'),
   ui('POST', '/admin/users/:id/enable', '/admin/users/usr_none/enable'),
   ui('POST', '/admin/users/:id/signout', '/admin/users/usr_none/signout'),
+  // P4-05: the audit viewer and CSV (any role; members see their own rows) and usage statistics (admin and owner).
+  ui('GET', '/admin/audit'),
+  ui('GET', '/admin/audit.csv'),
+  ui('GET', '/admin/usage'),
   // Not a registered route: the signed-in 404 page of the UI catch-all (`ALL /admin/*`).
   { method: 'GET', pattern: '/admin/*', path: '/admin/no-such-page' },
 ];

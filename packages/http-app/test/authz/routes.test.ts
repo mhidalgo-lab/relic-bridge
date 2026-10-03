@@ -249,7 +249,7 @@ function controlStatus(route: RouteCase): number {
 
 const UNSAFE = new Set(['POST', 'PATCH', 'PUT', 'DELETE']);
 const OWNER_ONLY = new Set(['POST /api/admin/v1/keys/rotate', 'POST /api/admin/v1/setup-links']);
-const ANY_ROLE = new Set(['GET /api/admin/v1/session']);
+const ANY_ROLE = new Set(['GET /api/admin/v1/session', 'GET /api/admin/v1/audit']);
 
 describe('admin routes × session principals (P4-02)', () => {
   /** What changing state looks like: users, setup links and session rows, and successful admin rows. */
@@ -313,8 +313,51 @@ describe('admin routes × session principals (P4-02)', () => {
     expect(h.nerdGraph.calls).toEqual([]);
     // Each refusal is an audited `admin.forbidden` naming the member.
     const refusals = (await h.auditRows()).filter((r) => r.action === 'admin.forbidden');
-    expect(refusals.length).toBeGreaterThanOrEqual(ADMIN_ROUTES.length - 2);
+    expect(refusals.length).toBeGreaterThanOrEqual(ADMIN_ROUTES.length - 3);
     for (const row of refusals) expect(row).toMatchObject({ status: 'denied', userId: member.userId });
+  });
+
+  it('audit (P4-05): a member reads only their own rows, never usage statistics; an admin reads all', async () => {
+    const member = await h.addSession({ role: 'member' });
+    const other = await h.addSession({ role: 'member' });
+    const admin = await h.addSession({ role: 'admin' });
+    for (const [userId, action] of [
+      [member.userId, 'run_nrql'],
+      [other.userId, 'secret_tool'],
+    ] as const) {
+      await h.world.storage.auditLog.append({ ts: 1, kind: 'tool_call', action, status: 'ok', userId });
+    }
+    const rows = async (headers: Readonly<Record<string, string>>, query = '') => {
+      const res = await h.send(
+        requestFor({ method: 'GET', pattern: '', path: `/api/admin/v1/audit${query}` }, { headers }),
+      );
+      return {
+        status: res.status,
+        body: JSON.parse(res.text) as { data?: { action: string; userId: string }[] },
+      };
+    };
+    const mine = await rows(member.headers);
+    expect(mine.status).toBe(200);
+    expect(mine.body.data?.every((r) => r.userId === member.userId)).toBe(true);
+    expect(mine.body.data?.map((r) => r.action)).toContain('run_nrql');
+    expect(JSON.stringify(mine.body)).not.toContain('secret_tool');
+    // Own id is fine; someone else's is refused (and audited), and no filter combination widens the view.
+    expect((await rows(member.headers, `?userId=${member.userId}`)).status).toBe(200);
+    expect((await rows(member.headers, `?userId=${other.userId}`)).status).toBe(403);
+    const sneaky = await rows(member.headers, '?kind=tool_call&keyId=any&order=slowest&limit=200');
+    expect(JSON.stringify(sneaky.body)).not.toContain('secret_tool');
+    const stats = await h.send(
+      requestFor(
+        { method: 'GET', pattern: '', path: '/api/admin/v1/audit/stats' },
+        { headers: member.headers },
+      ),
+    );
+    expect(stats.status).toBe(403);
+    expect(JSON.stringify((await rows(admin.headers)).body)).toContain('secret_tool');
+    const refused = (await h.auditRows()).filter(
+      (r) => r.action === 'admin.forbidden' && r.userId === member.userId,
+    );
+    expect(refused.length).toBeGreaterThanOrEqual(2);
   });
 
   /** CSRF defects on an owner session; `detail` null: refused earlier by the global Origin check (403 too). */

@@ -23,6 +23,65 @@ import { sample, scriptedApi, TOOLS } from './screens-fixture.ts';
 
 const viewer = principalFor('owner');
 
+const AUDIT_ROW = {
+  id: 10,
+  ts: T,
+  kind: 'tool_call',
+  action: 'run_nrql',
+  status: 'error',
+  requestId: 'req_1',
+  userId: 'usr_admin',
+  grantId: 'grt_me',
+  tokenId: 'tok_laptop',
+  clientId: null,
+  keyId: null,
+  projectId: 'prj_us',
+  accountIds: [1],
+  nrql: 'SELECT count(*) FROM Log WHERE message = ?',
+  durationMs: 120,
+  inspectedCount: 40,
+  errorCode: 'RB_NERDGRAPH_TIMEOUT',
+  targetType: null,
+  targetId: null,
+  details: { mode: 'passthrough' },
+};
+
+/** The audit endpoints of the P4-05 screens (the P4-04 fixture does not know them). */
+function auditAnswer(call: { method: string; path: string }, empty: boolean) {
+  if (call.method !== 'GET') return undefined;
+  if (call.path === '/audit') {
+    return { status: 200, body: { data: empty ? [] : [AUDIT_ROW], nextCursor: empty ? null : 'NEXT' } };
+  }
+  if (call.path === '/audit/stats') {
+    const data = empty
+      ? []
+      : [
+          {
+            key: 'run_nrql',
+            calls: 8,
+            errors: 2,
+            denied: 1,
+            durationSumMs: 800,
+            durationCount: 8,
+            maxDurationMs: 300,
+            inspectedCount: 90,
+          },
+          {
+            key: null,
+            calls: 1,
+            errors: 0,
+            denied: 0,
+            durationSumMs: 0,
+            durationCount: 0,
+            maxDurationMs: null,
+            inspectedCount: 0,
+          },
+        ];
+    return { status: 200, body: { data, window: { since: 0, until: T } } };
+  }
+  return undefined;
+}
+
 async function expectAccessible(name: string, html: string) {
   const violations = await axeViolations(html);
   expect(violations, `${name}: ${JSON.stringify(violations, null, 2)}`).toEqual([]);
@@ -133,7 +192,7 @@ describe('axe-core', () => {
       const fake = fakeDeps({ tools: TOOLS, now: () => T, publicUrl: 'https://bridge.example' });
       fake.adminAnswer = scriptedApi(
         empty ? { users: [], credentials: [], projects: [], grants: [], tokens: [] } : sample(),
-        other,
+        (call) => other?.(call) ?? auditAnswer(call, empty),
       );
       return uiApp(fake);
     };
@@ -175,10 +234,18 @@ describe('axe-core', () => {
       '/admin/users/new',
       '/admin/users/usr_m',
       '/admin/users/usr_admin',
+      '/admin/audit',
+      '/admin/audit?kind=tool_call&status=error&range=24h&cursor=abc',
+      '/admin/usage',
+      '/admin/usage?window=24h&by=day',
     ];
 
     it.each(PAGES)('%s', async (path) => {
       await expectAccessible(path, await page(app(), path));
+    });
+
+    it('the audit log as a member', async () => {
+      await expectAccessible('audit as member', await page(app(), '/admin/audit', 'member'));
     });
 
     it('users/new as an owner', async () => {
@@ -196,6 +263,8 @@ describe('axe-core', () => {
         '/admin/tokens',
         '/admin/tokens/new',
         '/admin/users',
+        '/admin/audit',
+        '/admin/usage',
       ]) {
         await expectAccessible(`empty ${path}`, await page(a, path));
       }

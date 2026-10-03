@@ -2,11 +2,11 @@
 id: P2-12
 title: Authorization and isolation test suite
 phase: 2
-status: todo
+status: in-progress
 priority: high
 depends_on: [P2-06, P2-09]
 adr: [0008]
-owner: ""
+owner: claude-agent
 ---
 
 # P2-12 — Authorization and isolation test suite

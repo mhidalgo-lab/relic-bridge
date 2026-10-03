@@ -2,7 +2,7 @@
 id: P2-13
 title: Docs — self-hosting, access model, multi-device setup
 phase: 2
-status: in-progress
+status: review
 priority: high
 depends_on: [P2-10, P2-11]
 adr: []
@@ -28,17 +28,16 @@ owner: claude-agent
   decision; see `docs/pending-decisions/phase-2.md`).
 
 ## Acceptance criteria
-- [ ] `docs/guide/multi-device.md` walks from an empty server to three working devices and a revoked one, with
+- [x] `docs/guide/multi-device.md` walks from an empty server to three working devices and a revoked one, with
       commands that were run against the built CLI and a mock NerdGraph.
-- [ ] Self-hosting guide covers Node (including a service unit), Docker, TLS reverse proxy, backups and upgrades.
-- [ ] Access-model guide shows both examples with the CLI commands that create them.
-- [ ] `clients.md` documents the remote HTTP configuration for the four clients; Claude Code's format verified
+- [x] Self-hosting guide covers Node (including a service unit), Docker, TLS reverse proxy, backups and upgrades.
+- [x] Access-model guide shows both examples with the CLI commands that create them.
+- [x] `clients.md` documents the remote HTTP configuration for the four clients; Claude Code's format verified
       against its current documentation and `claude mcp add --help`.
-- [ ] Troubleshooting covers the hosted-mode errors; README and ROADMAP status are accurate.
-- [ ] TLS requirement for any non-localhost bind is stated in the self-hosting and multi-device guides.
-- [ ] Guides validated end to end (by a fresh agent session where available; otherwise by the author, recorded in
-      the PR).
-- [ ] Release v0.2.0 left to the owner (pending decision recorded).
+- [x] Troubleshooting covers the hosted-mode errors; README and ROADMAP status are accurate.
+- [x] TLS requirement for any non-localhost bind is stated in the self-hosting and multi-device guides.
+- [x] Guides validated end to end (by the author against the built CLI; no independent session, see pending decisions).
+- [x] Release v0.2.0 left to the owner (pending decision recorded).
 
 ## Security notes
 Explain TLS requirement for any non-localhost bind.

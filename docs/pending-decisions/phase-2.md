@@ -440,3 +440,24 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   cost of a long-lived secret whose leak lets someone confirm a guessed key against the table); put the id in
   `details.keyId` with no migration; also record the id on `auth.denied` rows for refused keys.
 - **Needs:** owner OK; say if stable ids across restarts are wanted.
+
+### P2-13 — Release v0.2.0 and docs that name the pre-release
+- **Context:** the task scope listed "Release v0.2.0". Tags, npm/GHCR publishing and the changelog are the owner's call
+  and the series is still stacked PRs, so nothing was released. The new docs say "pre-release: build from a clone"
+  (as the v0.1 docs do) and the compose example and Docker guide still reference image tag `0.1.0`.
+- **Assumption made:** docs describe v0.2 features as implemented but not released (README says so).
+- **Needs:** after the stack is merged and v0.2.0 is cut: bump the image tag in `deploy/docker-compose.example.yml` and
+  the self-hosting guide, drop the pre-release notes, and tick the last P2-13 acceptance criterion.
+
+### P2-13 — "Validated by a fresh agent session"
+- **Context:** the autonomous run could not spawn an independent reader. The author ran every command in
+  `docs/guide/multi-device.md` and the access-model examples against the built CLI (test-hook build, mock NerdGraph):
+  init, credential/project/grant/token creation, serve, 200 vs 401, local and `--remote` revocation, expiry.
+  Not run: Docker/compose, Caddy and the systemd unit, a real New Relic key, real Windows 365 / macOS clients.
+- **Needs:** one real walkthrough on the owner's three devices; report discrepancies as issues.
+
+### P2-13 — Management CLI has no flag for project/grant query limits or rate limits
+- **Context:** the team example in the access-model guide uses `maxWindowDays`, which can only be set through the admin
+  API today. The guide says so.
+- **Options:** new task to add `--max-window-days` / `--max-limit` / `--rate-limit` to `project add|update` and `grant create`.
+- **Needs:** owner priority.

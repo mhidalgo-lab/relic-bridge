@@ -95,10 +95,27 @@ credential "us-key"  (US, reaches 1111 2222)      credential "eu-key"  (EU, reac
 project "prod-us" → accounts 1111 2222, default 1111, default credential us-key
 project "prod-eu" → accounts 3333,                 default credential eu-key
 grant  you × prod-us        grant  you × prod-eu
-tokens: laptop, desktop, phone (OAuth)  — per grant, revoked one by one
+tokens: laptop, desktop, work PC (phone later, via OAuth)  — per grant, revoked one by one
 ```
 
-Every device sees every read-only tool on both projects. Losing the phone means revoking one token.
+Every device sees every read-only tool on both projects. Losing a device means revoking one token.
+
+With the [management CLI](../reference/cli.md) (add `--remote https://mcp.example.com` to run it from another machine):
+
+```bash
+relic-bridge user add --email you@example.com --role owner              # prints the user id (usr_…)
+relic-bridge credential add --label us-key --region US --owner usr_…    # prompts for the key; prints cred_…
+relic-bridge credential add --label eu-key --region EU --owner usr_…
+relic-bridge project add --slug prod-us --accounts 1111,2222 --default-account 1111 --default-credential <us cred id>
+relic-bridge project add --slug prod-eu --default-account 3333 --default-credential <eu cred id>
+relic-bridge grant create --project prod-us --user usr_… --label you
+relic-bridge grant create --project prod-eu --user usr_… --label you
+relic-bridge token create --grant <grant id> --label macbook --url https://mcp.example.com   # one per device and grant
+```
+
+(The tokens of the phone in the diagram need OAuth, Phase 5; today use the computers.) Step by step for several devices
+on one project: [multi-device guide](multi-device.md). `init` does the first credential, project, grant and token in
+one go when you don't need users.
 
 ## Example: team, bring your own key (recommended)
 
@@ -109,6 +126,19 @@ project "checkout" → accounts 1111 2222, tools: all read-only, maxWindowDays 3
 grant  alice × checkout, credential alice-key
 grant  bob   × checkout, credential bob-key, tools: run_nrql search_entities, accounts: 2222, maxWindowDays 7
 ```
+
+```bash
+relic-bridge user add --email alice@example.com --role member                       # usr_…
+relic-bridge credential add --label alice-key --region US --owner usr_alice        # Alice's own key, from a prompt
+relic-bridge project add --slug checkout --default-account 1111 --accounts 1111,2222
+relic-bridge grant create --project checkout --user usr_alice --credential cred_alice
+relic-bridge grant create --project checkout --user usr_bob --credential cred_bob --tools run_nrql,search_entities --accounts 2222
+relic-bridge token create --grant <alice grant> --label alice-laptop --url https://mcp.example.com
+```
+
+The CLI has no option for `maxWindowDays` (project and grant limits); set limits through the
+[admin API](../reference/admin-api.md). Each member can also run this against the server with `--remote` only if you give
+them the admin token, which you should not: create their tokens yourself and hand them over.
 
 Why this is the recommended pattern:
 
@@ -128,8 +158,8 @@ Use grants to narrow tools and accounts per person.
 ## Devices and access tokens
 
 Every device (laptop, desktop, work PC) gets its **own** token, bound to one grant and so to one project. Losing a
-device means revoking that one token; the others keep working. The phone and claude.ai need OAuth (Phase 5); the full
-multi-device walkthrough lands with the self-hosting docs (P2-13).
+device means revoking that one token (`relic-bridge token revoke`); the others keep working. The phone and claude.ai
+need OAuth (Phase 5). Step by step: [multi-device guide](multi-device.md).
 
 A token looks like `rb_live_<43 random characters>_<6-character checksum>`:
 
@@ -152,8 +182,6 @@ committed config file.
 
 ## Managing it
 
-Today the domain services exist in `@relic-bridge/auth` (`createCredential`, `createProject`, `createGrant`,
-`listEffectivePermissions`, `revalidateCredentials`, and for tokens `issueAccessToken`, `listAccessTokens`,
-`revokeAccessToken`, `verifyAccessToken`) and the CLI has `credential revalidate` and `serve`
-([self-hosting](self-hosting.md)). The admin API (P2-09) and the full management CLI with `token create|list|revoke`
-(P2-10) build on them.
+Everything above is managed with the `relic-bridge` management commands (`user`, `credential`, `project`, `grant`,
+`token`; [CLI reference](../reference/cli.md)) or the [admin API](../reference/admin-api.md) they use. The domain
+services live in `@relic-bridge/auth` (`createCredential`, `createProject`, `createGrant`, `issueAccessToken`, ...).

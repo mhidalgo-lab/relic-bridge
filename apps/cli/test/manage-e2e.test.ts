@@ -127,7 +127,7 @@ beforeAll(async () => {
   await new Promise<void>((resolve) => mock.listen(0, '127.0.0.1', resolve));
   mockUrl = `http://127.0.0.1:${(mock.address() as AddressInfo).port}/graphql`;
   tmp = mkdtempSync(join(tmpdir(), 'rb-manage-e2e-'));
-  masterKeyFile = join(tmp, 'data', 'master.key');
+  masterKeyFile = join(tmp, '.config', 'relic-bridge', 'master.key');
 }, 120_000);
 
 afterAll(async () => {

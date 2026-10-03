@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Management commands (P2-10) in-process: local mode against a temp SQLite database and remote mode against an
 // in-process `serve`, both with a fake NerdGraph. Secrets must never appear in argv-derived output.
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { generateMasterKey } from '@relic-bridge/auth';
@@ -201,7 +201,9 @@ describe('local mode', () => {
     );
     expect(r.err).not.toMatch(/error/i);
     expect(r.code).toBe(0);
-    const keyFile = join(tmp, 'data', 'master.key');
+    // Never next to the database (P2-review): the default is the config directory, not the data directory.
+    expect(existsSync(join(tmp, 'data', 'master.key'))).toBe(false);
+    const keyFile = join(tmp, '.config', 'relic-bridge', 'master.key');
     expect(statSync(keyFile).mode & 0o777).toBe(0o600);
     expect(readFileSync(keyFile, 'utf8')).toMatch(/^v1:/);
     token = r.out.trim();
@@ -213,7 +215,7 @@ describe('local mode', () => {
     expect(r.err).not.toContain(US_KEY);
   });
 
-  const env = () => ({ RB_MASTER_KEY_FILE: join(tmp, 'data', 'master.key') });
+  const env = () => ({ RB_MASTER_KEY_FILE: join(tmp, '.config', 'relic-bridge', 'master.key') });
 
   it('init refuses an existing database without its master key, and never overwrites a key file', async () => {
     const again = await cli(['init']);
@@ -224,10 +226,22 @@ describe('local mode', () => {
       '--db',
       join(tmp, 'other', 'x.db'),
       '--master-key-file',
-      join(tmp, 'data', 'master.key'),
+      join(tmp, '.config', 'relic-bridge', 'master.key'),
     ]);
     expect(other.code).toBe(1);
     expect(other.err).toMatch(/already exist/);
+    // A key file next to the database it protects is refused (P2-review, THREAT_MODEL T7).
+    const beside = await cli([
+      'init',
+      '--db',
+      join(tmp, 'beside', 'x.db'),
+      '--master-key-file',
+      join(tmp, 'beside', 'master.key'),
+    ]);
+    expect(beside.code).toBe(1);
+    expect(beside.err).toMatch(/next to the database/);
+    expect(existsSync(join(tmp, 'beside', 'master.key'))).toBe(false);
+    expect(existsSync(join(tmp, 'beside', 'x.db'))).toBe(false);
   });
 
   it('adds a second (EU) credential from a key file and from an env var, and lists them masked', async () => {

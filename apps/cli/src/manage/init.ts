@@ -4,13 +4,13 @@
 // it asks for what is missing; without one, flags drive it and anything not given is skipped (add it later with the
 // individual commands).
 import { existsSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { generateMasterKey, MASTER_KEY_ENV } from '@relic-bridge/auth';
 import type { Logger } from '@relic-bridge/core';
 import { UsageError } from '../args.ts';
 import { ConfigError } from '../config.ts';
 import { resolveMasterKeyEnv } from '../keys.ts';
-import { resolveDbPath } from '../serve.ts';
+import { defaultConfigDir, resolveDbPath } from '../serve.ts';
 import { nerdGraphFetch } from '../test-hooks.ts';
 import { intList, intOption, type ManageArgs } from './args.ts';
 import { api } from './client.ts';
@@ -46,7 +46,23 @@ export async function initCommand(ctx: ManageContext, args: ManageArgs, logger: 
         'Set RB_MASTER_KEY or RB_MASTER_KEY_FILE to the key it was created with; a new key could not read its credentials.',
       );
     }
-    const keyPath = values['master-key-file'] ?? join(dirname(dbPath), 'master.key');
+    // Never next to the database by default (THREAT_MODEL T7): a copy or backup of the data directory must not
+    // carry the key that decrypts it.
+    const configDir = defaultConfigDir(ctx.env, ctx.platform, ctx.homeDir);
+    const keyPath =
+      values['master-key-file'] ?? (configDir === null ? undefined : join(configDir, 'master.key'));
+    if (keyPath === undefined) {
+      throw new ConfigError(
+        'No place for the master key file.',
+        'Pass --master-key-file <path> outside the data directory, or set RB_MASTER_KEY_FILE to an existing key.',
+      );
+    }
+    if (resolve(dirname(keyPath)) === resolve(dirname(dbPath))) {
+      throw new ConfigError(
+        `The master key file ${keyPath} would sit next to the database it protects.`,
+        'Choose a --master-key-file outside the data directory: anyone with a copy of both can read every stored New Relic key.',
+      );
+    }
     const key = generateMasterKey(1);
     try {
       ctx.host.writeSecretFile(keyPath, `${key}\n`);

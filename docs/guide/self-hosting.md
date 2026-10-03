@@ -17,8 +17,8 @@ relic-bridge serve --port 9000 --db /var/lib/relic-bridge/relic-bridge.db
 
 - Each project is one MCP endpoint: `http://<host>:<port>/p/<project-slug>/mcp` (Streamable HTTP, both the 2025 and
   2026-07-28 protocol eras). Clients authenticate with a per-device token: `Authorization: Bearer rb_live_…`
-  ([access model](access-model.md#devices-and-access-tokens)). Until the management CLI lands (P2-10), projects,
-  grants and tokens are created with the `@relic-bridge/auth` services.
+  ([access model](access-model.md#devices-and-access-tokens)). Projects, credentials, grants and tokens are managed
+  through the [admin API](#admin-api) (the management CLI, P2-10, builds on it).
 - **Database**: `--db`, else `RB_DB_PATH`, else `relic-bridge.db` in the data directory: `RB_DATA_DIR`, else
   `$XDG_DATA_HOME/relic-bridge` or `~/.local/share/relic-bridge` (Linux), `~/Library/Application Support/relic-bridge`
   (macOS), `%LOCALAPPDATA%\relic-bridge` (Windows). It is created (`0600`) and migrated on first start.
@@ -49,6 +49,7 @@ relic-bridge serve --port 9000 --db /var/lib/relic-bridge/relic-bridge.db
 | `RB_AUDIT_NRQL` | `mask` | `mask` (literal values hidden), `hash`, `full` or `off`: how NRQL text is stored. |
 | `RB_AUDIT_RETENTION_DAYS` | `90` | Days to keep audit rows (`0` = forever). Purged at startup and hourly; `relic-bridge audit purge` does it by hand. |
 | `RB_AUDIT_CLIENT_IP` | `on` | Record the client address on refused requests. |
+| `RB_ADMIN_TOKEN` | unset (admin API off) | Bootstrap admin token that enables `/api/admin/v1` ([admin API](#admin-api)). 32-512 printable characters, no spaces. Or `RB_ADMIN_TOKEN_FILE` (a `0600` file). |
 | `RB_HSTS` | `auto` | `Strict-Transport-Security` when the request arrived over https; `true` behind a TLS-terminating proxy. |
 | `RB_LOG_LEVEL` | `info` | One JSON line per request on stderr (never the token or the New Relic key). |
 
@@ -74,6 +75,40 @@ relic-bridge serve --port 9000 --db /var/lib/relic-bridge/relic-bridge.db
 - Storage errors answer `503` (fail closed), never "allowed".
 - `subscriptions/listen` (opened by 2026-era clients such as Claude Code) is acknowledged and closed at once: the
   server has no change notifications to push.
+
+## Admin API
+
+`/api/admin/v1` manages users, New Relic credentials, projects, grants, device tokens and the audit log over JSON. It
+is **off** unless `RB_ADMIN_TOKEN` (or `RB_ADMIN_TOKEN_FILE`) is set, and then every request needs
+`Authorization: Bearer <admin token>`. Full reference: [admin API](../reference/admin-api.md); the OpenAPI 3.1
+document is at `GET /api/admin/v1/openapi.json` (admin token required).
+
+```bash
+export RB_ADMIN_TOKEN="$(openssl rand -base64 32)"   # keep it in your secret store, not in shell history
+relic-bridge serve &
+H="Authorization: Bearer $RB_ADMIN_TOKEN"
+# Add a New Relic User key (validated against New Relic, stored encrypted, never returned).
+read -rs NR_KEY   # paste the key; it never touches the command line
+jq -n --arg k "$NR_KEY" '{label:"main", region:"US", apiKey:$k}' |
+  curl -s -H "$H" -H 'Content-Type: application/json' --data @- http://127.0.0.1:8787/api/admin/v1/credentials
+```
+
+- **The admin token is the keys to the instance**: whoever holds it can add keys, open projects and issue tokens. Use
+  a long random value, keep it out of the database's backup set, and change it by restarting with a new value. It is
+  never stored (only a digest in memory), logged or returned. It is not an MCP token, and MCP tokens don't work here.
+- Failed admin authentications count toward the same per-IP failure throttle as MCP requests and are audited
+  (`auth.denied`, `admin_bad_token`).
+- New Relic keys are accepted **only in request bodies**, never in URLs, and never come back: credentials are listed as
+  masked metadata (label, region, last 4 characters, validation status, reachable accounts). Token hashes are never
+  returned; a new device token is shown once, in the `POST /tokens` response.
+- Bearer-only: cookies are ignored, so cross-site request forgery doesn't apply; no CORS headers are sent on admin
+  routes, and the `Host` / `Origin` checks apply as everywhere else.
+- Every change (and every failed attempt at one) writes an `admin` [audit](audit-log.md) row; query them with
+  `GET /api/admin/v1/audit?kind=admin`.
+- A change takes effect at once on the server that made it (its access cache is cleared); other server processes
+  pick it up within `RB_ACCESS_CACHE_TTL`.
+- Phase 4 adds sign-in with Google, GitHub, Cloudflare Access or OIDC for the admin panel; the bootstrap token remains
+  for automation.
 
 ## The database file
 
@@ -106,7 +141,7 @@ To restore, stop the server and put the backup file in place of the database (re
 New Relic keys are stored only as AES-256-GCM ciphertext, and device tokens only as SHA-256 hashes. **The database
 together with the master key exposes every stored New Relic key.** Therefore:
 
-- Never keep the master key in the same directory, volume, backup or repository as the database. Give it to the process
+- Never keep the master key (or the admin token) in the same directory, volume, backup or repository as the database. Give it to the process
   through the environment or a secret store.
 - Treat a backup exactly like the live file: it has the same contents. Encrypt backups at rest if they leave the host,
   and keep their permissions at `0600`.

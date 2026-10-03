@@ -42,6 +42,20 @@ Masking is a best-effort tokenizer-free scan, aimed at keeping values (customer 
 log, not at being a security boundary: attribute names in the query are kept, and an unusual query can leak a fragment.
 If the query text is itself sensitive, use `hash` or `off`. Stored text is truncated at 2000 characters.
 
+## Reading it
+
+Through the [admin API](../reference/admin-api.md#audit): `GET /api/admin/v1/audit`, newest first, filtered by `kind`,
+`action`, `status`, `projectId`, `userId`, `grantId`, `tokenId`, `since` / `until` (epoch ms or ISO 8601), paged with
+`limit` and `cursor`:
+
+```sh
+curl -s -H "Authorization: Bearer $RB_ADMIN_TOKEN" \
+  'http://127.0.0.1:8787/api/admin/v1/audit?kind=auth&since=2026-10-01T00:00:00Z&limit=100'
+```
+
+Admin changes made through the API carry `details.via = "admin_token"` (no user identity until Phase 4 sign-in);
+failed attempts are recorded too, with `status` `error` (or `denied`) and the API error code.
+
 ## Retention
 
 `RB_AUDIT_RETENTION_DAYS` (default `90`; `0` keeps everything). `serve` deletes older rows at startup and every hour.

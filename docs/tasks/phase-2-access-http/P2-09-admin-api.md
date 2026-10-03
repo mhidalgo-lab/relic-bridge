@@ -2,7 +2,7 @@
 id: P2-09
 title: Admin REST API (API-first management)
 phase: 2
-status: in-progress
+status: review
 priority: high
 depends_on: [P2-04, P2-05, P2-08]
 adr: [0008, 0009]
@@ -44,21 +44,22 @@ Everything the admin panel will do is first an API, usable by the CLI and script
 - **Pagination**: list endpoints take `limit` (1-200, default 50) and an opaque `cursor`, and return
   `{ items, nextCursor }`.
 - **OpenAPI 3.1** generated from the route schemas (`@hono/zod-openapi`), served at `/api/admin/v1/openapi.json`
-  (auth required); `docs/reference/admin-api.md` generated from it (`pnpm docs:admin-api`, `--check` in `pnpm lint`).
+  (auth required); `docs/reference/admin-api.md` generated from it (`pnpm docs:admin-api`; a Vitest file snapshot
+  fails `pnpm test` when it is stale).
 - **`serve`** reads `RB_ADMIN_TOKEN` / `RB_ADMIN_TOKEN_FILE` and wires the admin API with the audit recorder and the
   real NerdGraph key validator.
 
 ## Acceptance criteria
-- [ ] Integration tests for every route, incl. negative authz on every route: no token, malformed header, wrong admin
+- [x] Integration tests for every route, incl. negative authz on every route: no token, malformed header, wrong admin
   token, an MCP access token, admin token in a cookie or query string, admin API disabled when no token is configured,
   admin token refused on `/p/:slug/mcp`; ids of another type / other project → `404`; a grant using another user's
   key → `not_permitted`.
-- [ ] No endpoint ever returns key plaintext, ciphertext or token hashes (scan test over every response and log line);
+- [x] No endpoint ever returns key plaintext, ciphertext or token hashes (scan test over every response and log line);
   the token plaintext appears only in the create-token response.
-- [ ] Every change writes an `admin` audit row; failed admin authentication writes an `auth` row and is throttled.
-- [ ] Strict validation (unknown fields, query-string `apiKey` refused), body size limit, JSON content type required.
-- [ ] OpenAPI document served (auth required) and the reference doc is generated and checked in lint.
-- [ ] `serve` wiring tested (enabled with the token, disabled without; too-short token refused at boot).
+- [x] Every change writes an `admin` audit row; failed admin authentication writes an `auth` row and is throttled.
+- [x] Strict validation (unknown fields, query-string `apiKey` refused), body size limit, JSON content type required.
+- [x] OpenAPI document served (auth required) and the reference doc is generated and checked (in `pnpm test`).
+- [x] `serve` wiring tested (enabled with the token, disabled without; too-short token refused at boot).
 
 ## Security notes
 T8, T13 (CSRF N/A for bearer API; documented), T14 (bootstrap token until P4), T19, T23.

@@ -72,13 +72,14 @@ describe('parseWorkerSettings', () => {
     fails({ RB_AUDIT: 'maybe' }, 'RB_AUDIT');
     fails({ RB_AUDIT_NRQL: 'raw' }, 'RB_AUDIT_NRQL');
     fails({ RB_RATE_LIMIT: 'sometimes' }, 'RB_RATE_LIMIT');
-    fails({ RB_PASSTHROUGH: 'on' }, 'RB_PASSTHROUGH');
+    fails({ RB_PASSTHROUGH: 'on', RB_RATE_LIMIT: 'off' }, 'RB_PASSTHROUGH');
     fails({ RB_LOG_LEVEL: 'trace' }, 'RB_LOG_LEVEL');
     fails({ RB_PLAN: { nested: true } }, 'RB_PLAN');
   });
 
-  it('accepts RB_PASSTHROUGH=off', () => {
-    expect(() => parseWorkerSettings({ RB_PASSTHROUGH: 'off' })).not.toThrow();
+  it('parses RB_PASSTHROUGH (secret and binding are checked at boot)', () => {
+    expect(parseWorkerSettings({ RB_PASSTHROUGH: 'off' }).passthrough).toBe(false);
+    expect(parseWorkerSettings({ RB_PASSTHROUGH: 'on' }).passthrough).toBe(true);
   });
 
   describe('plan presets', () => {

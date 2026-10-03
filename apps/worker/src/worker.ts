@@ -12,7 +12,6 @@ import {
   createHttpApp,
   createRateLimitHooks,
   DEFAULT_RATE_LIMITS,
-  MemoryRateLimiter,
   mergeHooks,
   normalizeClientIp,
   SECURITY_HEADERS,
@@ -21,6 +20,7 @@ import { type Storage, StorageError } from '@relic-bridge/storage';
 import { createD1Storage } from '@relic-bridge/storage/d1';
 import type { Context } from 'hono';
 import type { WorkerEnv } from './env.ts';
+import { WorkersRateLimiter } from './rate-limit.ts';
 import { parseWorkerSettings, WorkerConfigError, type WorkerSettings } from './settings.ts';
 
 /** After a failed boot, requests within this window answer 503 at once instead of retrying the boot. */
@@ -67,6 +67,8 @@ interface Runtime {
   readonly settings: WorkerSettings;
   readonly log: Logger;
   readonly adminApi: boolean;
+  /** Where rate limits are counted: the binding plus the isolate, the isolate alone, or nowhere. */
+  readonly limiter: 'binding+isolate' | 'isolate' | 'off';
   readonly app: {
     fetch(request: Request, env: WorkerEnv, ctx: ExecutionContext): Response | Promise<Response>;
   };
@@ -116,17 +118,38 @@ async function boot(env: WorkerEnv, options: WorkerOptions): Promise<Runtime> {
   const { registered } = await verifyKeyChecks(storage, keyring);
   if (registered.length > 0) log.info('master key registered', { versions: registered });
 
-  // Interim limiter: buckets per isolate (P3-04 adds the Rate Limiting binding as the shared store). Two stores so
-  // unauthenticated traffic can't push token/grant buckets out.
+  // Shared limiter (Rate Limiting binding) plus per-isolate buckets (P3-04, src/rate-limit.ts). Two instances so
+  // unauthenticated traffic can't push token/grant buckets out of the bounded isolate store.
+  const binding = settings.rateLimit ? env.RATE_LIMITER : undefined;
+  if (settings.rateLimit && binding === undefined) {
+    log.warn('RATE_LIMITER binding missing: rate limits are per isolate only (weaker).');
+  }
   const rateLimitHooks = settings.rateLimit
     ? createRateLimitHooks({
-        limiter: new MemoryRateLimiter(),
-        preAuthLimiter: new MemoryRateLimiter(),
+        limiter: new WorkersRateLimiter({ binding }),
+        preAuthLimiter: new WorkersRateLimiter({ binding }),
         rules: DEFAULT_RATE_LIMITS,
         logger: log,
         getClientIp: workersClientIp,
       })
     : undefined;
+
+  // Pass-through keys are fingerprinted under a secret every isolate shares, so one key maps to one limiter bucket
+  // everywhere; without the binding the per-key limit would be per isolate, so that fails the boot too.
+  let fingerprintSecret: Secret | undefined;
+  if (settings.passthrough) {
+    const raw = typeof env.RB_FINGERPRINT_SECRET === 'string' ? env.RB_FINGERPRINT_SECRET.trim() : '';
+    if (new TextEncoder().encode(raw).length < 32) {
+      throw new WorkerConfigError(
+        'RB_FINGERPRINT_SECRET',
+        'RB_PASSTHROUGH=on needs the RB_FINGERPRINT_SECRET secret (at least 32 bytes; `openssl rand -base64 32`)',
+      );
+    }
+    if (binding === undefined) {
+      throw new WorkerConfigError('RATE_LIMITER', 'RB_PASSTHROUGH=on needs the RATE_LIMITER binding');
+    }
+    fingerprintSecret = new Secret(raw);
+  }
   const audit = settings.audit.enabled
     ? createAuditRecorder({
         storage,
@@ -154,13 +177,15 @@ async function boot(env: WorkerEnv, options: WorkerOptions): Promise<Runtime> {
     // Background work (audit rows) must outlive the response: the runtime cancels unawaited promises otherwise.
     waitUntil: (c, task) => c.executionCtx.waitUntil(task),
     ...(hooks === undefined ? {} : { hooks }),
+    ...(fingerprintSecret === undefined ? {} : { passthrough: { fingerprintSecret } }),
     ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
     ...(adminRaw === ''
       ? {}
       : { admin: { token: new Secret(adminRaw), storage, ...(audit === undefined ? {} : { audit }) } }),
   });
 
-  return { settings, log, adminApi: adminRaw !== '', app };
+  const limiter = !settings.rateLimit ? 'off' : binding === undefined ? 'isolate' : 'binding+isolate';
+  return { settings, log, adminApi: adminRaw !== '', limiter, app };
 }
 
 /**
@@ -205,7 +230,8 @@ export function createWorker(options: WorkerOptions = {}): WorkerHandler {
       concurrency: settings.concurrency,
       adminApi: runtime.adminApi,
       audit: settings.audit.enabled ? settings.audit.nrql : 'off',
-      rateLimit: settings.rateLimit ? 'isolate' : 'off',
+      rateLimit: runtime.limiter,
+      passthrough: settings.passthrough,
     });
     return runtime;
   };

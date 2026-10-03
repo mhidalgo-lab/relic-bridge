@@ -37,6 +37,8 @@ export interface WorkerSecrets {
   readonly RB_MASTER_KEY_PREVIOUS?: string;
   /** Bootstrap admin token; the admin API is off without it. */
   readonly RB_ADMIN_TOKEN?: string;
+  /** HMAC secret (at least 32 bytes) for pass-through key fingerprints, shared by all isolates (P3-04). */
+  readonly RB_FINGERPRINT_SECRET?: string;
 }
 
 /** Resource bindings. Optional in the type so a missing binding is a boot error, not a crash. */
@@ -46,7 +48,7 @@ export interface WorkerBindings {
   /** KV namespace for the OAuth provider (Phase 5). */
   readonly OAUTH_KV?: KVNamespace;
   /** Workers Rate Limiting binding (P3-04). */
-  readonly RATE_LIMITER?: RateLimit;
+  readonly RATE_LIMITER?: RateLimit | undefined;
 }
 
 export type WorkerEnv = WorkerVars & WorkerSecrets & WorkerBindings;

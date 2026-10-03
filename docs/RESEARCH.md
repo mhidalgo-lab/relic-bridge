@@ -367,3 +367,14 @@ database.
   embedded migrations itself (ADR-0006 update P3-02).
 - **Test isolation:** in `@cloudflare/vitest-plugin` 1.3.3 the local D1 database is shared by the tests of a file;
   tests that need an empty database drop the tables first (`wipeD1`).
+
+## 13. Workers Rate Limiting binding (P3-04, checked 2026-10-03)
+
+- GA since 2025-09-19 (`ratelimits` in Wrangler config; the `unsafe` binding still works). Config per binding:
+  `namespace_id` (string) and `simple: { limit, period }` with `period` 10 or 60 seconds only.
+- API: `await env.X.limit({ key })` returns `{ success: boolean }`. No `peek`, no cost, no remaining count, no
+  per-call limit: the limit is fixed by the binding's configuration.
+- Counted per Cloudflare location and eventually consistent (permissive by design), so it is a backstop, not an exact
+  limiter. Not verified here: whether calls count as subrequests (assumed not).
+- Local: the workers vitest pool and `wrangler dev` simulate the binding; unit tests use a fake with the same shape.
+

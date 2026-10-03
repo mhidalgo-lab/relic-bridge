@@ -174,7 +174,6 @@ describe('Worker boot', () => {
     for (const [name, value] of [
       ['RB_PLAN', 'enterprise'],
       ['RB_ACCESS_CACHE_TTL', '600'],
-      ['RB_PASSTHROUGH', 'on'],
       ['RB_ADMIN_TOKEN', 'short'],
     ] as const) {
       const log = logs();

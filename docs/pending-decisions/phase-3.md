@@ -102,3 +102,30 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   with less. Never triggers with the presets (45 / 1000).
 - **Options:** add a `minCost` to tool metadata so partial-capable tools stay available at small budgets.
 - **Needs:** only if someone runs with a budget below 11.
+
+## P3-04 — Rate limiting on Workers
+
+### P3-04 — auth-failure throttle stays per isolate
+- **Context:** the Rate Limiting binding has no `peek`, and the auth-failure throttle must refuse an IP without
+  consuming. D1/KV counters would work but add a write per failed request (D1 quota on Free) or KV's 1 write/s/key limit.
+- **Assumption made:** `fail:` keys use the isolate bucket only (documented weakness: more guesses across isolates, mitigated
+  by 256-bit tokens); `ip:`, `token:`, `grant:`, `key:` also go through the binding. Phase 2 review M6 (a shared IP
+  locks out valid tokens) is unchanged and still open.
+- **Options:** a D1 counter table (atomic single statement); wait for the Durable Object limiter (P7-10).
+- **Needs:** owner's call whether the D1 counter is worth it before P7-10.
+
+### P3-04 — one binding with a fixed 600 per 60 s ceiling; exact rules enforced per isolate
+- **Context:** a binding has a single limit/period, but rules vary (grant `rateLimit`, token 120/min, key 120/min).
+- **Assumption made:** the binding (600/60 s per key per location) is a coarse shared ceiling; the exact rule is enforced by
+  the isolate bucket, so the true global limit is somewhere between the rule and isolates x rule. A refusal by the binding
+  answers `Retry-After: 60`.
+- **Options:** one binding per rule class (10 s and 60 s windows) in `wrangler.jsonc`; DO limiter (P7-10).
+- **Needs:** only if tighter global limits are wanted.
+
+### P3-04 — pass-through on Workers needs `RB_FINGERPRINT_SECRET`
+- **Context:** P3-01 refused pass-through; P3-01 did not add a shared secret binding.
+- **Assumption made:** `RB_PASSTHROUGH=on` boots only with `RB_FINGERPRINT_SECRET` (at least 32 bytes) and the `RATE_LIMITER`
+  binding; the secret is optional in `secrets.required` (not needed unless pass-through is on). P3-05 setup should offer to
+  generate it.
+- **Needs:** nothing, unless the secret should be generated automatically.
+

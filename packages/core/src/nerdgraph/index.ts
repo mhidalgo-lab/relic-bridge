@@ -22,7 +22,14 @@ export {
   type GraphQLDocument,
 } from './document.ts';
 export { endpointFor, NERDGRAPH_ENDPOINTS, REGIONS } from './endpoints.ts';
-export { IDENTITY_QUERY, type Identity, validateKey } from './identity.ts';
+export {
+  ACCOUNT_SCOPE,
+  ACCOUNTS_QUERY,
+  IDENTITY_QUERY,
+  type Identity,
+  listReachableAccounts,
+  validateKey,
+} from './identity.ts';
 export {
   createSemaphoreLimiter,
   DEFAULT_CONCURRENCY,

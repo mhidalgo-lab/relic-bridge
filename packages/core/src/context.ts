@@ -48,6 +48,14 @@ export interface QueryLimits {
   readonly maxResponseBytes: number;
 }
 
+/** What the server knows about the connection, for `whoami`. Filled by the stdio CLI (P1-11) and grant resolution (P2). */
+export interface ConnectionInfo {
+  /** Project slug, when the connection belongs to a project. */
+  readonly project?: string;
+  /** Names of the tools this caller may use. */
+  readonly allowedTools?: readonly string[];
+}
+
 export const DEFAULT_LIMITS: QueryLimits = Object.freeze({
   maxLimit: 1000,
   maxWindowDays: 7,
@@ -73,6 +81,8 @@ export interface ToolContext {
   readonly budget: Budget;
   readonly limiter: Limiter;
   readonly limits: QueryLimits;
+  /** Optional descriptive info about the connection (project, granted tools). Never credentials. */
+  readonly connection?: ConnectionInfo;
   readonly logger: Logger;
   readonly clock: Clock;
 }

@@ -60,3 +60,30 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   per call.
 - **Options:** keep; expose a `wait` / `mode` input; return the handle right after `timeout_s` (no polling).
 - **Needs:** nothing now; revisit after P1-12 evals or real usage.
+
+## P1-07 — Identity, accounts and time tools
+
+### P1-07 — `RegionScope` value and `ToolContext.connection`
+- **Context:** `Actor.accounts` takes `scope: RegionScope`; P0-09 confirmed the argument but not a live call with it.
+  `whoami` also needs the project slug and granted tools, which Phase 1 context doesn't carry.
+- **Assumption made:** pass `IN_REGION` (the key's own data center) as a variable `$scope: RegionScope!`; add an
+  optional `ToolContext.connection { project?, allowedTools? }` that P1-11 / Phase 2 fill in (absent shows "unknown").
+  The enum value is from the NerdGraph schema as remembered, not yet verified against a live account.
+- **Options:** `GLOBAL` (accounts in every region); verify live with the P0-09 spike profile.
+- **Needs:** one live check of `IN_REGION` when a key is at hand; swap the `ACCOUNT_SCOPE` constant if rejected.
+
+### P1-07 — `time_range` semantics
+- **Context:** the task didn't fix the grammar, time zone or clause format.
+- **Assumption made:** UTC only; weeks start Monday; "last week/month" are rolling 7/30 days while "this/previous
+  week/month" are calendar periods; date-only range ends include the whole day. Relative input yields NRQL
+  `SINCE n units ago`; absolute input yields `SINCE <epoch seconds> UNTIL <epoch seconds>` (epoch seconds are
+  documented NRQL; the clause is accepted by our own limits parser but not yet run live).
+- **Options:** add a `timezone` input; use ISO string literals in the clause; calendar meaning for "last week".
+- **Needs:** nothing now; revisit after P1-12 evals.
+
+### P1-07 — `whoami` email default
+- **Assumption made:** email shown unmasked unless `mask_email: true` (it is the connection owner's own address and the
+  tool exists for debugging). Names and email are enveloped as untrusted data.
+- **Options:** mask by default; drop the email.
+- **Needs:** owner's preference.
+

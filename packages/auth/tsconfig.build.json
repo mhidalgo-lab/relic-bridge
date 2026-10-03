@@ -1,0 +1,10 @@
+{
+  // Build (declarations): resolve sibling packages through their published `dist`, never their sources, so the
+  // declaration emit can't write `.d.ts` files into other packages. `tsconfig.json` (typecheck, tests) uses sources.
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "types": [],
+    "lib": ["es2023", "webworker"]
+  },
+  "include": ["src"]
+}

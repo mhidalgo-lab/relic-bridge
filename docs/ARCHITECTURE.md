@@ -173,7 +173,7 @@ key      = grant.credential ?? project.defaultCredential   (must exist, else 403
 | Group | Tools | Phase |
 |---|---|---|
 | Query | `run_nrql`, `get_query_result` | 1 |
-| Discovery | `whoami`, `list_accounts`, `search_entities`, `get_entity`, `get_related_entities`, `list_entity_types`, `list_event_types`, `get_attributes`, `time_range` | 1 |
+| Discovery | `whoami`, `list_accounts`, `search_entities`, `get_entity`, `get_related_entities`, `list_entity_types`, `decode_entity_guid`, `list_event_types`, `get_attributes`, `time_range` | 1 |
 | Health | `get_golden_metrics` | 1 |
 | Alerting | `list_alert_policies`, `list_alert_conditions`, `list_recent_issues`, `search_incidents`, `list_synthetic_monitors` | 6 |
 | Incident response | `list_error_groups`, `list_change_events`, `analyze_deployment_impact` | 6 |

@@ -43,7 +43,7 @@ Used when no config file is given.
 | `RB_LIMITS_RAW_NRQL` | no | `true` | `false` removes `run_nrql` and `get_query_result` (agent-written NRQL). |
 | `RB_LIMITS_MAX_RESPONSE_BYTES` | no | `524288` | Largest NerdGraph response accepted (1 KiB – 16 MiB). |
 | `RB_LIMITS_EVENT_TYPES_ALLOW` | no | | Only these event types may be queried (comma-separated, exact case). |
-| `RB_LIMITS_EVENT_TYPES_DENY` | no | | These event types may not be queried. |
+| `RB_LIMITS_EVENT_TYPES_DENY` | no | | These event types may not be queried (comma-separated, case-insensitive). |
 
 See [query limits](query-limits.md) for what each limit does.
 

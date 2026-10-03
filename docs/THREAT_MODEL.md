@@ -94,6 +94,10 @@ Trust boundaries:
 | T21 | `ToolContext` per request, `buildMcpServer` per request; isolation test with two concurrent servers | P1-01 |
 | T23 | `ToolRegistry.register` rejects secret-like input properties anywhere in the schema | P1-01 |
 | T6 / P7-09 | `ToolRegistry` refuses `write` / `destructive` tools unless `allowNonRead`; MCP annotations derived from `kind` | P1-01 |
+| T4 | `defineDocument`: static named documents, string literals rejected, so values can only be variables; `NerdGraphClient.query` takes only such documents | P1-02 |
+| T5 | Per-credential semaphore (`LimiterPool`, default 5); response cap enforced while streaming, before `JSON.parse`; one budget unit per attempt, retries only within budget | P1-02 |
+| T8 | NerdGraph errors mapped to `RB_*` codes; non-2xx bodies only classified (≤ 4 KiB read), never returned; GraphQL messages redacted and truncated (500 chars); tested with an upstream that echoes the key | P1-02 |
+| T12 | The NR key is read only inside `NerdGraphClient` (`API-Key` header); documents can't override reserved headers (`API-Key`, `Authorization`, `Cookie`, …) | P1-02 |
 
 ## 6. Open questions
 

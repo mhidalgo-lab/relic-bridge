@@ -2,7 +2,8 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "types": [],
-    "lib": ["es2023", "webworker"]
+    "lib": ["es2023", "webworker"],
+    "resolveJsonModule": true
   },
   "include": ["src", "test"]
 }

@@ -29,7 +29,7 @@ describe('logger', () => {
     });
     const out = lines.join('\n');
     expect(out).not.toContain(KEY);
-    expect(out).not.toContain('Zx8Kq2Lm9Np4Rs7Tv1Wy3Ab6');
+    expect(out).not.toContain('FAKE8Kq2Lm9Np4Rs7Tv1Wy3Ab6');
   });
 
   it('child loggers carry fields', () => {

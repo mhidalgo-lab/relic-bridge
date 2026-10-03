@@ -32,6 +32,7 @@ export {
   silentLogger,
   stderrSink,
 } from './logger.ts';
+export * from './nerdgraph/index.ts';
 export { isSecretKeyName, REDACTED, redact, redactValue } from './redact.ts';
 export {
   inputJsonSchema,
@@ -50,3 +51,4 @@ export {
   type ToolKind,
   type ToolOutput,
 } from './tool.ts';
+export { REPOSITORY_URL, USER_AGENT, VERSION } from './version.ts';

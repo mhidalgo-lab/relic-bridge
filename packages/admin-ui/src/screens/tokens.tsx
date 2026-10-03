@@ -24,7 +24,7 @@ import {
   SelectField,
   TextField,
 } from '../components.tsx';
-import { adminPath, type UiKit, type UiPrincipal } from '../kit.ts';
+import { adminPath, ONCE_FIELD, type UiKit, type UiPrincipal } from '../kit.ts';
 import { htmlResponse } from '../pages.tsx';
 import { SnippetList } from '../snippets.tsx';
 import {
@@ -91,6 +91,7 @@ function newTokenPage(
   lookup: Lookup,
   values: { label: string; lifetime: string },
   errors: Readonly<Record<string, string>>,
+  once: string,
   message?: string,
 ) {
   return (
@@ -102,6 +103,7 @@ function newTokenPage(
       <FormError message={message} />
       <Form action={BASE} csrf={viewer.csrf} label="New device token">
         <input type="hidden" name="grantId" value={grant.id} />
+        <input type="hidden" name={ONCE_FIELD} value={once} />
         <TextField
           name="label"
           label="Device name"
@@ -262,7 +264,9 @@ export function registerTokens(ui: Hono, kit: UiKit): void {
           </Layout>,
         );
       }
-      return page.html(newTokenPage(principal, grant, l, { label: '', lifetime: '90' }, {}));
+      return page.html(
+        newTokenPage(principal, grant, l, { label: '', lifetime: '90' }, {}, await kit.issueOnce(principal)),
+      );
     }),
   );
 
@@ -282,10 +286,22 @@ export function registerTokens(ui: Hono, kit: UiKit): void {
       if (!LIFETIMES.some(([v]) => v === lifetime)) errors['lifetime'] = 'Choose a lifetime from the list.';
       const again = async (errs: Record<string, string>, message?: string, status = 422) =>
         htmlResponse(
-          newTokenPage(principal, grant, await lookup(c, principal), values, errs, message),
+          newTokenPage(
+            principal,
+            grant,
+            await lookup(c, principal),
+            values,
+            errs,
+            await kit.issueOnce(principal),
+            message,
+          ),
           status,
         );
       if (Object.keys(errors).length > 0) return again(errors);
+      // A re-sent form (reload or back button on the one-time page) must not issue another token (P4-07): the form's
+      // single-use handle is taken here, before the API call. A used, expired or missing handle issues nothing.
+      if (!(await kit.claimOnce(form)))
+        return kit.redirect(withQuery(BASE, { grant: grantId }), 'token_form_used');
 
       const res = await kit.callAdmin(
         c,
@@ -339,7 +355,9 @@ export function registerTokens(ui: Hono, kit: UiKit): void {
             <ul>
               <li>Paste it only into this device's MCP client configuration or its secret store.</li>
               <li>Never paste it into a chat, a ticket, a shared document or a repository.</li>
-              <li>Do not reload this page: that would create another token.</li>
+              <li>
+                This page is shown once: reloading it does not show the token again or create another one.
+              </li>
             </ul>
           </section>
           <section aria-labelledby="snippets-heading">

@@ -30,6 +30,7 @@ export type FlashCode =
   | 'key_not_checkable'
   | 'changed_meanwhile'
   | 'read_only'
+  | 'token_form_used'
   | 'not_found'
   | 'not_allowed'
   | 'failed';
@@ -79,6 +80,10 @@ export const FLASH_MESSAGES: Readonly<Record<FlashCode, FlashMessage>> = Object.
     text: 'Someone changed this at the same time. Check it and try again.',
   },
   read_only: { kind: 'error', text: 'The storage is read-only right now. Nothing changed.' },
+  token_form_used: {
+    kind: 'info',
+    text: 'That form was already sent, so no other token was created. A token is shown only once: if you did not copy it, revoke it below and create a new one.',
+  },
   not_found: { kind: 'error', text: 'That item no longer exists.' },
   not_allowed: { kind: 'error', text: 'Your role does not allow that.' },
   failed: { kind: 'error', text: 'That did not work. Try again in a moment.' },

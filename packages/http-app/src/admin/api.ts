@@ -1105,13 +1105,16 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
           patch.disabledAt = body.disabled ? (existing.disabledAt ?? clock.now()) : null;
         const updated =
           Object.keys(patch).length === 0 ? existing : await storage.users.update(existing.id, patch);
-        // A privilege change ends the user's sessions (they sign in again with a fresh session); disabling too.
+        // A privilege change ends the user's sessions (they sign in again with a fresh session); disabling too, and
+        // re-enabling (P4-07): a session that outlived a disable made outside the API must not come back with it.
         const reason =
           updated.role !== existing.role
             ? 'role_change'
             : updated.disabledAt !== null && existing.disabledAt === null
               ? 'disabled'
-              : null;
+              : updated.disabledAt === null && existing.disabledAt !== null
+                ? 'enabled'
+                : null;
         if (reason !== null) await endSessions(c, existing.id, reason);
         return updated;
       },

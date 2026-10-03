@@ -152,6 +152,7 @@ function rateLimitSettings(env: Env, warnings: string[]): RateLimitRules | null 
     authFailures: pick('RB_RATE_LIMIT_AUTH_FAIL', DEFAULT_RATE_LIMITS.authFailures),
     token: pick('RB_RATE_LIMIT_TOKEN', DEFAULT_RATE_LIMITS.token),
     grant: pick('RB_RATE_LIMIT_GRANT', DEFAULT_RATE_LIMITS.grant),
+    signIn: pick('RB_RATE_LIMIT_SIGN_IN', DEFAULT_RATE_LIMITS.signIn ?? null),
     passthroughKey: pick('RB_RATE_LIMIT_PASSTHROUGH_KEY', DEFAULT_RATE_LIMITS.passthroughKey),
   };
   if (rules.authFailures === null) {

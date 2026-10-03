@@ -9,11 +9,12 @@
 import type { FetchLike, Secret } from '@relic-bridge/core';
 import { IdentityError } from './errors.ts';
 import { asRecord, idpJson } from './http.ts';
-import type {
-  AuthorizationRequest,
-  AuthorizationResult,
-  RedirectIdentityProvider,
-  VerifiedIdentity,
+import {
+  type AuthorizationRequest,
+  type AuthorizationResult,
+  canonicalEmail,
+  type RedirectIdentityProvider,
+  type VerifiedIdentity,
 } from './types.ts';
 
 export const GITHUB_AUTHORIZE_URL = 'https://github.com/login/oauth/authorize';
@@ -118,9 +119,12 @@ export function createGitHubProvider(options: GitHubProviderOptions): RedirectId
         );
       }
       const primary = emails.body.map(asRecord).find((e) => e !== null && e['primary'] === true);
-      const email = primary?.['email'];
-      if (typeof email !== 'string' || !/^[^\s@]{1,64}@[^\s@]{1,255}$/.test(email)) {
-        throw new IdentityError('email_missing', 'the GitHub account has no primary email address');
+      const email = canonicalEmail(primary?.['email']);
+      if (email === null) {
+        throw new IdentityError(
+          'email_missing',
+          'the GitHub account has no usable (ASCII) primary email address',
+        );
       }
       if (primary?.['verified'] !== true) {
         throw new IdentityError('email_unverified', 'the primary GitHub email address is not verified');
@@ -138,7 +142,7 @@ export function createGitHubProvider(options: GitHubProviderOptions): RedirectId
       return Object.freeze({
         idp: 'github',
         subject: String(id),
-        email: email.toLowerCase(),
+        email,
         emailVerified: true,
         displayName: typeof name === 'string' ? name.trim().slice(0, 200) : null,
         orgs: Object.freeze(member),

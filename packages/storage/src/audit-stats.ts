@@ -20,7 +20,8 @@ const GROUP_EXPR: Readonly<Record<AuditStatsGroup, string>> = {
 
 /** The statement and parameters for `query`; throws `InvalidInputError` for an unbounded or malformed window. */
 export function auditStatsSql(query: AuditStatsQuery): { sql: string; params: (string | number)[] } {
-  const expr = GROUP_EXPR[query.groupBy];
+  // Own keys only (P4-07): `constructor` or `__proto__` must never put inherited text into the statement.
+  const expr = Object.hasOwn(GROUP_EXPR, query.groupBy) ? GROUP_EXPR[query.groupBy] : undefined;
   if (expr === undefined) throw new InvalidInputError('auditLog.stats.groupBy');
   const { since, until } = query;
   if (!Number.isFinite(since) || !Number.isFinite(until) || until <= since)

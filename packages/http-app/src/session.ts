@@ -171,9 +171,12 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
       const found = await loadSession(kv, value ?? '', timeouts, clock);
       if (!found.ok) return { ok: false, reason: found.reason };
       const user = await loadUser(found.session.record.userId);
-      // Fail closed, read-only: disabling through the admin API already deleted the sessions; a user disabled some
-      // other way (the CLI on the database) fails here on every request until the sessions expire.
-      if (user === null || user.disabledAt !== null) return { ok: false, reason: 'session_user_disabled' };
+      // Fail closed: disabling through the admin API already deleted the sessions; a user disabled some other way (the
+      // database directly) loses this session here, so re-enabling the user later does not revive it (P4-07).
+      if (user === null || user.disabledAt !== null) {
+        await revokeSession(kv, value ?? '').catch(() => false);
+        return { ok: false, reason: 'session_user_disabled' };
+      }
       return { ok: true, principal: { kind: 'session', role: user.role, user, session: found.session } };
     },
 
@@ -217,7 +220,11 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
       });
       return new Response(null, {
         status: 303,
-        headers: { Location: login.next, 'Set-Cookie': cookie(issued.cookieValue, maxAge) },
+        headers: {
+          // `next` was checked when the login started; check again here so no path can ever leave the origin (P4-07).
+          Location: /^\/(?![/\\])/.test(login.next) ? login.next : '/admin',
+          'Set-Cookie': cookie(issued.cookieValue, maxAge),
+        },
       });
     },
 

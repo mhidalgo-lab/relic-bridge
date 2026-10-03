@@ -2,7 +2,7 @@
 id: P3-02
 title: D1 storage adapter
 phase: 3
-status: in-progress
+status: review
 priority: high
 depends_on: [P3-01]
 adr: [0006]
@@ -31,19 +31,24 @@ The Worker stores everything in Cloudflare D1 through the same `Storage` contrac
 - **Migrations — one source of truth:** the embedded `MIGRATIONS` (drizzle-kit SQL, checksummed) applied by our own
   forward-only runner (`migrate`) when the Worker's runtime boots (once per isolate, as part of the existing lazy
   boot), through a D1 driver whose `batch` is a D1 `batch()` (atomic). Two isolates migrating at once: the loser's
-  batch fails on the `schema_migrations` primary key and it re-checks instead of failing the boot. No separate
+  batch rolls back and it re-runs from the versions now recorded instead of failing the boot. No separate
   `wrangler d1 migrations` directory (that would be a second history to keep in sync). Documented in ADR-0006.
 - `apps/worker`: `openD1Storage` opens the D1 adapter (replaces the P3-01 stub); missing binding still fails closed.
 
 ## Acceptance criteria
-- [ ] Storage contract suite (`runStorageContract`) passes against D1 inside workerd (`pnpm test:workers`).
-- [ ] D1-specific tests: concurrent `setIfAbsent` has exactly one winner; a stale `ifKey` changes nothing; foreign keys
+- [x] Storage contract suite (`runStorageContract`) passes against D1 inside workerd (`pnpm test:workers`).
+- [x] D1-specific tests: concurrent `setIfAbsent` has exactly one winner; a stale `ifKey` changes nothing; foreign keys
       are enforced (unknown reference → `ConflictError`, project delete cascades to grants and tokens); migrations are
       idempotent, refuse a newer/edited database, and two concurrent opens on an empty database both succeed.
-- [ ] The deployed entry (`src/index.ts` + `wrangler.jsonc`) serves end to end on local D1: `/health` 200, a token
+- [x] The deployed entry (`src/index.ts` + `wrangler.jsonc`) serves end to end on local D1: `/health` 200, a token
       issued through storage → MCP `initialize` + `tools/list`; wrong token 401.
-- [ ] Access cache hit = 0 D1 calls (counted with a wrapped binding); the cache-miss count is measured and documented.
-- [ ] `wrangler dev` boots with local D1 and `/health` answers 200 (checked by hand).
+- [x] Access cache hit = 0 D1 calls (counted with a wrapped binding); the cache-miss count is measured and documented
+      (5 reads in 3 sequential waves + the throttled `last_used_at` write; P3-09 brings it to 1).
+- [x] `wrangler dev` boots with local D1 and `/health` answers 200 (checked by hand with wrangler 4.144.0, state in a
+      temporary `--persist-to` directory).
+
+Also: `createD1Storage(db, { migrate: false })` only verifies the schema version (read-only), like `sqlite`.
+`PRAGMA foreign_keys` statements in migrations are skipped by the D1 driver (no-ops inside the batch transaction).
 
 ## Security notes
 No new data: same schema, ciphertext-only credentials (T7), hashed tokens. Atomic `setIfAbsent` and the key CAS keep

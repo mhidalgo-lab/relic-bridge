@@ -51,3 +51,29 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   job **Workers runtime tests** runs `pnpm test:workers`.
 - **Assumption made:** P3-06 makes the job a required check (branch protection is an owner setting).
 - **Needs:** add "Workers runtime tests" to the required checks once P3-06 lands.
+
+## P3-02 — D1 adapter
+
+### P3-02 — migrations run by the Worker at boot, not `wrangler d1 migrations apply`
+- **Context:** the original task said "same migrations applied with `wrangler d1 migrations apply`". Our runner
+  (checksums, `schema_migrations`, forward-only) already ships the SQL embedded in the bundle; a wrangler migrations
+  directory would track a second history (`d1_migrations`) that can drift from ours.
+- **Assumption made:** the Worker applies pending migrations on the first request of each isolate (concurrent boots
+  race safely). Recorded as an update in ADR-0006.
+- **Options:** keep; or also generate a `wrangler d1 migrations` folder for operators who want to migrate before
+  traffic (would need a check that both histories agree).
+- **Needs:** owner's call; P3-05/P3-07 document whichever is kept. A failed migration shows up as 503 + a log line
+  after deploy rather than as a failed `wrangler deploy`.
+
+### P3-02 — `PRAGMA foreign_keys` skipped on D1; not verified against remote D1
+- **Context:** migration `0001_audit_auth_kind` (drizzle-kit table rebuild) contains `PRAGMA foreign_keys=OFF/ON`.
+  Local D1 accepts it; whether remote D1 accepts it is unverified (no deploys in this run). Inside a transaction SQLite
+  ignores the pragma anyway.
+- **Assumption made:** the D1 migration driver skips `PRAGMA foreign_keys` statements (checksums unchanged).
+- **Needs:** a first real deploy (P3-05) to confirm migrations apply cleanly on remote D1.
+
+### P3-02 — single-query access resolution split out (P3-09)
+- **Context:** the task's "access resolution = 1 D1 call on miss" needs a new `Storage` capability and changes in
+  `@relic-bridge/auth`. Today a miss costs 5 reads in 3 round trips; a hit costs 0 (tested).
+- **Assumption made:** moved to the new task P3-09 (medium priority).
+- **Needs:** nothing unless the owner wants it before v0.3.

@@ -498,13 +498,13 @@ Revoke an access token
 
 Re-encrypt stored keys under the current master key (one batch)
 
-Master-key rotation for hosts without local database access (a Worker on D1). Start the server with the new key as `RB_MASTER_KEY` and the old one as `RB_MASTER_KEY_PREVIOUS`, then call this until `nextCursor` is `null` (`relic-bridge keys rotate --remote` does). Each row is re-encrypted with a compare-and-swap, so every row stays readable, an interrupted run resumes, and a repeated run changes nothing. A wrong or retired master key answers `503 unavailable` (`detail`: `key_mismatch`, `key_version_retired`) before any row is touched. The previous key can be removed once `pending` is 0. Never returns key material.
+Master-key rotation for hosts without local database access (a Worker on D1). Start the server with the new key as `RB_MASTER_KEY` and the old one as `RB_MASTER_KEY_PREVIOUS`, then call this until `nextCursor` is `null` (`relic-bridge keys rotate --remote` does). Each row is re-encrypted with a compare-and-swap, so every row stays readable, an interrupted run resumes, and a repeated run changes nothing. A wrong or retired master key answers `503 unavailable` (`detail`: `key_mismatch`, `key_version_retired`) before any row is touched. The previous key can be removed once `pending` is 0. A server may cap `batchSize` (Free-plan Workers: 40). Never returns key material.
 
 Request body (`RotateKeys`):
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `batchSize` | `integer` | no | Rows to re-encrypt in this call, 1-100 (default 25). |
+| `batchSize` | `integer` | no | Rows to re-encrypt in this call, 1-100 (default 25). A Worker on the Free plan lowers the ceiling to 40 (one call stays under 50 D1 queries); a larger value is reduced, not refused, and `nextCursor` resumes. |
 | `after` | `string \| null` | no | `nextCursor` of the previous call; omit to start from the first row. |
 
 | Status | Body | Description |
@@ -830,7 +830,7 @@ Query limits; absent fields fall back to the defaults.
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `batchSize` | `integer` | no | Rows to re-encrypt in this call, 1-100 (default 25). |
+| `batchSize` | `integer` | no | Rows to re-encrypt in this call, 1-100 (default 25). A Worker on the Free plan lowers the ceiling to 40 (one call stays under 50 D1 queries); a larger value is reduced, not refused, and `nextCursor` resumes. |
 | `after` | `string \| null` | no | `nextCursor` of the previous call; omit to start from the first row. |
 
 ### UpdateCredential

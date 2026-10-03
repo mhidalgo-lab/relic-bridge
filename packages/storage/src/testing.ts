@@ -810,6 +810,14 @@ export function runStorageContract(options: StorageContractOptions): void {
     });
 
     describe('audit log', () => {
+      it('refuses a non-finite limit (P3-15)', async () => {
+        const { s } = await fresh();
+        await rejects(s.auditLog.list({ limit: Number.NaN }), InvalidInputError);
+        await rejects(s.auditLog.purgeBefore(1, Number.NaN), InvalidInputError);
+        await rejects(s.auditLog.purgeBefore(1, Number.POSITIVE_INFINITY), InvalidInputError);
+        await s.close();
+      });
+
       it('is append-only: the repository has no update or delete besides retention purge', async () => {
         const { s } = await fresh();
         expect(Object.keys(s.auditLog).sort()).toEqual(['append', 'list', 'purgeBefore']);
@@ -944,6 +952,17 @@ export function runStorageContract(options: StorageContractOptions): void {
     });
 
     describe('kv', () => {
+      it('refuses a non-finite expiry or limit instead of storing "never expires" (P3-15)', async () => {
+        const { s } = await fresh();
+        for (const bad of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
+          await rejects(s.kv.put('k', 'v', { expirationTtl: bad }), InvalidInputError);
+          await rejects(s.kv.put('k', 'v', { expiration: bad }), InvalidInputError);
+          await rejects(s.kv.list({ limit: bad }), InvalidInputError);
+        }
+        expect(await s.kv.get('k')).toBeNull();
+        await s.close();
+      });
+
       it('gets, puts, overwrites and deletes', async () => {
         const { s } = await fresh();
         await s.kv.put('a', '1');

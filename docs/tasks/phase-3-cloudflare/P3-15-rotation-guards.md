@@ -2,11 +2,11 @@
 id: P3-15
 title: Key-rotation guards (unreadable rows warning, Free-plan batch size, kv TTL validation)
 phase: 3
-status: todo
+status: review
 priority: low
 depends_on: [P3-11]
 adr: [0007]
-owner: ""
+owner: claude-agent
 ---
 
 # P3-15 — Key-rotation guards (unreadable rows warning, Free-plan batch size, kv TTL validation)
@@ -23,8 +23,9 @@ Small guards found by the phase-3 review around master-key rotation and the D1 a
 - Guard non-finite `limit` in the D1 adapter's `auditLog.list` / `purgeBefore` (callers validate today).
 
 ## Acceptance criteria
-- [ ] Tests for each guard (Node and workers pool where the adapter is D1).
-- [ ] Storage contract suite updated for the `kv` TTL rule.
+- [x] Tests for each guard (Node and workers pool where the adapter is D1). The `kv` cron purge is deferred until
+      something uses `kv` (pending decision).
+- [x] Storage contract suite updated for the `kv` TTL rule.
 
 ## Security notes
 T7 (master key and stored keys): an unreadable-row warning prevents silent loss of stored credentials.

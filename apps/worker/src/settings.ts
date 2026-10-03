@@ -13,6 +13,9 @@ import type { WorkerVars } from './env.ts';
 
 export type WorkerPlan = 'free' | 'paid';
 
+/** `keys/rotate` batch ceiling on the Free plan: a batch costs about its size plus 5 D1 queries, the limit is 50. */
+export const FREE_ROTATION_BATCH = 40;
+
 /** What a plan preset fixes (ADR-0010, P0-06 measurements, Cloudflare limits as of 2026-10-03; see RESEARCH §1). */
 export interface PlanPreset {
   /**

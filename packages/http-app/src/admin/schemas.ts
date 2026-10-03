@@ -463,6 +463,7 @@ export const AuditPage = page(AuditSchema, 'AuditPage');
 
 /** Rows re-encrypted per call by default: about 30 storage calls, well inside a Worker invocation's limits. */
 export const DEFAULT_ROTATION_BATCH = 25;
+export const MAX_ROTATION_BATCH_SIZE = 100;
 
 export const RotateKeysBody = z
   .strictObject({
@@ -470,9 +471,13 @@ export const RotateKeysBody = z
       .number()
       .int()
       .min(1)
-      .max(100)
+      .max(MAX_ROTATION_BATCH_SIZE)
       .optional()
-      .openapi({ description: 'Rows to re-encrypt in this call, 1-100 (default 25).' }),
+      .openapi({
+        description:
+          'Rows to re-encrypt in this call, 1-100 (default 25). A Worker on the Free plan lowers the ceiling to 40 ' +
+          '(one call stays under 50 D1 queries); a larger value is reduced, not refused, and `nextCursor` resumes.',
+      }),
     after: idRef('`nextCursor` of the previous call; omit to start from the first row.')
       .nullable()
       .optional(),

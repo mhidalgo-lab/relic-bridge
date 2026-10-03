@@ -20,6 +20,7 @@ import {
   checkEncryptedKey,
   checkGrantPrincipal,
   checkKeyHint,
+  checkLimit,
   checkRegion,
   checkRole,
   checkTokenHash,
@@ -32,6 +33,7 @@ import {
   type KvPutOptions,
   type KvRepository,
   keyChangedError,
+  kvExpiry,
   NO_ACCESS_RECORDS,
   NotFoundError,
   normalizeEmail,
@@ -582,6 +584,7 @@ export function createRepositories(
       }),
     list: (q: AuditQuery = {}) =>
       call(() => {
+        checkLimit(q.limit, 'auditLog.limit');
         const limit = Math.min(Math.max(1, Math.trunc(q.limit ?? AUDIT_DEFAULT_LIMIT)), AUDIT_MAX_LIMIT);
         const where: string[] = [];
         const params: Params = [];
@@ -606,14 +609,15 @@ export function createRepositories(
         return freeze(all(sql, [...params, limit]).map(auditOf));
       }),
     purgeBefore: (before, limit) =>
-      call(() =>
-        limit === undefined
+      call(() => {
+        checkLimit(limit, 'auditLog.limit');
+        return limit === undefined
           ? run('DELETE FROM audit_log WHERE ts < ?', [before])
           : run(
               'DELETE FROM audit_log WHERE id IN (SELECT id FROM audit_log WHERE ts < ? ORDER BY ts, id LIMIT ?)',
               [before, limit],
-            ),
-      ),
+            );
+      }),
   };
 
   // --------------------------------------------------------------------------------------------- settings
@@ -665,13 +669,7 @@ export function createRepositories(
       }),
     put: (key, value, opts: KvPutOptions = {}) =>
       call(() => {
-        const t = now();
-        const expiresAt =
-          opts.expiration !== undefined
-            ? opts.expiration * 1000
-            : opts.expirationTtl !== undefined
-              ? t + opts.expirationTtl * 1000
-              : null;
+        const expiresAt = kvExpiry(opts, now());
         run(
           'INSERT INTO kv (key, value, expires_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, expires_at = excluded.expires_at',
           [key, value, expiresAt],
@@ -683,6 +681,7 @@ export function createRepositories(
       }),
     list: (opts = {}) =>
       call((): KvListResult => {
+        checkLimit(opts.limit, 'kv.limit');
         const limit = Math.min(Math.max(1, Math.trunc(opts.limit ?? KV_MAX_LIST)), KV_MAX_LIST);
         const prefix = opts.prefix ?? '';
         const after = opts.cursor === undefined ? '' : decodeCursor(opts.cursor);

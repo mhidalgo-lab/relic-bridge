@@ -65,7 +65,14 @@ const validateKey: KeyValidator = async (credential) => {
 };
 
 function makeApp(
-  opts: { hooks?: HttpAppHooks; admin?: boolean; audit?: boolean; ttl?: number; keyring?: Keyring } = {},
+  opts: {
+    hooks?: HttpAppHooks;
+    admin?: boolean;
+    audit?: boolean;
+    ttl?: number;
+    keyring?: Keyring;
+    maxRotationBatch?: number;
+  } = {},
 ) {
   const logger = createLogger({
     level: 'debug',
@@ -93,6 +100,7 @@ function makeApp(
             token: new Secret(ADMIN),
             storage: world.storage,
             validateKey,
+            ...(opts.maxRotationBatch === undefined ? {} : { maxRotationBatch: opts.maxRotationBatch }),
             ...(opts.audit === false ? {} : { audit: recorder }),
           },
         }),
@@ -1053,6 +1061,24 @@ describe('master-key rotation (P3-11)', () => {
     }
     return out;
   }
+
+  it('clamps batchSize to the server ceiling (Free-plan Workers) and still resumes via nextCursor (P3-15)', async () => {
+    const ring = await Keyring.create({ current: K2, previous: K1 });
+    const app = makeApp({ keyring: ring, maxRotationBatch: 2 });
+    const first = await admin(app, '/keys/rotate', { method: 'POST', body: { batchSize: 100 } });
+    expect(first.status).toBe(200);
+    expect(first.json?.['data'].reencrypted).toHaveLength(2);
+    expect(first.json?.['data'].nextCursor).not.toBeNull();
+    await vi.waitFor(async () =>
+      expect((await auditRows()).find((r) => r.action === 'keys.rotate')?.details?.['batchSize']).toBe(2),
+    );
+    let after = first.json?.['data'].nextCursor as string | null;
+    for (let i = 0; i < 5 && after !== null; i++) {
+      const res = await admin(app, '/keys/rotate', { method: 'POST', body: { batchSize: 100, after } });
+      after = res.json?.['data'].nextCursor;
+    }
+    expect(await versions()).toEqual([2, 2, 2, 2, 2]);
+  });
 
   it('re-encrypts in bounded batches, every row readable after each one, and audits each call', async () => {
     const ring = await Keyring.create({ current: K2, previous: K1 });

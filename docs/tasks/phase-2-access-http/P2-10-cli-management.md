@@ -2,11 +2,11 @@
 id: P2-10
 title: CLI management commands (local and remote)
 phase: 2
-status: todo
+status: in-progress
 priority: high
 depends_on: [P2-09]
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P2-10 — CLI management commands

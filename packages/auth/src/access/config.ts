@@ -7,6 +7,7 @@ import {
   type GrantRecord,
   limitsSchema,
   newId,
+  type ProjectPatch,
   type ProjectRecord,
   SLUG_RE,
   type Storage,
@@ -127,6 +128,95 @@ export async function createProject(
     limits,
     defaultCredentialId,
   });
+}
+
+/** Fields of a project that can change. Absent = unchanged; `null` resets where the field allows it. */
+export interface UpdateProjectInput {
+  readonly slug?: string;
+  readonly name?: string | null;
+  readonly defaultAccountId?: number;
+  readonly allowedAccountIds?: readonly number[];
+  readonly enabledTools?: readonly string[] | null;
+  /** Replaces the stored limits as a whole. */
+  readonly limits?: StoredLimits;
+  readonly defaultCredentialId?: string | null;
+  /** `true` disables the project (every request refused), `false` enables it again. */
+  readonly disabled?: boolean;
+}
+
+export interface UpdateProjectResult {
+  readonly project: ProjectRecord;
+  /** E.g. grants that relied on a default credential that was just removed (they now fail closed). */
+  readonly warnings: readonly string[];
+}
+
+/**
+ * Change a project with the same rules as {@link createProject}: the merged result must still be valid (default
+ * account inside the allowed ones, known tool names, a live default credential). Narrowing a project narrows every
+ * grant at once, because access is the intersection.
+ */
+export async function updateProject(
+  storage: Deps,
+  id: string,
+  input: UpdateProjectInput,
+  catalog: readonly string[],
+  now: number,
+): Promise<UpdateProjectResult> {
+  const project = await storage.projects.get(id);
+  if (project === null)
+    throw new AccessError('not_found', `project ${String(id).slice(0, 64)} not found`, 'id');
+  const patch: { -readonly [K in keyof ProjectPatch]: ProjectPatch[K] } = {};
+  if (input.slug !== undefined) {
+    const slug = typeof input.slug === 'string' ? input.slug.trim() : '';
+    if (!SLUG_RE.test(slug)) {
+      throw new AccessError(
+        'invalid_input',
+        'slug must be lowercase letters, digits and dashes (max 63)',
+        'slug',
+      );
+    }
+    patch.slug = slug;
+  }
+  if (input.name !== undefined) patch.name = checkName(input.name, 'name');
+  const allowedAccountIds =
+    input.allowedAccountIds === undefined
+      ? project.allowedAccountIds
+      : checkAccounts(input.allowedAccountIds, 'allowedAccountIds');
+  const defaultAccountId = input.defaultAccountId ?? project.defaultAccountId;
+  if (!allowedAccountIds.includes(defaultAccountId)) {
+    throw new AccessError(
+      'invalid_input',
+      'defaultAccountId must be one of allowedAccountIds',
+      'defaultAccountId',
+    );
+  }
+  if (input.allowedAccountIds !== undefined) patch.allowedAccountIds = allowedAccountIds;
+  if (input.defaultAccountId !== undefined) patch.defaultAccountId = defaultAccountId;
+  if (input.enabledTools !== undefined) {
+    patch.enabledTools =
+      input.enabledTools === null ? null : checkTools(input.enabledTools, catalog, 'enabledTools');
+  }
+  if (input.limits !== undefined) patch.limits = checkLimits(input.limits, 'limits');
+  const warnings: string[] = [];
+  if (input.defaultCredentialId !== undefined) {
+    const credentialId = input.defaultCredentialId;
+    if (credentialId !== null) await liveCredential(storage, credentialId, 'defaultCredentialId');
+    patch.defaultCredentialId = credentialId;
+    if (credentialId === null && project.defaultCredentialId !== null) {
+      const relying = (await storage.grants.list({ projectId: project.id })).filter(
+        (g) => g.credentialId === null && g.revokedAt === null,
+      ).length;
+      if (relying > 0) {
+        warnings.push(`${relying} grant(s) use the project's default credential and are now refused`);
+      }
+    }
+  }
+  if (input.disabled !== undefined) {
+    patch.disabledAt = input.disabled ? (project.disabledAt ?? now) : null;
+  }
+  const updated =
+    Object.keys(patch).length === 0 ? project : await storage.projects.update(project.id, patch);
+  return Object.freeze({ project: updated, warnings: Object.freeze(warnings) });
 }
 
 export interface CreateGrantInput {

@@ -2,13 +2,14 @@
 import { type Credential, ErrorCode, type Identity, RbError, Secret } from '@relic-bridge/core';
 import { createMemoryStorage, type Storage } from '@relic-bridge/storage';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { createGrant, createProject } from '../src/access/config.ts';
+import { createGrant, createProject, updateProject } from '../src/access/config.ts';
 import {
   createCredential,
   type KeyValidator,
   nerdGraphKeyValidator,
   revalidateCredential,
   revalidateCredentials,
+  rotateCredentialKey,
 } from '../src/access/credentials.ts';
 import { listEffectivePermissions, openCredential, resolveAccess } from '../src/access/load.ts';
 import { generateMasterKey, Keyring } from '../src/crypto/keyring.ts';
@@ -273,6 +274,136 @@ describe('revalidateCredential(s)', () => {
     expect(seen[0]?.url).toContain('eu.newrelic.com');
     expect(seen[0]?.key).toBe(KEY_A);
     expect(seen[0]?.body).toContain('"scope":"IN_REGION"');
+  });
+});
+
+describe('rotateCredentialKey', () => {
+  it('validates the new key, re-encrypts it and refreshes the accounts', async () => {
+    const { cred, grant } = await personalSetup();
+    const result = await rotateCredentialKey(deps(), cred.id, new Secret(KEY_B));
+    expect(result.warnings).toEqual([]);
+    expect(result.credential).toMatchObject({ keyHint: KEY_B.slice(-4), reachableAccountIds: [10, 11] });
+    const stored = await storage.credentials.get(cred.id);
+    if (stored?.key.kind !== 'encrypted') throw new Error('expected encrypted');
+    expect((await keyring.decryptCredentialKey(cred.id, stored.key)).reveal()).toBe(KEY_B);
+    // The grant now reaches none of the project's accounts (1, 2): access follows the key.
+    const decision = await resolveAccess({
+      storage,
+      projectSlug: 'prod',
+      principal: { grantId: grant.id },
+      catalog: CATALOG,
+      now: NOW,
+    });
+    expect(decision.ok).toBe(false);
+  });
+
+  it('changes nothing when New Relic refuses the new key or it is not a User key', async () => {
+    const { cred } = await personalSetup();
+    await expect(
+      rotateCredentialKey(deps(), cred.id, new Secret('NRAK-UNKNOWNKEY0000000000')),
+    ).rejects.toMatchObject({
+      code: ErrorCode.AuthInvalidKey,
+    });
+    await expect(rotateCredentialKey(deps(), cred.id, new Secret('NRII-licensekey'))).rejects.toMatchObject({
+      code: ErrorCode.AuthInvalidKey,
+    });
+    const stored = await storage.credentials.get(cred.id);
+    if (stored?.key.kind !== 'encrypted') throw new Error('expected encrypted');
+    expect((await keyring.decryptCredentialKey(cred.id, stored.key)).reveal()).toBe(KEY_A);
+  });
+
+  it('warns when the key belongs to another New Relic user, refuses unknown or revoked ids', async () => {
+    const { cred } = await personalSetup();
+    const other: KeyValidator = async () => ({
+      user: { id: 8, email: 'b@example.com', name: 'B' },
+      accounts: [],
+    });
+    const result = await rotateCredentialKey({ ...deps(), validate: other }, cred.id, new Secret(KEY_B));
+    expect(result.warnings).toEqual(['nr_user_changed']);
+    await expect(rotateCredentialKey(deps(), 'cred_nope', new Secret(KEY_B))).rejects.toMatchObject({
+      code: 'not_found',
+    });
+    await storage.credentials.update(cred.id, { revokedAt: NOW });
+    await expect(rotateCredentialKey(deps(), cred.id, new Secret(KEY_B))).rejects.toMatchObject({
+      code: 'not_found',
+    });
+  });
+
+  it('loses a concurrent change safely (compare-and-swap)', async () => {
+    const { cred } = await personalSetup();
+    const racing: KeyValidator = async (c) => {
+      // Someone else replaces the key while New Relic is being asked.
+      await storage.credentials.update(cred.id, { key: await keyring.encryptCredentialKey(cred.id, KEY_A) });
+      return validate(c);
+    };
+    await expect(
+      rotateCredentialKey({ ...deps(), validate: racing }, cred.id, new Secret(KEY_B)),
+    ).rejects.toMatchObject({
+      code: 'conflict',
+    });
+  });
+});
+
+describe('updateProject', () => {
+  it('applies the same rules as createProject to the merged result', async () => {
+    const { proj } = await personalSetup();
+    await expect(
+      updateProject(storage, proj.id, { defaultAccountId: 3 }, CATALOG, NOW),
+    ).rejects.toMatchObject({
+      field: 'defaultAccountId',
+    });
+    await expect(
+      updateProject(storage, proj.id, { allowedAccountIds: [2] }, CATALOG, NOW),
+    ).rejects.toMatchObject({
+      field: 'defaultAccountId',
+    });
+    await expect(
+      updateProject(storage, proj.id, { enabledTools: ['nope'] }, CATALOG, NOW),
+    ).rejects.toMatchObject({
+      field: 'enabledTools',
+    });
+    await expect(updateProject(storage, proj.id, { slug: 'Bad Slug' }, CATALOG, NOW)).rejects.toMatchObject({
+      field: 'slug',
+    });
+    await expect(
+      updateProject(storage, proj.id, { limits: { maxLimit: -1 } }, CATALOG, NOW),
+    ).rejects.toMatchObject({
+      field: 'limits',
+    });
+    await expect(
+      updateProject(storage, proj.id, { defaultCredentialId: 'cred_nope' }, CATALOG, NOW),
+    ).rejects.toMatchObject({
+      code: 'not_found',
+    });
+    await expect(updateProject(storage, 'prj_nope', {}, CATALOG, NOW)).rejects.toMatchObject({
+      code: 'not_found',
+    });
+    const { project } = await updateProject(
+      storage,
+      proj.id,
+      { allowedAccountIds: [2, 3], defaultAccountId: 3, name: 'Prod', enabledTools: ['whoami'] },
+      CATALOG,
+      NOW,
+    );
+    expect(project).toMatchObject({
+      allowedAccountIds: [2, 3],
+      defaultAccountId: 3,
+      name: 'Prod',
+      enabledTools: ['whoami'],
+    });
+  });
+
+  it('disables and enables, and warns when grants lose the default credential', async () => {
+    const { proj } = await personalSetup();
+    const off = await updateProject(storage, proj.id, { disabled: true }, CATALOG, NOW);
+    expect(off.project.disabledAt).toBe(NOW);
+    const again = await updateProject(storage, proj.id, { disabled: true }, CATALOG, NOW + 5);
+    expect(again.project.disabledAt).toBe(NOW);
+    expect(
+      (await updateProject(storage, proj.id, { disabled: false }, CATALOG, NOW)).project.disabledAt,
+    ).toBeNull();
+    const cleared = await updateProject(storage, proj.id, { defaultCredentialId: null }, CATALOG, NOW);
+    expect(cleared.warnings).toEqual([expect.stringContaining('1 grant(s)')]);
   });
 });
 

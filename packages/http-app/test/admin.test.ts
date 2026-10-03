@@ -1068,7 +1068,7 @@ describe('master-key rotation (P3-11)', () => {
     });
   });
 
-  it('a wrong previous key answers 503 key_mismatch before touching any row', async () => {
+  it('a wrong previous or current key answers 503 key_mismatch before touching any row', async () => {
     // Register the v1 key check (what the server's boot check does).
     expect((await admin(makeApp(), '/keys/rotate', { method: 'POST', body: {} })).status).toBe(200);
     const app = makeApp({ keyring: await Keyring.create({ current: K2, previous: generateMasterKey(1) }) });
@@ -1076,6 +1076,11 @@ describe('master-key rotation (P3-11)', () => {
     expect(res.status).toBe(503);
     expect(res.json?.['error']).toMatchObject({ code: 'unavailable', detail: 'key_mismatch' });
     expect(res.headers.get('retry-after')).toBe('5');
+    // A wrong current key under an existing version number fails the same way.
+    const wrongCurrent = makeApp({ keyring: await Keyring.create({ current: generateMasterKey(1) }) });
+    const res2 = await admin(wrongCurrent, '/keys/rotate', { method: 'POST', body: {} });
+    expect(res2.status).toBe(503);
+    expect(res2.json?.['error']).toMatchObject({ code: 'unavailable', detail: 'key_mismatch' });
     expect(await versions()).toEqual([1, 1, 1, 1, 1]);
     const row = (await auditRows()).find((r) => r.action === 'keys.rotate' && r.status === 'error');
     expect(row).toMatchObject({ errorCode: 'unavailable', targetType: 'master_key' });

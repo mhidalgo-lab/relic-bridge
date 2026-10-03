@@ -2,7 +2,7 @@
 id: P3-11
 title: Master-key rotation for a D1 database
 phase: 3
-status: in-progress
+status: review
 priority: medium
 depends_on: [P3-02, P3-05]
 adr: [0007]
@@ -45,16 +45,16 @@ for the audit purge only.
   interim `credential rotate` procedure), CLI reference, generated admin API reference, THREAT_MODEL.
 
 ## Acceptance criteria
-- [ ] A rotation on D1 (Workers runtime test, local D1) leaves every row readable after each batch, resumes after an
+- [x] A rotation on D1 (Workers runtime test, local D1) leaves every row readable after each batch, resumes after an
       interruption (a later call or a fresh run from the start finishes the job), and a second run changes nothing.
-- [ ] Tests: wrong current key or wrong previous key → `503 unavailable` with the crypto code and no row changed;
+- [x] Tests: wrong current key or wrong previous key → `503 unavailable` with the crypto code and no row changed;
       retired key (SR-1) refused; concurrent credential change → reported `conflict`, never overwritten; missing
       previous key → rows reported `key_version_unknown`, not dropped.
-- [ ] Authorization: no / wrong / MCP token → 401 and no change (P2-12 matrix entry; guard test passes).
-- [ ] Every call writes an `admin` / `keys.rotate` audit row; neither the answer nor the audit row contains key
+- [x] Authorization: no / wrong / MCP token → 401 and no change (P2-12 matrix entry; guard test passes).
+- [x] Every call writes an `admin` / `keys.rotate` audit row; neither the answer nor the audit row contains key
       material (ciphertext, IVs, master or New Relic keys).
-- [ ] CLI `keys rotate --remote` loops to completion, handles `429`, reports failures, exit codes 0 / 1 / 2; tests.
-- [ ] Runbook documented for Workers and for `serve` (`--remote` works against both).
+- [x] CLI `keys rotate --remote` loops to completion, handles `429`, reports failures, exit codes 0 / 1 / 2; tests.
+- [x] Runbook documented for Workers and for `serve` (`--remote` works against both).
 
 ## Security notes
 T7, T8. The operation must never return key material and must be admin-only. A rotation only re-encrypts what is

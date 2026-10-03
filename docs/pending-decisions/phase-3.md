@@ -219,3 +219,18 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Options:** ship the Worker guide only after a validation run; make P3-11 a Phase 3 release blocker.
 - **Needs (owner):** deploy to a clean account following `cloudflare-deploy.md`, fix whatever differs, tick the first
   acceptance criterion, then release v0.3.0; decide whether P3-11 blocks it.
+
+### P3-11 — master-key rotation on D1 through the admin API, not the cron trigger
+- **Context:** `keys rotate` needs the database and both keys; a Worker's D1 is only reachable from inside the Worker.
+  The task offered an admin endpoint driven by the CLI, or background rotation by the hourly cron.
+- **Assumption made:** `POST /api/admin/v1/keys/rotate` re-encrypts one batch per call (default 25 rows, max 100: about
+  30 D1 queries, under the Free plan's 50 per invocation), with a credential-id cursor; `relic-bridge keys rotate --remote`
+  loops to completion and exits 0 only when nothing is pending. Chosen over the cron because the operator needs a
+  definite "done, remove the previous key" and the list of rows that failed; a cron run reports to no one. The endpoint
+  also works against `serve`. The runbook sets both secrets with one `wrangler secret bulk` (two `secret put` calls
+  would deploy an intermediate version that fails its boot check or can't read old rows) and reruns the rotation after
+  the rollout before removing the previous key (old isolates could still write under v1).
+- **Options:** additionally let the cron finish a started rotation when `RB_MASTER_KEY_PREVIOUS` is set (no CLI needed,
+  but silent); a `--wait` that polls until old isolates drained.
+- **Needs (owner):** confirm on a real account that `wrangler secret bulk` with both keys deploys a single version
+  (the runbook depends on it; not exercised in this run), then follow `cloudflare-deploy.md#rotate-the-master-key` once.

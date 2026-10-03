@@ -167,13 +167,49 @@ Restoring an export into a new empty D1 database (`wrangler d1 execute <name> --
 it is expected to work but has not been exercised by the maintainers; prefer Time Travel for point-in-time recovery.
 Worker secrets are not part of any export: set `RB_MASTER_KEY` (the same value) on the new Worker.
 
-**Rotating the master key on Workers.** Generate the next version (`relic-bridge keys generate --key-version 2`), set
-`RB_MASTER_KEY` to it and keep the old one as `RB_MASTER_KEY_PREVIOUS` (`wrangler secret put`), so the Worker can read
-both. New credentials use the new key at once. The bulk re-encryption command (`relic-bridge keys rotate`) works on a
-local SQLite file only; for D1 it is tracked as task P3-11. Until then, move each stored key over with
-`relic-bridge credential rotate <id>` (re-enter the same New Relic key: it is re-encrypted under the
-current master key), and drop `RB_MASTER_KEY_PREVIOUS` only after every credential has been rotated and old exports are
-destroyed. Background: [secrets](secrets.md#rotate-the-key).
+## Rotate the master key
+
+The Worker holds both keys during a rotation and re-encrypts the stored New Relic keys itself; the CLI only drives it
+through the Admin API (`POST /api/admin/v1/keys/rotate`, admin token required), one bounded batch per call. Run the
+`wrangler` commands from `apps/worker` (or through `pnpm --filter @relic-bridge/worker exec`).
+
+1. Generate the next version, one above the current, and keep it in your password manager:
+   ```sh
+   relic-bridge keys generate --key-version 2
+   ```
+2. Give the Worker both keys **in one request**, so no deployed version ever has only one of them: the current (v1) key
+   becomes `RB_MASTER_KEY_PREVIOUS` and the new (v2) key becomes `RB_MASTER_KEY`. `wrangler secret bulk` reads a JSON
+   object from stdin and deploys one new version
+   ([secret bulk](https://developers.cloudflare.com/workers/wrangler/commands/workers/#secret-bulk), checked
+   2026-10-03). Keep the JSON out of shell history and off disk, for example:
+   ```sh
+   read -rs OLD_KEY; read -rs NEW_KEY   # paste v1, then v2 (not echoed)
+   printf '{"RB_MASTER_KEY_PREVIOUS":"%s","RB_MASTER_KEY":"%s"}' "$OLD_KEY" "$NEW_KEY" | wrangler secret bulk
+   unset OLD_KEY NEW_KEY
+   ```
+   Two separate `wrangler secret put` calls would deploy a version in between that either refuses to boot
+   (`RB_MASTER_KEY_PREVIOUS` equal to `RB_MASTER_KEY`) or cannot read the v1 rows.
+   Check that `curl -s "$RB_REMOTE/health"` answers `200` (a wrong or swapped key answers `503`; the Worker log names
+   the reason, `key_mismatch` or `key_version_retired`, never the key). New credentials now use v2.
+3. Re-encrypt every stored key under v2:
+   ```sh
+   RB_ADMIN_TOKEN=… relic-bridge keys rotate --remote "$RB_REMOTE"
+   ```
+   It loops until every row was visited (25 rows per call by default: about 30 D1 queries, under the Free plan's 50
+   per invocation; `--batch-size` up to 100 on Paid), waits and retries when rate limited, and exits `0` when every
+   credential is on v2. It is safe to interrupt and run again. Rows it could not rotate are listed with a reason; see
+   [secrets](secrets.md#rotate-the-key).
+4. Wait a minute so no isolate still runs the configuration from before step 2, and run step 3 once more: it must
+   report `0 re-encrypted ... 0 not on version 2`.
+5. Remove the previous key, and confirm the Worker still serves (an MCP call that reaches New Relic, or
+   `relic-bridge credential list --remote "$RB_REMOTE"`):
+   ```sh
+   wrangler secret delete RB_MASTER_KEY_PREVIOUS
+   ```
+6. Destroy the old key and any `wrangler d1 export` taken before the rotation if the old key may have leaked (those
+   files are encrypted with it). D1 Time Travel can restore a pre-rotation state; that state needs the old key again.
+
+Background: [secrets](secrets.md#rotate-the-key).
 
 ## Check a deployed Worker (staging smoke)
 

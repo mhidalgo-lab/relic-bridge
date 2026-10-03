@@ -56,5 +56,13 @@ T4, T5 — this is a core security control; requires review by a second person/a
   - LIMIT injected after OFFSET → now before OFFSET;
   - negative numbers rendering as `--` → parenthesised;
   - regex lint bypasses (quotes, join, `+=`, `${}` first, look-alike tags) → stricter rule plus the typed-only `runNrql`.
-- **Open (needs a live key):** confirm NRQL honours `\'` and `\\` in string literals, and whether it supports comments.
-  Recorded in RESEARCH §2. Until confirmed, the escaping rule is the documented one and comments stay rejected.
+- **Live verification (2026-10-03):** `spikes/nerdgraph/nrql-safety.ts` ran 31 decisive probes; results are in
+  RESEARCH §2. The escaping rule is **confirmed** (`\'` and `\\` are escapes, and the injection probe stayed one
+  literal). Changes made from the measurements:
+  - comments are parsed exactly like NRQL (incl. `x--1`), so they're allowed again and stripped before sending;
+  - the injected LIMIT is **10** (NRQL's real default), not 100;
+  - epoch seconds are accepted in unambiguous ranges;
+  - `WITH TIMEZONE` widens quoted dates by 14 h;
+  - a month is 30 days;
+  - allow lists match case-sensitively (as NRQL does), deny lists stay loose;
+  - double-quoted strings are rejected like NRQL does.

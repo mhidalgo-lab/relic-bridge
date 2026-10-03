@@ -19,8 +19,8 @@ const HOUR = 60 * MINUTE;
 const DAY = 24 * HOUR;
 /** NRQL's default window when there is no SINCE. */
 const DEFAULT_WINDOW_MS = HOUR;
-/** NRQL's default row count for raw (non-aggregate) queries. Injected explicitly, capped by the project limit. */
-const DEFAULT_RAW_LIMIT = 100;
+/** NRQL's default row count for raw (non-aggregate) queries (measured: 10). Injected explicitly, capped by the limit. */
+const DEFAULT_RAW_LIMIT = 10;
 
 const UNITS: Readonly<Record<string, number>> = {
   SECOND: 1000,
@@ -28,7 +28,7 @@ const UNITS: Readonly<Record<string, number>> = {
   HOUR,
   DAY,
   WEEK: 7 * DAY,
-  MONTH: 31 * DAY,
+  MONTH: 30 * DAY, // measured: SINCE 1 month ago = 720 h
   YEAR: 366 * DAY,
 };
 
@@ -85,8 +85,17 @@ interface TimePoint {
 }
 
 const PLAIN_NUMBER_RE = /^\d+(\.\d+)?$/;
-/** 1973-03-03: anything smaller is not read as epoch milliseconds. */
-const MIN_EPOCH_MS = 1e11;
+/**
+ * NRQL reads bare epochs as seconds or milliseconds (both measured). Only unambiguous ranges are accepted:
+ * seconds in [1e9, 1e10) and milliseconds in [1e12, 1e13), i.e. 2001–2286 either way.
+ */
+function epochMs(n: number): number | undefined {
+  if (n >= 1e9 && n < 1e10) return n * 1000;
+  if (n >= 1e12 && n < 1e13) return n;
+  return undefined;
+}
+/** `WITH TIMEZONE` moves quoted dates by up to this much (UTC−12 … UTC+14). */
+const TIMEZONE_SLACK_MS = 14 * HOUR;
 /** Words that may follow an event type in a FROM list. */
 const AFTER_FROM_ITEM = new Set([...CLAUSES, 'AS', 'ON', 'INNER', 'LEFT']);
 
@@ -99,6 +108,7 @@ function parseTime(
   i: number,
   now: number,
   role: 'since' | 'until' | 'compare',
+  withTimezone: boolean,
 ): TimePoint {
   const a = tokens[i];
   const b = tokens[i + 1];
@@ -113,17 +123,19 @@ function parseTime(
       return { agoMs: n * unit };
     }
     if (role === 'compare') throw limitError('COMPARE WITH needs a relative time.', UNSUPPORTED_TIME);
-    // Epoch milliseconds only: whether NRQL reads smaller numbers as seconds is unverified, so they are rejected.
-    if (n < MIN_EPOCH_MS) {
-      throw limitError(`${a.text} is not an epoch timestamp in milliseconds.`, UNSUPPORTED_TIME);
+    const ms = epochMs(n);
+    if (ms === undefined) {
+      throw limitError(`${a.text} is not an epoch timestamp in seconds or milliseconds.`, UNSUPPORTED_TIME);
     }
-    return { agoMs: Math.max(0, now - n) };
+    return { agoMs: Math.max(0, now - ms) };
   }
   if (a?.kind === 'string' && role !== 'compare') {
     const iso = /[zZ]|[+-]\d\d:?\d\d$/.test(a.value) ? a.value : `${a.value.replace(' ', 'T')}Z`;
     const ms = Date.parse(iso);
     if (Number.isNaN(ms)) throw limitError(`Could not read the date ${a.text}.`, UNSUPPORTED_TIME);
-    return { agoMs: Math.max(0, now - ms) };
+    // Zone-less dates are UTC (measured), unless WITH TIMEZONE shifts them: then widen the window conservatively.
+    const slack = withTimezone ? (role === 'since' ? TIMEZONE_SLACK_MS : -TIMEZONE_SLACK_MS) : 0;
+    return { agoMs: Math.max(0, now - ms + slack) };
   }
   if (isWord(a, 'NOW') && role === 'until') return { agoMs: 0 };
   if (a?.kind === 'word' && role !== 'compare') {
@@ -150,7 +162,7 @@ function findFromLists(tokens: readonly Token[]): { eventTypes: string[]; unreso
         unresolved = true; // e.g. lookup(...) or something we don't understand
         return;
       }
-      eventTypes.push(item.kind === 'ident' ? item.value.trim() : item.text);
+      eventTypes.push(item.kind === 'ident' ? item.value : item.text);
       const after = tokens[j + 1];
       if (after?.text === ',') {
         j += 2;
@@ -168,8 +180,10 @@ function findFromLists(tokens: readonly Token[]): { eventTypes: string[]; unreso
 
 function checkEventTypes(tokens: readonly Token[], limits: QueryLimits): string[] {
   const { eventTypes, unresolved } = findFromLists(tokens);
-  const allow = limits.eventTypes.allow?.map((e) => e.toLowerCase());
-  const deny = limits.eventTypes.deny?.map((e) => e.toLowerCase());
+  // Event types are case-sensitive (measured). Allow lists match exactly; deny lists ignore case and surrounding
+  // spaces, so near-miss spellings are blocked too (conservative both ways).
+  const allow = limits.eventTypes.allow;
+  const deny = limits.eventTypes.deny?.map((e) => e.trim().toLowerCase());
   if (!allow && !deny) return eventTypes;
   if (unresolved) {
     throw limitError(
@@ -185,8 +199,7 @@ function checkEventTypes(tokens: readonly Token[], limits: QueryLimits): string[
     );
   }
   for (const type of eventTypes) {
-    const lower = type.toLowerCase();
-    if (deny?.includes(lower) || (allow && !allow.includes(lower))) {
+    if (deny?.includes(type.trim().toLowerCase()) || (allow && !allow.includes(type))) {
       throw limitError(
         `Event type ${type} is not allowed on this connection.`,
         'Query a different event type.',
@@ -213,18 +226,19 @@ function checkWindow(tokens: readonly Token[], limits: QueryLimits, now: number)
     }
     seen.add(clause);
   };
+  const tz = tokens.some((t, i) => t.depth === 0 && isWord(t, 'WITH') && isWord(tokens[i + 1], 'TIMEZONE'));
   tokens.forEach((t, i) => {
     if (t.kind !== 'word') return;
     if (t.depth === 0 && (t.value === 'SINCE' || t.value === 'UNTIL')) once(t.value);
     if (t.depth === 0 && t.value === 'COMPARE') once('COMPARE WITH');
     if (t.value === 'SINCE') {
-      const agoMs = parseTime(tokens, i + 1, now, 'since').agoMs;
+      const agoMs = parseTime(tokens, i + 1, now, 'since', tz).agoMs;
       if (t.depth === 0) since = Math.max(since ?? 0, agoMs);
       else widest = Math.max(widest, agoMs);
     } else if (t.value === 'UNTIL' && t.depth === 0) {
-      until = parseTime(tokens, i + 1, now, 'until').agoMs;
+      until = parseTime(tokens, i + 1, now, 'until', tz).agoMs;
     } else if (t.value === 'COMPARE' && isWord(tokens[i + 1], 'WITH') && t.depth === 0) {
-      compare = parseTime(tokens, i + 2, now, 'compare').agoMs;
+      compare = parseTime(tokens, i + 2, now, 'compare', tz).agoMs;
     }
   });
   const top = Math.max(0, (since ?? DEFAULT_WINDOW_MS) - until) + compare;
@@ -270,7 +284,7 @@ function checkLimit(tokens: readonly Token[], limits: QueryLimits, source: strin
     const v = tokens[i + 1];
     const after = tokens[i + 2];
     if (after && after.text !== ')' && !(after.kind === 'word' && CLAUSES.has(after.value))) {
-      throw limitError('LIMIT must be followed by a number or MAX.', 'e.g. LIMIT 100.');
+      throw limitError('LIMIT must be followed by a number or MAX.', 'e.g. LIMIT 10.');
     }
     if (v?.kind === 'number' && /^\d+$/.test(v.text)) {
       const n = Number(v.text);
@@ -282,7 +296,7 @@ function checkLimit(tokens: readonly Token[], limits: QueryLimits, source: strin
       edits.push({ start: v.start, end: v.end, text: String(limits.maxLimit) });
       notes.push(`LIMIT MAX replaced with ${limits.maxLimit} (connection limit).`);
     } else {
-      throw limitError('LIMIT must be followed by a whole number or MAX.', 'e.g. LIMIT 100.');
+      throw limitError('LIMIT must be followed by a whole number or MAX.', 'e.g. LIMIT 10.');
     }
   });
   if (topLevel > 0) return edits;
@@ -303,23 +317,27 @@ function checkLimit(tokens: readonly Token[], limits: QueryLimits, source: strin
  * returns the (possibly rewritten) NRQL. Best effort by design: see docs/guide/query-limits.md for known gaps.
  */
 export function enforceQueryLimits(source: string, limits: QueryLimits, now: number): CheckedNrql {
-  const tokens = tokenize(source);
+  const all = tokenize(source);
+  // NRQL supports `--`, `//` and `/* */` comments exactly as the tokenizer reads them (measured, incl. `x--1`). They are
+  // checked out and removed from what is sent, so New Relic receives precisely the text that was checked.
+  const comments = all.filter((t) => t.kind === 'comment');
+  const tokens = all.filter((t) => t.kind !== 'comment');
   if (tokens.length === 0) throw new RbError(ErrorCode.InputInvalid, 'The NRQL query is empty.');
-  // Fail closed: whether NRQL supports these comment forms is unverified, and a comment we skip but NRQL reads (or the
-  // reverse, e.g. `x--1`) could hide a clause from the checks below.
-  if (tokens.some((t) => t.kind === 'comment')) {
-    throw limitError(
-      'Comments are not allowed in NRQL sent through relic-bridge.',
-      'Remove --, // and /* */.',
-    );
+  if (tokens.some((t) => t.kind === 'string' && t.text.startsWith('"'))) {
+    throw new RbError(ErrorCode.InputInvalid, 'NRQL strings use single quotes.', {
+      hint: "Replace \"…\" with '…' (escape a quote inside as \\').",
+    });
   }
   const notes: string[] = [];
   const eventTypes = checkEventTypes(tokens, limits);
   const windowMs = checkWindow(tokens, limits, now);
   const edits = checkLimit(tokens, limits, source, notes);
+  for (const c of comments) edits.push({ start: c.start, end: c.end, text: ' ' });
+  if (comments.length > 0) notes.push('Comments removed before sending.');
   let nrql = source;
   for (const e of edits.sort((x, y) => y.start - x.start))
     nrql = nrql.slice(0, e.start) + e.text + nrql.slice(e.end);
+  if (comments.length > 0) nrql = nrql.trim();
   return { nrql, notes, eventTypes, windowMs };
 }
 

@@ -58,3 +58,24 @@ The sanitizer is a safety net, **not** a guarantee. Open every file in `results/
 - [ ] `results/raw/` is still untracked (`git status`).
 
 Then fill in [`RESULTS.md`](RESULTS.md) (measurements) and copy the vetted fixtures (P1-12 decides the final layout).
+
+## 4. NRQL parsing probe (P1-04 follow-up)
+
+`nrql-safety.ts` asks NRQL itself how it parses the cases relic-bridge's escaping and query limits depend on:
+- string escapes (`\'`, `\\`, `''`, double quotes, raw newlines), plus the relic-bridge escaping round trip;
+- comments (`//`, `--`, `/* */`, and whether `count(*)--1` is a comment or arithmetic);
+- time forms (epoch seconds vs milliseconds, duplicate SINCE/UNTIL, quoted dates and time zones, `1e3`, calendar spans);
+- LIMIT edge cases;
+- event-type name case and spacing.
+
+Every query is read-only and runs over a fixed past window on one event type that has data, chosen automatically. Use
+`NR_EVENT_TYPE` to pick a different one.
+
+```sh
+node nrql-safety.ts --dry-run   # print the 31 queries
+node nrql-safety.ts             # same NR_KEY_A / NR_REGION_A / NR_ACCOUNT_A as above, ~40 requests
+```
+
+Results:
+- `results/nrql-safety-summary.json`: verdicts only, no account ids or event data. This is the file to review.
+- `results/raw/nrql-safety.json`: full responses (gitignored).

@@ -136,7 +136,7 @@ Rejected values throw `RB_INPUT_INVALID`. There is no raw-string escape hatch. `
 
 `runNrql` accepts **only** an `NrqlQuery`. Arbitrary NRQL from the agent goes through `runRawNrql`, which is for
 `run_nrql` only and fails with `RB_TOOL_DISABLED` when the connection turns raw NRQL off. Both paths run
-`enforceQueryLimits` (`src/nrql/limits.ts`): LIMIT, time window, event types and no comments. Behaviour and known gaps
+`enforceQueryLimits` (`src/nrql/limits.ts`): LIMIT, time window and event types; comments are removed before sending. Behaviour and known gaps
 are in `docs/guide/query-limits.md`.
 
 ## Running NRQL

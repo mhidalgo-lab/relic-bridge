@@ -69,13 +69,14 @@ describe('tokenize', () => {
 describe('LIMIT', () => {
   it('injects a LIMIT into raw event queries without one', () => {
     const out = check('SELECT * FROM Log SINCE 1 hour ago');
-    expect(out.nrql).toBe('SELECT * FROM Log SINCE 1 hour ago LIMIT 100');
-    expect(out.notes).toEqual(['LIMIT 100 added (raw event query without LIMIT).']);
-    expect(check('SELECT message FROM Log', { maxLimit: 20 }).nrql).toMatch(/LIMIT 20$/);
+    // NRQL's own default is 10 rows (P1-04 probe), so the injected LIMIT never returns more than NRQL would.
+    expect(out.nrql).toBe('SELECT * FROM Log SINCE 1 hour ago LIMIT 10');
+    expect(out.notes).toEqual(['LIMIT 10 added (raw event query without LIMIT).']);
+    expect(check('SELECT message FROM Log', { maxLimit: 5 }).nrql).toMatch(/LIMIT 5$/);
   });
 
   it('injects before OFFSET', () => {
-    expect(check('SELECT * FROM Log OFFSET 3').nrql).toBe('SELECT * FROM Log LIMIT 100 OFFSET 3');
+    expect(check('SELECT * FROM Log OFFSET 3').nrql).toBe('SELECT * FROM Log LIMIT 10 OFFSET 3');
   });
 
   it('ignores LIMIT inside strings', () => {
@@ -133,6 +134,7 @@ describe('time window', () => {
     ['calendar', 'SELECT count(*) FROM T SINCE yesterday UNTIL today'],
     ['this week', 'SELECT count(*) FROM T SINCE this week'],
     ['epoch ms', `SELECT count(*) FROM T SINCE ${NOW - 2 * DAY}`],
+    ['epoch s', `SELECT count(*) FROM T SINCE ${(NOW - 2 * DAY) / 1000}`],
     ['quoted date', "SELECT count(*) FROM T SINCE '2026-10-01 00:00:00' UNTIL '2026-10-03'"],
     ['ISO with zone', "SELECT count(*) FROM T SINCE '2026-10-01T00:00:00+02:00'"],
     ['UNTIL NOW', 'SELECT count(*) FROM T SINCE 2 hours ago UNTIL NOW'],
@@ -170,8 +172,8 @@ describe('time window', () => {
     ['duplicate UNTIL', 'SELECT count(*) FROM T SINCE 1 day ago UNTIL 0 minutes ago UNTIL 6 days ago'],
     ['duplicate SINCE', 'SELECT count(*) FROM T SINCE 1 day ago SINCE 30 days ago'],
     ['duplicate COMPARE', 'SELECT count(*) FROM T COMPARE WITH 1 day ago COMPARE WITH 1 hour ago'],
-    ['epoch seconds (ambiguous)', `SELECT count(*) FROM T SINCE ${(NOW - 2 * DAY) / 1000}`],
-    ['tiny epochs', 'SELECT count(*) FROM T SINCE 10000000000 UNTIL 20000000000'],
+    ['ambiguous epochs', 'SELECT count(*) FROM T SINCE 10000000000 UNTIL 20000000000'],
+    ['tiny epochs', 'SELECT count(*) FROM T SINCE 1000'],
     ['exponent', 'SELECT count(*) FROM T SINCE 1e3 days ago'],
   ])('rejects %s', (_name, q) => {
     expect(rejection(q).code).toBe(ErrorCode.LimitQuery);
@@ -238,18 +240,59 @@ describe('event types', () => {
   });
 });
 
-describe('comments (fail closed)', () => {
-  it.each([
-    'SELECT count(*) FROM Log // SINCE 400 days ago',
-    'SELECT average(x)--1 FROM Log SINCE 400 days ago',
-    'SELECT * FROM Log /* LIMIT 5 */',
-    'SELECT * FROM Log -- trailing',
-  ])('rejects %s', (q) => {
-    expect(rejection(q).code).toBe(ErrorCode.LimitQuery);
+describe('comments', () => {
+  // NRQL reads --, // and /* */ as comments, exactly like the tokenizer (P1-04 probe, incl. `count(*)--1`).
+  it('checks the query without comments and sends it without them', () => {
+    const out = check('SELECT count(*) FROM Log // SINCE 400 days ago');
+    expect(out.nrql).toBe('SELECT count(*) FROM Log');
+    expect(out.windowMs).toBe(3_600_000);
+    expect(out.notes).toEqual(['Comments removed before sending.']);
+    expect(check('SELECT /* x */ count(*) FROM Log -- y').nrql).toBe('SELECT   count(*) FROM Log');
   });
 
-  it('allows comment markers inside strings', () => {
-    expect(() => check("SELECT count(*) FROM Log WHERE m = '-- // /* */'")).not.toThrow();
+  it('sees event types and LIMITs split around comments', () => {
+    expect(rejection('SELECT count(*) FROM T -- x\n, Log', { eventTypes: { deny: ['Log'] } }).code).toBe(
+      ErrorCode.LimitQuery,
+    );
+    expect(check('SELECT * FROM Log /* LIMIT 5 */').nrql).toBe('SELECT * FROM Log   LIMIT 10');
+  });
+
+  it('treats x--1 as a comment, like NRQL', () => {
+    const out = check('SELECT average(x)--1 FROM Log SINCE 400 days ago');
+    expect(out.nrql).toBe('SELECT average(x)');
+    expect(out.eventTypes).toEqual([]);
+  });
+
+  it('keeps comment markers inside strings', () => {
+    const q = "SELECT count(*) FROM Log WHERE m = '-- // /* */'";
+    expect(check(q).nrql).toBe(q);
+  });
+});
+
+describe('NRQL syntax mirrored from the probe', () => {
+  it('rejects double-quoted strings like NRQL does', () => {
+    expect(rejection('SELECT count(*) FROM Log WHERE a = "x"').code).toBe(ErrorCode.InputInvalid);
+  });
+
+  it('widens quoted-date windows by 14 h under WITH TIMEZONE', () => {
+    const date = new Date(NOW - 6.5 * DAY).toISOString().slice(0, 19).replace('T', ' ');
+    expect(() => check(`SELECT count(*) FROM T SINCE '${date}'`)).not.toThrow();
+    expect(rejection(`SELECT count(*) FROM T SINCE '${date}' WITH TIMEZONE 'Asia/Tokyo'`).code).toBe(
+      ErrorCode.LimitQuery,
+    );
+  });
+
+  it('counts a month as 30 days', () => {
+    expect(check('SELECT count(*) FROM T SINCE 1 month ago', { maxWindowDays: 30 }).windowMs).toBe(30 * DAY);
+  });
+
+  it('matches allow lists exactly (event types are case-sensitive) and deny lists loosely', () => {
+    const allow = { eventTypes: { allow: ['Transaction'] } };
+    expect(rejection('SELECT count(*) FROM transaction', allow).code).toBe(ErrorCode.LimitQuery);
+    expect(rejection('SELECT count(*) FROM `Transaction `', allow).code).toBe(ErrorCode.LimitQuery);
+    expect(rejection('SELECT count(*) FROM `log `', { eventTypes: { deny: ['Log'] } }).code).toBe(
+      ErrorCode.LimitQuery,
+    );
   });
 });
 
@@ -305,7 +348,7 @@ describe('runNrql applies limits', () => {
   it('sends the adjusted NRQL and reports the notes', async () => {
     const { ctx, calls, deps } = setup();
     const out = await runNrql(ctx, { nrql: nrql`SELECT * FROM Log WHERE level = ${'error'}` }, deps);
-    expect(calls[0]?.body.variables['nrql']).toBe("SELECT * FROM Log WHERE level = 'error' LIMIT 100");
-    expect(out.notes).toEqual(['LIMIT 100 added (raw event query without LIMIT).']);
+    expect(calls[0]?.body.variables['nrql']).toBe("SELECT * FROM Log WHERE level = 'error' LIMIT 10");
+    expect(out.notes).toEqual(['LIMIT 10 added (raw event query without LIMIT).']);
   });
 });

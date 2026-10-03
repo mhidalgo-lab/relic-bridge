@@ -215,3 +215,28 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   6. Smoke test on macOS, Windows and Linux: `npx -y relic-bridge --version`, then the quickstart with a real key.
   7. After it is live: remove the pre-release notes in `docs/guide/quickstart-local.md`, `docs/guide/clients.md`
      and the root `README.md` Install section, tick the last P1-15 criterion and mark it `done`.
+
+## Phase 1 consolidation review
+
+### P1-review — Broader secret redaction in telemetry rows
+- **Context:** The review widened `redact()` (any `Authorization` scheme, `DB_PASSWORD=`, `client_secret=`,
+  `*token=` …). It runs on logs, errors **and** telemetry rows shown to the agent, so a log line such as
+  `input_token=42` now shows `input_token=[REDACTED]`.
+- **Assumption made:** over-redaction is the safer default (consistent with the P1-05 "redaction on" assumption).
+- **Options:** keep; narrower patterns for telemetry rows than for our own logs; connection setting (P2).
+- **Needs:** owner's confirmation.
+
+### P1-review — Release must not ship before P1-16
+- **Context:** the publish job gives `id-token: write` to a job that also runs `pnpm install` and the test suite,
+  so a compromised dependency could mint the trusted-publishing token.
+- **Assumption made:** P1-16 (split build/publish jobs) is `priority: high` and should land before step 5 of the
+  P1-15 owner list (`RB_RELEASE_ENABLED=true`).
+- **Options:** do P1-16 first (recommended); publish v0.1.0 now with the environment approval as the only guard.
+- **Needs:** owner's call.
+
+### P1-review — `live` environment branch rule
+- **Context:** `live.yml` is `workflow_dispatch` only; dispatching it from a feature branch runs that branch's test
+  code with `RB_LIVE_API_KEY` unless the `live` environment limits deployment branches.
+- **Assumption made:** none in code; add to the owner set-up list.
+- **Needs:** owner: when creating the `live` environment (P1-12 entry), restrict deployment branches to `main` and
+  require a reviewer.

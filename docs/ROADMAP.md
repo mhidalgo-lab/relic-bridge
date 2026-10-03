@@ -94,6 +94,8 @@ Generated from task front matter (`pnpm tasks index` once P0-05 lands). Status l
 | P1-13 | [Generated tool reference docs](tasks/phase-1-core-stdio/P1-13-tool-reference-generator.md) | medium | P1-06 | review |
 | P1-14 | [Docs — quickstart and client setup guides](tasks/phase-1-core-stdio/P1-14-docs-quickstart.md) | high | P1-11 | review |
 | P1-15 | [Release pipeline and v0.1.0](tasks/phase-1-core-stdio/P1-15-release-v0-1.md) | high | P1-11, P1-12, P1-14 | review |
+| P1-16 | [Isolate the OIDC publish step and make release reruns idempotent](tasks/phase-1-core-stdio/P1-16-release-publish-isolation.md) | high | P1-15 | todo |
+| P1-17 | [CLI warnings and docs accuracy follow-ups from the Phase 1 review](tasks/phase-1-core-stdio/P1-17-cli-docs-polish.md) | low | P1-11, P1-14 | todo |
 
 ### Phase 2
 
@@ -112,6 +114,7 @@ Generated from task front matter (`pnpm tasks index` once P0-05 lands). Status l
 | P2-11 | [Docker image (signed, SBOM)](tasks/phase-2-access-http/P2-11-docker-image.md) | medium | P2-06, P2-02 | todo |
 | P2-12 | [Authorization and isolation test suite](tasks/phase-2-access-http/P2-12-authz-isolation-tests.md) | high | P2-06, P2-09 | todo |
 | P2-13 | [Docs — self-hosting, access model, multi-device setup](tasks/phase-2-access-http/P2-13-docs-self-hosting.md) | high | P2-10, P2-11 | todo |
+| P2-14 | [Core tool consistency and envelope coverage clean-up](tasks/phase-2-access-http/P2-14-core-output-consistency.md) | low | — | todo |
 
 ### Phase 3
 
@@ -200,4 +203,5 @@ Generated from task front matter (`pnpm tasks index` once P0-05 lands). Status l
 | P8-04 | [Documentation site](tasks/phase-8-hardening-launch/P8-04-docs-site.md) | high | P7-04, P7-09 | todo |
 | P8-05 | [Versioning, support and deprecation policy](tasks/phase-8-hardening-launch/P8-05-support-policy.md) | medium | P7-04, P7-09 | todo |
 | P8-06 | [1.0 launch](tasks/phase-8-hardening-launch/P8-06-launch.md) | high | P8-02, P8-03, P8-04, P8-05 | todo |
+| P8-07 | [CI supply-chain hardening follow-ups](tasks/phase-8-hardening-launch/P8-07-ci-supply-chain-hardening.md) | medium | P1-16 | todo |
 <!-- tasks:end -->

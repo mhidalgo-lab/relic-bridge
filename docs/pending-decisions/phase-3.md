@@ -77,3 +77,28 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   `@relic-bridge/auth`. Today a miss costs 5 reads in 3 round trips; a hit costs 0 (tested).
 - **Assumption made:** moved to the new task P3-09 (medium priority).
 - **Needs:** nothing unless the owner wants it before v0.3.
+
+## P3-03 — Workers plan presets
+
+### P3-03 — Free budget is 45 external calls, not 50, and D1 no longer counts
+- **Context:** Cloudflare's current docs (changelog 2026-02-11) say Free allows 50 *external* subrequests and 1,000 to
+  Cloudflare services (D1/KV), so the ADR-0010 assumption "D1 lookups eat the 50" is outdated. Paid defaults to 10,000.
+- **Assumption made:** the budget counts NerdGraph calls only; Free = 45 (5 spare for redirect hops), Paid = 1000
+  (deliberately far below 10,000). Presets: response ceiling 512 KiB / 8 MiB, concurrency 5 / 5. ADR-0010 got an addendum
+  instead of a new ADR since it refines its own provisional table.
+- **Options:** Free = 50 exactly; or Paid = 10,000 to match the platform.
+- **Needs:** owner's call only if they want different numbers (they are one line in `apps/worker/src/settings.ts`).
+
+### P3-03 — no new real-account measurement; CPU benchmark deferred to P3-10
+- **Context:** the task asked to run `spikes/workers-limits/deploy-and-measure.md` on a real Free account. That was done
+  in P0-06 (cold 17-35 ms, no kills up to 61 ms), and this run may not deploy or log in.
+- **Assumption made:** P0-06's production numbers stand as the evidence; the CI CPU benchmark is moved to P3-10 because
+  workerd timers don't advance during CPU work, so the approach needs a decision.
+- **Needs:** optionally re-measure after P3-05 deploys, to confirm cold-start CPU with D1 migrations in the boot path.
+
+### P3-03 — a tool dearer than the budget is hidden, not partially served
+- **Context:** `cost` is a single expected number (run_nrql = 4, get_golden_metrics = 11), not a minimum.
+- **Assumption made:** hide when `cost > RB_CALL_BUDGET`, even though some of those tools can return partial results
+  with less. Never triggers with the presets (45 / 1000).
+- **Options:** add a `minCost` to tool metadata so partial-capable tools stay available at small budgets.
+- **Needs:** only if someone runs with a budget below 11.

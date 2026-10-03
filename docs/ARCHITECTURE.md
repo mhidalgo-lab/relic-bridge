@@ -201,8 +201,9 @@ environment variable (`secrets.ts`); the node-only terminal pieces live in `host
 
 ## 6. Cross-cutting concerns
 
-- **Budget**: per-invocation counter of subrequests (D1/KV/fetch), configured by `RB_PLAN` (`free` = 50, `paid` = 1000)
-  or explicit numbers. Tools declare an expected cost and check `budget.canSpend(n)`.
+- **Budget**: per-invocation counter of NerdGraph calls (external `fetch`; D1/KV have their own larger Workers allowance),
+  configured by `RB_PLAN` (`free` = 45, `paid` = 1000) or `RB_CALL_BUDGET`. Tools declare an expected cost and check
+  `budget.canSpend(n)`; a tool whose cost exceeds the budget is not registered. `RB_MAX_RESPONSE_BYTES` is a platform ceiling over each project's `maxResponseBytes`.
 - **Concurrency**: per-credential semaphore (default 5) inside an invocation and process; ≤ 6 on Workers. Optional
   Durable Object global limiter (Phase 7).
 - **Query limits** (per project, can be tightened per grant):

@@ -65,3 +65,21 @@ Cold first call: 17–35 ms CPU (n=5). **No request was terminated on the Worker
 Workers Logs show `cpuTimeMs` up to 61 ms with `outcome: ok`). Free tolerates overruns in practice but it isn't guaranteed,
 so we don't rely on it. The presets above stand: 512 KiB keeps warm calls at about 5 ms. NerdGraph latency for
 lean queries is ~230–470 ms (P0-09), so wall time is dominated by NerdGraph, not by the Worker.
+
+## Final presets (P3-03, 2026-10-03)
+
+Cloudflare changed subrequest accounting on 2026-02-11: on Free, **external** `fetch` calls are limited to 50 per
+invocation and calls to Cloudflare services (D1, KV, ...) have a separate allowance of 1,000. The budget therefore
+counts NerdGraph calls only, and D1 queries no longer compete with it. Free also has enforced D1 daily row limits since
+2026-09-01.
+
+| Setting | `free` | `paid` |
+|---|---|---|
+| `callBudget` (`RB_CALL_BUDGET`) | 45 (50 minus 5 for redirects) | 1000 (platform default 10,000) |
+| `maxResponseBytes` ceiling (`RB_MAX_RESPONSE_BYTES`) | 512 KiB | 8 MiB |
+| Concurrency (`RB_CONCURRENCY`, 1-6) | 5 | 5 |
+
+Tools whose `cost` exceeds the budget are not registered; `whoami` explains. The response ceiling caps a project's own
+limit. The remaining provisional-table rows (access-token TTL) are ADR-0009's and unchanged. Cold-isolate CPU was measured in
+P0-06 (17-35 ms, no kills on Free), so the open risk above is accepted as documented.
+

@@ -2,7 +2,7 @@
 id: P3-03
 title: Workers plan presets (budget, CPU, connections)
 phase: 3
-status: in-progress
+status: review
 priority: high
 depends_on: [P3-01]
 adr: [0010]
@@ -26,11 +26,11 @@ owner: claude-agent
 - Documented table of what fits on Free.
 
 ## Acceptance criteria
-- [ ] Documented table: which tools/payloads are fine on Free (`docs/guide/cloudflare-limits.md`).
-- [ ] Budget-exhausted path returns partial results, never a 500 (Worker test with a never-finishing and a failing NerdGraph).
-- [ ] Presets and overrides parsed and validated; invalid values fail the boot closed.
-- [ ] Tools above the budget are hidden and explained in `whoami`.
-- [ ] `RESEARCH.md` updated with the 2026 limit changes and sources.
+- [x] Documented table: which tools/payloads are fine on Free (`docs/guide/cloudflare-limits.md`).
+- [x] Budget-exhausted path returns partial results, never a 500 (Worker test with a never-finishing and a failing NerdGraph).
+- [x] Presets and overrides parsed and validated; invalid values fail the boot closed.
+- [x] Tools above the budget are hidden and explained in `whoami`.
+- [x] `RESEARCH.md` updated with the 2026 limit changes and sources.
 
 ## Security notes
 T20.

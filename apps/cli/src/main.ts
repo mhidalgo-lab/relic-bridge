@@ -13,6 +13,10 @@ import { auditPurge } from './audit.ts';
 import { ConfigError, type ConfigFs, type Env, loadConfig } from './config.ts';
 import { credentialRevalidate } from './credentials.ts';
 import { keysGenerate, keysRotate } from './keys.ts';
+import { isManageArgv, parseManageArgs } from './manage/args.ts';
+import { MANAGE_HELP } from './manage/help.ts';
+import type { ManageHost } from './manage/io.ts';
+import { runManage } from './manage/run.ts';
 import { isBootError, type RunningServer, serveSettings, startServer } from './serve.ts';
 import { serveProjectOverStdio } from './stdio.ts';
 import { nerdGraphFetch } from './test-hooks.ts';
@@ -27,6 +31,8 @@ export interface CliRuntime {
   /** Only `help` and `version` write here. In stdio mode stdout is the MCP channel. */
   readonly stdout: (text: string) => void;
   readonly stderr: LogSink;
+  /** Terminal, stdin, fetch and file access for the management commands (P2-10). */
+  readonly manage?: ManageHost;
 }
 
 export type MainResult =
@@ -41,6 +47,7 @@ const exit = (code: number): MainResult => ({ kind: 'exit', code });
 
 /** Run the CLI. Returns an exit code, or a handle when it is serving MCP over stdio. */
 export function main(rt: CliRuntime): MainResult {
+  if (isManageArgv(rt.argv)) return manage(rt);
   let args: ReturnType<typeof parseCliArgs>;
   try {
     args = parseCliArgs(rt.argv);
@@ -224,4 +231,50 @@ export function main(rt: CliRuntime): MainResult {
     }
     throw error;
   }
+}
+
+/** `init`, `credential|project|grant|token|user ...`, `audit tail`, `admin-token generate` (P2-10). */
+function manage(rt: CliRuntime): MainResult {
+  let args: ReturnType<typeof parseManageArgs>;
+  try {
+    args = parseManageArgs(rt.argv);
+  } catch (error) {
+    if (error instanceof UsageError) {
+      rt.stderr(`relic-bridge: ${error.message}\n\nTry: relic-bridge init --help`);
+      return exit(2);
+    }
+    throw error;
+  }
+  if (args.help) {
+    rt.stdout(MANAGE_HELP);
+    return exit(0);
+  }
+  if (rt.manage === undefined) {
+    rt.stderr('relic-bridge: management commands are not available in this runtime.');
+    return exit(1);
+  }
+  const envLevel = rt.env['RB_LOG_LEVEL']?.trim().toLowerCase();
+  const given = args.values['log-level'];
+  if (given !== undefined && !isLogLevel(given)) {
+    rt.stderr('relic-bridge: --log-level must be debug, info, warn or error.');
+    return exit(2);
+  }
+  const level: LogLevel = given ?? (envLevel && isLogLevel(envLevel) ? envLevel : 'warn');
+  const logger = createLogger({ level, sink: rt.stderr, fields: { app: 'relic-bridge' } });
+  return {
+    kind: 'pending',
+    done: runManage(
+      {
+        host: rt.manage,
+        env: rt.env,
+        fs: rt.fs,
+        platform: rt.platform,
+        ...(rt.homeDir === undefined ? {} : { homeDir: rt.homeDir }),
+        stdout: rt.stdout,
+        stderr: rt.stderr,
+      },
+      args,
+      logger,
+    ),
+  };
 }

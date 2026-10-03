@@ -202,6 +202,9 @@ Usage:
   relic-bridge keys rotate [--db <path>]
   relic-bridge credential revalidate [--db <path>]
   relic-bridge audit purge [--older-than-days <n>] [--db <path>]
+  relic-bridge init | admin-token | user | credential | project | grant | token | audit tail
+                    Manage a local database or a remote instance (--remote); run
+                    "relic-bridge init --help" for the full list.
   relic-bridge --help | --version
 
 Commands:

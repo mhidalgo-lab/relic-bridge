@@ -2,7 +2,7 @@
 id: P2-10
 title: CLI management commands (local and remote)
 phase: 2
-status: in-progress
+status: review
 priority: high
 depends_on: [P2-09]
 adr: []
@@ -35,18 +35,22 @@ token) and audit rows record `via: cli` plus the OS user.
 - `credential remove` asks for confirmation (`--yes` to skip; required without a TTY).
 
 ## Acceptance criteria
-- [ ] E2E (built CLI): init → add 2 credentials (US+EU fixtures) → 2 projects → grants and tokens → MCP call succeeds per project.
-- [ ] Same flow against a running `serve` through `--remote` (in-process/real server), including `--json`.
-- [ ] Keys and tokens never appear in argv, stderr, logs, errors or audit rows (leak scan); flags that would carry a secret are refused.
-- [ ] Remote refuses plain http (except `--insecure` loopback), does not follow redirects, maps 401/422/502 to clear errors.
-- [ ] Every change made by the CLI writes an `admin` audit row with `via: cli`.
-- [ ] `admin-token generate` output is accepted by the Admin API.
+- [x] E2E (built CLI): init → add 2 credentials (US+EU fixtures) → 2 projects → grants and tokens → MCP call succeeds per project.
+- [x] Same flow against a running `serve` through `--remote` (in-process/real server), including `--json`.
+- [x] Keys and tokens never appear in argv, stderr, logs, errors or audit rows (leak scan); flags that would carry a secret are refused.
+- [x] Remote refuses plain http (except `--insecure` loopback), does not follow redirects, maps 401/422/502 to clear errors.
+- [x] Every change made by the CLI writes an `admin` audit row with `via: cli`.
+- [x] `admin-token generate` output is accepted by the Admin API.
 
 ## Security notes
 Keys entered via hidden prompt or stdin, never as CLI args (shell history, process list). See THREAT_MODEL T23.
 
 ## Docs to update
-- CLI reference (`docs/reference/cli.md`), self-hosting guide, THREAT_MODEL, ARCHITECTURE.
+- CLI reference (`docs/reference/cli.md`, new), self-hosting guide, THREAT_MODEL, ARCHITECTURE, README link (all done).
+
+## Follow-ups
+- Check the client snippets against each client's current docs (pending decision, P2-13 / release).
+- Stored remote profiles for several instances (`remotes.json`); grant edit and project/grant delete commands once the API has them.
 
 ## Out of scope
 - Editing grants (no API for it yet), deleting projects/grants, user disable (use the Admin API), OAuth/IdP login for the CLI (Phase 4/5).

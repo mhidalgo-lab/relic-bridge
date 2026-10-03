@@ -316,3 +316,38 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   and small-team instances (tens to hundreds of rows). The audit log pages in the database (`beforeId`).
 - **Options:** as assumed; add `limit`/`after` to the storage list methods when an instance grows (contract change).
 - **Needs:** nothing for v0.2.
+
+### P2-10 — Local mode runs the admin API in-process
+- **Context:** the task wants the same commands against a local database and a remote instance, and the P2-09 notes
+  suggested calling the domain services directly for local mode.
+- **Assumption made:** local mode mounts `createAdminApi` over SQLite in the CLI process (random per-process bearer, no
+  network) and speaks the same HTTP-shaped requests as remote mode. One code path, so rules, validation, masking and
+  audit cannot drift; local audit rows record `via: cli` plus the OS user (`details.cliUser`), actor ids stay empty.
+- **Options:** as assumed; call the `@relic-bridge/auth` services directly (two code paths to keep in sync).
+- **Needs:** nothing.
+
+### P2-10 — Admin token is never a command-line option
+- **Context:** the task text sketched `--remote https://… --admin-token …`.
+- **Assumption made:** `--admin-token` does not exist (it would leak through process lists and shell history). The token
+  comes from `RB_ADMIN_TOKEN` / `RB_ADMIN_TOKEN_FILE` (0600) or a hidden prompt; `--remote` can also be `RB_REMOTE`.
+- **Options:** as assumed; a `--admin-token-file` flag; a stored profile file (`~/.config/relic-bridge/remotes.json`)
+  once there are several instances to manage.
+- **Needs:** nothing.
+
+### P2-10 — Wizard is flag-driven with prompts only on a terminal; master key written to a file
+- **Context:** `init` must work on a headless server and on a laptop.
+- **Assumption made:** `init` generates the master key into `<data dir>/master.key` (mode 0600, never overwritten) when
+  none is configured, refuses an existing database without its key, and creates the first credential/project/grant/token
+  only when asked (flags, or answers on a terminal); otherwise it skips the step and prints the command to run.
+  The service grant for the first device is named `<slug>-devices`. Device tokens use the server default (90 days).
+- **Options:** as assumed; print the master key instead of writing it; always run all steps.
+- **Needs:** owner OK before v0.2 docs are final.
+
+### P2-10 — Client snippets
+- **Context:** "ready-to-paste client configs" depend on each client's current remote-server syntax.
+- **Assumption made:** Claude Code `claude mcp add --transport http … --header`, Cursor `mcpServers.<n>.{url,headers}`,
+  VS Code `servers.<n>.{type:"http",url,headers}`, Claude Desktop through `npx mcp-remote` with the header in `env`.
+  Snippets go to stderr (stdout carries only the token). Verify against `docs/guide/clients.md` before release.
+- **Options:** as assumed; drop Desktop until it supports remote servers with static headers natively.
+- **Needs:** a check against the current client docs (P2-13 / release).
+

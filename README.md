@@ -48,7 +48,7 @@ carries the tarball, an SBOM and checksums with build attestations. Changes: [CH
 
 - **Guides:** [local quickstart](docs/guide/quickstart-local.md) · [client setup](docs/guide/clients.md) ·
   [configuration](docs/guide/configuration.md) · [security basics](docs/guide/security-basics.md) ·
-  [troubleshooting](docs/guide/troubleshooting.md) · [tool reference](docs/reference/tools.md)
+  [troubleshooting](docs/guide/troubleshooting.md) · [tool reference](docs/reference/tools.md) · [CLI reference](docs/reference/cli.md)
 - [Roadmap & task index](docs/ROADMAP.md)
 - [Architecture](docs/ARCHITECTURE.md) · [Decisions (ADRs)](docs/adr/) · [Research & platform limits](docs/RESEARCH.md)
 - [Threat model](docs/THREAT_MODEL.md)

@@ -3,8 +3,8 @@
 The Cloudflare Worker host for relic-bridge: the same HTTP app as `relic-bridge serve` (`@relic-bridge/http-app`),
 with Workers bindings. Private package; it is deployed with Wrangler, not published to npm.
 
-> **Status (Phase 3, in progress).** The entry, bindings and per-isolate runtime (P3-01) and the D1 storage (P3-02) are
-> in place: the Worker serves MCP, the admin API and `/health` on D1. The deployment guide comes with P3-05/P3-07.
+> **Status (Phase 3, in progress).** The entry, bindings and per-isolate runtime (P3-01) and the D1 storage (P3-02) and the setup script (P3-05) are
+> in place: the Worker serves MCP, the admin API and `/health` on D1. Deploy with `pnpm cf:setup` (see the [deployment guide](../../docs/guide/cloudflare-deploy.md)).
 
 ## Bindings
 
@@ -12,9 +12,10 @@ with Workers bindings. Private package; it is deployed with Wrangler, not publis
 |---|---|---|
 | `DB` | D1 | Storage (projects, grants, tokens, encrypted credentials, audit log). |
 | `OAUTH_KV` | KV | OAuth provider state (Phase 5). |
-| `RATE_LIMITER` | Rate Limiting | Shared rate-limit store (P3-04). Until then buckets are per isolate. |
+| `RATE_LIMITER` | Rate Limiting | Shared coarse rate-limit ceiling (P3-04); exact rules stay per isolate. |
 | `RB_MASTER_KEY` | secret, required | Encrypts stored New Relic keys (`relic-bridge keys generate`). Back it up. |
 | `RB_MASTER_KEY_PREVIOUS` | secret, optional | The previous master key while rotating. |
+| `RB_FINGERPRINT_SECRET` | secret, optional | Required only with `RB_PASSTHROUGH=on` (`pnpm cf:setup --passthrough` generates it). |
 | `RB_ADMIN_TOKEN` | secret | Enables the admin API (`/api/admin/v1`); 32-512 printable characters. |
 
 Secrets go through `wrangler secret put` (or `.dev.vars` locally), never `vars` and never D1. `wrangler.jsonc` holds no
@@ -63,4 +64,4 @@ pnpm test:workers                                           # tests inside worke
 ```
 
 `wrangler dev` keeps its local D1 database under `apps/worker/.wrangler/` (git-ignored); delete that folder to start
-from an empty database. Deployment (secrets, custom domain) is documented with P3-05/P3-07.
+from an empty database. Deployment: [deployment guide](../../docs/guide/cloudflare-deploy.md) (`pnpm cf:setup`, which keeps provisioned ids in the git-ignored `wrangler.local.jsonc`).

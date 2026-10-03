@@ -2,7 +2,7 @@
 id: P3-05
 title: Deploy to Cloudflare button and setup script
 phase: 3
-status: in-progress
+status: review
 priority: high
 depends_on: [P3-02]
 adr: [6, 7]
@@ -28,14 +28,14 @@ owner: claude-agent
 - The Wrangler runner is injected so tests run without a Cloudflare account.
 
 ## Acceptance criteria
-- [ ] The script generates secrets with the CSPRNG and passes them only on stdin; no secret appears in arguments, logs or
+- [x] The script generates secrets with the CSPRNG and passes them only on stdin; no secret appears in arguments, logs or
   repo files; a backup file is written only on request, mode 0600, never over an existing file.
-- [ ] Re-running never regenerates an existing secret; a failing secret listing aborts instead of guessing.
-- [ ] `--dry-run` calls no Wrangler command; unit tests use a fake runner (no network).
-- [ ] The committed `wrangler.jsonc` stays free of ids; the local copy is git-ignored.
-- [ ] README button and deployment guide document both paths, custom domains and the next steps.
+- [x] Re-running never regenerates an existing secret; a failing secret listing aborts instead of guessing.
+- [x] `--dry-run` calls no Wrangler command; unit tests use a fake runner (no network).
+- [x] The committed `wrangler.jsonc` stays free of ids; the local copy is git-ignored.
+- [x] README button and deployment guide document both paths, custom domains and the next steps.
 - [ ] From zero Cloudflare resources to a working MCP call from Claude Code on two devices in < 10 minutes, following docs
-  only (needs a real account: recorded in the pending decisions).
+  only (**not ticked**: needs a real account; the verification steps are in `docs/pending-decisions/phase-3.md`).
 
 ## Security notes
 Secrets generated locally, set via wrangler stdin, never written to disk unless the user requests a backup file (0600).

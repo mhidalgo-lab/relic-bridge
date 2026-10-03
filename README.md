@@ -32,7 +32,7 @@ only a **User API key** — no account-level MCP enablement required.
 
 **Planned** (see the [roadmap](docs/ROADMAP.md); none of this exists yet):
 
-- A Cloudflare Worker deployment.
+- A Cloudflare Worker deployment ([guide](docs/guide/cloudflare-deploy.md)).
 - OAuth 2.1, which claude.ai on the web and Claude on your phone need (static tokens work in Claude Code, Cursor and
   VS Code on your computers today).
 - Sign-in (Google, GitHub, Cloudflare Access) and an admin panel.
@@ -60,7 +60,7 @@ carries the tarball, an SBOM and checksums with build attestations. Changes: [CH
 ## Documentation
 
 - **Guides:** [local quickstart](docs/guide/quickstart-local.md) · [client setup](docs/guide/clients.md) ·
-  [self-hosting](docs/guide/self-hosting.md) · [multi-device setup](docs/guide/multi-device.md) ·
+  [self-hosting](docs/guide/self-hosting.md) · [deploy to Cloudflare](docs/guide/cloudflare-deploy.md) · [multi-device setup](docs/guide/multi-device.md) ·
   [access model](docs/guide/access-model.md) · [secrets](docs/guide/secrets.md) ·
   [configuration](docs/guide/configuration.md) · [security basics](docs/guide/security-basics.md) ·
   [troubleshooting](docs/guide/troubleshooting.md) · [tool reference](docs/reference/tools.md) · [CLI reference](docs/reference/cli.md)

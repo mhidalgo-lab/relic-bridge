@@ -135,7 +135,7 @@ Generated from task front matter (`pnpm tasks index` once P0-05 lands). Status l
 | P3-07 | [Docs — Cloudflare deployment, limits and costs](tasks/phase-3-cloudflare/P3-07-docs-cloudflare.md) | high | P3-05, P3-03 | todo |
 | P3-08 | [Audit retention purge on Workers (cron trigger)](tasks/phase-3-cloudflare/P3-08-workers-audit-purge.md) | medium | P3-02 | review |
 | P3-09 | [Resolve access in one D1 round trip](tasks/phase-3-cloudflare/P3-09-d1-single-query-access.md) | medium | P3-02 | review |
-| P3-10 | [CPU benchmark per tool to catch regressions](tasks/phase-3-cloudflare/P3-10-cpu-benchmark.md) | low | P3-03 | todo |
+| P3-10 | [CPU benchmark per tool to catch regressions](tasks/phase-3-cloudflare/P3-10-cpu-benchmark.md) | low | P3-03 | in-progress |
 
 ### Phase 4
 

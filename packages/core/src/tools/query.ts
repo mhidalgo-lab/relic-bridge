@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
 import { z } from 'zod';
-import type { ToolContext } from '../context.ts';
 import {
   DEFAULT_MAX_POLLS,
   getQueryResult,

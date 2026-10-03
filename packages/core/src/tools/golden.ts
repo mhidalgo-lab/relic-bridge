@@ -11,12 +11,7 @@ import { parseTimeRange } from '../time/range.ts';
 import { defineTool, type ToolDefinition } from '../tool.ts';
 import { checkGuid, isNonNull, outOfScope, requireField } from './entities.ts';
 import { cleanName } from './identity.ts';
-import {
-  accountIdSchema as accountId,
-  assertWindowWithinLimit,
-  type ToolDeps,
-  toolClient,
-} from './shared.ts';
+import { assertWindowWithinLimit, type ToolDeps, toolClient } from './shared.ts';
 
 export const DEFAULT_GOLDEN_SINCE = 'last 30 minutes';
 const DEFAULT_MAX_METRICS = 10;

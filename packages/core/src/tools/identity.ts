@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import { z } from 'zod';
-import type { AccountScope, ToolContext } from '../context.ts';
+import type { AccountScope } from '../context.ts';
 import { listReachableAccounts, validateKey } from '../nerdgraph/identity.ts';
 import { envelope } from '../output/envelope.ts';
 import { shapeRows, truncateText } from '../output/format.ts';

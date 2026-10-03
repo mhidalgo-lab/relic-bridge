@@ -2,7 +2,7 @@
 id: P0-01
 title: Bootstrap the monorepo
 phase: 0
-status: review
+status: done
 priority: high
 depends_on: []
 adr: [0004]
@@ -44,4 +44,5 @@ T18: lockfile committed; `pnpm` set to `strict-peer-dependencies` and `only-buil
   (packages with `"relicBridge": {"runtime": "web"}`), run by `pnpm lint`.
 - Supply chain: `minimumReleaseAge` 3 days, `trustPolicy: no-downgrade`, `blockExoticSubdeps`, `strictDepBuilds` + `allowBuilds`.
 - 2026-10-02: clean clone (`pnpm install --frozen-lockfile`) passes lint, typecheck, test, build and the license check.
-  **Pending (maintainer):** `npm login`, create the `relic-bridge` npm org, and publish the 0.0.0 placeholder to secure the name.
+  Maintainer created the `relic-bridge` npm org.
+- 2026-10-03: `relic-bridge@0.0.0` placeholder published (Apache-2.0); `@relic-bridge` scope owned. Done.

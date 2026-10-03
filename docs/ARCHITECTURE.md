@@ -154,7 +154,8 @@ Implemented by `createHttpApp` in `packages/http-app` (P2-06); `relic-bridge ser
 2. **Authenticate**: bearer token (format and checksum offline, then hash lookup, constant-time compare, revoked,
    expired) or, from Phase 5, an OAuth access token (audience must equal this slug's resource URL). The token is
    checked before the slug is looked at.
-3. **Resolve grant**: effective tools, accounts, limits and credential (`resolveAccess`), cached per isolate for
+3. **Resolve grant**: effective tools, accounts, limits and credential (`resolveAccess`; steps 2-3 together are
+   `authenticateAccess`, one storage call on SQL storage — one D1 `batch()` on Workers, P3-09), cached per isolate for
    0-60 s (default 30 s), never past the token's or grant's expiry, keyed by token hash + slug, holding no plaintext
    key. Every denial in steps 2-3 is the same 401; storage errors are 503.
 4. **Rate limit** (P2-07, `createRateLimitHooks` over a pluggable `RateLimiter`; bounded in-memory token bucket on

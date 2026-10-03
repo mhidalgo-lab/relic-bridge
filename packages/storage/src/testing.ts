@@ -67,6 +67,11 @@ export interface StorageContractOptions {
   readonly create?: (clock: ContractClock) => Promise<Storage>;
   /** A storage holding `fixture`. Defaults to `create` plus writes through the API. Required when `create` is absent. */
   readonly createSeeded?: (fixture: ContractFixture, clock: ContractClock) => Promise<Storage>;
+  /**
+   * The adapter implements the optional `loadAccessRecords` (P3-09; required of the SQL adapters). Its contract is
+   * then checked too, and its absence fails.
+   */
+  readonly accessRecords?: boolean;
 }
 
 /** Deterministic, never-the-secret ciphertext for fixtures. */
@@ -643,6 +648,163 @@ export function runStorageContract(options: StorageContractOptions): void {
         });
         await s.grants.delete('g1');
         expect(await s.accessTokens.get('t1')).toBeNull();
+        await s.close();
+      });
+    });
+
+    // Optional capability: only adapters that declare it (an empty describe would fail the run).
+    describe.runIf(options.accessRecords === true)('access records (one call)', () => {
+      /** Fixture + users, personal keys and grants covering every branch of the `AccessRecords` contract. */
+      const world = async (): Promise<Storage> => {
+        const { s } = await fresh();
+        await seedFixture(s);
+        await s.users.create({ id: 'u1', email: 'u1@example.com', role: 'member' });
+        await s.users.create({ id: 'u2', email: 'u2@example.com', role: 'member' });
+        await s.credentials.create({
+          id: 'c-u1',
+          ownerUserId: 'u1',
+          label: 'u1',
+          region: 'US',
+          key: fakeEncryptedKey(5),
+        });
+        await s.credentials.create({
+          id: 'c-u2',
+          ownerUserId: 'u2',
+          label: 'u2',
+          region: 'US',
+          key: fakeEncryptedKey(6),
+        });
+        await s.projects.create({ id: 'bare', slug: 'bare', defaultAccountId: 1, allowedAccountIds: [1] });
+        const grants: [string, string, string | null, string | null][] = [
+          ['g-default', 'acme-prod', 'u1', null],
+          ['g-shared', 'acme-prod', 'u1', 'c-u2'],
+          ['g-own', 'acme-prod', 'u1', 'c-u1'],
+          ['g-service', 'side-eu', null, 'c-u2'],
+          ['g-bare', 'bare', 'u2', null],
+        ];
+        let n = 100;
+        for (const [id, projectId, userId, credentialId] of grants) {
+          await s.grants.create({
+            id,
+            projectId,
+            userId,
+            label: userId === null ? 'svc' : null,
+            credentialId,
+          });
+          await s.accessTokens.create({
+            id: `t-${id}`,
+            grantId: id,
+            prefix: 'rb_x',
+            tokenHash: fakeTokenHash(n++),
+            label: 'd',
+          });
+        }
+        return s;
+      };
+      const hashOf = (grant: string): string =>
+        fakeTokenHash(100 + ['g-default', 'g-shared', 'g-own', 'g-service', 'g-bare'].indexOf(grant));
+      const load = (s: Storage, grant: string, projectSlug: string | null) => {
+        if (s.loadAccessRecords === undefined) throw new Error('loadAccessRecords is missing');
+        return s.loadAccessRecords({ tokenHash: hashOf(grant), projectSlug });
+      };
+
+      it('is implemented', async () => {
+        const { s } = await fresh();
+        expect(typeof s.loadAccessRecords).toBe('function');
+        await s.close();
+      });
+
+      it('loads token, project, grant, user and the project default credential, equal to the repositories', async () => {
+        const s = await world();
+        const r = await load(s, 'g-default', 'acme-prod');
+        expect(r.token).toEqual(await s.accessTokens.get('t-g-default'));
+        expect(r.project).toEqual(await s.projects.getBySlug('acme-prod'));
+        expect(r.grant).toEqual(await s.grants.get('g-default'));
+        expect(r.user).toEqual(await s.users.get('u1'));
+        expect(r.credential).toEqual(await s.credentials.get('project:acme-prod'));
+        expect(r.credentialOwner).toBeNull(); // shared key: no owner
+        for (const v of [r, r.token, r.project, r.grant, r.user, r.credential])
+          expect(Object.isFrozen(v)).toBe(true);
+        await s.close();
+      });
+
+      it("loads the grant's own key and its owner only when the owner is not the grant's user", async () => {
+        const s = await world();
+        const shared = await load(s, 'g-shared', 'acme-prod');
+        expect(shared.credential?.id).toBe('c-u2');
+        expect(shared.credentialOwner).toEqual(await s.users.get('u2'));
+        const own = await load(s, 'g-own', 'acme-prod');
+        expect(own.credential?.id).toBe('c-u1');
+        expect(own.user?.id).toBe('u1');
+        expect(own.credentialOwner).toBeNull();
+        const service = await load(s, 'g-service', 'side-eu');
+        expect(service.user).toBeNull();
+        expect(service.credential?.id).toBe('c-u2');
+        expect(service.credentialOwner?.id).toBe('u2');
+        const bare = await load(s, 'g-bare', 'bare');
+        expect(bare.user?.id).toBe('u2');
+        expect(bare.credential).toBeNull(); // no grant key, no project default
+        await s.close();
+      });
+
+      it('reads nothing else of a grant bound to another project (T2)', async () => {
+        const s = await world();
+        const r = await load(s, 'g-service', 'acme-prod');
+        expect(r.token?.id).toBe('t-g-service');
+        expect(r.project?.id).toBe('acme-prod');
+        expect(r.grant?.projectId).toBe('side-eu');
+        expect([r.user, r.credential, r.credentialOwner]).toEqual([null, null, null]);
+        await s.close();
+      });
+
+      it('returns the token and grant only for an unknown or absent slug', async () => {
+        const s = await world();
+        for (const slug of ['nope', null]) {
+          const r = await load(s, 'g-shared', slug);
+          expect(r.token?.id).toBe('t-g-shared');
+          expect(r.grant?.id).toBe('g-shared');
+          expect([r.project, r.user, r.credential, r.credentialOwner]).toEqual([null, null, null, null]);
+        }
+        await s.close();
+      });
+
+      it('returns nothing at all for an unknown token hash', async () => {
+        const s = await world();
+        const r = await s.loadAccessRecords?.({ tokenHash: fakeTokenHash(1), projectSlug: 'acme-prod' });
+        expect(r).toEqual({
+          token: null,
+          project: null,
+          grant: null,
+          user: null,
+          credential: null,
+          credentialOwner: null,
+        });
+        await s.close();
+      });
+
+      it('returns revoked, expired and disabled rows as stored (the caller decides)', async () => {
+        const s = await world();
+        await s.accessTokens.revoke('t-g-shared', 5);
+        await s.grants.update('g-shared', { revokedAt: 6, expiresAt: 7 });
+        await s.users.update('u2', { disabledAt: 8 });
+        await s.credentials.update('c-u2', { revokedAt: 9 });
+        await s.projects.update('acme-prod', { disabledAt: 10 });
+        const r = await load(s, 'g-shared', 'acme-prod');
+        expect(r.token?.revokedAt).toBe(5);
+        expect([r.grant?.revokedAt, r.grant?.expiresAt]).toEqual([6, 7]);
+        expect(r.credentialOwner?.disabledAt).toBe(8);
+        expect(r.credential?.revokedAt).toBe(9);
+        expect(r.project?.disabledAt).toBe(10);
+        await s.close();
+      });
+
+      it('binds the slug and hash as values, never as SQL', async () => {
+        const s = await world();
+        const evil = "acme-prod' OR '1'='1";
+        const r = await load(s, 'g-default', evil);
+        expect(r.project).toBeNull();
+        const none = await s.loadAccessRecords?.({ tokenHash: "x' OR '1'='1", projectSlug: 'acme-prod' });
+        expect(none?.token).toBeNull();
         await s.close();
       });
     });

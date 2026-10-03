@@ -2,6 +2,14 @@
 // `@relic-bridge/storage`: the Storage contract and the runtime-agnostic adapters (ADR-0006).
 // Other entry points: `@relic-bridge/storage/schema` (Drizzle tables) and `@relic-bridge/storage/testing`
 // (the adapter contract suite, test-only).
+export {
+  ACCESS_RECORDS_FIELDS,
+  ACCESS_RECORDS_SQL,
+  type AccessRecords,
+  type AccessRecordsQuery,
+  accessRecordsParams,
+  NO_ACCESS_RECORDS,
+} from './access-records.ts';
 export * from './errors.ts';
 export { newId } from './ids.ts';
 export { createMemoryStorage, type MemoryStorageOptions } from './memory.ts';

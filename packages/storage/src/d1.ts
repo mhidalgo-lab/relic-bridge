@@ -13,6 +13,14 @@
 //
 // Web-standard only (ADR-0004). The binding is typed structurally, so this package needs no Workers types.
 import {
+  ACCESS_RECORDS_FIELDS,
+  ACCESS_RECORDS_SQL,
+  type AccessRecords,
+  type AccessRecordsQuery,
+  accessRecordsParams,
+  NO_ACCESS_RECORDS,
+} from './access-records.ts';
+import {
   ConflictError,
   InvalidInputError,
   keyChangedError,
@@ -896,6 +904,29 @@ export async function createD1Storage(
       }),
   };
 
+  // ------------------------------------------------------------------------------------------ access records
+  // One `batch()` = one round trip, run by D1 as one transaction, so the rows are a consistent snapshot (P3-09).
+  const loadAccessRecords = (query: AccessRecordsQuery): Promise<AccessRecords> =>
+    call(async () => {
+      const results = await db.batch(
+        ACCESS_RECORDS_FIELDS.map((field) =>
+          stmt(ACCESS_RECORDS_SQL[field], accessRecordsParams(field, query)),
+        ),
+      );
+      const row = (i: number): Row | null => (results[i]?.results?.[0] as Row | undefined) ?? null;
+      const token = row(0);
+      if (token === null) return NO_ACCESS_RECORDS;
+      const [project, grant, user, credential, owner] = [row(1), row(2), row(3), row(4), row(5)];
+      return Object.freeze({
+        token: tokenOf(token),
+        project: project ? projectOf(project) : null,
+        grant: grant ? grantOf(grant) : null,
+        user: user ? userOf(user) : null,
+        credential: credential ? credentialOf(credential) : null,
+        credentialOwner: owner ? userOf(owner) : null,
+      });
+    });
+
   return Object.freeze({
     kind: 'd1' as const,
     readOnly: false,
@@ -907,6 +938,7 @@ export async function createD1Storage(
     auditLog: auditRepo,
     settings: settingsRepo,
     kv: kvRepo,
+    loadAccessRecords,
     // The binding has no connection to close.
     async close() {},
   });

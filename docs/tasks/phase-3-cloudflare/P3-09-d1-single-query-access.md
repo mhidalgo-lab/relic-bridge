@@ -2,7 +2,7 @@
 id: P3-09
 title: Resolve access in one D1 round trip
 phase: 3
-status: in-progress
+status: review
 priority: medium
 depends_on: [P3-02]
 adr: [0006, 0008, 0010]
@@ -38,18 +38,18 @@ call, without changing a single access decision.
   a write transaction on the D1 primary. Documented.
 
 ## Acceptance criteria
-- [ ] `loadAccessRecords` in the storage contract suite (sqlite on Node, D1 inside workerd), including the T2 rule,
+- [x] `loadAccessRecords` in the storage contract suite (sqlite on Node, D1 inside workerd), including the T2 rule,
       service grants, project default vs grant credential, owner = grant user, unknown token / slug.
-- [ ] D1 implementation is exactly one `batch()` call; Workers test through the Worker: access resolution = 1 D1
+- [x] D1 implementation is exactly one `batch()` call; Workers test through the Worker: access resolution = 1 D1
       read call on a cache miss (plus the throttled touch write), 0 calls on a hit.
-- [ ] Equivalence tests (fast-check, random worlds with disabled / revoked / expired / unvalidated / missing states,
+- [x] Equivalence tests (fast-check, random worlds with disabled / revoked / expired / unvalidated / missing states,
       random tokens and slugs including unknown and malformed): the one-call path returns the same result as
       `verifyAccessToken` + `resolveAccess` (deny stage and reason, effective access, credential record, token id,
       expiry, touch due) on sqlite (Node) and D1 (workerd).
-- [ ] No new timing distinction: an unknown token and a known-but-denied token both cost one storage call (today:
+- [x] No new timing distinction: an unknown token and a known-but-denied token both cost one storage call (today:
       one vs. up to three round trips).
-- [ ] The P2-12 authz suite still passes on Node and on the Worker.
-- [ ] `pnpm lint && pnpm typecheck && pnpm test && pnpm test:workers && pnpm build` pass.
+- [x] The P2-12 authz suite still passes on Node and on the Worker.
+- [x] `pnpm lint && pnpm typecheck && pnpm test && pnpm test:workers && pnpm build` pass.
 
 ## Security notes
 Same decision function (`computeAccess`) and the same pre-checks; only the loading changes. T2 (no reads for another

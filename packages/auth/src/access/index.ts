@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // Access model (ADR-0008): the pure effective-permission resolver, its storage-backed wrapper and the domain services.
 export {
+  type AuthenticateAccessInput,
+  type AuthenticatedAccess,
+  authenticateAccess,
+} from './authenticate.ts';
+export {
   type CreateGrantInput,
   type CreateGrantResult,
   type CreateProjectInput,

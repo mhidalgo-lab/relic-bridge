@@ -9,6 +9,8 @@ import {
   type McpRequestContext,
 } from '@modelcontextprotocol/server';
 import {
+  type AuthenticatedAccess,
+  authenticateAccess,
   bearerToken,
   checkTokenFormat,
   type EffectiveAccess,
@@ -18,8 +20,6 @@ import {
   type KeyValidator,
   nerdGraphKeyValidator,
   openCredential,
-  resolveAccess,
-  verifyAccessToken,
 } from '@relic-bridge/auth';
 import {
   buildMcpServer,
@@ -736,25 +736,21 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
     const cacheKey = `${await hashToken(token)}\n${slug}`;
     let resolved: Omit<CachedAccess, 'expiresAt'> | undefined = cache.get(cacheKey, now);
     if (resolved === undefined) {
-      let verdict: Awaited<ReturnType<typeof verifyAccessToken>>;
-      let decision: Awaited<ReturnType<typeof resolveAccess>>;
+      // One storage call on SQL storage (D1: one batch round trip, P3-09); repository reads otherwise.
+      let auth: AuthenticatedAccess;
       try {
-        verdict = await verifyAccessToken(options.storage, token, {
+        auth = await authenticateAccess({
+          storage: options.storage,
+          token,
+          projectSlug: slug,
+          catalog,
           now,
+          onTouch: (touch) => runInBackground(c, touch, 'token_touch'),
           onTouchError: (error) =>
             logger.warn('last_used_at write failed', {
               requestId,
               error: error instanceof Error ? error.name : typeof error,
             }),
-        });
-        if (!verdict.ok) return deny(verdict.reason);
-        if (verdict.touch) runInBackground(c, verdict.touch, 'token_touch');
-        decision = await resolveAccess({
-          storage: options.storage,
-          projectSlug: slug,
-          principal: { grantId: verdict.grantId },
-          catalog,
-          now,
         });
       } catch (error) {
         // Storage trouble is never "allowed" (fail closed), and never a 401 that would make clients drop the token.
@@ -762,10 +758,12 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
         logger.error('access resolution failed', { requestId, error: log['error'] });
         return json(503, '{"error":"unavailable"}', { 'Retry-After': '5' });
       }
-      log['tokenId'] = verdict.tokenId;
-      if (!decision.ok) return deny(decision.reason);
-      resolved = { tokenId: verdict.tokenId, access: decision.access, credential: decision.credential };
-      cache.set(cacheKey, resolved, now, [verdict.expiresAt, decision.access.expiresAt]);
+      if (!auth.ok) {
+        if (auth.stage === 'access') log['tokenId'] = auth.tokenId;
+        return deny(auth.reason);
+      }
+      resolved = { tokenId: auth.tokenId, access: auth.access, credential: auth.credential };
+      cache.set(cacheKey, resolved, now, [auth.tokenExpiresAt, auth.access.expiresAt]);
     } else {
       log['cached'] = true;
     }

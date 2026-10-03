@@ -4,12 +4,17 @@
 // (cascades happen inside the engine), so it is atomic on its own.
 import type { DatabaseSync, SQLInputValue } from 'node:sqlite';
 import {
+  ACCESS_RECORDS_FIELDS,
+  ACCESS_RECORDS_SQL,
+  type AccessRecords,
+  type AccessRecordsQuery,
   type AccessTokenRecord,
   type AccessTokensRepository,
   type AuditEntry,
   type AuditLogRepository,
   type AuditQuery,
   type AuditRecord,
+  accessRecordsParams,
   type CredentialRecord,
   type CredentialsRepository,
   checkEncryptedKey,
@@ -27,6 +32,7 @@ import {
   type KvPutOptions,
   type KvRepository,
   keyChangedError,
+  NO_ACCESS_RECORDS,
   NotFoundError,
   normalizeEmail,
   type ProjectRecord,
@@ -699,6 +705,34 @@ export function createRepositories(
       }),
   };
 
+  // ------------------------------------------------------------------------------------------ access records
+  // The same statements as D1's batch (P3-09), in one read transaction: a consistent snapshot even with another
+  // process writing (WAL). The driver is synchronous, so nothing else on this connection runs in between.
+  const loadAccessRecords = (query: AccessRecordsQuery): Promise<AccessRecords> =>
+    call(() => {
+      db.exec('BEGIN');
+      let rows: (Row | null)[];
+      try {
+        rows = ACCESS_RECORDS_FIELDS.map((field) =>
+          one(ACCESS_RECORDS_SQL[field], [...accessRecordsParams(field, query)]),
+        );
+        db.exec('COMMIT');
+      } catch (error) {
+        if (db.isTransaction) db.exec('ROLLBACK');
+        throw error;
+      }
+      const [token, project, grant, user, credential, owner] = rows;
+      if (!token) return NO_ACCESS_RECORDS;
+      return Object.freeze({
+        token: tokenOf(token),
+        project: project ? projectOf(project) : null,
+        grant: grant ? grantOf(grant) : null,
+        user: user ? userOf(user) : null,
+        credential: credential ? credentialOf(credential) : null,
+        credentialOwner: owner ? userOf(owner) : null,
+      });
+    });
+
   return {
     users: usersRepo,
     credentials: credentialsRepo,
@@ -708,6 +742,7 @@ export function createRepositories(
     auditLog: auditRepo,
     settings: settingsRepo,
     kv: kvRepo,
+    loadAccessRecords,
   };
 }
 

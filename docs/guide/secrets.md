@@ -19,7 +19,7 @@ The key is printed once on stdout and stored nowhere. Give it to the server as:
 | Variable | Meaning |
 |---|---|
 | `RB_MASTER_KEY` | The current master key, `v<n>:<base64>`. A bare base64 value is read as version 1. |
-| `RB_MASTER_KEY_FILE` | Path to a file holding it instead (Node only). Refused when group or others can read it (Docker and Kubernetes mount secrets `0444`/`0644` by default: set the mode to `0400`/`0600`, e.g. `defaultMode: 0400`). |
+| `RB_MASTER_KEY_FILE` | Path to a file holding it instead (Node only). Refused when group or others can read it (Docker and Kubernetes mount secrets `0444`/`0644` by default: set the mode to `0400`/`0600` and make the file owned by the user that runs the server; for the Docker image that is uid `65532`, see [self-hosting](self-hosting.md#docker)). |
 | `RB_MASTER_KEY_PREVIOUS` / `RB_MASTER_KEY_PREVIOUS_FILE` | The previous key, only while rotating. |
 
 On Cloudflare, store it with `wrangler secret put RB_MASTER_KEY`. Never put it in `wrangler.toml`, a config file, a

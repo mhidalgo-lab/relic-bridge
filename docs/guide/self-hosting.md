@@ -1,8 +1,8 @@
 # Self-hosting: the HTTP server and its database
 
 Self-hosted mode (Phase 2) serves MCP over HTTP to your other devices with `relic-bridge serve`, and keeps projects,
-encrypted credentials, grants, device tokens, the audit log and OAuth state in one SQLite file. Docker, TLS and the
-multi-device walkthrough are added by the rest of Phase 2 (P2-11, P2-13).
+encrypted credentials, grants, device tokens, the audit log and OAuth state in one SQLite file. The Docker image is
+described [below](#docker); the multi-device walkthrough is added by P2-13.
 
 stdio mode does not use a database: it reads `relic-bridge.yaml` or environment variables
 ([configuration](configuration.md)).
@@ -137,6 +137,58 @@ jq -n --arg k "$NR_KEY" '{label:"main", region:"US", apiKey:$k}' |
   pick it up within `RB_ACCESS_CACHE_TTL`.
 - Phase 4 adds sign-in with Google, GitHub, Cloudflare Access or OIDC for the admin panel; the bootstrap token remains
   for automation.
+
+## Docker
+
+The image is `ghcr.io/matiashidalgo/relic-bridge` (linux/amd64 and linux/arm64), published with each GitHub Release as
+`:<version>` (and `:latest` for stable releases). It is built from distroless Node 24: no shell, no package manager, runs as
+uid/gid `65532`, and works with a read-only root filesystem. Its entrypoint is the CLI, so everything in this guide
+applies: `docker run IMAGE keys generate`, `docker run IMAGE serve`, `docker exec CONTAINER /nodejs/bin/node /app/dist/index.mjs db backup /data/backup.db`.
+
+| | |
+|---|---|
+| `/data` | The only writable path: the SQLite database (`RB_DATA_DIR=/data`). Mount a volume; it is created owned by `65532`. |
+| `8787` | The server port. The container binds `0.0.0.0` (`RB_HOST`), so **set `RB_ALLOWED_HOSTS`** to the hostname clients use, and publish the port only to a TLS reverse proxy. |
+| Secrets | `RB_MASTER_KEY` or `RB_MASTER_KEY_FILE`, optionally `RB_ADMIN_TOKEN` or `RB_ADMIN_TOKEN_FILE`. Nothing secret is baked into the image. |
+| Health | `HEALTHCHECK` asks `/health` on loopback every 30 s. A `403 forbidden_host` answer (loopback is not in `RB_ALLOWED_HOSTS`) still counts as healthy: the server is up. |
+
+```bash
+docker run -d --name relic-bridge --read-only --cap-drop ALL --security-opt no-new-privileges:true \
+  -v relic-bridge-data:/data -p 127.0.0.1:8787:8787 \
+  -e RB_MASTER_KEY_FILE=/run/secrets/master_key -v "$PWD/master.key:/run/secrets/master_key:ro" \
+  -e RB_ALLOWED_HOSTS=mcp.example.com -e RB_TRUSTED_PROXY_HOPS=1 \
+  ghcr.io/matiashidalgo/relic-bridge:0.1.0
+```
+
+**Key files and the `0600` rule.** The server refuses a key file that group or others can read, and the container user
+is not root, so the file must be owned by `65532` with mode `0400`/`0600`:
+`sudo chown 65532:65532 master.key && sudo chmod 0400 master.key`. Docker bind mounts and compose `file:` secrets keep
+the host's owner and mode (the `uid`/`mode` options of compose secrets only apply to Swarm). Kubernetes mounts secret
+files as `root`; with `defaultMode: 0400` and no `fsGroup` the pod user cannot read them, and with `fsGroup` the files
+become group-readable and are refused. In Kubernetes (or whenever you cannot own the file as `65532`) pass the key as
+`RB_MASTER_KEY` from a secret `env` entry instead.
+
+**TLS.** [`deploy/docker-compose.example.yml`](../../deploy/docker-compose.example.yml) puts Caddy in front (automatic
+certificates), with the settings this guide requires: the server is not published on the host, `RB_ALLOWED_HOSTS` is your
+hostname and `RB_TRUSTED_PROXY_HOPS=1`.
+
+**Verify before you run it.** Images are signed with cosign keyless signing (GitHub OIDC), carry an SBOM (syft,
+CycloneDX) and a build provenance attestation. Pin what you verified by digest.
+
+```bash
+IMAGE=ghcr.io/matiashidalgo/relic-bridge:0.1.0
+cosign verify "$IMAGE" \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  --certificate-identity https://github.com/matiashidalgo/relic-bridge/.github/workflows/docker.yml@refs/heads/main
+gh attestation verify "oci://$IMAGE" --repo matiashidalgo/relic-bridge          # build provenance
+cosign verify-attestation "$IMAGE" --type cyclonedx \                            # SBOM
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  --certificate-identity https://github.com/matiashidalgo/relic-bridge/.github/workflows/docker.yml@refs/heads/main \
+  | jq -r '.payload | @base64d | fromjson | .predicate.components[].name' | head
+```
+
+Build it yourself with `docker build -t relic-bridge .` from a checkout (the build uses the release configuration, with
+test hooks compiled out).
 
 ## The database file
 

@@ -351,3 +351,30 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Options:** as assumed; drop Desktop until it supports remote servers with static headers natively.
 - **Needs:** a check against the current client docs (P2-13 / release).
 
+
+### P2-11 — Container key files: keep the 0600 rule, no relaxation switch
+- **Context:** Docker/Kubernetes mount secret files `0444`/`0644` (or root-owned), which the P2-03 permission check rejects,
+  and the image runs as non-root (uid 65532).
+- **Assumption made:** no new "allow readable key files" switch. The guide tells operators to own the file as `65532`
+  with `0400` (Docker/Compose), or to pass `RB_MASTER_KEY` from a secret `env` entry (Kubernetes). The compose example
+  documents the `chown 65532` step.
+- **Options:** as assumed; add `RB_ALLOW_READABLE_KEY_FILES=true` for orchestrators that cannot set owner and mode (weakens
+  the check for everyone who sets it); run the image as root (rejected).
+- **Needs:** owner OK; revisit if the Kubernetes path proves awkward (Helm chart is post-1.0).
+
+### P2-11 — Distroless runtime, uid 65532, images published on release only
+- **Context:** the task allowed "distroless or slim".
+- **Assumption made:** distroless `nodejs24-debian13:nonroot` (smaller attack surface, Trivy clean, no shell for an
+  attacker); debugging uses `docker exec ... /nodejs/bin/node`. Images are pushed to GHCR only by the `Docker` workflow
+  after the `Release` workflow published a GitHub Release at that commit, with `RB_RELEASE_ENABLED=true` and an approval of
+  the `release` environment. `:latest` is moved only for non-prerelease versions; version tags are immutable.
+- **Options:** as assumed; Debian slim with a shell; also publish `:<major>.<minor>` tags.
+- **Needs:** before the first release: make the GHCR package public (or decide to keep it private), confirm the
+  `release` environment also guards this workflow, and check `cosign verify` with the documented identity.
+
+### P2-11 — Trivy ignores unfixed vulnerabilities
+- **Context:** "scan clean of high/critical" can fail on base-image CVEs with no fix available.
+- **Assumption made:** `ignore-unfixed: true`, so CI fails only on high/critical findings that have a fix (Renovate then
+  bumps the digest-pinned base image). Secrets scanning is on as well.
+- **Options:** as assumed; fail on unfixed too and maintain a `.trivyignore` with expiry dates.
+- **Needs:** nothing.

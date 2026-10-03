@@ -167,3 +167,32 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   use is far below.
 - **Options:** server-side search fields for large instances (later), or a higher cap.
 - **Needs:** nothing now.
+
+### P4-05 — Usage statistics aggregate the audit rows on demand
+- **Context:** `GET /audit/stats` runs one `GROUP BY` over `tool_call` rows in the window (at most 90 days, 100
+  groups). On SQLite that is cheap. On D1 every row in the window is a row read, so a 90-day view on a deployment
+  recording very many calls costs that many reads per page view (only admins can ask; the screen defaults to 7 days).
+- **Assumption made:** Accept it: bounded window and group count, documented in the audit and Cloudflare guides; no new
+  table or migration in this task.
+- **Options:** (a) keep; (b) a daily rollup table filled by the existing hourly cron (cheap reads, one more migration
+  and a backfill story); (c) a covering index on `(kind, ts, action, status, duration_ms)` (faster scans, slower
+  audit writes, which are D1's scarcer budget).
+- **Needs:** owner choice only if a busy Workers deployment shows read-quota pressure.
+
+### P4-05 — Members see their own audit rows (including admin changes they made)
+- **Context:** The task note says members see only their own entries. The admin API now lets the `member` role call
+  `GET /audit` with `userId` forced to their own id. Own rows can include `details` such as the request address of a
+  refused request that named them.
+- **Assumption made:** Allowed; usage statistics and name lookups stay admin-only, and members have no "own usage"
+  view yet.
+- **Options:** keep; hide `details` and `nrql` from members; add a member usage summary (small follow-up).
+- **Needs:** owner preference; P4-10 (self-service) is the natural place for a member view.
+
+### P4-05 — CSV export is capped at 5,000 rows without an on-page notice
+- **Context:** The export pages through the admin API 200 rows at a time (25 in-process calls) and stops at 5,000
+  newest rows; the cut is signalled by an `X-Export-Truncated` response header only (a browser download shows no
+  notice, and a CSV has no place for a comment).
+- **Assumption made:** Accept; the guide says to narrow the time range for more.
+- **Options:** a "truncated" final row; a confirmation page showing the match count first; streaming export with a
+  higher cap (needs a storage count or a streaming query).
+- **Needs:** nothing now.

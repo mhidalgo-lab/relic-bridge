@@ -2,7 +2,7 @@
 id: P4-05
 title: "Audit log viewer and usage stats"
 phase: 4
-status: in-progress
+status: review
 priority: medium
 depends_on: [P4-04, P2-08]
 adr: []
@@ -26,15 +26,15 @@ owner: claude-agent
   and `AuditQuery.order` in the memory, SQLite and D1 adapters.
 
 ## Acceptance criteria
-- [ ] Filters (kind, status, action, project, user, device token, time) work in the screen and the API; cursor
+- [x] Filters (kind, status, action, project, user, device token, time) work in the screen and the API; cursor
   pagination returns every row exactly once.
-- [ ] Pagination works on 100k rows (SQLite): a deep page is a keyset seek, not an offset scan.
-- [ ] CSV export is bounded, escapes formulas, quotes and newlines, and carries `no-store` and a download name.
-- [ ] Usage stats are computed with one bounded aggregate per view (window and group caps, `tool_call` rows only).
-- [ ] Members see only their own rows (API enforced); `GET /audit/stats` is admin-only; negative authz tests and
+- [x] Pagination works on 100k rows (SQLite): a deep page is a keyset seek, not an offset scan.
+- [x] CSV export is bounded, escapes formulas, quotes and newlines, and carries `no-store` and a download name.
+- [x] Usage stats are computed with one bounded aggregate per view (window and group caps, `tool_call` rows only).
+- [x] Members see only their own rows (API enforced); `GET /audit/stats` is admin-only; negative authz tests and
   matrix rows for every new route.
-- [ ] Hostile audit content is escaped (tests); axe passes on both screens.
-- [ ] Audit guide, admin API reference and threat model updated.
+- [x] Hostile audit content is escaped (tests); axe passes on both screens.
+- [x] Audit guide, admin API reference and threat model updated.
 
 ## Security notes
 T17; members see only their own entries.

@@ -42,7 +42,7 @@ runtime-specific code lives in the adapters' hosts (P2-02 Node SQLite, P3-02 D1)
   non-enumerable, so a credential serialises without the literal.
 - Access tokens: only `tokenHash` (SHA-256, lowercase hex) and a display `prefix` (≤ 12 chars). Format and hashing
   are P2-05.
-- Audit: append-only (`append`, `list`, `purgeBefore` for retention). Callers mask NRQL before `append` (P2-08).
+- Audit: append-only (`append`, `list`, `purgeBefore` for retention, and read-only `stats`, one bounded aggregate over `tool_call` rows: window at most 90 days, at most 100 groups; the SQL is shared by the SQLite and D1 adapters in `audit-stats.ts`). `list` pages by `beforeId` (keyset on the primary key: constant cost per page, verified on 100k rows). Callers mask NRQL before `append` (P2-08).
 
 ### KV
 

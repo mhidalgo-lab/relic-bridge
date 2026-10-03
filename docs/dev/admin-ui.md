@@ -60,6 +60,15 @@ and for the screens the tool catalogue `tools`, `publicUrl` and the clock `now`)
 9. Register the screen in `registerScreens` (`app.ts`), and add each route to the P2-12 matrix
    (`packages/http-app/test/authz/matrix.ts`, `UI_ROUTES`). The guard test fails until you do.
 
+## Audit and usage screens (P4-05)
+
+`screens/audit.tsx` (`/admin/audit`, `/admin/audit.csv`, any role) and `screens/usage.tsx` (`/admin/usage`, admin).
+Patterns worth reusing: query-string filters are validated into an `AuditFilter` (anything unknown is dropped, never
+forwarded or echoed into a link), ids are resolved to labels with `loadNames` (only for admins: a member cannot read the
+lists, and the admin API, not the page, limits a member to their own rows), bars are `<meter>` elements (no inline
+style), and a file download is a `kit.page` handler returning its own `Response` with `UI_PAGE_HEADERS`, `no-store`,
+`nosniff` and a `Content-Disposition`. Text going into CSV passes `csvCell`.
+
 ## Rules
 
 - **Escaping.** Strings go into JSX as children or attribute values and are escaped by Hono. Never use `raw()`, the

@@ -71,6 +71,21 @@ sign-in provider, personal keys and grants. From there:
 - *Sign out everywhere* ends all their panel sessions. Their device tokens keep working.
 - *Disable* signs them out and stops their grants and personal keys until you enable them again.
 
+**Audit** (`/admin/audit`). Everything the server recorded, newest first: tool calls, refused requests and
+administrative changes. Filter by time (last hour up to 90 days, or everything kept), kind, status, tool or action
+name, project, user and device; ids are shown with their names (a deleted project or user shows its id). Each row has
+the result (error code, time, events inspected, accounts) and the query as stored (literal values are masked unless
+the server is set otherwise). Pages hold 50 rows; *Next page* keeps your filter. *Download CSV* exports the same
+filter, up to 5,000 rows (the newest; the download says nothing if it is cut off, so narrow the time range for
+more), with ids rather than names. Cells that a spreadsheet could take for a formula start with an apostrophe. Members
+can open this page too, but see only their own entries (their tool calls and the changes they made).
+
+**Usage** (`/admin/usage`, admins and owners). Tool calls over the last 24 hours, 7, 30 or 90 days, grouped by tool,
+project, grant, device or day: calls (with a bar), errors and denied calls with their share, mean and slowest time,
+and events New Relic inspected. Below, the ten slowest calls of the window. Only tool calls are counted. On a
+Cloudflare Worker with a very busy audit log, a 90-day view reads every row of the window; prefer shorter windows
+there (see [Cloudflare limits](cloudflare-limits.md)).
+
 ## Confirmations and errors
 
 Every destructive action asks first: revoking a token or grant, deleting a key, project or grant, disabling a project

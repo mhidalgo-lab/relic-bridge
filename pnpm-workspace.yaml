@@ -16,3 +16,8 @@ allowBuilds:
   esbuild: true
   workerd: true
 strictPeerDependencies: true
+
+# drizzle-kit 0.31 pulls esbuild 0.18 through the deprecated @esbuild-kit loader (GHSA-67mh-4wv8-2f99, dev server
+# only). Pin it to the patched line we already use; drizzle-kit only calls its transform API.
+overrides:
+  '@esbuild-kit/core-utils>esbuild': 0.25.12

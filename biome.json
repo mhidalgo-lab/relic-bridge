@@ -6,7 +6,15 @@
     "useIgnoreFile": true
   },
   "files": {
-    "includes": ["**", "!**/dist", "!**/coverage", "!**/.wrangler", "!**/test/fixtures/**/*.json"]
+    "includes": [
+      "**",
+      "!**/dist",
+      "!**/coverage",
+      "!**/.wrangler",
+      "!**/test/fixtures/**/*.json",
+      "!**/*.generated.ts",
+      "!packages/storage/migrations/meta"
+    ]
   },
   "formatter": {
     "enabled": true,
@@ -54,7 +62,7 @@
       }
     },
     {
-      "includes": ["apps/cli/test/**"],
+      "includes": ["apps/cli/test/**", "packages/storage/test/**"],
       "linter": {
         "rules": {
           "suspicious": {

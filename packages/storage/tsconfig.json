@@ -2,7 +2,9 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "types": [],
-    "lib": ["es2023", "webworker"]
+    "lib": ["es2023", "webworker"],
+    "isolatedDeclarations": false
   },
-  "include": ["src", "test"]
+  "include": ["src", "test"],
+  "exclude": ["test/sqlite"]
 }

@@ -47,7 +47,7 @@ export function sample(text = ''): Sample {
         id: 'usr_m',
         email: 'm@example.com',
         displayName: null,
-        idp: null,
+        idp: 'google',
         role: 'member',
         createdAt: T,
         updatedAt: T,

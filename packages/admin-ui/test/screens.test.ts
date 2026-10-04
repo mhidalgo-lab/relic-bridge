@@ -642,6 +642,70 @@ describe('users', () => {
     ]);
   });
 
+  it('unbind: owners only, warning shown, email asked again, nothing changes without it', async () => {
+    const { app, fake } = setup((call) =>
+      call.method === 'POST' ? { status: 200, body: { data: {} } } : undefined,
+    );
+    const ownerPage = await get(app, '/admin/users/usr_m', 'owner');
+    expect(ownerPage.html).toContain('/admin/users/usr_m/unbind');
+    const adminPage = await get(setup().app, '/admin/users/usr_m', 'admin');
+    expect(adminPage.html).not.toContain('/unbind');
+    const selfPage = await get(setup().app, '/admin/users/usr_owner', 'owner');
+    expect(selfPage.html).not.toContain('/unbind');
+
+    const confirmPage = await get(app, '/admin/users/usr_m/unbind', 'owner');
+    expect(confirmPage.html).toContain('Account takeover window');
+    expect(confirmPage.html).toContain('name="email"');
+    expect((await get(setup().app, '/admin/users/usr_m/unbind', 'admin')).res.status).toBe(403);
+    const forged = await post(setup().app, '/admin/users/usr_m/unbind', { email: 'm@example.com' }, 'admin');
+    expect(forged.res.status).toBe(403);
+
+    // The first step (no confirm=yes) and a missing email change nothing.
+    expect((await post(app, '/admin/users/usr_m/unbind', {}, 'owner')).res.status).toBe(200);
+    expect((await post(app, '/admin/users/usr_m/unbind', { confirm: 'yes' }, 'owner')).res.status).toBe(422);
+    expect(changes(fake)).toEqual([]);
+
+    const done = await post(
+      app,
+      '/admin/users/usr_m/unbind',
+      { confirm: 'yes', email: 'm@example.com' },
+      'owner',
+    );
+    expect(done.res.headers.get('set-cookie')).toMatch(/^rb_flash=identity_cleared;/);
+    expect(changes(fake)).toEqual([
+      { method: 'POST', path: '/users/usr_m/unbind', body: { confirm: 'm@example.com' } },
+    ]);
+  });
+
+  it('unbind: a wrong email re-renders without echoing it; a repeated send maps to a flash', async () => {
+    const wrong = setup((call) =>
+      call.method === 'POST'
+        ? { status: 400, body: { error: { code: 'invalid_request', message: 'x', field: 'confirm' } } }
+        : undefined,
+    );
+    const r = await post(
+      wrong.app,
+      '/admin/users/usr_m/unbind',
+      { confirm: 'yes', email: 'typo-canary@example.com' },
+      'owner',
+    );
+    expect(r.res.status).toBe(422);
+    expect(r.html).toContain('That is not this user');
+    expect(r.html).not.toContain('typo-canary');
+    const again = setup((call) =>
+      call.method === 'POST'
+        ? { status: 409, body: { error: { code: 'conflict', message: 'x' } } }
+        : undefined,
+    );
+    const a = await post(
+      again.app,
+      '/admin/users/usr_m/unbind',
+      { confirm: 'yes', email: 'm@example.com' },
+      'owner',
+    );
+    expect(a.res.headers.get('set-cookie')).toMatch(/^rb_flash=identity_none;/);
+  });
+
   it('a refusal by the admin API becomes a flash, not a crash', async () => {
     const { app } = setup((call) =>
       call.method === 'PATCH'

@@ -60,6 +60,13 @@ and for the screens the tool catalogue `tools`, `publicUrl` and the clock `now`)
 9. Register the screen in `registerScreens` (`app.ts`), and add each route to the P2-12 matrix
    (`packages/http-app/test/authz/matrix.ts`, `UI_ROUTES`). The guard test fails until you do.
 
+## Owner-only two-step pages (P4-14)
+
+`users.tsx` shows a dedicated confirmation page for the account unbind: `kit.page('owner')` for `GET /users/:id/unbind` and
+`kit.form('owner')` for the POST. The page form carries `confirm=yes` and a field the user must retype (the email); a
+wrong value re-renders the form with a fixed message (never the typed value). Gate the entry link by role in the detail
+page too, but treat the API as the decision.
+
 ## Audit and usage screens (P4-05)
 
 `screens/audit.tsx` (`/admin/audit`, `/admin/audit.csv`, any role) and `screens/usage.tsx` (`/admin/usage`, admin).

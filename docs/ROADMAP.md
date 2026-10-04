@@ -159,7 +159,7 @@ Generated from task front matter (`pnpm tasks index` once P0-05 lands). Status l
 | P4-11 | [Admin panel in a real browser: Playwright E2E and guide screenshots](tasks/phase-4-identity-admin/P4-11-admin-browser-e2e.md) | medium | P4-04 | todo |
 | P4-12 | [ZAP baseline scan of the admin panel](tasks/phase-4-identity-admin/P4-12-zap-baseline-scan.md) | low | P4-07 | todo |
 | P4-13 | [Revoke the GitHub OAuth token after the identity lookup](tasks/phase-4-identity-admin/P4-13-github-token-revoke.md) | low | P4-01 | review |
-| P4-14 | [Move a user to another provider from the admin panel](tasks/phase-4-identity-admin/P4-14-unbind-in-admin-ui.md) | low | P4-09, P4-04 | todo |
+| P4-14 | [Move a user to another provider from the admin panel](tasks/phase-4-identity-admin/P4-14-unbind-in-admin-ui.md) | low | P4-09, P4-04 | review |
 | P4-15 | [Member self-service screens in the admin panel](tasks/phase-4-identity-admin/P4-15-member-self-service-screens.md) | medium | P4-10, P4-04 | todo |
 
 ### Phase 5

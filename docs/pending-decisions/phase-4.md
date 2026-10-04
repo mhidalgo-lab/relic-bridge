@@ -320,3 +320,12 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Context:** A failed revocation (GitHub down, 5xx) is logged at `warn` and not retried. The token then lives until GitHub expires or the user revokes the app authorization.
 - **Assumption made:** One best-effort attempt is enough; the token is never stored, so a retry queue would need new state.
 - **Needs:** nothing unless the warnings turn out to be frequent.
+
+## P4-14 — Unbind in the admin panel
+
+### P4-14 — No single-use handle on the unbind form
+- **Context:** The task text mentions a single-use handle against re-sent forms. That handle (`_once`) exists to keep a
+  re-sent form from issuing a second secret (device tokens). Unbind issues nothing, and the API is idempotent in effect: a
+  re-sent form finds no identity and answers `409`, which the page shows as "This user has no sign-in identity to clear".
+- **Assumption made:** The retyped email plus the API's `409` are enough; no handle was added.
+- **Needs:** nothing unless a handle is wanted for consistency.

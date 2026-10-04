@@ -20,6 +20,8 @@ export type FlashCode =
   | 'enabled'
   | 'signed_out_everywhere'
   | 'user_added'
+  | 'identity_cleared'
+  | 'identity_none'
   | 'key_added'
   | 'key_rotated'
   | 'key_rotated_other_user'
@@ -52,6 +54,11 @@ export const FLASH_MESSAGES: Readonly<Record<FlashCode, FlashMessage>> = Object.
     kind: 'success',
     text: 'User added. They can sign in with a provider that confirms this email address.',
   },
+  identity_cleared: {
+    kind: 'success',
+    text: 'Sign-in identity cleared and the user signed out. The next verified sign-in with this email binds the account again: ask them to sign in now.',
+  },
+  identity_none: { kind: 'info', text: 'This user has no sign-in identity to clear.' },
   key_added: { kind: 'success', text: 'Key added. New Relic accepted it.' },
   key_rotated: { kind: 'success', text: 'Key replaced. New Relic accepted the new key.' },
   key_rotated_other_user: {

@@ -270,7 +270,7 @@ HTTP server (serve):
                          behind a proxy, or every client shares the proxy's address for
                          rate limiting.
   RB_RATE_LIMIT          on (default) or off: all rate limiting.
-  RB_RATE_LIMIT_IP | _AUTH_FAIL | _TOKEN | _GRANT | _PASSTHROUGH_KEY
+  RB_RATE_LIMIT_IP | _AUTH_FAIL | _TOKEN | _GRANT | _PASSTHROUGH_KEY | _SIGN_IN
                          One limit each, "<requests>/<seconds>" or off (see the self-hosting
                          guide for the defaults).
 

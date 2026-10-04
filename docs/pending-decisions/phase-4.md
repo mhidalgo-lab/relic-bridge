@@ -372,3 +372,21 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Context:** the OpenAPI scan sends generated requests to every operation (passive rules only, but the requests are real).
 - **Assumption made:** fine on a temporary database with fake keys and a mock NerdGraph; never point it at a real instance.
 
+
+## P4-08 — Docs and release v0.4
+
+### P4-08 — Cut v0.4.0 and validate the guides on a clean deployment
+- **Context:** like P1-15, P2-13 and P3-07, the task asks for a release and for a validation by a fresh agent session. The
+  run was unattended: no publish, tag, GitHub release, image push or deploy was made, and no changeset or version bump was
+  added (earlier phases left both to the owner; `.changeset/` holds no pending entries and the CLI is still 0.1.0).
+- **Assumption made:** the new `docs/guide/admin-guide.md` and the fixes to the existing guides were checked against the
+  source (routes, variables, defaults, warnings) and the built CLI (`--help`, `init --help`), not by a fresh session or a
+  clean deployment. README and ROADMAP say "implemented, not released yet".
+- **Needs (owner):** read the admin guide once on a phone, set up a real provider following it, fix what differs, then cut
+  v0.4.0 (v0.2 and v0.3 are also still unreleased: decide whether to release them first or as one train, and whether the
+  Phase 3 and Phase 4 pending decisions block it).
+
+### P4-08 — Allow-list without auto-provisioning is silent
+- **Context:** `RB_LOGIN_ALLOW_*` set with `RB_LOGIN_AUTO_PROVISION=off` admits nobody and logs no warning (the reverse
+  case does warn). The guide says so plainly.
+- **Needs:** owner choice: add a start-up warning in a follow-up task, or leave as is.

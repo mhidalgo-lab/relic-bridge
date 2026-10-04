@@ -1,0 +1,204 @@
+# Admin guide: from a running server to a team on their phones
+
+This is the page to start with once relic-bridge runs on a server (`relic-bridge serve`, Docker or a Cloudflare Worker).
+It walks through signing in, deciding who may sign in, the three roles, the first owner, a team where everyone brings
+their own New Relic key, and the daily tasks. Everything is done in a browser, on a phone too.
+
+Details live in the other guides; this page links to them:
+[identity providers](identity-providers.md) (provider setup) · [admin access](admin-access.md) (sessions, roles, CSRF) ·
+[admin panel](admin-panel.md) (every screen, with pictures) · [access model](access-model.md) ·
+[multi-device](multi-device.md) · [audit log](audit-log.md).
+
+![Overview on a phone](images/overview-phone-light.png) ![Token page on a phone](images/token-once-phone-light.png)
+
+## 1. What you need first
+
+- A running server reachable over `https` (a Worker, or `serve` behind TLS), and its public address as `RB_PUBLIC_URL`.
+  For a quick try on your own machine `http://localhost:8787` also works.
+- `RB_MASTER_KEY` (encrypts stored New Relic keys) and `RB_ADMIN_TOKEN` (32+ random characters). The admin token is the
+  break-glass owner: it is for the CLI and for the one-time first-owner step, not for daily use. See [secrets](secrets.md).
+- At least one sign-in provider. **Sign-in, and with it the panel, is off until one is configured.**
+
+## 2. Choose how people sign in
+
+| Provider | Choose it when | Set |
+|---|---|---|
+| Google | Your people have Google accounts (Workspace or personal). | `RB_GOOGLE_CLIENT_ID`, `RB_GOOGLE_CLIENT_SECRET`, optional `RB_GOOGLE_HOSTED_DOMAIN` |
+| GitHub | Your people are developers; you want to admit an organization. | `RB_GITHUB_CLIENT_ID`, `RB_GITHUB_CLIENT_SECRET` |
+| Cloudflare Access | Cloudflare Access already guards your hostname. | `RB_CF_ACCESS_TEAM`, `RB_CF_ACCESS_AUD` |
+| Any OpenID Connect | Okta, Entra ID, Auth0, Keycloak, Authentik, ... | `RB_OIDC_ISSUER`, `RB_OIDC_CLIENT_ID`, `RB_OIDC_CLIENT_SECRET` |
+
+You can configure several; the sign-in page lists them all. Step-by-step registration at each provider (redirect URI
+`<RB_PUBLIC_URL>/auth/callback/<provider>`) is in [identity providers](identity-providers.md#4-providers).
+
+![Sign-in page](images/sign-in-light.png#gh-light-mode-only)
+![Sign-in page](images/sign-in-dark.png#gh-dark-mode-only)
+
+## 3. Who may sign in: the allow-lists
+
+Signing in proves **who someone is**. It never decides **whether they may use relic-bridge**. That decision is yours,
+and the default is **no**. A person gets in only through one of three doors:
+
+| Door | How it works | Use it when |
+|---|---|---|
+| **1. You add the user** | `relic-bridge user add --email ana@example.com` or *Users → Add a user* in the panel. When Ana signs in with a provider that confirms that email, the account is bound to her provider identity. | Small teams. The safest choice: nobody is let in that you did not name. |
+| **2. Allow-list + auto-provisioning** | Someone you did not add signs in; if their identity matches an allow-list **and** `RB_LOGIN_AUTO_PROVISION` is `member` or `admin`, a user is created with that role. | Many people at one company. |
+| **3. A setup link** | A single-use link that makes whoever signs in through it the `owner`. | Only the first owner (section 4). |
+
+The allow-lists (comma-separated, only used by door 2):
+
+| Setting | Matches | Example |
+|---|---|---|
+| `RB_LOGIN_ALLOW_EMAILS` | exact addresses | `ana@example.com,bo@example.com` |
+| `RB_LOGIN_ALLOW_DOMAINS` | the part after `@`, exactly: `example.com` does **not** match `sub.example.com` | `example.com` |
+| `RB_LOGIN_ALLOW_GITHUB_ORGS` | active members of these GitHub organizations (GitHub sign-in only; a pending invitation does not count) | `my-org` |
+
+Read this twice:
+
+- **An allow-list alone admits nobody.** With `RB_LOGIN_AUTO_PROVISION=off` (the default) the allow-lists have no
+  effect (no warning is shown, so check this if people are refused). Setting auto-provisioning without any allow-list
+  also admits nobody, and the server logs a warning at start.
+- **Auto-provisioning never creates an owner.** Choose `member` (recommended) or `admin`. With `admin`, everyone who
+  matches the allow-list becomes an administrator on first sign-in; the server warns about it.
+- **A domain allow-list trusts that domain's mail system.** Anyone who can receive mail as `anyone@example.com` and gets
+  a provider to say that address is verified passes. That is fine for Google Workspace; think twice with a generic OIDC
+  provider, which can assert any address. For Google, `RB_GOOGLE_HOSTED_DOMAIN` additionally checks the signed token's
+  `hd` claim.
+- **Always refused**, whatever the lists say: an email the provider does not mark as verified (GitHub: the primary
+  address must be verified), a disabled user, and an email that belongs to a user already bound to a **different**
+  provider account. One user signs in with one provider account.
+- A user created by hand binds on the first sign-in whose verified email matches; after that the account is found by the
+  provider's stable id, not the email, so a changed address does not lock anyone out.
+
+If someone is refused, the browser shows only a generic message with a request id. The audit log (`login.denied`) has the
+reason: see the table in [identity providers](identity-providers.md#troubleshooting).
+
+## 4. The first owner
+
+Ask for a setup link with the admin token, open it in your browser and sign in with your provider:
+
+```sh
+relic-bridge setup-link --remote https://bridge.example.com --provider google --ttl 30   # admin token from RB_ADMIN_TOKEN
+```
+
+Whoever signs in through the link becomes `owner`. It works once, expires after `--ttl` minutes (default 60) and is
+printed once on stdout: treat it like a password until used. If a sign-in through it is refused (a disabled user, an
+identity conflict), the link is used up; ask for a new one. Other ways to get one (curl, local database) are in
+[identity providers](identity-providers.md#3-first-owner-setup-link).
+
+On a Worker, `pnpm cf:setup --sign-in` asks for the public URL and each provider's client id and secret first
+([Cloudflare deploy](cloudflare-deploy.md#sign-in-on-the-worker)).
+
+## 5. Roles
+
+| Role | In the panel and API |
+|---|---|
+| `owner` | Everything, including master-key rotation, setup links, **moving a user to another provider**, and managing other owners. The bootstrap `RB_ADMIN_TOKEN` acts as owner. |
+| `admin` | Keys, projects, grants, device tokens and users, the audit log with CSV export, usage statistics and the connect page. Cannot create, promote, change or sign out an owner. |
+| `member` | Overview, their own rows in the audit log, and **My access**: their own keys, their grants and device tokens. |
+
+Nobody can change their own role or disable themselves through a session. Changing a role or disabling a user ends all
+of that user's sessions at once. Details: [admin access](admin-access.md#roles).
+
+## 6. Set up a team that brings its own keys
+
+Each person uses their own New Relic User key, so New Relic's own permissions and audit trail still apply to them and
+nobody shares a key. You (admin or owner) shape the access; members attach their key and create their device tokens.
+
+1. **Create the project once** (*Projects → New project*): choose a default key (a key of yours or a shared one; its
+   region is the project's region), the accounts and tools the project may use, and its query limits. The project is
+   the ceiling: no grant can exceed it.
+2. **Add the people** (*Users → Add a user*) as `member`, or let auto-provisioning do it (section 3). Tell them the
+   panel's address (`<RB_PUBLIC_URL>/admin`); no email is sent.
+3. **Give each person a grant** (*Grants → New grant*): choose the project and the person, and optionally narrow tools and
+   accounts, add a rate limit and an expiry. Leave the key as *Project default* for now.
+4. **Each member signs in, opens *My access*** and:
+   - *Add a key*: pastes their New Relic User key (checked with New Relic, stored encrypted, never shown again);
+   - *Change key* on their grant, to use their own key instead of the project default (tools, accounts and limits stay
+     as you set them);
+   - *New device token* per device (`laptop`, `phone`): shown once, with connect snippets.
+5. If a member's key stops working (New Relic refuses it), their grant stops; yours and everyone else's do not.
+
+![My access (member)](images/member-my-access-light.png#gh-light-mode-only)
+![My access (member)](images/member-my-access-dark.png#gh-dark-mode-only)
+
+Members cannot create grants or widen them; that stays with administrators. The matching API is `/api/admin/v1/me/*`
+([admin access](admin-access.md#member-self-service-apiadminv1me)).
+
+## 7. Using it from a phone
+
+The panel is built for it: it works without JavaScript, holds together down to a 320 px wide screen with no sideways
+scrolling, and follows your light or dark setting.
+
+- Open `<RB_PUBLIC_URL>/admin` and sign in with the provider. A link to a panel page from chat or mail works; it asks you
+  to sign in and then brings you back to the same page.
+- **Lost or retired phone:** *Devices*, find the token (its device name and prefix are listed), *Revoke*. It stops at once.
+  Other devices keep working because each has its own token.
+- **A new device from the phone:** *Devices → New device token*, copy the token right away (it is shown once), paste it
+  into the client. *Connect* shows the snippets for Claude Code, Cursor, VS Code and Claude Desktop.
+- Sessions end after **30 minutes without a request** and **12 hours after sign-in**, whatever you do. On a phone you can
+  lengthen them with `RB_SESSION_IDLE_MINUTES` (5 to 1440) and `RB_SESSION_MAX_HOURS` (1 to 168); the idle time may not
+  exceed the maximum. Shorter is safer, so lengthen only as far as you need.
+- The Claude mobile app and claude.ai on the web cannot use device tokens: they need OAuth, which is Phase 5. Until then
+  the phone is for **managing** relic-bridge, and for MCP clients that accept a bearer token.
+
+![Projects on a phone](images/projects-phone-light.png)
+
+## 8. Sessions, sign-out and CSRF in short
+
+- The cookie is `__Host-rb_session` (`rb_session` on `http://localhost`): `HttpOnly`, `Secure`, `SameSite=Lax`, no
+  `Domain`. The database keeps only its hash, so signing out or revoking takes effect on every server instance at once.
+- *Sign out* and *Sign out everywhere* are at the bottom of every page. An admin can end all sessions of a user from
+  that user's page; their device tokens keep working (disable the user or revoke the grant to stop those).
+- Every form carries a CSRF token and is accepted only from the panel's own origin. Cross-site images, scripts, frames and
+  `fetch` calls never reach the session. Bearer tokens never open a panel page.
+- Sign-in requests are rate limited per client address: `RB_RATE_LIMIT_SIGN_IN`, default `60/300` (60 per 5 minutes).
+  Behind a reverse proxy, set `RB_TRUSTED_PROXY_HOPS` or everyone shares one address.
+
+## 9. Everyday tasks
+
+| Task | Where |
+|---|---|
+| Someone leaves | *Users*, open them, *Disable*: signs them out and stops their grants and personal keys. Delete their keys afterwards if you want them gone. |
+| A device is lost | *Devices*, *Revoke*. |
+| A key leaked or rotated at New Relic | *Keys*, open it, *Replace the key*; revoke the old one in New Relic. |
+| A user wants another provider | Owner: user page, *Move to another provider* (or `relic-bridge user unbind`). Until they sign in again, anyone controlling that email at a configured provider can take the account; check with the person first. |
+| Who did what | *Audit*: filter by time, kind, status, user, device; *Download CSV* (up to 5,000 rows). Members see only their own rows. |
+| What is used | *Usage*: calls, errors, denied calls and timings per tool, project, grant, device or day. |
+| Add a device quickly | *Connect*: pick the project, create a token, copy the snippet. |
+
+![Audit viewer](images/audit-light.png#gh-light-mode-only)
+![Audit viewer](images/audit-dark.png#gh-dark-mode-only)
+
+## 10. Settings added in Phase 4
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `RB_PUBLIC_URL` | unset | Origin browsers use (https, or `http://localhost`). Required for sign-in; with `serve` its host must be in `RB_ALLOWED_HOSTS`. |
+| `RB_GOOGLE_CLIENT_ID`, `RB_GOOGLE_CLIENT_SECRET`, `RB_GOOGLE_HOSTED_DOMAIN` | unset | Google. |
+| `RB_GITHUB_CLIENT_ID`, `RB_GITHUB_CLIENT_SECRET` | unset | GitHub. The user token is revoked at GitHub right after the lookup. |
+| `RB_OIDC_ISSUER`, `RB_OIDC_CLIENT_ID`, `RB_OIDC_CLIENT_SECRET`, `RB_OIDC_NAME`, `RB_OIDC_LABEL`, `RB_OIDC_SCOPES` | unset | Generic OpenID Connect. |
+| `RB_CF_ACCESS_TEAM`, `RB_CF_ACCESS_AUD` | unset | Cloudflare Access. |
+| `RB_GOOGLE_CLIENT_SECRET_FILE`, `RB_GITHUB_CLIENT_SECRET_FILE`, `RB_OIDC_CLIENT_SECRET_FILE` | unset | `serve` only: read the secret from a file (mode `0600`, only the secret). Setting both forms is an error. |
+| `RB_LOGIN_ALLOW_EMAILS`, `RB_LOGIN_ALLOW_DOMAINS`, `RB_LOGIN_ALLOW_GITHUB_ORGS` | unset | Allow-lists (section 3). |
+| `RB_LOGIN_AUTO_PROVISION` | `off` | `off`, `member` or `admin`. Never `owner`. |
+| `RB_SESSION_IDLE_MINUTES` | `30` | 5 to 1440. |
+| `RB_SESSION_MAX_HOURS` | `12` | 1 to 168. |
+| `RB_RATE_LIMIT_SIGN_IN` | `60/300` | Sign-in requests per client address. |
+
+Variables go in the environment for `serve` (also Docker and compose). On a Worker, ids and public settings are
+variables and client secrets are Worker secrets; `pnpm cf:setup --sign-in` sets them (it asks for the public URL, each
+provider's client id and secret, and takes the same answers from `RB_PUBLIC_URL`, `RB_GOOGLE_CLIENT_ID`,
+`RB_GOOGLE_CLIENT_SECRET`, ... in your shell when there is no terminal). Cloudflare Access variables are set in the
+dashboard. A full list for `serve` is in [self-hosting](self-hosting.md#run-the-server) and `relic-bridge --help`.
+
+## 11. For contributors: checking the panel
+
+Two checks sit outside `pnpm test` because they need a browser or Docker:
+
+- `pnpm test:e2e`: Playwright (Chromium) drives the real built server with a mock identity provider and a mock NerdGraph
+  through the whole panel; `pnpm e2e:screenshots` rewrites the pictures in `docs/guide/images/`.
+- `pnpm scan:zap`: an OWASP ZAP baseline scan of the sign-in page, the panel (signed in) and the API; Medium or High
+  alerts not listed in `.zap/rules.tsv` fail it. Run it only against its own throwaway instance.
+
+Both are described in [CONTRIBUTING](../../CONTRIBUTING.md) and [`docs/dev/admin-ui.md`](../dev/admin-ui.md).

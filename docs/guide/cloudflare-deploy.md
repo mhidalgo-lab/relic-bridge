@@ -312,8 +312,8 @@ in batches of 500 (at most 10 statements per run), whatever `RB_AUDIT_RETENTION_
 
 ## Harden the admin API
 
-The admin API (`/api/admin/v1`) is reachable from the internet and protected by `RB_ADMIN_TOKEN` alone until Phase 4
-sign-in. What protects it:
+The admin API (`/api/admin/v1`) is reachable from the internet and protected by `RB_ADMIN_TOKEN`, or by an admin
+session once [sign-in](identity-providers.md) is configured. What protects it:
 
 - **Token strength.** `cf:setup` and `admin-token generate` make 256-bit tokens; the Worker refuses predictable ones at
   boot.
@@ -339,8 +339,8 @@ checked 2026-10-03). Use it only where a **person with a browser** is the client
 - **Do not put it in front of `/api/admin/v1` today** either: the CLI's `--remote` sends only the admin token, so Access
   would lock you out of the CLI. The admin API stays protected by `RB_ADMIN_TOKEN` (32+ random characters, only the
   holder can call it); keep that token off the devices that only need MCP.
-- **Good fit: the admin panel** that arrives in Phase 4 (browser, phone friendly): protect that path (or its own
-  hostname) with an Access policy for your email, with Cloudflare Access as a sign-in provider (P4-01). Create it as a
+- **Good fit: the [admin panel](admin-panel.md)** (`/admin`, browser, phone friendly): protect that path (or its own
+  hostname) with an Access policy for your email, with Cloudflare Access as a sign-in provider. Create it as a
   self-hosted application on that path only, so `/p/*/mcp`, `/health` and the OAuth endpoints stay reachable.
 - Access needs Zero Trust enabled on the account and a custom domain or `workers.dev` hostname; check
   [Cloudflare's plans](https://www.cloudflare.com/plans/zero-trust-services/) for its current free allowance.

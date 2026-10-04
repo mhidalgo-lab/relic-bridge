@@ -2,7 +2,7 @@
 id: P4-08
 title: "Docs — admin guide and release v0.4"
 phase: 4
-status: in-progress
+status: review
 priority: medium
 depends_on: [P4-05, P4-06, P4-07]
 adr: []

@@ -32,12 +32,20 @@ export const PERMISSIONS_POLICY: string = [
 ].join(', ');
 
 /**
+ * Referrer policy of HTML pages. Not `no-referrer`: with it a browser sends `Origin: null` on every form POST (Fetch
+ * spec), which the CSRF check rightly refuses, so no form would ever work. `same-origin` sends the real `Origin` to
+ * this server and no referrer at all to anyone else (found by the P4-11 browser run).
+ */
+export const UI_REFERRER_POLICY = 'same-origin';
+
+/**
  * Headers an HTML page sets itself (the app adds `nosniff`, `X-Frame-Options`, HSTS, …). `no-store` is set here too,
  * not only by the app: pages carry CSRF tokens and the one-time device token page (P4-04) must never be cached.
  */
 export const UI_PAGE_HEADERS: Readonly<Record<string, string>> = Object.freeze({
   'Content-Type': 'text/html; charset=utf-8',
   'Cache-Control': 'no-store',
+  'Referrer-Policy': UI_REFERRER_POLICY,
   'Content-Security-Policy': UI_CSP,
   'Cross-Origin-Opener-Policy': 'same-origin',
   'Permissions-Policy': PERMISSIONS_POLICY,

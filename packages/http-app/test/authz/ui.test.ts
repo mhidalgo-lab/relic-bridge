@@ -52,7 +52,7 @@ function expectUiHeaders(res: Captured, what: string) {
   expect(res.headers.get('permissions-policy'), what).toBe(PERMISSIONS_POLICY);
   expect(res.headers.get('x-frame-options'), what).toBe('DENY');
   expect(res.headers.get('x-content-type-options'), what).toBe('nosniff');
-  expect(res.headers.get('referrer-policy'), what).toBe('no-referrer');
+  expect(res.headers.get('referrer-policy'), what).toBe('same-origin');
   expect(res.headers.get('cache-control'), what).toBe('no-store');
   expect(res.text.startsWith('<!doctype html><html lang="en">'), what).toBe(true);
 }

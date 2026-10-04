@@ -616,6 +616,221 @@ Request body (`CreateSetupLink`):
 | 415 | `Error` | Body is not JSON (`unsupported_media_type`) |
 | 422 | `Error` | Refused by a rule (`not_permitted`) or New Relic refused the key (`key_rejected`) |
 
+## Me
+
+### GET /me/credentials
+
+List my New Relic keys (masked)
+
+Only keys owned by the signed-in user. Needs a session (the admin token owns nothing).
+
+| Parameter | In | Type | Required | Description |
+| --- | --- | --- | --- | --- |
+| `limit` | query | `integer` | no | Page size, 1-200 (default 50). |
+| `cursor` | query | `string` | no | `nextCursor` from the previous page. |
+
+| Status | Body | Description |
+| --- | --- | --- |
+| 200 | `CredentialPage` | Your keys, without key material |
+| 403 | `Error` | Session refused: role too low, missing/invalid CSRF token or cross-origin request (`forbidden`) |
+
+### POST /me/credentials
+
+Add my own New Relic User key
+
+Validates the key and stores it encrypted, owned by you (it cannot be shared or given to someone else). At most 10 per user. The key is never returned.
+
+Request body (`CreateMyCredential`):
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `label` | `string` | yes |  |
+| `region` | `"US" \| "EU" \| "JP"` | yes |  |
+| `apiKey` | `string` | yes | New Relic User API key (`NRAK-…`). Accepted in the request body only; never returned. |
+
+| Status | Body | Description |
+| --- | --- | --- |
+| 201 | `CredentialResponse` | Created (masked) |
+| 403 | `Error` | Session refused: role too low, missing/invalid CSRF token or cross-origin request (`forbidden`) |
+| 409 | `Error` | Conflicts with existing data (`conflict`, `read_only`) |
+| 413 | `Error` | Body too large (`payload_too_large`) |
+| 415 | `Error` | Body is not JSON (`unsupported_media_type`) |
+| 422 | `Error` | Refused by a rule (`not_permitted`) or New Relic refused the key (`key_rejected`) |
+| 502 | `Error` | New Relic could not be asked (`upstream_unavailable`) |
+
+### PATCH /me/credentials/{id}
+
+Rename my key
+
+| Parameter | In | Type | Required | Description |
+| --- | --- | --- | --- | --- |
+| `id` | path | `string` | yes |  |
+
+Request body (`UpdateCredential`):
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `label` | `string` | yes |  |
+
+| Status | Body | Description |
+| --- | --- | --- |
+| 200 | `CredentialResponse` | Updated |
+| 403 | `Error` | Session refused: role too low, missing/invalid CSRF token or cross-origin request (`forbidden`) |
+| 404 | `Error` | No such resource (`not_found`) |
+| 413 | `Error` | Body too large (`payload_too_large`) |
+| 415 | `Error` | Body is not JSON (`unsupported_media_type`) |
+
+### DELETE /me/credentials/{id}
+
+Delete my key
+
+Refused (`409`) while one of your grants uses it: point the grant elsewhere first.
+
+| Parameter | In | Type | Required | Description |
+| --- | --- | --- | --- | --- |
+| `id` | path | `string` | yes |  |
+
+| Status | Body | Description |
+| --- | --- | --- |
+| 204 | — | Deleted |
+| 403 | `Error` | Session refused: role too low, missing/invalid CSRF token or cross-origin request (`forbidden`) |
+| 404 | `Error` | No such resource (`not_found`) |
+| 409 | `Error` | Conflicts with existing data (`conflict`, `read_only`) |
+
+### POST /me/credentials/{id}/rotate
+
+Replace my key
+
+| Parameter | In | Type | Required | Description |
+| --- | --- | --- | --- | --- |
+| `id` | path | `string` | yes |  |
+
+Request body (`RotateCredential`):
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `apiKey` | `string` | yes | New Relic User API key (`NRAK-…`). Accepted in the request body only; never returned. |
+
+| Status | Body | Description |
+| --- | --- | --- |
+| 200 | `CredentialResponse` | Rotated (masked) |
+| 403 | `Error` | Session refused: role too low, missing/invalid CSRF token or cross-origin request (`forbidden`) |
+| 404 | `Error` | No such resource (`not_found`) |
+| 409 | `Error` | Conflicts with existing data (`conflict`, `read_only`) |
+| 413 | `Error` | Body too large (`payload_too_large`) |
+| 415 | `Error` | Body is not JSON (`unsupported_media_type`) |
+| 422 | `Error` | Refused by a rule (`not_permitted`) or New Relic refused the key (`key_rejected`) |
+| 502 | `Error` | New Relic could not be asked (`upstream_unavailable`) |
+
+### POST /me/credentials/{id}/revalidate
+
+Re-check my key against New Relic
+
+| Parameter | In | Type | Required | Description |
+| --- | --- | --- | --- | --- |
+| `id` | path | `string` | yes |  |
+
+| Status | Body | Description |
+| --- | --- | --- |
+| 200 | `RevalidationResponse` | Outcome |
+| 403 | `Error` | Session refused: role too low, missing/invalid CSRF token or cross-origin request (`forbidden`) |
+| 404 | `Error` | No such resource (`not_found`) |
+
+### GET /me/grants
+
+List my grants
+
+Grants assigned to you (an administrator creates them), with the project to connect to.
+
+| Parameter | In | Type | Required | Description |
+| --- | --- | --- | --- | --- |
+| `limit` | query | `integer` | no | Page size, 1-200 (default 50). |
+| `cursor` | query | `string` | no | `nextCursor` from the previous page. |
+
+| Status | Body | Description |
+| --- | --- | --- |
+| 200 | `MyGrantPage` | Your grants |
+| 403 | `Error` | Session refused: role too low, missing/invalid CSRF token or cross-origin request (`forbidden`) |
+
+### PATCH /me/grants/{id}
+
+Use one of my keys for my grant
+
+Points one of your live grants at one of your own keys, or back at the project default (`null`). The key must be yours and valid; the grant's scope (tools, accounts, limits) does not change.
+
+| Parameter | In | Type | Required | Description |
+| --- | --- | --- | --- | --- |
+| `id` | path | `string` | yes |  |
+
+Request body (`SetMyGrantCredential`):
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `credentialId` | `string \| null` | yes | One of your own keys (`GET /me/credentials`); null = the project default. |
+
+| Status | Body | Description |
+| --- | --- | --- |
+| 200 | `MyGrantResponse` | Updated |
+| 403 | `Error` | Session refused: role too low, missing/invalid CSRF token or cross-origin request (`forbidden`) |
+| 404 | `Error` | No such resource (`not_found`) |
+| 409 | `Error` | Conflicts with existing data (`conflict`, `read_only`) |
+| 413 | `Error` | Body too large (`payload_too_large`) |
+| 415 | `Error` | Body is not JSON (`unsupported_media_type`) |
+| 422 | `Error` | Refused by a rule (`not_permitted`) or New Relic refused the key (`key_rejected`) |
+
+### GET /me/tokens
+
+List the device tokens of my grants
+
+| Parameter | In | Type | Required | Description |
+| --- | --- | --- | --- | --- |
+| `limit` | query | `integer` | no | Page size, 1-200 (default 50). |
+| `cursor` | query | `string` | no | `nextCursor` from the previous page. |
+| `grantId` | query | `string` | no | Only this grant. |
+
+| Status | Body | Description |
+| --- | --- | --- |
+| 200 | `AccessTokenPage` | Token metadata, never the token |
+| 403 | `Error` | Session refused: role too low, missing/invalid CSRF token or cross-origin request (`forbidden`) |
+| 404 | `Error` | No such resource (`not_found`) |
+
+### POST /me/tokens
+
+Issue a device token for one of my grants
+
+Shown once. At most 20 live tokens per grant.
+
+Request body (`CreateToken`):
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `grantId` | `string` | yes | Grant the token authenticates. |
+| `label` | `string` | yes | Device name (`laptop`, `work-pc`). |
+| `ttlSeconds` | `integer \| "never"` | no | Lifetime in seconds (default 90 days), or `'never'` (warned). |
+
+| Status | Body | Description |
+| --- | --- | --- |
+| 201 | `AccessTokenCreated` | Created; the token is in the body, once |
+| 403 | `Error` | Session refused: role too low, missing/invalid CSRF token or cross-origin request (`forbidden`) |
+| 404 | `Error` | No such resource (`not_found`) |
+| 409 | `Error` | Conflicts with existing data (`conflict`, `read_only`) |
+| 413 | `Error` | Body too large (`payload_too_large`) |
+| 415 | `Error` | Body is not JSON (`unsupported_media_type`) |
+
+### POST /me/tokens/{id}/revoke
+
+Revoke one of my device tokens
+
+| Parameter | In | Type | Required | Description |
+| --- | --- | --- | --- | --- |
+| `id` | path | `string` | yes |  |
+
+| Status | Body | Description |
+| --- | --- | --- |
+| 200 | `AccessTokenResponse` | Revoked |
+| 403 | `Error` | Session refused: role too low, missing/invalid CSRF token or cross-origin request (`forbidden`) |
+| 404 | `Error` | No such resource (`not_found`) |
+
 ## Audit
 
 ### GET /audit
@@ -782,6 +997,14 @@ Token metadata. The token hash is never returned.
 | `rateLimit` | `RateLimit` | no |  |
 | `expiresAt` | `integer \| null` | no | Epoch ms, in the future. |
 
+### CreateMyCredential
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `label` | `string` | yes |  |
+| `region` | `"US" \| "EU" \| "JP"` | yes |  |
+| `apiKey` | `string` | yes | New Relic User API key (`NRAK-…`). Accepted in the request body only; never returned. |
+
 ### CreateProject
 
 | Field | Type | Required | Description |
@@ -923,6 +1146,26 @@ Query limits; absent fields fall back to the defaults.
 | `maxResponseBytes` | `integer` | no |  |
 | `eventTypes` | `object` | no |  |
 
+### MyGrant
+
+A grant assigned to the caller, with the project it is for.
+
+_No fields._
+
+### MyGrantPage
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `data` | `MyGrant[]` | yes |  |
+| `nextCursor` | `string \| null` | yes | Pass as `cursor` for the next page; null at the end. |
+
+### MyGrantResponse
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `data` | `MyGrant` | yes | A grant assigned to the caller, with the project it is for. |
+| `warnings` | `string[]` | no | Non-fatal notes about the change (e.g. parts of a grant the project does not allow). |
+
 ### Project
 
 | Field | Type | Required | Description |
@@ -1020,6 +1263,12 @@ Query limits; absent fields fall back to the defaults.
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `data` | `SessionsRevoked` | yes |  |
+
+### SetMyGrantCredential
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `credentialId` | `string \| null` | yes | One of your own keys (`GET /me/credentials`); null = the project default. |
 
 ### SetupLink
 

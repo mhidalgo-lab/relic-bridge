@@ -298,3 +298,20 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 
 ### P4-09 — Follow-ups split into tasks
 - GitHub OAuth token revocation after the lookup: P4-13. Unbind in the admin panel: P4-14.
+
+### P4-10 — Members cannot create their own grants; BYO keys are not switchable per project
+- **Context:** The BYO-key flow needs a grant. Grants decide scope (project, tools, accounts, limits), so P4-10 leaves
+  creating them to administrators; a member adds a key, then points an existing grant of theirs at it.
+  Any member can switch their grant to their own key, and there is no per-project "BYO keys not allowed" switch.
+- **Assumption made:** Administrators assign grants; members choose which of their own keys a grant uses.
+- **Options:** (a) keep; (b) a project flag `selfService` letting members create a user grant on it with the project's
+  defaults (tools/accounts capped by the project); (c) a project flag forbidding member key switches.
+- **Needs:** owner choice; (b) and (c) are small follow-up tasks if wanted.
+
+### P4-10 — Caps on self-service
+- **Context:** 10 keys per user and 20 live tokens per grant are constants in `admin/api.ts`, not settings.
+- **Assumption made:** Generous for personal use, and bound storage and New Relic validation calls.
+- **Needs:** nothing unless a team hits them.
+
+### P4-10 — Member screens split out
+- Screens for members (P4-15) and a session list for members (not built) are follow-ups.

@@ -407,6 +407,39 @@ export const TokenCreated = z
   .openapi('AccessTokenCreated');
 
 // ---------------------------------------------------------------------------------------------------------------
+// Member self-service (P4-10): `/me/*`. The caller's own rows only; no user, owner or project ids are accepted.
+// ---------------------------------------------------------------------------------------------------------------
+
+/** A key the caller adds is always theirs: there is no `ownerUserId` (strict: sending one is a `400`). */
+export const CreateMyCredentialBody = z.strictObject({ label, region, apiKey }).openapi('CreateMyCredential');
+
+export const MyCredentialQuery = PageQuery;
+
+export const MyGrantSchema = GrantSchema.extend({
+  project: z
+    .object({
+      slug: z.string().openapi({ description: 'Connect at `/p/{slug}/mcp`.' }),
+      name: z.string().nullable(),
+      disabled: z.boolean(),
+    })
+    .nullable()
+    .openapi({ description: 'The project the grant is for (null if it no longer exists).' }),
+}).openapi('MyGrant', {
+  description: 'A grant assigned to the caller, with the project it is for.',
+});
+
+export const SetMyGrantCredentialBody = z
+  .strictObject({
+    credentialId: idRef(
+      'One of your own keys (`GET /me/credentials`); null = the project default.',
+    ).nullable(),
+  })
+  .openapi('SetMyGrantCredential');
+
+export const MyGrantPage = page(MyGrantSchema, 'MyGrantPage');
+export const MyGrantOne = one(MyGrantSchema, 'MyGrantResponse');
+
+// ---------------------------------------------------------------------------------------------------------------
 // Audit
 // ---------------------------------------------------------------------------------------------------------------
 

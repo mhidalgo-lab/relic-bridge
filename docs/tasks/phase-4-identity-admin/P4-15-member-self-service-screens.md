@@ -1,0 +1,38 @@
+---
+id: P4-15
+title: "Member self-service screens in the admin panel"
+phase: 4
+status: todo
+priority: medium
+depends_on: [P4-10, P4-04]
+adr: [0009]
+owner: ""
+---
+
+# P4-15 — Member self-service screens in the admin panel
+
+## Goal
+P4-10 gave members an API for their own keys, grants and device tokens. A member who signs in to `/admin` still sees
+only the overview and the audit page. Give them screens for the BYO-key flow (phone first).
+
+## Scope
+- A "My access" area (`/admin/me`, minimum role `member`) built on `kit.page` / `kit.form` and the in-process
+  `/me/*` API calls: my keys (add, rename, rotate, revalidate, delete), my grants (use my key, back to default) and my
+  device tokens (issue with the one-time token page and connect snippet, revoke). Same conventions as P4-04 (CSRF,
+  confirmation for destructive actions, secrets only in POST bodies, one-time handle for the new token).
+- Navigation entry for members; the admin-only entries stay hidden.
+- P2-12 UI matrix rows (HTTP app and Worker), axe-core on every page and state, member gating tests.
+
+## Acceptance criteria
+- [ ] A member completes add key, use it on their grant and issue a device token in the browser.
+- [ ] A forged form post naming another user's key, grant or token changes nothing (`404` page).
+- [ ] UI matrix rows and axe-core pass.
+
+## Security notes
+T3, T13, T14: the pages hold no ownership logic; the API decides.
+
+## Docs to update
+- `docs/dev/admin-ui.md`, `docs/guide/admin-access.md`.
+
+## Out of scope
+- Members creating their own grants.

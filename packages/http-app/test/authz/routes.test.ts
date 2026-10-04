@@ -20,6 +20,7 @@ import {
   ADMIN_PRINCIPALS,
   ADMIN_ROUTES,
   IDENTITY_ROUTES,
+  isSelfService,
   MCP_PRINCIPALS,
   MCP_ROUTES,
   PASSTHROUGH_PRINCIPALS,
@@ -214,6 +215,12 @@ describe('admin routes × principals', () => {
   it('positive control: the admin token gets the expected answer on every admin route', async () => {
     for (const route of ADMIN_ROUTES) {
       const res = await h.send(requestFor(route, { headers: { authorization: `Bearer ${ADMIN_TOKEN}` } }));
+      // Self-service routes belong to a user: the admin token is nobody there.
+      if (isSelfService(route)) {
+        expect(res.status, `${route.method} ${route.path}`).toBe(403);
+        expect(JSON.parse(res.text).error).toMatchObject({ code: 'forbidden', detail: 'no_user' });
+        continue;
+      }
       const want = adminControlStatus(route);
       expect(res.status, `${route.method} ${route.path}`).toBe(want);
       if (want === 404) expect(JSON.parse(res.text).error.code).toBe('not_found');
@@ -311,6 +318,8 @@ describe('admin routes × session principals (P4-02)', () => {
     const member = await h.addSession({ role: 'member' });
     const before = await snapshot();
     for (const route of ADMIN_ROUTES) {
+      // Self-service routes are open to members by design; they are exercised in `member-self-service.test.ts`.
+      if (isSelfService(route)) continue;
       const res = await h.send(requestFor(route, { headers: member.headers }));
       if (ANY_ROLE.has(`${route.method} ${route.pattern}`)) expect(res.status).toBe(200);
       else await expectForbidden(route, res, 'role', 'member session');
@@ -319,7 +328,7 @@ describe('admin routes × session principals (P4-02)', () => {
     expect(h.nerdGraph.calls).toEqual([]);
     // Each refusal is an audited `admin.forbidden` naming the member.
     const refusals = (await h.auditRows()).filter((r) => r.action === 'admin.forbidden');
-    expect(refusals.length).toBeGreaterThanOrEqual(ADMIN_ROUTES.length - 3);
+    expect(refusals.length).toBeGreaterThanOrEqual(ADMIN_ROUTES.filter((r) => !isSelfService(r)).length - 3);
     for (const row of refusals) expect(row).toMatchObject({ status: 'denied', userId: member.userId });
   });
 

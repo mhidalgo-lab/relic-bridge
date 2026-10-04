@@ -26,6 +26,9 @@ const INITIALIZE = {
   params: { protocolVersion: '2025-11-25', capabilities: {}, clientInfo: { name: 'authz', version: '0' } },
 };
 
+/** Self-service routes (P4-10): `/me/*`. */
+export const isSelfService = (route: RouteCase): boolean => route.pattern.startsWith('/api/admin/v1/me/');
+
 export const MCP_ROUTES: readonly RouteCase[] = [
   { method: 'POST', pattern: '/p/:slug/mcp', path: '/p/{slug}/mcp', body: INITIALIZE },
   { method: 'GET', pattern: '/p/:slug/mcp', path: '/p/{slug}/mcp' },
@@ -119,6 +122,47 @@ export const ADMIN_ROUTES: readonly RouteCase[] = [
   { method: 'POST', pattern: `${A}/keys/rotate`, path: `${A}/keys/rotate`, body: {} },
   // Owner setup link (P4-01): the control call issues one (a single-use code in `kv`, nothing else changes).
   { method: 'POST', pattern: `${A}/setup-links`, path: `${A}/setup-links`, body: {} },
+  // Member self-service (P4-10): a session user's own rows. The admin token is nobody (403 `no_user`); ids don't exist.
+  { method: 'GET', pattern: `${A}/me/credentials`, path: `${A}/me/credentials` },
+  {
+    method: 'POST',
+    pattern: `${A}/me/credentials`,
+    path: `${A}/me/credentials`,
+    body: { label: 'mine', region: 'US', apiKey: NR_KEY_ADMIN },
+  },
+  {
+    method: 'PATCH',
+    pattern: `${A}/me/credentials/:id`,
+    path: `${A}/me/credentials/cred_none`,
+    body: { label: 'x' },
+  },
+  { method: 'DELETE', pattern: `${A}/me/credentials/:id`, path: `${A}/me/credentials/cred_none` },
+  {
+    method: 'POST',
+    pattern: `${A}/me/credentials/:id/rotate`,
+    path: `${A}/me/credentials/cred_none/rotate`,
+    body: { apiKey: NR_KEY_ADMIN },
+  },
+  {
+    method: 'POST',
+    pattern: `${A}/me/credentials/:id/revalidate`,
+    path: `${A}/me/credentials/cred_none/revalidate`,
+  },
+  { method: 'GET', pattern: `${A}/me/grants`, path: `${A}/me/grants` },
+  {
+    method: 'PATCH',
+    pattern: `${A}/me/grants/:id`,
+    path: `${A}/me/grants/grt_none`,
+    body: { credentialId: null },
+  },
+  { method: 'GET', pattern: `${A}/me/tokens`, path: `${A}/me/tokens` },
+  {
+    method: 'POST',
+    pattern: `${A}/me/tokens`,
+    path: `${A}/me/tokens`,
+    body: { grantId: 'grt_none', label: 'laptop' },
+  },
+  { method: 'POST', pattern: `${A}/me/tokens/:id/revoke`, path: `${A}/me/tokens/tok_none/revoke` },
   // Not a registered route: the admin catch-all (`ALL /api/admin/v1/*`) must authenticate before saying 404.
   { method: 'GET', pattern: `${A}/*`, path: `${A}/no-such-endpoint` },
 ];

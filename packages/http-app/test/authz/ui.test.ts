@@ -49,6 +49,7 @@ function expectUiHeaders(res: Captured, what: string) {
   expect(res.headers.get('content-type'), what).toBe('text/html; charset=utf-8');
   expect(res.headers.get('content-security-policy'), what).toBe(UI_CSP);
   expect(res.headers.get('cross-origin-opener-policy'), what).toBe('same-origin');
+  expect(res.headers.get('cross-origin-embedder-policy'), what).toBe('require-corp');
   expect(res.headers.get('permissions-policy'), what).toBe(PERMISSIONS_POLICY);
   expect(res.headers.get('x-frame-options'), what).toBe('DENY');
   expect(res.headers.get('x-content-type-options'), what).toBe('nosniff');
@@ -291,6 +292,7 @@ describe('admin UI headers on every HTML page (P4-03)', () => {
   it('JSON routes keep the JSON-only policy', async () => {
     const res = await get('/health');
     expect(res.headers.get('content-security-policy')).toBe("default-src 'none'; frame-ancestors 'none'");
+    expect(res.headers.get('permissions-policy')).toBe(PERMISSIONS_POLICY);
   });
 });
 
@@ -304,6 +306,7 @@ describe('admin UI assets (P4-03)', () => {
       expect(res.headers.get('cache-control')).toBe(ASSET_CACHE_CONTROL);
       expect(res.headers.get('x-content-type-options')).toBe('nosniff');
       expect(res.headers.get('cross-origin-resource-policy')).toBe('same-origin');
+      expect(res.headers.get('permissions-policy')).toBe(PERMISSIONS_POLICY);
       expect(res.headers.get('content-security-policy')).toBe("default-src 'none'; frame-ancestors 'none'");
       expect(res.headers.get('set-cookie')).toBeNull();
     }

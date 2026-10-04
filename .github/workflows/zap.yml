@@ -1,0 +1,38 @@
+# OWASP ZAP baseline (passive) scan of the admin panel (P4-12). Manual only: the ZAP image is large and the run takes
+# minutes, so it is never triggered by pull requests or pushes. Run it before a release or after changing admin-ui,
+# headers, cookies or sign-in, or run `pnpm scan:zap` locally. It scans only a throwaway server started on the runner's
+# loopback (mock identity provider, fake keys); no secrets, no deploy, no external host.
+name: Admin ZAP baseline
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  zap:
+    name: ZAP baseline (loopback)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm scan:zap
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: zap-reports
+          path: zap-reports/*.html
+          if-no-files-found: ignore
+          retention-days: 7

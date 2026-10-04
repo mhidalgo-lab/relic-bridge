@@ -2,7 +2,7 @@
 id: P4-12
 title: "ZAP baseline scan of the admin panel"
 phase: 4
-status: in-progress
+status: review
 priority: low
 depends_on: [P4-07]
 adr: []
@@ -26,10 +26,10 @@ P4-07 reviewed the admin panel by hand and with probe tests; its original scope 
   the scan needs Docker and a browser-free but multi-minute run.
 
 ## Acceptance criteria
-- [ ] The scan runs locally from one command and fails on any unreviewed medium or high alert.
-- [ ] Alerts found are fixed or listed with a reason in the rules file; THREAT_MODEL T13 cites the scan.
-- [ ] Real findings fixed with regression tests; the review doc gets a ZAP section.
-- [ ] Manual workflow added; actionlint passes.
+- [x] The scan runs locally from one command and fails on any unreviewed medium or high alert.
+- [x] Alerts found are fixed or listed with a reason in the rules file; THREAT_MODEL T13 cites the scan.
+- [x] Real findings fixed with regression tests; the review doc gets a ZAP section.
+- [x] Manual workflow added; actionlint passes.
 
 ## Security notes
 T13, T14. Test credentials only; the scan report must not contain a real key, token or email.

@@ -5,7 +5,7 @@ import {
   validateHostHeader,
   validateOriginHeader,
 } from '@modelcontextprotocol/server';
-import { ASSET_CACHE_CONTROL, UI_CSP, UI_REFERRER_POLICY } from '@relic-bridge/admin-ui';
+import { ASSET_CACHE_CONTROL, PERMISSIONS_POLICY, UI_CSP, UI_REFERRER_POLICY } from '@relic-bridge/admin-ui';
 
 /** One year, the usual HSTS preload minimum. */
 export const HSTS_VALUE = 'max-age=31536000; includeSubDomains';
@@ -20,6 +20,8 @@ export const SECURITY_HEADERS: Readonly<Record<string, string>> = Object.freeze(
   'X-Frame-Options': 'DENY',
   'Content-Security-Policy': "default-src 'none'; frame-ancestors 'none'",
   'Cross-Origin-Resource-Policy': 'same-origin',
+  // On every response, assets and JSON included (P4-12: ZAP 10063 flagged the script asset).
+  'Permissions-Policy': PERMISSIONS_POLICY,
   'Cache-Control': 'no-store',
 });
 

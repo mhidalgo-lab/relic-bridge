@@ -5,6 +5,7 @@ import { createMemoryStorage, type Storage } from '@relic-bridge/storage';
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
   CF_ACCESS_HEADER,
+  type CompleteHooks,
   consumeSetupLink,
   createCloudflareAccessProvider,
   createGitHubProvider,
@@ -354,6 +355,94 @@ describe('GitHub', () => {
 
   it('an OAuth error answered with 200 is a refusal', async () => {
     expect(await codeOf(login(idp, github(), { verifier: 'w'.repeat(43) }))).toBe('idp_error');
+  });
+});
+
+describe('GitHub token revocation (P4-13)', () => {
+  let idp: MockIdp;
+  beforeEach(async () => {
+    idp = await createMockIdp();
+  });
+  const github = () =>
+    createGitHubProvider({
+      clientId: GITHUB_CLIENT_ID,
+      clientSecret: new Secret(MOCK_CLIENT_SECRET),
+      fetch: idp.fetch,
+    });
+  const complete = async (hooks?: CompleteHooks) => {
+    const p = github();
+    const verifier = 'v'.repeat(43);
+    const url = await p.authorizationUrl({
+      redirectUri: REDIRECT,
+      state: 's'.repeat(43),
+      nonce: 'n'.repeat(43),
+      codeChallenge: await pkceChallenge(verifier),
+    });
+    const back = await idp.authorize(url);
+    return p.complete(
+      {
+        code: back.searchParams.get('code') as string,
+        redirectUri: REDIRECT,
+        codeVerifier: verifier,
+        nonce: 'n',
+      },
+      hooks,
+    );
+  };
+
+  it('revokes the token once after a successful lookup, with Basic client auth', async () => {
+    await complete();
+    expect(idp.revocations).toHaveLength(1);
+    const r = idp.revocations[0];
+    expect(r?.clientId).toBe(GITHUB_CLIENT_ID);
+    expect(r?.accessToken).toMatch(/^at-/);
+    expect(r?.authorization).toBe(`Basic ${btoa(`${GITHUB_CLIENT_ID}:${MOCK_CLIENT_SECRET}`)}`);
+  });
+
+  it('revokes on refusals after the exchange (unverified email)', async () => {
+    idp.githubUser.emails = [
+      {
+        email: 'owner@example.com',
+        primary: true,
+        verified: false,
+      },
+    ];
+    expect(await codeOf(complete())).toBe('email_unverified');
+    expect(idp.revocations).toHaveLength(1);
+  });
+
+  it('does not revoke when the code exchange itself failed', async () => {
+    const p = github();
+    await expect(
+      p.complete({
+        code: 'bad',
+        redirectUri: REDIRECT,
+        codeVerifier: 'v'.repeat(43),
+        nonce: 'n',
+      }),
+    ).rejects.toThrow();
+    expect(idp.revocations).toHaveLength(0);
+  });
+
+  it('a failed revocation never fails sign-in; the warning carries no token or secret', async () => {
+    const warnings: unknown[] = [];
+    for (const status of [500, 422, 'throw'] as const) {
+      idp.revokeStatus = status;
+      expect((await complete({ warn: (m, f) => warnings.push([m, f]) })).subject).toBe('4242');
+    }
+    expect(warnings).toHaveLength(3);
+    const text = JSON.stringify(warnings);
+    expect(text).not.toMatch(/at-\d/);
+    expect(text).not.toContain(MOCK_CLIENT_SECRET);
+    expect(text).toContain('500');
+  });
+
+  it('runs in the background when a hook is given', async () => {
+    const tasks: Promise<unknown>[] = [];
+    await complete({ background: (t) => tasks.push(t) });
+    expect(tasks).toHaveLength(1);
+    await Promise.all(tasks);
+    expect(idp.revocations).toHaveLength(1);
   });
 });
 

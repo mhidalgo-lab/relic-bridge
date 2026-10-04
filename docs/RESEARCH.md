@@ -500,3 +500,14 @@ database.
 - **axe-core in jsdom**: rules run on the DOM. `color-contrast` needs layout and is reported "incomplete" in jsdom, so
   token contrast is computed from the stylesheet (WCAG 2.x relative luminance) instead. Source:
   https://github.com/dequelabs/axe-core/blob/develop/doc/API.md.
+
+## 19. Revoking GitHub OAuth user tokens (P4-13, checked 2026-10-04)
+
+Source: <https://docs.github.com/en/rest/apps/oauth-applications#delete-an-app-token>
+
+- `DELETE https://api.github.com/applications/{client_id}/token` with JSON body `{"access_token": "<token>"}`.
+  Authentication is HTTP Basic with the OAuth app's client id and client secret (not the user token).
+  `204 No Content` on success; `404` when the token is unknown or already revoked; `422` on validation failure or when
+  the endpoint is being spammed. Revoking the token ends that one token only; the user's app authorization stays.
+- relic-bridge treats `204` and `404` as done, anything else (and network errors or timeouts) as a failed, logged
+  best-effort revocation.

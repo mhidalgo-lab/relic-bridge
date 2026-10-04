@@ -99,6 +99,7 @@ export {
 export {
   type AuthorizationRequest,
   type AuthorizationResult,
+  type CompleteHooks,
   type HeaderIdentityProvider,
   type IdentityProvider,
   PROVIDER_ID_RE,

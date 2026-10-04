@@ -2,11 +2,11 @@
 id: P4-13
 title: "Revoke the GitHub OAuth token after the identity lookup"
 phase: 4
-status: todo
+status: review
 priority: low
 depends_on: [P4-01]
 adr: [0009]
-owner: ""
+owner: claude-agent
 ---
 
 # P4-13 — Revoke the GitHub OAuth token after the identity lookup
@@ -24,9 +24,9 @@ failure modes.
 - Mock-IdP tests: the revoke call happens once, carries no token in logs, and a revoke failure does not block sign-in.
 
 ## Acceptance criteria
-- [ ] The token is revoked after the lookup on success and on refusals that happen after the exchange.
-- [ ] A revoke failure is logged without the token and sign-in still follows the policy decision.
-- [ ] `docs/RESEARCH.md` cites the GitHub endpoint and its auth.
+- [x] The token is revoked after the lookup on success and on refusals that happen after the exchange.
+- [x] A revoke failure is logged without the token and sign-in still follows the policy decision.
+- [x] `docs/RESEARCH.md` cites the GitHub endpoint and its auth.
 
 ## Security notes
 T14, T8: the token and client secret never reach logs or audit rows; no new stored state.

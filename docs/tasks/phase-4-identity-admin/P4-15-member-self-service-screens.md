@@ -2,7 +2,7 @@
 id: P4-15
 title: "Member self-service screens in the admin panel"
 phase: 4
-status: in-progress
+status: review
 priority: medium
 depends_on: [P4-10, P4-04]
 adr: [0009]
@@ -38,9 +38,9 @@ Routes, all `kit.page('member')` / `kit.form('member')` (every role, including a
 - Nav entry "My access" (`member`); admin-only entries unchanged.
 
 ## Acceptance criteria
-- [ ] A member completes add key, use it on their grant and issue a device token in the browser.
-- [ ] A forged form post naming another user's key, grant or token changes nothing (`404` page).
-- [ ] UI matrix rows and axe-core pass.
+- [x] A member completes add key, use it on their grant and issue a device token in the browser.
+- [x] A forged form post naming another user's key, grant or token changes nothing (`404` page).
+- [x] UI matrix rows and axe-core pass.
 
 ## Security notes
 T3, T13, T14: the pages hold no ownership logic; the API decides.

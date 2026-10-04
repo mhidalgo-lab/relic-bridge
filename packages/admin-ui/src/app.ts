@@ -3,6 +3,7 @@
 //
 //   GET /admin                     overview (any signed-in role)
 //   /admin/credentials, /admin/projects, /admin/grants, /admin/tokens, /admin/users   P4-04 screens (admin, owner)
+//   /admin/me/*                    P4-15 member screens: my keys, grants and device tokens (any signed-in role)
 //   GET /admin/assets/:file        static assets (public, hashed names, immutable)
 //   ALL /admin/*                   signed-in 404 page (everyone else: sign-in redirect)
 //
@@ -15,6 +16,7 @@ import { registerAudit } from './screens/audit.tsx';
 import { registerConnect } from './screens/connect.tsx';
 import { registerCredentials } from './screens/credentials.tsx';
 import { registerGrants } from './screens/grants.tsx';
+import { registerMe } from './screens/me.tsx';
 import { registerOverview } from './screens/overview.tsx';
 import { registerProjects } from './screens/projects.tsx';
 import { registerTokens } from './screens/tokens.tsx';
@@ -34,6 +36,7 @@ function registerScreens(ui: Hono, kit: UiKit): void {
   registerConnect(ui, kit);
   registerUsers(ui, kit);
   registerAudit(ui, kit);
+  registerMe(ui, kit);
   registerUsage(ui, kit);
 }
 

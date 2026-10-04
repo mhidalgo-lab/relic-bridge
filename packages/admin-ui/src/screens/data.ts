@@ -182,6 +182,28 @@ export function parseGrant(r: Row): Grant | null {
   };
 }
 
+/** A grant of the signed-in member (`GET /me/grants`): the grant plus the project it is for. */
+export interface MyGrant extends Grant {
+  readonly project: {
+    readonly slug: string;
+    readonly name: string | null;
+    readonly disabled: boolean;
+  } | null;
+}
+
+export function parseMyGrant(r: Row): MyGrant | null {
+  const grant = parseGrant(r);
+  if (grant === null) return null;
+  const p = r['project'] === null || r['project'] === undefined ? null : obj(r['project']);
+  return {
+    ...grant,
+    project:
+      p === null
+        ? null
+        : { slug: str(p['slug']), name: strOrNull(p['name']), disabled: p['disabled'] === true },
+  };
+}
+
 export interface Token {
   readonly id: string;
   readonly grantId: string;

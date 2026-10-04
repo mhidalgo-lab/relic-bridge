@@ -10,7 +10,7 @@ Who sees what:
 |---|---|
 | owner | everything, including adding or changing owners |
 | admin | keys, projects, grants, devices and users (not owners) |
-| member | the overview only (self-service is planned, P4-10) |
+| member | the overview, the audit page (own rows) and "My access": their own keys, grants and device tokens (see [admin access](admin-access.md#my-access-adminme-every-role)) |
 
 The screens work without JavaScript. The only script adds copy buttons.
 

@@ -233,7 +233,8 @@ describe('admin screens: who may use them (P4-04)', () => {
   const screens = UI_ROUTES.filter((r) => r.pattern !== '/admin' && r.pattern !== '/admin/*');
   /** The audit viewer is for every role (the admin API limits a member to their own rows). */
   const MEMBER_PAGES = new Set(['/admin/audit', '/admin/audit.csv']);
-  const adminOnly = screens.filter((r) => !MEMBER_PAGES.has(r.pattern));
+  /** P4-15: "My access" is for every role. */
+  const adminOnly = screens.filter((r) => !MEMBER_PAGES.has(r.pattern) && !r.pattern.startsWith('/admin/me'));
 
   it('members get the 403 page on every screen route, GET and POST, and nothing changes', async () => {
     const member = await h.addSession({ role: 'member' });

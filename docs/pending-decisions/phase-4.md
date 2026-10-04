@@ -329,3 +329,17 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   re-sent form finds no identity and answers `409`, which the page shows as "This user has no sign-in identity to clear".
 - **Assumption made:** The retyped email plus the API's `409` are enough; no handle was added.
 - **Needs:** nothing unless a handle is wanted for consistency.
+
+## P4-15 — Member screens
+
+### P4-15 — Forged ids answer with a 404 page, also for form posts
+- **Context:** The admin screens answer a missing row on an action with a redirect and a flash. For member screens the
+  acceptance criteria ask for the `404` page when a form names another user's key, grant or token.
+- **Assumption made:** On `/admin/me/*` every id that is not in the caller's own `/me` lists (or that the API refuses
+  with `404`) renders the generic "Page not found" page with status 404, for GET and POST alike.
+- **Needs:** nothing.
+
+### P4-15 — No member screens for session lists or creating grants
+- **Context:** The task keeps "members creating their own grants" out of scope, and P4-10 left a member session list
+  unbuilt. The "My access" page therefore has no "new grant" and no "my sessions" section.
+- **Needs:** owner choice on the P4-10 pending decision about self-service grants.

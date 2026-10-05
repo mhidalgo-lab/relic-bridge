@@ -174,4 +174,51 @@ describe('serve: sign-in over a localhost redirect', () => {
     expect(ok.identity?.providers.map((p) => p.kind)).toEqual(['github']);
     expect(settings({}).identity).toBeNull();
   });
+
+  it('RB_OAUTH: off by default, needs sign-in, takes the registration settings (P5-04)', () => {
+    const settings = (env: Record<string, string>) =>
+      serveSettings({ port: '0', db: join(tmp, 'rb.db'), env, platform: 'linux' });
+    const signIn = {
+      RB_GITHUB_CLIENT_ID: 'x',
+      RB_GITHUB_CLIENT_SECRET: 'y',
+      RB_PUBLIC_URL: 'http://127.0.0.1:8787',
+    };
+    expect(settings(signIn).oauth).toBeNull();
+    expect(settings({ ...signIn, RB_OAUTH: 'off' }).oauth).toBeNull();
+    expect(() => settings({ RB_OAUTH: 'on' })).toThrow(/RB_OAUTH=on needs sign-in/);
+    expect(() => settings({ ...signIn, RB_OAUTH: 'maybe' })).toThrow(ConfigError);
+    expect(settings({ ...signIn, RB_OAUTH: 'on' }).oauth).toEqual({
+      registration: true,
+      registrationLimit: { requests: 30, perSeconds: 3600 },
+    });
+    expect(
+      settings({
+        ...signIn,
+        RB_OAUTH: 'on',
+        RB_OAUTH_DCR: 'off',
+        RB_OAUTH_DCR_LIMIT: 'off',
+        RB_OAUTH_DCR_REDIRECT_HOSTS: 'claude.ai, Example.COM',
+      }).oauth,
+    ).toEqual({
+      registration: false,
+      registrationLimit: null,
+      registrationRedirectHosts: ['claude.ai', 'example.com'],
+    });
+    expect(settings({ ...signIn, RB_OAUTH: 'on', RB_OAUTH_DCR_LIMIT: '5' }).oauth?.registrationLimit).toEqual(
+      {
+        requests: 5,
+        perSeconds: 3600,
+      },
+    );
+    for (const bad of [
+      { RB_OAUTH_DCR_LIMIT: '0' },
+      { RB_OAUTH_DCR_LIMIT: '-1' },
+      { RB_OAUTH_DCR_LIMIT: 'lots' },
+      { RB_OAUTH_DCR_REDIRECT_HOSTS: 'https://claude.ai' },
+      { RB_OAUTH_DCR_REDIRECT_HOSTS: 'localhost' },
+      { RB_OAUTH_DCR: 'sometimes' },
+    ]) {
+      expect(() => settings({ ...signIn, RB_OAUTH: 'on', ...bad }), JSON.stringify(bad)).toThrow(ConfigError);
+    }
+  });
 });

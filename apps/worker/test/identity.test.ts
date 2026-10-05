@@ -165,4 +165,34 @@ describe('sign-in on the Worker', () => {
     const off = await send(worker(), { ...(env as WorkerEnv), RB_RATE_LIMIT: 'off' }, '/auth/login');
     expect(off.res.status).toBe(404);
   });
+
+  it('RB_OAUTH=on serves the OAuth endpoints and the consent screen; it needs sign-in (P5-04)', async () => {
+    const off = await send(worker(), signInEnv(), '/.well-known/oauth-authorization-server');
+    expect(off.res.status).toBe(404);
+    lines = [];
+    const on = await send(
+      worker(),
+      signInEnv({ RB_OAUTH: 'on', RB_OAUTH_DCR: 'off' }),
+      '/.well-known/oauth-authorization-server',
+    );
+    expect(on.res.status).toBe(200);
+    const meta = JSON.parse(on.text) as Record<string, unknown>;
+    expect(meta['registration_endpoint']).toBeUndefined();
+    // wrangler.jsonc sets `global_fetch_strictly_public`: CIMD is on.
+    expect(meta['client_id_metadata_document_supported']).toBe(true);
+    expect(lines.join('\n')).toContain('"oauth":true');
+    // Strangers get sign-in on the consent screen's pages.
+    const approvals = await send(worker(), signInEnv({ RB_OAUTH: 'on' }), '/oauth/approvals');
+    expect(approvals.res.status).toBe(303);
+    expect(approvals.res.headers.get('location')).toMatch(/^\/auth\/login\?next=/);
+    // Without sign-in the boot fails (no half-configured OAuth).
+    lines = [];
+    const bare = await send(
+      worker(),
+      { ...(env as WorkerEnv), RB_RATE_LIMIT: 'off', RB_OAUTH: 'on' },
+      '/health',
+    );
+    expect(bare.res.status).toBe(503);
+    expect(lines.join('\n')).toContain('worker boot failed');
+  });
 });

@@ -309,6 +309,14 @@ Sign-in (serve; off until a provider is set; docs/guide/identity-providers.md):
   RB_SESSION_IDLE_MINUTES  Admin sessions end after this many idle minutes (5-1440, default 30).
   RB_SESSION_MAX_HOURS   Admin sessions end this many hours after sign-in (1-168, default 12).
 
+OAuth for MCP clients (serve; off by default; needs sign-in; docs/guide/oauth.md):
+  RB_OAUTH               on: claude.ai, phones and other OAuth clients connect after a person
+                         signs in and approves the app.
+  RB_OAUTH_DCR           on (default) or off: dynamic client registration at /oauth/register.
+  RB_OAUTH_DCR_LIMIT     Dynamic registrations per hour for the whole server (default 30), or off.
+  RB_OAUTH_DCR_REDIRECT_HOSTS
+                         Comma-separated https redirect hosts dynamic clients may use.
+
 Master key (serve / keys rotate / credential revalidate):
   RB_MASTER_KEY            Current master key, v<n>:<base64> (or RB_MASTER_KEY_FILE).
   RB_MASTER_KEY_PREVIOUS   Previous key while rotating (or RB_MASTER_KEY_PREVIOUS_FILE).

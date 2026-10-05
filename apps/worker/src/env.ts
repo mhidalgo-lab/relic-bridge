@@ -28,6 +28,14 @@ export interface WorkerVars {
   readonly RB_AUDIT_RETENTION_DAYS?: string;
   readonly RB_RATE_LIMIT?: string;
   readonly RB_PASSTHROUGH?: string;
+  /** OAuth for MCP clients (P5-04, docs/guide/oauth.md): `on` / `off` (default off); needs sign-in. */
+  readonly RB_OAUTH?: string;
+  /** Dynamic client registration: `on` (default) / `off`. */
+  readonly RB_OAUTH_DCR?: string;
+  /** Dynamic registrations per hour for the whole deployment (default 30), or `off`. */
+  readonly RB_OAUTH_DCR_LIMIT?: string;
+  /** Comma-separated https redirect hosts dynamic clients may use (default: any). */
+  readonly RB_OAUTH_DCR_REDIRECT_HOSTS?: string;
   readonly RB_LOG_LEVEL?: string;
   /** Sign-in (P4-01, see docs/guide/identity-providers.md): the origin browsers use, e.g. https://bridge.example.com. */
   readonly RB_PUBLIC_URL?: string;

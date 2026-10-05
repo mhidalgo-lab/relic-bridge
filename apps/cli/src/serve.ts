@@ -22,6 +22,7 @@ import {
   AUDIT_NRQL_MODES,
   type AuditNrqlMode,
   adminTokenLooksWeak,
+  type ClientMetadataFetch,
   checkHost,
   createAuditRecorder,
   createHttpApp,
@@ -33,6 +34,9 @@ import {
   MAX_PASSTHROUGH_IDENTITY_TTL_MS,
   MemoryRateLimiter,
   mergeHooks,
+  OAuthConfigError,
+  type OAuthSettings,
+  oauthSettingsFromEnv,
   originHostname,
   PASSTHROUGH_KEY_HEADER,
   PASSTHROUGH_PATH,
@@ -44,6 +48,7 @@ import { purgeExpiredKv, StorageError } from '@relic-bridge/storage';
 import { openSqliteStorage } from '@relic-bridge/storage-sqlite';
 import type { Context } from 'hono';
 import { parseRetentionDays } from './audit.ts';
+import { createCimdFetch } from './cimd-fetch.ts';
 import { ConfigError, type ConfigFs, type Env } from './config.ts';
 import { resolveAdminToken, resolveIdpSecretEnv, resolveMasterKeyEnv } from './keys.ts';
 
@@ -241,7 +246,20 @@ export interface ServeSettings {
   readonly passthrough: PassthroughSettings | null;
   /** Admin sign-in (P4-01, `RB_PUBLIC_URL` + provider variables); `null` when no provider is configured. */
   readonly identity: IdentitySettings | null;
+  /** OAuth for MCP clients (P5-04, `RB_OAUTH=on`); `null` when off (the default). */
+  readonly oauth: OAuthSettings | null;
   readonly warnings: readonly string[];
+}
+
+function oauthSettings(env: Env, identity: IdentitySettings | null): OAuthSettings | null {
+  try {
+    return oauthSettingsFromEnv(env, identity !== null);
+  } catch (error) {
+    if (error instanceof OAuthConfigError) {
+      throw new ConfigError(error.message, 'See docs/guide/oauth.md.');
+    }
+    throw error;
+  }
 }
 
 function identitySettings(
@@ -340,6 +358,11 @@ export function serveSettings(input: {
   }
 
   const rateLimits = rateLimitSettings(env, warnings);
+  const identity = identitySettings(
+    input.fs === undefined ? env : resolveIdpSecretEnv(env, input.fs, input.platform),
+    allowedHosts,
+    warnings,
+  );
   const hopsRaw = env['RB_TRUSTED_PROXY_HOPS']?.trim() ?? '0';
   if (!/^[0-5]$/.test(hopsRaw)) {
     throw new ConfigError(
@@ -360,11 +383,8 @@ export function serveSettings(input: {
     trustedProxyHops: Number(hopsRaw),
     audit: auditSettings(env, warnings),
     passthrough: passthroughSettings(env, warnings),
-    identity: identitySettings(
-      input.fs === undefined ? env : resolveIdpSecretEnv(env, input.fs, input.platform),
-      allowedHosts,
-      warnings,
-    ),
+    identity,
+    oauth: oauthSettings(env, identity),
     warnings,
   };
 }
@@ -385,6 +405,8 @@ export interface StartServerOptions {
   readonly fetch?: FetchLike;
   /** Identity provider fetch override (tests). */
   readonly identityFetch?: FetchLike;
+  /** CIMD document fetch override (tests). Default: the connect-time guarded fetcher. */
+  readonly cimdFetch?: ClientMetadataFetch;
 }
 
 /**
@@ -534,6 +556,15 @@ export async function startServer(options: StartServerOptions): Promise<RunningS
             ...(audit === undefined ? {} : { audit }),
           },
         }),
+    // OAuth for MCP clients (P5-04): the built-in consent screen, and CIMD through the connect-time SSRF guard.
+    ...(settings.oauth === null
+      ? {}
+      : {
+          oauth: {
+            ...settings.oauth,
+            clientMetadataDocuments: { fetch: options.cimdFetch ?? createCimdFetch() },
+          },
+        }),
   });
 
   const server = createAdaptorServer({
@@ -586,6 +617,10 @@ export async function startServer(options: StartServerOptions): Promise<RunningS
         : `${url}/api/admin/v1 (${[adminToken === undefined ? null : 'token', settings.identity === null ? null : 'sessions'].filter((x) => x !== null).join(', ')})`,
     trustedProxyHops: settings.trustedProxyHops,
     passthrough: settings.passthrough === null ? 'off' : `${url}${PASSTHROUGH_PATH}`,
+    oauth:
+      settings.oauth === null
+        ? 'off'
+        : `${settings.identity?.publicUrl ?? url}/oauth/authorize (dcr ${settings.oauth.registration ? 'on' : 'off'})`,
     signIn:
       settings.identity === null
         ? 'off'

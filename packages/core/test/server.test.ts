@@ -15,6 +15,7 @@ import {
   shapeNrqlOutcome,
   type ToolContext,
   type ToolDefinition,
+  withCachedJsonSchema,
 } from '../src/index.ts';
 import { FAKE_KEY, testContext } from './helpers/context.ts';
 
@@ -118,6 +119,29 @@ describe('buildMcpServer', () => {
       openWorldHint: false,
     });
     expect(tools[0]?.inputSchema).toMatchObject({ type: 'object', properties: { text: { type: 'string' } } });
+  });
+
+  it('computes each JSON Schema once per isolate and lists the same schema as before', async () => {
+    const first = await connect([echo as ToolDefinition, shaped as ToolDefinition], testContext());
+    const second = await connect([echo as ToolDefinition, shaped as ToolDefinition], testContext());
+    const a = (await first.listTools()).tools;
+    const b = (await second.listTools()).tools;
+    expect(a).toEqual(b);
+    // What the SDK emitted before the cache (its zod conversion with io: 'input').
+    expect(a[0]?.inputSchema).toEqual({
+      type: 'object',
+      ...z.toJSONSchema(echo.inputSchema, { target: 'draft-2020-12', io: 'input' }),
+    });
+    expect(a[1]?.outputSchema).toMatchObject({ type: 'object' });
+    // The wrapper is memoised per schema and hands out one frozen object per conversion.
+    const wrapped = withCachedJsonSchema(echo.inputSchema);
+    expect(withCachedJsonSchema(echo.inputSchema)).toBe(wrapped);
+    const opts = { target: 'draft-2020-12' } as const;
+    const json = wrapped['~standard'].jsonSchema.input(opts);
+    expect(wrapped['~standard'].jsonSchema.input(opts)).toBe(json);
+    expect(Object.isFrozen(json)).toBe(true);
+    // Validation is the zod schema's own.
+    expect(await wrapped['~standard'].validate({ text: 'x'.repeat(101) })).toHaveProperty('issues');
   });
 
   it('returns text + structuredContent from the per-request context', async () => {

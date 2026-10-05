@@ -88,6 +88,20 @@ export const TOOL_CASES: Readonly<Record<string, readonly ToolCall[]>> = {
     { args: {}, expect: 'ok' },
     { args: { account: 2, states: ['UNRESOLVED'] }, expect: 'ok' },
   ],
+  list_change_events: [
+    { args: { account: FOREIGN }, expect: 'refused', offline: true },
+    { args: { account: 3 }, expect: 'refused', offline: true },
+    { args: { entity_guid: guidOf(FOREIGN) }, expect: 'refused', offline: true },
+    // NerdGraph answers with an entity in the foreign account behind an allowed account's GUID.
+    { args: { entity_guid: guidOf(1) }, expect: 'refused' },
+    { args: {}, expect: 'ok' },
+    { args: { account: 2, limit: 5 }, expect: 'ok' },
+  ],
+  analyze_deployment_impact: [
+    { args: { entity_guid: guidOf(FOREIGN) }, expect: 'refused', offline: true },
+    { args: { entity_guid: guidOf(3) }, expect: 'refused', offline: true },
+    { args: { entity_guid: guidOf(1) }, expect: 'refused' },
+  ],
   get_entity: [
     { args: { guid: guidOf(FOREIGN) }, expect: 'refused', offline: true },
     // NerdGraph answers with an entity in the foreign account behind an allowed account's GUID.
@@ -188,6 +202,15 @@ describe('tool isolation against a hostile NerdGraph', () => {
     const r = await client.callTool({ name: 'list_error_groups', arguments: {} });
     const s = r.structuredContent as { errorGroups: { name: string }[]; hiddenOutsideScope: boolean };
     expect(s.errorGroups.map((x) => x.name)).toEqual(['alpha-error']);
+    expect(s.hiddenOutsideScope).toBe(true);
+    expect(JSON.stringify(r)).not.toContain(LEAK);
+  });
+
+  it('change events of other accounts or without a verifiable entity are dropped and flagged', async () => {
+    const client = await isoClient();
+    const r = await client.callTool({ name: 'list_change_events', arguments: {} });
+    const s = r.structuredContent as { events: { id: string }[]; hiddenOutsideScope: boolean };
+    expect(s.events.map((x) => x.id)).toEqual(['alpha-change']);
     expect(s.hiddenOutsideScope).toBe(true);
     expect(JSON.stringify(r)).not.toContain(LEAK);
   });

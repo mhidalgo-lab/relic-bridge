@@ -173,6 +173,66 @@ export function mockNerdGraph(): { fetch: FetchLike; calls: RecordedCall[] } {
         },
       });
     }
+    if (has('RbChangeEvents')) {
+      return json({
+        data: {
+          actor: {
+            changeTracking: {
+              changeTrackingSearch: {
+                changeEvents: [
+                  {
+                    changeTrackingId: 'ce-1',
+                    category: 'DEPLOYMENT',
+                    type: 'BASIC',
+                    categoryAndType: 'DEPLOYMENT__BASIC',
+                    timestamp: 1790338700000,
+                    description: 'Release 1.4.2',
+                    shortDescription: 'deploy 1.4.2',
+                    user: 'ci',
+                    groupId: null,
+                    entity: {
+                      guid: MOCK_GUID,
+                      name: 'checkout',
+                      accountId: MOCK_ACCOUNT,
+                      domain: 'APM',
+                      type: 'APPLICATION',
+                    },
+                    version: '1.4.2',
+                    commit: 'abc1234',
+                    changelog: null,
+                    deepLink: null,
+                  },
+                ],
+              },
+            },
+          },
+        },
+      });
+    }
+    if (has('RbEntityDeployments')) {
+      return json({
+        data: {
+          actor: {
+            entity: {
+              ...entity,
+              deploymentSearch: {
+                results: [
+                  {
+                    deploymentId: 'dep-1',
+                    deploymentType: 'BASIC',
+                    version: '1.4.2',
+                    commit: 'abc1234',
+                    user: 'ci',
+                    timestamp: 1790338700000 - 3_600_000,
+                    entityGuid: MOCK_GUID,
+                  },
+                ],
+              },
+            },
+          },
+        },
+      });
+    }
     if (has('RbAiIssues')) {
       return json({
         data: {

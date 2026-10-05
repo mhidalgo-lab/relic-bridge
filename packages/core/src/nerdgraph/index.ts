@@ -8,6 +8,12 @@ export {
   type AlertTermData,
 } from './alerts.ts';
 export {
+  CHANGE_EVENTS_QUERY,
+  type ChangeEventData,
+  type DeploymentData,
+  ENTITY_DEPLOYMENTS_QUERY,
+} from './change-tracking.ts';
+export {
   assertUserKey,
   DEFAULT_MAX_ATTEMPTS,
   DEFAULT_TIMEOUT_MS,

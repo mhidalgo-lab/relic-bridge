@@ -300,6 +300,16 @@ Sources: <https://github.com/cloudflare/workers-oauth-provider>, issues #264, #3
   totalCount expectedCount firstSeenAt lastSeenAt } } }`. **Introspected only, not yet live-verified:** row shapes with real
   groups, what `query` matches, whether `occurrences` honours `timeWindow`, and page size (no `limit`). `direction` has only
   `DESC`. `assignment.email` is PII and not selected.
+- Change tracking (P6-04, P0-09 introspection only, no live probe; not verified against a real account):
+  `actor.changeTracking.changeTrackingSearch(filter: { accountIds: [Int!], limit, query, timeWindow { startTime endTime } })` →
+  `{ changeEvents: [ChangeTrackingEvent] }` (interface: changeTrackingId, category, type, categoryAndType, timestamp,
+  description, shortDescription, user, groupId, entity: EntityOutline; `ChangeTrackingDeploymentEvent` adds version, commit,
+  changelog, deepLink; `ChangeTrackingFeatureFlagEvent` adds featureFlagId). Per entity: `entity(guid).deploymentSearch(filter:
+  ChangeTrackingSearchFilter { limit, query, timeWindow })` → `{ results: [ChangeTrackingDeployment { deploymentId
+  deploymentType version commit changelog deepLink description user groupId entityGuid timestamp }] }`. Neither has a cursor;
+  the `limit` maximum and the syntax of `query` are unknown (`query` is not used). **Unverified:** that `Transaction` carries
+  `entityGuid` for every APM agent, and the result shape of `percentile(duration, 95) AS p95Duration` (read as a number or the
+  first numeric member of an object).
 - **Trusted publishing** (OIDC from GitHub Actions, no long-lived npm token) needs npm CLI ≥ 11.5.1 and Node ≥ 22.14
   (Node 24 bundles npm 11), job permission `id-token: write`, and a GitHub-hosted runner. Each package has at most one
   trusted publisher (workflow file + optional environment); `npm trust github <pkg> --file release.yml --env release`

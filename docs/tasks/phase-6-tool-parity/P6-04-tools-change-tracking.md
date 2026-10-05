@@ -2,11 +2,11 @@
 id: P6-04
 title: "Tools: list_change_events, analyze_deployment_impact"
 phase: 6
-status: todo
+status: review
 priority: high
 depends_on: [P5-07]
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P6-04 — Tools: list_change_events, analyze_deployment_impact
@@ -30,11 +30,11 @@ owner: ""
   (descriptions, users, changelogs) is cleaned and enveloped (T6); NRQL is built only with the `nrql` tag (T4).
 
 ## Acceptance criteria
-- [ ] Fixture + contract tests (`tools-changes.test.ts`, sample calls in `contract.test.ts`); account filtering enforced
+- [x] Fixture + contract tests (`tools-changes.test.ts`, sample calls in `contract.test.ts`); account filtering enforced
   (P2-12 `TOOL_CASES`, hostile mock).
-- [ ] Budget-aware; partial results tested (one window skipped for budget, one window failing).
-- [ ] Every value is a GraphQL variable or an NRQL template value; recorded text is inside the untrusted-data envelope.
-- [ ] `docs/reference/tools.md` regenerated; THREAT_MODEL and RESEARCH updated; owner decisions logged.
+- [x] Budget-aware; partial results tested (one window skipped for budget, one window failing).
+- [x] Every value is a GraphQL variable or an NRQL template value; recorded text is inside the untrusted-data envelope.
+- [x] `docs/reference/tools.md` regenerated; THREAT_MODEL and RESEARCH updated; owner decisions logged.
 
 ## Security notes
 T3 (events re-checked against their entity GUID, deployments against the requested entity; foreign data dropped and flagged),

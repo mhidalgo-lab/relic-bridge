@@ -126,3 +126,50 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   and negative authz tests.
 - **Assumption made:** new task P5-08 (depends on P5-03). Until then DCR is turned off by configuration only.
 - **Needs:** owner to order P5-08 relative to P5-04/P5-05.
+
+## P5-04 — Login and consent screen
+
+### P5-04 — provider consent helpers not used
+- **Context:** the task said to build on `beginConsent` / `approveConsent` / `isConsentRemembered`. They need `__Host-`
+  cookies (no `http://localhost` instance), write a KV transaction per unauthenticated authorize request, and the
+  remembered-consent cookie can't carry the chosen grant nor be revoked server-side.
+- **Assumption made:** stateless consent (the request is re-validated from the URL on every step, CSRF from the admin
+  session) and remembered approvals in our own `kv` rows (`oauth-consent:<user>:<hash>`). Documented in RESEARCH §20.
+- **Options:** keep; or adopt the provider's transaction for the page step only.
+- **Needs:** owner confirmation.
+
+### P5-04 — remembered approvals: opt-in, 30 days, per client + redirect URI + resource
+- **Context:** the scope asked to "remember approval per client". Remembering answers a later authorize navigation
+  without a click (the code still goes only to that client's registered redirect URI).
+- **Assumption made:** a checkbox, off by default; 30 days; ≤ 50 per user; forgotten on `/oauth/approvals`, on Deny, or
+  when the grant stops resolving. Not linked from the admin navigation yet (the consent page links it).
+- **Options:** default on; another lifetime; a nav entry / merge into the P5-05 device list.
+- **Needs:** owner preference; P5-05 should delete a device's remembered approval when the device is revoked.
+
+### P5-04 — sign-in `next` cap raised to 2048 characters
+- **Context:** an authorize URL (CIMD client id, redirect URI, state, PKCE challenge, resource) can exceed the old
+  512-character cap, and the consent flow returns to it after sign-in.
+- **Assumption made:** `safeNextPath` accepts up to 2048 (same-origin checks unchanged); longer authorize URLs get a
+  `400` page instead of a sign-in redirect.
+- **Needs:** nothing unless a real client sends longer authorize URLs (P5-06).
+
+### P5-04 — consent page CSP widens `form-action`
+- **Context:** Chromium applies `form-action` to the redirect after the consent post (measured).
+- **Assumption made:** the consent page's CSP is the UI policy plus the redirect URI's origin in `form-action` (`http:`
+  for an IPv6 loopback redirect); every other page keeps `form-action 'self'`.
+- **Options:** answer the post with a 200 page that links/meta-refreshes to the client instead (needs a click or a meta
+  refresh, and the same origin must still be navigable).
+- **Needs:** nothing unless the owner prefers the interstitial page.
+
+### P5-04 — device label stored as provider grant metadata
+- **Context:** T25 said grant metadata stays `{}`; the device label is needed for P5-05's device list and props are
+  encrypted with the token (unreadable without it).
+- **Assumption made:** `metadata: { label }` (checked plain text ≤ 60 characters, typed by the user), else `{}`.
+- **Needs:** owner confirmation (or P5-05 keeps labels elsewhere).
+
+### P5-04 — `RB_OAUTH` variables
+- **Context:** P5-03 left the DCR settings to the host switch.
+- **Assumption made:** `RB_OAUTH` (off), `RB_OAUTH_DCR` (on), `RB_OAUTH_DCR_LIMIT` (30/hour or `off`),
+  `RB_OAUTH_DCR_REDIRECT_HOSTS` (unset = any). Token lifetimes stay at the defaults until P5-05's plan presets.
+- **Needs:** owner review of the defaults (see the P5-03 DCR entry).
+

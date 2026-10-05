@@ -5,10 +5,9 @@ connectors) reach `/p/{slug}/mcp`. Built on `@cloudflare/workers-oauth-provider`
 unmodified on Node and Workers, with its state in the storage `kv` table on both (ADR-0011).
 
 Status: P5-01 (server and token check), P5-02 (per-slug Protected Resource Metadata, the `401` discovery
-challenge, `resource` on token requests) and P5-03 (client registration: CIMD and hardened DCR). Not yet: sign-in +
-consent screen and the host switch (P5-04), plan TTL presets and refresh reuse detection (P5-05), the admin client list
-and DCR switch (P5-08). Until P5-04 the server is a constructor option only
-(`createHttpApp({ oauth })`, `createWorker({ oauth })`): no deployment setting turns it on.
+challenge, `resource` on token requests), P5-03 (client registration: CIMD and hardened DCR) and P5-04 (sign-in +
+consent screen, remembered approvals, the `RB_OAUTH` host switch). Not yet: plan TTL presets, refresh reuse detection and
+the device list (P5-05), the admin client list and runtime DCR switch (P5-08). User guide: `docs/guide/oauth.md`.
 
 ## Topology
 
@@ -20,11 +19,13 @@ header. Each project is one protected resource, `{issuer}/p/{slug}/mcp`, and a t
 |---|---|---|
 | `GET /.well-known/oauth-authorization-server` | provider | RFC 8414; `protected_resources` stripped (slugs are not public, T19) |
 | `GET /oauth/authorize` | ours → provider → consent seam | see below |
+| `POST /oauth/consent` | consent screen (P5-04) | the consent form; session + CSRF, then the request is validated again |
+| `GET /oauth/approvals`, `POST /oauth/approvals/forget` | consent screen (P5-04) | remembered approvals of the signed-in user |
 | `POST /oauth/token` | provider (after our code check) | code, refresh, RFC 7009 revocation |
 | `POST /oauth/register` | ours → provider | RFC 7591 DCR, see [Client registration](#client-registration); `registration: false` turns it off |
 | `GET /.well-known/oauth-protected-resource/p/{slug}/mcp` | ours | RFC 9728, see below |
 
-All five are unauthenticated: `beforeAuth` runs with scope `oauth` (per-IP `oauth` rule, default 60 per 5 minutes, on
+The five protocol endpoints are unauthenticated; the consent routes take the admin session cookie only. All of them: `beforeAuth` runs with scope `oauth` (per-IP `oauth` rule, default 60 per 5 minutes, on
 top of the per-IP flood limit), declared bodies above 16 KiB are a 413 and streamed bodies are cut at 16 KiB. On
 Workers the `oauth:` buckets are per isolate; the shared Rate Limiting binding still counts every request under `ip:`
 (600/min). Registrations also count against one deployment-wide cap kept in storage (P5-03).
@@ -129,13 +130,73 @@ must say so). Listing and removing clients is P5-08.
 4. PKCE `S256` is required for **every** client (the provider insists only for public ones).
 5. The **consent handler** (`OAuthConsentHandler`) gets the validated request (`clientId`, `clientName` — untrusted
    text, `redirectUri`, `redirectHost`, `scope`, `resource`, `projectSlug`) and an API:
-   - `approve({ userId, grantId })` runs `resolveAccess` for this slug with that user as principal: another user's
+   - `approve({ userId, grantId, label? })` runs `resolveAccess` for this slug with that user as principal: another user's
      grant, a service grant, a grant of another project, a revoked/expired grant, a disabled user, an unknown project,
      an unusable credential and the owner-key boundary all refuse (`{ ok: false, reason }`) before any code exists. On
-     success the provider mints the grant and code (props: `grantId`, `projectSlug`, `userId`, `clientId`; empty grant
-     metadata, T25), we store the single-use marker and return the redirect.
-   - `deny()` is the `access_denied` redirect. `authRequest` and `helpers` expose the provider's own consent/upstream
-     helpers (`beginConsent`, `approveConsent`, …) for P5-04, which must add sign-in, CSRF and the consent page.
+     success the provider mints the grant and code (props: `grantId`, `projectSlug`, `userId`, `clientId`; grant
+     metadata `{ label }` when the user named the device, else `{}`, T25), we store the single-use marker and return the
+     redirect. `client_refused`: a CIMD document that can no longer be fetched.
+   - `deny()` is the `access_denied` redirect. `authRequest` and `helpers` expose the provider's own objects.
+   - The default handler is the built-in consent screen below; `oauth.consent` replaces it (tests use a stand-in).
+
+## Consent screen (P5-04)
+
+`packages/http-app/src/oauth/consent.ts` (logic) and `packages/admin-ui/src/consent.tsx` (pages). Mounted with `oauth`
+unless a custom `consent` is given; uses the admin UI's session wiring (`adminUiDeps`: session lookup with the failure
+throttle, fetch metadata, CSRF).
+
+**Flow.** Stateless between steps: the authorization request travels in URLs and is validated by the provider at every
+step (`runtime.prepare(c, params)`), so what the page showed is what gets approved.
+
+1. `GET /oauth/authorize?…` (validated) → fetch metadata: only same-origin requests and cross-site top-level document
+   navigations (the client opening the page); frames, `fetch` and subresources are a `403` page.
+2. No session → `303 /auth/login?next=/oauth/authorize?…` (the sign-in `next` cap is 2048 characters; a longer
+   authorize URL is a `400` page). A broken session cookie is cleared and charged like on the admin pages.
+3. Signed in and a **remembered approval** matches (same user, client id, redirect URI and resource; requested scopes a
+   subset; `GET` only, never `HEAD`, not with `prompt=consent` or `prompt=login`) → `approve()` with the remembered grant → `303` to the client. If `approve()`
+   refuses (grant revoked, key gone, document gone) the row is deleted, the refusal audited and the page shown.
+4. Otherwise the **consent page** (`ConsentPage`), with the admin UI headers plus `form-action 'self' <redirect origin>`:
+   browsers apply `form-action` to the redirect that answers the form post, so without it Chromium blocks the trip
+   back to the client (found by the P5-04 browser test). An IPv6 loopback redirect (`http://[::1]:…`) can't be written
+   as a CSP host source and gets the `http:` scheme source. `security.ts` keeps exactly these variants (`isUiCsp`).
+5. `POST /oauth/consent?…` (the same query) → session (none: back to sign-in, nothing approved), `Origin` / fetch
+   metadata (`checkFetchOrigin`), `application/x-www-form-urlencoded` ≤ 16 KiB, exactly one `_csrf` equal to the
+   session's, then `prepare()` again (a tampered query is validated like a new request: unregistered redirect URI → 400,
+   bad PKCE → error redirect). `decision=deny` → `api.deny()` (`access_denied` to the registered redirect URI with
+   `state` and `iss`) and the remembered approval, if any, is deleted. `decision=approve` → the `grant` must be one of
+   the user's own grants on the project that `resolveAccess` accepts **now** (others → `422` page, audited
+   `grant_not_offered`, `approve()` never called), the optional device label must be plain text ≤ 60 characters, then
+   `approve()` (which checks everything again) → `303` to the client. `remember=1` stores the approval.
+
+**What the page shows (phishing review, T10).**
+
+| Shown | Why |
+|---|---|
+| Client name as plain, escaped text ("An unnamed app" without one) | Registered names pass `safeClientName` (no control, bidi, zero-width or separator characters, ≤ 100) and Hono escapes them; never markup, never a link |
+| CIMD: "identified by the website **`<host>`**" | The client id is an https URL on that host and its document was fetched from it; redirect URIs are held to that host (P5-03), so the host shown is also where codes go |
+| DCR: **not verified** badge and "continue only if you started connecting this app yourself" | Anyone can register any name, including "Claude" |
+| **Sends you back to `<redirect host>`** (monospace, as prominent as the name) | Where the code goes; a lookalike host is visible |
+| Loopback warning for `localhost` / `127.0.0.0/8` / `[::1]` redirects | A code sent there reaches whatever program listens on this computer |
+| Project (name and slug, the name only to users with access) and each offered grant's tools and accounts | The user sees exactly what the app will be able to read |
+| No auto-approval of an unknown client | Only an explicit earlier approval with "don't ask again" ticked, for the same client id, redirect URI, resource and user |
+
+Not shown: `logo_uri`, `client_uri`, `tos_uri`, `policy_uri` (unverified links and images a phisher would control).
+
+**Remembered approvals.** `kv` rows `oauth-consent:<userId>:<base64url(sha256([clientId, redirectUri, resource]))>`, 30
+days (`OAUTH_CONSENT_REMEMBER_TTL_S`), at most 50 per user (past that nothing more is remembered). The value holds the
+grant id, scopes, label and display copies for the list page. `GET /oauth/approvals` lists the caller's rows (their
+prefix only); `POST /oauth/approvals/forget` (`_csrf`, `id`) deletes one (`404` for an id that isn't theirs). Revoking
+issued tokens per device is P5-05, which should also delete the device's remembered approval.
+
+**Audit** (`admin` rows): `oauth.consent.approve` (`ok`, details `remembered: 'used' | 'saved' | false`; `denied` with
+the resolver's reason or `grant_not_offered`), `oauth.consent.deny`, `oauth.consent.forget`. Target `oauth_client`
+(client id, ≤ 200 characters); details: project, client kind and host, redirect host, scope. Never codes, tokens,
+`state` or PKCE values.
+
+**Host switch.** `oauthSettingsFromEnv` (`settings.ts`) reads `RB_OAUTH` (off by default; needs sign-in, else a boot
+error), `RB_OAUTH_DCR`, `RB_OAUTH_DCR_LIMIT` (per hour or `off`), `RB_OAUTH_DCR_REDIRECT_HOSTS`. `serve` adds
+`createCimdFetch()`; the Worker adds `strictlyPublicCimdFetch()` (null without the compatibility flag: CIMD off, a
+warning at boot). A programmatic `createWorker({ oauth })` wins over the variables (tests).
 
 ## Token endpoint
 
@@ -176,7 +237,7 @@ so per-token rate limits and the audit follow the device.
 
 Provider keys are `kv` rows under `oauth:` (`client:…`, `grant:{userId}:{grantId}`, `token:…`), see
 `kv-namespace.ts`; expiry is the provider's (`expiration` / `expirationTtl`) and the hourly purge reclaims expired rows.
-Key metadata is dropped. Props are encrypted by the provider with a key wrapped by the token itself; client
+Key metadata is dropped. Remembered approvals (P5-04) are `oauth-consent:<userId>:<id>`. Props are encrypted by the provider with a key wrapped by the token itself; client
 registrations, grant scopes and user ids are not encrypted (T25: user ids are our opaque `usr_…` ids, never emails).
 Client records are `oauth:client:<id>`: a random id for DCR clients, the document URL for CIMD clients (cached copies
 with an expiry). Outside the provider's namespace: `oauth-code:<sha256(code)>` (single-use markers) and
@@ -212,5 +273,13 @@ with an expiry). Outside the provider's namespace: `oauth-code:<sha256(code)>` (
 - `packages/http-app/test/oauth-clients.test.ts` — address classification, client id / redirect URI / document checks,
   fetch bounds; `apps/cli/test/cimd-fetch.test.ts` — the Node guard (injected DNS, a local server, no network);
   `apps/worker/test/cimd-fetch.test.ts` — the flag and `redirect: 'manual'`.
+- (P5-04) `packages/http-app/test/authz/consent-suite.ts` — the consent screen through the app: sign-in redirect and
+  `next`, bearer/admin/query credentials ignored, page content (escaped hostile name, unverified marking, redirect host,
+  loopback warning, own grants only, CSP / XFO / no-store), fetch metadata, CIMD display, approve → token → MCP call,
+  device label metadata, deny, tampered form targets, owner boundary and forged grants, no-access users, CSRF / origin
+  defects, remembered approvals (used, HEAD, other user / resource / scope, forget, revoked grant), audit rows. On memory
+  (`consent.test.ts`), SQLite (`apps/cli/test/consent-sqlite.test.ts`) and the Worker (D1). Pages: axe-core and escaping
+  in `packages/admin-ui/test/consent.test.tsx`. Browser: `e2e/oauth.spec.ts` (Chromium, 1280 px and 320 px; fails on
+  CSP violations, so a missing `form-action` source breaks it).
 - `packages/http-app/test/oauth-kv.test.ts` — the KV adapter; `oauth-rate-limit.test.ts` — the `oauth` rule.
-- The P2-12 route guard lists the OAuth routes (`OAUTH_ROUTES` in `test/authz/matrix.ts`).
+- The P2-12 route guard lists the OAuth routes (`OAUTH_ROUTES` and, P5-04, `CONSENT_ROUTES` in `test/authz/matrix.ts`).

@@ -158,7 +158,8 @@ Implemented by `createHttpApp` in `packages/http-app` (P2-06); `relic-bridge ser
 3. **Resolve grant**: effective tools, accounts, limits and credential (`resolveAccess`; steps 2-3 together are
    `authenticateAccess`, one storage call on SQL storage — one D1 `batch()` on Workers, P3-09), cached per isolate for
    0-60 s (default 30 s), never past the token's or grant's expiry, keyed by token hash + slug, holding no plaintext
-   key. Every denial in steps 2-3 is the same 401; storage errors are 503.
+   key. Every denial in steps 2-3 is the same 401 (with OAuth on, its `WWW-Authenticate` names the slug's RFC 9728
+   metadata, built from the path alone, P5-02); storage errors are 503.
 4. **Rate limit** (P2-07, `createRateLimitHooks` over a pluggable `RateLimiter`; bounded in-memory token bucket on
    Node; on Workers `WorkersRateLimiter` = per-isolate bucket plus the Rate Limiting binding as shared backstop, the auth-failure throttle per isolate (P3-04); Durable Object limiter in P7-10). Before step 2 (`beforeAuth`): per-IP request limit (and,
    on the pass-through route only, the per-IP auth-failure throttle, before a key is sent to NerdGraph). On a failed

@@ -129,6 +129,15 @@ Sources: <https://modelcontextprotocol.io/specification/2026-07-28/basic/authori
 - Auth: the server is an OAuth 2.1 resource server and MUST publish Protected Resource Metadata (RFC 9728). Clients
   send Resource Indicators (RFC 8707), and the server MUST reject tokens not issued for itself. CIMD is preferred and
   DCR is deprecated but kept for compatibility. Clients validate the issuer (RFC 9207).
+- **Read in the 2026-07-28 authorization pages (P5-02, 2026-10-05):** servers MUST implement RFC 9728 and either the
+  `resource_metadata` parameter on `401` or a well-known URI; clients use the header when present, else try
+  `/.well-known/oauth-protected-resource/{path}` (path insertion) then the root. PRM MUST list at least one
+  `authorization_servers`. Servers SHOULD send `scope` in the challenge and SHOULD NOT put `offline_access` in the
+  challenge or PRM `scopes_supported`. Clients MUST send `resource` (canonical server URI) in authorization **and**
+  token requests; servers SHOULD accept uppercase scheme/host. AS metadata via RFC 8414 or OIDC discovery (clients
+  must try both, RFC 8414 first). `403 insufficient_scope` with `scope` + `resource_metadata` for step-up.
+  Sources: <https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization>,
+  <https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization/authorization-server-discovery>.
 - Extensions framework: **MCP Apps** (interactive HTML UIs) and **Tasks** (long-running operations) ship as
   extensions. Logging and sampling were removed from core.
 - Tool input schemas support full JSON Schema 2020-12.
@@ -190,6 +199,12 @@ Sources: <https://github.com/cloudflare/workers-oauth-provider>, issues #264, #3
     is imported lazily. `parseAuthRequest()` checks the request URL against the issuer's authorize endpoint, so the
     request is re-addressed to the issuer origin first (works behind a TLS-terminating proxy).
   - `completeAuthorization()` revokes the user's earlier grants for the same client and resource by default.
+  - Token endpoint `resource` is optional in the provider: omitted → the grant's resource; given → it must match the
+    grant's (`invalid_target`). The provider folds scheme/host case when matching resources and returns the configured
+    (canonical) resource from `parseAuthRequest`. relic-bridge requires `resource` on code and refresh grants (P5-02).
+  - The provider's own PRM handler and `OAuthResourceServer` challenge (`resource_metadata`, `insufficient_scope`)
+    exist but are bound to declared resources; relic-bridge builds PRM and the challenge itself from the path, so no
+    project list is needed per request and unknown slugs answer like known ones.
 - Originally to verify (P0-08):
   1. whether the library can run on Node with a KV-compatible adapter backed by SQLite (otherwise use a Node-native
      authorization server such as `oidc-provider`, behind the same interface)

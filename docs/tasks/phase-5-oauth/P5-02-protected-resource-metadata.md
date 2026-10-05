@@ -2,7 +2,7 @@
 id: P5-02
 title: "Per-slug Protected Resource Metadata and audience binding"
 phase: 5
-status: in-progress
+status: review
 priority: high
 depends_on: [P5-01]
 adr: [0009, 0011]
@@ -39,15 +39,15 @@ Metadata, `WWW-Authenticate` `resource_metadata`), and every OAuth token stays b
   token on the admin API.
 
 ## Acceptance criteria
-- [ ] PRM served per slug, identical shape for known / unknown / disabled projects, 404 for invalid slugs and with
+- [x] PRM served per slug, identical shape for known / unknown / disabled projects, 404 for invalid slugs and with
       OAuth off; listed in the route guard.
-- [ ] 401 challenge carries `resource_metadata` and `scope`; every denial on one URL byte-identical (device and OAuth
+- [x] 401 challenge carries `resource_metadata` and `scope`; every denial on one URL byte-identical (device and OAuth
       tokens); known vs unknown slug differ only in the path-derived URL.
-- [ ] Token endpoint: missing, foreign, repeated or other-slug `resource` refused (`invalid_target` / `invalid_request`);
+- [x] Token endpoint: missing, foreign, repeated or other-slug `resource` refused (`invalid_target` / `invalid_request`);
       a missing resource does not burn the code.
-- [ ] Token for slug A → generic 401 on slug B; token for a disabled project → generic 401; OAuth token on the admin
+- [x] Token for slug A → generic 401 on slug B; token for a disabled project → generic 401; OAuth token on the admin
       API → 401.
-- [ ] `pnpm lint && pnpm typecheck && pnpm test && pnpm test:workers && pnpm build && pnpm bench:cpu` pass.
+- [x] `pnpm lint && pnpm typecheck && pnpm test && pnpm test:workers && pnpm build && pnpm bench:cpu` pass.
 
 ## Security notes
 T2 (audience per slug), T19 (no project enumeration via PRM or the challenge).

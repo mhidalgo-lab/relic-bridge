@@ -14,11 +14,14 @@ import {
   type Harness,
   PUBLIC_ORIGIN,
 } from './harness.ts';
-import { MCP_ROUTES, OAUTH_ROUTES, type RouteCase, requestFor } from './matrix.ts';
+import { ADMIN_ROUTES, MCP_ROUTES, OAUTH_ROUTES, type RouteCase, requestFor } from './matrix.ts';
 
 const ISSUER = PUBLIC_ORIGIN;
 const REDIRECT = 'http://127.0.0.1:53682/callback';
 const resourceOf = (slug: string): string => `${ISSUER}/p/${slug}/mcp`;
+const metadataOf = (slug: string): string => `${ISSUER}/.well-known/oauth-protected-resource/p/${slug}/mcp`;
+const challengeOf = (slug: string): string =>
+  `Bearer realm="relic-bridge", resource_metadata="${metadataOf(slug)}", scope="mcp:read"`;
 
 const b64u = (bytes: Uint8Array): string =>
   btoa(String.fromCharCode(...bytes))
@@ -229,9 +232,10 @@ export function oauthSuite(): void {
   const reference = (slug = 'prod') =>
     h.send(requestFor(MCP_ROUTES[0] as RouteCase, { headers: {}, slug }), app);
 
-  async function expectGenericDenial(res: Captured, reason: string): Promise<void> {
+  /** The same answer as a request without credentials to the same slug (the challenge names the slug). */
+  async function expectGenericDenial(res: Captured, reason: string, slug = 'prod'): Promise<void> {
     expect(res.status).toBe(401);
-    expect(observable(res)).toBe(observable(await reference()));
+    expect(observable(res)).toBe(observable(await reference(slug)));
     const row = await h.deniedRow(res.requestId as string);
     expect(row).toMatchObject({ kind: 'auth', status: 'denied', errorCode: reason });
   }
@@ -314,8 +318,12 @@ export function oauthSuite(): void {
     it('RFC 8707: a token for one slug is the generic 401 on another, and refresh cannot retarget', async () => {
       await client.register();
       const t = await client.tokens('prod');
-      await expectGenericDenial(await client.mcp('eu', t.access_token), 'oauth_invalid');
-      await expectGenericDenial(await client.mcp('no-such-project', t.access_token), 'oauth_invalid');
+      await expectGenericDenial(await client.mcp('eu', t.access_token), 'oauth_invalid', 'eu');
+      await expectGenericDenial(
+        await client.mcp('no-such-project', t.access_token),
+        'oauth_invalid',
+        'no-such-project',
+      );
       const retarget = await client.form('/oauth/token', {
         grant_type: 'refresh_token',
         refresh_token: t.refresh_token,
@@ -618,6 +626,201 @@ export function oauthSuite(): void {
         );
         expect(res.status, path).toBe(413);
       }
+    });
+  });
+
+  describe('Protected Resource Metadata and audience binding (P5-02, P2-12 negative cases)', () => {
+    const prm = (slug: string) =>
+      client.send(new Request(`${ISSUER}/.well-known/oauth-protected-resource/p/${slug}/mcp`));
+
+    it('publishes RFC 9728 metadata per slug, the same for known, unknown and disabled projects', async () => {
+      await h.world.storage.projects.update(h.world.projectIds.eu, { disabledAt: h.world.clock.now() });
+      const answers: string[] = [];
+      for (const slug of ['prod', 'eu', 'no-such-project']) {
+        const res = await prm(slug);
+        expect(res.status, slug).toBe(200);
+        expect(res.headers.get('content-type')).toContain('application/json');
+        expect(JSON.parse(res.text)).toEqual({
+          resource: resourceOf(slug),
+          authorization_servers: [ISSUER],
+          scopes_supported: ['mcp:read'],
+          bearer_methods_supported: ['header'],
+        });
+        answers.push(observable(res).replaceAll(slug, '{slug}'));
+      }
+      expect(new Set(answers).size).toBe(1);
+      // An invalid slug is not a resource of ours; nor is the root (no MCP endpoint lives there).
+      for (const path of ['p/PROD/mcp', 'p/a..b/mcp', 'p/prod/mcp/x', '']) {
+        const res = await client.send(new Request(`${ISSUER}/.well-known/oauth-protected-resource/${path}`));
+        expect(`${res.status} ${res.text}`, path).toBe('404 {"error":"not_found"}');
+      }
+    });
+
+    it('every 401 on an MCP route points at its slug’s metadata, byte-identical for every denial and any slug', async () => {
+      await client.register();
+      const t = await client.tokens('prod');
+      for (const route of MCP_ROUTES) {
+        const ref = await h.send(requestFor(route, { headers: {}, slug: 'prod' }), app);
+        expect(ref.status).toBe(401);
+        expect(ref.headers.get('www-authenticate')).toBe(challengeOf('prod'));
+        // Device-token and OAuth denials, and a project that does not exist, give the same answer.
+        const denials = [
+          { headers: { authorization: 'Bearer rb_nope' }, slug: 'prod' },
+          { headers: { authorization: `Bearer ${h.world.tokens.eu}` }, slug: 'prod' },
+          { headers: { authorization: `Bearer ${t.access_token}` }, slug: 'eu' },
+          { headers: { authorization: `Bearer ${h.world.tokens.prod}` }, slug: 'no-such-project' },
+          { headers: {}, slug: 'no-such-project' },
+        ];
+        for (const d of denials) {
+          const res = await h.send(requestFor(route, d), app);
+          expect(res.status).toBe(401);
+          const own = await h.send(requestFor(route, { headers: {}, slug: d.slug }), app);
+          expect(observable(res), `${route.method} ${d.slug}`).toBe(observable(own));
+          expect(observable(res).replaceAll(d.slug, 'prod')).toBe(observable(ref));
+        }
+      }
+      // Following the challenge leads to the metadata of exactly this resource.
+      const ref = await reference('prod');
+      const url = /resource_metadata="([^"]+)"/.exec(ref.headers.get('www-authenticate') ?? '')?.[1];
+      expect(url).toBe(metadataOf('prod'));
+      expect(JSON.parse((await client.send(new Request(url as string))).text).resource).toBe(
+        resourceOf('prod'),
+      );
+      // An invalid slug keeps the plain challenge (nothing to point at), as does a server without OAuth.
+      const bad = await h.send(requestFor(MCP_ROUTES[0] as RouteCase, { headers: {}, slug: 'PROD' }), app);
+      expect(bad.headers.get('www-authenticate')).toBe('Bearer realm="relic-bridge"');
+      const off = await h.send(
+        requestFor(MCP_ROUTES[0] as RouteCase, { headers: {}, slug: 'prod' }),
+        h.makeApp(),
+      );
+      expect(off.headers.get('www-authenticate')).toBe('Bearer realm="relic-bridge"');
+    });
+
+    it('the token endpoint requires one resource of ours; a missing one does not burn the code', async () => {
+      await client.register();
+      const { code, verifier } = await client.authorize('prod');
+      const base = {
+        grant_type: 'authorization_code',
+        code: code as string,
+        redirect_uri: REDIRECT,
+        client_id: client.clientId,
+        code_verifier: verifier,
+      };
+      for (const resource of [
+        undefined,
+        'https://evil.example/p/prod/mcp',
+        `${ISSUER}/p/prod`,
+        `${ISSUER}/`,
+      ]) {
+        const res = await client.form('/oauth/token', resource === undefined ? base : { ...base, resource });
+        expect(res.status, String(resource)).toBe(400);
+        expect(JSON.parse(res.text), String(resource)).toMatchObject({ error: 'invalid_target' });
+      }
+      const twice = new URLSearchParams({ ...base, resource: resourceOf('prod') });
+      twice.append('resource', resourceOf('prod'));
+      const doubled = await client.send(
+        new Request(`${ISSUER}/oauth/token`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/x-www-form-urlencoded' },
+          body: twice.toString(),
+        }),
+      );
+      expect(JSON.parse(doubled.text)).toMatchObject({ error: 'invalid_request' });
+      // None of those consumed the code.
+      const ok = await client.exchange(code as string, verifier, resourceOf('prod'));
+      expect(ok.status, ok.text).toBe(200);
+      const t = JSON.parse(ok.text) as Tokens;
+
+      // A refresh must name its resource too.
+      const refresh = {
+        grant_type: 'refresh_token',
+        refresh_token: t.refresh_token,
+        client_id: client.clientId,
+      };
+      const bare = await client.form('/oauth/token', refresh);
+      expect(bare.status).toBe(400);
+      expect(JSON.parse(bare.text)).toMatchObject({ error: 'invalid_target' });
+      const right = await client.form('/oauth/token', { ...refresh, resource: resourceOf('prod') });
+      expect(right.status, right.text).toBe(200);
+      const r = JSON.parse(right.text) as Tokens;
+      secrets.push(r.access_token, r.refresh_token);
+    });
+
+    it('a code for slug A exchanged for slug B is refused and yields no token', async () => {
+      await client.register();
+      const { code, verifier } = await client.authorize('prod');
+      const res = await client.exchange(code as string, verifier, resourceOf('eu'));
+      expect(res.status).toBe(400);
+      expect(JSON.parse(res.text)).toMatchObject({ error: 'invalid_target' });
+    });
+
+    it('scheme and host of the resource compare case-insensitively; the path does not', async () => {
+      await client.register();
+      const loud = resourceOf('prod').replace(/^http:\/\/localhost/, 'HTTP://LocalHost');
+      const { code, verifier, url } = await client.authorize('prod', { resource: loud });
+      expect(code, url?.toString()).not.toBeNull();
+      expect(consent.seen.at(-1)?.resource).toBe(resourceOf('prod'));
+      const tok = await client.exchange(code as string, verifier, loud);
+      expect(tok.status, tok.text).toBe(200);
+      const t = JSON.parse(tok.text) as Tokens;
+      expect(t.resource).toBe(resourceOf('prod'));
+      expect((await client.mcp('prod', t.access_token)).status).toBe(200);
+      const path = await client.authorize('prod', { resource: `${ISSUER}/P/prod/mcp` });
+      expect(path.res.status).toBe(400);
+    });
+
+    it('cross-slug reuse: a token for project A is the generic 401 on project B, even with a grant there', async () => {
+      await client.register();
+      const t = await client.tokens('prod');
+      // usr_a also holds a working grant on eu: the token is still not for eu.
+      const euGrant = (await h.world.storage.grants.list({ projectId: h.world.projectIds.eu }))[0]
+        ?.id as string;
+      consent.next = { userId: 'usr_a', grantId: euGrant };
+      const eu = await client.tokens('eu');
+      expect((await client.mcp('eu', eu.access_token)).status).toBe(200);
+      for (const route of MCP_ROUTES) {
+        const res = await client.mcp('eu', t.access_token, route);
+        expect(res.status).toBe(401);
+        expect(observable(res)).toBe(
+          observable(await h.send(requestFor(route, { headers: {}, slug: 'eu' }), app)),
+        );
+      }
+      await expectGenericDenial(await client.mcp('eu', t.access_token), 'oauth_invalid', 'eu');
+      await expectGenericDenial(await client.mcp('prod', eu.access_token), 'oauth_invalid');
+    });
+
+    it('a token for a disabled project is the generic 401 until the project is enabled again', async () => {
+      await client.register();
+      const t = await client.tokens('prod');
+      expect((await client.mcp('prod', t.access_token)).status).toBe(200);
+      await h.world.storage.projects.update(h.world.projectIds.prod, { disabledAt: h.world.clock.now() });
+      await expectGenericDenial(await client.mcp('prod', t.access_token), 'project_disabled');
+      await h.world.storage.projects.update(h.world.projectIds.prod, { disabledAt: null });
+      expect((await client.mcp('prod', t.access_token)).status).toBe(200);
+    });
+
+    it('an OAuth access token is not an admin credential: every admin route answers as without one', async () => {
+      await client.register();
+      const t = await client.tokens('prod');
+      const adminRows = (await h.world.storage.auditLog.list({ kind: 'admin' })).length;
+      for (const route of ADMIN_ROUTES) {
+        const reference = await h.send(requestFor(route, { headers: {} }), app);
+        const res = await h.send(
+          requestFor(route, { headers: { authorization: `Bearer ${t.access_token}` } }),
+          app,
+        );
+        expect(res.status, `${route.method} ${route.path}`).toBe(401);
+        expect(observable(res), `${route.method} ${route.path}`).toBe(observable(reference));
+      }
+      expect((await h.world.storage.auditLog.list({ kind: 'admin' })).length).toBe(adminRows);
+      // Nor a session for the admin UI: the answer is the sign-in redirect.
+      const ui = await h.send(
+        new Request(`${ISSUER}/admin`, { headers: { authorization: `Bearer ${t.access_token}` } }),
+        app,
+      );
+      const anon = await h.send(new Request(`${ISSUER}/admin`), app);
+      expect(ui.status).toBe(anon.status);
+      expect(ui.headers.get('location')).toBe(anon.headers.get('location'));
     });
   });
 }

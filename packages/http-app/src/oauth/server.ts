@@ -10,6 +10,8 @@
 //   with the atomic `kv.take` before the provider sees the code (the provider's own check is read-then-write).
 // - The interactive part of `/oauth/authorize` (sign-in, choosing a grant, consent) is the `consent` handler (P5-04);
 //   `approve()` re-runs the access resolver, so an approval can't bind a token to a grant the user may not use.
+// - Each project is one protected resource with its own RFC 9728 metadata (P5-02), built from the path alone so known
+//   and unknown slugs answer alike (T19); the MCP route's 401 points at it (`resource_metadata`).
 // - An OAuth access token on `/p/{slug}/mcp` is validated for that slug's resource only (RFC 8707 audience), its
 //   props are cross-checked, and its grant goes through `resolveAccess` like a device token's (deny by default).
 // The provider module is imported lazily: stdio and token-only deployments never load it.
@@ -32,6 +34,10 @@ export const OAUTH_TOKEN_PATH = '/oauth/token';
 export const OAUTH_REGISTER_PATH = '/oauth/register';
 /** RFC 8414 metadata of an issuer without a path. */
 export const OAUTH_METADATA_PATH = '/.well-known/oauth-authorization-server';
+/** RFC 9728 well-known prefix; a project's metadata is at `{prefix}/p/{slug}/mcp` (path insertion, §3.1). */
+export const OAUTH_PROTECTED_RESOURCE_PREFIX = '/.well-known/oauth-protected-resource';
+/** The challenge realm of MCP routes (unchanged from P2-06; OAuth adds parameters to it). */
+export const MCP_REALM = 'relic-bridge';
 
 /** The scope every MCP token carries (read-only tools). Grants, not scopes, decide what a token may do. */
 export const MCP_SCOPE = 'mcp:read';
@@ -218,7 +224,14 @@ export interface OAuthRuntime {
   readonly issuer: string;
   /** The resource URL of a project slug. */
   resourceUrl(slug: string): string;
+  /**
+   * The `WWW-Authenticate` value of every 401 on `/p/{slug}/mcp`: a function of the path only (never of whether the
+   * project exists or why the request was refused), with `resource_metadata` and `scope` for a valid slug.
+   */
+  challenge(slug: string): string;
   metadata(c: Context): Promise<Response>;
+  /** RFC 9728 metadata of `/p/{slug}/mcp`; the project is not looked up (no slug probing). */
+  protectedResource(slug: string): Response;
   authorize(c: Context): Promise<Response>;
   token(c: Context, onRevocation: () => void): Promise<Response>;
   register(c: Context): Promise<Response>;
@@ -309,13 +322,25 @@ export function createOAuthRuntime(deps: OAuthRuntimeDeps): OAuthRuntime {
     // The provider's fetch takes the Workers `ExecutionContext`; it only calls `waitUntil` on it.
     as.fetch(atIssuer(c, body), env, executionContext(c) as unknown as Parameters<typeof as.fetch>[2]);
 
-  /** A slug when `resource` is exactly one of our per-project resource URLs. */
+  /**
+   * A slug when `resource` is exactly one of our per-project resource URLs. Scheme and host compare
+   * case-insensitively (MCP 2026-07-28 "SHOULD accept uppercase scheme and host"; the issuer origin is lowercase),
+   * the rest exactly.
+   */
   const slugOf = (resource: string): string | null => {
-    const prefix = `${issuer}/p/`;
-    if (!resource.startsWith(prefix) || !resource.endsWith('/mcp')) return null;
-    const slug = resource.slice(prefix.length, -'/mcp'.length);
+    if (resource.slice(0, issuer.length).toLowerCase() !== issuer) return null;
+    const path = resource.slice(issuer.length);
+    if (!path.startsWith('/p/') || !path.endsWith('/mcp')) return null;
+    const slug = path.slice('/p/'.length, -'/mcp'.length);
     return SLUG_RE.test(slug) ? slug : null;
   };
+  /** RFC 8707 on a request: exactly one `resource`, one of ours. */
+  const targetSlug = (params: URLSearchParams): string | null => {
+    const resources = params.getAll('resource');
+    return resources.length === 1 ? slugOf(resources[0] as string) : null;
+  };
+  const resourceMetadataUrl = (slug: string): string =>
+    `${issuer}${OAUTH_PROTECTED_RESOURCE_PREFIX}/p/${slug}/mcp`;
 
   const codeMarker = async (code: string): Promise<string> => `${CODE_MARKER_PREFIX}${await sha256Hex(code)}`;
 
@@ -335,6 +360,35 @@ export function createOAuthRuntime(deps: OAuthRuntimeDeps): OAuthRuntime {
   return {
     issuer,
     resourceUrl,
+
+    challenge(slug) {
+      // Only a valid slug reaches the header (no quote or comma can), and nothing else does: the same value for every
+      // denial on one URL. No `error=` (RFC 6750 §3.1): it would tell a missing token from a refused one.
+      if (!SLUG_RE.test(slug)) return `Bearer realm="${MCP_REALM}"`;
+      return `Bearer realm="${MCP_REALM}", resource_metadata="${resourceMetadataUrl(slug)}", scope="${MCP_SCOPE}"`;
+    },
+
+    protectedResource(slug) {
+      // The app's own 404: an invalid slug's metadata URL is not a route at all.
+      if (!SLUG_RE.test(slug)) {
+        return new Response('{"error":"not_found"}', {
+          status: 404,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      // RFC 9728 §2. No `resource_name`: the project's display name is not public (T19). No `offline_access` in
+      // `scopes_supported`: refresh tokens are not a resource requirement (MCP 2026-07-28 §Refresh Tokens).
+      const body = {
+        resource: resourceUrl(slug),
+        authorization_servers: [issuer],
+        scopes_supported: [MCP_SCOPE],
+        bearer_methods_supported: ['header'],
+      };
+      return new Response(JSON.stringify(body), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    },
 
     async metadata(c) {
       const response = await fetchProvider(await server([]), c);
@@ -366,6 +420,15 @@ export function createOAuthRuntime(deps: OAuthRuntimeDeps): OAuthRuntime {
         return jsonError(400, 'invalid_request', 'Parameters must not be repeated.');
       }
       const grantType = form?.get('grant_type') ?? null;
+      // RFC 8707 / MCP 2026-07-28: the token request names its resource too. Checked before the code is consumed, so
+      // a client that left it out can retry; the provider then requires it to be the grant's own resource.
+      if (
+        form !== null &&
+        (grantType === 'authorization_code' || grantType === 'refresh_token') &&
+        targetSlug(form) === null
+      ) {
+        return jsonError(400, 'invalid_target', 'resource must name one MCP endpoint of this server.');
+      }
       const as = await allProjects();
       if (grantType === 'authorization_code') {
         const code = form?.get('code') ?? '';
@@ -389,8 +452,7 @@ export function createOAuthRuntime(deps: OAuthRuntimeDeps): OAuthRuntime {
         return jsonError(400, 'invalid_request', 'Parameters must not be repeated.');
       }
       // RFC 8707: exactly one resource, one of ours. Refused before the client is known, so never redirected.
-      const resources = url.searchParams.getAll('resource');
-      const slug = resources.length === 1 ? slugOf(resources[0] as string) : null;
+      const slug = targetSlug(url.searchParams);
       if (slug === null) {
         return jsonError(400, 'invalid_target', 'resource must name one MCP endpoint of this server.');
       }

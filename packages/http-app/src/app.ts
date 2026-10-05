@@ -78,6 +78,7 @@ import {
   OAUTH_AUTHORIZE_PATH,
   OAUTH_MAX_BODY_BYTES,
   OAUTH_METADATA_PATH,
+  OAUTH_PROTECTED_RESOURCE_PREFIX,
   OAUTH_REGISTER_PATH,
   OAUTH_TOKEN_PATH,
   type OAuthAuthentication,
@@ -402,8 +403,8 @@ function json(status: number, body: string, extra: Record<string, string> = {}):
 }
 
 /** The single answer for every authentication and authorization failure (T19: nothing to enumerate). */
-function unauthorized(): Response {
-  return json(401, UNAUTHORIZED_BODY, { 'WWW-Authenticate': WWW_AUTHENTICATE });
+function unauthorized(challenge: string = WWW_AUTHENTICATE): Response {
+  return json(401, UNAUTHORIZED_BODY, { 'WWW-Authenticate': challenge });
 }
 
 /** The pass-through route's single answer for every key problem. */
@@ -921,6 +922,10 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
       serve((c) => rt.metadata(c)),
     );
     app.get(
+      `${OAUTH_PROTECTED_RESOURCE_PREFIX}/p/:slug/mcp`,
+      serve(async (c) => rt.protectedResource(c.req.param('slug') ?? '')),
+    );
+    app.get(
       OAUTH_AUTHORIZE_PATH,
       serve((c) => rt.authorize(c)),
     );
@@ -991,7 +996,10 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
       }
     }
 
-    const deny = (reason: string): Promise<Response> => denyWith(c, { requestId, reason }, log, unauthorized);
+    // With OAuth on, the challenge names this slug's Protected Resource Metadata (P5-02): built from the path alone,
+    // so every denial on one URL is still byte-identical and an unknown slug answers like a known one (T19).
+    const refused = oauth === undefined ? unauthorized : () => unauthorized(oauth.challenge(slug));
+    const deny = (reason: string): Promise<Response> => denyWith(c, { requestId, reason }, log, refused);
 
     // 6. Authenticate, then authorise for this slug. The token is checked before the slug is looked at, so slugs
     // can't be probed without a valid token (T19); every denial is the same 401.

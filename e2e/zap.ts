@@ -242,11 +242,12 @@ async function main(): Promise<number> {
       const text =
         readFileSync(join(OUT, `${run.name}.json`), 'utf8') +
         readFileSync(join(OUT, `${run.name}.html`), 'utf8');
-      for (const s of secrets) {
-        if (text.includes(s)) {
-          console.error(`ZAP ${run.name}: report contains a secret value; refusing to keep it`);
-          failed = true;
-        }
+      if (secrets.some((s) => text.includes(s))) {
+        // Delete both reports so neither a local run nor the workflow's artifact upload keeps the secret.
+        rmSync(join(OUT, `${run.name}.json`), { force: true });
+        rmSync(join(OUT, `${run.name}.html`), { force: true });
+        console.error(`ZAP ${run.name}: report contains a secret value; deleted it`);
+        failed = true;
       }
       for (const a of report.site?.flatMap((s) => s.alerts ?? []) ?? []) {
         const risk = Number(a.riskcode);

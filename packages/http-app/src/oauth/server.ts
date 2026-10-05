@@ -18,6 +18,10 @@
 //   the device), access tokens never outlive their grant, refresh tokens are single-use under concurrency (a marker
 //   consumed with `kv.take`) and a reused one revokes its whole family. A device is one provider grant
 //   (`oauth_<grantId>`); `devices` lists and revokes them for the admin API (P5-05).
+// - Refresh reuse interval (P5-09, ADR-0013): within `refreshReuseWindowSeconds` (default 30 s, 0 = strict) the token
+//   that was just rotated, re-presented by the same client, gets the already issued successor pair again (sealed in
+//   `kv` under a key derived from that token, `refresh-replay.ts`) instead of revoking the device; a request that
+//   arrives while the rotation runs waits for it (bounded). Anything else is still reuse.
 // The provider module is imported lazily: stdio and token-only deployments never load it.
 import type {
   AuthorizationErrorCode,
@@ -45,6 +49,14 @@ import {
   safeClientName,
 } from './clients.ts';
 import { type OAuthKvNamespace, oauthKvNamespace } from './kv-namespace.ts';
+import {
+  clientAuthenticates,
+  openReplay,
+  presentedClient,
+  type ReplayPayload,
+  type StoredClientAuth,
+  sealReplay,
+} from './refresh-replay.ts';
 import { forgetApprovals, type StoredApproval } from './remembered.ts';
 
 export const OAUTH_AUTHORIZE_PATH = '/oauth/authorize';
@@ -63,6 +75,19 @@ export const OAUTH_SCOPES: readonly string[] = Object.freeze([MCP_SCOPE, 'offlin
 
 export const DEFAULT_OAUTH_ACCESS_TTL_S = 3600;
 export const DEFAULT_OAUTH_REFRESH_TTL_S: number = 30 * 86_400;
+/**
+ * Refresh token reuse interval (P5-09, ADR-0013): seconds during which the token that was just rotated, re-presented by
+ * the same client, gets the same successor pair instead of revoking the device. 0 = strict single use (P5-05).
+ */
+export const DEFAULT_OAUTH_REFRESH_REUSE_WINDOW_S = 30;
+export const MAX_OAUTH_REFRESH_REUSE_WINDOW_S = 120;
+/**
+ * Pauses (ms) of a refresh that found its token being rotated by a concurrent request, while it waits for that
+ * rotation's result (about 3 s in all; real time, a few `kv` reads).
+ */
+const REPLAY_WAIT_STEPS_MS: readonly number[] = Object.freeze([
+  20, 40, 80, 160, 250, 250, 250, 250, 250, 250, 250, 250, 250, 250, 250,
+]);
 /** How long an authorization code may wait for its exchange (the provider's own grant TTL is the same). */
 export const OAUTH_CODE_TTL_S = 600;
 /** Largest token or registration request body read. */
@@ -154,6 +179,11 @@ export interface OAuthOptions {
    * days, counted from the code exchange; refreshing never extends it (P5-05). Capped at the grant's expiry.
    */
   readonly refreshTokenTtlSeconds?: number;
+  /**
+   * Refresh token reuse interval in seconds, 0 (strict single use, P5-05) or 1-120. Default 30 (P5-09, ADR-0013): a
+   * client that refreshes twice at once with one token gets the same new pair twice instead of losing the device.
+   */
+  readonly refreshReuseWindowSeconds?: number;
   /** RFC 7591 dynamic client registration at `/oauth/register`. Default on. */
   readonly registration?: boolean;
   /**
@@ -209,6 +239,8 @@ const REFRESH_LIVE = 'live';
  */
 const TOMBSTONE_PREFIX = 'oauth-revoked:';
 const REFRESH_USED = 'used';
+/** Sealed successor of a just-rotated refresh token, `oauth-refresh-replay:<sha256(token)>` (P5-09, `refresh-replay.ts`). */
+const REPLAY_PREFIX = 'oauth-refresh-replay:';
 /** An OAuth device's public id: `oauth_` + the provider grant id (also the audit `tokenId`). */
 const DEVICE_ID_RE = /^oauth_([A-Za-z0-9_-]{16})$/;
 /** Access grant ids as stored in grant metadata (the admin API's id shape). */
@@ -371,6 +403,13 @@ export function createOAuthRuntime(deps: OAuthRuntimeDeps): OAuthRuntime {
     options.refreshTokenTtlSeconds ?? DEFAULT_OAUTH_REFRESH_TTL_S,
     60,
     365 * 86_400,
+    true,
+  );
+  const reuseWindow = checkInt(
+    'oauth.refreshReuseWindowSeconds',
+    options.refreshReuseWindowSeconds ?? DEFAULT_OAUTH_REFRESH_REUSE_WINDOW_S,
+    1,
+    MAX_OAUTH_REFRESH_REUSE_WINDOW_S,
     true,
   );
   const registration = options.registration ?? true;
@@ -659,6 +698,8 @@ export function createOAuthRuntime(deps: OAuthRuntimeDeps): OAuthRuntime {
     token: string,
     used: boolean,
     helpers: OAuthHelpers,
+    /** P5-09: why a reuse-interval replay was refused (audit detail), when one was attempted. */
+    replayRefused: string | null = null,
   ): Promise<void> => {
     const m = PROVIDER_TOKEN_RE.exec(token);
     if (m === null) return;
@@ -686,17 +727,29 @@ export function createOAuthRuntime(deps: OAuthRuntimeDeps): OAuthRuntime {
       targetId: `oauth_${grantId}`,
       status: 'denied',
       errorCode: 'refresh_token_reuse',
-      details: { revoked: true, concurrent: !used },
+      details: {
+        revoked: true,
+        concurrent: !used,
+        ...(replayRefused === null ? {} : { replayRefused }),
+      },
     });
   };
 
   /**
    * After the provider answered a refresh whose marker we took: on success the presented token becomes `used` and the
-   * new one `live`; otherwise the presented token is `live` again only if the provider did not rotate it (a refused
-   * request: wrong client, scope or resource), else `used`.
+   * new one `live` (with a reuse interval, the sealed successor is written first, so a request that sees `used` and no
+   * replay knows there is none); otherwise the presented token is `live` again only if the provider did not rotate it
+   * (a refused request: wrong client, scope or resource), else `used`.
    */
-  const settleRefresh = async (token: string, marker: string, response: Response | undefined) => {
+  const settleRefresh = async (
+    token: string,
+    marker: string,
+    response: Response | undefined,
+    c: Context,
+    form: URLSearchParams,
+  ) => {
     if (response?.ok) {
+      if (reuseWindow > 0) await keepForReplay(token, response, c, form);
       await deps.kv.put(marker, REFRESH_USED, { expirationTtl: markerTtl });
       await markIssued(response);
       return;
@@ -707,6 +760,155 @@ export function createOAuthRuntime(deps: OAuthRuntimeDeps): OAuthRuntime {
     } | null;
     const unchanged = grant !== null && grant.refreshTokenId === (await sha256Hex(token));
     await deps.kv.put(marker, unchanged ? REFRESH_LIVE : REFRESH_USED, { expirationTtl: markerTtl });
+  };
+
+  // ------------------------------------------------------------------------------ refresh reuse interval (P5-09)
+
+  const replayAad = (userId: string, grantId: string, hash: string): string =>
+    `relic-bridge:oauth-refresh-replay:v1:${userId}:${grantId}:${hash}`;
+
+  /** Seal the successor pair of a successful rotation for the reuse interval (best effort: a failure is only logged). */
+  const keepForReplay = async (token: string, response: Response, c: Context, form: URLSearchParams) => {
+    try {
+      const body = (await response.clone().json()) as Record<string, unknown>;
+      const client = presentedClient(c.req.raw.headers, form);
+      const successor = body['refresh_token'];
+      const resource = form.get('resource');
+      if (client === null || typeof successor !== 'string' || resource === null) return;
+      const m = PROVIDER_TOKEN_RE.exec(token) as RegExpExecArray;
+      const hash = await sha256Hex(token);
+      const payload: ReplayPayload = {
+        v: 1,
+        issuedAt: Math.floor(clock.now() / 1000),
+        clientId: client.clientId,
+        resource,
+        scope: form.get('scope'),
+        successor: await sha256Hex(successor),
+        response: body,
+      };
+      await deps.kv.put(
+        `${REPLAY_PREFIX}${hash}`,
+        await sealReplay(token, replayAad(m[1] as string, m[2] as string, hash), payload),
+        { expirationTtl: reuseWindow },
+      );
+    } catch (error) {
+      // Without it a concurrent duplicate is treated as reuse (the strict behaviour): never worse than P5-05.
+      logger.warn('oauth refresh replay not stored', {
+        error: error instanceof Error ? error.name : typeof error,
+      });
+    }
+  };
+
+  type ReplayOutcome =
+    | { readonly kind: 'replay'; readonly response: Response }
+    /** The rotation that held the marker gave the token back (`live` again): this request rotates it now. */
+    | { readonly kind: 'owner' }
+    /** Reuse after all (`used`: the token was rotated; else it is still being rotated or was never the grant's). */
+    | { readonly kind: 'reuse'; readonly used: boolean; readonly why: string | null };
+
+  /**
+   * The replay of the successor sealed for `token`, if this request may have it: the same client (and client
+   * authentication), resource and scope as the rotation, inside the window, the successor still the grant's current
+   * refresh token (an older generation is reuse) and the device not revoked. Otherwise the reason it is reuse.
+   */
+  const serveReplay = async (
+    c: Context,
+    form: URLSearchParams,
+    token: string,
+    userId: string,
+    grantId: string,
+    hash: string,
+    sealed: string,
+  ): Promise<ReplayOutcome> => {
+    const reuse = (why: string): ReplayOutcome => ({ kind: 'reuse', used: true, why });
+    const payload = await openReplay(token, replayAad(userId, grantId, hash), sealed);
+    if (payload === null) return reuse('unreadable');
+    const nowS = Math.floor(clock.now() / 1000);
+    const elapsed = nowS - payload.issuedAt;
+    if (elapsed < 0 || elapsed > reuseWindow) return reuse('outside_window');
+    const client = presentedClient(c.req.raw.headers, form);
+    if (client === null || client.clientId !== payload.clientId) return reuse('other_client');
+    const record = (await env.OAUTH_KV.get(`client:${client.clientId}`, {
+      type: 'json',
+    })) as StoredClientAuth | null;
+    if (!(await clientAuthenticates(client, record, sha256Hex))) return reuse('client_authentication');
+    const resource = form.get('resource');
+    if (resource === null || targetSlug(form) !== slugOf(payload.resource)) return reuse('other_resource');
+    if (form.get('scope') !== payload.scope) return reuse('other_scope');
+    const grant = (await env.OAUTH_KV.get(`grant:${userId}:${grantId}`, { type: 'json' })) as {
+      readonly refreshTokenId?: unknown;
+    } | null;
+    if (grant === null || (await deps.kv.get(tombstone(userId, grantId))) !== null) return reuse('revoked');
+    if (grant.refreshTokenId !== payload.successor) return reuse('older_generation');
+    const expiresIn = payload.response['expires_in'];
+    const body = {
+      ...payload.response,
+      ...(typeof expiresIn === 'number' ? { expires_in: Math.max(1, expiresIn - elapsed) } : {}),
+    };
+    logger.info('oauth refresh replayed within the reuse interval', { oauthGrant: grantId, elapsed });
+    const requestId = c.get('requestId') as unknown;
+    await deps.audit?.({
+      actor: {
+        requestId: typeof requestId === 'string' ? requestId : null,
+        userId,
+        clientId: payload.clientId.slice(0, 200),
+        tokenId: `oauth_${grantId}`,
+      },
+      action: 'oauth.token.replay',
+      targetType: 'oauth_device',
+      targetId: `oauth_${grantId}`,
+      status: 'ok',
+      details: { elapsedSeconds: elapsed, windowSeconds: reuseWindow },
+    });
+    return {
+      kind: 'replay',
+      response: new Response(JSON.stringify(body), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', Pragma: 'no-cache' },
+      }),
+    };
+  };
+
+  /**
+   * A refresh whose marker was not `live` (`first`: what `kv.take` returned, `used` or null), with a reuse interval:
+   * replay the sealed successor if there is one for this request; if the token is being rotated right now (no marker,
+   * still the grant's current or previous token), wait for that rotation, bounded; if the rotation gave the token back,
+   * take it over. The marker taken here is put back as it was.
+   */
+  const awaitReplay = async (
+    c: Context,
+    form: URLSearchParams,
+    token: string,
+    marker: string,
+    first: string | null,
+  ): Promise<ReplayOutcome> => {
+    const [, userId, grantId] = PROVIDER_TOKEN_RE.exec(token) as unknown as [string, string, string];
+    const hash = await sha256Hex(token);
+    const key = `${REPLAY_PREFIX}${hash}`;
+    let used = first !== null;
+    if (used) await deps.kv.put(marker, REFRESH_USED, { expirationTtl: markerTtl });
+    for (let step = 0; ; step++) {
+      const sealed = await deps.kv.get(key);
+      if (sealed !== null) return serveReplay(c, form, token, userId, grantId, hash, sealed);
+      if (used) return { kind: 'reuse', used: true, why: 'no_replay' };
+      if (step === 0) {
+        // Only a token the grant still names can be in rotation: anything else (forged, long gone) waits for nothing.
+        const grant = (await env.OAUTH_KV.get(`grant:${userId}:${grantId}`, { type: 'json' })) as {
+          readonly refreshTokenId?: unknown;
+          readonly previousRefreshTokenId?: unknown;
+        } | null;
+        if (grant === null || (grant.refreshTokenId !== hash && grant.previousRefreshTokenId !== hash)) {
+          return { kind: 'reuse', used: false, why: null };
+        }
+      }
+      const pause = REPLAY_WAIT_STEPS_MS[step];
+      if (pause === undefined) return { kind: 'reuse', used: false, why: 'rotation_timeout' };
+      await new Promise((resolve) => setTimeout(resolve, pause));
+      const state = await deps.kv.get(marker);
+      if (state === REFRESH_USED) used = true;
+      else if (state === REFRESH_LIVE && (await deps.kv.take(marker)) === REFRESH_LIVE)
+        return { kind: 'owner' };
+    }
   };
 
   // ------------------------------------------------------------------------------------------------ devices (P5-05)
@@ -992,25 +1194,38 @@ export function createOAuthRuntime(deps: OAuthRuntimeDeps): OAuthRuntime {
           return jsonError(400, 'invalid_grant', 'Invalid authorization code');
         }
       }
-      if (grantType === 'refresh_token') {
-        // Single use under concurrency (P5-05): of concurrent refreshes with one token at most one finds it `live`;
-        // anything else is reuse and revokes the device's token family.
-        const presented = form?.get('refresh_token') ?? '';
+      if (grantType === 'refresh_token' && form !== null) {
+        // Single use under concurrency (P5-05): of concurrent refreshes with one token at most one finds it `live`.
+        // With a reuse interval (P5-09) the others get that rotation's result; anything else is reuse and revokes the
+        // device's token family.
+        const presented = form.get('refresh_token') ?? '';
         if (!looksLikeOAuthToken(presented)) return jsonError(400, 'invalid_grant', 'Invalid refresh token');
         const marker = await refreshMarker(presented);
-        const state = await deps.kv.take(marker);
+        const helpers = as.getOAuthApi(env);
+        let state = await deps.kv.take(marker);
+        let replayRefused: string | null = null;
+        if (state !== REFRESH_LIVE && reuseWindow > 0) {
+          const outcome = await awaitReplay(c, form, presented, marker, state);
+          if (outcome.kind === 'replay') return outcome.response;
+          if (outcome.kind === 'owner') state = REFRESH_LIVE;
+          else {
+            replayRefused = outcome.why;
+            state = outcome.used ? REFRESH_USED : null;
+          }
+        } else if (state !== REFRESH_LIVE && state !== null) {
+          await deps.kv.put(marker, REFRESH_USED, { expirationTtl: markerTtl });
+        }
         if (state !== REFRESH_LIVE) {
-          if (state !== null) await deps.kv.put(marker, REFRESH_USED, { expirationTtl: markerTtl });
-          await refreshReused(c, presented, state !== null, as.getOAuthApi(env));
+          await refreshReused(c, presented, state !== null, helpers, replayRefused);
           return jsonError(400, 'invalid_grant', 'Invalid refresh token');
         }
         let refreshed: Response | undefined;
         try {
           refreshed = await fetchProvider(as, c, body);
         } finally {
-          await settleRefresh(presented, marker, refreshed);
+          await settleRefresh(presented, marker, refreshed, c, form);
         }
-        if (refreshed.ok && (await revokedMeanwhile(presented, as.getOAuthApi(env)))) {
+        if (refreshed.ok && (await revokedMeanwhile(presented, helpers))) {
           return jsonError(400, 'invalid_grant', 'Invalid refresh token');
         }
         return refreshed;

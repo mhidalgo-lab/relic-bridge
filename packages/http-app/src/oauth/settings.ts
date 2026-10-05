@@ -7,8 +7,13 @@
 //   RB_OAUTH_DCR_REDIRECT_HOSTS  comma-separated https redirect hosts dynamic clients may use (default: any)
 //   RB_OAUTH_ACCESS_TTL          access-token lifetime (default 1h; 60s-24h), P5-05
 //   RB_OAUTH_REFRESH_TTL         absolute refresh lifetime of a device authorization (default 30d; 1h-365d), P5-05
+//   RB_OAUTH_REFRESH_REUSE_WINDOW refresh token reuse interval (default 30s; 0 or off = strict; up to 120s), P5-09
 // Durations: a number of seconds, or a number with s, m, h or d (`90m`, `12h`, `30d`).
-import { DEFAULT_OAUTH_REGISTRATION_LIMIT, type OAuthOptions } from './server.ts';
+import {
+  DEFAULT_OAUTH_REGISTRATION_LIMIT,
+  MAX_OAUTH_REFRESH_REUSE_WINDOW_S,
+  type OAuthOptions,
+} from './server.ts';
 
 /** A refused `RB_OAUTH*` value; `variable` names it for the host's error message. */
 export class OAuthConfigError extends Error {
@@ -23,7 +28,13 @@ export class OAuthConfigError extends Error {
 
 /** What the variables configure; the host adds the consent screen (default) and its CIMD fetcher. */
 export type OAuthSettings = Required<Pick<OAuthOptions, 'registration' | 'registrationLimit'>> &
-  Pick<OAuthOptions, 'registrationRedirectHosts' | 'accessTokenTtlSeconds' | 'refreshTokenTtlSeconds'>;
+  Pick<
+    OAuthOptions,
+    | 'registrationRedirectHosts'
+    | 'accessTokenTtlSeconds'
+    | 'refreshTokenTtlSeconds'
+    | 'refreshReuseWindowSeconds'
+  >;
 
 export type OAuthEnv = Readonly<Record<string, unknown>>;
 
@@ -106,6 +117,17 @@ export function oauthSettingsFromEnv(env: OAuthEnv, signIn: boolean): OAuthSetti
   }
   const accessTokenTtlSeconds = duration(env, 'RB_OAUTH_ACCESS_TTL', 60, 86_400, '60s and 24h');
   const refreshTokenTtlSeconds = duration(env, 'RB_OAUTH_REFRESH_TTL', 3600, 365 * 86_400, '1h and 365d');
+  const reuseRaw = text(env, 'RB_OAUTH_REFRESH_REUSE_WINDOW')?.toLowerCase();
+  const refreshReuseWindowSeconds =
+    reuseRaw === 'off'
+      ? 0
+      : duration(
+          env,
+          'RB_OAUTH_REFRESH_REUSE_WINDOW',
+          0,
+          MAX_OAUTH_REFRESH_REUSE_WINDOW_S,
+          `0 (or off) and ${MAX_OAUTH_REFRESH_REUSE_WINDOW_S}s`,
+        );
   if (
     accessTokenTtlSeconds !== undefined &&
     refreshTokenTtlSeconds !== undefined &&
@@ -129,5 +151,6 @@ export function oauthSettingsFromEnv(env: OAuthEnv, signIn: boolean): OAuthSetti
     ...(registrationRedirectHosts === undefined ? {} : { registrationRedirectHosts }),
     ...(accessTokenTtlSeconds === undefined ? {} : { accessTokenTtlSeconds }),
     ...(refreshTokenTtlSeconds === undefined ? {} : { refreshTokenTtlSeconds }),
+    ...(refreshReuseWindowSeconds === undefined ? {} : { refreshReuseWindowSeconds }),
   };
 }

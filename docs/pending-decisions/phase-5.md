@@ -354,3 +354,24 @@ Record per client: date, client version, registration path (CIMD/DCR), result, a
 - **Assumption made:** menu names (Customize, Connectors, Add custom connector) and "mobile shows web-added connectors"
   come from Anthropic's help page of 2026-10-05; marked unverified in the guide.
 - **Needs:** owner to correct the guide after a real run (acceptance: phone + 3 computers, docs only).
+
+## Phase 5 review
+
+### P5 review — device replacement when an app connects again
+- **Context:** the provider replaced (revoked) a user's earlier grants of the same client and resource when a new code
+  was *issued*. With a remembered approval any page could disconnect a live app with one navigation (review H1). The
+  review moved replacement to code *redemption* (only the app holding the code and its PKCE verifier triggers it) and
+  kept the provider's matching rule (same user, client, resource; plus redirect URI for metadata-document clients).
+- **Assumption made:** "connecting the same app again replaces its earlier connection" stays. Side effect: installations
+  that share one client id and callback are one device (two Claude accounts of one person on the same project, or a
+  metadata-document client with a fixed https callback on two machines): the second connection ends the first.
+- **Options:** keep (simple, no stale devices); keep both and cap devices per user (P5-11); replace only when the
+  device label matches.
+- **Needs:** owner choice, ideally after the P5-06 manual checklist shows whether Claude web, Desktop and mobile share
+  one connection (vendor docs suggest connectors are per Claude account, so one connection serves all three).
+
+### P5 review — `redirect_uri` optional at the token endpoint with PKCE
+- **Context:** the provider checks `redirect_uri` on the code exchange only when the client sends it; PKCE binds the
+  code anyway and OAuth 2.1 dropped the requirement.
+- **Assumption made:** left as is (compatibility); tracked in P5-12.
+- **Needs:** nothing unless the owner prefers RFC 6749 strictness.

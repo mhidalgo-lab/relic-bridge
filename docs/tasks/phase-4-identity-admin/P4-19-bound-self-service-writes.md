@@ -2,11 +2,11 @@
 id: P4-19
 title: "Bound the storage writes signed-in users can cause"
 phase: 4
-status: todo
+status: review
 priority: low
 depends_on: [P4-07, P4-10]
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P4-19 — Bound the storage writes signed-in users can cause
@@ -22,8 +22,8 @@ Phase 4 review L6, L7: cheap ways for any signed-in member to spend D1 writes (F
   slightly. Make them atomic (conditional insert) or re-check after insert and roll back.
 
 ## Acceptance criteria
-- [ ] 100 GETs of a token-form page leave at most N `ui-once:` rows for the user; HEAD writes none.
-- [ ] 30 parallel `POST /me/tokens` leave at most 20 live tokens (memory, SQLite, D1).
+- [x] 100 GETs of a token-form page leave at most N `ui-once:` rows for the user; HEAD writes none.
+- [x] 30 parallel `POST /me/tokens` leave at most 20 live tokens (memory, SQLite, D1).
 
 ## Security notes
 T20 (resource exhaustion by authenticated users).

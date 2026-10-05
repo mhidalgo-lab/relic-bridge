@@ -124,6 +124,10 @@ that `admin.js` reveals.
   admin API. Never give a key field a `value`, never copy it into the values of a form shown again, a hidden field, a
   URL, a flash or a log. A new secret (device token) is rendered once, with `SecretOnce`, on the answer to the POST
   that created it: never redirect with it. Pages are `no-store`.
+- **Single-use handles (`kit.issueOnce`).** A page that shows a form whose effect must not repeat stores a `ui-once:`
+  row (2 h). Since P4-19 a HEAD request stores none, and a user holds at most `ONCE_MAX_OUTSTANDING` (10): past that the
+  page reuses one of the open handles (a second tab then gets the normal "already used" answer). `OnceStore.list`
+  supplies the count (a read, not a write).
 - **API errors.** Show only the API's `error.message` (redacted, never echoing input) or fixed text (`formMessage`);
   map `error.field` to the form field. `502` means New Relic could not be asked and nothing changed.
 

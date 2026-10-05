@@ -201,6 +201,11 @@ describe('redirect URIs', () => {
   it('display names: no control, format or separator characters, ≤ 100 characters', () => {
     expect(safeClientName('  Claude  ')).toBe('Claude');
     expect(safeClientName('Café ☕ 日本')).toBe('Café ☕ 日本');
+    // Look-alike words (Cyrillic "а"/"С" inside a Latin word) are refused; a wholly Cyrillic or Greek name is not.
+    expect(safeClientName('Cl\u0430ude')).toBeNull();
+    expect(safeClientName('\u0421laude')).toBeNull();
+    expect(safeClientName('Claude \u0422\u0435\u0441\u0442')).toBe('Claude \u0422\u0435\u0441\u0442');
+    expect(safeClientName('\u0391\u0392\u0393 app')).toBe('\u0391\u0392\u0393 app');
     for (const bad of ['', '   ', 'a\u0000b', 'a\nb', 'Cl‮aude', 'a​b', 'a b', 'ab', 'x'.repeat(101), 3]) {
       expect(safeClientName(bad), JSON.stringify(bad)).toBeNull();
     }

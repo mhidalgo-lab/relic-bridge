@@ -177,7 +177,7 @@ describe('consent CSP', () => {
     expect(formActionSource('https://claude.ai/api/mcp/auth_callback')).toBe('https://claude.ai');
     expect(formActionSource('http://127.0.0.1:53682/callback')).toBe('http://127.0.0.1:53682');
     expect(formActionSource('http://localhost:1/cb')).toBe('http://localhost:1');
-    expect(formActionSource('http://[::1]:8080/cb')).toBe('http:');
+    expect(formActionSource('http://[::1]:8080/cb')).toBeNull();
     for (const bad of [
       'cursor://cb',
       'javascript:alert(1)',
@@ -197,7 +197,8 @@ describe('consent CSP', () => {
   it('isUiCsp keeps the UI policy and its consent variants only', () => {
     expect(isUiCsp(UI_CSP)).toBe(true);
     expect(isUiCsp(consentCsp('https://claude.ai'))).toBe(true);
-    expect(isUiCsp(consentCsp('http:'))).toBe(true);
+    expect(() => consentCsp('http:')).toThrow();
+    expect(isUiCsp(UI_CSP.replace("form-action 'self'", "form-action 'self' http:"))).toBe(false);
     for (const bad of [
       null,
       "default-src 'none'",

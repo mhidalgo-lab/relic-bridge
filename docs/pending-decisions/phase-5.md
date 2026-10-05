@@ -390,7 +390,7 @@ Record per client: date, client version, registration path (CIMD/DCR), result, a
 ### P5 review — `redirect_uri` optional at the token endpoint with PKCE
 - **Context:** the provider checks `redirect_uri` on the code exchange only when the client sends it; PKCE binds the
   code anyway and OAuth 2.1 dropped the requirement.
-- **Assumption made:** left as is (compatibility); tracked in P5-12.
+- **Assumption made:** left as is (compatibility); P5-12 confirmed it (documented in `docs/dev/oauth.md`).
 - **Needs:** nothing unless the owner prefers RFC 6749 strictness.
 
 ### P5-10 — anonymous-abuse bounds: numbers and the Workers `oauth` rule
@@ -402,3 +402,10 @@ Record per client: date, client version, registration path (CIMD/DCR), result, a
   Durable Object limiter (P7-10).
 - **Needs:** owner: confirm the defaults, especially that shared egress addresses (a proxy, claude.ai's servers) share
   one per-address budget.
+
+### P5-12 — `[::1]` redirects, mixed-script names
+- **Assumption made:** an `http://[::1]` redirect gets no CSP widening; the consent post answers with a same-origin
+  `Refresh` + link page instead of a redirect (one extra page for that rare client). Names that mix Latin with
+  Cyrillic/Greek letters inside one word are refused at registration (all-Cyrillic names are accepted).
+- **Options:** refuse `[::1]` redirects at registration; flag (not refuse) mixed-script names on the consent page.
+- **Needs:** owner preference; nothing blocks on it.

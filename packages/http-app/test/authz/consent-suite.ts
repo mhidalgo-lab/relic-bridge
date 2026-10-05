@@ -557,6 +557,61 @@ export function consentSuite(): void {
     });
   });
 
+  describe('P5-12: protocol nits', () => {
+    const errorOf = (res: Captured): URLSearchParams => {
+      expect(res.status, res.text).toBe(303);
+      const location = new URL(res.headers.get('location') as string);
+      expect(`${location.origin}${location.pathname}`).toBe(REDIRECT);
+      return location.searchParams;
+    };
+
+    it('prompt=none never shows a page: consent_required (signed in), login_required (not), with state and iss', async () => {
+      await browser.register();
+      const signedIn = errorOf((await browser.open(owner, 'prod', { prompt: 'none' })).res);
+      expect(signedIn.get('error')).toBe('consent_required');
+      expect(signedIn.get('state')).toBe('st-123');
+      expect(signedIn.get('iss')).toBe(ISSUER);
+      expect(signedIn.get('code')).toBeNull();
+      const anonymous = errorOf((await browser.open(undefined, 'prod', { prompt: 'none' })).res);
+      expect(anonymous.get('error')).toBe('login_required');
+      expect(anonymous.get('state')).toBe('st-123');
+      const mixed = errorOf((await browser.open(owner, 'prod', { prompt: 'none consent' })).res);
+      expect(mixed.get('error')).toBe('invalid_request');
+    });
+
+    it('prompt=none with a remembered approval is answered silently with a code', async () => {
+      await browser.register();
+      expect((await approve(owner, { remember: '1' })).res.status).toBe(303);
+      const again = await browser.open(owner, 'prod', { prompt: 'none' });
+      expect(again.res.status).toBe(303);
+      expect(codeOf(again.res)).not.toBeNull();
+    });
+
+    it('an IPv6 loopback redirect never widens form-action; the post is answered by a same-origin page', async () => {
+      const v6 = 'http://[::1]:53682/callback';
+      await browser.register('Consent test client', [v6]);
+      browser.redirectUri = v6;
+      const { res } = await browser.open(owner);
+      expect(res.status, res.text).toBe(200);
+      const csp = res.headers.get('content-security-policy') ?? '';
+      expect(csp).toContain("form-action 'self';");
+      expect(csp).not.toMatch(/form-action[^;]*http:/);
+      const { action, grants } = parseConsent(res);
+      const deny = await browser.post(owner, action, { decision: 'deny' });
+      expect(deny.status).toBe(200);
+      expect(deny.headers.get('location')).toBeNull();
+      expect(deny.headers.get('refresh')).toMatch(/^0; url=http:\/\/\[::1\]:53682\/callback\?/);
+      expect(deny.text).toContain('href="http://[::1]:53682/callback?');
+      expect(deny.text).toContain('error=access_denied');
+      const done = await browser.post(owner, action, { decision: 'approve', grant: grants[0] as string });
+      expect(done.status).toBe(200);
+      expect(done.headers.get('refresh')).toContain('code=');
+      secrets.push(
+        new URL((done.headers.get('refresh') as string).slice(7)).searchParams.get('code') as string,
+      );
+    });
+  });
+
   describe('remembered approvals', () => {
     it('remember: the next authorization of the same client is answered at once; forgetting brings the page back', async () => {
       await browser.register();

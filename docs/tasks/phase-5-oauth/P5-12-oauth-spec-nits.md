@@ -2,7 +2,7 @@
 id: P5-12
 title: "OAuth protocol nits from the Phase 5 review"
 phase: 5
-status: todo
+status: review
 priority: low
 depends_on: [P5-04]
 adr: []
@@ -29,9 +29,9 @@ Phase 5 review L7-L9 (`docs/reviews/phase-5-review.md`): small deviations, none 
   consent page already shows the vouching host / "not verified". Consider flagging mixed-script names.
 
 ## Acceptance criteria
-- [ ] `prompt=none` without a remembered approval redirects with `consent_required` (with `state` and `iss`).
-- [ ] Decision on `redirect_uri` recorded; tests match it.
-- [ ] No consent page response carries a scheme-wide `form-action` source.
+- [x] `prompt=none` without a remembered approval redirects with `consent_required` (with `state` and `iss`).
+- [x] Decision on `redirect_uri` recorded; tests match it.
+- [x] No consent page response carries a scheme-wide `form-action` source.
 
 ## Security notes
 T9, T10, T13.

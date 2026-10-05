@@ -174,11 +174,20 @@ export function isIpLiteral(hostname: string): boolean {
 /** Refused in display names: controls, format characters (bidi overrides, zero-width), line/paragraph separators, private use. */
 const UNSAFE_TEXT = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Co}]/u;
 
-/** A client display name, or null when it is unsafe or too long. */
+/** A word mixing Latin letters with Cyrillic or Greek ones: the look-alike trick ("Clаude" with a Cyrillic "а", P5-12). */
+const MIXED_SCRIPT_WORD = /(?=\S*\p{Script=Latin})(?=\S*[\p{Script=Cyrillic}\p{Script=Greek}])\S+/u;
+
+/** A client display name, or null when it is unsafe, too long or spells a word with look-alike letters. */
 export function safeClientName(value: unknown): string | null {
   if (typeof value !== 'string') return null;
   const name = value.trim();
-  if (name.length === 0 || [...name].length > MAX_CLIENT_NAME_CHARS || UNSAFE_TEXT.test(name)) return null;
+  if (
+    name.length === 0 ||
+    [...name].length > MAX_CLIENT_NAME_CHARS ||
+    UNSAFE_TEXT.test(name) ||
+    MIXED_SCRIPT_WORD.test(name)
+  )
+    return null;
   return name;
 }
 

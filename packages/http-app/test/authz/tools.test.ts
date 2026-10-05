@@ -378,3 +378,57 @@ describe('prompts follow the grant (P6-11)', () => {
     expect((await client.listPrompts()).prompts).toEqual([]);
   });
 });
+
+describe('resources follow the grant (P6-12)', () => {
+  const bodyOf = (r: { contents: { text?: string }[] }) => r.contents.map((c) => c.text ?? '').join('\n');
+
+  it('lists only the effective accounts and reads nothing from others, without a New Relic call', async () => {
+    const grantId = await h.addGrant(h.world.projectIds.prod, {
+      tools: ['whoami', 'run_nrql', 'list_event_types', 'get_attributes'],
+    });
+    const token = await h.addToken(grantId);
+    const client = await connect(h.app, 'prod', token.value, 'modern');
+    clients.push(client);
+    const before = h.nerdGraph.calls.length;
+    const uris = (await client.listResources()).resources.map((r) => r.uri).sort();
+    expect(uris).toEqual([
+      'relic://accounts/1/event-types',
+      'relic://accounts/2/event-types',
+      'relic://nrql/reference',
+    ]);
+    for (const account of [3, FOREIGN]) {
+      await expect(client.readResource({ uri: `relic://accounts/${account}/event-types` })).rejects.toThrow(
+        /RB_AUTH_FORBIDDEN/,
+      );
+      await expect(
+        client.readResource({ uri: `relic://accounts/${account}/event-types/Transaction/attributes` }),
+      ).rejects.toThrow(/RB_AUTH_FORBIDDEN/);
+    }
+    expect(bodyOf((await client.readResource({ uri: 'relic://nrql/reference' })) as never)).toContain('NRQL');
+    expect(h.nerdGraph.calls.length).toBe(before);
+    // an allowed account goes through the tool path and only names allowed accounts
+    await client.readResource({ uri: 'relic://accounts/1/event-types' });
+    for (const c of h.nerdGraph.calls.slice(before)) {
+      for (const account of accountsNamed(c)) expect(ALLOWED).toContain(account);
+    }
+  });
+
+  it('a grant without the tools sees no resources', async () => {
+    const grantId = await h.addGrant(h.world.projectIds.prod, { tools: ['whoami', 'time_range'] });
+    const token = await h.addToken(grantId);
+    const client = await connect(h.app, 'prod', token.value, 'modern');
+    clients.push(client);
+    expect((await client.listResources()).resources).toEqual([]);
+    await expect(client.readResource({ uri: 'relic://accounts/1/event-types' })).rejects.toThrow();
+    await expect(client.readResource({ uri: 'relic://nrql/reference' })).rejects.toThrow();
+  });
+
+  it('a grant with only get_attributes sees the attributes template but lists no account', async () => {
+    const grantId = await h.addGrant(h.world.projectIds.prod, { tools: ['get_attributes'] });
+    const token = await h.addToken(grantId);
+    const client = await connect(h.app, 'prod', token.value, 'modern');
+    clients.push(client);
+    expect((await client.listResources()).resources).toEqual([]);
+    await expect(client.readResource({ uri: 'relic://accounts/1/event-types' })).rejects.toThrow();
+  });
+});

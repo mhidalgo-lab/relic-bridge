@@ -2,11 +2,11 @@
 id: P6-12
 title: "MCP resources: NRQL reference and schema snapshots"
 phase: 6
-status: todo
+status: review
 priority: medium
 depends_on: [P6-11]
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P6-12 — MCP resources: NRQL reference and schema snapshots
@@ -29,14 +29,14 @@ owner: ""
 - Generated reference `docs/reference/resources.md` (extends `pnpm docs:tools`, checked by `pnpm lint`).
 
 ## Acceptance criteria
-- [ ] `resources/list`, `resources/templates/list` and `resources/read` work over HTTP and stdio (same `buildMcpServer`).
-- [ ] URIs stable and documented in `docs/reference/resources.md` (generated).
-- [ ] Reading an account outside the effective set is refused with the same error as the tool, no New Relic call; the list
+- [x] `resources/list`, `resources/templates/list` and `resources/read` work over HTTP and stdio (same `buildMcpServer`).
+- [x] URIs stable and documented in `docs/reference/resources.md` (generated).
+- [x] Reading an account outside the effective set is refused with the same error as the tool, no New Relic call; the list
       never names other accounts.
-- [ ] Event-type allow/deny lists apply to resource reads; malformed account or event type is refused.
-- [ ] Second read is served from the per-credential cache; two credentials never share an entry.
-- [ ] HTTP authz test: grant without the tools sees no resources; grant with them sees only its accounts.
-- [ ] Static content is original (documented in the file header), small, and the Worker bundle growth is noted.
+- [x] Event-type allow/deny lists apply to resource reads; malformed account or event type is refused.
+- [x] Second read is served from the per-credential cache; two credentials never share an entry.
+- [x] HTTP authz test: grant without the tools sees no resources; grant with them sees only its accounts.
+- [x] Static content is original (documented in the file header), small (about 3 KB source), and Worker bundle growth is negligible (Worker total upload 2931 KiB, gzip 600 KiB).
 
 ## Security notes
 The URI is client input: `{account}` is digits only and goes through `resolveAccounts` (T3, no enumeration), `{eventType}`

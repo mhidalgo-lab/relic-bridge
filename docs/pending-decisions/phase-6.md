@@ -179,3 +179,19 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Options:** (a) keep as is; (b) require all tools of a prompt (hide more prompts); (c) add a Kubernetes tool task;
   (d) `completion/complete` for entity guids and issue ids; (e) owner-defined prompts per project.
 - **Needs:** a live check of the Kubernetes prompt; owner's call on (b) to (e).
+
+## P6-12 — MCP resources
+
+### P6-12 — Schema resources reuse the tools; fixed 24 h window; original NRQL cheat sheet; no completion or subscriptions
+- **Context:** The task asked for a per-project schema resource. Resources are per connection (grant), not per project, and the
+  server has no resource subscription or completion support.
+- **Assumption made:** three resources (static NRQL reference, event types per account, attributes per event type) that call the
+  `list_event_types` / `get_attributes` handlers (so authz, limits, cache, budget and audit are shared). Fixed last-24-hours
+  window. `resources/list` shows one event-types URI per effective account; attributes are never listed. The NRQL reference is
+  original text of about 3 KB with a link to the official docs (nothing copied). Reads show in the audit as `list_event_types` /
+  `get_attributes` tool calls, and a resource is hidden when its tool is not allowed.
+- **Options:** (a) keep as is; (b) own audit action `resource.read`; (c) a `since` query parameter or a combined
+  "schema snapshot" resource with attributes of the top event types (costs one call per type); (d) `completion/complete` for
+  event types; (e) richer NRQL reference (functions list) once a licence-safe source is agreed.
+- **Needs:** owner's call on (b) to (e); a client check that real MCP clients surface templated resources.
+

@@ -53,6 +53,14 @@ export {
   type SelectOptions,
   ToolRegistry,
 } from './registry.ts';
+export {
+  ATTRIBUTES_TEMPLATE,
+  EVENT_TYPES_TEMPLATE,
+  NRQL_REFERENCE_URI,
+  RESOURCES,
+  type ResourceDefinition,
+  selectResources,
+} from './resources.ts';
 export { Secret } from './secret.ts';
 export {
   type BuildServerOptions,

@@ -76,7 +76,7 @@ JavaScript, select the text. claude.ai on the web and the Claude mobile apps nee
 **Users** (`/admin/users`). *Add a user* is the invitation: that person can then sign in with any configured provider
 that confirms the email address (no email is sent, so tell them the panel's address). A user page shows their role,
 sign-in provider, personal keys and grants. From there:
-- Change the name or role (a role change signs them out everywhere). Only owners can make or change owners. Nobody
+- Change the name or role (a role change signs them out everywhere). Only owners can make or change owners, or touch an owner's keys, grants and devices. Nobody
   can change their own role or disable themselves.
 - *Sign out everywhere* ends all their panel sessions. Their device tokens keep working.
 - *Disable* signs them out and stops their grants and personal keys until you enable them again.

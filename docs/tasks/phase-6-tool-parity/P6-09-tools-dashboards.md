@@ -2,11 +2,11 @@
 id: P6-09
 title: "Tools: list_dashboards, get_dashboard"
 phase: 6
-status: todo
+status: review
 priority: medium
 depends_on: [P5-07]
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P6-09 — Tools: list_dashboards, get_dashboard
@@ -26,10 +26,10 @@ owner: ""
   so (T3); title and visualization remain.
 
 ## Acceptance criteria
-- [ ] Fixture + contract tests; account filtering enforced (P2-12 `TOOL_CASES`, including a forged foreign dashboard).
-- [ ] Widget NRQL and markdown enveloped, redacted, capped; injection tests; widgets for foreign accounts withheld.
-- [ ] No widget execution path; GraphQL documents use variables only.
-- [ ] Accurate `cost`; pagination via `next_cursor`; `docs/reference/tools.md` regenerated; THREAT_MODEL, RESEARCH updated;
+- [x] Fixture + contract tests; account filtering enforced (P2-12 `TOOL_CASES`, including a forged foreign dashboard).
+- [x] Widget NRQL and markdown enveloped, redacted, capped; injection tests; widgets for foreign accounts withheld.
+- [x] No widget execution path; GraphQL documents use variables only.
+- [x] Accurate `cost`; pagination via `next_cursor`; `docs/reference/tools.md` regenerated; THREAT_MODEL, RESEARCH updated;
   owner decisions logged.
 
 ## Security notes

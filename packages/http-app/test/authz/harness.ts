@@ -252,6 +252,39 @@ export function hostileNerdGraph(tenants: Readonly<Record<string, string>>): Hos
               },
             },
           });
+        case 'RbDashboards':
+          return ok({
+            actor: {
+              entitySearch: {
+                count: 3,
+                results: {
+                  nextCursor: null,
+                  entities: [
+                    { ...entity(1, `${label}-dash-1`), domain: 'VIZ', type: 'DASHBOARD' },
+                    { ...entity(FOREIGN, `${LEAK}-dash`), domain: 'VIZ', type: 'DASHBOARD' },
+                    // Reported in the requested account, but the GUID names the foreign one.
+                    {
+                      ...entity(1, `${LEAK}-forged`, guidOf(FOREIGN, 'forged')),
+                      domain: 'VIZ',
+                      type: 'DASHBOARD',
+                    },
+                  ],
+                },
+              },
+            },
+          });
+        // A dashboard in the foreign account behind an allowed account's GUID.
+        case 'RbDashboard':
+          return ok({
+            actor: {
+              entity: {
+                ...entity(FOREIGN, `${LEAK}-dashboard`, String(variables['guid'])),
+                domain: 'VIZ',
+                type: 'DASHBOARD',
+                pages: [],
+              },
+            },
+          });
         case 'RbEntitySearch':
           return ok({
             actor: {

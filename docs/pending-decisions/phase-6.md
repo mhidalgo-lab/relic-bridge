@@ -128,3 +128,23 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   monitors (needs a separate, secret-aware design); (f) private-location health.
 - **Needs:** a live run on an account with synthetics; owner's call on (c) to (f).
 
+## P6-09 — Dashboard tools
+
+### P6-09 — Widgets are not executed; widget field names unverified
+- **Context:** The task allowed an optional `run_dashboard_widget`. A widget's NRQL is raw NRQL authored by a third party and may name
+  another account; no live sample of `rawConfiguration` exists (see RESEARCH).
+- **Assumption made:** `list_dashboards` and `get_dashboard` (cost 1 each) only return data. Widget NRQL is shown (inside the untrusted
+  envelope) so an agent can pass it to `run_nrql`, which enforces the `rawNrql` switch, scope and limits. Widgets with queries for
+  accounts outside the connection (or no account id) have NRQL and markdown withheld. Only widgets with `nrqlQueries` or markdown
+  `text` yield content.
+- **Options:** (a) keep as is; (b) add `run_dashboard_widget` going through `runRawNrql` (needs the rawNrql switch and a decision on
+  `TIMESERIES`/variable substitution); (c) live probe on an account with dashboards (`pnpm test:live`); (d) dashboard variables and
+  time-picker substitution in returned NRQL.
+- **Needs:** a live run; owner's call on (b) and (d).
+
+### P6-09 — `pnpm bench:cpu` flags `mcp.tools-list.hit` (about 2.05x, threshold 2x), also on the P6-08 base
+- **Context:** Measured on the unmodified base branch (P6-08) and with P6-09: both report about 2.0x versus the stored baseline, so the
+  regression predates P6-09 and grows with the tool count (every Phase 6 tool adds schema to serialise on `tools/list`).
+- **Assumption made:** left as is; no baseline change in a tool task.
+- **Options:** (a) re-baseline after Phase 6; (b) cache the serialised `tools/list` payload per tool set; (c) lazy tool groups.
+- **Needs:** owner's call.

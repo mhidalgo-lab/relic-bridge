@@ -338,6 +338,12 @@ Sources: <https://github.com/cloudflare/workers-oauth-provider>, issues #264, #3
   `timestamp`) faceted by `entityGuid, location`. `monitorType`/`status` are filtered client-side because their entity-search field
   names are not confirmed. **Unverified:** every field above, `entityGuid` on `SyntheticCheck`, `error` holding the failure message,
   and the units of `period`. The monitor script, secure credentials and headers are deliberately never selected.
+- Dashboards (P6-09, not verified against a real account): dashboards are entities `domain = 'VIZ' AND type = 'DASHBOARD'`
+  (`... on DashboardEntityOutline { permissions }` in search). The detail is `... on DashboardEntity { description permissions pages
+  { guid name description widgets { id title visualization { id } rawConfiguration } } }`. `rawConfiguration` is a JSON scalar; the
+  tools read `nrqlQueries[].{accountId, query}` and, for markdown widgets, `text`. **Unverified:** every name above and the shape of
+  `rawConfiguration` per visualization (billboard, table, line, markdown, and visualizations with other query keys give no NRQL).
+  Widget NRQL is never executed by the tools; `permissions` is PRIVATE / PUBLIC_READ_ONLY / PUBLIC_READ_WRITE.
 - **Trusted publishing** (OIDC from GitHub Actions, no long-lived npm token) needs npm CLI ≥ 11.5.1 and Node ≥ 22.14
   (Node 24 bundles npm 11), job permission `id-token: write`, and a GitHub-hosted runner. Each package has at most one
   trusted publisher (workflow file + optional environment); `npm trust github <pkg> --file release.yml --env release`

@@ -28,6 +28,13 @@ export {
   wrongRegionError,
 } from './client.ts';
 export {
+  DASHBOARD_QUERY,
+  DASHBOARDS_QUERY,
+  type DashboardDetailData,
+  type DashboardOutline,
+  type DashboardWidgetData,
+} from './dashboards.ts';
+export {
   type DefineDocumentOptions,
   type DocumentData,
   DocumentError,

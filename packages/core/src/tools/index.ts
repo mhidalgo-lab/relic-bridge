@@ -12,6 +12,7 @@ import { createLogTools } from './logs.ts';
 import { createQueryTools, type ToolDeps } from './query.ts';
 import { createRuntimeTools } from './runtime.ts';
 import { createSchemaTools } from './schema.ts';
+import { createSyntheticTools } from './synthetics.ts';
 
 export { createTimeTools } from './time.ts';
 
@@ -47,6 +48,7 @@ export {
   parseKeyset,
   SCHEMA_TTL_MS,
 } from './schema.ts';
+export { createSyntheticTools } from './synthetics.ts';
 
 /** Every built-in tool, ready for `ToolRegistry.register`. Later tool groups add themselves here. */
 export function createBuiltinTools(deps: ToolDeps = {}): ToolDefinition[] {
@@ -64,5 +66,6 @@ export function createBuiltinTools(deps: ToolDeps = {}): ToolDefinition[] {
     ...createApmTools(deps),
     ...createLogTools(deps),
     ...createRuntimeTools(deps),
+    ...createSyntheticTools(deps),
   ];
 }

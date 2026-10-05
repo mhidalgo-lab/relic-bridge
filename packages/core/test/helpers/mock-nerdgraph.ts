@@ -70,6 +70,19 @@ export function mockNerdGraph(): { fetch: FetchLike; calls: RecordedCall[] } {
       const nrql = String(body.variables['nrql'] ?? '');
       if (nrql.startsWith('SHOW EVENT TYPES')) return nrqlBody([{ eventType: 'Transaction' }]);
       if (nrql.includes('keyset()')) return nrqlBody([{ key: 'duration', type: 'numeric' }]);
+      if (nrql.includes('FROM SyntheticCheck')) {
+        return nrqlBody([
+          {
+            facet: [MOCK_GUID, 'AWS_US_EAST_1'],
+            checks: 12,
+            failures: 1,
+            avgDuration: 250,
+            lastResult: 'SUCCESS',
+            lastAt: 1790943000000,
+            lastError: null,
+          },
+        ]);
+      }
       if (nrql.includes('rate(count')) {
         return nrqlBody([{ beginTimeSeconds: 0, endTimeSeconds: 60, Throughput: 1 }]);
       }
@@ -301,6 +314,32 @@ export function mockNerdGraph(): { fetch: FetchLike; calls: RecordedCall[] } {
                     },
                   ],
                 },
+              },
+            },
+          },
+        },
+      });
+    }
+    if (has('RbSyntheticMonitors')) {
+      return json({
+        data: {
+          actor: {
+            entitySearch: {
+              count: 1,
+              results: {
+                nextCursor: null,
+                entities: [
+                  {
+                    ...entity,
+                    domain: 'SYNTH',
+                    type: 'MONITOR',
+                    monitorId: 'mon-1',
+                    monitorType: 'SIMPLE',
+                    monitoredUrl: 'https://example.com',
+                    period: 5,
+                    status: 'ENABLED',
+                  },
+                ],
               },
             },
           },

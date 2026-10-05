@@ -112,3 +112,19 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   (cluster entity); (f) thread dumps from the profiler (separate, heavier tool).
 - **Needs:** a live run on both account types; owner's call on (c) to (f).
 
+## P6-08 — Synthetics tool
+
+### P6-08 — Synthetic entity fields and SyntheticCheck attributes unverified; type/status filtered client-side
+- **Context:** No live sample exists. `SyntheticMonitorEntityOutline` fields (`monitorId`, `monitorType`, `monitoredUrl`, `period`,
+  `status`) and `SyntheticCheck` attributes (`entityGuid`, `location`, `result`, `duration`, `error`, `timestamp`) are from documentation
+  and memory (see RESEARCH). A wrong field name makes the search fail (GraphQL error) or the results come back empty.
+- **Assumption made:** `list_synthetic_monitors` (cost 2) searches `domain = 'SYNTH' AND type = 'MONITOR'` in one account, applies
+  `monitor_type` and `status` to the returned page (their server-side search fields are not confirmed, so a page can hold fewer matches
+  than `limit`), then reads one `SyntheticCheck` query for the page's monitors faceted by monitor and location (failure percent, average
+  duration in ms, latest result and latest failure message). A failed or denied results query still returns the monitors as `partial`.
+  Scripts, secure credentials and headers are never read.
+- **Options:** (a) keep as is; (b) live probe on an account with monitors (`pnpm test:live`); (c) server-side type/status filters once
+  the field names are confirmed; (d) time series per monitor; (e) include the script's last-run error steps for scripted browser
+  monitors (needs a separate, secret-aware design); (f) private-location health.
+- **Needs:** a live run on an account with synthetics; owner's call on (c) to (f).
+

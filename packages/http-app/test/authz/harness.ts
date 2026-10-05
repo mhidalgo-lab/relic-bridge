@@ -224,6 +224,34 @@ export function hostileNerdGraph(tenants: Readonly<Record<string, string>>): Hos
           return ok({
             actor: { account: { nrqlQueryProgress: nrqlContainer([{ tenant: label, count: 1 }]) } },
           });
+        case 'RbSyntheticMonitors':
+          return ok({
+            actor: {
+              entitySearch: {
+                count: 4,
+                results: {
+                  nextCursor: null,
+                  entities: [
+                    {
+                      ...entity(1, `${label}-monitor-1`),
+                      domain: 'SYNTH',
+                      type: 'MONITOR',
+                      monitorType: 'SIMPLE',
+                    },
+                    // Another allowed account: not the one requested.
+                    { ...entity(2, `${label}-monitor-2`), domain: 'SYNTH', type: 'MONITOR' },
+                    { ...entity(FOREIGN, `${LEAK}-monitor`), domain: 'SYNTH', type: 'MONITOR' },
+                    // Reported in the requested account, but the GUID names the foreign one.
+                    {
+                      ...entity(1, `${LEAK}-forged`, guidOf(FOREIGN, 'forged')),
+                      domain: 'SYNTH',
+                      type: 'MONITOR',
+                    },
+                  ],
+                },
+              },
+            },
+          });
         case 'RbEntitySearch':
           return ok({
             actor: {

@@ -45,6 +45,7 @@ const SAMPLE_CALLS: Record<string, Record<string, unknown>> = {
   analyze_threads: { entity_guid: MOCK_GUID },
   list_gc_metrics: { entity_guid: MOCK_GUID },
   analyze_kafka_metrics: {},
+  list_synthetic_monitors: {},
 };
 
 const registry = new ToolRegistry();

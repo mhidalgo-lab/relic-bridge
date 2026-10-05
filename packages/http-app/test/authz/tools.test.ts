@@ -140,6 +140,11 @@ export const TOOL_CASES: Readonly<Record<string, readonly ToolCall[]>> = {
     { args: { account: 3 }, expect: 'refused', offline: true },
     { args: { account: 2, cluster_name: "a'b" }, expect: 'ok' },
   ],
+  list_synthetic_monitors: [
+    { args: { account: FOREIGN }, expect: 'refused', offline: true },
+    { args: { account: 3 }, expect: 'refused', offline: true },
+    { args: { account: 1, name: "a'b" }, expect: 'ok' },
+  ],
   get_entity: [
     { args: { guid: guidOf(FOREIGN) }, expect: 'refused', offline: true },
     // NerdGraph answers with an entity in the foreign account behind an allowed account's GUID.

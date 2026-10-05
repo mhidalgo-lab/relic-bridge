@@ -2,11 +2,11 @@
 id: P6-08
 title: "Tool: list_synthetic_monitors (+ recent results)"
 phase: 6
-status: todo
+status: review
 priority: medium
 depends_on: [P5-07]
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P6-08 — Tool: list_synthetic_monitors (+ recent results)
@@ -31,12 +31,12 @@ owner: ""
   account, are dropped (T3). NRQL only via the `nrql` tag, entity filter only via `entityQuery` (T4).
 
 ## Acceptance criteria
-- [ ] Fixture + contract tests (`tools-synthetics.test.ts`, sample call in `contract.test.ts`); account filtering enforced
+- [x] Fixture + contract tests (`tools-synthetics.test.ts`, sample call in `contract.test.ts`); account filtering enforced
   (P2-12 `TOOL_CASES`).
-- [ ] No script, credential or header field is selected or returned (asserted on the GraphQL document and output).
-- [ ] Names, URLs and failure messages enveloped, redacted and capped; injection tests; hostile filters escaped.
-- [ ] Budget-aware; partial result tested; accurate `cost`; pagination via `next_cursor` tested.
-- [ ] `docs/reference/tools.md` regenerated; THREAT_MODEL, RESEARCH updated; owner decisions logged.
+- [x] No script, credential or header field is selected or returned (asserted on the GraphQL document and output).
+- [x] Names, URLs and failure messages enveloped, redacted and capped; injection tests; hostile filters escaped.
+- [x] Budget-aware; partial result tested; accurate `cost`; pagination via `next_cursor` tested.
+- [x] `docs/reference/tools.md` regenerated; THREAT_MODEL, RESEARCH updated; owner decisions logged.
 
 ## Security notes
 T3 (account filter, GUID agreement), T4 (`entityQuery` + `nrql` tags only), T6 (monitor names, URLs, failure messages), T8

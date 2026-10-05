@@ -765,8 +765,11 @@ export function oauthSuite(): void {
       const t = JSON.parse(tok.text) as Tokens;
       expect(t.resource).toBe(resourceOf('prod'));
       expect((await client.mcp('prod', t.access_token)).status).toBe(200);
-      const path = await client.authorize('prod', { resource: `${ISSUER}/P/prod/mcp` });
-      expect(path.res.status).toBe(400);
+      for (const resource of [`${ISSUER}/P/prod/mcp`, `${ISSUER}/p/prod/MCP`]) {
+        const r = await client.authorize('prod', { resource });
+        expect(r.res.status, resource).toBe(400);
+        expect(JSON.parse(r.res.text)).toMatchObject({ error: 'invalid_target' });
+      }
     });
 
     it('cross-slug reuse: a token for project A is the generic 401 on project B, even with a grant there', async () => {

@@ -328,7 +328,8 @@ export function createOAuthRuntime(deps: OAuthRuntimeDeps): OAuthRuntime {
    * the rest exactly.
    */
   const slugOf = (resource: string): string | null => {
-    if (resource.slice(0, issuer.length).toLowerCase() !== issuer) return null;
+    // ASCII folding only: `toLowerCase()` would also map e.g. U+212A KELVIN SIGN to `k`.
+    if (resource.slice(0, issuer.length).replace(/[A-Z]/g, (ch) => ch.toLowerCase()) !== issuer) return null;
     const path = resource.slice(issuer.length);
     if (!path.startsWith('/p/') || !path.endsWith('/mcp')) return null;
     const slug = path.slice('/p/'.length, -'/mcp'.length);

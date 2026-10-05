@@ -50,7 +50,7 @@ relic-bridge init [--db <path>] [--master-key-file <path>] [--label <l> --region
 relic-bridge admin-token generate
 relic-bridge user add --email <e> [--name <n>] [--role owner|admin|member] | user list [--limit <n>]
 relic-bridge user unbind <id> [--confirm <email>]
-relic-bridge setup-link [--provider google|github|cf-access|<oidc name>] [--ttl <minutes>]
+relic-bridge setup-link [--provider google|github|cf-access|oidc|oidc-<name>] [--ttl <minutes>]
 relic-bridge credential add --label <l> --region US|EU|JP [--owner <user id>] [key source]
 relic-bridge credential list [--owner <user id>] [--limit <n>] | rotate <id> [key source] | revalidate <id> | remove <id> [--yes]
 relic-bridge project add --slug <s> --default-account <id> [--accounts 1,2] [--tools a,b] [--name <n>] [--default-credential <id>]

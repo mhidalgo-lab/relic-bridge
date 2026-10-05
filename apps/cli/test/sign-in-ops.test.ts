@@ -133,6 +133,22 @@ describe('setup-link (local)', () => {
     expect(JSON.parse(json.out).data.url).toContain(`${PUBLIC_URL}/auth/login?setup=`);
   });
 
+  it('links a named OIDC provider to its route id, like the HTTP app and --remote (phase 4 review L2)', async () => {
+    const env = {
+      RB_PUBLIC_URL: PUBLIC_URL,
+      RB_OIDC_ISSUER: 'https://idp.example.com',
+      RB_OIDC_CLIENT_ID: 'corp-id',
+      RB_OIDC_CLIENT_SECRET: CLIENT_SECRET,
+      RB_OIDC_NAME: 'corp',
+    };
+    const r = await cli(['setup-link', '--provider', 'oidc-corp'], { env });
+    expect(r.code).toBe(0);
+    const url = new URL(r.out.trim());
+    expect(url.pathname).toBe('/auth/login/oidc-corp');
+    // The bare name is not a route: refused instead of printing a dead link.
+    expect((await cli(['setup-link', '--provider', 'corp'], { env })).code).toBe(1);
+  });
+
   it('refuses a provider that is not configured and a bad ttl', async () => {
     const env = { ...GITHUB_ENV, RB_GITHUB_CLIENT_SECRET: CLIENT_SECRET };
     expect((await cli(['setup-link', '--provider', 'google'], { env })).code).toBe(1);

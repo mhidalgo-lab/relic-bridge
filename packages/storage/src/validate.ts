@@ -79,6 +79,20 @@ export function kvExpiry(opts: KvPutOptions, nowMs: number): number | null {
   return null;
 }
 
+/** Expiry (epoch ms) of a counter window: a positive, finite TTL is required (a counter must never live forever). */
+export function kvCounterExpiry(ttlSeconds: number, nowMs: number): number {
+  if (!Number.isFinite(ttlSeconds) || ttlSeconds <= 0) throw new InvalidInputError('kv.expirationTtl');
+  return nowMs + ttlSeconds * 1000;
+}
+
+/** The SQL of `kv.increment` (SQLite and D1): one upsert, so concurrent calls are serialised and each sees its count. */
+export const KV_INCREMENT_SQL: string =
+  "INSERT INTO kv (key, value, expires_at) VALUES (?, '1', ?) ON CONFLICT(key) DO UPDATE SET " +
+  "value = CASE WHEN kv.expires_at IS NOT NULL AND kv.expires_at <= ? THEN '1' " +
+  'ELSE CAST(CAST(kv.value AS INTEGER) + 1 AS TEXT) END, ' +
+  'expires_at = CASE WHEN kv.expires_at IS NOT NULL AND kv.expires_at <= ? THEN excluded.expires_at ' +
+  'ELSE kv.expires_at END RETURNING value';
+
 /** A row-count limit must be a finite number: NaN would bind as NULL (no limit) in SQL (P3-15). */
 export function checkLimit(limit: number | undefined, field: string): void {
   if (limit !== undefined && !Number.isFinite(limit)) throw new InvalidInputError(field);

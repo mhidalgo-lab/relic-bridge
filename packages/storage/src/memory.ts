@@ -44,6 +44,7 @@ import {
   checkRole,
   checkTokenHash,
   checkTokenPrefix,
+  kvCounterExpiry,
   kvExpiry,
   normalizeEmail,
 } from './validate.ts';
@@ -649,6 +650,17 @@ export function createMemoryStorage(options: MemoryStorageOptions = {}): Storage
       const value = live(key)?.value ?? null;
       kv.delete(key);
       return value;
+    },
+    async increment(key, opts) {
+      const expiresAt = kvCounterExpiry(opts.expirationTtl, now());
+      const e = live(key);
+      if (e === undefined) {
+        kv.set(key, { value: '1', expiresAt });
+        return 1;
+      }
+      const next = (Number.parseInt(e.value, 10) || 0) + 1;
+      kv.set(key, { value: String(next), expiresAt: e.expiresAt });
+      return next;
     },
     async purgeExpired(limit) {
       checkLimit(limit, 'kv.limit');

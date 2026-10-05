@@ -4,6 +4,7 @@ import { createAlertTools } from './alerts.ts';
 import { createEntityTools } from './entities.ts';
 import { createGoldenMetricTools } from './golden.ts';
 import { createIdentityTools } from './identity.ts';
+import { createIssueTools } from './issues.ts';
 import { createQueryTools, type ToolDeps } from './query.ts';
 import { createSchemaTools } from './schema.ts';
 
@@ -21,6 +22,7 @@ export {
   maskEmail,
   type ScopedAccount,
 } from './identity.ts';
+export { createIssueTools } from './issues.ts';
 export {
   createQueryTools,
   MAX_NRQL_CHARS,
@@ -46,5 +48,6 @@ export function createBuiltinTools(deps: ToolDeps = {}): ToolDefinition[] {
     ...createGoldenMetricTools(deps),
     ...createSchemaTools(deps),
     ...createAlertTools(deps),
+    ...createIssueTools(deps),
   ];
 }

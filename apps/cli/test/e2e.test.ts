@@ -143,7 +143,7 @@ describe('relic-bridge stdio (built CLI)', () => {
     const names = list.tools.map((t) => t.name);
     expect(names).toContain('run_nrql');
     expect(names).toContain('whoami');
-    expect(names).toHaveLength(15);
+    expect(names).toHaveLength(17);
 
     const before = requests.length;
     const call = (await s.request(3, 'tools/call', { name: 'whoami', arguments: {} }))['result'] as {

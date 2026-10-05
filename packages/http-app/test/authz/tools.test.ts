@@ -67,6 +67,20 @@ export const TOOL_CASES: Readonly<Record<string, readonly ToolCall[]>> = {
     { args: {}, expect: 'ok' },
     { args: { account: 2, policy_id: '8000026' }, expect: 'ok' },
   ],
+  list_recent_issues: [
+    { args: { account: FOREIGN }, expect: 'refused', offline: true },
+    { args: { account: 3 }, expect: 'refused', offline: true },
+    { args: { entity_guid: guidOf(FOREIGN) }, expect: 'refused', offline: true },
+    { args: {}, expect: 'ok' },
+    { args: { account: 2, states: ['ACTIVATED'] }, expect: 'ok' },
+  ],
+  search_incidents: [
+    { args: { account: FOREIGN }, expect: 'refused', offline: true },
+    { args: { account: 3 }, expect: 'refused', offline: true },
+    { args: { entity_guid: guidOf(FOREIGN) }, expect: 'refused', offline: true },
+    { args: {}, expect: 'ok' },
+    { args: { account: 2, priority: ['CRITICAL'] }, expect: 'ok' },
+  ],
   get_entity: [
     { args: { guid: guidOf(FOREIGN) }, expect: 'refused', offline: true },
     // NerdGraph answers with an entity in the foreign account behind an allowed account's GUID.
@@ -147,6 +161,19 @@ describe('tool isolation against a hostile NerdGraph', () => {
     expect(c.conditions.map((x) => x.name)).toEqual(['alpha-condition']);
     expect(c.hiddenOutsideScope).toBe(true);
     expect(JSON.stringify([policies, conditions])).not.toContain(LEAK);
+  });
+
+  it('issue tools drop rows that touch other accounts and say so', async () => {
+    const client = await isoClient();
+    const issues = await client.callTool({ name: 'list_recent_issues', arguments: {} });
+    const i = issues.structuredContent as { issues: { title: string }[]; hiddenOutsideScope: boolean };
+    expect(i.issues.map((x) => x.title)).toEqual(['alpha-issue']);
+    expect(i.hiddenOutsideScope).toBe(true);
+    const incidents = await client.callTool({ name: 'search_incidents', arguments: {} });
+    const n = incidents.structuredContent as { incidents: { title: string }[]; hiddenOutsideScope: boolean };
+    expect(n.incidents.map((x) => x.title)).toEqual(['alpha-incident']);
+    expect(n.hiddenOutsideScope).toBe(true);
+    expect(JSON.stringify([issues, incidents])).not.toContain(LEAK);
   });
 
   it('list tools return only allowed accounts and entities, and say what was left out', async () => {

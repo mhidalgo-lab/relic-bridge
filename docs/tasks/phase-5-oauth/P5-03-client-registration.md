@@ -2,7 +2,7 @@
 id: P5-03
 title: "Client registration: CIMD and DCR"
 phase: 5
-status: in-progress
+status: review
 priority: high
 depends_on: [P5-02]
 adr: [0009, 0011, 0012]
@@ -36,7 +36,8 @@ redirect-URI abuse and registration flooding.
   - Fetch failures and invalid documents are a 400 `invalid_client` JSON page (never a redirect, never a 500).
   - Runtimes: Node — `apps/cli` connect-time guard (`node:https` with a `lookup` that rejects any non-public address,
     IP literals checked up front, so no DNS-rebinding window); Workers — `global_fetch_strictly_public` compatibility
-    flag (Cloudflare refuses non-public destinations; DNS can't be resolved in a Worker) plus `redirect: 'manual'`.
+    flag (own-zone requests via the front door; DNS can't be resolved in a Worker, private networks are not routable
+    without a binding) plus `redirect: 'manual'`.
     Hosts wire the fetcher with the `RB_OAUTH` switch (P5-04); tests inject a mock.
 - **DCR (compat)**, on by default (`oauth.registration`):
   - Policy checked before the provider stores anything: `redirect_uris` 1–10, each ≤ 2,000 characters, no `*`,
@@ -52,19 +53,19 @@ redirect-URI abuse and registration flooding.
   (the `client_id` host for CIMD) for P5-04's screen.
 
 ## Acceptance criteria
-- [ ] claude.ai (CIMD document on `claude.ai`, redirect `https://claude.ai/api/mcp/auth_callback`; and its DCR
+- [x] claude.ai (CIMD document on `claude.ai`, redirect `https://claude.ai/api/mcp/auth_callback`; and its DCR
       request) and Claude Code (CIMD `https://claude.ai/oauth/claude-code-client-metadata`, loopback redirect on any
       port) complete authorize → token → MCP call with mocked documents, on Node (memory, SQLite) and Workers (D1).
-- [ ] Malicious metadata refused with a 400: private-IP / foreign-host / fragment / wildcard redirects, oversized
+- [x] Malicious metadata refused with a 400: private-IP / foreign-host / fragment / wildcard redirects, oversized
       (declared and streamed) documents, wrong content type, `client_id` mismatch, redirects, timeouts, secrets, IP
       literal / loopback / non-canonical client ids; nothing is fetched for a refused `client_id`.
-- [ ] Node fetcher: loopback, private, link-local, CGNAT, ULA, IPv4-mapped and metadata addresses refused at connect
+- [x] Node fetcher: loopback, private, link-local, CGNAT, ULA, IPv4-mapped and metadata addresses refused at connect
       time (every resolved address checked), redirects not followed, body and time bounded (unit tests, no network).
-- [ ] DCR: invalid redirect URIs refused; the shared cap returns 429 across app instances; unused registrations expire
+- [x] DCR: invalid redirect URIs refused; the shared cap returns 429 across app instances; unused registrations expire
       after 24 h, used ones are renewed.
-- [ ] CIMD off (no fetcher): URL client ids refused at authorize and token, metadata says unsupported.
-- [ ] `kv.increment` in the storage contract suite (memory, SQLite, D1).
-- [ ] `pnpm lint && pnpm typecheck && pnpm test && pnpm test:workers && pnpm build && pnpm bench:cpu` pass.
+- [x] CIMD off (no fetcher): URL client ids refused at authorize and token, metadata says unsupported.
+- [x] `kv.increment` in the storage contract suite (memory, SQLite, D1).
+- [x] `pnpm lint && pnpm typecheck && pnpm test && pnpm test:workers && pnpm build && pnpm bench:cpu` pass.
 
 ## Security notes
 T9 (redirect URIs held to the document / registration), T10 (registration cap shared across isolates, short-lived

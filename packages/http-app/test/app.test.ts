@@ -234,6 +234,8 @@ describe('authentication and authorization (negative)', () => {
     world.clock.advance(10_000);
     await expect401(await app.fetch(mcpPost('/p/prod/mcp', { token: world.tokens.shortLived })));
 
+    // Another owner first: the last enabled owner cannot be disabled (P4-16).
+    await world.storage.users.create({ id: 'usr_o2', email: 'o2@example.com', role: 'owner' });
     await world.storage.users.update('usr_a', { disabledAt: world.clock.now() });
     await expect401(await app.fetch(mcpPost('/p/noraw/mcp', { token: world.tokens.noraw })));
   });

@@ -228,6 +228,47 @@ describe('redirect login (generic OIDC)', () => {
     expect(rows.map((r) => [r.action, r.errorCode])).toEqual([['login.denied', 'not_allowed']]);
   });
 
+  it('denied rows carry a keyed identity hash that correlates repeats, never the email or subject (P4-16)', async () => {
+    await storage.users.create({
+      id: 'usr_x',
+      email: 'owner@example.com',
+      role: 'member',
+      idp: 'google',
+      idpSubject: 'someone-else',
+    });
+    const app = makeApp();
+    // Twice identity_conflict (the email belongs to another identity), then an unknown identity: not_allowed.
+    expect((await browserLogin(app, 'oidc')).done.res.status).toBe(403);
+    expect((await browserLogin(app, 'oidc')).done.res.status).toBe(403);
+    idp.user = { ...idp.user, sub: 'user-9', email: 'stranger@example.org' };
+    expect((await browserLogin(app, 'oidc')).done.res.status).toBe(403);
+    await vi.waitFor(async () => {
+      expect((await storage.auditLog.list({ action: 'login.denied' })).length).toBe(3);
+    });
+    const rows = [...(await storage.auditLog.list({ action: 'login.denied' }))].reverse();
+    expect(rows.map((r) => r.errorCode)).toEqual(['identity_conflict', 'identity_conflict', 'not_allowed']);
+    const hashes = rows.map((r) => (r.details as Record<string, unknown>)['identityHash']);
+    expect(hashes[0]).toMatch(/^v1\.[A-Za-z0-9_-]{22}$/);
+    expect(hashes[1]).toBe(hashes[0]);
+    expect(hashes[2]).toMatch(/^v1\.[A-Za-z0-9_-]{22}$/);
+    expect(hashes[2]).not.toBe(hashes[0]);
+    // Keyed: the same identity under another master key hashes differently; equal to the keyring's own answer.
+    expect(hashes[0]).toBe(await keyring.identityHash('oidc:corp', 'user-1'));
+    const other = await Keyring.create({ current: generateMasterKey(1) });
+    expect(await other.identityHash('oidc:corp', 'user-1')).not.toBe(hashes[0]);
+    // T8: no email or subject in the audit log, the logs or the pages.
+    const everything = `${JSON.stringify(await storage.auditLog.list({ limit: 100 }))}\n${logs.join('\n')}\n${bodies.join('\n')}`;
+    for (const secret of [
+      'owner@example.com',
+      'Owner@Example.com',
+      'stranger@example.org',
+      'user-1',
+      'user-9',
+    ]) {
+      expect(everything.toLowerCase()).not.toContain(secret.toLowerCase());
+    }
+  });
+
   it('auto-provisions allowlisted identities only when configured', async () => {
     const app = makeApp({ policy: { domains: ['example.com'], autoProvision: 'member' } });
     const { done } = await browserLogin(app, 'oidc');
@@ -416,6 +457,28 @@ describe('setup links (first-owner bootstrap)', () => {
     expect(`${logs.join('\n')}\n${audit}`).not.toContain(code);
     const created = await storage.auditLog.list({ action: 'setup_link.create' });
     expect(created[0]?.details).toMatchObject({ ttlMinutes: 30, provider: 'oidc' });
+    const ok = await storage.auditLog.list({ action: 'login.ok' });
+    expect(ok[0]?.details).toMatchObject({ outcome: 'owner_bootstrap' });
+    expect(ok[0]?.details).not.toHaveProperty('previousRole');
+  });
+
+  it('audits the previous role when a setup link promotes an existing user (P4-16)', async () => {
+    await storage.users.create({ id: 'usr_m', email: 'owner@example.com', role: 'member' });
+    const app = makeApp();
+    const { body } = await issue(app, { provider: 'oidc' });
+    const { done } = await browserLogin(app, 'oidc', new URL(body.data.url).search);
+    expect(done.res.status).toBe(303);
+    expect((await storage.users.get('usr_m'))?.role).toBe('owner');
+    await vi.waitFor(async () => {
+      expect((await storage.auditLog.list({ action: 'login.ok' })).length).toBe(1);
+    });
+    const [row] = await storage.auditLog.list({ action: 'login.ok' });
+    expect(row?.userId).toBe('usr_m');
+    expect(row?.details).toMatchObject({
+      outcome: 'owner_bootstrap',
+      previousRole: 'member',
+      identityHash: await keyring.identityHash('oidc:corp', 'user-1'),
+    });
   });
 
   it('two logins racing on one link: only one becomes owner', async () => {

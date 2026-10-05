@@ -4,7 +4,8 @@
 // A master key is 32 random bytes, written `v<N>:<base64>` (a bare base64 value is version 1). From each master key
 // HKDF-SHA-256 derives, with separate `info` labels:
 //   - the AES-256-GCM data key that encrypts NR keys (non-extractable `CryptoKey`), and
-//   - a 32-byte key check value (KCV), stored in `settings` to detect a wrong master key before touching rows.
+//   - a 32-byte key check value (KCV), stored in `settings` to detect a wrong master key before touching rows, and
+//   - an HMAC-SHA-256 key for audit identity hashes (P4-16): a refused sign-in is correlatable, never reversible.
 // The raw master key bytes are dropped (and zeroed) once both are derived.
 import { Secret } from '@relic-bridge/core';
 import type { EncryptedKey } from '@relic-bridge/storage';
@@ -30,6 +31,9 @@ const INSPECT_CUSTOM = Symbol.for('nodejs.util.inspect.custom');
 export const HKDF_SALT: Uint8Array<ArrayBuffer> = utf8('relic-bridge/master-key/v1');
 export const INFO_CREDENTIAL_KEY: Uint8Array<ArrayBuffer> = utf8('relic-bridge/credential-key/aes-256-gcm');
 export const INFO_KEY_CHECK: Uint8Array<ArrayBuffer> = utf8('relic-bridge/key-check');
+export const INFO_AUDIT_IDENTITY: Uint8Array<ArrayBuffer> = utf8('relic-bridge/audit-identity/hmac-sha-256');
+/** Bytes of the HMAC kept in an identity hash: 128 bits, plenty to correlate, short in the audit row. */
+export const IDENTITY_HASH_BYTES = 16;
 /** AAD purpose label for NR keys stored in `credentials`. */
 export const CREDENTIAL_AAD_PURPOSE: Uint8Array<ArrayBuffer> = utf8('relic-bridge/credential-key/v1');
 
@@ -87,6 +91,8 @@ export function generateMasterKey(version = 1): string {
 export interface VersionKeys {
   readonly aes: WebCryptoKey;
   readonly check: Uint8Array<ArrayBuffer>;
+  /** HMAC-SHA-256, sign only, non-extractable. */
+  readonly identity: WebCryptoKey;
 }
 
 /** HKDF-SHA-256 derivation of the data key and the key check value. Zeroes `masterKey` afterwards. */
@@ -107,7 +113,14 @@ export async function deriveVersionKeys(masterKey: Uint8Array<ArrayBuffer>): Pro
         256,
       ),
     );
-    return { aes, check };
+    const identity = await crypto.subtle.deriveKey(
+      { name: 'HKDF', hash: 'SHA-256', salt: HKDF_SALT, info: INFO_AUDIT_IDENTITY },
+      base,
+      { name: 'HMAC', hash: 'SHA-256', length: 256 },
+      false,
+      ['sign'],
+    );
+    return { aes, check, identity };
   } finally {
     masterKey.fill(0);
   }
@@ -310,6 +323,27 @@ export class Keyring {
     } finally {
       plain.fill(0);
     }
+  }
+
+  /**
+   * Keyed hash of a sign-in identity for the audit log (P4-16, THREAT_MODEL T8/T14): `v<N>.<base64url>` of the first
+   * 128 bits of HMAC-SHA-256 over the length-prefixed `(idp, subject)` under the current master key version. Equal
+   * identities hash equally under one version, so repeated probes correlate; without the master key a hash cannot be
+   * tested against a guessed subject (an unkeyed hash of a known email could). Rotating the master key changes every
+   * hash: the version prefix says which ones compare.
+   */
+  async identityHash(idp: string, subject: string): Promise<string> {
+    const a = utf8(idp);
+    const b = utf8(subject);
+    const mac = new Uint8Array(
+      await crypto.subtle.sign(
+        'HMAC',
+        this.#need(this.currentVersion).identity,
+        concatBytes(u32(a.byteLength), a, u32(b.byteLength), b),
+      ),
+    );
+    const b64 = toBase64(mac.subarray(0, IDENTITY_HASH_BYTES));
+    return `v${this.currentVersion}.${b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')}`;
   }
 
   toJSON(): { currentVersion: number; versions: readonly number[]; keys: string } {

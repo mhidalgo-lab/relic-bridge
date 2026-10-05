@@ -198,7 +198,7 @@ Generated from task front matter (`pnpm tasks index` once P0-05 lands). Status l
 | P6-08 | [Tool: list_synthetic_monitors (+ recent results)](tasks/phase-6-tool-parity/P6-08-tools-synthetics.md) | medium | P5-07 | review |
 | P6-09 | [Tools: list_dashboards, get_dashboard](tasks/phase-6-tool-parity/P6-09-tools-dashboards.md) | medium | P5-07 | review |
 | P6-10 | [Composite reports: alert insights and user impact](tasks/phase-6-tool-parity/P6-10-composite-reports.md) | medium | P6-02, P6-04, P6-06 | review |
-| P6-11 | [MCP prompts: investigation workflows](tasks/phase-6-tool-parity/P6-11-mcp-prompts.md) | medium | P6-10 | todo |
+| P6-11 | [MCP prompts: investigation workflows](tasks/phase-6-tool-parity/P6-11-mcp-prompts.md) | medium | P6-10 | review |
 | P6-12 | [MCP resources: NRQL reference and schema snapshots](tasks/phase-6-tool-parity/P6-12-mcp-resources.md) | medium | P5-07 | todo |
 | P6-13 | [Tool description quality and agent evals](tasks/phase-6-tool-parity/P6-13-tool-evals.md) | medium | P6-10 | todo |
 | P6-14 | [Fuzzy entity-name resolution with per-credential cache](tasks/phase-6-tool-parity/P6-14-fuzzy-entity-resolution.md) | medium | P5-07 | todo |

@@ -2,11 +2,11 @@
 id: P6-11
 title: "MCP prompts: investigation workflows"
 phase: 6
-status: todo
+status: review
 priority: medium
 depends_on: [P6-10]
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P6-11 — MCP prompts: investigation workflows
@@ -24,11 +24,11 @@ owner: ""
 - Generated reference `docs/reference/prompts.md` (extends `pnpm docs:tools`, checked by `pnpm lint`).
 
 ## Acceptance criteria
-- [ ] `prompts/list` and `prompts/get` work over HTTP and stdio (same `buildMcpServer`); no `prompts` capability when none applies.
-- [ ] Contract test per prompt: renders, names only allowed tools, refuses unknown/missing/multi-line/oversized arguments.
-- [ ] A hostile argument value stays inside its quotes (no new instruction line).
-- [ ] HTTP authz test: grant-restricted connection lists only matching prompts and no New Relic call happens.
-- [ ] `docs/reference/prompts.md` generated; ARCHITECTURE and THREAT_MODEL updated.
+- [x] `prompts/list` and `prompts/get` work over HTTP and stdio (same `buildMcpServer`); no `prompts` capability when none applies.
+- [x] Contract test per prompt: renders, names only allowed tools, refuses unknown/missing/multi-line/oversized arguments.
+- [x] A hostile argument value stays inside its quotes (no new instruction line).
+- [x] HTTP authz test: grant-restricted connection lists only matching prompts and no New Relic call happens.
+- [x] `docs/reference/prompts.md` generated; ARCHITECTURE and THREAT_MODEL updated.
 
 ## Security notes
 Prompt text is instructions for the agent, so argument values are the injection vector (T6): strict schema, quoted values,

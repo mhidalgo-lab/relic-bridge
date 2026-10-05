@@ -289,7 +289,7 @@ environment variable (`secrets.ts`); the node-only terminal pieces live in `host
 | Reports | `generate_alert_insights_report` (done), `generate_user_impact_report` (done) | 6 |
 | Write (opt-in) | `acknowledge_issue`, `close_issue`, `create_change_event`, `create_dashboard` | 7 |
 
-Plus MCP **prompts** (investigation workflows) and **resources** (NRQL reference, per-project schema snapshot) in Phase 6,
+Plus MCP **prompts** (seven investigation workflows, P6-11, `packages/core/src/prompts.ts`, reference in `docs/reference/prompts.md`; registered by `buildMcpServer` only when a tool they use is in the connection's allowed list) and **resources** (NRQL reference, per-project schema snapshot) in Phase 6,
 and **MCP Apps** charts in Phase 7.
 
 ## 8. Repository layout (target)

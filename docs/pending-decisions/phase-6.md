@@ -166,3 +166,16 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   section on `RB_AUTH_FORBIDDEN` instead of failing the report; (e) live probe (`pnpm test:live`) for the `ids` filter and the
   browser/mobile attributes.
 - **Needs:** a live run on an account with issues and browser/mobile apps; owner's call on (b) to (d).
+
+## P6-11 — MCP prompts
+
+### P6-11 — Prompt set, "any of" gating, no k8s tools, no completion or resources
+- **Context:** Seven prompts ship as static templates. There is no Kubernetes tool (no task covers one), and prompt arguments
+  are strings only in MCP.
+- **Assumption made:** a prompt is listed when at least one of its tools is allowed, and steps for other tools are dropped (a
+  prompt with fewer steps is still useful). The Kubernetes prompt uses `run_nrql`, `list_event_types` and `get_attributes` and
+  assumes the standard `K8s*Sample` event types (unverified live). Values are quoted JSON strings, 200 characters at most,
+  one line. No argument completion and no per-project custom prompts.
+- **Options:** (a) keep as is; (b) require all tools of a prompt (hide more prompts); (c) add a Kubernetes tool task;
+  (d) `completion/complete` for entity guids and issue ids; (e) owner-defined prompts per project.
+- **Needs:** a live check of the Kubernetes prompt; owner's call on (b) to (e).

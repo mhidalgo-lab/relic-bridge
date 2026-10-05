@@ -346,3 +346,35 @@ describe('guard: every tool has an isolation case', () => {
     expect(Object.keys(TOOL_CASES).sort()).toEqual([...CATALOG].sort());
   });
 });
+
+describe('prompts follow the grant (P6-11)', () => {
+  const promptText = (r: { messages: { content: { type: string; text?: string } }[] }) =>
+    r.messages[0]?.content.text ?? '';
+
+  it('lists only prompts whose tools the grant allows, and leaves out steps naming other tools', async () => {
+    const grantId = await h.addGrant(h.world.projectIds.prod, { tools: ['whoami', 'list_recent_issues'] });
+    const token = await h.addToken(grantId);
+    const client = await connect(h.app, 'prod', token.value, 'modern');
+    clients.push(client);
+    const before = h.nerdGraph.calls.length;
+    const listed = (await client.listPrompts()).prompts.map((p) => p.name).sort();
+    expect(listed).toEqual(['investigate_incident', 'triage_alerts']);
+    const got = await client.getPrompt({ name: 'investigate_incident', arguments: { issue_id: 'i-1' } });
+    expect(promptText(got as never)).toContain('`list_recent_issues`');
+    expect(promptText(got as never)).not.toMatch(
+      /run_nrql|generate_alert_insights_report|get_related_entities/,
+    );
+    // not listed means not callable
+    await expect(client.getPrompt({ name: 'investigate_kubernetes_pods', arguments: {} })).rejects.toThrow();
+    // prompts are text: they never reach New Relic
+    expect(h.nerdGraph.calls.length).toBe(before);
+  });
+
+  it('a grant without any investigation tool lists no prompts', async () => {
+    const grantId = await h.addGrant(h.world.projectIds.prod, { tools: ['whoami', 'time_range'] });
+    const token = await h.addToken(grantId);
+    const client = await connect(h.app, 'prod', token.value, 'modern');
+    clients.push(client);
+    expect((await client.listPrompts()).prompts).toEqual([]);
+  });
+});

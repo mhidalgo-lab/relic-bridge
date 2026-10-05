@@ -2,6 +2,7 @@
 import { type CallToolResult, McpServer, type StandardSchemaWithJSON } from '@modelcontextprotocol/server';
 import type { ToolContext } from './context.ts';
 import { ERROR_META_KEY, toToolErrorResult } from './errors.ts';
+import { type PromptDefinition, promptConfig, renderPrompt, selectPrompts } from './prompts.ts';
 import { annotationsFor, type ToolDefinition } from './tool.ts';
 import { VERSION } from './version.ts';
 
@@ -38,6 +39,11 @@ export interface BuildServerOptions {
    * pushes a list change, so a `subscriptions/listen` is acknowledged with nothing to deliver and closed at once.
    */
   toolsListChanged?: boolean;
+  /**
+   * Prompt catalogue to offer (default: the built-in investigation prompts). Only prompts with a tool in `tools` are
+   * registered, so `prompts/list` never mentions a tool the caller can't use.
+   */
+  prompts?: readonly PromptDefinition[];
   /** Called after every tool call, success or error. Must not throw; a throw or rejection is swallowed. */
   onToolCall?: (event: ToolCallEvent) => void;
 }
@@ -105,11 +111,13 @@ export function buildMcpServer({
   info = DEFAULT_SERVER_INFO,
   toolsListChanged = true,
   onToolCall,
+  prompts,
 }: BuildServerOptions): McpServer {
   const server = new McpServer(
     { name: info.name, version: info.version },
     { capabilities: { tools: { listChanged: toolsListChanged } } },
   );
+  const allowedTools = new Set(tools.map((t) => t.name));
   const contextFor = typeof context === 'function' ? context : () => context;
 
   for (const def of tools) {
@@ -162,6 +170,20 @@ export function buildMcpServer({
         return result;
       }
     });
+  }
+  for (const def of selectPrompts(allowedTools, prompts)) {
+    server.registerPrompt(def.name, promptConfig(def, withCachedJsonSchema), (args: unknown) => ({
+      description: def.description,
+      messages: [
+        {
+          role: 'user' as const,
+          content: {
+            type: 'text' as const,
+            text: renderPrompt(def, args as Record<string, string | undefined>, allowedTools),
+          },
+        },
+      ],
+    }));
   }
   return server;
 }

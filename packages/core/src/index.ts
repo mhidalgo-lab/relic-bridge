@@ -36,6 +36,14 @@ export {
 export * from './nerdgraph/index.ts';
 export * from './nrql/index.ts';
 export * from './output/index.ts';
+export {
+  PROMPTS,
+  type PromptDefinition,
+  type PromptStep,
+  promptArgsJsonSchema,
+  renderPrompt,
+  selectPrompts,
+} from './prompts.ts';
 export { isSecretKeyName, REDACTED, redact, redactValue } from './redact.ts';
 export {
   inputJsonSchema,

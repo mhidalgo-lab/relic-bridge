@@ -173,3 +173,44 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   `RB_OAUTH_DCR_REDIRECT_HOSTS` (unset = any). Token lifetimes stay at the defaults until P5-05's plan presets.
 - **Needs:** owner review of the defaults (see the P5-03 DCR entry).
 
+
+## P5-05 — Token lifecycle
+
+### P5-05 — no per-plan access-token preset (1 h everywhere)
+- **Context:** the task asked for 8 h access tokens on `RB_PLAN=free` because of the Workers KV write quota (1,000/day,
+  ADR-0009). Since ADR-0011 the state is in D1 (100,000 row writes/day on Free); a refresh costs about five row writes.
+- **Assumption made:** 1 h access tokens and an absolute 30-day refresh lifetime on every plan, overridable with
+  `RB_OAUTH_ACCESS_TTL` / `RB_OAUTH_REFRESH_TTL`.
+- **Options:** keep; or reintroduce a longer Free default if D1 quotas become a problem in practice.
+- **Needs:** owner confirmation.
+
+### P5-05 — strict refresh reuse detection, no grace window
+- **Context:** the provider accepts the previous refresh token once more (for clients that lost a refresh response).
+  P5-05 makes refresh tokens single use: any second use, including two concurrent refreshes by the same client, revokes
+  the whole device (RFC 9700 §4.14.2).
+- **Assumption made:** strict; the client must re-authorize after a lost refresh response or a double refresh.
+- **Options:** a short grace (e.g. 30 s, same client id, at most once) at the cost of a window for a stolen token.
+- **Needs:** revisit if P5-06 finds a client that retries or parallelises refreshes (claude.ai, Claude Code, mobile).
+
+### P5-05 — every refusal at token issuance revokes the device
+- **Context:** the code exchange and each refresh re-run `resolveAccess`. Some refusals are permanent (grant revoked or
+  expired, user deleted), others may be temporary (project disabled, key refused by New Relic, unvalidated key).
+- **Assumption made:** any refusal answers `invalid_grant` and revokes the device (the provider's behaviour for
+  `invalid_grant` from the callback); the person approves the app again once the problem is fixed. Disabling a user also
+  revokes their devices for good (re-enabling does not restore them), like their sessions.
+- **Options:** answer `temporarily_unavailable` without revoking for the temporary reasons.
+- **Needs:** owner preference.
+
+### P5-05 — access grant id in provider grant metadata
+- **Context:** revoke-all needs to know which access grant a device was approved with; the props holding it are
+  encrypted with the token. T25 keeps grant metadata minimal.
+- **Assumption made:** metadata `{ label?, grant: "grt_…" }` (an opaque id). Devices approved before P5-05 lack it: they
+  are still revoked by user disable and project delete, and their refresh is refused once the grant is revoked.
+- **Needs:** owner confirmation (T25).
+
+### P5-05 — `/oauth/approvals` kept next to the device list
+- **Context:** P5-04 suggested merging remembered approvals into the device list.
+- **Assumption made:** two lists: "Apps connected with OAuth" on My access (tokens) links to `/oauth/approvals`
+  ("don't ask again" rows); disconnecting an app also forgets its approval for that project.
+- **Options:** merge both into one table in the admin UI.
+- **Needs:** owner preference (UI only).

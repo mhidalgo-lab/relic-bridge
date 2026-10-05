@@ -2,7 +2,7 @@
 id: P5-05
 title: "Token lifecycle: expiry, refresh rotation, revocation"
 phase: 5
-status: in-progress
+status: review
 priority: high
 depends_on: [P5-04]
 adr: [0009, 0011]
@@ -42,21 +42,21 @@ owner: claude-agent
   the same guarantee as device tokens, T15).
 
 ## Acceptance criteria
-- [ ] Access TTL default 1 h, refresh absolute lifetime default 30 days, both settable by variables (tests for the
+- [x] Access TTL default 1 h, refresh absolute lifetime default 30 days, both settable by variables (tests for the
       parser and for absolute expiry: refreshing does not extend it).
-- [ ] Refresh rotation: the new refresh token works once; the old one is refused.
-- [ ] Refresh reuse → family revoked (every access and refresh token of the device), audited (test).
-- [ ] Concurrent refreshes with one token: at most one succeeds, and the family is revoked (race test on memory, SQLite
+- [x] Refresh rotation: the new refresh token works once; the old one is refused.
+- [x] Refresh reuse → family revoked (every access and refresh token of the device), audited (test).
+- [x] Concurrent refreshes with one token: at most one succeeds, and the family is revoked (race test on memory, SQLite
       and D1).
-- [ ] A forged refresh token for a known grant id revokes nothing.
-- [ ] Refresh refused and device revoked when its grant is revoked, user disabled, project disabled/deleted (tests).
-- [ ] Revoking a grant / disabling a user / deleting a project via the admin API revokes the user's OAuth devices.
-- [ ] RFC 7009: unknown client → `401 invalid_client`; another client's token → `200` and the token still works;
+- [x] A forged refresh token for a known grant id revokes nothing.
+- [x] Refresh refused and device revoked when its grant is revoked, user disabled, project disabled/deleted (tests).
+- [x] Revoking a grant / disabling a user / deleting a project via the admin API revokes the user's OAuth devices.
+- [x] RFC 7009: unknown client → `401 invalid_client`; another client's token → `200` and the token still works;
       malformed/unknown token → `200`; own refresh token → family revoked.
-- [ ] Device list and revoke in the admin API (OpenAPI regenerated) and UI; members see/revoke only their own,
+- [x] Device list and revoke in the admin API (OpenAPI regenerated) and UI; members see/revoke only their own,
       admins can't touch owners' devices; revoking deletes the remembered approval. Authz matrix lists the new routes
       and stays green.
-- [ ] Docs: OAuth guide, `docs/dev/oauth.md`, THREAT_MODEL (T15/T9), pending decisions.
+- [x] Docs: OAuth guide, `docs/dev/oauth.md`, THREAT_MODEL (T15/T9), pending decisions.
 
 ## Security notes
 T15 (revocation latency), T9 (token replay), T25 (grant metadata now also carries the access grant id: opaque id).
@@ -67,3 +67,14 @@ T15 (revocation latency), T9 (token replay), T25 (grant metadata now also carrie
 ## Out of scope
 - Admin list of OAuth clients and runtime DCR switch (P5-08).
 - A refresh grace window for clients that retry a refresh after a network error (revisit with P5-06 findings).
+
+## Notes
+- Workers test flakiness (reported during P5-04): no Vitest `retry` is configured anywhere (root, `apps/worker`,
+  bench), so nothing passes "on retry" silently. Ten full `test:workers` runs (four of them alongside the Node projects
+  for CPU load) were green. One real defect found in the Workers authz host: the suite's own D1 storage captured the
+  original `Date.now` before `vi.useFakeTimers` while the Worker reads the faked clock (T0 = 2027-01-15), so `kv` rows
+  the suite wrote expired by real time but were read by the Worker in fake time — wrong or date-dependent results (it
+  broke a new P5-05 test, and would have shifted behaviour once real time passes T0). Fixed in
+  `apps/worker/test/authz-host.ts` (clock first, storage reads `Date.now()` lazily).
+- For P5-06: check that real clients (claude.ai, Claude Code, mobile) never reuse or parallelise refresh tokens (strict
+  reuse detection disconnects them), and that they send `resource` on refresh (P5-02 decision).

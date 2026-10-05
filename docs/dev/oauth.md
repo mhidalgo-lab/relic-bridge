@@ -6,8 +6,9 @@ unmodified on Node and Workers, with its state in the storage `kv` table on both
 
 Status: P5-01 (server and token check), P5-02 (per-slug Protected Resource Metadata, the `401` discovery
 challenge, `resource` on token requests), P5-03 (client registration: CIMD and hardened DCR) and P5-04 (sign-in +
-consent screen, remembered approvals, the `RB_OAUTH` host switch). Not yet: plan TTL presets, refresh reuse detection and
-the device list (P5-05), the admin client list and runtime DCR switch (P5-08). User guide: `docs/guide/oauth.md`.
+consent screen, remembered approvals, the `RB_OAUTH` host switch) and P5-05 (token lifecycle: lifetimes, refresh
+rotation with reuse detection, access re-checked at issuance, revoke-all, OAuth devices in the admin API and UI). Not
+yet: the admin client list and runtime DCR switch (P5-08). User guide: `docs/guide/oauth.md`.
 
 ## Topology
 
@@ -134,7 +135,7 @@ must say so). Listing and removing clients is P5-08.
      grant, a service grant, a grant of another project, a revoked/expired grant, a disabled user, an unknown project,
      an unusable credential and the owner-key boundary all refuse (`{ ok: false, reason }`) before any code exists. On
      success the provider mints the grant and code (props: `grantId`, `projectSlug`, `userId`, `clientId`; grant
-     metadata `{ label }` when the user named the device, else `{}`, T25), we store the single-use marker and return the
+     metadata `{ label?, grant }`: the device label when the user named it and the access grant id, P5-05, T25), we store the single-use marker and return the
      redirect. `client_refused`: a CIMD document that can no longer be fetched.
    - `deny()` is the `access_denied` redirect. `authRequest` and `helpers` expose the provider's own objects.
    - The default handler is the built-in consent screen below; `oauth.consent` replaces it (tests use a stand-in).
@@ -213,8 +214,59 @@ warning at boot). A programmatic `createWorker({ oauth })` wins over the variabl
   a network error has to authorize again.
 - The provider is built with every project's resource declared, so refresh tokens can't be retargeted
   (`invalid_target`) and a deleted project's grants stop refreshing.
-- A successful RFC 7009 revocation clears this process's access cache; other isolates follow within the cache TTL
-  (≤ 60 s, T15).
+- `grant_type=refresh_token`: single use, see [Token lifecycle](#token-lifecycle-p5-05).
+- RFC 7009 revocation (`token`, no `grant_type`) is the provider's: the client authenticates as it does on token
+  requests (public clients: `client_id`, which must exist, else `401 invalid_client`; confidential: its secret); the
+  answer is an empty `200` for an unknown, malformed or other client's token (nothing revoked, nothing revealed); an
+  access token is revoked alone, a refresh token revokes the whole device (provider grant). A successful revocation
+  clears this process's access cache; other isolates follow within the cache TTL (≤ 60 s, T15).
+
+## Token lifecycle (P5-05)
+
+- **Lifetimes.** Access tokens: `accessTokenTtlSeconds` / `RB_OAUTH_ACCESS_TTL`, default 1 h on every plan (the
+  "8 h on Free" preset of ADR-0009 was about the Workers KV write quota; the state is in D1 since ADR-0011). Refresh:
+  `refreshTokenTtlSeconds` / `RB_OAUTH_REFRESH_TTL`, default 30 days, **absolute** — the provider sets the grant's
+  `expiresAt` at the code exchange and refreshing never moves it (no idle TTL configured); an access token issued by a
+  refresh is capped at the remaining refresh lifetime. Both are also capped at the access grant's own `expiresAt`.
+- **Access re-checked at every issuance.** The provider's `tokenExchangeCallback` runs for the code exchange and every
+  refresh with the decrypted props: they must match the token's user, client and resource, and `resolveAccess` must
+  accept `{ grantId, userId }` for the slug. Otherwise it throws `invalid_grant`, on which the provider revokes the
+  device's grant; audited `oauth.token.refused` (`errorCode` = the resolver's reason, `targetId` = `oauth_<grantId>`).
+- **Refresh single use + reuse detection.** Every refresh token we hand out gets a marker
+  `oauth-refresh:<sha256(token)>` = `live` (written after the provider answered the code exchange or refresh). A refresh
+  request takes the marker with the atomic `kv.take` **before** the provider sees the token (after the `resource` and
+  CIMD checks, so a request refused for those burns nothing):
+  - `live` → the provider rotates; then the presented token's marker becomes `used` and the new token's `live`. If the
+    provider refused without rotating (wrong client, scope or resource) the marker is `live` again; if it rotated or the
+    grant is gone, `used`.
+  - `used` (rotated earlier) or missing while the token is still the grant's current or previous refresh token (a
+    concurrent request holds the marker) → **reuse**: the device is revoked (every access and refresh token of the
+    provider grant, RFC 9700 §4.14.2), audited `oauth.token.reuse` (`refresh_token_reuse`, `details.concurrent`), and
+    the answer is `invalid_grant`. The provider's own "previous refresh token still works once" grace never applies.
+  - missing and unknown to the grant (a forged secret with a known grant id) → `invalid_grant`, nothing revoked.
+  Of N concurrent refreshes with one token at most one gets tokens, and the device is revoked (tested on memory,
+  SQLite and D1).
+- **Tombstones.** Revoking a device (reuse, replayed code, admin) first writes `oauth-revoked:<userId>:<grantId>`. The
+  provider reads a grant and writes it back during a code exchange or refresh, so a revocation landing in between could
+  be undone; after any successful exchange or refresh the token endpoint looks for the tombstone and, if present,
+  revokes again and answers `invalid_grant` instead of the tokens.
+- **Devices.** A device is one provider grant (`oauth_<grantId>`, also the audit `tokenId`). Grant metadata holds the
+  device label and the access grant id (`{ label?, grant }`, T25), so `runtime.devices` can list a user's devices
+  (`grant:<userId>:` rows; pending code exchanges and expired grants left out; at most 100) and revoke one, or all of a
+  user's devices for one access grant or project. Revoking also deletes the user's remembered approvals for that client
+  and project (`forgetApprovals` in `remembered.ts`; approvals now store the `clientId`).
+- **Revoke-all.** The admin API revokes the devices of a revoked or deleted grant, of a user it disables (re-enabling
+  does not restore them) and, for every user with a grant on it, of a deleted project (`details.oauthDevicesRevoked` on
+  the audit row). Best effort: a failure is logged and the next refresh is refused by the access check anyway.
+- **Admin API.** `GET /me/oauth-devices`, `POST /me/oauth-devices/{id}/revoke` (any signed-in role, own devices only,
+  not the admin token), `GET /users/{id}/oauth-devices`, `POST /users/{id}/oauth-devices/{deviceId}/revoke` (admins;
+  an owner's devices only by owners). Audited `oauth_device.revoke`. Without OAuth the lists are empty and revokes 404.
+  UI: "Apps connected with OAuth" on `/admin/me` (`POST /admin/me/apps/:id/revoke`) and on a user's page
+  (`POST /admin/users/:id/apps/:device/revoke`), both behind a confirmation page.
+- **When it takes effect.** Token issuance (code exchange, refresh) refuses a revoked device or unusable grant at once
+  everywhere (storage is shared). An access token already issued is checked on every uncached MCP request (provider
+  token row + `resolveAccess`): at once on the process that made the change (admin changes and RFC 7009 clear its access
+  cache), within the access cache TTL (≤ 60 s) on other processes and isolates — the device-token guarantee (T15).
 
 ## MCP route
 
@@ -237,7 +289,9 @@ so per-token rate limits and the audit follow the device.
 
 Provider keys are `kv` rows under `oauth:` (`client:…`, `grant:{userId}:{grantId}`, `token:…`), see
 `kv-namespace.ts`; expiry is the provider's (`expiration` / `expirationTtl`) and the hourly purge reclaims expired rows.
-Key metadata is dropped. Remembered approvals (P5-04) are `oauth-consent:<userId>:<id>`. Props are encrypted by the provider with a key wrapped by the token itself; client
+Key metadata is dropped. Remembered approvals (P5-04) are `oauth-consent:<userId>:<id>`; refresh markers (P5-05)
+`oauth-refresh:<sha256(token)>` (`live` / `used`, for the refresh lifetime) and device tombstones
+`oauth-revoked:<userId>:<grantId>`. Props are encrypted by the provider with a key wrapped by the token itself; client
 registrations, grant scopes and user ids are not encrypted (T25: user ids are our opaque `usr_…` ids, never emails).
 Client records are `oauth:client:<id>`: a random id for DCR clients, the document URL for CIMD clients (cached copies
 with an expiry). Outside the provider's namespace: `oauth-code:<sha256(code)>` (single-use markers) and
@@ -281,5 +335,11 @@ with an expiry). Outside the provider's namespace: `oauth-code:<sha256(code)>` (
   (`consent.test.ts`), SQLite (`apps/cli/test/consent-sqlite.test.ts`) and the Worker (D1). Pages: axe-core and escaping
   in `packages/admin-ui/test/consent.test.tsx`. Browser: `e2e/oauth.spec.ts` (Chromium, 1280 px and 320 px; fails on
   CSP violations, so a missing `form-action` source breaks it).
+- (P5-05) `packages/http-app/test/authz/oauth-lifecycle-suite.ts` — default and absolute lifetimes, grant-expiry cap,
+  rotation and reuse (family revoked, audited), refused refresh doesn't burn the token, 6 concurrent refreshes, forged
+  refresh token, refusal at issuance (revoked grant, disabled user and project, revoked grant before the code exchange),
+  RFC 7009 per client, the device API (own list and revoke, remembered approval forgotten, other members, CSRF, admin
+  token on `/me`, admin vs owner devices) and revoke-all through the admin API. On memory (`oauth-lifecycle.test.ts`),
+  SQLite (`apps/cli/test/oauth-lifecycle-sqlite.test.ts`) and the Worker (D1). UI: `ui-oauth-devices.test.ts`.
 - `packages/http-app/test/oauth-kv.test.ts` — the KV adapter; `oauth-rate-limit.test.ts` — the `oauth` rule.
 - The P2-12 route guard lists the OAuth routes (`OAUTH_ROUTES` and, P5-04, `CONSENT_ROUTES` in `test/authz/matrix.ts`).

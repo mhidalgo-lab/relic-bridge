@@ -2,6 +2,7 @@
 import { z } from 'zod';
 import type { ToolContext } from '../context.ts';
 import { ErrorCode, RbError } from '../errors.ts';
+import type { NerdGraphClient } from '../nerdgraph/client.ts';
 import { decodeEntityGuid } from '../nerdgraph/entity-guid.ts';
 import {
   AI_INCIDENTS_QUERY,
@@ -204,7 +205,75 @@ function target(
   return { account, guid, range };
 }
 
-function toIssue(i: AiIssueData) {
+/** One issue as the tools show it (every text field cleaned, T6). */
+export type IssueRow = {
+  readonly id: string;
+  readonly title: string;
+  readonly state: string | null;
+  readonly priority: string | null;
+  readonly createdAt: string | null;
+  readonly activatedAt: string | null;
+  readonly acknowledgedAt: string | null;
+  readonly closedAt: string | null;
+  readonly updatedAt: string | null;
+  readonly entities: string[];
+  readonly entityGuids: string[];
+  readonly entityTypes: string[];
+  readonly policies: string[];
+  readonly conditions: string[];
+  readonly sources: string[];
+  readonly mutingState: string | null;
+  readonly correlated: boolean | null;
+  readonly idle: boolean | null;
+  readonly incidentCount: number | null;
+  readonly description: string | null;
+  readonly link: string | null;
+};
+
+/** Characters an issue id may have (NerdGraph issue ids are UUIDs). */
+export const ISSUE_ID_RE: RegExp = /^[A-Za-z0-9_.:-]{1,128}$/;
+
+/**
+ * Look one issue up by id in one account (P6-10). The row must carry the requested id and pass the same scope rule as
+ * `list_recent_issues` (T3): an issue that touches an account this connection does not allow is refused, never trimmed.
+ * Cost: one request.
+ */
+export async function lookupIssue(
+  client: NerdGraphClient,
+  ctx: ToolContext,
+  account: number,
+  issueId: string,
+  window: { sinceMs: number; untilMs: number },
+): Promise<IssueRow> {
+  const result = await client.query(AI_ISSUES_QUERY, {
+    accountId: account,
+    cursor: null,
+    filter: { ids: [issueId] },
+    timeWindow: { startTime: window.sinceMs, endTime: window.untilMs },
+  });
+  const acct = requireField(result.data.actor.account, result, ctx);
+  const match = (acct.aiIssues?.issues?.issues ?? []).filter(isNonNull).filter((i) => i.issueId === issueId);
+  const scoped = match.find((i) =>
+    inScope(ctx, account, { accountIds: accountIdsOf(i.accountIds), guids: listOf(i.entityGuids) }),
+  );
+  if (scoped) return toIssue(scoped);
+  if (match.length > 0) {
+    throw new RbError(
+      ErrorCode.AuthForbidden,
+      'This issue involves accounts or entities that are not available on this connection.',
+      { hint: 'Use list_recent_issues to see the issues you can read.' },
+    );
+  }
+  throw new RbError(
+    ErrorCode.InputInvalid,
+    `No issue with this id in account ${account} in the lookback window.`,
+    {
+      hint: 'Check the id with list_recent_issues, pass the issue account, or widen lookback.',
+    },
+  );
+}
+
+function toIssue(i: AiIssueData): IssueRow {
   return {
     id: cleanName(i.issueId ?? '', 64),
     title: texts(i.title, MAX_TITLE_CHARS).join(' | '),

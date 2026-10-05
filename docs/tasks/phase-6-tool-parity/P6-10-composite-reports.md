@@ -2,7 +2,7 @@
 id: P6-10
 title: "Composite reports: alert insights and user impact"
 phase: 6
-status: in-progress
+status: review
 priority: medium
 depends_on: [P6-02, P6-04, P6-06]
 adr: [0010]
@@ -18,7 +18,7 @@ owner: claude-agent
   No NerdGraph or NRQL logic is duplicated.
 - Issue lookup by id: `aiIssues.issues(filter: { ids: [$id] })` (`ids` exists on `AiIssuesFilterIssues`, P0-09 introspection).
   The returned row must carry the requested id and pass the P6-02 scope rule (every account and entity GUID allowed); a row
-  that touches a foreign account is refused (`RB_AUTH_FORBIDDEN`), a missing row is `RB_NOT_FOUND`. One account per call.
+  that touches a foreign account is refused (`RB_AUTH_FORBIDDEN`), a missing row is `RB_INPUT_INVALID`. One account per call.
 - `generate_alert_insights_report { issue_id, account?, lookback?, before_minutes?, change_lookback_hours?, sections?,
   max_metrics? }` (cost 14). Window: issue onset (`activatedAt`/`createdAt`) minus `before_minutes` (default 30) until it
   closed (or now), cut to the connection's window limit. Primary entity: the issue's first entity. Sections, in priority
@@ -41,13 +41,13 @@ owner: claude-agent
 - MCP **Tasks** for long runs: not used here (stateless per-request servers); tracked by P7-13.
 
 ## Acceptance criteria
-- [ ] Both tools registered, read-only, with output schemas; contract sample calls and P2-12 `TOOL_CASES` (foreign account,
+- [x] Both tools registered, read-only, with output schemas; contract sample calls and P2-12 `TOOL_CASES` (foreign account,
   foreign GUID, forged issue touching a foreign account, NerdGraph disagreeing on an entity's account).
-- [ ] Sections reuse the sibling tools; no new GraphQL besides the `ids` filter variable; NRQL only via the `nrql` tag.
-- [ ] Budget planner unit-tested: full plan, reduced golden metrics, skipped sections, partial markers; works within the
+- [x] Sections reuse the sibling tools; no new GraphQL besides the `ids` filter variable; NRQL only via the `nrql` tag.
+- [x] Budget planner unit-tested: full plan, reduced golden metrics, skipped sections, partial markers; works within the
   Free-plan budget with reduced depth (documented).
-- [ ] Untrusted text only inside envelopes (T6); injection test on a hostile issue title.
-- [ ] Tool reference regenerated; ARCHITECTURE, THREAT_MODEL, RESEARCH updated; owner decisions logged.
+- [x] Untrusted text only inside envelopes (T6); injection test on a hostile issue title.
+- [x] Tool reference regenerated; ARCHITECTURE, THREAT_MODEL, RESEARCH updated; owner decisions logged.
 
 ## Security notes
 T3 (issue rows that touch foreign accounts refused; every sub-call keeps its own checks), T4 (variables / `nrql` tag only),

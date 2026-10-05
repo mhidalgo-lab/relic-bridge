@@ -344,6 +344,15 @@ Sources: <https://github.com/cloudflare/workers-oauth-provider>, issues #264, #3
   tools read `nrqlQueries[].{accountId, query}` and, for markdown widgets, `text`. **Unverified:** every name above and the shape of
   `rawConfiguration` per visualization (billboard, table, line, markdown, and visualizations with other query keys give no NRQL).
   Widget NRQL is never executed by the tools; `permissions` is PRIVATE / PUBLIC_READ_ONLY / PUBLIC_READ_WRITE.
+- Composite reports (P6-10, not verified against a real account): the issue is looked up with `aiIssues.issues(filter: { ids })`
+  (`ids` is a field of `AiIssuesFilterIssues` in the P0-09 introspection; whether `timeWindow` must still cover the issue is
+  unverified, so the lookup sends a lookback window, default 7 days). User-impact signals read `PageView`/`JavaScriptError`
+  (`entityGuid`, `duration` in seconds, `session`) and `MobileSession`/`MobileCrash` (`entityGuid`, `uuid` as the device/user id)
+  with multi-event `FROM a, b` and `filter(..., WHERE eventType() = '…')`, faceted by `entityGuid`. **Unverified:** `entityGuid` on
+  browser and mobile events (the PageView data dictionary page did not list it when checked on 2026-10-05; New Relic adds it to
+  agent events, but if it is missing every front end reads "no data"), `uuid` as a user proxy, and the related-entity types used to
+  find front ends (`BROWSER/APPLICATION`, `MOBILE/APPLICATION`, `SYNTH/MONITOR`). Impact flags use fixed thresholds: rates 1.5x the
+  window before with at least 10 JS errors / 5 crashes, load time 1.25x, volume drop below 0.75x with at least 30 before.
 - **Trusted publishing** (OIDC from GitHub Actions, no long-lived npm token) needs npm CLI ≥ 11.5.1 and Node ≥ 22.14
   (Node 24 bundles npm 11), job permission `id-token: write`, and a GitHub-hosted runner. Each package has at most one
   trusted publisher (workflow file + optional environment); `npm trust github <pkg> --file release.yml --env release`

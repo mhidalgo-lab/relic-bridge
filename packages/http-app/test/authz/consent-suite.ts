@@ -384,13 +384,13 @@ export function consentSuite(): void {
         }),
       );
       expect(call.status).toBe(200);
-      // The device label is the provider grant's only metadata.
+      // Grant metadata: the device label and the access grant id (P5-05 revoke-all), nothing personal.
       const grants = (await h.world.storage.kv.list({ prefix: 'oauth:grant:usr_a:' })).keys;
       expect(grants.length).toBe(1);
       const record = JSON.parse((await h.world.storage.kv.get(grants[0]?.name as string)) as string) as {
         metadata: unknown;
       };
-      expect(record.metadata).toEqual({ label: 'Pixel phone – test' });
+      expect(record.metadata).toEqual({ label: 'Pixel phone – test', grant: h.world.grantIds.prod });
       const rows = await consentRows();
       expect(rows.map((r) => [r.action, r.status])).toEqual([['oauth.consent.approve', 'ok']]);
       expect(rows[0]?.userId).toBe('usr_a');

@@ -22,9 +22,9 @@ import {
 } from './harness.ts';
 import { ADMIN_ROUTES, MCP_ROUTES, OAUTH_ROUTES, type RouteCase, requestFor } from './matrix.ts';
 
-const ISSUER = PUBLIC_ORIGIN;
-const REDIRECT = 'http://127.0.0.1:53682/callback';
-const resourceOf = (slug: string): string => `${ISSUER}/p/${slug}/mcp`;
+export const ISSUER = PUBLIC_ORIGIN;
+export const REDIRECT = 'http://127.0.0.1:53682/callback';
+export const resourceOf = (slug: string): string => `${ISSUER}/p/${slug}/mcp`;
 const metadataOf = (slug: string): string => `${ISSUER}/.well-known/oauth-protected-resource/p/${slug}/mcp`;
 const challengeOf = (slug: string): string =>
   `Bearer realm="relic-bridge", resource_metadata="${metadataOf(slug)}", scope="mcp:read"`;
@@ -92,23 +92,23 @@ const b64u = (bytes: Uint8Array): string =>
     .replaceAll('/', '_')
     .replace(/=+$/, '');
 
-async function pkce(): Promise<{ verifier: string; challenge: string }> {
+export async function pkce(): Promise<{ verifier: string; challenge: string }> {
   const verifier = b64u(crypto.getRandomValues(new Uint8Array(32)));
   const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier)));
   return { verifier, challenge: b64u(digest) };
 }
 
 /** What the stand-in consent does with the next authorization request. */
-type Decision = { readonly userId: string; readonly grantId: string } | 'deny';
+export type Decision = { readonly userId: string; readonly grantId: string } | 'deny';
 
-interface Consent {
+export interface Consent {
   next: Decision | null;
   readonly seen: OAuthAuthorizationRequest[];
   readonly results: OAuthApproval[];
   readonly handler: OAuthConsentHandler;
 }
 
-function consentStandIn(): Consent {
+export function consentStandIn(): Consent {
   const state: Consent = {
     next: null,
     seen: [],
@@ -127,7 +127,7 @@ function consentStandIn(): Consent {
   return state;
 }
 
-interface Tokens {
+export interface Tokens {
   readonly access_token: string;
   readonly refresh_token: string;
   readonly expires_in: number;
@@ -135,7 +135,7 @@ interface Tokens {
 }
 
 /** OAuth client steps against one app. */
-class Client {
+export class Client {
   clientId = '';
   /** The redirect URI this client authorizes and exchanges with. */
   redirectUri = REDIRECT;
@@ -248,7 +248,7 @@ class Client {
   }
 }
 
-const WHOAMI = (id = 2) => ({
+export const WHOAMI = (id = 2) => ({
   jsonrpc: '2.0',
   id,
   method: 'tools/call',
@@ -256,7 +256,7 @@ const WHOAMI = (id = 2) => ({
 });
 
 /** The generic denial every MCP refusal must equal (status, headers apart from the request id, body). */
-function observable(r: Captured): string {
+export function observable(r: Captured): string {
   const headers = [...r.headers.entries()]
     .filter(([name]) => name !== 'x-request-id')
     .sort(([a], [b]) => a.localeCompare(b));
@@ -447,14 +447,17 @@ export function oauthSuite(): void {
       await expectGenericDenial(await client.mcp('prod', access), 'oauth_invalid');
     });
 
-    it('concurrent redemptions of one code yield at most one token set', async () => {
+    it('concurrent redemptions of one code yield at most one token set (P5-05: possibly none)', async () => {
       await client.register();
       const { code, verifier } = await client.authorize('prod');
       const results = await Promise.all(
         Array.from({ length: 6 }, () => client.exchange(code as string, verifier, resourceOf('prod'))),
       );
-      expect(results.filter((r) => r.status === 200)).toHaveLength(1);
-      expect(results.filter((r) => r.status === 400)).toHaveLength(5);
+      // At most one: a loser that sees the code mid-exchange revokes the grant (replay), and the winner's tokens are
+      // then refused too (P5-05 tombstone), so none at all is also a correct outcome.
+      const ok = results.filter((r) => r.status === 200);
+      expect(ok.length).toBeLessThanOrEqual(1);
+      expect(results.filter((r) => r.status === 400)).toHaveLength(6 - ok.length);
     });
 
     it('repeated parameters are refused (the code consumed is the code exchanged)', async () => {

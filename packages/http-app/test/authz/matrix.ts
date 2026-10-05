@@ -50,6 +50,13 @@ export const ADMIN_ROUTES: readonly RouteCase[] = [
   { method: 'POST', pattern: `${A}/users`, path: `${A}/users`, body: { email: 'new@example.com' } },
   { method: 'GET', pattern: `${A}/users/:id`, path: `${A}/users/usr_none` },
   { method: 'PATCH', pattern: `${A}/users/:id`, path: `${A}/users/usr_none`, body: { disabled: true } },
+  // P5-05: a user's OAuth devices (admins; owners' devices only by owners).
+  { method: 'GET', pattern: `${A}/users/:id/oauth-devices`, path: `${A}/users/usr_none/oauth-devices` },
+  {
+    method: 'POST',
+    pattern: `${A}/users/:id/oauth-devices/:deviceId/revoke`,
+    path: `${A}/users/usr_none/oauth-devices/oauth_none/revoke`,
+  },
   // Sessions (P4-02): sign a user out everywhere; who is calling.
   { method: 'POST', pattern: `${A}/users/:id/sessions/revoke`, path: `${A}/users/usr_none/sessions/revoke` },
   // Identity re-binding (P4-09): owner only; the control call on an unknown user changes nothing.
@@ -163,6 +170,13 @@ export const ADMIN_ROUTES: readonly RouteCase[] = [
     body: { grantId: 'grt_none', label: 'laptop' },
   },
   { method: 'POST', pattern: `${A}/me/tokens/:id/revoke`, path: `${A}/me/tokens/tok_none/revoke` },
+  // P5-05: OAuth devices (own; and per user for admins). Empty lists and 404s without OAuth.
+  { method: 'GET', pattern: `${A}/me/oauth-devices`, path: `${A}/me/oauth-devices` },
+  {
+    method: 'POST',
+    pattern: `${A}/me/oauth-devices/:id/revoke`,
+    path: `${A}/me/oauth-devices/oauth_none/revoke`,
+  },
   // Not a registered route: the admin catch-all (`ALL /api/admin/v1/*`) must authenticate before saying 404.
   { method: 'GET', pattern: `${A}/*`, path: `${A}/no-such-endpoint` },
 ];
@@ -229,6 +243,8 @@ export const UI_ROUTES: readonly RouteCase[] = [
   ui('POST', '/admin/users/:id/signout', '/admin/users/usr_none/signout'),
   ui('GET', '/admin/users/:id/unbind', '/admin/users/usr_none/unbind'),
   ui('POST', '/admin/users/:id/unbind', '/admin/users/usr_none/unbind'),
+  // P5-05: disconnect a user's OAuth app (admin; an owner's only by owners, decided by the API).
+  ui('POST', '/admin/users/:id/apps/:device/revoke', '/admin/users/usr_none/apps/oauth_none/revoke'),
   // P4-15: member self-service screens (every signed-in role; the /me API decides, ids of others are 404 pages).
   ui('GET', '/admin/me'),
   ui('GET', '/admin/me/keys/new'),
@@ -244,6 +260,8 @@ export const UI_ROUTES: readonly RouteCase[] = [
   ui('GET', '/admin/me/tokens/new'),
   ui('POST', '/admin/me/tokens'),
   ui('POST', '/admin/me/tokens/:id/revoke', '/admin/me/tokens/tok_none/revoke'),
+  // P5-05: disconnect one of my OAuth apps (any role; ids not in my own list are the 404 page).
+  ui('POST', '/admin/me/apps/:id/revoke', '/admin/me/apps/oauth_none/revoke'),
   // P4-05: the audit viewer and CSV (any role; members see their own rows) and usage statistics (admin and owner).
   ui('GET', '/admin/audit'),
   ui('GET', '/admin/audit.csv'),

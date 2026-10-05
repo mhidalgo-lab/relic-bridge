@@ -1,6 +1,7 @@
 # 0009 — Bearer tokens first, OAuth 2.1 next; Google, GitHub, Cloudflare Access
 
-- Status: accepted (library choice verified in spike P0-08, 2026-10-01; real-client OAuth run pending)
+- Status: accepted (library choice verified in spike P0-08, 2026-10-01; real-client OAuth run pending). Storage of
+  the provider's state: see ADR-0011 (the storage `kv` table on both runtimes instead of Workers KV).
 - Date: 2026-10-01
 
 ## Context

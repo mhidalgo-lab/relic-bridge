@@ -6,7 +6,7 @@ first to pick `free` or `paid`.
 
 > **Phone and claude.ai (web) are not covered** until OAuth (Phase 5). Claude Code, Cursor and VS Code use a device token.
 
-What gets created: a Worker, a D1 database (`DB`), a KV namespace (`OAUTH_KV`) and a Rate Limiting binding
+What gets created: a Worker, a D1 database (`DB`), a KV namespace (`OAUTH_KV`, reserved and currently unused) and a Rate Limiting binding
 (`RATE_LIMITER`). You supply nothing else: no database setup, **no migration command** (the Worker migrates D1 itself
 the first time it boots).
 

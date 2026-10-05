@@ -171,6 +171,25 @@ Sources: <https://github.com/cloudflare/workers-oauth-provider>, issues #264, #3
   DCR, CIMD, PKCE S256, `iss`, refresh rotation and revocation, and runs on Node unmodified with a SQLite KV adapter. See ADR-0009.
   Claude hosted apps redirect to `https://claude.ai/api/mcp/auth_callback`; Claude Code uses loopback redirects. Claude
   picks CIMD when metadata advertises it with `none` auth. Real-client run pending (`spikes/oauth/deploy-and-test.md`).
+- **Read in the 1.2.1 source (P5-01, 2026-10-05):**
+  - The code exchange is read-check-write on the grant record (`authCodeWrappedKey` deleted after use), not atomic: two
+    concurrent redemptions can both pass on a store without atomic take (Workers KV). relic-bridge adds a single-use
+    marker consumed with `kv.take` (ADR-0011).
+  - A replay detected by the provider (`authCodeWrappedKey` gone) revokes the grant; `authCodeId` (SHA-256 of the code)
+    stays on the grant after the exchange.
+  - Access tokens, refresh tokens and codes are all `userId:grantId:secret` (grant id 16, secret 32 characters of
+    `[A-Za-z0-9_-]`); validation is one KV read of `token:{userId}:{grantId}:{sha256(token)}` plus an `expiresAt` check
+    against `Date.now()`. `audienceMatches` allows path-prefix matches; `validateToken(resource, …)` itself requires the
+    exact registered resource.
+  - Authorization-server metadata includes `protected_resources` (every declared resource) when resources are
+    declared: relic-bridge strips it (project slugs are not public, T19).
+  - The token endpoint accepts only `application/x-www-form-urlencoded` (media type compared after `split(';')`).
+  - PKCE: the provider requires it only for public clients (`token_endpoint_auth_method: none`) and accepts
+    `S256` only (`code_challenge_methods_supported: ["S256"]`); relic-bridge requires S256 for every client.
+  - The module prints a `console.warn` at import time when `global_fetch_strictly_public` is off (CIMD disabled), so it
+    is imported lazily. `parseAuthRequest()` checks the request URL against the issuer's authorize endpoint, so the
+    request is re-addressed to the issuer origin first (works behind a TLS-terminating proxy).
+  - `completeAuthorization()` revokes the user's earlier grants for the same client and resource by default.
 - Originally to verify (P0-08):
   1. whether the library can run on Node with a KV-compatible adapter backed by SQLite (otherwise use a Node-native
      authorization server such as `oidc-provider`, behind the same interface)

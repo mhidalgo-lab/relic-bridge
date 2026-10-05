@@ -2,7 +2,7 @@
 id: P5-01
 title: "OAuth 2.1 authorization server integration"
 phase: 5
-status: in-progress
+status: review
 priority: high
 depends_on: [P4-08]
 adr: [0009, 0011]
@@ -46,14 +46,14 @@ the deny-by-default access resolver exactly like `rb_` device tokens.
   authorization matrix (route guard + OAuth MCP principals).
 
 ## Acceptance criteria
-- [ ] Same OAuth integration test suite passes on Node and Workers.
-- [ ] Code replay and concurrent redemption of one code yield at most one token set; replay revokes the grant.
-- [ ] PKCE `plain` / missing refused; unknown or missing `resource` refused; refresh cannot retarget; cross-slug
+- [x] Same OAuth integration test suite passes on Node and Workers.
+- [x] Code replay and concurrent redemption of one code yield at most one token set; replay revokes the grant.
+- [x] PKCE `plain` / missing refused; unknown or missing `resource` refused; refresh cannot retarget; cross-slug
       OAuth token → the generic 401.
-- [ ] OAuth token for a revoked grant, disabled user, other user's grant or owner key used by an admin → 401 via
+- [x] OAuth token for a revoked grant, disabled user, other user's grant or owner key used by an admin → 401 via
       `resolveAccess`; `rb_` tokens keep working with OAuth on.
-- [ ] OAuth routes in the P2-12 matrix (guard test) and OAuth principals on the MCP routes.
-- [ ] `pnpm lint && pnpm typecheck && pnpm test && pnpm test:workers && pnpm build && pnpm bench:cpu` pass.
+- [x] OAuth routes in the P2-12 matrix (guard test) and OAuth principals on the MCP routes.
+- [x] `pnpm lint && pnpm typecheck && pnpm test && pnpm test:workers && pnpm build && pnpm bench:cpu` pass.
 
 ## Security notes
 T9 (PKCE S256 only, exact redirect matching by the provider, RFC 9207 `iss`), T10 (per-IP limit on the unauthenticated

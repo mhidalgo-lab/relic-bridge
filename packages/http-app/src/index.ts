@@ -72,10 +72,17 @@ export {
   type StorageForIdentity,
   safeNextPath,
 } from './identity.ts';
+export {
+  CIMD_MAX_BYTES,
+  CIMD_TIMEOUT_MS,
+  type ClientMetadataFetch,
+  isPublicIp,
+} from './oauth/clients.ts';
 export { OAUTH_KV_PREFIX, type OAuthKvNamespace, oauthKvNamespace } from './oauth/kv-namespace.ts';
 export {
   DEFAULT_OAUTH_ACCESS_TTL_S,
   DEFAULT_OAUTH_REFRESH_TTL_S,
+  DEFAULT_OAUTH_REGISTRATION_LIMIT,
   looksLikeOAuthToken,
   MCP_SCOPE,
   OAUTH_AUTHORIZE_PATH,
@@ -87,6 +94,7 @@ export {
   OAUTH_REGISTER_PATH,
   OAUTH_SCOPES,
   OAUTH_TOKEN_PATH,
+  OAUTH_UNUSED_REGISTRATION_TTL_S,
   type OAuthApproval,
   type OAuthAuthentication,
   type OAuthAuthorizationRequest,

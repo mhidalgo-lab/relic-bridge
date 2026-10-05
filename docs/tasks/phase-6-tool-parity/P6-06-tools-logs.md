@@ -2,7 +2,7 @@
 id: P6-06
 title: "Tools: list_recent_logs, analyze_entity_logs"
 phase: 6
-status: in-progress
+status: review
 priority: high
 depends_on: [P5-07]
 adr: []
@@ -27,13 +27,13 @@ owner: claude-agent
   single-lined, capped at 500 characters and shown only inside the untrusted-data envelope.
 
 ## Acceptance criteria
-- [ ] Fixture + contract tests (`tools-logs.test.ts`, sample calls in `contract.test.ts`); account filtering enforced
+- [x] Fixture + contract tests (`tools-logs.test.ts`, sample calls in `contract.test.ts`); account filtering enforced
   (P2-12 `TOOL_CASES`).
-- [ ] Log content always enveloped, capped and secret-redacted; injection and redaction tests (forged markers, injected
+- [x] Log content always enveloped, capped and secret-redacted; injection and redaction tests (forged markers, injected
   instructions, tokens in messages).
-- [ ] Search term and GUID escaped via the `nrql` tag (hostile input tested); event-type deny of `Log` tested.
-- [ ] Budget-aware; partial result tested for `analyze_entity_logs`.
-- [ ] `docs/reference/tools.md` regenerated; THREAT_MODEL, RESEARCH and security guide updated; owner decisions logged.
+- [x] Search term and GUID escaped via the `nrql` tag (hostile input tested); event-type deny of `Log` tested.
+- [x] Budget-aware; partial result tested for `analyze_entity_logs`.
+- [x] `docs/reference/tools.md` regenerated; THREAT_MODEL, RESEARCH and security guide updated; owner decisions logged.
 
 ## Security notes
 **T6 primary risk surface** — log lines are attacker-controlled. T3 (account from the GUID), T4 (`nrql` tag only), T8 (secrets in logs).

@@ -51,6 +51,11 @@ something. So:
 - Be careful about what *other* tools you give the same agent session (shell, email, browser). Combining them with
   telemetry access is where injection becomes dangerous.
 - Don't let the agent act on instructions that came from a query result, and review commands it proposes.
+- Log lines (`list_recent_logs`, `analyze_entity_logs`) are the most likely injection carrier: anyone who can make your
+  application log a string, such as a request header or a user name, controls that text. Messages are cut to 500
+  characters, put on one line and scrubbed of credential-shaped values (keys, bearer tokens, JWTs, cloud and VCS
+  tokens, passwords in URLs), but scrubbing is pattern-based and logs can still hold personal data. Deny the `Log`
+  event type for connections that should not read logs.
 - Telemetry read by the agent goes to your model provider like any other prompt content. Exclude event types that
   contain personal data (`eventTypes.deny`).
 

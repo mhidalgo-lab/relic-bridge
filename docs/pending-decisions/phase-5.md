@@ -340,3 +340,17 @@ Record per client: date, client version, registration path (CIMD/DCR), result, a
 - **Assumption made:** fine for a personal or small-team deployment; a secondary index would be a new task if the
   number of grants grows.
 - **Needs:** nothing now.
+
+## P5-07 — docs and release
+
+### P5-07 — cut v0.5.0
+- **Context:** the autonomous run does not tag, publish, push images or deploy (as for v0.1 to v0.4).
+- **Assumption made:** docs describe v0.5 as implemented, not released.
+- **Needs:** owner: after merging the stack and walking the manual checklist with real claude.ai and a phone, follow
+  `docs/dev/releasing.md`; then flip README wording from "not released yet" and update the unverified marks in
+  `docs/guide/oauth-phone.md` and `docs/reference/client-compatibility.md`.
+
+### P5-07 — Claude steps are from vendor docs, unverified
+- **Assumption made:** menu names (Customize, Connectors, Add custom connector) and "mobile shows web-added connectors"
+  come from Anthropic's help page of 2026-10-05; marked unverified in the guide.
+- **Needs:** owner to correct the guide after a real run (acceptance: phone + 3 computers, docs only).

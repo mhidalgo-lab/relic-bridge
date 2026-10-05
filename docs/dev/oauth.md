@@ -7,8 +7,9 @@ unmodified on Node and Workers, with its state in the storage `kv` table on both
 Status: P5-01 (server and token check), P5-02 (per-slug Protected Resource Metadata, the `401` discovery
 challenge, `resource` on token requests), P5-03 (client registration: CIMD and hardened DCR) and P5-04 (sign-in +
 consent screen, remembered approvals, the `RB_OAUTH` host switch) and P5-05 (token lifecycle: lifetimes, refresh
-rotation with reuse detection, access re-checked at issuance, revoke-all, OAuth devices in the admin API and UI). Not
-yet: the admin client list and runtime DCR switch (P5-08). User guide: `docs/guide/oauth.md`.
+rotation with reuse detection, access re-checked at issuance, revoke-all, OAuth devices in the admin API and UI). Also
+the admin client list and runtime DCR switch (P5-08). User guides: `docs/guide/oauth.md`, `docs/guide/oauth-phone.md`,
+`docs/guide/oauth-how-it-works.md`.
 
 ## Topology
 

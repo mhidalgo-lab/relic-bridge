@@ -2,7 +2,7 @@
 id: P5-04
 title: "Login and consent screen"
 phase: 5
-status: in-progress
+status: review
 priority: high
 depends_on: [P5-03]
 adr: [0009, 0011, 0012]
@@ -57,17 +57,17 @@ choose which of their own grants on the project it gets, and approve or deny. Op
   defects, forged grants), on the HTTP app and the Worker.
 
 ## Acceptance criteria
-- [ ] Playwright test of the full flow in Chromium (DCR client → authorize → sign-in → consent → approve → code at a
+- [x] Playwright test of the full flow in Chromium (DCR client → authorize → sign-in → consent → approve → code at a
       loopback redirect → token → MCP `tools/list`; deny path; remembered approval; no CSP violations), at 1280 px and
       320 px.
-- [ ] Phishing-resistance review written down (`docs/dev/oauth.md`): client name escaped and marked unverified for DCR,
+- [x] Phishing-resistance review written down (`docs/dev/oauth.md`): client name escaped and marked unverified for DCR,
       client host and redirect host prominent, loopback warning, no auto-approval of unknown clients.
-- [ ] Integration tests: owner boundary (an admin's grant on the owner's key is not offered and a forged id is
+- [x] Integration tests: owner boundary (an admin's grant on the owner's key is not offered and a forged id is
       refused), other users' and service grants refused, CSRF/origin/clickjacking headers, deny redirect, remember +
       forget, `client_refused`, audit rows; on memory, SQLite and the Worker (D1).
-- [ ] `RB_OAUTH` parsing tests on both hosts (off by default, needs sign-in, DCR settings).
-- [ ] axe-core on the consent, no-access and approvals pages.
-- [ ] `pnpm lint && pnpm typecheck && pnpm test && pnpm test:workers && pnpm build && pnpm bench:cpu && pnpm test:e2e`.
+- [x] `RB_OAUTH` parsing tests on both hosts (off by default, needs sign-in, DCR settings).
+- [x] axe-core on the consent, no-access and approvals pages.
+- [x] `pnpm lint && pnpm typecheck && pnpm test && pnpm test:workers && pnpm build && pnpm bench:cpu && pnpm test:e2e`.
 
 ## Security notes
 T9 (deny/approve only to the validated redirect URI, exact match, `state` and `iss`), T10 (phishing consent: client

@@ -3,7 +3,7 @@
 // the same unique, referential and row rules as the SQL schema. State lives in the instance (THREAT_MODEL T21);
 // records are copied in and out, so callers can't mutate stored rows.
 import { auditStatsSql, utcDay } from './audit-stats.ts';
-import { ConflictError, keyChangedError, NotFoundError } from './errors.ts';
+import { ConflictError, keyChangedError, lastOwnerError, NotFoundError } from './errors.ts';
 import type {
   AccessTokenRecord,
   AccessTokensRepository,
@@ -137,6 +137,7 @@ export function createMemoryStorage(options: MemoryStorageOptions = {}): Storage
       }
     }
   };
+  const enabledOwner = (u: UserRecord): boolean => u.role === 'owner' && u.disabledAt === null;
   const usersRepo: UsersRepository = {
     async get(id) {
       const u = users.get(id);
@@ -180,6 +181,26 @@ export function createMemoryStorage(options: MemoryStorageOptions = {}): Storage
         ...row,
         email: normalizeEmail(row.email),
         role: checkRole(row.role),
+        updatedAt: now(),
+      };
+      uniqueUser(next);
+      if (enabledOwner(cur) && !enabledOwner(next)) {
+        let others = false;
+        for (const u of users.values()) if (u.id !== id && enabledOwner(u)) others = true;
+        if (!others) throw lastOwnerError();
+      }
+      users.set(id, next);
+      return out(next);
+    },
+    async bind(id, idp, idpSubject, patch = {}) {
+      if (patch.role !== undefined) checkRole(patch.role);
+      const cur = users.get(id);
+      if (!cur || cur.idp !== null || cur.idpSubject !== null || cur.disabledAt !== null) return null;
+      const next: UserRecord = {
+        ...merge(cur, { displayName: patch.displayName, role: patch.role }),
+        idp,
+        idpSubject,
+        role: checkRole(patch.role ?? cur.role),
         updatedAt: now(),
       };
       uniqueUser(next);

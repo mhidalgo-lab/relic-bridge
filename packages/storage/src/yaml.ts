@@ -223,6 +223,7 @@ export function createYamlStorage(
       list: empty,
       create: readOnly,
       update: readOnly,
+      bind: readOnly,
     },
     credentials: {
       get: async (id: string) => credentials.get(id) ?? null,

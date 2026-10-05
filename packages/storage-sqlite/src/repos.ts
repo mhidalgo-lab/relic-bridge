@@ -38,6 +38,8 @@ import {
   type KvRepository,
   keyChangedError,
   kvExpiry,
+  lastOwnerError,
+  lastOwnerGuardSql,
   NO_ACCESS_RECORDS,
   NotFoundError,
   normalizeEmail,
@@ -45,6 +47,7 @@ import {
   type ProjectsRepository,
   type SettingsRepository,
   type Storage,
+  UNBOUND_ENABLED_SQL,
   type UserRecord,
   type UsersRepository,
 } from '@relic-bridge/storage';
@@ -121,12 +124,23 @@ export function createRepositories(
     const r = one('SELECT * FROM users WHERE id = ?', [id]);
     return r ? userOf(r) : null;
   };
-  const writeUser = (u: UserRecord): void => {
+  /** Full-row write, refused (no change) when it would leave no enabled owner: one statement (P4-16). */
+  const writeUser = (u: UserRecord): number =>
     run(
-      'UPDATE users SET email = ?, display_name = ?, idp = ?, idp_subject = ?, role = ?, updated_at = ?, disabled_at = ? WHERE id = ?',
-      [u.email, u.displayName, u.idp, u.idpSubject, u.role, u.updatedAt, u.disabledAt, u.id],
+      `UPDATE users SET email = ?, display_name = ?, idp = ?, idp_subject = ?, role = ?, updated_at = ?, disabled_at = ? WHERE id = ? AND ${lastOwnerGuardSql('?', '?')}`,
+      [
+        u.email,
+        u.displayName,
+        u.idp,
+        u.idpSubject,
+        u.role,
+        u.updatedAt,
+        u.disabledAt,
+        u.id,
+        u.role,
+        u.disabledAt,
+      ],
     );
-  };
   const usersRepo: UsersRepository = {
     get: (id) => call(() => getUser(id)),
     getByEmail: (email) =>
@@ -170,8 +184,32 @@ export function createRepositories(
           role: checkRole(row.role),
           updatedAt: now(),
         };
-        writeUser(next);
+        if (writeUser(next) === 0) {
+          // The row vanished (another process) or the last-owner guard held the write back.
+          if (getUser(id) === null) throw new NotFoundError('user', id);
+          throw lastOwnerError();
+        }
         return freeze(next);
+      }),
+    bind: (id, idp, idpSubject, patch = {}) =>
+      call(() => {
+        const sets = ['idp = ?', 'idp_subject = ?'];
+        const params: Params = [idp, idpSubject];
+        if (patch.displayName !== undefined) {
+          sets.push('display_name = ?');
+          params.push(patch.displayName);
+        }
+        if (patch.role !== undefined) {
+          sets.push('role = ?');
+          params.push(checkRole(patch.role));
+        }
+        sets.push('updated_at = ?');
+        params.push(now(), id);
+        const changed = run(
+          `UPDATE users SET ${sets.join(', ')} WHERE id = ? AND ${UNBOUND_ENABLED_SQL}`,
+          params,
+        );
+        return changed === 0 ? null : getUser(id);
       }),
   };
 

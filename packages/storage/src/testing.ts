@@ -9,6 +9,7 @@ import { describe, expect, it } from 'vitest';
 import {
   ConflictError,
   InvalidInputError,
+  LAST_OWNER_CONSTRAINT,
   NotFoundError,
   ReadOnlyStorageError,
   StorageError,
@@ -213,6 +214,7 @@ export function runStorageContract(options: StorageContractOptions): void {
           const writes: Promise<unknown>[] = [
             s.users.create({ id: 'u', email: 'a@b.c', role: 'owner' }),
             s.users.update('u', {}),
+            s.users.bind('u', 'google', 's'),
             s.credentials.create({ id: 'c', label: 'x', region: 'US', key: fakeEncryptedKey() }),
             s.credentials.update('project:acme-prod', { label: 'x' }),
             s.credentials.delete('project:acme-prod'),
@@ -264,7 +266,7 @@ export function runStorageContract(options: StorageContractOptions): void {
           email: 'Owner@Example.COM',
           idp: 'google',
           idpSubject: 'sub-1',
-          role: 'owner',
+          role: 'admin',
         });
         expect(u).toMatchObject({
           email: 'owner@example.com',
@@ -304,6 +306,100 @@ export function runStorageContract(options: StorageContractOptions): void {
         await rejects(s.users.update('u5', { email: 'a@x.io' }), ConflictError);
         await rejects(s.users.update('missing', { displayName: 'x' }), NotFoundError);
         await s.close();
+      });
+
+      it('binds an identity only while the row is unbound and enabled (P4-16 compare-and-set)', async () => {
+        const { s, clock } = await fresh();
+        await s.users.create({ id: 'u1', email: 'a@x.io', role: 'member' });
+        clock.advance(5);
+        const bound = await s.users.bind('u1', 'google', 'g-1', { displayName: 'A', role: 'owner' });
+        expect(bound).toMatchObject({
+          idp: 'google',
+          idpSubject: 'g-1',
+          displayName: 'A',
+          role: 'owner',
+          updatedAt: clock.t,
+        });
+        expect(await s.users.getByIdentity('google', 'g-1')).toEqual(bound);
+        // Already bound (to this or any identity): nothing changes.
+        expect(await s.users.bind('u1', 'github', 'h-1')).toBeNull();
+        expect(await s.users.bind('u1', 'google', 'g-1')).toBeNull();
+        expect(await s.users.get('u1')).toEqual(bound);
+        // Missing and disabled rows are not bound.
+        expect(await s.users.bind('missing', 'google', 'g-2')).toBeNull();
+        await s.users.create({ id: 'u2', email: 'b@x.io', role: 'member' });
+        await s.users.update('u2', { disabledAt: clock.t });
+        expect(await s.users.bind('u2', 'google', 'g-2')).toBeNull();
+        expect((await s.users.get('u2'))?.idp).toBeNull();
+        // An identity another user holds is a conflict; without a patch the name and role stay.
+        await s.users.create({ id: 'u3', email: 'c@x.io', displayName: 'C', role: 'admin' });
+        await rejects(s.users.bind('u3', 'google', 'g-1'), ConflictError);
+        expect(await s.users.bind('u3', 'github', 'h-3')).toMatchObject({ displayName: 'C', role: 'admin' });
+        await rejects(s.users.bind('u2', 'google', 'g-9', { role: 'root' as never }), InvalidInputError);
+        await s.close();
+      });
+
+      it('lets exactly one of two concurrent first bindings win (P4-16)', async () => {
+        const { s } = await fresh();
+        for (let i = 0; i < 5; i++) {
+          await s.users.create({ id: `r${i}`, email: `r${i}@x.io`, role: 'member' });
+          const results = await Promise.all([
+            s.users.bind(`r${i}`, 'google', `g-${i}`),
+            s.users.bind(`r${i}`, 'github', `h-${i}`),
+          ]);
+          const winners = results.filter((r) => r !== null);
+          expect(winners).toHaveLength(1);
+          expect(await s.users.get(`r${i}`)).toEqual(winners[0]);
+        }
+        await s.close();
+      });
+
+      it('never demotes or disables the last enabled owner (P4-16)', async () => {
+        const { s, clock } = await fresh();
+        await s.users.create({ id: 'o1', email: 'o1@x.io', role: 'owner' });
+        await s.users.create({ id: 'a1', email: 'a1@x.io', role: 'admin' });
+        const lastOwner = async (p: Promise<unknown>): Promise<void> => {
+          const e = await p.catch((x: unknown) => x);
+          expect(e).toBeInstanceOf(ConflictError);
+          expect((e as ConflictError).constraint).toBe(LAST_OWNER_CONSTRAINT);
+        };
+        await lastOwner(s.users.update('o1', { role: 'admin' }));
+        await lastOwner(s.users.update('o1', { disabledAt: clock.t }));
+        await lastOwner(s.users.update('o1', { role: 'member', displayName: 'x' }));
+        // Nothing was written by a refused update.
+        expect(await s.users.get('o1')).toMatchObject({ role: 'owner', disabledAt: null, displayName: null });
+        // Other changes to the last owner, and any change to non-owners, pass.
+        await s.users.update('o1', { displayName: 'Owner', role: 'owner', disabledAt: null });
+        await s.users.update('a1', { role: 'member', disabledAt: clock.t });
+        // A disabled owner does not count; with a second enabled owner the first may step down.
+        await s.users.create({ id: 'o2', email: 'o2@x.io', role: 'owner' });
+        await s.users.update('o2', { disabledAt: clock.t });
+        await lastOwner(s.users.update('o1', { role: 'admin' }));
+        await s.users.update('o2', { disabledAt: null });
+        expect(await s.users.update('o1', { role: 'admin' })).toMatchObject({ role: 'admin' });
+        await lastOwner(s.users.update('o2', { disabledAt: clock.t }));
+        // With no enabled owner at all (made outside this guard), promoting and editing still work.
+        expect(await s.users.update('o1', { role: 'owner' })).toMatchObject({ role: 'owner' });
+        await rejects(s.users.update('missing', { role: 'admin' }), NotFoundError);
+        await s.close();
+      });
+
+      it('leaves one owner when two owners demote or disable each other at once (P4-16)', async () => {
+        for (let i = 0; i < 4; i++) {
+          const { s, clock } = await fresh();
+          await s.users.create({ id: 'a', email: 'a@x.io', role: 'owner' });
+          await s.users.create({ id: 'b', email: 'b@x.io', role: 'owner' });
+          const settled = await Promise.allSettled([
+            s.users.update('a', i % 2 === 0 ? { role: 'admin' } : { disabledAt: clock.t }),
+            s.users.update('b', i < 2 ? { role: 'member' } : { disabledAt: clock.t }),
+          ]);
+          expect(settled.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+          const refused = settled.find((r) => r.status === 'rejected') as PromiseRejectedResult;
+          expect((refused.reason as ConflictError).constraint).toBe(LAST_OWNER_CONSTRAINT);
+          const owners = (await s.users.list()).filter((u) => u.role === 'owner' && u.disabledAt === null);
+          expect(owners).toHaveLength(1);
+          await s.close();
+        }
       });
     });
 

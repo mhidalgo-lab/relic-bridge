@@ -193,6 +193,16 @@ export interface OAuthOptions {
    * hour; `null` turns the cap off (the per-IP `oauth` rate limit still applies).
    */
   readonly registrationLimit?: { readonly requests: number; readonly perSeconds: number } | null;
+  /**
+   * Registrations one client address may complete per window (P5-10: one source must not use up the deployment-wide
+   * cap). Default {@link DEFAULT_OAUTH_REGISTRATION_IP_LIMIT}; `null` turns it off. Needs `clientIp` to tell addresses apart.
+   */
+  readonly registrationIpLimit?: { readonly requests: number; readonly perSeconds: number } | null;
+  /**
+   * The caller's address bucket key (`resolveClientIp`); `null` when unknown (then one shared bucket is used). The
+   * hosts pass the same function the rate limiter uses. Without it every caller shares one per-address bucket.
+   */
+  readonly clientIp?: (c: Context) => string | null;
   /** When set, dynamically registered https redirect URIs must be on one of these hosts (loopback is always allowed). */
   readonly registrationRedirectHosts?: readonly string[];
   /**
@@ -261,8 +271,20 @@ export const OAUTH_REGISTRATION_CACHE_MS = 5000;
 /** Most clients the admin list reads, and most grants one client removal scans. */
 export const MAX_OAUTH_CLIENTS_LISTED = 500;
 export const MAX_OAUTH_GRANTS_SCANNED = 20_000;
+/** Most client records the admin list reads before it sorts (newest first) and cuts to {@link MAX_OAUTH_CLIENTS_LISTED}. */
+export const MAX_OAUTH_CLIENTS_SCANNED = 5000;
+/** Dynamic registrations one client address may complete per window (P5-10, T10); the loopback/claude.ai cases need a few. */
+export const DEFAULT_OAUTH_REGISTRATION_IP_LIMIT: { readonly requests: number; readonly perSeconds: number } =
+  Object.freeze({ requests: 10, perSeconds: 3600 });
+/** Metadata documents one client address may make the server fetch per window (cache misses only, P5-10, T11). */
+export const OAUTH_CIMD_FETCHES_PER_IP: { readonly requests: number; readonly perSeconds: number } =
+  Object.freeze({ requests: 20, perSeconds: 3600 });
+/** Most metadata-document client records stored at once (each lives 5 min to 24 h); more are refused until some expire. */
+export const MAX_OAUTH_CIMD_CLIENTS = 200;
 /** Shared registration counter windows (`kv`, outside the provider's `oauth:` namespace). */
 const REGISTRATION_COUNTER_PREFIX = 'oauth-dcr-count:';
+const REGISTRATION_IP_COUNTER_PREFIX = 'oauth-dcr-ip:';
+const CIMD_FETCH_COUNTER_PREFIX = 'oauth-cimd-ip:';
 
 /** Longest provider-issued token accepted (`userId` ≤ 128 characters, ours are 36). */
 export const MAX_OAUTH_TOKEN_CHARS = 200;
@@ -414,7 +436,8 @@ export interface OAuthRegistrationState {
 
 /** OAuth clients: list, remove, and the registration switch (admin API, owners only, P5-08). */
 export interface OAuthClients {
-  list(): Promise<readonly OAuthClient[]>;
+  /** Newest first, at most {@link MAX_OAUTH_CLIENTS_LISTED}; `truncated` when there are more (or the scan was cut). */
+  list(): Promise<{ readonly clients: readonly OAuthClient[]; readonly truncated: boolean }>;
   /**
    * Remove a client record and revoke every grant (all users, every token family) and remembered approval of it. Works
    * for an id that has no record any more but still has grants (an expired cached document). Null when there is
@@ -485,6 +508,15 @@ export function createOAuthRuntime(deps: OAuthRuntimeDeps): OAuthRuntime {
     checkInt('oauth.registrationLimit.requests', registrationLimit.requests, 1, 100_000);
     checkInt('oauth.registrationLimit.perSeconds', registrationLimit.perSeconds, 60, 86_400);
   }
+  const registrationIpLimit =
+    options.registrationIpLimit === undefined
+      ? DEFAULT_OAUTH_REGISTRATION_IP_LIMIT
+      : options.registrationIpLimit;
+  if (registrationIpLimit !== null) {
+    checkInt('oauth.registrationIpLimit.requests', registrationIpLimit.requests, 1, 100_000);
+    checkInt('oauth.registrationIpLimit.perSeconds', registrationIpLimit.perSeconds, 60, 86_400);
+  }
+  const callerKey = (c: Context): string => options.clientIp?.(c) ?? 'unknown';
   const redirectHosts = options.registrationRedirectHosts?.map((h) => {
     const host = h.trim().toLowerCase();
     if (!/^[a-z0-9.-]{1,253}$/.test(host) || !host.includes('.')) {
@@ -698,12 +730,28 @@ export function createOAuthRuntime(deps: OAuthRuntimeDeps): OAuthRuntime {
    * none is cached. Resolves null when the request may go on (not a URL client id, or resolved), else a stable reason.
    * Errors are never cached; a validated document is stored for its (bounded) HTTP cache lifetime.
    */
-  const resolveClient = async (clientId: string | null | undefined): Promise<string | null> => {
+  const resolveClient = async (
+    clientId: string | null | undefined,
+    caller: string,
+  ): Promise<string | null> => {
     if (clientId === null || clientId === undefined || !looksLikeClientIdUrl(clientId)) return null;
     if (cimd === undefined) return 'cimd_disabled';
     const problem = clientIdUrlProblem(clientId, issuerHost);
     if (problem !== null) return problem;
     if ((await env.OAUTH_KV.get(`client:${clientId}`)) !== null) return null;
+    // Anonymous callers can make us fetch (T11, T20): bound the stored document clients, then the fetches one address
+    // may cause (counted before the fetch; a failure is not cached, so failures count too).
+    const stored = await env.OAUTH_KV.list({ prefix: 'client:https://', limit: MAX_OAUTH_CIMD_CLIENTS });
+    if (stored.keys.length >= MAX_OAUTH_CIMD_CLIENTS) {
+      logger.warn('oauth metadata document client cap reached', { limit: MAX_OAUTH_CIMD_CLIENTS });
+      return 'too_many_clients';
+    }
+    const budget = OAUTH_CIMD_FETCHES_PER_IP;
+    const window = Math.floor(clock.now() / 1000 / budget.perSeconds);
+    const fetches = await deps.kv.increment(`${CIMD_FETCH_COUNTER_PREFIX}${caller}:${window}`, {
+      expirationTtl: budget.perSeconds,
+    });
+    if (fetches > budget.requests) return 'fetch_budget';
     try {
       const { client, ttlSeconds } = await fetchMetadataDocument(
         clientId,
@@ -1238,23 +1286,31 @@ export function createOAuthRuntime(deps: OAuthRuntimeDeps): OAuthRuntime {
   };
   const clients: OAuthClients = Object.freeze({
     async list() {
-      const out: OAuthClient[] = [];
+      // Scan (bounded), then sort newest first and cut: cutting in key order first could hide a real client behind a
+      // flood of registrations (P5-10).
+      const all: OAuthClient[] = [];
+      let truncated = false;
       let cursor: string | undefined;
-      do {
+      scan: do {
         const page = await env.OAUTH_KV.list({
           prefix: CLIENT_PREFIX,
           ...(cursor === undefined ? {} : { cursor }),
         });
         for (const k of page.keys) {
+          if (all.length >= MAX_OAUTH_CLIENTS_SCANNED) {
+            truncated = true;
+            break scan;
+          }
           const clientId = k.name.slice(CLIENT_PREFIX.length);
           const record = (await env.OAUTH_KV.get(k.name, { type: 'json' })) as Record<string, unknown> | null;
           if (record === null || typeof record !== 'object' || record['clientId'] !== clientId) continue;
-          out.push(toClient(clientId, record, k.expiration));
-          if (out.length >= MAX_OAUTH_CLIENTS_LISTED) return out;
+          all.push(toClient(clientId, record, k.expiration));
         }
         cursor = page.list_complete ? undefined : page.cursor;
       } while (cursor !== undefined);
-      return out;
+      all.sort((a, b) => (b.registeredAt ?? 0) - (a.registeredAt ?? 0));
+      if (all.length > MAX_OAUTH_CLIENTS_LISTED) truncated = true;
+      return { clients: all.slice(0, MAX_OAUTH_CLIENTS_LISTED), truncated };
     },
     async remove(clientId: string) {
       if (clientId === '' || clientId.length > MAX_CLIENT_ID_URL_CHARS) return null;
@@ -1366,6 +1422,29 @@ export function createOAuthRuntime(deps: OAuthRuntimeDeps): OAuthRuntime {
         logger.info('oauth registration refused', { reason: verdict.reason });
         return jsonError(400, verdict.error, 'The client metadata is not acceptable.');
       }
+      // One source must not be able to use up the shared cap (T10): a per-address count of registrations the provider
+      // accepted (counted below, after the 201), checked first. Reads, so a burst may overshoot by its concurrency;
+      // the per-address request rule bounds that.
+      const caller = callerKey(c);
+      const ipWindow =
+        registrationIpLimit === null ? 0 : Math.floor(clock.now() / 1000 / registrationIpLimit.perSeconds);
+      const ipCounter = `${REGISTRATION_IP_COUNTER_PREFIX}${caller}:${ipWindow}`;
+      if (registrationIpLimit !== null) {
+        const done = Number.parseInt((await deps.kv.get(ipCounter)) ?? '0', 10) || 0;
+        if (done >= registrationIpLimit.requests) {
+          logger.warn('oauth registration per-address cap reached', { limit: registrationIpLimit.requests });
+          const response = jsonError(
+            429,
+            'temporarily_unavailable',
+            'Too many client registrations from this address; retry later.',
+          );
+          response.headers.set(
+            'Retry-After',
+            String((ipWindow + 1) * registrationIpLimit.perSeconds - Math.floor(clock.now() / 1000)),
+          );
+          return response;
+        }
+      }
       // One cap for the whole deployment (T10): an atomic counter in storage, so isolates and processes share it.
       if (registrationLimit !== null) {
         const nowS = Math.floor(clock.now() / 1000);
@@ -1386,6 +1465,9 @@ export function createOAuthRuntime(deps: OAuthRuntimeDeps): OAuthRuntime {
       }
       const response = await fetchProvider(await server([]), c, body);
       if (response.status !== 201) return response;
+      if (registrationIpLimit !== null) {
+        await deps.kv.increment(ipCounter, { expirationTtl: registrationIpLimit.perSeconds });
+      }
       // Unused registrations die young: until its first token exchange (which renews it, the provider's half-life rule)
       // a registration lives a day, so a flood of registrations nobody uses doesn't stay in storage for months.
       const created = (await response.clone().json()) as { readonly client_id?: unknown };
@@ -1418,7 +1500,7 @@ export function createOAuthRuntime(deps: OAuthRuntimeDeps): OAuthRuntime {
       // CIMD: a URL client id needs its (cached or fetched) document before the provider looks it up. Before the code
       // is consumed, so a fetch failure doesn't burn it.
       const clientId = form?.get('client_id') ?? null;
-      const clientProblem = await resolveClient(clientId);
+      const clientProblem = await resolveClient(clientId, callerKey(c));
       if (clientProblem !== null) return refusedClient(clientId as string, clientProblem);
       // RFC 8707 / MCP 2026-07-28: the token request names its resource too. Checked before the code is consumed, so
       // a client that left it out can retry; the provider then requires it to be the grant's own resource.
@@ -1511,7 +1593,7 @@ export function createOAuthRuntime(deps: OAuthRuntimeDeps): OAuthRuntime {
       return prepared instanceof Response ? prepared : consent(c, prepared);
     },
 
-    async prepare(_c, params) {
+    async prepare(c, params) {
       // RFC 6749 §3.1: no parameter twice (what the consent step is shown must be what the provider acts on).
       if (repeated(params)) {
         return jsonError(400, 'invalid_request', 'Parameters must not be repeated.');
@@ -1525,7 +1607,8 @@ export function createOAuthRuntime(deps: OAuthRuntimeDeps): OAuthRuntime {
       // CIMD: fetch (or find cached) the client's document before the provider looks the client up. A failure is a
       // 400 page, never a redirect: no redirect URI has been validated yet.
       const requestedClient = params.get('client_id');
-      const clientProblem = await resolveClient(requestedClient);
+      const caller = callerKey(c);
+      const clientProblem = await resolveClient(requestedClient, caller);
       if (clientProblem !== null) return refusedClient(requestedClient as string, clientProblem);
       const mod = await provider();
       const as = await server([resource]);
@@ -1594,7 +1677,7 @@ export function createOAuthRuntime(deps: OAuthRuntimeDeps): OAuthRuntime {
           if (used) throw new Error('an authorization request is approved at most once');
           used = true;
           // The consent step may take a while (sign-in): a CIMD client's cached document may have expired since.
-          const clientProblem = await resolveClient(authRequest.clientId);
+          const clientProblem = await resolveClient(authRequest.clientId, caller);
           if (clientProblem !== null) return { ok: false, reason: 'client_refused' } as const;
           // The same deny-by-default decision a request with the resulting token will get (owner boundary included).
           const decision = await resolveAccess({

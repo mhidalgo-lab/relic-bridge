@@ -375,3 +375,13 @@ Record per client: date, client version, registration path (CIMD/DCR), result, a
   code anyway and OAuth 2.1 dropped the requirement.
 - **Assumption made:** left as is (compatibility); tracked in P5-12.
 - **Needs:** nothing unless the owner prefers RFC 6749 strictness.
+
+### P5-10 — anonymous-abuse bounds: numbers and the Workers `oauth` rule
+- **Assumption made:** per-address registrations 10/hour (`RB_OAUTH_DCR_IP_LIMIT`, counted after the provider accepted),
+  per-address CIMD fetches 20/hour on cache misses (not configurable), at most 200 stored document clients, admin list
+  scans 5000 records. The `oauth` rate rule on Workers stays per isolate (documented best effort) because the Rate
+  Limiting binding has one fixed rule; the expensive paths use shared storage counters instead.
+- **Options:** make the CIMD numbers configurable; add a second Rate Limiting binding for `oauth:`; wait for the
+  Durable Object limiter (P7-10).
+- **Needs:** owner: confirm the defaults, especially that shared egress addresses (a proxy, claude.ai's servers) share
+  one per-address budget.

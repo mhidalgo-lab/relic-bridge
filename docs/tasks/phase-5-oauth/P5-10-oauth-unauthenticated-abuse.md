@@ -2,7 +2,7 @@
 id: P5-10
 title: "Bound what anonymous callers can do to registration and CIMD"
 phase: 5
-status: todo
+status: review
 priority: medium
 depends_on: [P5-03, P5-08]
 adr: [0012]
@@ -34,11 +34,12 @@ fetch arbitrary public URLs.
   rule, or the P7-10 limiter) or document it as best effort everywhere it is described.
 
 ## Acceptance criteria
-- [ ] 30 registrations from one IP leave registration open for another IP (memory, SQLite, D1).
-- [ ] The owner's client list shows the newest clients first even with more than 500 records.
-- [ ] Anonymous authorize requests with N distinct document URLs from one IP cause at most the budgeted fetches and
+- [x] 30 registrations from one IP leave registration open for another IP (memory, SQLite, D1).
+- [x] The owner's client list shows the newest clients first even with more than 500 records.
+- [x] Anonymous authorize requests with N distinct document URLs from one IP cause at most the budgeted fetches and
       stored rows.
-- [ ] Workers: the `oauth` rule holds across isolates, or the docs say it does not.
+- [x] Workers: the `oauth` rule holds across isolates, or the docs say it does not. (Documented as per isolate, best
+      effort; the registration and fetch bounds are shared storage counters.)
 
 ## Security notes
 T10 (DCR flooding), T11 (CIMD fetches), T20 (resource exhaustion). Update THREAT_MODEL.

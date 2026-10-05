@@ -163,7 +163,39 @@ export function oauthClientsSuite(): void {
           expiresAt: expect.any(Number),
         });
         expect(res.text).not.toMatch(/secret|redirectUris/i);
+        expect((body as { truncated?: boolean }).truncated).toBe(false);
       }
+    });
+
+    it('lists the newest clients first even with more than 500 records, and says when it cut (P5-10)', async () => {
+      const now = Math.floor(h.world.clock.now() / 1000);
+      // Key order puts the newest registration last: cutting before sorting would hide it.
+      for (let i = 0; i < 510; i++) {
+        const id = `flood${String(i).padStart(4, '0')}`;
+        const registered = i === 509 ? now : now - 10_000 + i;
+        await h.world.storage.kv.put(
+          `oauth:client:${id}`,
+          JSON.stringify({
+            clientId: id,
+            clientName: id,
+            redirectUris: ['http://127.0.0.1/cb'],
+            registrationDate: registered,
+          }),
+          { expirationTtl: 3600 },
+        );
+      }
+      const owner = await h.addSession({ role: 'owner' });
+      const res = await api('GET', '/oauth/clients', owner.headers);
+      expect(res.status, res.text).toBe(200);
+      const body = JSON.parse(res.text) as {
+        data: { id: string; registeredAt: number }[];
+        truncated: boolean;
+      };
+      expect(body.data).toHaveLength(500);
+      expect(body.truncated).toBe(true);
+      expect(body.data[0]?.id).toBe('flood0509');
+      const times = body.data.map((c) => c.registeredAt);
+      expect(times).toEqual([...times].sort((a, b) => b - a));
     });
 
     it('lists a cached metadata-document client with the host that vouches for it', async () => {

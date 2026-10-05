@@ -13,7 +13,7 @@
 import type { Hono } from 'hono';
 import { Button, DataTable, Form, Layout } from '../components.tsx';
 import { ONCE_FIELD, type UiKit } from '../kit.ts';
-import { type OAuthClient, one, parseOAuthClient, parseOAuthRegistration } from './data.ts';
+import { listPage, type OAuthClient, one, parseOAuthClient, parseOAuthRegistration } from './data.ts';
 import {
   confirmed,
   confirmPage,
@@ -38,11 +38,15 @@ export function registerOAuthClients(ui: Hono, kit: UiKit): void {
     ROUTE,
     kit.page('owner', async (c, page) => {
       const { principal } = page;
-      const [clients, reg] = await Promise.all([
-        listAll(kit, c, principal, '/oauth/clients', parseOAuthClient),
+      const [list, reg] = await Promise.all([
+        kit.callAdmin(c, principal, { method: 'GET', path: '/oauth/clients' }),
         kit.callAdmin(c, principal, { method: 'GET', path: '/oauth/registration' }),
       ]);
-      if (clients === null) return loadFailed(c, { status: 502, body: null }, principal);
+      const listed = isOk(list) ? listPage(list.body, parseOAuthClient) : null;
+      if (listed === null) return loadFailed(c, { status: 502, body: null }, principal);
+      const clients = listed.rows;
+      // The newest apps first; the API says when older ones are left out (a flood of registrations can be large).
+      const truncated = (list.body as { truncated?: unknown } | null)?.truncated === true;
       // `404`: OAuth is off on this server.
       const state = isOk(reg) ? one(reg.body, parseOAuthRegistration) : null;
       return page.html(
@@ -91,6 +95,11 @@ export function registerOAuthClients(ui: Hono, kit: UiKit): void {
               authorization of it for all users and forgets their remembered approvals; a metadata-document
               app can start over with consent.
             </p>
+            {truncated && (
+              <p class="card">
+                More apps exist than are shown: this list has the newest ones and leaves out the oldest.
+              </p>
+            )}
             <DataTable
               caption="OAuth apps"
               empty="No OAuth apps yet."

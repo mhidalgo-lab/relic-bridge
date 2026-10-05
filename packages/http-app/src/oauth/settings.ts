@@ -4,12 +4,14 @@
 //   RB_OAUTH                     on | off (default off): the OAuth 2.1 server, sign-in and consent screen
 //   RB_OAUTH_DCR                 on | off (default on): RFC 7591 dynamic client registration at /oauth/register
 //   RB_OAUTH_DCR_LIMIT           registrations per hour for the whole deployment (default 30), or off
+//   RB_OAUTH_DCR_IP_LIMIT        registrations per hour for one client address (default 10), or off
 //   RB_OAUTH_DCR_REDIRECT_HOSTS  comma-separated https redirect hosts dynamic clients may use (default: any)
 //   RB_OAUTH_ACCESS_TTL          access-token lifetime (default 1h; 60s-24h), P5-05
 //   RB_OAUTH_REFRESH_TTL         absolute refresh lifetime of a device authorization (default 30d; 1h-365d), P5-05
 //   RB_OAUTH_REFRESH_REUSE_WINDOW refresh token reuse interval (default 30s; 0 or off = strict; up to 120s), P5-09
 // Durations: a number of seconds, or a number with s, m, h or d (`90m`, `12h`, `30d`).
 import {
+  DEFAULT_OAUTH_REGISTRATION_IP_LIMIT,
   DEFAULT_OAUTH_REGISTRATION_LIMIT,
   MAX_OAUTH_REFRESH_REUSE_WINDOW_S,
   type OAuthOptions,
@@ -27,7 +29,9 @@ export class OAuthConfigError extends Error {
 }
 
 /** What the variables configure; the host adds the consent screen (default) and its CIMD fetcher. */
-export type OAuthSettings = Required<Pick<OAuthOptions, 'registration' | 'registrationLimit'>> &
+export type OAuthSettings = Required<
+  Pick<OAuthOptions, 'registration' | 'registrationLimit' | 'registrationIpLimit'>
+> &
   Pick<
     OAuthOptions,
     | 'registrationRedirectHosts'
@@ -101,6 +105,23 @@ export function oauthSettingsFromEnv(env: OAuthEnv, signIn: boolean): OAuthSetti
     }
     registrationLimit = { requests: Number(limitRaw), perSeconds: 3600 };
   }
+  const ipLimitRaw = text(env, 'RB_OAUTH_DCR_IP_LIMIT')?.toLowerCase();
+  let registrationIpLimit: OAuthSettings['registrationIpLimit'] = DEFAULT_OAUTH_REGISTRATION_IP_LIMIT;
+  if (ipLimitRaw === 'off') {
+    registrationIpLimit = null;
+  } else if (ipLimitRaw !== undefined) {
+    if (
+      !/^\d{1,6}$/.test(ipLimitRaw) ||
+      Number(ipLimitRaw) < 1 ||
+      Number(ipLimitRaw) > MAX_REGISTRATIONS_PER_HOUR
+    ) {
+      throw new OAuthConfigError(
+        'RB_OAUTH_DCR_IP_LIMIT',
+        `RB_OAUTH_DCR_IP_LIMIT must be registrations per hour (1-${MAX_REGISTRATIONS_PER_HOUR}) or off`,
+      );
+    }
+    registrationIpLimit = { requests: Number(ipLimitRaw), perSeconds: 3600 };
+  }
   const hostsRaw = text(env, 'RB_OAUTH_DCR_REDIRECT_HOSTS');
   let registrationRedirectHosts: string[] | undefined;
   if (hostsRaw !== undefined) {
@@ -148,6 +169,7 @@ export function oauthSettingsFromEnv(env: OAuthEnv, signIn: boolean): OAuthSetti
   return {
     registration,
     registrationLimit,
+    registrationIpLimit,
     ...(registrationRedirectHosts === undefined ? {} : { registrationRedirectHosts }),
     ...(accessTokenTtlSeconds === undefined ? {} : { accessTokenTtlSeconds }),
     ...(refreshTokenTtlSeconds === undefined ? {} : { refreshTokenTtlSeconds }),

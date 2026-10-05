@@ -7,7 +7,9 @@
 //     `rateLimit`, the auth-failure throttle) and supplies `peek`.
 // `take` asks the isolate bucket first (exact rule, no I/O), then, for shared key namespaces only, the binding.
 // `peek` and keys outside the shared namespaces (`fail:`) use the isolate bucket alone: the auth-failure throttle is
-// therefore per isolate (best effort) until the Durable Object limiter (P7-10). Web-standard only.
+// therefore per isolate (best effort) until the Durable Object limiter (P7-10). The same holds for `oauth:` and
+// `signin:` (P5-10, P4-20): the abuse that matters on the OAuth endpoints (registrations, metadata-document fetches) has
+// its own shared storage counters (`kv.increment`), so a per-isolate `oauth:` rule is only a flood damper. Web-standard only.
 import type { RateLimit } from '@cloudflare/workers-types';
 import {
   MemoryRateLimiter,

@@ -331,7 +331,7 @@ async function boot(env: WorkerEnv, options: WorkerOptions): Promise<Runtime> {
             ...(audit === undefined ? {} : { audit }),
           },
         }),
-    ...(oauth === undefined ? {} : { oauth }),
+    ...(oauth === undefined ? {} : { oauth: { clientIp: workersClientIp, ...oauth } }),
     // Admin API: the bootstrap token, admin sessions (sign-in configured, P4-02), or both.
     ...(adminRaw === '' && identityProviders === undefined
       ? {}

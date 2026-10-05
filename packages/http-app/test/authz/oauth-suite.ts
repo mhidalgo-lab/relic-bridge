@@ -5,12 +5,14 @@
 // Runs on every authz host: the HTTP app on memory storage (Node), the CLI's SQLite storage (Node), and the Worker
 // on local D1 (workerd). Web-standard only. The consent step is a test stand-in (the real one is P5-04).
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type {
-  ClientMetadataFetch,
-  OAuthApproval,
-  OAuthAuthorizationRequest,
-  OAuthConsentHandler,
-  OAuthOptions,
+import {
+  type ClientMetadataFetch,
+  MAX_OAUTH_CIMD_CLIENTS,
+  OAUTH_CIMD_FETCHES_PER_IP,
+  type OAuthApproval,
+  type OAuthAuthorizationRequest,
+  type OAuthConsentHandler,
+  type OAuthOptions,
 } from '../../src/index.ts';
 import {
   ADMIN_TOKEN,
@@ -1308,6 +1310,98 @@ export function oauthSuite(): void {
       expect((await h.world.storage.kv.list({ prefix: 'oauth:client:' })).keys.length).toBe(3);
       advance(3_600_000);
       expect((await two.registerRaw(meta)).status).toBe(201);
+    });
+
+    /** A request that the app sees as coming from `ip` (the tests' `clientIp` reads this header). */
+    const fromIp = (ip: string, path: string, body: unknown): Request =>
+      new Request(`${ISSUER}${path}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-test-ip': ip },
+        body: JSON.stringify(body),
+      });
+    const byIp = (c: { req: { header(name: string): string | undefined } }): string | null =>
+      c.req.header('x-test-ip') ?? null;
+
+    it('DCR: one address cannot use up registration for the others; refused requests are not counted (P5-10)', async () => {
+      const ipApp = h.makeApp({
+        oauth: oauthWith({
+          registrationLimit: { requests: 100, perSeconds: 3600 },
+          registrationIpLimit: { requests: 3, perSeconds: 3600 },
+          clientIp: byIp,
+        }),
+      });
+      const meta = { redirect_uris: [REDIRECT] };
+      // Requests the policy refuses never count.
+      for (let i = 0; i < 5; i++) {
+        const bad = await h.send(
+          fromIp('203.0.113.1', '/oauth/register', { redirect_uris: ['https://x.example/#f'] }),
+          ipApp,
+        );
+        expect(bad.status).toBe(400);
+      }
+      for (let i = 0; i < 3; i++) {
+        expect((await h.send(fromIp('203.0.113.1', '/oauth/register', meta), ipApp)).status).toBe(201);
+      }
+      const refused = await h.send(fromIp('203.0.113.1', '/oauth/register', meta), ipApp);
+      expect(refused.status).toBe(429);
+      expect(Number(refused.headers.get('retry-after'))).toBeGreaterThan(0);
+      expect((await h.send(fromIp('203.0.113.2', '/oauth/register', meta), ipApp)).status).toBe(201);
+      advance(3_600_000);
+      expect((await h.send(fromIp('203.0.113.1', '/oauth/register', meta), ipApp)).status).toBe(201);
+    });
+
+    it('CIMD: one address may make the server fetch only a budgeted number of documents (P5-10)', async () => {
+      const ipApp = h.makeApp({ oauth: oauthWith({ clientIp: byIp }) });
+      const urls: string[] = [];
+      for (let i = 0; i < 25; i++) {
+        const url = `https://app${i}.example.com/oauth/client.json`;
+        urls.push(url);
+        docs.docs.set(
+          url,
+          jsonDoc({ client_id: url, client_name: `App ${i}`, redirect_uris: ['http://127.0.0.1/cb'] }),
+        );
+      }
+      const ask = (ip: string, url: string): Promise<Captured> => {
+        const u = new URL(`${ISSUER}/oauth/authorize`);
+        u.searchParams.set('response_type', 'code');
+        u.searchParams.set('client_id', url);
+        u.searchParams.set('redirect_uri', 'http://127.0.0.1/cb');
+        u.searchParams.set('resource', resourceOf('prod'));
+        return h.send(new Request(u, { headers: { 'x-test-ip': ip } }), ipApp);
+      };
+      for (const url of urls) await ask('203.0.113.7', url);
+      expect(docs.calls).toHaveLength(OAUTH_CIMD_FETCHES_PER_IP.requests);
+      expect((await h.world.storage.kv.list({ prefix: 'oauth:client:https://' })).keys.length).toBe(
+        OAUTH_CIMD_FETCHES_PER_IP.requests,
+      );
+      expect(logged('fetch_budget')).toBe(true);
+      // Another address has its own budget; a cached document costs nothing.
+      await ask('203.0.113.8', urls[24] as string);
+      expect(docs.calls).toHaveLength(OAUTH_CIMD_FETCHES_PER_IP.requests + 1);
+      await ask('203.0.113.7', urls[0] as string);
+      expect(docs.calls).toHaveLength(OAUTH_CIMD_FETCHES_PER_IP.requests + 1);
+    });
+
+    it('CIMD: stored document clients are capped; more are refused without a fetch (P5-10)', async () => {
+      for (let i = 0; i < MAX_OAUTH_CIMD_CLIENTS; i++) {
+        await h.world.storage.kv.put(
+          `oauth:client:https://stored${i}.example.com/c.json`,
+          JSON.stringify({ clientId: `https://stored${i}.example.com/c.json` }),
+          { expirationTtl: 3600 },
+        );
+      }
+      const res = await cimd.send(
+        new Request(
+          cimd.authorizeUrl({
+            client_id: CLAUDE_CODE_ID,
+            redirect_uri: 'http://127.0.0.1/callback',
+            resource: resourceOf('prod'),
+          }),
+        ),
+      );
+      expect(res.status).toBe(400);
+      expect(docs.calls).toEqual([]);
+      expect(logged('too_many_clients')).toBe(true);
     });
 
     it('DCR: a registration nobody uses expires after a day; the first exchange renews it', async () => {

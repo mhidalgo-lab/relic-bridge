@@ -1319,7 +1319,8 @@ An OAuth client known to this server (P5-08). No secrets.
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `data` | `OAuthClient[]` | yes |  |
-| `nextCursor` | `null` | yes | Always null: the list is one page of at most 500 clients. |
+| `nextCursor` | `null` | yes | Always null: the list is one page of the newest 500 clients. |
+| `truncated` | `boolean` | yes | True when more clients exist than the page shows (the oldest are left out). |
 
 ### OAuthClientRemoval
 

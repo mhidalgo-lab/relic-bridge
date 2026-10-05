@@ -12,6 +12,7 @@ import {
   NR_KEY_B,
   PUBLIC_ORIGIN,
 } from './harness.ts';
+import { ADMIN_ROUTES, isSelfService } from './matrix.ts';
 
 let h: Harness;
 beforeEach(async () => {
@@ -263,4 +264,41 @@ describe('limits', () => {
     for (let i = 0; i < 20; i++) await h.addToken(grantId);
     expect(code(await call(member, 'POST', '/me/tokens', { grantId, label: 'x' }))).toBe('409 conflict');
   });
+});
+
+describe('every /me route refuses a request without a session, without CSRF and from a foreign origin', () => {
+  const routes = ADMIN_ROUTES.filter(isSelfService);
+  const rel = (path: string) => path.replace('/api/admin/v1', '');
+  const unsafe = (m: string) => m !== 'GET' && m !== 'HEAD';
+
+  it('covers the whole self-service surface', () => {
+    expect(routes.length).toBeGreaterThanOrEqual(11);
+  });
+
+  for (const route of routes) {
+    const label = `${route.method} ${route.pattern.replace('/api/admin/v1', '')}`;
+    it(`${label}: 401 without credentials`, async () => {
+      const res = await call({ headers: {} }, route.method, rel(route.path), route.body);
+      expect(res.status).toBe(401);
+    });
+    it(`${label}: 403 from a foreign origin or site`, async () => {
+      const member = await h.addSession({ role: 'member' });
+      const foreign = await call(
+        { headers: { ...member.headers, origin: 'https://evil.example', 'sec-fetch-site': 'cross-site' } },
+        route.method,
+        rel(route.path),
+        route.body,
+      );
+      expect(foreign.status).toBe(403);
+    });
+    if (unsafe(route.method)) {
+      it(`${label}: 403 without or with a wrong CSRF token`, async () => {
+        const member = await h.addSession({ role: 'member' });
+        const { 'x-csrf-token': _drop, ...noCsrf } = member.headers;
+        expect((await call({ headers: noCsrf }, route.method, rel(route.path), route.body)).status).toBe(403);
+        const wrong = { headers: { ...member.headers, 'x-csrf-token': 'not-the-token' } };
+        expect((await call(wrong, route.method, rel(route.path), route.body)).status).toBe(403);
+      });
+    }
+  }
 });

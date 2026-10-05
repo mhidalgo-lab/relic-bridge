@@ -15,13 +15,23 @@ import { fakeDeps, mount, ORIGIN, same, uiApp } from './fixtures.ts';
 
 const req = (app: Hono, path: string, init: RequestInit = {}) => app.request(`${ORIGIN}${path}`, init);
 
+/** The policy written out once on purpose: a loosened `UI_CSP` must fail here (P4-20, review Q1). */
+const EXPECTED_CSP =
+  "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'; require-trusted-types-for 'script'";
+
+describe('csp', () => {
+  it('is the literal strict policy', () => {
+    expect(UI_CSP).toBe(EXPECTED_CSP);
+  });
+});
+
 describe('pages', () => {
   it('renders the overview for each role; only admins and owners load users through the admin API', async () => {
     for (const role of ['owner', 'admin', 'member'] as const) {
       const fake = fakeDeps();
       const res = await req(uiApp(fake), '/admin', { headers: same(role) });
       expect(res.status).toBe(200);
-      expect(res.headers.get('content-security-policy')).toBe(UI_CSP);
+      expect(res.headers.get('content-security-policy')).toBe(EXPECTED_CSP);
       const html = await res.text();
       expect(html).toContain(`${role}@example.com`);
       if (role === 'member') {
@@ -85,7 +95,7 @@ describe('pages', () => {
     );
     const res = await req(mount(ui), '/admin/owners', { headers: same('admin') });
     expect(res.status).toBe(403);
-    expect(res.headers.get('content-security-policy')).toBe(UI_CSP);
+    expect(res.headers.get('content-security-policy')).toBe(EXPECTED_CSP);
     expect(fake.forbidden).toEqual(['admin:role']);
   });
 
@@ -191,7 +201,7 @@ describe('forms', () => {
     for (const [body, headers] of cases) {
       const res = await req(app, '/admin/things', post(body, headers));
       expect(res.status, body).toBe(403);
-      expect(res.headers.get('content-security-policy')).toBe(UI_CSP);
+      expect(res.headers.get('content-security-policy')).toBe(EXPECTED_CSP);
     }
     expect(fake.forbidden).toEqual(
       cases.map(

@@ -61,7 +61,8 @@ P4-02 session, with one strict Content Security Policy and no inline script or s
 - [x] CSP has no `unsafe-inline` / `unsafe-eval`; a test asserts the full header set on every UI route (Node and
       Worker), including error, 404 and sign-in pages.
 - [x] axe-core accessibility checks (WCAG 2.1 A/AA rules) pass on every page and component state in CI; colour
-      tokens meet 4.5:1 in light and dark.
+      tokens meet 4.5:1 in light and dark. (jsdom has no layout or cascade, so axe's `color-contrast` rule is off there:
+      contrast is covered by `contrast.test.ts` on the tokens, the only colours the pages use; P4-20.)
 - [x] Snapshot/DOM tests for the layout, flash, forms, tables, error and login pages; hostile strings are escaped
       everywhere; the escaping lint guard fails on `raw()` / `dangerouslySetInnerHTML`.
 - [x] Unauthenticated, bearer-only and broken-session requests to `/admin*` never render a page (redirect to sign-in);

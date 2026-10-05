@@ -28,7 +28,7 @@ import {
   type VerifiedForm,
 } from '../kit.ts';
 import { errorPage, htmlResponse } from '../pages.tsx';
-import { type Limits, type ListPage, listPage } from './data.ts';
+import { type Limits, type ListPage, listPage, type User } from './data.ts';
 
 type Row = Readonly<Record<string, unknown>>;
 
@@ -571,4 +571,24 @@ export function LimitsText(props: { readonly limits: Limits }): JSX.Element {
 /** Children joined with a separator (inline lists). */
 export function joined(items: readonly Child[], sep = ', '): Child[] {
   return items.flatMap((item, i) => (i === 0 ? [item] : [sep, item]));
+}
+
+/**
+ * "Only owners touch owners" also covers an owner's keys, grants and tokens (phase 4 review H1): an administrator gets
+ * `403 owner` from the API on them. Returns whether a row tied to one of `userIds` is out of reach for `viewer`, so
+ * pages hide the controls instead of offering a button that leads to the 403 page. An unknown user list (it failed to
+ * load) hides nothing: the API still refuses.
+ */
+export function ownerLock(
+  viewer: UiPrincipal,
+  users: readonly User[] | null,
+): (...userIds: ReadonlyArray<string | null | undefined>) => boolean {
+  if (viewer.role === 'owner' || users === null) return () => false;
+  const owners = new Set(users.filter((u) => u.role === 'owner').map((u) => u.id));
+  return (...userIds) => userIds.some((id) => id != null && owners.has(id));
+}
+
+/** The note shown in place of the controls an administrator may not use on an owner's key, grant or token. */
+export function OwnerOnlyNote(): JSX.Element {
+  return <p class="muted">Only an owner can change an owner's keys, grants and device tokens.</p>;
 }

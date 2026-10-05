@@ -11,11 +11,20 @@
 import { env } from 'cloudflare:workers';
 import type { D1Database } from '@cloudflare/workers-types';
 import { LATEST_PROTOCOL_VERSION } from '@modelcontextprotocol/client';
-import { authenticateAccess, Keyring, verifyAccessToken } from '@relic-bridge/auth';
+import { ASSETS, assetHref } from '@relic-bridge/admin-ui';
+import {
+  authenticateAccess,
+  createSession,
+  DEFAULT_SESSION_TIMEOUTS,
+  Keyring,
+  verifyAccessToken,
+} from '@relic-bridge/auth';
 import { createBuiltinTools, type FetchLike } from '@relic-bridge/core';
 import type { Storage } from '@relic-bridge/storage';
+import { newId } from '@relic-bridge/storage';
 import { createD1Storage } from '@relic-bridge/storage/d1';
 import { beforeAll, describe, it } from 'vitest';
+import { CF_AUD, CF_TEAM } from '../../../packages/auth/test/mock-idp.ts';
 import type { WorkerEnv } from '../src/env.ts';
 import { createWorker, type WorkerHandler } from '../src/worker.ts';
 import { call, fakeCtx, seed, wipeD1 } from '../test/helpers.ts';
@@ -282,6 +291,69 @@ describe('cpu', () => {
         after: () => ctx.settle(),
       }),
     );
+  });
+
+  // The admin panel (P4-03): a static asset (no storage), and the overview page of a signed-in administrator (session
+  // lookup, user lookup, the admin API call the page makes in process, JSX render, security headers).
+  describe('admin', () => {
+    const PUBLIC = 'https://bridge.example.com';
+    const panelEnv = {
+      ...baseEnv,
+      RB_PUBLIC_URL: PUBLIC,
+      RB_CF_ACCESS_TEAM: CF_TEAM,
+      RB_CF_ACCESS_AUD: CF_AUD,
+    } as WorkerEnv;
+
+    const get = (
+      worker: WorkerHandler,
+      ctx: ReturnType<typeof fakeCtx>,
+      path: string,
+      headers: HeadersInit,
+    ) => worker.fetch(new Request(`${PUBLIC}${path}`, { headers }), panelEnv, ctx);
+
+    it('admin.asset', async ({ task }) => {
+      const worker = createWorker({ openStorage: () => storage, logSink: () => {} });
+      const ctx = fakeCtx();
+      const path = assetHref(ASSETS.css);
+      const headers = { 'CF-Connecting-IP': '198.51.100.21' };
+      await drain(await get(worker, ctx, path, headers));
+      record(
+        task,
+        await measure(async () => drain(await get(worker, ctx, path, headers)), {
+          iterations: 100,
+          batch: 10,
+        }),
+      );
+    });
+
+    it('admin.overview', async ({ task }) => {
+      const userId = newId('usr');
+      await storage.users.create({ id: userId, email: 'bench@example.com', role: 'admin' });
+      const { cookieValue } = await createSession(
+        storage.kv,
+        { userId, provider: 'cf-access', idp: 'cf-access' },
+        DEFAULT_SESSION_TIMEOUTS,
+        { now: () => Date.now() },
+      );
+      const worker = createWorker({ openStorage: () => storage, logSink: () => {} });
+      const ctx = fakeCtx();
+      const headers = {
+        cookie: `__Host-rb_session=${cookieValue}`,
+        'CF-Connecting-IP': '198.51.100.22',
+        'sec-fetch-site': 'same-origin',
+        'sec-fetch-mode': 'navigate',
+        'sec-fetch-dest': 'document',
+      };
+      await drain(await get(worker, ctx, '/admin', headers));
+      await ctx.settle();
+      record(
+        task,
+        await measure(async () => drain(await get(worker, ctx, '/admin', headers)), {
+          iterations: 100,
+          after: () => ctx.settle(),
+        }),
+      );
+    });
   });
 
   for (const [label, bytes] of [

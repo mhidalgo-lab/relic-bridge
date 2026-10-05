@@ -190,11 +190,16 @@ export function createIdentityRoutes(
   const readCookie = (c: Context): string | undefined => {
     const header = c.req.header('cookie');
     if (header === undefined) return undefined;
+    // Like the session cookie: a header naming the cookie more than once (cookie tossing) is no cookie at all.
+    let found: string | undefined;
     for (const part of header.split(';')) {
       const i = part.indexOf('=');
-      if (i > 0 && part.slice(0, i).trim() === cookieName) return part.slice(i + 1).trim();
+      if (i > 0 && part.slice(0, i).trim() === cookieName) {
+        if (found !== undefined) return undefined;
+        found = part.slice(i + 1).trim();
+      }
     }
-    return undefined;
+    return found;
   };
 
   const audit = (c: Context, event: Omit<LoginAuditEvent, 'requestId'>) => {

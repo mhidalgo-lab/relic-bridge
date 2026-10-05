@@ -33,6 +33,7 @@ import {
   isId,
   one,
   type Project,
+  parseCredential,
   parseGrant,
   parseProject,
   parseToken,
@@ -55,6 +56,7 @@ import {
   listOne,
   loadFailed,
   Notes,
+  ownerLock,
   problemOf,
   RowAction,
   StatusBadge,
@@ -193,12 +195,25 @@ export function registerTokens(ui: Hono, kit: UiKit): void {
   const now = () => (kit.deps.now ?? Date.now)();
 
   const lookup = async (c: Context, principal: UiPrincipal, grantQuery: Record<string, string> = {}) => {
-    const [grants, projects, users] = await Promise.all([
+    const [grants, projects, users, credentials] = await Promise.all([
       listAll(kit, c, principal, '/grants', parseGrant, grantQuery),
       listAll(kit, c, principal, '/projects', parseProject),
       listAll(kit, c, principal, '/users', parseUser),
+      // Only to know whose key a grant uses; an owner can act on everything and needs no lookup.
+      principal.role === 'owner'
+        ? Promise.resolve([])
+        : listAll(kit, c, principal, '/credentials', parseCredential),
     ]);
+    const keyOwner = new Map((credentials ?? []).map((k) => [k.id, k.ownerUserId]));
+    const lock = ownerLock(principal, users);
     return {
+      /** An administrator may not revoke a token of an owner's grant or of a grant using an owner's key. */
+      locked: (grantId: string): boolean => {
+        const g = (grants ?? []).find((x) => x.id === grantId);
+        return g === undefined
+          ? false
+          : lock(g.userId, g.credentialId === null ? null : keyOwner.get(g.credentialId));
+      },
       grants: new Map((grants ?? []).map((g) => [g.id, g])),
       projects: new Map((projects ?? []).map((p) => [p.id, p])),
       emails: new Map((users ?? []).map((u) => [u.id, u.email])),
@@ -262,7 +277,7 @@ export function registerTokens(ui: Hono, kit: UiKit): void {
               {
                 header: 'Action',
                 cell: (k) =>
-                  k.revokedAt === null ? (
+                  k.revokedAt === null && !l.locked(k.grantId) ? (
                     <RowAction
                       action={`${BASE}${adminPath`/${k.id}/revoke`}`}
                       csrf={principal.csrf}

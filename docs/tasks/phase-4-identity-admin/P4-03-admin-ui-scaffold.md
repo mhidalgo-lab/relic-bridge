@@ -39,7 +39,7 @@ P4-02 session, with one strict Content Security Policy and no inline script or s
   `Content-Security-Policy: default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src
   'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'; require-trusted-types-for 'script'`, plus
   `Cross-Origin-Opener-Policy: same-origin`, `Permissions-Policy` (everything off), and the existing `nosniff`,
-  `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, `Cache-Control: no-store`, HSTS. The global security
+  `X-Frame-Options: DENY`, `Referrer-Policy: same-origin` (`no-referrer` made browsers send `Origin: null` on form posts, see the P4-11 pending decision), `Cache-Control: no-store`, HSTS. The global security
   middleware keeps exactly this CSP (and the asset cache header) and replaces anything else.
 - **Auth for pages.** `sessions.authenticate`; no session → `303 /auth/login?next=<path>` (a presented but dead
   cookie is cleared); bearer tokens never authenticate a page. Fetch metadata: same-origin, `none` and top-level

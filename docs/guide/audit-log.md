@@ -75,7 +75,7 @@ curl -s -H "Authorization: Bearer $RB_ADMIN_TOKEN" \
   'http://127.0.0.1:8787/api/admin/v1/audit?kind=auth&since=2026-10-01T00:00:00Z&limit=100'
 ```
 
-A change request the API refuses as invalid (schema or malformed JSON) is recorded too (`status` `error`, `error_code` `invalid_request`, no submitted values); these rows are capped per minute like `auth` rows, with an `admin.suppressed` summary. Admin changes made through the API carry `details.via = "admin_token"` (no user identity until Phase 4 sign-in);
+A change request the API refuses as invalid (schema or malformed JSON) is recorded too (`status` `error`, `error_code` `invalid_request`, no submitted values); these rows are capped per minute like `auth` rows, with an `admin.suppressed` summary. Admin changes made through the API carry `details.via`: `"admin_token"` for the bootstrap token (no user identity) or `"session"` for a signed-in user, whose id is the row's `user_id`; local CLI changes carry `"cli"`;
 failed attempts are recorded too, with `status` `error` (or `denied`) and the API error code.
 
 ### In the admin panel

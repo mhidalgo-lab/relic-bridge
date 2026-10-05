@@ -35,6 +35,7 @@ const SAMPLE_CALLS: Record<string, Record<string, unknown>> = {
   list_alert_conditions: { policy_id: '8000026' },
   list_recent_issues: {},
   search_incidents: { states: ['CREATED'] },
+  list_error_groups: { states: ['UNRESOLVED'], sort_by: 'occurrences' },
 };
 
 const registry = new ToolRegistry();

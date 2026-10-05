@@ -81,6 +81,13 @@ export const TOOL_CASES: Readonly<Record<string, readonly ToolCall[]>> = {
     { args: {}, expect: 'ok' },
     { args: { account: 2, priority: ['CRITICAL'] }, expect: 'ok' },
   ],
+  list_error_groups: [
+    { args: { account: FOREIGN }, expect: 'refused', offline: true },
+    { args: { account: 3 }, expect: 'refused', offline: true },
+    { args: { entity_guid: guidOf(FOREIGN) }, expect: 'refused', offline: true },
+    { args: {}, expect: 'ok' },
+    { args: { account: 2, states: ['UNRESOLVED'] }, expect: 'ok' },
+  ],
   get_entity: [
     { args: { guid: guidOf(FOREIGN) }, expect: 'refused', offline: true },
     // NerdGraph answers with an entity in the foreign account behind an allowed account's GUID.
@@ -174,6 +181,15 @@ describe('tool isolation against a hostile NerdGraph', () => {
     expect(n.incidents.map((x) => x.title)).toEqual(['alpha-incident']);
     expect(n.hiddenOutsideScope).toBe(true);
     expect(JSON.stringify([issues, incidents])).not.toContain(LEAK);
+  });
+
+  it('error groups of other accounts or without a verifiable entity are dropped and flagged', async () => {
+    const client = await isoClient();
+    const r = await client.callTool({ name: 'list_error_groups', arguments: {} });
+    const s = r.structuredContent as { errorGroups: { name: string }[]; hiddenOutsideScope: boolean };
+    expect(s.errorGroups.map((x) => x.name)).toEqual(['alpha-error']);
+    expect(s.hiddenOutsideScope).toBe(true);
+    expect(JSON.stringify(r)).not.toContain(LEAK);
   });
 
   it('list tools return only allowed accounts and entities, and say what was left out', async () => {

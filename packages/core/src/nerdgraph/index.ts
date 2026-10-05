@@ -51,6 +51,10 @@ export {
   quoteEntityString,
 } from './entity-query.ts';
 export {
+  ERROR_GROUPS_QUERY,
+  type ErrorGroupData,
+} from './errors-inbox.ts';
+export {
   ACCOUNT_SCOPE,
   ACCOUNTS_QUERY,
   IDENTITY_QUERY,

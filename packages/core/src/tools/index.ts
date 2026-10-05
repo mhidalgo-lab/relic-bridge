@@ -2,6 +2,7 @@
 import type { ToolDefinition } from '../tool.ts';
 import { createAlertTools } from './alerts.ts';
 import { createEntityTools } from './entities.ts';
+import { createErrorTools } from './errors.ts';
 import { createGoldenMetricTools } from './golden.ts';
 import { createIdentityTools } from './identity.ts';
 import { createIssueTools } from './issues.ts';
@@ -14,6 +15,7 @@ import { createTimeTools } from './time.ts';
 
 export { createAlertTools } from './alerts.ts';
 export { createEntityTools, ENTITY_TYPES_TTL_MS, MAX_ENTITY_RESULTS } from './entities.ts';
+export { createErrorTools } from './errors.ts';
 export { createGoldenMetricTools, DEFAULT_GOLDEN_SINCE, summarizeSeries, withTimeClauses } from './golden.ts';
 export {
   cleanName,
@@ -49,5 +51,6 @@ export function createBuiltinTools(deps: ToolDeps = {}): ToolDefinition[] {
     ...createSchemaTools(deps),
     ...createAlertTools(deps),
     ...createIssueTools(deps),
+    ...createErrorTools(deps),
   ];
 }

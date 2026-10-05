@@ -40,3 +40,16 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Options:** (a) keep as is; (b) a live probe with real issues to confirm shapes (`pnpm test:live`); (c) show cross-account
   issues with the foreign parts removed; (d) add the NRQL fallback if a field turns out missing.
 - **Needs:** a live run on an account with issues; owner's call on (c).
+
+## P6-03 — Errors Inbox tool
+
+### P6-03 — errorsInbox only introspected; groups without an entity GUID hidden; no sort ascending
+- **Context:** The only live sample (P0-09) returned an empty list, so row shapes, what the free-text `query` matches, whether
+  `occurrences` follows `timeWindow`, and the page size are from introspection. `ErrorsInboxDirection` has only `DESC`.
+- **Assumption made:** one account per call (`filter.accountIds`); a group is shown only when its `entityGuid` decodes to the
+  requested allowed account, so custom groups without a GUID are dropped (and flagged); the assignee email and `resources` are
+  not selected.
+- **Options:** (a) keep as is; (b) live probe with real error groups (`pnpm test:live`); (c) show GUID-less groups on the
+  strength of `accountIds` filtering alone; (d) add assignee display (masked) if wanted.
+- **Needs:** a live run on an account with errors; owner's call on (c) and (d).
+

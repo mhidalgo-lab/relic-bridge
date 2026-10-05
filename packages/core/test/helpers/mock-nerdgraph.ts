@@ -136,6 +136,43 @@ export function mockNerdGraph(): { fetch: FetchLike; calls: RecordedCall[] } {
         },
       });
     }
+    if (has('RbErrorGroups')) {
+      return json({
+        data: {
+          actor: {
+            errorsInbox: {
+              errorGroups: {
+                nextCursor: null,
+                totalCount: 1,
+                results: [
+                  {
+                    id: 'eg-1',
+                    name: 'TypeError',
+                    message: "Cannot read properties of undefined (reading 'id')",
+                    state: 'UNRESOLVED',
+                    issueType: 'ERROR',
+                    source: 'transaction',
+                    isCustom: false,
+                    entityGuid: btoa(`${MOCK_ACCOUNT}|APM|APPLICATION|42`).replace(/=+$/, ''),
+                    firstSeenAt: 1790338648000,
+                    lastSeenAt: 1790338700000,
+                    regressedAt: null,
+                    eventsQuery: "SELECT * FROM TransactionError WHERE error.group.guid = 'eg-1'",
+                    url: 'https://one.newrelic.com/errors-inbox/eg-1',
+                    occurrences: {
+                      totalCount: 12,
+                      expectedCount: 0,
+                      firstSeenAt: 1790338648000,
+                      lastSeenAt: 1790338700000,
+                    },
+                  },
+                ],
+              },
+            },
+          },
+        },
+      });
+    }
     if (has('RbAiIssues')) {
       return json({
         data: {

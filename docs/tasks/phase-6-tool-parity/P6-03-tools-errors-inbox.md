@@ -2,11 +2,11 @@
 id: P6-03
 title: "Tool: list_error_groups (Errors Inbox)"
 phase: 6
-status: todo
+status: review
 priority: high
 depends_on: [P5-07]
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P6-03 — Tool: list_error_groups (Errors Inbox)
@@ -24,10 +24,10 @@ owner: ""
 - Not selected: the assignee (an email address, PII) and per-group `resources`.
 
 ## Acceptance criteria
-- [ ] Fixture + contract tests (`tools-errors.test.ts`, sample call in `contract.test.ts`); account filtering enforced
+- [x] Fixture + contract tests (`tools-errors.test.ts`, sample call in `contract.test.ts`); account filtering enforced
   (P2-12 `TOOL_CASES`, hostile mock).
-- [ ] Every value is a GraphQL variable; names, messages and queries are inside the untrusted-data envelope.
-- [ ] `docs/reference/tools.md` regenerated; THREAT_MODEL and RESEARCH updated.
+- [x] Every value is a GraphQL variable; names, messages and queries are inside the untrusted-data envelope.
+- [x] `docs/reference/tools.md` regenerated; THREAT_MODEL and RESEARCH updated.
 
 ## Security notes
 T3 (group re-checked against its entity GUID, dropped otherwise), T4 (variables only), T6 (error messages and stack-derived text

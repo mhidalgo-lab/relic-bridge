@@ -292,6 +292,14 @@ Sources: <https://github.com/cloudflare/workers-oauth-provider>, issues #264, #3
 
 ## 6b. npm publishing (P1-15)
 
+- Errors Inbox (P6-03, P0-09 introspection + the `errors_inbox` probe, which returned an empty list): `actor.errorsInbox.
+  errorGroups(cursor, entityGuids: [EntityGuid!], filter: ErrorsInboxErrorGroupSearchFilterInput { accountIds, ids, states
+  UNRESOLVED|RESOLVED|IGNORED, isAssigned, assignment, applicationVersions }, query: String, sortBy: [{ field:
+  OCCURRENCES|LAST_OCCURRENCE_IN_WINDOW|FIRST_SEEN, direction: DESC }], timeWindow)` → `{ nextCursor totalCount results {
+  id name message state issueType source isCustom entityGuid firstSeenAt lastSeenAt regressedAt eventsQuery url occurrences {
+  totalCount expectedCount firstSeenAt lastSeenAt } } }`. **Introspected only, not yet live-verified:** row shapes with real
+  groups, what `query` matches, whether `occurrences` honours `timeWindow`, and page size (no `limit`). `direction` has only
+  `DESC`. `assignment.email` is PII and not selected.
 - **Trusted publishing** (OIDC from GitHub Actions, no long-lived npm token) needs npm CLI ≥ 11.5.1 and Node ≥ 22.14
   (Node 24 bundles npm 11), job permission `id-token: write`, and a GitHub-hosted runner. Each package has at most one
   trusted publisher (workflow file + optional environment); `npm trust github <pkg> --file release.yml --env release`

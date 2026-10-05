@@ -76,6 +76,7 @@ export {
   checkSessionTimeouts,
   createSession,
   csrfTokenMatches,
+  DEFAULT_MAX_SESSIONS_PER_USER,
   DEFAULT_SESSION_ABSOLUTE_MS,
   DEFAULT_SESSION_IDLE_MS,
   DEFAULT_SESSION_TIMEOUTS,

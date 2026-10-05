@@ -32,6 +32,7 @@ import {
   type EncryptedKey,
   type GrantRecord,
   type GrantsRepository,
+  InvalidInputError,
   type JsonValue,
   type KvListResult,
   type KvPutOptions,
@@ -727,6 +728,12 @@ export function createRepositories(
     delete: (key) =>
       call(() => {
         run('DELETE FROM kv WHERE key = ?', [key]);
+      }),
+    // One statement whatever the count; `substr` (not LIKE) so `%` and `_` in a prefix stay literal.
+    deletePrefix: (prefix) =>
+      call(() => {
+        if (prefix === '') throw new InvalidInputError('kv.prefix');
+        return run('DELETE FROM kv WHERE substr(key, 1, ?) = ?', [[...prefix].length, prefix]);
       }),
     // One statement: the row is deleted and returned atomically (an expired row is deleted, not returned).
     take: (key) =>

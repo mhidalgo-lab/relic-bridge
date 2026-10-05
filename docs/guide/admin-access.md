@@ -21,6 +21,9 @@ Sign-in itself (Google, GitHub, Cloudflare Access, OIDC, the first-owner setup l
   server instance takes effect everywhere at once.
 - **Timeouts**: a session ends after `RB_SESSION_IDLE_MINUTES` (default 30) without a request, and
   `RB_SESSION_MAX_HOURS` (default 12) after sign-in, whatever the activity.
+- **Session cap**: a user keeps at most 20 live sessions. Signing in a 21st time ends the oldest one (that browser is
+  signed out; the `session.create` audit row shows `evicted`). Signing out everywhere takes a fixed, small number of
+  database calls however many sessions exist.
 - **Rotation**: each sign-in creates a new session and ends the one the browser had, so a cookie planted before
   sign-in never becomes a signed-in session.
 - **Sign out**: `POST /auth/logout` with the CSRF token (form field `_csrf` or header `X-CSRF-Token`). Add

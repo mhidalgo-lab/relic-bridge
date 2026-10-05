@@ -104,7 +104,7 @@ export interface AdminApiDeps {
    * Where sessions live when `sessions` is absent (the CLI on the database): a role change or disable made here still
    * ends the user's sessions.
    */
-  readonly sessionKv?: Pick<KvRepository, 'get' | 'put' | 'delete' | 'list'>;
+  readonly sessionKv?: Pick<KvRepository, 'get' | 'put' | 'delete' | 'list' | 'deletePrefix'>;
   readonly validateKey: KeyValidator;
   readonly catalog: readonly string[];
   readonly clock: Clock;

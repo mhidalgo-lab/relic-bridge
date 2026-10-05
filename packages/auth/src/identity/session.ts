@@ -17,7 +17,7 @@ import type { KvRepository } from '@relic-bridge/storage';
 import { timingSafeEqual, utf8 } from '../crypto/bytes.ts';
 import { randomValue, sha256Hex } from './login.ts';
 
-type Kv = Pick<KvRepository, 'get' | 'put' | 'delete' | 'list'>;
+type Kv = Pick<KvRepository, 'get' | 'put' | 'delete' | 'list' | 'deletePrefix'>;
 type ClockLike = Pick<Clock, 'now'>;
 
 /** Cookie name on https (`__Host-`: Secure, `Path=/`, no `Domain`, so no sibling subdomain can set or read it). */
@@ -32,6 +32,10 @@ export const MIN_SESSION_ABSOLUTE_MS: number = 60 * 60_000;
 export const MAX_SESSION_ABSOLUTE_MS: number = 7 * 24 * 60 * 60_000;
 /** Activity is written at most this often per session (bounds D1 writes; the idle timeout is ≥ 5 min). */
 export const SESSION_TOUCH_INTERVAL_MS: number = 60_000;
+/** Live sessions a user may hold (P4-17): sign-in number cap+1 evicts the oldest. */
+export const DEFAULT_MAX_SESSIONS_PER_USER = 20;
+/** Above this many rows (`cap` times it) eviction stops reading records and ends all of the user's sessions at once. */
+const EVICT_READ_FACTOR = 4;
 /** Storage keeps dead rows this much longer than the decision needs (clean-up backstop only). */
 const KV_GRACE_SECONDS = 3600;
 
@@ -93,6 +97,8 @@ export interface ActiveSession {
 }
 
 export interface IssuedSession extends ActiveSession {
+  /** Older sessions of the same user ended to stay within the cap (0 almost always). */
+  readonly evicted: number;
   /** The cookie value (`<userId>.<secret>`). Shown to the browser once, never stored. */
   readonly cookieValue: string;
 }
@@ -147,14 +153,47 @@ function parseRecord(raw: string | null, userId: string): SessionRecord | null {
   }
 }
 
-/** Create a session for a signed-in user. The caller sets the cookie and must revoke any session it replaces. */
+/**
+ * Ends the oldest sessions of `userId` so that, with the one about to be created, at most `max` are live (P4-17). The
+ * common case (under the cap) costs one `list`. Over it: one read per session (bounded by `max` times 4), or, if a
+ * user somehow holds more, one prefix delete. Concurrent sign-ins can overshoot the cap by a few until the next one.
+ */
+async function enforceCap(kv: Kv, userId: string, max: number): Promise<number> {
+  const prefix = `${SESSION_PREFIX}${userId}:`;
+  const page = await kv.list({ prefix, limit: max * EVICT_READ_FACTOR + 1 });
+  const count = page.keys.length;
+  if (count < max) return 0;
+  if (count > max * EVICT_READ_FACTOR) return revokeUserSessions(kv, userId);
+  const rows = await Promise.all(
+    page.keys.map(async (k) => {
+      const hash = k.name.slice(prefix.length);
+      const record = parseRecord(await kv.get(k.name), userId);
+      // An unreadable row is evicted first (createdAt 0).
+      return { hash, createdAt: record?.createdAt ?? 0 };
+    }),
+  );
+  rows.sort((a, b) => a.createdAt - b.createdAt || (a.hash < b.hash ? -1 : 1));
+  const victims = rows.slice(0, count - max + 1);
+  for (const v of victims) await revokeSessionByHash(kv, userId, v.hash);
+  return victims.length;
+}
+
+/**
+ * Create a session for a signed-in user, first ending the user's oldest sessions beyond `maxSessions`. The caller sets
+ * the cookie and must revoke any session it replaces (do that first, so a rotation does not cost an eviction).
+ */
 export async function createSession(
   kv: Kv,
   input: { readonly userId: string; readonly provider: string; readonly idp: string },
   timeouts: SessionTimeouts,
   clock: ClockLike,
+  maxSessions: number = DEFAULT_MAX_SESSIONS_PER_USER,
 ): Promise<IssuedSession> {
   if (!USER_ID_RE.test(input.userId)) throw new TypeError('user id cannot be used in a session');
+  if (!Number.isSafeInteger(maxSessions) || maxSessions < 1 || maxSessions > 100) {
+    throw new RangeError('sessions per user must be between 1 and 100');
+  }
+  const evicted = await enforceCap(kv, input.userId, maxSessions);
   const secret = randomValue();
   const hash = await sha256Hex(secret);
   const now = clock.now();
@@ -175,6 +214,7 @@ export async function createSession(
   });
   return {
     record,
+    evicted,
     hash,
     ref: refOf(hash),
     lastSeenAt: now,
@@ -242,22 +282,16 @@ export async function revokeSessionByHash(kv: Kv, userId: string, hash: string):
   return existed;
 }
 
-/** End every session of a user (logout everywhere, role change, disable). Returns how many were live. */
+/**
+ * End every session of a user (logout everywhere, role change, disable). Two storage calls however many there are
+ * (P4-17): the session rows first, so every session is dead after the first call, then the activity rows. Returns how
+ * many session rows went (live or expired but not yet purged).
+ */
 export async function revokeUserSessions(kv: Kv, userId: string): Promise<number> {
   if (!USER_ID_RE.test(userId)) return 0;
-  const prefix = `${SESSION_PREFIX}${userId}:`;
-  const hashes: string[] = [];
-  let cursor: string | undefined;
-  do {
-    const page = await kv.list({ prefix, ...(cursor === undefined ? {} : { cursor }) });
-    for (const k of page.keys) hashes.push(k.name.slice(prefix.length));
-    cursor = page.complete ? undefined : page.cursor;
-  } while (cursor !== undefined);
-  for (const hash of hashes) {
-    await kv.delete(sessionKey(userId, hash));
-    await kv.delete(seenKey(userId, hash));
-  }
-  return hashes.length;
+  const removed = await kv.deletePrefix(`${SESSION_PREFIX}${userId}:`);
+  await kv.deletePrefix(`${SEEN_PREFIX}${userId}:`);
+  return removed;
 }
 
 /** Constant-time comparison of a presented CSRF token with the session's. */

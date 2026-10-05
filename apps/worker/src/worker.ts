@@ -103,8 +103,8 @@ export interface PurgeBudget {
 }
 
 /**
- * Defaults: 500-row batches, 20 per run (10,000 rows), 10 s. Each DELETE is one D1 query (the Free plan allows 50 D1
- * queries per invocation); a backlog beyond the budget is finished by the next run, so an hourly trigger clears
+ * Defaults: 500-row batches, 20 per run (10,000 rows), 10 s. Each DELETE is one D1 query (budgeted against the stricter
+ * of Cloudflare's two published limits, 50 D1 queries per invocation on Free; see docs/RESEARCH.md); a backlog beyond the budget is finished by the next run, so an hourly trigger clears
  * 240,000 rows a day at most, far above what the audit caps allow.
  */
 export const DEFAULT_PURGE_BUDGET: PurgeBudget = Object.freeze({
@@ -306,7 +306,7 @@ async function boot(env: WorkerEnv, options: WorkerOptions): Promise<Runtime> {
             ...(adminRaw === '' ? {} : { token: new Secret(adminRaw) }),
             storage,
             ...(audit === undefined ? {} : { audit }),
-            // Free allows 50 D1 queries per invocation; a rotation batch costs about its size plus 5 (P3-15).
+            // Budget 50 D1 queries per invocation on Free (the D1 limits page; the Workers page says 1,000, see RESEARCH); a rotation batch costs about its size plus 5 (P3-15).
             ...(settings.plan === 'free' ? { maxRotationBatch: FREE_ROTATION_BATCH } : {}),
           },
         }),

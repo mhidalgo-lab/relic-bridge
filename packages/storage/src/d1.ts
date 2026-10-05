@@ -919,6 +919,12 @@ export async function createD1Storage(
       call(async () => {
         await run('DELETE FROM kv WHERE key = ?', [key]);
       }),
+    // One statement whatever the count; `substr` (not LIKE) so `%` and `_` in a prefix stay literal.
+    deletePrefix: (prefix) =>
+      call(async () => {
+        if (prefix === '') throw new InvalidInputError('kv.prefix');
+        return run('DELETE FROM kv WHERE substr(key, 1, ?) = ?', [[...prefix].length, prefix]);
+      }),
     // One statement: SQLite deletes and returns the row atomically, so concurrent takes can't both see it. An expired
     // row is deleted too but not returned.
     take: (key) =>

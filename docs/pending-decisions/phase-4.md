@@ -435,3 +435,12 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   to manage and back up).
 - **Needs:** owner choice; (a) is fine unless long-lived correlation across rotations matters.
 
+
+## P4-17 session cap and batched revocation
+
+- **Cap of 20 sessions per user, not configurable.** Revisit if someone legitimately signs in from more than 20
+  browsers; a setting would be a small follow-up. Eviction is by `createdAt` (oldest first), not by last activity.
+- **No generation counter.** Revocation deletes the session rows (two prefix `DELETE`s), which is already immediate
+  everywhere, so a counter checked on every request would only add a read per authenticate.
+- **D1 limit contradiction.** Cloudflare's own pages disagree (50 vs 1,000 D1 queries per invocation on Free); the
+  code keeps budgeting for 50 until someone measures on a real Free Worker (documented in RESEARCH).

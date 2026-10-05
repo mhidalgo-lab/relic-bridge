@@ -91,7 +91,7 @@ export interface SessionManager {
 
 export interface SessionManagerDeps {
   readonly publicUrl: string;
-  readonly kv: Pick<KvRepository, 'get' | 'put' | 'delete' | 'list'>;
+  readonly kv: Pick<KvRepository, 'get' | 'put' | 'delete' | 'list' | 'deletePrefix'>;
   readonly users: Pick<UsersRepository, 'get'>;
   readonly clock: Clock;
   readonly logger: Logger;
@@ -216,6 +216,7 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
           outcome: login.outcome,
           role: login.user.role,
           rotated: Boolean(previous),
+          evicted: issued.evicted,
         },
       });
       return new Response(null, {

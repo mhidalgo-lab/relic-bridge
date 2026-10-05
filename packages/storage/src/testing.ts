@@ -243,6 +243,7 @@ export function runStorageContract(options: StorageContractOptions): void {
             s.kv.delete('k'),
             s.kv.take('k'),
             s.kv.purgeExpired(),
+            s.kv.deletePrefix('k'),
           ];
           for (const w of writes) await rejects(w, ReadOnlyStorageError);
           expect((await s.projects.list()).length).toBe(CONTRACT_FIXTURE.projects.length);
@@ -1187,6 +1188,26 @@ export function runStorageContract(options: StorageContractOptions): void {
         clock.advance(60_000);
         expect(await s.kv.get('abs')).toBeNull();
         expect((await s.kv.list()).keys.map((k) => k.name)).toEqual(['forever']);
+        await s.close();
+      });
+
+      it('deletePrefix removes exactly the rows under one prefix in one call (P4-17)', async () => {
+        const { s } = await fresh();
+        for (const k of ['sess:u1:a', 'sess:u1:b', 'sess-seen:u1:a', 'sess:u12:a', 'sess:u2:a'])
+          await s.kv.put(k, 'x');
+        expect(await s.kv.deletePrefix('sess:u1:')).toBe(2);
+        expect((await s.kv.list()).keys.map((k) => k.name)).toEqual([
+          'sess-seen:u1:a',
+          'sess:u12:a',
+          'sess:u2:a',
+        ]);
+        expect(await s.kv.deletePrefix('sess:u1:')).toBe(0);
+        // LIKE wildcards in a prefix are literal.
+        await s.kv.put('a%b', 'x');
+        await s.kv.put('axb', 'x');
+        expect(await s.kv.deletePrefix('a%')).toBe(1);
+        expect((await s.kv.list({ prefix: 'a' })).keys.map((k) => k.name)).toEqual(['axb']);
+        await rejects(s.kv.deletePrefix(''), InvalidInputError);
         await s.close();
       });
 

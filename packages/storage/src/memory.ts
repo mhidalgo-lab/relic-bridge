@@ -3,7 +3,13 @@
 // the same unique, referential and row rules as the SQL schema. State lives in the instance (THREAT_MODEL T21);
 // records are copied in and out, so callers can't mutate stored rows.
 import { auditStatsSql, utcDay } from './audit-stats.ts';
-import { ConflictError, keyChangedError, lastOwnerError, NotFoundError } from './errors.ts';
+import {
+  ConflictError,
+  InvalidInputError,
+  keyChangedError,
+  lastOwnerError,
+  NotFoundError,
+} from './errors.ts';
 import type {
   AccessTokenRecord,
   AccessTokensRepository,
@@ -627,6 +633,17 @@ export function createMemoryStorage(options: MemoryStorageOptions = {}): Storage
     },
     async delete(key) {
       kv.delete(key);
+    },
+    async deletePrefix(prefix) {
+      if (prefix === '') throw new InvalidInputError('kv.prefix');
+      let removed = 0;
+      for (const k of [...kv.keys()]) {
+        if (k.startsWith(prefix)) {
+          kv.delete(k);
+          removed++;
+        }
+      }
+      return removed;
     },
     async take(key) {
       const value = live(key)?.value ?? null;

@@ -5,7 +5,7 @@ import {
   validateHostHeader,
   validateOriginHeader,
 } from '@modelcontextprotocol/server';
-import { ASSET_CACHE_CONTROL, PERMISSIONS_POLICY, UI_CSP, UI_REFERRER_POLICY } from '@relic-bridge/admin-ui';
+import { ASSET_CACHE_CONTROL, isUiCsp, PERMISSIONS_POLICY, UI_REFERRER_POLICY } from '@relic-bridge/admin-ui';
 
 /** One year, the usual HSTS preload minimum. */
 export const HSTS_VALUE = 'max-age=31536000; includeSubDomains';
@@ -27,11 +27,11 @@ export const SECURITY_HEADERS: Readonly<Record<string, string>> = Object.freeze(
 
 /**
  * Set the security headers. Two values a response may bring survive (P4-03), compared exactly: the admin UI's page CSP
- * (`UI_CSP`, HTML pages under `/admin` and `/auth`) and the immutable cache header of the hashed UI assets. Any other
- * CSP or caching a handler set is replaced.
+ * (`UI_CSP`, HTML pages under `/admin`, `/auth` and `/oauth`; on the consent page with one more `form-action` source,
+ * P5-04) and the immutable cache header of the hashed UI assets. Any other CSP or caching a handler set is replaced.
  */
 export function applySecurityHeaders(headers: Headers, hsts: boolean): void {
-  const uiPage = headers.get('content-security-policy') === UI_CSP;
+  const uiPage = isUiCsp(headers.get('content-security-policy'));
   const asset = headers.get('cache-control') === ASSET_CACHE_CONTROL;
   for (const [name, value] of Object.entries(SECURITY_HEADERS)) {
     if (name === 'Content-Security-Policy' && uiPage) continue;

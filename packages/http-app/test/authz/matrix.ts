@@ -284,6 +284,17 @@ export const OAUTH_ROUTES: readonly RouteCase[] = [
 ];
 
 /**
+ * The built-in consent screen (P5-04): registered with `oauth` unless a custom consent step is given. Session pages:
+ * only the admin session cookie counts (bearers, the admin token and query credentials are ignored), unsafe methods
+ * need the session's CSRF token from our own origin. `consent.test.ts` crosses them with principals and defects.
+ */
+export const CONSENT_ROUTES: readonly RouteCase[] = [
+  { method: 'POST', pattern: '/oauth/consent', path: '/oauth/consent' },
+  { method: 'GET', pattern: '/oauth/approvals', path: '/oauth/approvals' },
+  { method: 'POST', pattern: '/oauth/approvals/forget', path: '/oauth/approvals/forget' },
+];
+
+/**
  * `ALL` entries in Hono's route table (middleware and catch-alls), with why each is safe. A new one fails the guard.
  */
 export const WILDCARD_ROUTES: Readonly<Record<string, string>> = {

@@ -138,12 +138,15 @@ function page(
 /** One leading `/`, not followed by `/` or `\`: a path on this origin, never scheme-relative. */
 export const isLocalPath = (path: string): boolean => /^\/(?![/\\])/.test(path);
 
+/** Longest post-login path: room for an OAuth authorization request (`/oauth/authorize?…`, P5-04). */
+export const MAX_NEXT_PATH_CHARS = 2048;
+
 /**
  * A post-login path: same origin, absolute path, no scheme-relative (`//host`) or backslash tricks, no control
  * characters. Anything else is null (the caller falls back to the default), so `next` can never leave the origin.
  */
 export function safeNextPath(next: string | undefined, publicUrl: string): string | null {
-  if (next === undefined || next.length === 0 || next.length > 512) return null;
+  if (next === undefined || next.length === 0 || next.length > MAX_NEXT_PATH_CHARS) return null;
   if (!next.startsWith('/') || next.startsWith('//') || next.startsWith('/\\')) return null;
   // Printable ASCII only (no spaces or control characters), and no backslash (browsers read it as `/`).
   if (!/^[!-~]+$/.test(next) || next.includes('\\')) return null;

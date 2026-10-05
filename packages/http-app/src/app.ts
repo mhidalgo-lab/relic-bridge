@@ -72,6 +72,12 @@ import type { AdminAuditEvent } from './audit.ts';
 import { createIdentityRoutes, IDENTITY_BASE, type IdentityOptions } from './identity.ts';
 import { peekJsonRpc, type RpcPeek } from './jsonrpc.ts';
 import {
+  createConsentScreen,
+  OAUTH_APPROVALS_FORGET_PATH,
+  OAUTH_APPROVALS_PATH,
+  OAUTH_CONSENT_PATH,
+} from './oauth/consent.ts';
+import {
   createOAuthRuntime,
   looksLikeOAuthToken,
   MAX_OAUTH_TOKEN_CHARS,
@@ -678,6 +684,53 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
   if (options.oauth && !identity) {
     throw new TypeError('oauth needs sign-in (identity): its public URL is the issuer');
   }
+  // The admin UI's view of sessions (P4-03), shared by the admin pages and the OAuth consent screen (P5-04). The
+  // in-process admin API calls go through `app`, built below (used at request time only).
+  const uiAudit =
+    options.admin?.audit?.admin.bind(options.admin.audit) ??
+    options.identity?.audit?.admin?.bind(options.identity.audit);
+  const uiDeps =
+    options.identity && sessions
+      ? adminUiDeps({
+          sessions,
+          publicUrl: options.identity.publicUrl,
+          hooks,
+          logger,
+          runInBackground,
+          audit: uiAudit,
+          adminApi: options.admin !== undefined,
+          tools: allTools.map((t) => ({ name: t.name, title: t.title, group: t.group, kind: t.kind })),
+          now: () => clock.now(),
+          kv: options.identity.storage.kv,
+          onRejected: (c, status) =>
+            notifyRejected(c, { requestId: c.get('requestId'), status, reason: rejectReason(c.get('log')) }),
+          fetchApp: (request, c) => {
+            let ctx: ExecutionContext | undefined;
+            try {
+              ctx = c.executionCtx;
+            } catch {
+              // Node: no execution context
+            }
+            return app.fetch(request, c.env, ctx);
+          },
+        })
+      : undefined;
+
+  // The built-in sign-in and consent screen (P5-04), unless the caller brings its own consent step.
+  const consentScreen =
+    options.oauth && options.oauth.consent === undefined && identity && uiDeps
+      ? createConsentScreen({
+          sessions: uiDeps,
+          storage: options.storage,
+          kv: identity.storage.kv,
+          catalog,
+          toolTitles: new Map(allTools.map((t) => [t.name, t.title])),
+          clock,
+          logger,
+          ...(uiAudit ? { audit: uiAudit } : {}),
+          runInBackground,
+        })
+      : undefined;
   const oauth: OAuthRuntime | undefined =
     options.oauth && identity
       ? createOAuthRuntime({
@@ -689,6 +742,7 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
           clock,
           logger,
           runInBackground,
+          ...(consentScreen ? { defaultConsent: consentScreen.handler } : {}),
         })
       : undefined;
 
@@ -941,40 +995,27 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
       OAUTH_REGISTER_PATH,
       serve((c) => rt.register(c)),
     );
+    // The consent form and the remembered approvals (P5-04): session pages, CSRF-checked posts.
+    if (consentScreen) {
+      const screen = consentScreen;
+      app.post(
+        OAUTH_CONSENT_PATH,
+        serve((c) => screen.decide(c, rt)),
+      );
+      app.get(
+        OAUTH_APPROVALS_PATH,
+        serve((c) => screen.approvals(c)),
+      );
+      app.post(
+        OAUTH_APPROVALS_FORGET_PATH,
+        serve((c) => screen.forget(c)),
+      );
+    }
   }
 
   // Admin UI (P4-03): server-rendered pages under /admin, on whenever sign-in is (they need a session).
-  if (options.identity && sessions) {
-    app.route(
-      ADMIN_UI_BASE,
-      createAdminUi(
-        adminUiDeps({
-          sessions,
-          publicUrl: options.identity.publicUrl,
-          hooks,
-          logger,
-          runInBackground,
-          audit:
-            options.admin?.audit?.admin.bind(options.admin.audit) ??
-            options.identity.audit?.admin?.bind(options.identity.audit),
-          adminApi: options.admin !== undefined,
-          tools: allTools.map((t) => ({ name: t.name, title: t.title, group: t.group, kind: t.kind })),
-          now: () => clock.now(),
-          kv: options.identity.storage.kv,
-          onRejected: (c, status) =>
-            notifyRejected(c, { requestId: c.get('requestId'), status, reason: rejectReason(c.get('log')) }),
-          fetchApp: (request, c) => {
-            let ctx: ExecutionContext | undefined;
-            try {
-              ctx = c.executionCtx;
-            } catch {
-              // Node: no execution context
-            }
-            return app.fetch(request, c.env, ctx);
-          },
-        }),
-      ),
-    );
+  if (uiDeps) {
+    app.route(ADMIN_UI_BASE, createAdminUi(uiDeps));
   }
 
   app.on(['GET', 'POST', 'DELETE'], '/p/:slug/mcp', async (c) => {

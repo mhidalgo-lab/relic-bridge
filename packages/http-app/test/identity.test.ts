@@ -564,12 +564,15 @@ describe('pages and guards', () => {
       'javascript:alert(1)',
       '/admin\\x',
       '/a b',
-      `/${'a'.repeat(600)}`,
+      `/${'a'.repeat(2048)}`,
       '',
     ]) {
       expect(safeNextPath(bad, PUBLIC), bad).toBeNull();
     }
     expect(safeNextPath('/admin/projects?x=1#y', PUBLIC)).toBe('/admin/projects?x=1#y');
+    // Room for an OAuth authorization request (P5-04).
+    const authorize = `/oauth/authorize?${'a'.repeat(2047 - '/oauth/authorize?'.length)}`;
+    expect(safeNextPath(authorize, PUBLIC)).toBe(authorize);
   });
 
   it('the per-IP request limit covers the sign-in routes', async () => {

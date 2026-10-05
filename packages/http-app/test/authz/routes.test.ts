@@ -19,6 +19,7 @@ import {
 import {
   ADMIN_PRINCIPALS,
   ADMIN_ROUTES,
+  CONSENT_ROUTES,
   IDENTITY_ROUTES,
   isSelfService,
   MCP_PRINCIPALS,
@@ -719,7 +720,8 @@ describe.skipIf(authzHostKind() !== 'http-app')('guard: every route is in the ma
         policy: { emails: [], domains: [], githubOrgs: [], autoProvision: 'off' },
         storage: h.world.storage,
       },
-      oauth: { consent: () => new Response(null, { status: 500 }) },
+      // The built-in consent screen (P5-04) adds its routes.
+      oauth: {},
     });
     const handlers = new Set<string>();
     const wildcards = new Set<string>();
@@ -742,6 +744,7 @@ describe.skipIf(authzHostKind() !== 'http-app')('guard: every route is in the ma
         ...UI_ASSET_ROUTES,
         ...PUBLIC_ROUTES,
         ...OAUTH_ROUTES,
+        ...CONSENT_ROUTES,
       ]
         .filter((r) => !r.pattern.endsWith('/*'))
         .map((r) => `${r.method} ${r.pattern}`),

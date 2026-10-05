@@ -35,6 +35,7 @@ import {
   fetchMetadataDocument,
   looksLikeClientIdUrl,
   readBoundedBytes,
+  safeClientName,
 } from './clients.ts';
 import { type OAuthKvNamespace, oauthKvNamespace } from './kv-namespace.ts';
 
@@ -116,9 +117,14 @@ export interface OAuthConsentApi {
   readonly helpers: OAuthHelpers;
   /**
    * Approve for a signed-in user and one of their grants on the project. Re-checks access first (grant of this user and
-   * project, live, usable credential, owner boundary); on success returns the redirect carrying the code.
+   * project, live, usable credential, owner boundary); on success returns the redirect carrying the code. `label`
+   * (P5-04): the device name the user gave, kept as the provider grant's only metadata (checked text, ≤ 60 characters).
    */
-  approve(input: { readonly userId: string; readonly grantId: string }): Promise<OAuthApproval>;
+  approve(input: {
+    readonly userId: string;
+    readonly grantId: string;
+    readonly label?: string | null;
+  }): Promise<OAuthApproval>;
   /** The `access_denied` redirect (with `state` and `iss`). */
   deny(description?: string): string;
 }
@@ -128,7 +134,11 @@ export type OAuthConsentHandler = (c: Context, api: OAuthConsentApi) => Response
 
 /** `createHttpApp({ oauth })`: needs sign-in (`identity`), whose public URL is the issuer and whose `kv` holds state. */
 export interface OAuthOptions {
-  readonly consent: OAuthConsentHandler;
+  /**
+   * The interactive step of `/oauth/authorize`. Default: the built-in sign-in and consent screen (P5-04,
+   * `consent.ts`). Tests may inject a stand-in.
+   */
+  readonly consent?: OAuthConsentHandler;
   /** Access-token lifetime in seconds, 60-86400. Default 3600 (plan presets: P5-05). */
   readonly accessTokenTtlSeconds?: number;
   /** Refresh-token lifetime in seconds, 0 (no refresh tokens) or 60-31536000. Default 30 days. */
@@ -184,6 +194,14 @@ export function looksLikeOAuthToken(token: string): boolean {
   return token.length <= MAX_OAUTH_TOKEN_CHARS && PROVIDER_TOKEN_RE.test(token);
 }
 
+/** A device label as stored: trimmed, safe display text (no control, bidi or zero-width characters), else null. */
+export function deviceLabel(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const text = value.trim();
+  if (text.length === 0 || text.length > MAX_DEVICE_LABEL_CHARS) return null;
+  return safeClientName(text);
+}
+
 /** Whether any parameter appears more than once. */
 function repeated(params: URLSearchParams): boolean {
   const seen = new Set<string>();
@@ -233,7 +251,12 @@ export interface OAuthRuntimeDeps {
   readonly clock: Clock;
   readonly logger: Logger;
   readonly runInBackground: (c: Context, task: Promise<unknown>, what: string) => void;
+  /** Used when `options.consent` is not given (the built-in screen). */
+  readonly defaultConsent?: OAuthConsentHandler;
 }
+
+/** Longest device label kept as grant metadata (P5-04). */
+export const MAX_DEVICE_LABEL_CHARS = 60;
 
 /** One app's OAuth server: the route handlers and the MCP-route token check. Holds configuration and caches only. */
 export interface OAuthRuntime {
@@ -249,6 +272,11 @@ export interface OAuthRuntime {
   /** RFC 9728 metadata of `/p/{slug}/mcp`; the project is not looked up (no slug probing). */
   protectedResource(slug: string): Response;
   authorize(c: Context): Promise<Response>;
+  /**
+   * Validate an authorization request given as query parameters (the consent form re-validates the request it shows
+   * on every step, P5-04): the error answer (400 page or error redirect), or the consent API for it.
+   */
+  prepare(c: Context, params: URLSearchParams): Promise<Response | OAuthConsentApi>;
   token(c: Context, onRevocation: () => void): Promise<Response>;
   register(c: Context): Promise<Response>;
   /** Validate an OAuth bearer for `/p/{slug}/mcp` and resolve its access. Storage errors propagate (fail closed). */
@@ -285,6 +313,8 @@ export function createOAuthRuntime(deps: OAuthRuntimeDeps): OAuthRuntime {
     }
     return host;
   });
+  const consent = options.consent ?? deps.defaultConsent;
+  if (typeof consent !== 'function') throw new TypeError('oauth.consent must be a function');
   const cimd = options.clientMetadataDocuments;
   if (cimd !== undefined && typeof cimd.fetch !== 'function') {
     throw new TypeError('oauth.clientMetadataDocuments.fetch must be a function');
@@ -431,7 +461,7 @@ export function createOAuthRuntime(deps: OAuthRuntimeDeps): OAuthRuntime {
     logger.warn('oauth authorization code replayed; grant revoked', { oauthGrant: grantId });
   };
 
-  return {
+  const runtime: OAuthRuntime = {
     issuer,
     resourceUrl,
 
@@ -572,20 +602,24 @@ export function createOAuthRuntime(deps: OAuthRuntimeDeps): OAuthRuntime {
     },
 
     async authorize(c) {
-      const url = new URL(c.req.url);
+      const prepared = await runtime.prepare(c, new URL(c.req.url).searchParams);
+      return prepared instanceof Response ? prepared : consent(c, prepared);
+    },
+
+    async prepare(_c, params) {
       // RFC 6749 §3.1: no parameter twice (what the consent step is shown must be what the provider acts on).
-      if (repeated(url.searchParams)) {
+      if (repeated(params)) {
         return jsonError(400, 'invalid_request', 'Parameters must not be repeated.');
       }
       // RFC 8707: exactly one resource, one of ours. Refused before the client is known, so never redirected.
-      const slug = targetSlug(url.searchParams);
+      const slug = targetSlug(params);
       if (slug === null) {
         return jsonError(400, 'invalid_target', 'resource must name one MCP endpoint of this server.');
       }
       const resource = resourceUrl(slug);
       // CIMD: fetch (or find cached) the client's document before the provider looks the client up. A failure is a
       // 400 page, never a redirect: no redirect URI has been validated yet.
-      const requestedClient = url.searchParams.get('client_id');
+      const requestedClient = params.get('client_id');
       const clientProblem = await resolveClient(requestedClient);
       if (clientProblem !== null) return refusedClient(requestedClient as string, clientProblem);
       const mod = await provider();
@@ -593,7 +627,10 @@ export function createOAuthRuntime(deps: OAuthRuntimeDeps): OAuthRuntime {
       const helpers = as.getOAuthApi(env);
       let authRequest: AuthRequest;
       try {
-        authRequest = await helpers.parseAuthRequest(atIssuer(c));
+        // The provider reads the request URL only: hand it the authorization endpoint with exactly these parameters.
+        authRequest = await helpers.parseAuthRequest(
+          new Request(`${issuer}${OAUTH_AUTHORIZE_PATH}?${params.toString()}`),
+        );
       } catch (error) {
         if (error instanceof mod.AuthorizationError) {
           const e = error as ProviderAuthorizationError;
@@ -640,7 +677,15 @@ export function createOAuthRuntime(deps: OAuthRuntimeDeps): OAuthRuntime {
         helpers,
         deny: (description = 'The user denied the request.') =>
           mod.authorizationErrorRedirect(authRequest, 'access_denied', description),
-        approve: async ({ userId, grantId }: { readonly userId: string; readonly grantId: string }) => {
+        approve: async ({
+          userId,
+          grantId,
+          label,
+        }: {
+          readonly userId: string;
+          readonly grantId: string;
+          readonly label?: string | null;
+        }) => {
           if (used) throw new Error('an authorization request is approved at most once');
           used = true;
           // The consent step may take a while (sign-in): a CIMD client's cached document may have expired since.
@@ -662,11 +707,13 @@ export function createOAuthRuntime(deps: OAuthRuntimeDeps): OAuthRuntime {
             userId,
             clientId: authRequest.clientId,
           };
+          const storedLabel = deviceLabel(label);
           const { redirectTo } = await helpers.completeAuthorization({
             request: authRequest,
             userId,
-            // T25: grant metadata is stored unencrypted; keep it empty.
-            metadata: {},
+            // T25: grant metadata is stored unencrypted: only the device label the user typed (checked text), never an
+            // email or other personal data.
+            metadata: storedLabel === null ? {} : { label: storedLabel },
             scope,
             props,
           });
@@ -676,7 +723,7 @@ export function createOAuthRuntime(deps: OAuthRuntimeDeps): OAuthRuntime {
           return { ok: true, redirectTo } as const;
         },
       });
-      return options.consent(c, api);
+      return api;
     },
 
     async authenticate(token, slug) {
@@ -722,4 +769,5 @@ export function createOAuthRuntime(deps: OAuthRuntimeDeps): OAuthRuntime {
       };
     },
   };
+  return runtime;
 }

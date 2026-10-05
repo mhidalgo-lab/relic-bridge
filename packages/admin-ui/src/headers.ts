@@ -19,6 +19,46 @@ export const UI_CSP: string = [
   "require-trusted-types-for 'script'",
 ].join('; ');
 
+/**
+ * A `form-action` source for an OAuth redirect URI (P5-04), or null when the URI can't be one. Browsers apply
+ * `form-action` to the redirects that follow a form post, so the consent form (posted to us, answered with a redirect to
+ * the client) must also allow the client's origin. CSP host sources can't spell an IPv6 literal: `http://[::1]`
+ * redirects get the `http:` scheme source instead.
+ */
+export function formActionSource(redirectUri: string): string | null {
+  let u: URL;
+  try {
+    u = new URL(redirectUri);
+  } catch {
+    return null;
+  }
+  if (u.username !== '' || u.password !== '') return null;
+  if (u.protocol === 'http:' && u.hostname.startsWith('[')) return 'http:';
+  if (u.protocol !== 'https:' && u.protocol !== 'http:') return null;
+  if (!/^[a-z0-9.-]{1,253}$/.test(u.hostname)) return null;
+  return u.origin;
+}
+
+/** A source `formActionSource` can return: an http(s) origin with a plain host name or IPv4 address, or `http:`. */
+const FORM_ACTION_SOURCE_RE = /^(?:http:|https?:\/\/[a-z0-9.-]{1,253}(?::\d{1,5})?)$/;
+const FORM_ACTION_SELF = "form-action 'self'";
+
+/** The UI policy with `form-action` widened to `'self'` and one more source (the consent page, P5-04). */
+export function consentCsp(source: string): string {
+  if (!FORM_ACTION_SOURCE_RE.test(source)) throw new TypeError('not a form-action source');
+  return UI_CSP.replace(FORM_ACTION_SELF, `${FORM_ACTION_SELF} ${source}`);
+}
+
+/** Whether a response's CSP is one of the UI's own (kept by the app's security middleware, replaced otherwise). */
+export function isUiCsp(value: string | null): boolean {
+  if (value === null) return false;
+  if (value === UI_CSP) return true;
+  const [before, after] = UI_CSP.split(FORM_ACTION_SELF) as [string, string];
+  if (!value.startsWith(`${before}${FORM_ACTION_SELF} `) || !value.endsWith(after)) return false;
+  const source = value.slice(before.length + FORM_ACTION_SELF.length + 1, value.length - after.length);
+  return FORM_ACTION_SOURCE_RE.test(source);
+}
+
 /** Powerful features the admin never needs. */
 export const PERMISSIONS_POLICY: string = [
   'accelerometer=()',

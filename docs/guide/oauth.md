@@ -92,6 +92,25 @@ A disconnected app's tokens stop at once on the server that handled the disconne
 isolates) may accept an already issued access token for up to `RB_ACCESS_CACHE_TTL` (30 s by default) longer, the same
 as for device tokens. Renewing is refused everywhere at once.
 
+## OAuth apps and registration (owners)
+
+**OAuth apps** (`/admin/oauth-clients`, owners only) lists every app that can ask for access: apps that identify
+themselves with a metadata document at their own address (claude.ai, Claude Code) and apps that registered themselves.
+Names are chosen by whoever registered the app and are shown as plain text: an app that registered itself is marked
+**not verified**, a metadata-document app shows the host that vouches for it. Redirect hosts show where the app will
+send the code.
+
+*Remove…* (after a confirmation page) deletes the app and ends everything it holds for **every user**: all access and
+refresh tokens stop working (refresh tokens at once, access tokens on the next request, or within the access-cache
+time on other servers) and "don't ask again" approvals for it are forgotten. A metadata-document app can ask again and
+people are asked for consent again; a self-registered app has to register again.
+
+**Dynamic client registration** is the switch at the top. While it is on, any app can register itself without anybody
+checking it. Once the apps you use appear in the list, turn it off: `/oauth/register` answers 404 and the server
+description no longer offers it. Apps already registered keep working; metadata-document apps are unaffected. The
+change reaches every server within about 5 seconds. `RB_OAUTH_DCR=off` in the deployment turns it off for good (the
+switch can't turn it back on). Turning it on asks for a confirmation.
+
 ## Remembered apps
 
 `/oauth/approvals` lists the apps you told not to ask again, with **Forget**. Forgetting makes the app ask next time;

@@ -62,7 +62,7 @@ always the intersection of the grant and the project. A grant can't be edited: c
 
 **Devices** (`/admin/tokens`). Every token with its device name, prefix (`rb_live_Ab3d…`), grant, status, last use
 (updated at most every 5 minutes) and expiry. *Revoke…* asks for confirmation, then the device loses access at once.
-Connected OAuth clients (claude.ai, mobile) will be listed here with Phase 5.
+OAuth apps (claude.ai, mobile) are listed on each user's page and under **My access**; owners manage the apps themselves under **OAuth apps**.
 
 **Connect** (`/admin/connect`, admins and owners). Choose a project to get snippets for Claude Code (a command and
 `.mcp.json`), Cursor, VS Code, Claude Desktop and other clients. The address is built from the configured public URL
@@ -83,6 +83,10 @@ sign-in provider, personal keys and grants. From there:
 - *Move to another provider* (owners only, bound users only) clears the provider they sign in with so they can use another
   one. The confirmation page warns that, until they sign in again, anyone controlling that email at a configured provider can
   take the account, and asks you to type the user's email.
+
+**OAuth apps** (`/admin/oauth-clients`, owners only). The apps that can ask people for access with OAuth, with *Remove…*
+(ends every token of the app for all users, after a confirmation) and the switch for dynamic client registration. See
+[OAuth](oauth.md#oauth-apps-and-registration-owners).
 
 **Audit** (`/admin/audit`). Everything the server recorded, newest first: tool calls, refused requests and
 administrative changes. Filter by time (last hour up to 90 days, or everything kept), kind, status, tool or action

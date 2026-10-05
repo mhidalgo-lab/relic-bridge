@@ -2,11 +2,11 @@
 id: P5-08
 title: "Admin: OAuth client list, revoke and DCR switch"
 phase: 5
-status: todo
+status: review
 priority: medium
 depends_on: [P5-03]
 adr: [0011, 0012]
-owner: ""
+owner: claude-agent
 ---
 
 # P5-08 — Admin: OAuth client list, revoke and DCR switch
@@ -24,9 +24,9 @@ every grant and token issued to it, and turn dynamic client registration off wit
 - P2-12 negative authorization tests for the new routes (members, admins, device and OAuth tokens refused).
 
 ## Acceptance criteria
-- [ ] Removing a client ends its tokens on the next request (access cache TTL bound) and its refresh tokens at once.
-- [ ] DCR off via the admin switch → `/oauth/register` 404 and no `registration_endpoint` in metadata.
-- [ ] Routes in the authz matrix with negative tests.
+- [x] Removing a client ends its tokens on the next request (access cache TTL bound) and its refresh tokens at once.
+- [x] DCR off via the admin switch → `/oauth/register` 404 and no `registration_endpoint` in metadata.
+- [x] Routes in the authz matrix with negative tests.
 
 ## Security notes
 T10 (admin can revoke clients), T13/T14 (admin UI CSRF), T19.
@@ -36,3 +36,11 @@ T10 (admin can revoke clients), T13/T14 (admin UI CSRF), T19.
 
 ## Out of scope
 - Per-device (grant) revocation and revoke-all on grant revoke (P5-05).
+
+## Implementation notes
+- Runtime: `OAuthRuntime.clients` (`packages/http-app/src/oauth/server.ts`), admin routes under `/oauth/*` (owner only),
+  screen `packages/admin-ui/src/screens/oauth-clients.tsx` (`/admin/oauth-clients`).
+- Registration switch: `oauth.registration` setting, 5 s per-process cache; can only narrow `RB_OAUTH_DCR`
+  (see `docs/pending-decisions/phase-5.md`).
+- Tests: `oauth-clients-suite.ts` (memory, SQLite, Worker D1), `admin-ui/test/oauth-clients.test.ts` (axe, escaping),
+  authz matrix and `UI_ROUTES` entries.

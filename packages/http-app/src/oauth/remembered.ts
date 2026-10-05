@@ -69,3 +69,26 @@ export async function forgetApprovals(
   }
   return deleted;
 }
+
+/**
+ * Forget every user's remembered approvals for one client (removing the client, P5-08). Walks all users' rows
+ * (`kv.list` pages); rows written before P5-05 carry no client id and stay (a deleted client's approval names a grant
+ * that is revoked anyway). Resolves with the number of rows deleted.
+ */
+export async function forgetClientApprovals(
+  kv: Pick<KvRepository, 'get' | 'delete' | 'list'>,
+  clientId: string,
+): Promise<number> {
+  let deleted = 0;
+  let cursor: string | undefined;
+  do {
+    const page = await kv.list({ prefix: REMEMBER_PREFIX, ...(cursor === undefined ? {} : { cursor }) });
+    for (const k of page.keys) {
+      if (parseStored(await kv.get(k.name))?.clientId !== clientId) continue;
+      await kv.delete(k.name);
+      deleted += 1;
+    }
+    cursor = page.complete ? undefined : page.cursor;
+  } while (cursor !== undefined);
+  return deleted;
+}

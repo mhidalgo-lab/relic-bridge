@@ -318,3 +318,25 @@ Record per client: date, client version, registration path (CIMD/DCR), result, a
   not name a method). A provider upgrade that changes those rules would need the same change here.
 - **Assumption made:** mirror the provider (unit-tested); a failed check is treated as reuse (revokes).
 - **Needs:** nothing unless the provider is upgraded (note for Renovate PRs of `@cloudflare/workers-oauth-provider`).
+
+## P5-08 — OAuth clients admin
+
+### P5-08 — registration switch semantics: runtime setting can only narrow `RB_OAUTH_DCR`
+- **Context:** the task asks for a runtime switch stored in settings. `RB_OAUTH_DCR=off` is a deployment decision.
+- **Assumption made:** effective = deployment on **and** setting not off. The switch can't turn on what the deployment
+  disabled (the panel says so). Default on, so nothing changes until an owner flips it. Cross-isolate propagation: a
+  5 s per-process cache (`OAUTH_REGISTRATION_CACHE_MS`), unreadable setting = off.
+- **Options:** let the setting override the environment in both directions; a longer cache (fewer D1 reads on Workers: one
+  read per 5 s per isolate on `/oauth/register` and metadata only).
+- **Needs:** owner confirmation.
+
+### P5-08 — turning registration off, not on, is one click
+- **Assumption made:** off needs no confirmation (it only narrows); on shows a confirmation page.
+- **Needs:** nothing unless the owner wants both confirmed.
+
+### P5-08 — client removal scans all grants
+- **Context:** the provider keys grants by `grant:<userId>:<grantId>`, so finding every grant of one client means
+  listing all of them (no index by client). Bounded at 20,000 (the operation fails closed beyond it).
+- **Assumption made:** fine for a personal or small-team deployment; a secondary index would be a new task if the
+  number of grants grows.
+- **Needs:** nothing now.

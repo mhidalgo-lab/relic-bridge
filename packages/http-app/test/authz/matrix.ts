@@ -177,6 +177,21 @@ export const ADMIN_ROUTES: readonly RouteCase[] = [
     pattern: `${A}/me/oauth-devices/:id/revoke`,
     path: `${A}/me/oauth-devices/oauth_none/revoke`,
   },
+  // P5-08: OAuth clients and the registration switch (owners only). Without OAuth: an empty list and 404s.
+  { method: 'GET', pattern: `${A}/oauth/clients`, path: `${A}/oauth/clients` },
+  {
+    method: 'POST',
+    pattern: `${A}/oauth/clients/remove`,
+    path: `${A}/oauth/clients/remove`,
+    body: { clientId: 'client_none' },
+  },
+  { method: 'GET', pattern: `${A}/oauth/registration`, path: `${A}/oauth/registration` },
+  {
+    method: 'POST',
+    pattern: `${A}/oauth/registration`,
+    path: `${A}/oauth/registration`,
+    body: { enabled: false },
+  },
   // Not a registered route: the admin catch-all (`ALL /api/admin/v1/*`) must authenticate before saying 404.
   { method: 'GET', pattern: `${A}/*`, path: `${A}/no-such-endpoint` },
 ];
@@ -245,6 +260,10 @@ export const UI_ROUTES: readonly RouteCase[] = [
   ui('POST', '/admin/users/:id/unbind', '/admin/users/usr_none/unbind'),
   // P5-05: disconnect a user's OAuth app (admin; an owner's only by owners, decided by the API).
   ui('POST', '/admin/users/:id/apps/:device/revoke', '/admin/users/usr_none/apps/oauth_none/revoke'),
+  // P5-08: OAuth apps and the registration switch (owners only).
+  ui('GET', '/admin/oauth-clients'),
+  ui('POST', '/admin/oauth-clients/remove'),
+  ui('POST', '/admin/oauth-clients/registration'),
   // P4-15: member self-service screens (every signed-in role; the /me API decides, ids of others are 404 pages).
   ui('GET', '/admin/me'),
   ui('GET', '/admin/me/keys/new'),

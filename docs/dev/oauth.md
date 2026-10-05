@@ -23,7 +23,7 @@ header. Each project is one protected resource, `{issuer}/p/{slug}/mcp`, and a t
 | `POST /oauth/consent` | consent screen (P5-04) | the consent form; session + CSRF, then the request is validated again |
 | `GET /oauth/approvals`, `POST /oauth/approvals/forget` | consent screen (P5-04) | remembered approvals of the signed-in user |
 | `POST /oauth/token` | provider (after our code check) | code, refresh, RFC 7009 revocation |
-| `POST /oauth/register` | ours → provider | RFC 7591 DCR, see [Client registration](#client-registration); `registration: false` turns it off |
+| `POST /oauth/register` | ours → provider | RFC 7591 DCR, see [Client registration](#client-registration); `registration: false` or the owner's runtime switch turns it off |
 | `GET /.well-known/oauth-protected-resource/p/{slug}/mcp` | ours | RFC 9728, see below |
 
 The five protocol endpoints are unauthenticated; the consent routes take the admin session cookie only. All of them: `beforeAuth` runs with scope `oauth` (per-IP `oauth` rule, default 60 per 5 minutes, on
@@ -100,7 +100,7 @@ document as the provider's client record `oauth:client:<url>`.
 
 ### Dynamic Client Registration (RFC 7591, compatibility)
 
-On by default (`oauth.registration`, `false` turns it off). `POST /oauth/register` with `application/json`:
+On by default (`oauth.registration`, `false` turns it off; owners can also turn it off at runtime, see below). `POST /oauth/register` with `application/json`:
 
 1. **Policy before anything is stored**: 1–10 `redirect_uris`, each ≤ 2,000 characters with no fragment, `*`, userinfo
    or whitespace; `https` on a DNS name (or a loopback IP) or `http` on loopback; private-use schemes
@@ -117,7 +117,47 @@ On by default (`oauth.registration`, `false` turns it off). `POST /oauth/registe
    that keeps refreshing never loses its registration and a flood of registrations nobody completes is gone in a day.
 
 The consent seam sees `clientKind: 'dynamic'`, `clientHost: null`: nothing about a dynamic client is verified (P5-04
-must say so). Listing and removing clients is P5-08.
+must say so).
+
+### Clients, removal and the runtime registration switch (P5-08)
+
+`runtime.clients` (`OAuthClients`, wired into the admin API as `oauthClients`) backs four **owner-only** admin API
+routes (`requiredRole`: every method under `/oauth/`) and the `/admin/oauth-clients` screen:
+
+| Route | What |
+|---|---|
+| `GET /oauth/clients` | The stored `client:*` records (dynamic registrations and cached CIMD documents), newest first, at most 500 (`MAX_OAUTH_CLIENTS_LISTED`): id, kind, name (untrusted), vouching host, redirect hosts, registered and expiry time. Never the secret hash or the redirect URIs themselves. |
+| `POST /oauth/clients/remove` | Body `{clientId}`. Audited `oauth_client.remove` (kind, host, counts; never the name). |
+| `GET` / `POST /oauth/registration` | State `{enabled, deployment, setting}`; `{enabled}` sets the switch. Audited `oauth_registration.set`. |
+
+**Removing a client** deletes its record first (a registered client can't start another authorization or refresh), then
+scans every `grant:*` row of every user (≤ 20,000, `MAX_OAUTH_GRANTS_SCANNED`) and revokes each grant of that client
+through the same `revokeFamily` as a device revoke (tombstone first, then the provider's `revokeGrant`: a token
+request that was in flight can't bring the device back; pending code exchanges die with their grant), and finally
+forgets every user's remembered approval naming the client (`forgetClientApprovals`). It works for an id with no
+record any more but with grants left (a CIMD record is cached 5 min - 24 h, grants live for the refresh lifetime); it is a
+404 only when there is no record, no grant and no approval. Refresh tokens end at once (the grant is gone). Access
+tokens end on the next request on the process that served the removal (`onChange` clears the access cache) and
+within the access-cache TTL on other processes. A CIMD client can start over with consent; a dynamic client has to
+register again (while registration is on). A user who was on the consent page of a removed dynamic client can still
+complete that one authorization (the consent post validates the request again, which reads the client record: it is
+gone, so the post fails, but a request validated in the same instant races): accepted, the device then shows in the
+user's apps and the owner can remove the client again.
+
+**The switch.** Setting `oauth.registration` (`settings` table, JSON boolean; owner-only through the admin API; never
+an environment variable) can turn dynamic registration off at runtime. Effective state = `RB_OAUTH_DCR` (default on)
+**and** the setting (on unless `false`): the deployment can force it off, and the switch can't override that. Each
+process reads the setting at most every `OAUTH_REGISTRATION_CACHE_MS` = **5 s** (and immediately re-reads after a
+change it made itself), so a change reaches every Worker isolate and Node process within 5 seconds; the read happens on
+`/oauth/register` and when the provider server for the metadata is built. The provider's `registration_endpoint` is part
+of its configuration, so servers are cached per state (`dcr`/`nodcr`): off means `/oauth/register` answers 404 and
+`/.well-known/oauth-authorization-server` has no `registration_endpoint`. An unreadable setting counts as off (fail
+closed). Existing clients keep working; CIMD is unaffected (it is not registration).
+
+**Panel.** `screens/oauth-clients.tsx`: names are text children, redirect hosts and the vouching host are text (the
+host in bold), nothing is a link (a client controls every URL it supplies). Removing is two steps (row button →
+confirmation page with the single-use `_once` handle → API call); turning registration off is one click, turning it on
+asks first.
 
 ## Authorization endpoint
 

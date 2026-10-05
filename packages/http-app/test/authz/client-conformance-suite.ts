@@ -49,14 +49,17 @@ class MemoryProvider implements OAuthClientProvider {
   saved: OAuthTokens | undefined;
   verifier = '';
   authorizationUrl: URL | null = null;
+  clientMetadataUrl?: string;
   discovery: OAuthDiscoveryState | undefined;
   /** `invalidateCredentials` calls, in order (the SDK drops what the server refused). */
   readonly invalidated: string[] = [];
   constructor(
     private readonly meta: OAuthClientMetadata,
     private readonly callback: string,
-    readonly clientMetadataUrl?: string,
-  ) {}
+    clientMetadataUrl?: string,
+  ) {
+    if (clientMetadataUrl !== undefined) this.clientMetadataUrl = clientMetadataUrl;
+  }
   get redirectUrl(): string {
     return this.callback;
   }
@@ -566,14 +569,14 @@ export function clientConformanceSuite(): void {
         return new URL(res.headers.get('location') ?? ISSUER);
       };
 
-      it.each([
+      it.each<[string | undefined, string]>([
         [
           'mcp:read offline_access',
           'the scope the 401 challenge and AS metadata advertise (what claude.ai requests)',
         ],
         ['mcp:read', 'without offline_access'],
         [undefined, 'no scope parameter'],
-      ])('%s: %s', async (scope) => {
+      ])('%s: %s', async (scope, _why) => {
         const location = await authorizeAs(scope, { prompt: 'consent' });
         expect(location.searchParams.get('error'), location.toString()).toBeNull();
         expect(location.searchParams.get('code')).toBeTruthy();
@@ -590,7 +593,15 @@ export function clientConformanceSuite(): void {
 
     it('the authorization server metadata advertises what these clients select on', async () => {
       const res = await app.fetch(new Request(`${ISSUER}/.well-known/oauth-authorization-server`));
-      const meta = (await res.json()) as Record<string, unknown>;
+      const meta = (await res.json()) as {
+        issuer: string;
+        code_challenge_methods_supported: string[];
+        client_id_metadata_document_supported: boolean;
+        registration_endpoint: string;
+        token_endpoint_auth_methods_supported: string[];
+        grant_types_supported: string[];
+        authorization_response_iss_parameter_supported: boolean;
+      };
       expect(meta.issuer).toBe(ISSUER);
       expect(meta.code_challenge_methods_supported).toEqual(['S256']);
       expect(meta.client_id_metadata_document_supported).toBe(true);

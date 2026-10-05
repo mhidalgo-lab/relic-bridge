@@ -341,5 +341,11 @@ with an expiry). Outside the provider's namespace: `oauth-code:<sha256(code)>` (
   RFC 7009 per client, the device API (own list and revoke, remembered approval forgotten, other members, CSRF, admin
   token on `/me`, admin vs owner devices) and revoke-all through the admin API. On memory (`oauth-lifecycle.test.ts`),
   SQLite (`apps/cli/test/oauth-lifecycle-sqlite.test.ts`) and the Worker (D1). UI: `ui-oauth-devices.test.ts`.
+- (P5-06) `packages/http-app/test/authz/client-conformance-suite.ts` — the official MCP SDK client (OAuth, discovery,
+  Streamable HTTP) shaped like claude.ai / mobile / Desktop (CIMD, https callback), Claude Code (CIMD, loopback) and
+  Cursor / VS Code / Inspector (DCR): discovery order, registration, PKCE, `resource` on every token request, `iss`,
+  tool call, automatic refresh and rotation, parallel refresh (the SDK revokes the device under strict rotation, P5-09),
+  RFC 7009, behaviour after revocation, audience binding, scope tolerance. On memory (`client-conformance.test.ts`),
+  SQLite (`apps/cli/test/client-conformance-sqlite.test.ts`) and the Worker (D1). Results: `docs/reference/client-compatibility.md`.
 - `packages/http-app/test/oauth-kv.test.ts` — the KV adapter; `oauth-rate-limit.test.ts` — the `oauth` rule.
 - The P2-12 route guard lists the OAuth routes (`OAUTH_ROUTES` and, P5-04, `CONSENT_ROUTES` in `test/authz/matrix.ts`).

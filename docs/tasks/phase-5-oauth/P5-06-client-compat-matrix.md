@@ -2,7 +2,7 @@
 id: P5-06
 title: "Client compatibility matrix (incl. Claude mobile)"
 phase: 5
-status: in-progress
+status: review
 priority: high
 depends_on: [P5-05]
 adr: []
@@ -33,8 +33,8 @@ give the owner the exact manual steps for what cannot be proven without a real a
   fix is a trade-off.
 
 ## Acceptance criteria
-- [ ] `docs/reference/client-compatibility.md` with versions/dates.
-- [ ] Conformance suite green on memory, SQLite and the Worker (local D1).
+- [x] `docs/reference/client-compatibility.md` with versions/dates.
+- [x] Conformance suite green on memory, SQLite and the Worker (local D1).
 - [ ] Matrix cells for Claude mobile and claude.ai web verified against a real account (**owner**, see pending
       decisions; not possible in an autonomous run).
 - [ ] Claude Desktop, Cursor, VS Code, MCP Inspector verified against the real app (**owner / community**).

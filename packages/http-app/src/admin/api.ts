@@ -729,8 +729,8 @@ const routes = {
     tags: ['me'],
     summary: 'Use one of my keys for my grant',
     description:
-      'Points one of your live grants at one of your own keys, or back at the project default (`null`). The key must be ' +
-      "yours and valid; the grant's scope (tools, accounts, limits) does not change.",
+      'Points one of your live grants at one of your own keys, or back at the project default (`null`, refused with 422 when an administrator pinned a key you do not own). ' +
+      "The key must be yours and valid; the grant's scope (tools, accounts, limits) does not change.",
     request: { params: S.IdParam, ...BODY(S.SetMyGrantCredentialBody) },
     responses: { 200: json(S.MyGrantOne, 'Updated'), ...errors(404, 409, 413, 415, 422) },
   }),
@@ -1188,6 +1188,27 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
   const credentialOwnerId = async (credentialId: string | null | undefined) =>
     credentialId == null ? null : ((await storage.credentials.get(credentialId))?.ownerUserId ?? null);
   /**
+   * A personal key as a project's default is shared with everyone on the project, so only its owner may make that
+   * choice (phase 4 review L8, P4-18): otherwise whoever owns the key could rotate or rename what the whole project
+   * queries through, and an administrator could pull a member's key into a project. A default left unchanged passes.
+   */
+  const guardProjectDefault = async (
+    c: Context,
+    credentialId: string | null | undefined,
+    current?: string | null,
+  ) => {
+    if (credentialId == null || credentialId === current) return;
+    const ownerId = await credentialOwnerId(credentialId);
+    if (ownerId === null) return;
+    const principal = c.get('principal') as AdminPrincipal | undefined;
+    if (principal?.kind === 'session' && principal.user.id === ownerId) return;
+    throw new AdminApiError(
+      'not_permitted',
+      "a personal key can be a project's default only when its owner makes the change: use a shared key",
+      { field: 'defaultCredentialId' },
+    );
+  };
+  /**
    * A grant acts for its user and for the owner of the personal key it names. A project default stays out: an owner
    * who made their own key a project's default shared it with that project (admins cannot make that choice for them:
    * project create and update are guarded).
@@ -1515,6 +1536,7 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
       { action: 'project.create', targetType: 'project', details: { slug: body.slug } },
       async () => {
         await guardOwnerAssets(c, [await credentialOwnerId(body.defaultCredentialId)]);
+        await guardProjectDefault(c, body.defaultCredentialId);
         return createProject(storage, compact(body) as CreateProjectInput, catalog);
       },
       (p) => ({ targetId: p.id, projectId: p.id }),
@@ -1541,6 +1563,11 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
       },
       async () => {
         await guardOwnerAssets(c, [await credentialOwnerId(body.defaultCredentialId)]);
+        await guardProjectDefault(
+          c,
+          body.defaultCredentialId,
+          (await storage.projects.get(id))?.defaultCredentialId,
+        );
         return updateProject(storage, id, compact(body) as UpdateProjectInput, catalog, clock.now());
       },
     );
@@ -1986,7 +2013,20 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
         if (existing.revokedAt !== null) {
           throw new AdminApiError('conflict', 'the grant is revoked', { field: 'id' });
         }
-        if (body.credentialId !== null) {
+        if (body.credentialId === null) {
+          // Back to the project default only from a key the member owns: a key an administrator pinned (narrow
+          // accounts) must not be widened by the member (phase 4 review L2, P4-18).
+          if (existing.credentialId !== null) {
+            const current = await storage.credentials.get(existing.credentialId);
+            if (current !== null && current.ownerUserId !== self.id) {
+              throw new AdminApiError(
+                'not_permitted',
+                'an administrator chose the key of this grant: ask them to change it',
+                { field: 'credentialId' },
+              );
+            }
+          }
+        } else {
           const credential = await ownCredential(body.credentialId, self.id);
           if (credential.revokedAt !== null || credential.validationStatus === 'invalid') {
             throw new AdminApiError(

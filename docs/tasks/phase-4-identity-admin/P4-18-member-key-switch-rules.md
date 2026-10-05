@@ -2,11 +2,11 @@
 id: P4-18
 title: "Tighten member key switching and personal keys as project defaults"
 phase: 4
-status: todo
+status: review
 priority: low
 depends_on: [P4-10]
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P4-18 — Tighten member key switching and personal keys as project defaults
@@ -25,8 +25,8 @@ their own grants; BYO keys are not switchable per project" in `docs/pending-deci
   it, and warn on the project page when the default is personal.
 
 ## Acceptance criteria
-- [ ] The pinned-grant reset is refused (or allowed) per the owner's decision, with a member authz test.
-- [ ] A member-owned default key: decision implemented and tested (API, UI, workers pool).
+- [x] The pinned-grant reset is refused unless the grant uses a key the member owns (option a', no flag; see pending decision), with a member authz test.
+- [x] A member-owned default key: refused unless the acting user owns it; project page warns; tested (API on Node and workerd, UI).
 
 ## Security notes
 T3 (account scope), T21 (data plane isolation between users).

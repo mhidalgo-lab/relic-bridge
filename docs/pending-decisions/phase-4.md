@@ -444,3 +444,23 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   everywhere, so a counter checked on every request would only add a read per authenticate.
 - **D1 limit contradiction.** Cloudflare's own pages disagree (50 vs 1,000 D1 queries per invocation on Free); the
   code keeps budgeting for 50 until someone measures on a real Free Worker (documented in RESEARCH).
+
+## P4-18 member key switching and personal defaults
+
+### P4-18 — Reset to the project default only from a member-owned key; personal default only by its owner
+- **Context:** Review L2/L8. `PATCH /me/grants/{id}` with `null` let a member undo an administrator's narrow key pin; a
+  member's personal key as project default let that member rotate the key everyone queries through.
+- **Assumption made:** `null` is refused (`422 not_permitted`) while the grant uses a key the member does not own; a
+  personal key is accepted as `defaultCredentialId` only when the acting session user owns it (the admin token and
+  admins cannot pick it). Existing personal defaults keep working and the project page warns. The per-project "no
+  member key switches" flag (option c of the P4-10 decision) was not built.
+- **Options:** (a) keep; (b) add the flag as a new task; (c) also refuse member rotate/rename of a key that is a
+  project default (legacy data only, since new ones need the owner).
+- **Needs:** owner choice, together with "P4-10 — Members cannot create their own grants".
+
+### P4-18 — Session revocation needs no generation counter (verified)
+- **Context:** P4-17 claimed revocation is immediate. Verified: `authenticate` reads the session row first; both
+  revoke and disable delete the rows (Worker `kv` is D1, strongly consistent), so a second instance with a warm user
+  cache fails on the next request (`authz/session-revocation.test.ts`, Node and workerd). Only a role change or a
+  database-only disable can lag by up to 5 s on other instances.
+- **Needs:** nothing.

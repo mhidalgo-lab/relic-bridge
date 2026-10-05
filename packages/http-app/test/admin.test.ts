@@ -646,7 +646,23 @@ describe('credentials', () => {
 describe('projects', () => {
   it('creates, finds by slug, updates and deletes (cascading grants and tokens)', async () => {
     const app = makeApp();
-    const cred = (await world.storage.credentials.list())[0]?.id as string;
+    const personal = (await world.storage.credentials.list())[0]?.id as string;
+    // A personal key is not a project default unless its owner chooses it (P4-18): the admin token has no owner.
+    const refused = await admin(app, '/projects', {
+      method: 'POST',
+      body: {
+        slug: 'staging',
+        defaultAccountId: 2,
+        allowedAccountIds: [1, 2],
+        defaultCredentialId: personal,
+      },
+    });
+    expect(refused.json?.['error']).toMatchObject({ code: 'not_permitted', field: 'defaultCredentialId' });
+    const shared = await admin(app, '/credentials', {
+      method: 'POST',
+      body: { label: 'shared', region: 'US', apiKey: NR_KEY_2 },
+    });
+    const cred = shared.json?.['data'].id as string;
     const res = await admin(app, '/projects', {
       method: 'POST',
       body: {

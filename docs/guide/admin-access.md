@@ -52,7 +52,7 @@ Any signed-in user (member, admin or owner) can manage what is theirs; the boots
 | `GET /me/credentials`, `POST /me/credentials` | List your New Relic keys (masked); add one (validated first, stored encrypted, always owned by you, at most 10). |
 | `PATCH /me/credentials/{id}`, `DELETE ...`, `POST .../rotate`, `POST .../revalidate` | Rename, delete (`409` while a grant uses it), replace or re-check your key. |
 | `GET /me/grants` | The grants an administrator assigned to you, with the project to connect to (`/p/{slug}/mcp`). |
-| `PATCH /me/grants/{id}` `{"credentialId": "cred_..."}` | Use one of your keys for your grant, or `null` for the project default. Tools, accounts and limits stay as the administrator set them. |
+| `PATCH /me/grants/{id}` `{"credentialId": "cred_..."}` | Use one of your keys for your grant, or `null` for the project default (only while the grant uses a key you own or the project default: when an administrator pinned another key, `422 not_permitted`, so a member cannot widen a narrowed grant). Tools, accounts and limits stay as the administrator set them. |
 | `GET /me/tokens`, `POST /me/tokens`, `POST /me/tokens/{id}/revoke` | List, issue (shown once, at most 20 live per grant) and revoke device tokens on your grants. |
 
 BYO-key flow: ask an administrator for a grant on the project, `POST /me/credentials`, `PATCH /me/grants/{id}`, then

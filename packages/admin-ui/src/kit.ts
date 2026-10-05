@@ -340,7 +340,7 @@ export function createUiKit(deps: AdminUiDeps): UiKit {
       const prefix = oncePrefix(principal.userId);
       const open = await deps.onceStore.list(prefix, ONCE_MAX_OUTSTANDING);
       if (open.length >= ONCE_MAX_OUTSTANDING) {
-        const reuse = open[Math.floor(Math.random() * open.length)]!.slice(prefix.length);
+        const reuse = open[Math.floor(Math.random() * open.length)]?.slice(prefix.length) ?? '';
         if (ONCE_RE.test(reuse)) return reuse;
       }
       await deps.onceStore.put(onceKey(principal.userId, handle), ONCE_TTL_SECONDS);

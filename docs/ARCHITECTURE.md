@@ -74,7 +74,7 @@
 | **A. stdio, env vars** | none (env) | none (local process) | Fastest start: `npx relic-bridge` |
 | **B. stdio, config file** | `yaml` (read-only; keys taken from env/keychain) | none | Several projects locally, no server |
 | **C. Self-hosted HTTP** (`relic-bridge serve`, Docker) | `sqlite` | tokens → OAuth | Home server, VPS, company network |
-| **D. Cloudflare Worker** | `d1` + KV (OAuth) | tokens → OAuth | Reachable from every device including phone; no server to run |
+| **D. Cloudflare Worker** | `d1` (OAuth state too, ADR-0011) | tokens → OAuth | Reachable from every device including phone; no server to run |
 | **E. Pass-through** (optional flag on C/D, off by default) | none for credentials | client sends its NR key in `X-NewRelic-Api-Key` on `/passthrough/mcp` (P2-15) | Shared instance; the server stores no NR keys |
 
 Mode D is the main remote target. C and D share all code except the storage adapter and entry point.

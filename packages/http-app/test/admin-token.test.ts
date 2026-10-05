@@ -54,8 +54,10 @@ describe('checkAdminToken', () => {
         expect(checkAdminToken(value), value).toBeNull();
         if (adminTokenLooksWeak(value)) warned++;
       }
-      // Best effort: random base64 lacks a digit about once in 1,700 tokens, or holds a word like "test".
-      expect(warned).toBeLessThanOrEqual(10);
+      // Best effort: random base64 lacks a digit about once in 1,400 tokens, or holds a word like "test". Measured
+      // over 200,000 samples: about 0.7 per 1,000 for 32 bytes and 4.4 per 1,000 for base64url(24), so a bound of 10
+      // failed about once in 170 runs (Poisson); 20 fails about once in ten million.
+      expect(warned).toBeLessThanOrEqual(20);
     }
   });
 

@@ -27,6 +27,7 @@ import {
   describeAdminTokenProblem,
   mergeHooks,
   normalizeClientIp,
+  type OAuthOptions,
   SECURITY_HEADERS,
 } from '@relic-bridge/http-app';
 import { type KvPurgeBudget, purgeExpiredKv, type Storage, StorageError } from '@relic-bridge/storage';
@@ -90,6 +91,11 @@ export interface WorkerOptions {
   readonly purge?: Partial<PurgeBudget>;
   /** Expired `kv` row purge budget per run (tests). Default: `DEFAULT_KV_PURGE_BUDGET`. */
   readonly kvPurge?: Partial<KvPurgeBudget>;
+  /**
+   * The OAuth 2.1 server (P5-01; needs sign-in, `RB_PUBLIC_URL`). Programmatic only until the consent screen exists
+   * (P5-04 adds the `RB_OAUTH` switch), so a deployment cannot turn it on half-built.
+   */
+  readonly oauth?: OAuthOptions;
 }
 
 /** What one scheduled run may spend on deleting audit rows. */
@@ -298,6 +304,7 @@ async function boot(env: WorkerEnv, options: WorkerOptions): Promise<Runtime> {
             ...(audit === undefined ? {} : { audit }),
           },
         }),
+    ...(options.oauth === undefined ? {} : { oauth: options.oauth }),
     // Admin API: the bootstrap token, admin sessions (sign-in configured, P4-02), or both.
     ...(adminRaw === '' && identityProviders === undefined
       ? {}

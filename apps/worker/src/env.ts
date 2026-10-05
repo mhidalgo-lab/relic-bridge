@@ -73,7 +73,7 @@ export interface WorkerSecrets {
 export interface WorkerBindings {
   /** D1 database (storage, P3-02). */
   readonly DB?: D1Database;
-  /** KV namespace for the OAuth provider (Phase 5). */
+  /** Reserved, unused: the OAuth provider keeps its state in D1 (ADR-0011); removal is a pending owner decision. */
   readonly OAUTH_KV?: KVNamespace;
   /** Workers Rate Limiting binding (P3-04). */
   readonly RATE_LIMITER?: RateLimit | undefined;

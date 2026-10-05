@@ -368,7 +368,7 @@ export interface AuthzHost {
   create(deps: HostDeps): HostApp;
 }
 
-const httpAppHost: AuthzHost = {
+export const httpAppHost: AuthzHost = {
   kind: 'http-app',
   create({ world, nerdGraph, log, idpFetch }) {
     const { storage, keyring, clock } = world;

@@ -14,6 +14,8 @@ export interface CachedAccess {
   readonly tokenId: string;
   readonly access: EffectiveAccess;
   readonly credential: CredentialRecord;
+  /** The OAuth client of an OAuth access token (P5-01); absent or null for device tokens. */
+  readonly clientId?: string | null;
   /** Epoch ms after which the entry is ignored: min(now + ttl, token expiry, grant expiry). */
   readonly expiresAt: number;
 }

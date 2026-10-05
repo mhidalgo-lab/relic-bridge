@@ -23,6 +23,7 @@ import {
   isSelfService,
   MCP_PRINCIPALS,
   MCP_ROUTES,
+  OAUTH_ROUTES,
   PASSTHROUGH_PRINCIPALS,
   PASSTHROUGH_ROUTES,
   PUBLIC_ROUTES,
@@ -718,6 +719,7 @@ describe.skipIf(authzHostKind() !== 'http-app')('guard: every route is in the ma
         policy: { emails: [], domains: [], githubOrgs: [], autoProvision: 'off' },
         storage: h.world.storage,
       },
+      oauth: { consent: () => new Response(null, { status: 500 }) },
     });
     const handlers = new Set<string>();
     const wildcards = new Set<string>();
@@ -739,6 +741,7 @@ describe.skipIf(authzHostKind() !== 'http-app')('guard: every route is in the ma
         ...UI_ROUTES,
         ...UI_ASSET_ROUTES,
         ...PUBLIC_ROUTES,
+        ...OAUTH_ROUTES,
       ]
         .filter((r) => !r.pattern.endsWith('/*'))
         .map((r) => `${r.method} ${r.pattern}`),

@@ -69,13 +69,16 @@ export const workerHost: AuthzHost = {
       recorderHooks: {},
       settle: () => ctx.settle(),
       makeApp(over = {}) {
-        const workerEnv = envFor(over);
+        // OAuth (P5-01) is a programmatic Worker option, not a setting.
+        const { oauth, ...settings } = over;
+        const workerEnv = envFor(settings);
         // One Worker (isolate) per app, like a fresh deployment.
         const worker = createWorker({
           fetch: nerdGraph.fetch,
           identityFetch: idpFetch,
           logSink: log,
           auditMaxAuthRowsPerMinute: 1_000_000,
+          ...(oauth === undefined ? {} : { oauth }),
         });
         return { fetch: (request) => worker.fetch(request, workerEnv, ctx) };
       },

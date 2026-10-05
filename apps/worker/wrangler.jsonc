@@ -20,7 +20,7 @@
     "@relic-bridge/storage": "../../packages/storage/src/index.ts"
   },
   "d1_databases": [{ "binding": "DB", "database_name": "relic-bridge" }],
-  // OAuth provider state (Phase 5).
+  // Reserved and unused: OAuth provider state lives in D1 (ADR-0011). See docs/pending-decisions/phase-5.md.
   "kv_namespaces": [{ "binding": "OAUTH_KV" }],
   // Workers Rate Limiting (P3-04). `namespace_id` is any account-unique integer string, not a secret.
   "ratelimits": [

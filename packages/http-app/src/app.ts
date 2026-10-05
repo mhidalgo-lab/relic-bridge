@@ -29,6 +29,7 @@ import {
   type KeyValidator,
   nerdGraphKeyValidator,
   openCredential,
+  TOKEN_PREFIX,
 } from '@relic-bridge/auth';
 import {
   buildMcpServer,
@@ -70,6 +71,19 @@ import { createAdminTokenVerifier } from './admin/token.ts';
 import type { AdminAuditEvent } from './audit.ts';
 import { createIdentityRoutes, IDENTITY_BASE, type IdentityOptions } from './identity.ts';
 import { peekJsonRpc, type RpcPeek } from './jsonrpc.ts';
+import {
+  createOAuthRuntime,
+  looksLikeOAuthToken,
+  MAX_OAUTH_TOKEN_CHARS,
+  OAUTH_AUTHORIZE_PATH,
+  OAUTH_MAX_BODY_BYTES,
+  OAUTH_METADATA_PATH,
+  OAUTH_REGISTER_PATH,
+  OAUTH_TOKEN_PATH,
+  type OAuthAuthentication,
+  type OAuthOptions,
+  type OAuthRuntime,
+} from './oauth/server.ts';
 import {
   credentialIdOf,
   DEFAULT_PASSTHROUGH_IDENTITY_ENTRIES,
@@ -113,6 +127,8 @@ export interface McpRequestInfo {
   readonly grantId: string;
   readonly tokenId: string;
   readonly userId: string | null;
+  /** The OAuth client of an OAuth access token (P5-01); null for a device token. */
+  readonly clientId: string | null;
   /** The JSON-RPC method of a POST body (sanitised); null for GET/DELETE or a body without one. Never header-only. */
   readonly mcpMethod: string | null;
   /** `params.name` of the body (sanitised): the tool name for `tools/call`. */
@@ -145,9 +161,15 @@ export interface AuthFailureInfo {
  * (`/api/admin/*`) or a caller's New Relic key (pass-through). Checking the first two costs no outbound call; checking
  * a New Relic key asks NerdGraph, so hooks may treat it more strictly. `identity` is the sign-in routes (P4-01), which
  * check IdP answers, not a credential of ours. `admin_session` is the admin UI pages (P4-03), which check the session
- * cookie.
+ * cookie. `oauth` is the unauthenticated OAuth endpoints (P5-01: metadata, authorize, token, registration).
  */
-export type AuthScope = 'mcp_token' | 'admin_token' | 'passthrough_key' | 'identity' | 'admin_session';
+export type AuthScope =
+  | 'mcp_token'
+  | 'admin_token'
+  | 'passthrough_key'
+  | 'identity'
+  | 'admin_session'
+  | 'oauth';
 
 /**
  * Extension points for P2-07 (rate limiting) and P2-08 (audit). Hooks receive the Hono context so runtime-specific
@@ -259,6 +281,11 @@ export interface HttpAppOptions {
   readonly passthrough?: PassthroughOptions;
   /** Enables the `/auth/*` sign-in routes (P4-01) and admin setup links. Off when absent. */
   readonly identity?: IdentityOptions;
+  /**
+   * Enables the OAuth 2.1 authorization server (P5-01): `/oauth/*`, RFC 8414 metadata, and OAuth access tokens on
+   * `/p/:slug/mcp` next to device tokens. Needs `identity` (its public URL is the issuer, its `kv` holds the state).
+   */
+  readonly oauth?: OAuthOptions;
 }
 
 type Env = { Variables: { requestId: string; started: number; log: Record<string, unknown> } };
@@ -646,6 +673,24 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
       })
     : undefined;
 
+  // OAuth 2.1 (P5-01): configuration and caches only; grants, codes and tokens live in storage `kv`.
+  if (options.oauth && !identity) {
+    throw new TypeError('oauth needs sign-in (identity): its public URL is the issuer');
+  }
+  const oauth: OAuthRuntime | undefined =
+    options.oauth && identity
+      ? createOAuthRuntime({
+          options: options.oauth,
+          issuer: identity.publicUrl,
+          kv: identity.storage.kv,
+          storage: options.storage,
+          catalog,
+          clock,
+          logger,
+          runInBackground,
+        })
+      : undefined;
+
   const app = new Hono<Env>();
 
   // 1. Request id + access log (one structured line per request, stderr via the logger).
@@ -842,6 +887,57 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
     );
   }
 
+  if (oauth) {
+    const rt = oauth;
+    /** Pre-authentication limit (per IP) and declared body size, for the unauthenticated OAuth endpoints. */
+    const gate = async (c: Context<Env>): Promise<Response | undefined> => {
+      const declared = c.req.header('content-length');
+      if (
+        c.req.method === 'POST' &&
+        declared !== undefined &&
+        (!/^\d{1,15}$/.test(declared) || Number(declared) > OAUTH_MAX_BODY_BYTES)
+      ) {
+        c.get('log')['reject'] = 'body_size';
+        return json(413, '{"error":"invalid_request","error_description":"Request body too large."}');
+      }
+      if (hooks.beforeAuth) {
+        const requestId = c.get('requestId');
+        const stop = await hooks.beforeAuth(c, requestId, 'oauth');
+        if (stop) {
+          notifyRejected(c, { requestId, status: stop.status, reason: rejectReason(c.get('log')) });
+          return stop;
+        }
+      }
+      return undefined;
+    };
+    const serve =
+      (handler: (c: Context<Env>) => Promise<Response>) =>
+      async (c: Context<Env>): Promise<Response> => {
+        c.get('log')['oauth'] = true;
+        return (await gate(c)) ?? handler(c);
+      };
+    app.get(
+      OAUTH_METADATA_PATH,
+      serve((c) => rt.metadata(c)),
+    );
+    app.get(
+      OAUTH_AUTHORIZE_PATH,
+      serve((c) => rt.authorize(c)),
+    );
+    app.post(
+      OAUTH_TOKEN_PATH,
+      serve((c) =>
+        rt.token(c, () => {
+          cache.clear();
+        }),
+      ),
+    );
+    app.post(
+      OAUTH_REGISTER_PATH,
+      serve((c) => rt.register(c)),
+    );
+  }
+
   // Admin UI (P4-03): server-rendered pages under /admin, on whenever sign-in is (they need a session).
   if (options.identity && sessions) {
     app.route(
@@ -899,32 +995,43 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
 
     // 6. Authenticate, then authorise for this slug. The token is checked before the slug is looked at, so slugs
     // can't be probed without a valid token (T19); every denial is the same 401.
-    const token = bearerToken(c.req.header('authorization'));
+    const token = bearerToken(
+      c.req.header('authorization'),
+      oauth === undefined ? undefined : MAX_OAUTH_TOKEN_CHARS,
+    );
     if (token === null)
       return deny(c.req.header('authorization') === undefined ? 'missing_token' : 'malformed_header');
-    const formatProblem = checkTokenFormat(token);
-    if (formatProblem !== null) return deny(formatProblem);
+    // Device tokens (`rb_…`, P2-05) and, when OAuth is on, provider-issued access tokens (P5-01). Anything else is
+    // refused offline, before any storage read.
+    const viaOAuth = oauth !== undefined && !token.startsWith(TOKEN_PREFIX) && looksLikeOAuthToken(token);
+    if (!viaOAuth) {
+      const formatProblem = checkTokenFormat(token);
+      if (formatProblem !== null) return deny(formatProblem);
+    }
 
     const now = clock.now();
     const cacheKey = `${await hashToken(token)}\n${slug}`;
     let resolved: Omit<CachedAccess, 'expiresAt'> | undefined = cache.get(cacheKey, now);
     if (resolved === undefined) {
       // One storage call on SQL storage (D1: one batch round trip, P3-09); repository reads otherwise.
-      let auth: AuthenticatedAccess;
+      let auth: AuthenticatedAccess | OAuthAuthentication;
       try {
-        auth = await authenticateAccess({
-          storage: options.storage,
-          token,
-          projectSlug: slug,
-          catalog,
-          now,
-          onTouch: (touch) => runInBackground(c, touch, 'token_touch'),
-          onTouchError: (error) =>
-            logger.warn('last_used_at write failed', {
-              requestId,
-              error: error instanceof Error ? error.name : typeof error,
-            }),
-        });
+        auth =
+          viaOAuth && oauth
+            ? await oauth.authenticate(token, slug)
+            : await authenticateAccess({
+                storage: options.storage,
+                token,
+                projectSlug: slug,
+                catalog,
+                now,
+                onTouch: (touch) => runInBackground(c, touch, 'token_touch'),
+                onTouchError: (error) =>
+                  logger.warn('last_used_at write failed', {
+                    requestId,
+                    error: error instanceof Error ? error.name : typeof error,
+                  }),
+              });
       } catch (error) {
         // Storage trouble is never "allowed" (fail closed), and never a 401 that would make clients drop the token.
         log['error'] = error instanceof Error ? error.name : typeof error;
@@ -935,14 +1042,21 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
         if (auth.stage === 'access') log['tokenId'] = auth.tokenId;
         return deny(auth.reason);
       }
-      resolved = { tokenId: auth.tokenId, access: auth.access, credential: auth.credential };
+      resolved = {
+        tokenId: auth.tokenId,
+        access: auth.access,
+        credential: auth.credential,
+        clientId: viaOAuth ? (auth as Extract<OAuthAuthentication, { ok: true }>).clientId : null,
+      };
       cache.set(cacheKey, resolved, now, [auth.tokenExpiresAt, auth.access.expiresAt]);
     } else {
       log['cached'] = true;
     }
     const { access, tokenId } = resolved;
+    const clientId = resolved.clientId ?? null;
     log['tokenId'] = tokenId;
     log['grantId'] = access.grantId;
+    if (clientId !== null) log['oauthClient'] = clientId;
 
     // What the request asks for comes from the body, never from the `Mcp-Method` / `Mcp-Name` headers alone: the SDK
     // cross-checks those only for modern requests, so a legacy request could name `subscriptions/listen` in a header
@@ -957,6 +1071,7 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
       grantId: access.grantId,
       tokenId,
       userId: access.userId,
+      clientId,
       mcpMethod,
       mcpName,
       listen: mcpMethod === 'subscriptions/listen',

@@ -12,7 +12,7 @@ with Workers bindings. Private package; it is deployed with Wrangler, not publis
 | Binding | Kind | Purpose |
 |---|---|---|
 | `DB` | D1 | Storage (projects, grants, tokens, encrypted credentials, audit log). |
-| `OAUTH_KV` | KV | OAuth provider state (Phase 5). |
+| `OAUTH_KV` | KV | Reserved, unused: OAuth provider state lives in D1 (ADR-0011). |
 | `RATE_LIMITER` | Rate Limiting | Shared coarse rate-limit ceiling (P3-04); exact rules stay per isolate. |
 | `RB_MASTER_KEY` | secret, required | Encrypts stored New Relic keys (`relic-bridge keys generate`). Back it up. |
 | `RB_MASTER_KEY_PREVIOUS` | secret, optional | The previous master key while rotating ([runbook](../../docs/guide/cloudflare-deploy.md#rotate-the-master-key)). |

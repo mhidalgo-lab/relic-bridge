@@ -263,6 +263,21 @@ export const PUBLIC_ROUTES: readonly RouteCase[] = [
 ];
 
 /**
+ * The OAuth 2.1 endpoints (P5-01): registered only with the `oauth` option. Unauthenticated by design (the token and
+ * registration bodies are their own credentials); `oauth-suite.ts` checks they answer alike whatever a caller presents.
+ */
+export const OAUTH_ROUTES: readonly RouteCase[] = [
+  {
+    method: 'GET',
+    pattern: '/.well-known/oauth-authorization-server',
+    path: '/.well-known/oauth-authorization-server',
+  },
+  { method: 'GET', pattern: '/oauth/authorize', path: '/oauth/authorize' },
+  { method: 'POST', pattern: '/oauth/token', path: '/oauth/token', body: {} },
+  { method: 'POST', pattern: '/oauth/register', path: '/oauth/register', body: {} },
+];
+
+/**
  * `ALL` entries in Hono's route table (middleware and catch-alls), with why each is safe. A new one fails the guard.
  */
 export const WILDCARD_ROUTES: Readonly<Record<string, string>> = {

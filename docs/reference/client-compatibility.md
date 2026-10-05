@@ -55,8 +55,8 @@ Columns: **hosted Claude** = claude.ai / mobile / Desktop (CIMD, https callback;
 | Token endpoint accepts `application/x-www-form-urlencoded` | T, D | T | T | JSON bodies are refused (as the provider). |
 | Refresh after the access token expires, with `resource` and the one-time rotated refresh token | T | T | T | Reactive on `401` (all); Claude also refreshes **proactively up to 5 minutes before expiry** (D). |
 | Refresh response must carry a **new** refresh token | T | T | T | Both Claude docs and OAuth 2.1 expect rotation for public clients (D). |
-| Old refresh token refused after rotation (`invalid_grant`) and its reuse revokes the device | T | T | T | RFC 9700 §4.14.2; P5-05. |
-| Several requests over an expired token at once | **finding, see below** | T (SDK: device revoked) | T (same) | Real client behaviour: ? / **M**. |
+| Old refresh token refused after rotation (`invalid_grant`) and its reuse revokes the device | T | T | T | RFC 9700 §4.14.2; P5-05. Inside the reuse interval (default 30 s, P5-09) the same client gets the same pair again; after it, reuse revokes. |
+| Several requests over an expired token at once | **finding, see below** | T (SDK: device kept by the reuse interval; revoked in strict mode) | T (same) | Real client behaviour: ? / **M**. |
 | RFC 7009 revocation at `revocation_endpoint` (`/oauth/token`) | T | T | T | Whether the real apps call it on disconnect: ?. |
 | After the device is revoked, the client gets a clean `invalid_grant` and goes back to sign-in, no refresh loop | T (SDK: drops tokens, asks for authorization, at most 2 refresh attempts) | T | T | Claude docs ask for `invalid_grant` and a "clean reconnect" (D). |
 | A token for one project is refused on another, with that project's own challenge | T | T | T | RFC 8707 audience binding. |
@@ -73,8 +73,15 @@ sequential session (any number of refreshes, one at a time) is fine on every sha
 opens after `initialized` is a second source of concurrent 401s.
 
 Whether claude.ai, Claude mobile, Claude Code, Cursor or VS Code refresh concurrently is unknown; Claude refreshes both
-proactively and on `401` (D), which makes an overlap possible. The server was not changed: loosening reuse detection
-trades security for compatibility and is the owner's call (pending decision "P5-06 — parallel refresh", task P5-09).
+proactively and on `401` (D), which makes an overlap possible.
+
+**Resolution (P5-09, ADR-0013):** a refresh token **reuse interval**, default 30 s (`RB_OAUTH_REFRESH_REUSE_WINDOW`,
+0-120, `0` = strict). One request rotates the token; the others (waiting for it if it is still running) get the same
+new pair, sealed in storage for the window only. With it the SDK's parallel refreshes all succeed and the device stays
+(tested on every client shape and storage); with `0` the device is revoked as before. Reuse after the window, of an
+older generation or by another client still revokes. The default is the owner's to confirm (pending decision
+"P5-09 — refresh reuse interval"). When running the manual checklist, an `oauth.token.replay` row in the audit log means
+the client did refresh concurrently.
 
 ## Not covered (and why)
 

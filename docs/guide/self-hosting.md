@@ -79,6 +79,7 @@ relic-bridge serve --port 9000 --db /var/lib/relic-bridge/relic-bridge.db
 | `RB_OAUTH_DCR_REDIRECT_HOSTS` | unset (any) | Comma-separated https hosts dynamically registered clients may redirect to (e.g. `claude.ai`); loopback is always allowed. |
 | `RB_OAUTH_ACCESS_TTL` | `1h` | Lifetime of an OAuth access token, 60 s to 24 h (seconds, or `90m`, `12h`). Never longer than the grant it was approved with. |
 | `RB_OAUTH_REFRESH_TTL` | `30d` | Absolute lifetime of an app's authorization (its refresh tokens), 1 h to 365 days; refreshing does not extend it. After it the app asks the person again. |
+| `RB_OAUTH_REFRESH_REUSE_WINDOW` | `30` | Refresh token reuse interval in seconds (0-120): the same app presenting a just-renewed refresh token again gets the same new tokens instead of being disconnected. `0` or `off`: strict single use. See [OAuth](oauth.md#lifetimes-and-renewal). |
 
 ### What the server enforces
 

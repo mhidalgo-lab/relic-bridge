@@ -2,7 +2,7 @@
 id: P5-09
 title: "Decide and handle concurrent refreshes from real clients"
 phase: 5
-status: in-progress
+status: review
 priority: medium
 depends_on: [P5-06]
 adr: [0009, 0011, 0013]
@@ -47,13 +47,13 @@ choice below is made reversible and logged as a pending decision.
 - Settings parsing, `--help`, guides.
 
 ## Acceptance criteria
-- [ ] ADR-0013 with the decision, the measured client behaviour and the default.
-- [ ] Conformance suite: parallel requests over an expired token keep the device by default; strict mode (`0`) revokes it.
-- [ ] Reuse of a token outside the window still revokes the device (test); so do an older generation and another client.
-- [ ] Concurrent refreshes (≥ 8) on memory, SQLite and D1: exactly one rotation, all callers get the same successor.
-- [ ] The replay cache holds no plain-text token (test scans `kv`).
-- [ ] `RB_OAUTH_REFRESH_REUSE_WINDOW` parsed and documented (guides, `--help`); THREAT_MODEL T9/T15 updated.
-- [ ] Pending decision logged for the owner (default 30 s vs strict).
+- [x] ADR-0013 with the decision, the measured client behaviour and the default.
+- [x] Conformance suite: parallel requests over an expired token keep the device by default; strict mode (`0`) revokes it.
+- [x] Reuse of a token outside the window still revokes the device (test); so do an older generation and another client.
+- [x] Concurrent refreshes (≥ 8) on memory, SQLite and D1: exactly one rotation, all callers get the same successor.
+- [x] The replay cache holds no plain-text token (test scans `kv`).
+- [x] `RB_OAUTH_REFRESH_REUSE_WINDOW` parsed and documented (guides, `--help`); THREAT_MODEL T9/T15 updated.
+- [x] Pending decision logged for the owner (default 30 s vs strict).
 
 ## Security notes
 T9 (token theft), T15 (revocation timing): any window is a window for a stolen refresh token. Bounded: only the token

@@ -191,6 +191,8 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Assumption made:** strict; the client must re-authorize after a lost refresh response or a double refresh.
 - **Options:** a short grace (e.g. 30 s, same client id, at most once) at the cost of a window for a stolen token.
 - **Needs:** revisit if P5-06 finds a client that retries or parallelises refreshes (claude.ai, Claude Code, mobile).
+- **Update (P5-09):** P5-06 found the SDK client parallelises refreshes; superseded by ADR-0013 (30 s reuse interval by
+  default, strict with `RB_OAUTH_REFRESH_REUSE_WINDOW=0`). See the P5-09 entry below.
 
 ### P5-05 — every refusal at token issuance revokes the device
 - **Context:** the code exchange and each refresh re-run `resolveAccess`. Some refusals are permanent (grant revoked or
@@ -244,7 +246,9 @@ Access), `RB_OAUTH=on`, one project with a grant for your user. Keep `RB_OAUTH_D
    enable it, run the same prompt. Note whether the consent page opens in an in-app browser and is usable (320 px layout,
    sign-in session, buttons). Then leave the phone idle for more than `RB_OAUTH_ACCESS_TTL` (set it to 5 min for the test),
    ask again: expect it to keep working with no new consent (refresh). Check the audit log for `oauth.token.reuse`: there
-   must be none; if there is, a real client refreshes concurrently and P5-09 becomes urgent.
+   must be none. An `oauth.token.replay` row means the client refreshed concurrently and the P5-09 reuse interval saved
+   the connection (record it: it answers the P5-09 decision). To see what strict mode would do, repeat with
+   `RB_OAUTH_REFRESH_REUSE_WINDOW=0`.
 6. Disconnect on the phone, then reconnect: should require consent again and work. Then in Admin > My access click
    "Disconnect" for the app and ask again in Claude: expect an error and a prompt to reconnect, not a loop.
 7. Repeat 1-3 with `RB_OAUTH_DCR=off` to confirm CIMD alone works for claude.ai, and with the project's slug in the URL
@@ -262,10 +266,11 @@ Record per client: date, client version, registration path (CIMD/DCR), result, a
 - **Context:** the SDK client (2.2.0) does not coalesce refreshes: three parallel calls over an expired access token sent
   six refresh requests; with P5-05's strict single use the device is revoked and the person must approve again. Claude
   refreshes both proactively (up to 5 min before expiry) and on `401` (vendor docs), so an overlap is plausible but unproven.
-- **Assumption made:** server left strict (security first); new task P5-09 decides after the manual results.
-- **Options:** keep strict; a short same-client replay window returning the already issued pair; provider-style previous
-  token valid once more (weakest).
-- **Needs:** owner decision after checklist step 5; otherwise leave as is.
+- **Assumption made (P5-06):** server left strict; new task P5-09 decides.
+- **Implemented (P5-09, ADR-0013):** the "short same-client replay window returning the already issued pair" option,
+  **on by default (30 s)**, because a server that disconnects the phone on ordinary concurrent use blocks Phase 5's goal.
+  The SDK's parallel refreshes now all succeed and the device stays; strict mode (`0`) still revokes. See the P5-09 entry.
+- **Needs:** owner confirmation of the default (P5-09 entry).
 
 ### P5-06 — CIMD redirect host rule vs ChatGPT and a possible `claude.com` callback
 - **Context:** ChatGPT documents `https://chatgpt.com/connector_platform_oauth_redirect`; a web search result mentions a
@@ -281,3 +286,35 @@ Record per client: date, client version, registration path (CIMD/DCR), result, a
   relic-bridge accepts any scope names and grants `mcp:read` (+ `offline_access` when asked), so that connects.
 - **Assumption made:** keep (grants, not scopes, decide access). Tested.
 - **Needs:** nothing.
+
+## P5-09 — Concurrent refreshes
+
+### P5-09 — refresh reuse interval on by default (30 s)
+- **Context:** the MCP SDK client does not coalesce refreshes (P5-06): three parallel calls over an expired token
+  revoked the device under P5-05's strict single use. Real Claude clients are unmeasured but refresh proactively and on
+  `401`. The owner's main use (Claude on the phone, claude.ai) can't tolerate being disconnected on normal use.
+- **Assumption made:** ADR-0013 — `RB_OAUTH_REFRESH_REUSE_WINDOW` default **30 s** (0-120; `0`/`off` = strict). Within
+  the window the token just rotated, presented again by the same client (same client authentication, resource and
+  scope) gets the **same** successor pair (no new family); concurrent requests wait (≈ 3 s max) for the rotation in
+  progress. Reuse after the window, of an older generation, by another client or after revocation still revokes the
+  device and is audited `oauth.token.reuse` (`details.replayRefused` says why); replays are audited
+  `oauth.token.replay`. Accepted risk: for 30 s a stolen copy of the *previous* refresh token yields the same tokens
+  the client got (public clients have no secret, so "same client" is no proof of possession).
+- **Options:** keep 30 s; shorter (5-10 s: enough for parallel requests, not for a client retrying a lost response
+  after a timeout); strict by default (`0`) and opt-in per deployment; up to 120 s.
+- **Needs:** owner confirmation, ideally after the manual checklist (step 5: does an `oauth.token.replay` row appear?).
+
+### P5-09 — replay sealed with a token-derived key, not the master keyring
+- **Context:** the task suggested storing the replayed pair encrypted with the keyring, bound by AAD to the family.
+- **Assumption made:** AES-256-GCM under HKDF-SHA-256 of the presented refresh token (AAD: user, provider grant, token
+  hash), stored only for the window. Only a holder of the old refresh token can open it; a database copy can't (it has
+  hashes only); the OAuth runtime gets no keyring dependency; it matches how the provider protects props.
+- **Options:** add keyring encryption on top (defence in depth if the token leaks *and* the database leaks within 30 s).
+- **Needs:** owner confirmation (ADR-0013).
+
+### P5-09 — confidential clients authenticated by our own check on replays
+- **Context:** a replay bypasses the provider, so relic-bridge checks client authentication itself (`none`, or the
+  registered secret by its SHA-256, with the provider 1.2.x leniency between basic and post for registrations that did
+  not name a method). A provider upgrade that changes those rules would need the same change here.
+- **Assumption made:** mirror the provider (unit-tested); a failed check is treated as reuse (revokes).
+- **Needs:** nothing unless the provider is upgraded (note for Renovate PRs of `@cloudflare/workers-oauth-provider`).

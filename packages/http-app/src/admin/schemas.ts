@@ -440,6 +440,51 @@ export const MyGrantPage = page(MyGrantSchema, 'MyGrantPage');
 export const MyGrantOne = one(MyGrantSchema, 'MyGrantResponse');
 
 // ---------------------------------------------------------------------------------------------------------------
+// OAuth devices (P5-05): one per app authorization (a provider grant); never token material.
+// ---------------------------------------------------------------------------------------------------------------
+
+export const OAuthDeviceSchema = z
+  .object({
+    id: z.string().openapi({ description: '`oauth_…`: also the `tokenId` of its audit rows.' }),
+    userId: z.string(),
+    clientId: z
+      .string()
+      .openapi({ description: 'The OAuth client (a metadata document URL or a registered id).' }),
+    clientName: z
+      .string()
+      .nullable()
+      .openapi({ description: 'Name from the client registration or metadata document: not verified.' }),
+    clientKind: z.enum(['metadata_document', 'dynamic']),
+    clientHost: z.string().nullable().openapi({
+      description: 'Metadata-document clients: the host of the client id. Null for dynamic ones.',
+    }),
+    label: z.string().nullable().openapi({ description: 'Device name typed on the consent page.' }),
+    projectSlug: z.string().nullable(),
+    grantId: z
+      .string()
+      .nullable()
+      .openapi({ description: 'The grant the app was approved with (revoking it revokes the device).' }),
+    createdAt: timestamp('Authorized'),
+    expiresAt: nullableTimestamp('End of the refresh lifetime: the app must ask again after it'),
+  })
+  .openapi('OAuthDevice', { description: 'An app connected with OAuth (P5-05). Tokens are never returned.' });
+
+export const OAuthDevicePage = page(OAuthDeviceSchema, 'OAuthDevicePage');
+export const OAuthDeviceOne = one(OAuthDeviceSchema, 'OAuthDeviceResponse');
+
+/** `/users/{id}/oauth-devices/{deviceId}`. */
+export const UserDeviceParam = z.strictObject({
+  id: z
+    .string()
+    .regex(ID_RE)
+    .openapi({ param: { name: 'id', in: 'path' }, example: 'usr_0123456789abcdef0123456789abcdef' }),
+  deviceId: z
+    .string()
+    .regex(ID_RE)
+    .openapi({ param: { name: 'deviceId', in: 'path' }, example: 'oauth_AbCdEfGhIjKlMnOp' }),
+});
+
+// ---------------------------------------------------------------------------------------------------------------
 // Audit
 // ---------------------------------------------------------------------------------------------------------------
 

@@ -35,6 +35,13 @@ import type { Context } from 'hono';
 import type { AdminAuditEvent } from '../audit.ts';
 import { isLoopbackHost } from './clients.ts';
 import {
+  MAX_REMEMBERED_APPROVALS,
+  parseStored,
+  REMEMBER_PREFIX,
+  rememberKey,
+  type StoredApproval,
+} from './remembered.ts';
+import {
   deviceLabel,
   MAX_DEVICE_LABEL_CHARS,
   OAUTH_AUTHORIZE_PATH,
@@ -49,13 +56,11 @@ export const OAUTH_APPROVALS_PATH = '/oauth/approvals';
 export const OAUTH_APPROVALS_FORGET_PATH = '/oauth/approvals/forget';
 /** How long "don't ask again" lasts. */
 export const OAUTH_CONSENT_REMEMBER_TTL_S: number = 30 * 86_400;
-/** Remembered approvals kept per user (more are not stored: the page then asks every time). */
-export const MAX_REMEMBERED_APPROVALS = 50;
+export { MAX_REMEMBERED_APPROVALS } from './remembered.ts';
 /** Longest `/oauth/authorize?…` a sign-in can return to (the sign-in `next` cap). */
 export const MAX_AUTHORIZE_URL_CHARS = 2048;
 /** Grants of one user on one project offered on the page. */
 const MAX_OFFERED_GRANTS = 20;
-const REMEMBER_PREFIX = 'oauth-consent:';
 const LOGIN_PATH = '/auth/login';
 const DEFAULT_MAX_FORM_BYTES = 16 * 1024;
 const FORM_TYPE = /^application\/x-www-form-urlencoded\s*(;|$)/i;
@@ -95,21 +100,6 @@ export interface ConsentScreen {
   forget(c: Context): Promise<Response>;
 }
 
-/** A remembered approval as stored (`oauth-consent:<userId>:<id>`). Display fields are copies for the list page. */
-interface StoredApproval {
-  readonly grantId: string;
-  readonly scope: readonly string[];
-  readonly label: string | null;
-  readonly clientName: string | null;
-  readonly clientKind: 'metadata_document' | 'dynamic';
-  readonly clientHost: string | null;
-  readonly redirectHost: string;
-  readonly projectSlug: string;
-  readonly grantLabel: string;
-  /** Epoch ms. */
-  readonly expiresAt: number;
-}
-
 function b64u(bytes: Uint8Array): string {
   let bin = '';
   for (const b of bytes) bin += String.fromCharCode(b);
@@ -120,30 +110,6 @@ function b64u(bytes: Uint8Array): string {
 async function approvalId(api: OAuthConsentApi): Promise<string> {
   const material = JSON.stringify([api.request.clientId, api.request.redirectUri, api.request.resource]);
   return b64u(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(material))));
-}
-
-const rememberKey = (userId: string, id: string): string => `${REMEMBER_PREFIX}${userId}:${id}`;
-
-function parseStored(text: string | null): StoredApproval | null {
-  if (text === null) return null;
-  try {
-    const v = JSON.parse(text) as Partial<StoredApproval>;
-    if (
-      typeof v.grantId !== 'string' ||
-      !Array.isArray(v.scope) ||
-      !v.scope.every((s) => typeof s === 'string') ||
-      typeof v.redirectHost !== 'string' ||
-      typeof v.projectSlug !== 'string' ||
-      typeof v.grantLabel !== 'string' ||
-      typeof v.expiresAt !== 'number' ||
-      (v.clientKind !== 'metadata_document' && v.clientKind !== 'dynamic')
-    ) {
-      return null;
-    }
-    return v as StoredApproval;
-  } catch {
-    return null;
-  }
 }
 
 /** Read at most `max` bytes of the body (declared length or not); null when it is larger. */
@@ -386,6 +352,7 @@ export function createConsentScreen(deps: ConsentScreenDeps): ConsentScreen {
     const r = api.request;
     const value: StoredApproval = {
       grantId: grant.id,
+      clientId: r.clientId,
       scope: [...r.scope],
       label,
       clientName: r.clientName,

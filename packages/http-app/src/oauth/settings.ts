@@ -5,6 +5,9 @@
 //   RB_OAUTH_DCR                 on | off (default on): RFC 7591 dynamic client registration at /oauth/register
 //   RB_OAUTH_DCR_LIMIT           registrations per hour for the whole deployment (default 30), or off
 //   RB_OAUTH_DCR_REDIRECT_HOSTS  comma-separated https redirect hosts dynamic clients may use (default: any)
+//   RB_OAUTH_ACCESS_TTL          access-token lifetime (default 1h; 60s-24h), P5-05
+//   RB_OAUTH_REFRESH_TTL         absolute refresh lifetime of a device authorization (default 30d; 1h-365d), P5-05
+// Durations: a number of seconds, or a number with s, m, h or d (`90m`, `12h`, `30d`).
 import { DEFAULT_OAUTH_REGISTRATION_LIMIT, type OAuthOptions } from './server.ts';
 
 /** A refused `RB_OAUTH*` value; `variable` names it for the host's error message. */
@@ -20,11 +23,13 @@ export class OAuthConfigError extends Error {
 
 /** What the variables configure; the host adds the consent screen (default) and its CIMD fetcher. */
 export type OAuthSettings = Required<Pick<OAuthOptions, 'registration' | 'registrationLimit'>> &
-  Pick<OAuthOptions, 'registrationRedirectHosts'>;
+  Pick<OAuthOptions, 'registrationRedirectHosts' | 'accessTokenTtlSeconds' | 'refreshTokenTtlSeconds'>;
 
 export type OAuthEnv = Readonly<Record<string, unknown>>;
 
 const MAX_REGISTRATIONS_PER_HOUR = 100_000;
+const DURATION_RE = /^(\d{1,8})([smhd]?)$/;
+const UNIT_SECONDS: Readonly<Record<string, number>> = { '': 1, s: 1, m: 60, h: 3600, d: 86_400 };
 const HOST_RE = /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$/;
 
 function text(env: OAuthEnv, name: string): string | undefined {
@@ -44,6 +49,21 @@ function onOff(env: OAuthEnv, name: string, fallback: boolean): boolean {
   if (v === 'on' || v === 'true' || v === '1') return true;
   if (v === 'off' || v === 'false' || v === '0') return false;
   throw new OAuthConfigError(name, `${name} must be on or off`);
+}
+
+/** A duration variable in seconds, within [min, max]; undefined when unset. */
+function duration(env: OAuthEnv, name: string, min: number, max: number, range: string): number | undefined {
+  const raw = text(env, name)?.toLowerCase();
+  if (raw === undefined) return undefined;
+  const m = DURATION_RE.exec(raw);
+  const seconds = m === null ? Number.NaN : Number(m[1]) * (UNIT_SECONDS[m[2] ?? ''] ?? Number.NaN);
+  if (!Number.isSafeInteger(seconds) || seconds < min || seconds > max) {
+    throw new OAuthConfigError(
+      name,
+      `${name} must be a duration between ${range} (e.g. 3600, 90m, 12h, 30d)`,
+    );
+  }
+  return seconds;
 }
 
 /**
@@ -84,6 +104,18 @@ export function oauthSettingsFromEnv(env: OAuthEnv, signIn: boolean): OAuthSetti
       );
     }
   }
+  const accessTokenTtlSeconds = duration(env, 'RB_OAUTH_ACCESS_TTL', 60, 86_400, '60s and 24h');
+  const refreshTokenTtlSeconds = duration(env, 'RB_OAUTH_REFRESH_TTL', 3600, 365 * 86_400, '1h and 365d');
+  if (
+    accessTokenTtlSeconds !== undefined &&
+    refreshTokenTtlSeconds !== undefined &&
+    refreshTokenTtlSeconds < accessTokenTtlSeconds
+  ) {
+    throw new OAuthConfigError(
+      'RB_OAUTH_REFRESH_TTL',
+      'RB_OAUTH_REFRESH_TTL must not be shorter than RB_OAUTH_ACCESS_TTL',
+    );
+  }
   if (!enabled) return null;
   if (!signIn) {
     throw new OAuthConfigError(
@@ -95,5 +127,7 @@ export function oauthSettingsFromEnv(env: OAuthEnv, signIn: boolean): OAuthSetti
     registration,
     registrationLimit,
     ...(registrationRedirectHosts === undefined ? {} : { registrationRedirectHosts }),
+    ...(accessTokenTtlSeconds === undefined ? {} : { accessTokenTtlSeconds }),
+    ...(refreshTokenTtlSeconds === undefined ? {} : { refreshTokenTtlSeconds }),
   };
 }

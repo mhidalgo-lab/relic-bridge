@@ -52,6 +52,7 @@ import type { Context } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { HTTPException } from 'hono/http-exception';
 import type { AdminAuditEvent } from '../audit.ts';
+import type { OAuthDevice, OAuthDevices } from '../oauth/server.ts';
 import {
   type AdminPrincipal,
   CSRF_HEADER,
@@ -130,6 +131,8 @@ export interface AdminApiDeps {
   readonly runInBackground: (c: Context, task: Promise<unknown>, what: string) => void;
   /** After every successful change (clears the access cache and the session user cache). */
   readonly onChange?: () => void;
+  /** OAuth devices (P5-05); absent when OAuth is off (lists are empty, revokes are 404). */
+  readonly oauthDevices?: OAuthDevices;
   /** First-owner setup links (P4-01); absent when sign-in is not configured. */
   readonly setupLinks?: {
     readonly publicUrl: string;
@@ -417,6 +420,27 @@ const routes = {
       "move with the user first. `confirm` must repeat the user's email address. Audited as `user.unbind`.",
     request: { params: S.IdParam, ...BODY(S.UnbindUserBody) },
     responses: { 200: json(S.UserOne, 'Unbound'), ...errors(404, 409, 413, 415) },
+  }),
+
+  listUserOAuthDevices: route({
+    method: 'get',
+    path: '/users/{id}/oauth-devices',
+    tags: ['users'],
+    summary: "List a user's OAuth apps",
+    description: 'Admins and owners. Empty when OAuth is off.',
+    request: { params: S.IdParam, query: S.PageQuery },
+    responses: { 200: json(S.OAuthDevicePage, 'The OAuth devices'), ...errors(404) },
+  }),
+  revokeUserOAuthDevice: route({
+    method: 'post',
+    path: '/users/{id}/oauth-devices/{deviceId}/revoke',
+    tags: ['users'],
+    summary: "Disconnect a user's OAuth app",
+    description:
+      "Admins (an owner's apps: owners only). Revokes every token of that authorization and forgets the user's " +
+      'remembered approval for the app on that project.',
+    request: { params: S.UserDeviceParam },
+    responses: { 200: json(S.OAuthDeviceOne, 'Revoked'), ...errors(404) },
   }),
 
   revokeUserSessions: route({
@@ -753,6 +777,28 @@ const routes = {
       201: json(S.TokenCreated, 'Created; the token is in the body, once'),
       ...errors(404, 409, 413, 415),
     },
+  }),
+  myOAuthDevices: route({
+    method: 'get',
+    path: '/me/oauth-devices',
+    tags: ['me'],
+    summary: 'List the apps I connected with OAuth',
+    description:
+      'One row per app authorization (claude.ai, Claude Code, …): client, device name, project and grant. Empty when ' +
+      'OAuth is off. Tokens are never returned.',
+    request: { query: S.PageQuery },
+    responses: { 200: json(S.OAuthDevicePage, 'Your OAuth devices'), ...errors() },
+  }),
+  revokeMyOAuthDevice: route({
+    method: 'post',
+    path: '/me/oauth-devices/{id}/revoke',
+    tags: ['me'],
+    summary: 'Disconnect one of my OAuth apps',
+    description:
+      'Revokes every access and refresh token of that authorization at once and forgets the remembered approval for ' +
+      'the app on that project, so it has to ask again.',
+    request: { params: S.IdParam },
+    responses: { 200: json(S.OAuthDeviceOne, 'Revoked'), ...errors(404) },
   }),
   revokeMyToken: route({
     method: 'post',
@@ -1235,6 +1281,25 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
     );
   };
 
+  /**
+   * Revoke-all (P5-05): the OAuth devices a change made useless (a revoked or deleted grant, a disabled user, a deleted
+   * project) are revoked at once. Best effort: their next refresh is refused by the access check anyway.
+   */
+  const revokeDevices = async (
+    userId: string | null,
+    filter: { readonly grantId?: string; readonly projectSlug?: string } = {},
+  ): Promise<number> => {
+    if (deps.oauthDevices === undefined || userId === null) return 0;
+    try {
+      return await deps.oauthDevices.revokeAll(userId, filter);
+    } catch (error) {
+      logger.warn('oauth device revoke-all failed', {
+        error: error instanceof Error ? error.name : typeof error,
+      });
+      return 0;
+    }
+  };
+
   // ---------------------------------------------------------------------------------------------------- users
   api.openapi(routes.listUsers, async (c) => {
     const q = c.req.valid('query');
@@ -1269,6 +1334,7 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
   api.openapi(routes.updateUser, async (c) => {
     const { id } = c.req.valid('param');
     const body = c.req.valid('json');
+    let devicesRevoked = 0;
     const user = await change(
       c,
       { action: 'user.update', targetType: 'user', targetId: id, details: { fields: Object.keys(body) } },
@@ -1299,8 +1365,11 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
                 ? 'enabled'
                 : null;
         if (reason !== null) await endSessions(c, existing.id, reason);
+        // A disabled user's OAuth apps are revoked too (P5-05): re-enabling does not bring them back.
+        if (reason === 'disabled') devicesRevoked = await revokeDevices(existing.id);
         return updated;
       },
+      () => (devicesRevoked > 0 ? { details: { oauthDevicesRevoked: devicesRevoked } } : {}),
     );
     return c.json({ data: userView(user) }, 200);
   });
@@ -1581,8 +1650,18 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
       { action: 'project.delete', targetType: 'project', targetId: id, projectId: id },
       async () => {
         const existing = await must('project', id, (x) => storage.projects.get(x));
+        const users = new Set(
+          (await storage.grants.list({ projectId: existing.id })).flatMap((g) =>
+            g.userId === null ? [] : [g.userId],
+          ),
+        );
         await storage.projects.delete(existing.id);
+        // Its OAuth apps (P5-05): their tokens name a resource that no longer exists.
+        let revoked = 0;
+        for (const userId of users) revoked += await revokeDevices(userId, { projectSlug: existing.slug });
+        return revoked;
       },
+      (revoked) => (revoked > 0 ? { details: { oauthDevicesRevoked: revoked } } : {}),
     );
     return c.body(null, 204);
   });
@@ -1627,23 +1706,32 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
 
   api.openapi(routes.revokeGrant, async (c) => {
     const { id } = c.req.valid('param');
+    let devicesRevoked = 0;
     const grant = await change(
       c,
       { action: 'grant.revoke', targetType: 'grant', targetId: id },
       async () => {
         const existing = await must('grant', id, (x) => storage.grants.get(x));
         await guardOwnerAssets(c, await grantUsers(existing));
-        return existing.revokedAt !== null
-          ? existing
-          : storage.grants.update(existing.id, { revokedAt: clock.now() });
+        const revoked =
+          existing.revokedAt !== null
+            ? existing
+            : await storage.grants.update(existing.id, { revokedAt: clock.now() });
+        // Revoke-all (P5-05): the OAuth apps approved with this grant lose every token now.
+        devicesRevoked = await revokeDevices(existing.userId, { grantId: existing.id });
+        return revoked;
       },
-      (g) => ({ projectId: g.projectId }),
+      (g) => ({
+        projectId: g.projectId,
+        ...(devicesRevoked > 0 ? { details: { oauthDevicesRevoked: devicesRevoked } } : {}),
+      }),
     );
     return c.json({ data: grantView(grant) }, 200);
   });
 
   api.openapi(routes.deleteGrant, async (c) => {
     const { id } = c.req.valid('param');
+    let devicesRevoked = 0;
     await change(
       c,
       { action: 'grant.delete', targetType: 'grant', targetId: id },
@@ -1651,9 +1739,13 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
         const existing = await must('grant', id, (x) => storage.grants.get(x));
         await guardOwnerAssets(c, await grantUsers(existing));
         await storage.grants.delete(existing.id);
+        devicesRevoked = await revokeDevices(existing.userId, { grantId: existing.id });
         return existing;
       },
-      (g) => ({ projectId: g.projectId }),
+      (g) => ({
+        projectId: g.projectId,
+        ...(devicesRevoked > 0 ? { details: { oauthDevicesRevoked: devicesRevoked } } : {}),
+      }),
     );
     return c.body(null, 204);
   });
@@ -2163,6 +2255,78 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
       (r) => ({ projectId: r.projectId }),
     );
     return c.json({ data: tokenView(token.summary) }, 200);
+  });
+
+  // ----------------------------------------------------------------------------------------- OAuth devices (P5-05)
+  const deviceView = (d: OAuthDevice): z.infer<typeof S.OAuthDeviceSchema> => ({
+    id: d.id,
+    userId: d.userId,
+    clientId: d.clientId,
+    clientName: d.clientName,
+    clientKind: d.clientKind,
+    clientHost: d.clientHost,
+    label: d.label,
+    projectSlug: d.projectSlug,
+    grantId: d.grantId,
+    createdAt: d.createdAt,
+    expiresAt: d.expiresAt,
+  });
+  const devicesOf = async (userId: string): Promise<readonly OAuthDevice[]> =>
+    deps.oauthDevices === undefined ? [] : deps.oauthDevices.list(userId);
+  /** Revoke one device of `userId`, audited as `oauth_device.revoke` (404 when the user has no such device). */
+  const revokeDeviceOf = async (c: Context, userId: string, deviceId: string, self: boolean) =>
+    change(
+      c,
+      {
+        action: 'oauth_device.revoke',
+        targetType: 'oauth_device',
+        targetId: deviceId,
+        details: { userId, ...(self ? { self: true } : {}) },
+      },
+      async () => {
+        // Only owners touch owners' devices (like their tokens, phase 4 review H1); one's own are always one's own.
+        if (!self) await guardOwnerAssets(c, [userId]);
+        const device =
+          deps.oauthDevices === undefined ? null : await deps.oauthDevices.revoke(userId, deviceId);
+        if (device === null) throw notFound('OAuth device', deviceId);
+        return device;
+      },
+      (d) => ({
+        details: {
+          userId,
+          clientKind: d.clientKind,
+          clientHost: d.clientHost,
+          project: d.projectSlug,
+          ...(self ? { self: true } : {}),
+        },
+      }),
+    );
+
+  api.openapi(routes.myOAuthDevices, async (c) => {
+    const self = me(c);
+    const q = c.req.valid('query');
+    const { page, nextCursor } = paginate(await devicesOf(self.id), q.limit, q.cursor);
+    return c.json({ data: page.map(deviceView), nextCursor }, 200);
+  });
+
+  api.openapi(routes.revokeMyOAuthDevice, async (c) => {
+    const self = me(c);
+    const { id } = c.req.valid('param');
+    return c.json({ data: deviceView(await revokeDeviceOf(c, self.id, id, true)) }, 200);
+  });
+
+  api.openapi(routes.listUserOAuthDevices, async (c) => {
+    const { id } = c.req.valid('param');
+    const q = c.req.valid('query');
+    const user = await must('user', id, (x) => storage.users.get(x));
+    const { page, nextCursor } = paginate(await devicesOf(user.id), q.limit, q.cursor);
+    return c.json({ data: page.map(deviceView), nextCursor }, 200);
+  });
+
+  api.openapi(routes.revokeUserOAuthDevice, async (c) => {
+    const { id, deviceId } = c.req.valid('param');
+    const user = await must('user', id, (x) => storage.users.get(x));
+    return c.json({ data: deviceView(await revokeDeviceOf(c, user.id, deviceId, false)) }, 200);
   });
 
   api.openapi(routes.listAudit, async (c) => {

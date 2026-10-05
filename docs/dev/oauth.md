@@ -341,7 +341,21 @@ warning at boot). A programmatic `createWorker({ oauth })` wins over the variabl
   successful code exchange, `replaceEarlierDevices` revokes (tombstoned, `revokeFamily`) the user's earlier grants of
   the same client and resource (for a metadata-document client, also the same redirect URI: the provider's rule),
   audited `oauth.device.replace` (`details.replacedBy`). Only the holder of the code and its verifier can end a
-  connection this way. Whether installations that share a client id should be one device is open (P5-11).
+  connection this way. Installations that share a client id (and, for document clients, a redirect URI) are therefore
+  one device: that rule stays (owner decision pending, `docs/pending-decisions/phase-5.md`); the reversible alternative
+  is to key replacement on the device label too.
+- **Device cap (P5-11).** At most `maxDevicesPerUser` live devices per user (default 50, option 1-100; pending code
+  exchanges and expired grants don't count). `enforceDeviceCap` runs after the replacement step of a code redemption and
+  revokes the user's oldest other devices (tombstoned, audited `oauth.device.replace` with `details.reason:
+  device_limit`), never the one just issued. The listing reads at most `MAX_OAUTH_DEVICES_PER_USER` (100) rows, so with
+  the cap it always sees every device; "disconnect all" (`revokeAll`) reads up to 1,000 rows per pass and repeats passes
+  (at most 20) while full pages come back, so rows that predate the cap are reached too. Each revocation is immediate.
+- **Client removal is resumable (P5-11).** `clients.remove` deletes the record, then scans `grant:` rows within a budget
+  (`clientRemovalBudget`: 20,000 rows scanned, 100 grants revoked per call, tuned for one D1 invocation). The scan
+  cursor lives in `oauth-client-removal:<sha256(clientId)>` (written before the record is deleted, 7 days). A call that
+  hits the budget answers `complete: false` (UI flash "remove it again"); the same removal again finds the marker and
+  resumes although the record is gone; the marker is deleted when a scan finishes. Replaces the former throw past
+  20,000 rows.
 - **Revoke-all.** The admin API revokes the devices of a revoked or deleted grant, of a user it disables (re-enabling
   does not restore them) and, for every user with a grant on it, of a deleted project (`details.oauthDevicesRevoked` on
   the audit row). Best effort: a failure is logged and the next refresh is refused by the access check anyway.

@@ -87,6 +87,8 @@ if you prefer no token files.
   from a user's page.
 - **Everything an app holds, for all users, or an app you don't trust:** owners use **OAuth apps**
   (`/admin/oauth-clients`), *Remove…*. Once your apps are listed there, switch **dynamic client registration** off.
+- If an app was removed but had very many authorizations, the page says to remove it again: repeat until it reports
+  done.
 - **Revoke the grant** and every device or app approved with it stops.
 - Already issued access tokens stop on the handling server immediately and on other Worker isolates within
   `RB_ACCESS_CACHE_TTL` (30 s); renewals are refused everywhere at once.

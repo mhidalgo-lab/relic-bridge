@@ -186,6 +186,18 @@ export interface OAuthOptions {
    * client that refreshes twice at once with one token gets the same new pair twice instead of losing the device.
    */
   readonly refreshReuseWindowSeconds?: number;
+  /**
+   * Most devices (live OAuth authorizations) one user holds, 1-{@link MAX_OAUTH_DEVICES_PER_USER} (P5-11). Default
+   * {@link DEFAULT_OAUTH_DEVICES_PER_USER}. When a code redemption would pass it, the user's oldest devices are
+   * replaced (revoked, audited `oauth.device.replace`), so the listing and "disconnect all" always see every device.
+   */
+  readonly maxDevicesPerUser?: number;
+  /**
+   * Work one client removal does per call (P5-11): grant rows scanned and grants revoked. Past either the removal
+   * stops, reports `complete: false` and a retry resumes where it stopped. Defaults
+   * {@link MAX_OAUTH_GRANTS_SCANNED} and {@link MAX_OAUTH_REVOKES_PER_REMOVAL}.
+   */
+  readonly clientRemovalBudget?: { readonly scan?: number; readonly revoke?: number };
   /** RFC 7591 dynamic client registration at `/oauth/register`. Default on. */
   readonly registration?: boolean;
   /**
@@ -259,8 +271,20 @@ const REPLAY_PREFIX = 'oauth-refresh-replay:';
 const DEVICE_ID_RE = /^oauth_([A-Za-z0-9_-]{16})$/;
 /** Access grant ids as stored in grant metadata (the admin API's id shape). */
 const ACCESS_GRANT_ID_RE = /^[A-Za-z0-9_.:-]{1,64}$/;
-/** Devices read per user (listing and revoke-all). */
+/**
+ * Grant rows read per user for the listing: the devices (capped at {@link DEFAULT_OAUTH_DEVICES_PER_USER}, P5-11) plus
+ * headroom for pending code exchanges, which expire within minutes.
+ */
 export const MAX_OAUTH_DEVICES_PER_USER = 100;
+/** Default cap on live devices per user, enforced when a code is redeemed (P5-11). */
+export const DEFAULT_OAUTH_DEVICES_PER_USER = 50;
+/** Grant rows "disconnect all" reads per pass; it repeats passes while it finds more. */
+export const MAX_OAUTH_REVOKE_ALL_SCAN = 1000;
+/** Grants one client-removal call revokes before it stops and asks for a retry (keeps a D1 invocation bounded). */
+export const MAX_OAUTH_REVOKES_PER_REMOVAL = 100;
+/** `oauth-client-removal:<sha256(client id)>`: the cursor a client removal stopped at, so a retry resumes (P5-11). */
+const CLIENT_REMOVAL_PREFIX = 'oauth-client-removal:';
+const CLIENT_REMOVAL_TTL_S = 7 * 86_400;
 /** The runtime switch for dynamic client registration (settings table, owner-only through the admin API, P5-08). */
 export const OAUTH_REGISTRATION_SETTING = 'oauth.registration';
 /**
@@ -422,6 +446,11 @@ export interface OAuthClientRemoval {
   readonly devicesRevoked: number;
   /** Remembered "don't ask again" approvals forgotten. */
   readonly approvalsForgotten: number;
+  /**
+   * False when this call stopped at its work budget (P5-11): the record is gone (so the client gets no new token or
+   * authorization) and the same removal again continues where it stopped. Repeat until it completes.
+   */
+  readonly complete: boolean;
 }
 
 /** The state of dynamic client registration. */
@@ -500,6 +529,24 @@ export function createOAuthRuntime(deps: OAuthRuntimeDeps): OAuthRuntime {
     1,
     MAX_OAUTH_REFRESH_REUSE_WINDOW_S,
     true,
+  );
+  const maxDevices = checkInt(
+    'oauth.maxDevicesPerUser',
+    options.maxDevicesPerUser ?? DEFAULT_OAUTH_DEVICES_PER_USER,
+    1,
+    MAX_OAUTH_DEVICES_PER_USER,
+  );
+  const removalScanBudget = checkInt(
+    'oauth.clientRemovalBudget.scan',
+    options.clientRemovalBudget?.scan ?? MAX_OAUTH_GRANTS_SCANNED,
+    1,
+    1_000_000,
+  );
+  const removalRevokeBudget = checkInt(
+    'oauth.clientRemovalBudget.revoke',
+    options.clientRemovalBudget?.revoke ?? MAX_OAUTH_REVOKES_PER_REMOVAL,
+    1,
+    100_000,
   );
   const deploymentRegistration = options.registration ?? true;
   const registrationLimit =
@@ -847,19 +894,60 @@ export function createOAuthRuntime(deps: OAuthRuntimeDeps): OAuthRuntime {
       if (g.createdAt > current.createdAt) continue;
       await revokeFamily(userId, id, helpers);
       logger.info('oauth device replaced by a new authorization of the same app', { oauthGrant: id });
-      await deps.audit?.({
-        actor: {
-          requestId: typeof requestId === 'string' ? requestId : null,
-          userId,
-          clientId: current.clientId.slice(0, 200),
-          tokenId: `oauth_${grantId}`,
-        },
-        action: 'oauth.device.replace',
-        targetType: 'oauth_device',
-        targetId: `oauth_${id}`,
-        status: 'ok',
-        details: { replacedBy: `oauth_${grantId}` },
-      });
+      await auditReplace(requestId, userId, current.clientId, grantId, id, 'same_app');
+    }
+    await enforceDeviceCap(requestId, userId, current.clientId, grantId, helpers);
+  };
+
+  const auditReplace = async (
+    requestId: unknown,
+    userId: string,
+    clientId: string,
+    newGrantId: string,
+    oldGrantId: string,
+    reason: 'same_app' | 'device_limit',
+  ): Promise<void> => {
+    await deps.audit?.({
+      actor: {
+        requestId: typeof requestId === 'string' ? requestId : null,
+        userId,
+        clientId: clientId.slice(0, 200),
+        tokenId: `oauth_${newGrantId}`,
+      },
+      action: 'oauth.device.replace',
+      targetType: 'oauth_device',
+      targetId: `oauth_${oldGrantId}`,
+      status: 'ok',
+      details: { replacedBy: `oauth_${newGrantId}`, reason },
+    });
+  };
+
+  /**
+   * P5-11: a user holds at most `maxDevices` live devices, so the listing and "disconnect all" see every one. When a
+   * redemption passes the cap, the oldest other devices are replaced (revoked with a tombstone, audited), never the
+   * one just issued. Pending code exchanges and expired grants are not devices.
+   */
+  const enforceDeviceCap = async (
+    requestId: unknown,
+    userId: string,
+    clientId: string,
+    currentId: string,
+    helpers: OAuthHelpers,
+  ): Promise<void> => {
+    const nowS = clock.now() / 1000;
+    const live = (await userGrants(userId)).filter(
+      ({ id, grant }) =>
+        id !== currentId &&
+        typeof grant.authCodeWrappedKey !== 'string' &&
+        !(typeof grant.expiresAt === 'number' && grant.expiresAt <= nowS),
+    );
+    const excess = live.length + 1 - maxDevices;
+    if (excess <= 0) return;
+    live.sort((a, b) => Number(a.grant.createdAt ?? 0) - Number(b.grant.createdAt ?? 0));
+    for (const { id } of live.slice(0, excess)) {
+      await revokeFamily(userId, id, helpers);
+      logger.info('oauth device replaced: per-user device limit', { oauthGrant: id });
+      await auditReplace(requestId, userId, clientId, currentId, id, 'device_limit');
     }
   };
 
@@ -1107,7 +1195,10 @@ export function createOAuthRuntime(deps: OAuthRuntimeDeps): OAuthRuntime {
     readonly authCodeWrappedKey?: unknown;
   }
   /** A user's provider grants (pending code exchanges included), at most {@link MAX_OAUTH_DEVICES_PER_USER}. */
-  const userGrants = async (userId: string): Promise<{ id: string; grant: StoredGrant }[]> => {
+  const userGrants = async (
+    userId: string,
+    max: number = MAX_OAUTH_DEVICES_PER_USER,
+  ): Promise<{ id: string; grant: StoredGrant }[]> => {
     const prefix = `grant:${userId}:`;
     const out: { id: string; grant: StoredGrant }[] = [];
     let cursor: string | undefined;
@@ -1118,7 +1209,7 @@ export function createOAuthRuntime(deps: OAuthRuntimeDeps): OAuthRuntime {
         if (!/^[A-Za-z0-9_-]{16}$/.test(id)) continue;
         const grant = (await env.OAUTH_KV.get(k.name, { type: 'json' })) as StoredGrant | null;
         if (grant !== null) out.push({ id, grant });
-        if (out.length >= MAX_OAUTH_DEVICES_PER_USER) return out;
+        if (out.length >= max) return out;
       }
       cursor = page.list_complete ? undefined : page.cursor;
     } while (cursor !== undefined);
@@ -1221,13 +1312,21 @@ export function createOAuthRuntime(deps: OAuthRuntimeDeps): OAuthRuntime {
       const all = filter.grantId === undefined && filter.projectSlug === undefined;
       const gone: ((stored: StoredApproval | null) => boolean)[] = [];
       let revoked = 0;
-      for (const { id, grant } of await userGrants(userId)) {
-        const facts = grantFacts(grant);
-        if (filter.grantId !== undefined && facts.grantId !== filter.grantId) continue;
-        if (filter.projectSlug !== undefined && facts.projectSlug !== filter.projectSlug) continue;
-        await revokeFamily(userId, id, helpers);
-        gone.push(approvalOf(facts.clientId, facts.projectSlug));
-        revoked += 1;
+      // P5-11: devices are capped per user, but a pass reads a bounded page: repeat while a full page came back and
+      // something was revoked (revoked grants are gone, so each pass reaches new rows). Each revocation is immediate.
+      for (let pass = 0; pass < 20; pass += 1) {
+        const rows = await userGrants(userId, MAX_OAUTH_REVOKE_ALL_SCAN);
+        let passRevoked = 0;
+        for (const { id, grant } of rows) {
+          const facts = grantFacts(grant);
+          if (filter.grantId !== undefined && facts.grantId !== filter.grantId) continue;
+          if (filter.projectSlug !== undefined && facts.projectSlug !== filter.projectSlug) continue;
+          await revokeFamily(userId, id, helpers);
+          gone.push(approvalOf(facts.clientId, facts.projectSlug));
+          passRevoked += 1;
+        }
+        revoked += passRevoked;
+        if (rows.length < MAX_OAUTH_REVOKE_ALL_SCAN || passRevoked === 0) break;
       }
       // One pass over the user's remembered approvals: those of the revoked devices, those naming the access grant
       // (never usable again) and, for a disabled user, all of them.
@@ -1318,20 +1417,31 @@ export function createOAuthRuntime(deps: OAuthRuntimeDeps): OAuthRuntime {
       const record = (await env.OAUTH_KV.get(key, { type: 'json' })) as Record<string, unknown> | null;
       // The record goes first: a registered client can't start another authorization or refresh meanwhile (a document
       // client may fetch its document again and start over, with consent). Then every device authorization of it.
+      // P5-11: a marker holding the scan cursor is written before the record goes, so a call that stops at its work
+      // budget (or is cut off) is resumed by the same removal again, even though the record is gone.
+      const marker = `${CLIENT_REMOVAL_PREFIX}${await sha256Hex(clientId)}`;
+      const saved = await deps.kv.get(marker);
+      if (record !== null && saved === null) {
+        await deps.kv.put(marker, '', { expirationTtl: CLIENT_REMOVAL_TTL_S });
+      }
       if (record !== null) await env.OAUTH_KV.delete(key);
+      const resumed = saved !== null;
       const helpers = (await server([])).getOAuthApi(env);
       let revoked = 0;
       let scanned = 0;
-      let cursor: string | undefined;
-      do {
+      let complete = true;
+      let cursor: string | undefined = saved !== null && saved !== '' ? saved : undefined;
+      scan: do {
         const page = await env.OAUTH_KV.list({
           prefix: 'grant:',
           ...(cursor === undefined ? {} : { cursor }),
         });
         for (const k of page.keys) {
-          if (++scanned > MAX_OAUTH_GRANTS_SCANNED) {
-            throw new Error('too many OAuth grants to scan for one client');
+          if (scanned >= removalScanBudget || revoked >= removalRevokeBudget) {
+            complete = false;
+            break scan;
           }
+          scanned += 1;
           const m = GRANT_KEY_RE.exec(k.name);
           if (m === null) continue;
           const grant = (await env.OAUTH_KV.get(k.name, { type: 'json' })) as StoredGrant | null;
@@ -1341,14 +1451,19 @@ export function createOAuthRuntime(deps: OAuthRuntimeDeps): OAuthRuntime {
           revoked += 1;
         }
         cursor = page.list_complete ? undefined : page.cursor;
+        // Resume point: the start of the next page (rows already passed on this page are not rescanned).
+        if (cursor !== undefined) await deps.kv.put(marker, cursor, { expirationTtl: CLIENT_REMOVAL_TTL_S });
       } while (cursor !== undefined);
+      if (complete) await deps.kv.delete(marker);
+      else logger.warn('oauth client removal stopped at its work budget; repeat it to finish', { revoked });
       const forgotten = await forgetClientApprovals(deps.kv, clientId);
-      if (record === null && revoked === 0 && forgotten === 0) return null;
+      if (record === null && !resumed && revoked === 0 && forgotten === 0) return null;
       logger.info('oauth client removed', { devicesRevoked: revoked, approvalsForgotten: forgotten });
       return {
         client: toClient(clientId, record ?? {}),
         devicesRevoked: revoked,
         approvalsForgotten: forgotten,
+        complete,
       };
     },
     async registration() {

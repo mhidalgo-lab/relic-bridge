@@ -39,7 +39,12 @@ export function oauthLifecycleSuite(): void {
 
   /** The app under test; access tokens live 10 minutes unless `access` says otherwise (`null`: the default). */
   const build = (
-    over: { access?: number | null; refreshTokenTtlSeconds?: number; reuseWindow?: number } = {},
+    over: {
+      access?: number | null;
+      refreshTokenTtlSeconds?: number;
+      reuseWindow?: number;
+      maxDevicesPerUser?: number;
+    } = {},
   ) => {
     const access = over.access === undefined ? 600 : over.access;
     app = h.makeApp({
@@ -50,6 +55,7 @@ export function oauthLifecycleSuite(): void {
           ? {}
           : { refreshTokenTtlSeconds: over.refreshTokenTtlSeconds }),
         ...(over.reuseWindow === undefined ? {} : { refreshReuseWindowSeconds: over.reuseWindow }),
+        ...(over.maxDevicesPerUser === undefined ? {} : { maxDevicesPerUser: over.maxDevicesPerUser }),
       },
     });
     client = new Client(h, app, secrets);
@@ -631,5 +637,78 @@ export function oauthLifecycleSuite(): void {
       ).toBeNull();
       expect((await refresh(other.t.refresh_token)).status).toBe(400);
     });
+  });
+
+  describe('device bounds (P5-11, review M2)', () => {
+    it('a user never holds more devices than the cap: the oldest is replaced, audited, and the newest works', async () => {
+      build({ maxDevicesPerUser: 3 });
+      const session = await h.addSession({ role: 'member' });
+      const grantId = await h.addGrant(h.world.projectIds.prod, { userId: session.userId });
+      const apps: { c: Client; t: Tokens }[] = [];
+      for (let i = 0; i < 4; i += 1) {
+        const c = new Client(h, app, secrets);
+        await c.register();
+        consent.next = { userId: session.userId, grantId };
+        const t = await c.tokens('prod');
+        secrets.push(t.access_token, t.refresh_token);
+        apps.push({ c, t });
+        advance(2000);
+      }
+      const list = await asSession('GET', '/me/oauth-devices', session.headers);
+      const devices = (JSON.parse(list.text) as { data: { id: string }[] }).data;
+      expect(devices.map((d) => d.id).sort()).toEqual(
+        apps
+          .slice(1)
+          .map((a) => `oauth_${providerGrantOf(a.t)}`)
+          .sort(),
+      );
+      // The oldest device is gone at once: access and refresh both refused.
+      const [oldest, ...rest] = apps as [(typeof apps)[number], ...(typeof apps)[number][]];
+      expect((await oldest.c.mcp('prod', oldest.t.access_token)).status).toBe(401);
+      expectInvalidGrant(await refresh(oldest.t.refresh_token, oldest.c));
+      for (const a of rest) expect((await a.c.mcp('prod', a.t.access_token)).status).toBe(200);
+      const row = await adminRow('oauth.device.replace');
+      expect(row).toMatchObject({
+        targetId: `oauth_${providerGrantOf(oldest.t)}`,
+        details: { reason: 'device_limit' },
+      });
+    });
+
+    it('"disconnect all" reaches every device even past one scan page (N+1)', async () => {
+      await client.register();
+      const session = await h.addSession({ role: 'member' });
+      const grantId = await h.addGrant(h.world.projectIds.prod, { userId: session.userId });
+      consent.next = { userId: session.userId, grantId };
+      const t = await client.tokens('prod');
+      // Grant rows of devices that predate the cap (or were written by another process): 1,001 of them.
+      const ids: string[] = [];
+      for (let i = 0; i < 1001; i += 1) {
+        const id = `Z${String(i).padStart(15, '0')}`;
+        ids.push(id);
+        await h.world.storage.kv.put(
+          `oauth:grant:${session.userId}:${id}`,
+          JSON.stringify({
+            id,
+            clientId: client.clientId,
+            userId: session.userId,
+            createdAt: 1,
+            metadata: { grant: grantId },
+          }),
+        );
+      }
+      const disable = await h.send(
+        new Request(`${A}/users/${session.userId}`, {
+          method: 'PATCH',
+          headers: { authorization: `Bearer ${ADMIN_TOKEN}`, 'content-type': 'application/json' },
+          body: JSON.stringify({ disabled: true }),
+        }),
+        app,
+      );
+      expect(disable.status).toBe(200);
+      for (const id of [ids[0], ids[500], ids[1000], providerGrantOf(t)] as string[]) {
+        expect(await h.world.storage.kv.get(`oauth:grant:${session.userId}:${id}`), id).toBeNull();
+      }
+      expect((await client.mcp('prod', t.access_token)).status).toBe(401);
+    }, 120_000);
   });
 }

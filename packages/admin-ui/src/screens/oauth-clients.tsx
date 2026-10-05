@@ -13,7 +13,14 @@
 import type { Hono } from 'hono';
 import { Button, DataTable, Form, Layout } from '../components.tsx';
 import { ONCE_FIELD, type UiKit } from '../kit.ts';
-import { listPage, type OAuthClient, one, parseOAuthClient, parseOAuthRegistration } from './data.ts';
+import {
+  listPage,
+  type OAuthClient,
+  one,
+  parseOAuthClient,
+  parseOAuthClientRemoval,
+  parseOAuthRegistration,
+} from './data.ts';
 import {
   confirmed,
   confirmPage,
@@ -182,7 +189,13 @@ export function registerOAuthClients(ui: Hono, kit: UiKit): void {
         { method: 'POST', path: '/oauth/clients/remove', body: { clientId } },
         form,
       );
-      if (isOk(res)) return kit.redirect(BASE, 'client_removed');
+      if (isOk(res)) {
+        const removal = one(res.body, parseOAuthClientRemoval);
+        return kit.redirect(
+          BASE,
+          removal !== null && !removal.complete ? 'client_removal_partial' : 'client_removed',
+        );
+      }
       return kit.redirect(BASE, flashFor(problemOf(res)));
     }),
   );

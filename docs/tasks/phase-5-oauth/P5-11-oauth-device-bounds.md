@@ -2,7 +2,7 @@
 id: P5-11
 title: "Device replacement policy and complete per-user device bounds"
 phase: 5
-status: todo
+status: review
 priority: medium
 depends_on: [P5-05, P5-08]
 adr: [0011]
@@ -31,9 +31,9 @@ shape, and make every revoke-all reach every device.
   gone, so a retry must still find the grants: keep a removal marker) or bound it per user.
 
 ## Acceptance criteria
-- [ ] The chosen replacement policy is tested on memory, SQLite and D1 (including the reconnect case).
-- [ ] A user cannot hold more devices than the listing shows; "disconnect all" revokes every one (test with N+1).
-- [ ] Removing a client with more grants than one invocation can scan converges on retry.
+- [x] The chosen replacement policy is tested on memory, SQLite and D1 (including the reconnect case).
+- [x] A user cannot hold more devices than the listing shows; "disconnect all" revokes every one (test with N+1).
+- [x] Removing a client with more grants than one invocation can scan converges on retry.
 
 ## Security notes
 T9, T15, T20. Update THREAT_MODEL (the P5-05 residual about devices beyond 100).

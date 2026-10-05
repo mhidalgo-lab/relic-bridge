@@ -33,6 +33,22 @@ that off with `RB_AUDIT_CLIENT_IP=off`. A `request.rejected` row for an authenti
 rate limit) or for a pass-through key names the user, grant, token or `key_id` instead and has no `details.ip`; its
 `details` is `{"status": 429}`.
 
+## Sign-in rows
+
+Every sign-in attempt that reached a provider writes one `auth` row: `login.ok` (with the user's id) or `login.denied`
+(with the reason in `error_code`: `not_allowed`, `not_provisioned`, `identity_conflict`, `user_disabled`, or a protocol
+reason such as `unknown_state`, `invalid_token` or `email_unverified`). `target_id` is the provider id. `details` holds:
+
+| Key | Meaning |
+|---|---|
+| `idp` | The provider kind (`google`, `github`, `cf-access`, `oidc:<name>`). |
+| `outcome` | `login.ok` only: `existing`, `linked` (first sign-in bound the account), `provisioned` or `owner_bootstrap`. |
+| `identityHash` | Once the provider verified an identity: `v<N>.` and 22 characters, a keyed hash (HMAC-SHA-256 under a key derived from master key version `N`) of the provider and subject. The same identity gives the same value, so repeated `identity_conflict` or `not_allowed` attempts by one person can be grouped; without the master key it cannot be matched to a guessed email or subject. Never the email or the subject itself. Rotating the master key changes every value. |
+| `previousRole` | `owner_bootstrap` of an existing user: the role the setup link replaced. |
+| `ip` | The client address, as for other refusals (`RB_AUDIT_CLIENT_IP`). |
+
+Group refusals by identity with `relic-bridge audit tail --action login.denied --json` and the `identityHash` field.
+
 ## Pass-through calls
 
 When [pass-through mode](self-hosting.md#pass-through-mode) is on, each `tools/call` on `/passthrough/mcp` writes one

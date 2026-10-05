@@ -61,6 +61,11 @@ Nobody can change their own role or disable themselves through a session (ask an
 token). Refusals are `403` with `"code": "forbidden"` and a `detail` (`role`, `owner`, `self`, `no_user`), and are written to the
 audit log (`admin.forbidden`, or the refused change as `denied`).
 
+**There is always an owner.** Demoting or disabling the last enabled owner is refused with `409`, `"code": "conflict"`,
+`"detail": "last_owner"` (the admin panel says "This is the last enabled owner"), even with the admin token. Make
+another user owner first. The check and the change are one storage write, so two owners demoting each other at the
+same moment leave one of them an owner. A disabled owner does not count.
+
 ## CSRF and cross-origin rules (for API clients that use the cookie)
 
 The session cookie is for the admin pages served by this instance. A request that carries it is accepted only when:

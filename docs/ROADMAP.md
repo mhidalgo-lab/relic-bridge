@@ -161,7 +161,7 @@ Generated from task front matter (`pnpm tasks index` once P0-05 lands). Status l
 | P4-13 | [Revoke the GitHub OAuth token after the identity lookup](tasks/phase-4-identity-admin/P4-13-github-token-revoke.md) | low | P4-01 | review |
 | P4-14 | [Move a user to another provider from the admin panel](tasks/phase-4-identity-admin/P4-14-unbind-in-admin-ui.md) | low | P4-09, P4-04 | review |
 | P4-15 | [Member self-service screens in the admin panel](tasks/phase-4-identity-admin/P4-15-member-self-service-screens.md) | medium | P4-10, P4-04 | review |
-| P4-16 | [Bind identities atomically and keep at least one owner](tasks/phase-4-identity-admin/P4-16-atomic-binding-last-owner.md) | medium | P4-01, P4-09 | in-progress |
+| P4-16 | [Bind identities atomically and keep at least one owner](tasks/phase-4-identity-admin/P4-16-atomic-binding-last-owner.md) | medium | P4-01, P4-09 | review |
 | P4-17 | [Cap live sessions per user and revoke them in bounded batches](tasks/phase-4-identity-admin/P4-17-session-cap-batched-revoke.md) | medium | P4-02 | todo |
 | P4-18 | [Tighten member key switching and personal keys as project defaults](tasks/phase-4-identity-admin/P4-18-member-key-switch-rules.md) | low | P4-10 | todo |
 | P4-19 | [Bound the storage writes signed-in users can cause](tasks/phase-4-identity-admin/P4-19-bound-self-service-writes.md) | low | P4-07, P4-10 | todo |

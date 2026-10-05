@@ -31,6 +31,8 @@ const SAMPLE_CALLS: Record<string, Record<string, unknown>> = {
   get_golden_metrics: { guid: MOCK_GUID },
   list_event_types: {},
   get_attributes: { event_type: 'Transaction' },
+  list_alert_policies: {},
+  list_alert_conditions: { policy_id: '8000026' },
 };
 
 const registry = new ToolRegistry();

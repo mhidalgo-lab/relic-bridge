@@ -1,4 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
+
+export {
+  ALERT_CONDITIONS_QUERY,
+  ALERT_POLICIES_QUERY,
+  type AlertConditionData,
+  type AlertPolicyData,
+  type AlertTermData,
+} from './alerts.ts';
 export {
   assertUserKey,
   DEFAULT_MAX_ATTEMPTS,

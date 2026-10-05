@@ -2,11 +2,11 @@
 id: P6-01
 title: "Tools: list_alert_policies, list_alert_conditions"
 phase: 6
-status: todo
+status: review
 priority: high
 depends_on: [P5-07]
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P6-01 — Tools: list_alert_policies, list_alert_conditions
@@ -23,9 +23,9 @@ owner: ""
   `nrqlConditionsSearch` is introspected only (not yet live-verified; RESEARCH §5, phase-6 pending log).
 
 ## Acceptance criteria
-- [ ] Fixture + contract tests (sample calls in `contract.test.ts`); account filtering enforced (P2-12 `TOOL_CASES`, hostile mock).
-- [ ] Every value is a GraphQL variable; name/NRQL/description text is inside the untrusted-data envelope.
-- [ ] `docs/reference/tools.md` regenerated; THREAT_MODEL row added.
+- [x] Fixture + contract tests (sample calls in `contract.test.ts`); account filtering enforced (P2-12 `TOOL_CASES`, hostile mock).
+- [x] Every value is a GraphQL variable; name/NRQL/description text is inside the untrusted-data envelope.
+- [x] `docs/reference/tools.md` regenerated; THREAT_MODEL row added.
 
 ## Security notes
 T3 (account scope, rows re-checked), T4 (variables only), T6 (alert names, descriptions and NRQL are user text).

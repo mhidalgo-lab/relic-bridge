@@ -75,6 +75,67 @@ export function mockNerdGraph(): { fetch: FetchLike; calls: RecordedCall[] } {
       }
       return fixtureResponse('nrql_sync_1');
     }
+    if (has('RbAlertPolicies')) {
+      return json({
+        data: {
+          actor: {
+            account: {
+              alerts: {
+                policiesSearch: {
+                  nextCursor: null,
+                  totalCount: 1,
+                  policies: [
+                    {
+                      id: '8000026',
+                      name: 'checkout policy',
+                      accountId: MOCK_ACCOUNT,
+                      incidentPreference: 'PER_CONDITION',
+                      entityGuid: btoa(`${MOCK_ACCOUNT}|AIOPS|POLICY|8000026`).replace(/=+$/, ''),
+                    },
+                  ],
+                },
+              },
+            },
+          },
+        },
+      });
+    }
+    if (has('RbAlertConditions')) {
+      return json({
+        data: {
+          actor: {
+            account: {
+              alerts: {
+                nrqlConditionsSearch: {
+                  nextCursor: null,
+                  totalCount: 1,
+                  nrqlConditions: [
+                    {
+                      id: '9000001',
+                      name: 'High error rate',
+                      policyId: '8000026',
+                      entityGuid: btoa(`${MOCK_ACCOUNT}|AIOPS|CONDITION|9000001`).replace(/=+$/, ''),
+                      enabled: true,
+                      type: 'STATIC',
+                      nrql: { query: 'FROM TransactionError SELECT count(*)', dataAccountId: MOCK_ACCOUNT },
+                      terms: [
+                        {
+                          priority: 'CRITICAL',
+                          operator: 'ABOVE',
+                          threshold: 5,
+                          thresholdDuration: 300,
+                          thresholdOccurrences: 'ALL',
+                        },
+                      ],
+                    },
+                  ],
+                },
+              },
+            },
+          },
+        },
+      });
+    }
     if (has('RbEntitySearch')) {
       return json({
         data: { actor: { entitySearch: { count: 1, results: { nextCursor: null, entities: [entity] } } } },

@@ -125,6 +125,21 @@ export const TOOL_CASES: Readonly<Record<string, readonly ToolCall[]>> = {
     { args: { entity_guid: guidOf(3) }, expect: 'refused', offline: true },
     { args: { entity_guid: guidOf(1) }, expect: 'ok' },
   ],
+  analyze_threads: [
+    { args: { entity_guid: guidOf(FOREIGN) }, expect: 'refused', offline: true },
+    { args: { entity_guid: guidOf(3) }, expect: 'refused', offline: true },
+    { args: { entity_guid: guidOf(1) }, expect: 'ok' },
+  ],
+  list_gc_metrics: [
+    { args: { entity_guid: guidOf(FOREIGN) }, expect: 'refused', offline: true },
+    { args: { entity_guid: guidOf(3) }, expect: 'refused', offline: true },
+    { args: { entity_guid: guidOf(1) }, expect: 'ok' },
+  ],
+  analyze_kafka_metrics: [
+    { args: { account: FOREIGN }, expect: 'refused', offline: true },
+    { args: { account: 3 }, expect: 'refused', offline: true },
+    { args: { account: 2, cluster_name: "a'b" }, expect: 'ok' },
+  ],
   get_entity: [
     { args: { guid: guidOf(FOREIGN) }, expect: 'refused', offline: true },
     // NerdGraph answers with an entity in the foreign account behind an allowed account's GUID.

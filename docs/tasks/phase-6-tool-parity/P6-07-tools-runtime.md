@@ -2,7 +2,7 @@
 id: P6-07
 title: "Tools: analyze_threads, list_gc_metrics, analyze_kafka_metrics"
 phase: 6
-status: in-progress
+status: review
 priority: medium
 depends_on: [P5-07]
 adr: []
@@ -28,11 +28,11 @@ All three are read-only, group `performance`, phase 6, NRQL only via the `nrql` 
   shown inside the untrusted-data envelope.
 
 ## Acceptance criteria
-- [ ] Graceful "no data for this entity/account" responses (never an error), naming what was looked for.
-- [ ] Fixture + contract tests; account filtering enforced (P2-12 `TOOL_CASES`).
-- [ ] NR-supplied names enveloped and capped; injection tests; hostile filters escaped via the `nrql` tag; event-type deny tested.
-- [ ] Budget-aware; partial result tested; accurate `cost`.
-- [ ] `docs/reference/tools.md` regenerated; THREAT_MODEL, RESEARCH updated; owner decisions logged.
+- [x] Graceful "no data for this entity/account" responses (never an error), naming what was looked for.
+- [x] Fixture + contract tests; account filtering enforced (P2-12 `TOOL_CASES`).
+- [x] NR-supplied names enveloped and capped; injection tests; hostile filters escaped via the `nrql` tag; event-type deny tested.
+- [x] Budget-aware; partial result tested; accurate `cost`.
+- [x] `docs/reference/tools.md` regenerated; THREAT_MODEL, RESEARCH updated; owner decisions logged.
 
 ## Security notes
 T3 (account from the GUID, or `account` for Kafka), T4 (`nrql` tag only), T6 (names written by monitored systems).

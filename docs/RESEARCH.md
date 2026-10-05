@@ -323,6 +323,14 @@ Sources: <https://github.com/cloudflare/workers-oauth-provider>, issues #264, #3
   `beginTimeSeconds` / `endTimeSeconds`; level counts use `FACET level`. **Unverified:** `entity.guid` being set on every
   log source, the exact `level` spellings, `LIKE` case sensitivity (the tool says "case as typed"), `TIMESERIES` in seconds
   being accepted, and the 2000-row LIMIT ceiling for non-aggregate queries (the tool samples 1000).
+- JVM and Kafka (P6-07, not verified against a real account): Java agent timeslices are read from `Metric` with
+  `average/max/sum/count(newrelic.timeslice.value)` faceted by `metricTimesliceName` and filtered by `entity.guid` and name prefixes
+  (`Threads/SummaryState/<STATE>/Count`, `JmxBuiltIn/Threads/`, `CPU/`, `Memory/`, `GC/`, `JmxBuiltIn/GC/`, `Memory/Heap/`). Kafka uses the
+  `nri-kafka` event types: `KafkaOffsetSample` (`consumer.lag`, `consumerGroup`, `topic`, `partition`), `KafkaTopicSample`
+  (`topic.bytesInPerSec`, `topic.bytesOutPerSec`, `topic.messagesInPerSec`), `KafkaBrokerSample` (`broker.bytesInPerSecond`,
+  `broker.bytesOutPerSecond`, `broker.messagesInPerSecond`, facet `entityName`), cluster filter `clusterName`. **Unverified:** every
+  name above (a wrong one yields null aggregates, which the tools report as "no data"), timeslice units, `entity.guid` on `Metric`, and
+  Kafka via OpenTelemetry or cloud integrations (MSK/Confluent), which use other event/metric names and are not read.
 - **Trusted publishing** (OIDC from GitHub Actions, no long-lived npm token) needs npm CLI ≥ 11.5.1 and Node ≥ 22.14
   (Node 24 bundles npm 11), job permission `id-token: write`, and a GitHub-hosted runner. Each package has at most one
   trusted publisher (workflow file + optional environment); `npm trust github <pkg> --file release.yml --env release`

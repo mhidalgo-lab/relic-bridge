@@ -10,6 +10,7 @@ import { createIdentityTools } from './identity.ts';
 import { createIssueTools } from './issues.ts';
 import { createLogTools } from './logs.ts';
 import { createQueryTools, type ToolDeps } from './query.ts';
+import { createRuntimeTools } from './runtime.ts';
 import { createSchemaTools } from './schema.ts';
 
 export { createTimeTools } from './time.ts';
@@ -38,6 +39,7 @@ export {
   RAW_NRQL_TOOLS,
   type ToolDeps,
 } from './query.ts';
+export { createRuntimeTools } from './runtime.ts';
 export {
   createSchemaTools,
   DEFAULT_SCHEMA_SINCE,
@@ -61,5 +63,6 @@ export function createBuiltinTools(deps: ToolDeps = {}): ToolDefinition[] {
     ...createChangeTools(deps),
     ...createApmTools(deps),
     ...createLogTools(deps),
+    ...createRuntimeTools(deps),
   ];
 }

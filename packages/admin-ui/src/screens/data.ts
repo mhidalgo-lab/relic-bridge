@@ -231,6 +231,40 @@ export function parseToken(r: Row): Token | null {
   };
 }
 
+/** An app connected with OAuth (P5-05): one authorization, never token material. */
+export interface OAuthDevice {
+  readonly id: string;
+  readonly userId: string;
+  readonly clientId: string;
+  /** Untrusted text from the client's registration: render escaped, never as a link. */
+  readonly clientName: string | null;
+  readonly clientKind: 'metadata_document' | 'dynamic';
+  readonly clientHost: string | null;
+  readonly label: string | null;
+  readonly projectSlug: string | null;
+  readonly grantId: string | null;
+  readonly createdAt: number;
+  readonly expiresAt: number | null;
+}
+
+export function parseOAuthDevice(r: Row): OAuthDevice | null {
+  const id = str(r['id']);
+  if (!/^oauth_[A-Za-z0-9_-]{16}$/.test(id)) return null;
+  return {
+    id,
+    userId: str(r['userId']),
+    clientId: str(r['clientId']),
+    clientName: strOrNull(r['clientName']),
+    clientKind: r['clientKind'] === 'metadata_document' ? 'metadata_document' : 'dynamic',
+    clientHost: strOrNull(r['clientHost']),
+    label: strOrNull(r['label']),
+    projectSlug: strOrNull(r['projectSlug']),
+    grantId: strOrNull(r['grantId']),
+    createdAt: int(r['createdAt']),
+    expiresAt: intOrNull(r['expiresAt']),
+  };
+}
+
 /** `{ data: {...} }` of a single-resource answer. */
 export function one<T>(body: unknown, parse: (r: Row) => T | null): T | null {
   const data = (body as { data?: unknown } | null)?.data;

@@ -2,11 +2,11 @@
 id: P4-16
 title: "Bind identities atomically and keep at least one owner"
 phase: 4
-status: todo
+status: in-progress
 priority: medium
 depends_on: [P4-01, P4-09]
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P4-16 — Bind identities atomically and keep at least one owner

@@ -2,7 +2,7 @@
 id: P6-05
 title: "Tools: analyze_transactions, list_top_transactions"
 phase: 6
-status: in-progress
+status: review
 priority: high
 depends_on: [P5-07]
 adr: []
@@ -27,11 +27,11 @@ owner: claude-agent
   Transaction names are NR/app-supplied text: cleaned, capped and inside the untrusted-data envelope (T6).
 
 ## Acceptance criteria
-- [ ] Fixture + contract tests (`tools-apm.test.ts`, sample calls in `contract.test.ts`); account filtering enforced
+- [x] Fixture + contract tests (`tools-apm.test.ts`, sample calls in `contract.test.ts`); account filtering enforced
   (P2-12 `TOOL_CASES`).
-- [ ] NRQL built via the `nrql` tag only; hostile transaction names/patterns are escaped (tested); names cleaned and enveloped.
-- [ ] Budget-aware; partial results tested for `analyze_transactions`.
-- [ ] `docs/reference/tools.md` regenerated; THREAT_MODEL and RESEARCH updated; owner decisions logged.
+- [x] NRQL built via the `nrql` tag only; hostile transaction names/patterns are escaped (tested); names cleaned and enveloped.
+- [x] Budget-aware; partial results tested for `analyze_transactions`.
+- [x] `docs/reference/tools.md` regenerated; THREAT_MODEL and RESEARCH updated; owner decisions logged.
 
 ## Security notes
 T3 (account from the GUID, offline), T4 (`nrql` tag only), T6 (transaction names are free text from the instrumented app).

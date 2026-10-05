@@ -310,6 +310,12 @@ Sources: <https://github.com/cloudflare/workers-oauth-provider>, issues #264, #3
   the `limit` maximum and the syntax of `query` are unknown (`query` is not used). **Unverified:** that `Transaction` carries
   `entityGuid` for every APM agent, and the result shape of `percentile(duration, 95) AS p95Duration` (read as a number or the
   first numeric member of an object).
+- APM transactions (P6-05, NRQL over `Transaction`, not verified against a real account): per-application filter
+  `WHERE entityGuid = '<guid>'`, per-transaction `FACET name`, failures `error IS true`, `transactionType` `'Web'` or `'Other'`
+  (background), durations in seconds. `percentile(duration, 50)`, `(…, 95)` and `(…, 99)` are selected separately with aliases and
+  read as a number or the first numeric member of an object. **Unverified:** facet rows carrying the facet value in `facet`
+  (an array when several facets), that `ORDER BY <aggregate> DESC` after `FACET` honours non-selected-alias expressions (the
+  tool re-sorts client-side anyway), and `LIKE` being case-insensitive (the tool's description says so; check live).
 - **Trusted publishing** (OIDC from GitHub Actions, no long-lived npm token) needs npm CLI ≥ 11.5.1 and Node ≥ 22.14
   (Node 24 bundles npm 11), job permission `id-token: write`, and a GitHub-hosted runner. Each package has at most one
   trusted publisher (workflow file + optional environment); `npm trust github <pkg> --file release.yml --env release`

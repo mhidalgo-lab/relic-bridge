@@ -201,12 +201,12 @@ export const isNonNull = <T>(v: T | null | undefined): v is T => v !== null && v
  * A New Relic code (`APM`, `APPLICATION`, `CRITICAL`, `CALLS`…). Restricted to a strict charset, so it is safe to show
  * outside the untrusted-data envelope; anything else becomes null.
  */
-function label(value: string | null | undefined): string | null {
+export function label(value: string | null | undefined): string | null {
   return typeof value === 'string' && CODE_RE.test(value) ? value : null;
 }
 
 /** Accounts a search or catalogue covers: the requested one (checked) or every allowed account. */
-function scopeAccounts(ctx: ToolContext, account: number | undefined): number[] {
+export function scopeAccounts(ctx: ToolContext, account: number | undefined): number[] {
   const accounts =
     account === undefined ? [...new Set(ctx.accounts.allowed)] : resolveAccounts(ctx, [account]);
   if (accounts.length === 0) {
@@ -225,7 +225,7 @@ function scopeAccounts(ctx: ToolContext, account: number | undefined): number[] 
 }
 
 /** `accountId IN ('1', '2')`. Quoted like the P0-09 probe (`accountId = '…'`), escaped by the tag anyway. */
-function accountFilter(accounts: readonly number[]): EntitySearchQuery {
+export function accountFilter(accounts: readonly number[]): EntitySearchQuery {
   return entityQuery`accountId IN ${accounts.map(String)}`;
 }
 
@@ -275,7 +275,20 @@ export function requireField<T>(
     : notFound();
 }
 
-function toRow(e: EntityOutlineData, fallback?: { guid?: string | null; accountId?: number | null }) {
+export interface EntityRow {
+  guid: string;
+  name: string;
+  accountId: number | null;
+  domain: string | null;
+  type: string | null;
+  alertSeverity: string | null;
+  reporting: boolean | null;
+}
+
+export function toRow(
+  e: EntityOutlineData,
+  fallback?: { guid?: string | null; accountId?: number | null },
+): EntityRow {
   return {
     guid: e.guid ?? fallback?.guid ?? '',
     name: cleanName(e.name ?? ''),
@@ -287,7 +300,7 @@ function toRow(e: EntityOutlineData, fallback?: { guid?: string | null; accountI
   };
 }
 
-const kind = (r: { domain: string | null; type: string | null }) =>
+export const kind = (r: { domain: string | null; type: string | null }): string =>
   [r.domain, r.type].filter(isNonNull).join('/') || 'unknown';
 
 interface TypesCacheEntry {

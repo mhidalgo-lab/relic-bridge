@@ -2,11 +2,11 @@
 id: P6-14
 title: "Fuzzy entity-name resolution with per-credential cache"
 phase: 6
-status: todo
+status: review
 priority: medium
 depends_on: [P5-07]
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P6-14 — Fuzzy entity-name resolution with per-credential cache
@@ -29,13 +29,13 @@ Let users say "shippingservice" instead of an exact entity name or GUID (idea fr
   this task ships the resolver and the tool they will call.
 
 ## Acceptance criteria
-- [ ] `resolve_entity` and the exported `resolveEntity` implement the tiers above; guid input needs no request.
-- [ ] Ambiguity returns candidates (capped, with total) and never picks one.
-- [ ] Cache: TTL, LRU bound, key = credential id + region + accounts + filters; a grant with fewer accounts on the same
+- [x] `resolve_entity` and the exported `resolveEntity` implement the tiers above; guid input needs no request.
+- [x] Ambiguity returns candidates (capped, with total) and never picks one.
+- [x] Cache: TTL, LRU bound, key = credential id + region + accounts + filters; a grant with fewer accounts on the same
   credential never sees entries of a wider grant (tests incl. HTTP isolation).
-- [ ] Allowed-account filtering on fresh and cached data; out-of-scope guid and account refused offline.
-- [ ] Names are cleaned (`cleanName`) and shown inside the untrusted-data envelope; injection-shaped names are inert.
-- [ ] Contract sample call, authz `TOOL_CASES`, e2e tool count, `pnpm bench:cpu` stays green; docs regenerated.
+- [x] Allowed-account filtering on fresh and cached data; out-of-scope guid and account refused offline.
+- [x] Names are cleaned (`cleanName`) and shown inside the untrusted-data envelope; injection-shaped names are inert.
+- [x] Contract sample call, authz `TOOL_CASES`, e2e tool count, `pnpm bench:cpu` stays green; docs regenerated.
 
 ## Security notes
 T3, T16. Entity names are untrusted text (T6) — escape in entity search (P1-08 helper).

@@ -280,7 +280,7 @@ environment variable (`secrets.ts`); the node-only terminal pieces live in `host
 | Group | Tools | Phase |
 |---|---|---|
 | Query | `run_nrql`, `get_query_result` | 1 |
-| Discovery | `whoami`, `list_accounts`, `search_entities`, `get_entity`, `get_related_entities`, `list_entity_types`, `decode_entity_guid`, `list_event_types`, `get_attributes`, `time_range` | 1 |
+| Discovery | `whoami`, `list_accounts`, `search_entities`, `resolve_entity`, `get_entity`, `get_related_entities`, `list_entity_types`, `decode_entity_guid`, `list_event_types`, `get_attributes`, `time_range` | 1 |
 | Health | `get_golden_metrics` | 1 |
 | Alerting | `list_alert_policies` (done), `list_alert_conditions` (done), `list_recent_issues` (done), `search_incidents` (done), `list_synthetic_monitors` (done) | 6 |
 | Incident response | `list_error_groups` (done), `list_change_events` (done), `analyze_deployment_impact` (done) | 6 |

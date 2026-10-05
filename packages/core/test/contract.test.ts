@@ -27,6 +27,7 @@ const SAMPLE_CALLS: Record<string, Record<string, unknown>> = {
   get_entity: { guid: MOCK_GUID },
   get_related_entities: { guid: MOCK_GUID },
   list_entity_types: {},
+  resolve_entity: { query: 'checkout' },
   decode_entity_guid: { guid: MOCK_GUID },
   get_golden_metrics: { guid: MOCK_GUID },
   list_event_types: {},

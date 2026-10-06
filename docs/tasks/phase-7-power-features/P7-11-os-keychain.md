@@ -2,11 +2,11 @@
 id: P7-11
 title: "OS keychain for local credentials"
 phase: 7
-status: todo
+status: in-progress
 priority: low
 depends_on: [P6-13]
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P7-11 — OS keychain for local credentials

@@ -2,7 +2,7 @@
 id: P7-13
 title: "Async tool runs via MCP Tasks extension"
 phase: 7
-status: in-progress
+status: review
 priority: low
 depends_on: [P6-13]
 adr: []
@@ -59,19 +59,32 @@ for stateless serving: no work runs after a response; each poll does at most one
 
 ## Acceptance criteria
 - [x] Task refined (this file) before implementation.
-- [ ] A Tasks-declaring 2026-07-28 client gets `resultType: "task"` for a slow `run_nrql`, polls `tasks/get` to
+- [x] A Tasks-declaring 2026-07-28 client gets `resultType: "task"` for a slow `run_nrql`, polls `tasks/get` to
       `completed` with the same enveloped result shape as a synchronous call; `server/discover` advertises the
       extension (HTTP integration tests with a mocked NerdGraph).
-- [ ] Fallback unchanged: no extension declared (2026 client), legacy 2025 clients, stdio and pass-through get the
+- [x] Fallback unchanged: no extension declared (2026 client), legacy 2025 clients, stdio and pass-through get the
       `queryId` handle; `tasks/*` from a client that did not declare the extension gets `-32021`.
-- [ ] Task ids are 256-bit random; only a hash is stored; the record is sealed and bound to project + grant + token /
+- [x] Task ids are 256-bit random; only a hash is stored; the record is sealed and bound to project + grant + token /
       OAuth device; another token of the same grant, another grant, another project and the pass-through route all
       get the same `-32602` (authz suite negatives); a revoked token gets `401`.
-- [ ] Polls honour `pollIntervalMs` (no NerdGraph call when polled early), spend the request budget and the grant's
+- [x] Polls honour `pollIntervalMs` (no NerdGraph call when polled early), spend the request budget and the grant's
       quota; transient errors keep the task working; expiry after TTL.
-- [ ] `tasks/cancel` and `tasks/update` acknowledge for the owner and refuse others.
+- [x] `tasks/cancel` and `tasks/update` acknowledge for the owner and refuse others.
 - [ ] Works with at least one real client (needs a deployment and a Tasks-capable client; not verifiable offline).
-- [ ] `pnpm lint && pnpm typecheck && pnpm test && pnpm test:workers && pnpm build && pnpm bench:cpu && pnpm docs:tools`.
+- [x] `pnpm lint && pnpm typecheck && pnpm test && pnpm test:workers && pnpm build && pnpm bench:cpu && pnpm docs:tools`.
+
+## Result (2026-10-06)
+- Core: `packages/core/src/tasks.ts` (records, sealing, owner binding, one-step resume), `call-result.ts`,
+  `ToolOutput.task` / `ToolDefinition.resumeTask`, `buildMcpServer` (extension advertised only with a binding; task
+  answer only for a declaring 2026-07-28 request; inline fallback when the store fails), `run_nrql` (async submit +
+  `resumeTask`).
+- HTTP: `packages/http-app/src/tasks.ts` (`tasks/get|update|cancel`, `-32021`, `-32020`, uniform `-32602`), route wiring
+  under the request deadline, `taskStore` option; `serve` and the Worker pass `storage.kv`.
+- Tests: `packages/core/test/tasks.test.ts`, `packages/http-app/test/tasks.test.ts`, authz
+  `packages/http-app/test/authz/tasks.test.ts` (also runs on the Worker with D1), `serve` e2e discover check.
+- Tool reference: `run_nrql`'s description is unchanged (a sentence about Tasks did not fit the `tools/list`
+  description budget); Tasks are documented in `docs/guide/clients.md` and `docs/reference/client-compatibility.md`.
+- The client criterion stays open: no Tasks-capable client could be run (pending decisions, phase 7).
 
 ## Security notes
 T32 (new): task handles as bearer-like references to stored results. Unguessable ids, hash-only storage, sealed

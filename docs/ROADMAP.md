@@ -229,7 +229,7 @@ Generated from task front matter (`pnpm tasks index` once P0-05 lands). Status l
 | P7-10 | [Durable Object concurrency limiter for shared keys](tasks/phase-7-power-features/P7-10-do-concurrency-limiter.md) | low | P6-13 | review |
 | P7-11 | [OS keychain for local credentials](tasks/phase-7-power-features/P7-11-os-keychain.md) | low | P6-13 | review |
 | P7-12 | [Per-grant quotas and usage dashboard](tasks/phase-7-power-features/P7-12-quotas-usage.md) | low | P6-13 | review |
-| P7-13 | [Async tool runs via MCP Tasks extension](tasks/phase-7-power-features/P7-13-tasks-extension.md) | low | P6-13 | todo |
+| P7-13 | [Async tool runs via MCP Tasks extension](tasks/phase-7-power-features/P7-13-tasks-extension.md) | low | P6-13 | in-progress |
 | P7-14 | [Registry-friendly tool discovery (lazy auth)](tasks/phase-7-power-features/P7-14-lazy-auth-discovery.md) | low | P6-13 | todo |
 | P7-15 | [Opt-in, validated read-only NerdGraph query tool (only if ADR-0014 is reversed)](tasks/phase-7-power-features/P7-15-opt-in-nerdgraph-query.md) | low | P6-15 | blocked |
 | P7-16 | [MCP Apps: capability-gated UI metadata and an operator switch](tasks/phase-7-power-features/P7-16-mcp-apps-gating.md) | low | P7-04 | todo |
@@ -237,6 +237,8 @@ Generated from task front matter (`pnpm tasks index` once P0-05 lands). Status l
 | P7-18 | [OTLP follow-ups: logs, budget usage, stdio, trace context](tasks/phase-7-power-features/P7-18-otel-logs-budget-stdio.md) | low | P7-08 | todo |
 | P7-19 | [create_dashboard write tool](tasks/phase-7-power-features/P7-19-create-dashboard-write-tool.md) | low | P7-09 | todo |
 | P7-20 | [Confirm write tool calls through MCP elicitation](tasks/phase-7-power-features/P7-20-write-confirm-elicitation.md) | low | P7-09 | todo |
+| P7-21 | [MCP Tasks for composite reports and multi-query tools](tasks/phase-7-power-features/P7-21-tasks-composite-reports.md) | low | P7-13 | todo |
+| P7-22 | [MCP Tasks: status notifications, stdio and pass-through](tasks/phase-7-power-features/P7-22-tasks-notifications-stdio.md) | low | P7-13 | todo |
 
 ### Phase 8
 

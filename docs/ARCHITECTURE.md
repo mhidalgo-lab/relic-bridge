@@ -178,6 +178,13 @@ Implemented by `createHttpApp` in `packages/http-app` (P2-06); `relic-bridge ser
    - apply query limits
    - NerdGraph call(s) with explicit timeout and backoff on 429
    - async polling within budget
+   - with the MCP Tasks extension (P7-13): a client that declared `io.modelcontextprotocol/tasks` on a 2026-07-28
+     `tools/call` gets a task handle (`resultType: "task"`) for a slow `run_nrql` instead of the `queryId` text. The
+     task is a sealed `kv` record (key = hash of the 256-bit id, AES-GCM under a key derived from the id, AAD = project,
+     grant, token / OAuth device; 15 min TTL). `tasks/get` / `tasks/update` / `tasks/cancel` are answered by the route
+     itself after steps 2-4 (the SDK has no Tasks runtime): each `tasks/get` does at most one NerdGraph poll, within
+     that request's budget, limits and quota, and only once the task's poll interval has passed. Nothing runs after
+     a response.
 7. **Shape output**: format, caps, truncation notice, "untrusted telemetry" envelope. The whole exchange, including a
    streamed response, is bounded by a request deadline (180 s).
 8. **Audit** (P2-08, `createAuditRecorder` hooks, each write run in the background, `waitUntil` on Workers): one row per

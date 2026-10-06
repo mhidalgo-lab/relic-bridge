@@ -2,7 +2,7 @@
 id: P7-14
 title: "Registry-friendly tool discovery (lazy auth)"
 phase: 7
-status: in-progress
+status: review
 priority: low
 depends_on: [P6-13]
 adr: []
@@ -36,19 +36,19 @@ learning), without weakening the access model: no data, no project existence ora
   its environment variables. **Publishing is an owner decision** (not done here).
 
 ## Acceptance criteria
-- [ ] `npx relic-bridge` without env lists tools and returns a clear setup error on call (tools/call and
+- [x] `npx relic-bridge` without env lists tools and returns a clear setup error on call (tools/call and
       resources/read); partial config still exits 1.
-- [ ] Remote endpoints still require auth by default (authz suite unchanged), and with the catalog off the well-known
+- [x] Remote endpoints still require auth by default (authz suite unchanged), and with the catalog off the well-known
       route is 404.
-- [ ] With `RB_PUBLIC_TOOL_CATALOG=on`: unauthenticated `initialize`/`tools/list` on `/p/<any>/mcp` answer the same
+- [x] With `RB_PUBLIC_TOOL_CATALOG=on`: unauthenticated `initialize`/`tools/list` on `/p/<any>/mcp` answer the same
       bytes for a known slug, an unknown slug and a malformed slug; the list holds only static read-only tool
       definitions (no write tools, no project, grant or account data).
-- [ ] With the catalog on, unauthenticated `tools/call`, `resources/read`, `prompts/get`, `tasks/get`,
+- [x] With the catalog on, unauthenticated `tools/call`, `resources/read`, `prompts/get`, `tasks/get`,
       `subscriptions/listen`, GET and DELETE answer the standard 401 (with `resource_metadata` when OAuth is on),
       identical for known and unknown slugs; authz matrix cases cover both hosts.
-- [ ] `server.json` validates against the registry schema constraints checked in a test (name pattern, description
+- [x] `server.json` validates against the registry schema constraints checked in a test (name pattern, description
       ≤ 100 characters, version matches the package, secret env vars flagged).
-- [ ] Docs: quickstart, self-hosting (`RB_PUBLIC_TOOL_CATALOG`), registry listing guide, THREAT_MODEL, RESEARCH.
+- [x] Docs: quickstart, self-hosting (`RB_PUBLIC_TOOL_CATALOG`), registry listing guide, THREAT_MODEL, RESEARCH.
 - [ ] Publishing to the MCP Registry (owner decision; out of scope for the agent run).
 
 ## Security notes

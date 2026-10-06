@@ -36,7 +36,7 @@ export const AUDIT_MAX_DETAILS_CHARS = 2000;
 export const DEFAULT_AUDIT_AUTH_ROWS_PER_MINUTE = 120;
 export const DEFAULT_AUDIT_RETENTION_DAYS = 90;
 /** A grant's quota refusals are audited at most once per this interval (P7-12): a runaway agent cannot flood the log. */
-export const QUOTA_DENIED_AUDIT_INTERVAL_MS = 15 * 60_000;
+export const QUOTA_DENIED_AUDIT_INTERVAL_MS: number = 15 * 60_000;
 const QUOTA_DENIED_MAX_GRANTS = 1000;
 
 const DAY_MS = 86_400_000;

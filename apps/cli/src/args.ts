@@ -289,6 +289,10 @@ Audit log (serve):
                          startup and hourly.
   RB_AUDIT_CLIENT_IP     on (default) or off: record the client address on refused requests.
 
+Self-monitoring (serve, off by default):
+  RB_OTEL                off (default) or on: export traces and metrics about this server over OTLP
+                         (needs RB_OTEL_ENDPOINT; optional RB_OTEL_HEADERS, RB_OTEL_SAMPLE). See docs/guide/observability.md.
+
 Admin API (serve):
   RB_ADMIN_TOKEN         Bootstrap admin token (32+ printable characters, e.g. from
                          "openssl rand -base64 32"; or RB_ADMIN_TOKEN_FILE, mode 0600).

@@ -36,6 +36,7 @@ import {
   createAuditRecorder,
   createHttpApp,
   createRateLimitHooks,
+  createTelemetry,
   DEFAULT_PASSTHROUGH_IDENTITY_TTL_MS,
   DEFAULT_RATE_LIMITS,
   defaultAllowedHostnames,
@@ -52,6 +53,9 @@ import {
   type RateLimitRule,
   type RateLimitRules,
   resolveClientIp,
+  TelemetryConfigError,
+  type TelemetrySettings,
+  telemetrySettingsFromEnv,
 } from '@relic-bridge/http-app';
 import { purgeExpiredKv, StorageError } from '@relic-bridge/storage';
 import { openSqliteStorage } from '@relic-bridge/storage-sqlite';
@@ -212,6 +216,17 @@ function auditSettings(env: Env, warnings: string[]): AuditSettings {
   };
 }
 
+function telemetrySettings(env: Env): TelemetrySettings | null {
+  try {
+    return telemetrySettingsFromEnv(env);
+  } catch (error) {
+    if (error instanceof TelemetryConfigError) {
+      throw new ConfigError(`${error.message}.`, 'See docs/guide/observability.md.');
+    }
+    throw error;
+  }
+}
+
 /** NRQL query cache (P7-02): `RB_QUERY_CACHE` (on|off, default on) and `RB_QUERY_CACHE_TTL` (seconds, 0-300). */
 export interface QueryCacheSettings {
   readonly enabled: boolean;
@@ -293,6 +308,8 @@ export interface ServeSettings {
   readonly oauth: OAuthSettings | null;
   /** NRQL query cache (P7-02). */
   readonly queryCache: QueryCacheSettings;
+  /** Self-monitoring via OTLP (P7-08, `RB_OTEL=on`); `null` when off (the default). */
+  readonly telemetry: TelemetrySettings | null;
   readonly warnings: readonly string[];
 }
 
@@ -431,6 +448,7 @@ export function serveSettings(input: {
     identity,
     oauth: oauthSettings(env, identity),
     queryCache: queryCacheSettings(env),
+    telemetry: telemetrySettings(env),
     warnings,
   };
 }
@@ -558,10 +576,20 @@ export async function startServer(options: StartServerOptions): Promise<RunningS
   purgeHousekeeping();
   const purgeTimer = setInterval(purgeHousekeeping, AUDIT_PURGE_INTERVAL_MS);
   purgeTimer.unref();
-  const hooks =
-    rateLimitHooks === undefined && audit === undefined
+  const telemetry =
+    settings.telemetry === null
       ? undefined
-      : mergeHooks(rateLimitHooks, audit?.hooks);
+      : createTelemetry({
+          endpoint: settings.telemetry.endpoint,
+          headers: settings.telemetry.headers,
+          traceSampleRate: settings.telemetry.traceSampleRate,
+          runtime: 'node',
+          logger,
+        });
+  const hooks =
+    rateLimitHooks === undefined && audit === undefined && telemetry === undefined
+      ? undefined
+      : mergeHooks(rateLimitHooks, audit?.hooks, telemetry?.hooks);
 
   const app = createHttpApp({
     storage,

@@ -412,3 +412,66 @@ describe('Plan limits', () => {
     await client.close();
   }, 30_000);
 });
+
+describe('Self-monitoring (P7-08)', () => {
+  const event = (r: Request) => new URL(r.url).pathname;
+
+  it('is off by default: no export happens', async () => {
+    const { storage, token } = await seed(MASTER_KEY);
+    const sent: string[] = [];
+    const worker = createWorker({
+      openStorage: () => storage,
+      fetch: mockNerdGraph().fetch,
+      telemetryFetch: async (url) => {
+        sent.push(String(url));
+        return new Response('{}');
+      },
+      logSink: () => {},
+    });
+    const ctx = fakeCtx();
+    const client = await connect(worker, env, ctx, token);
+    await client.callTool({ name: 'whoami', arguments: {} });
+    await client.close();
+    await ctx.settle();
+    expect(sent).toEqual([]);
+  });
+
+  it('exports through waitUntil when RB_OTEL=on, with the headers from the secret', async () => {
+    const { storage, token } = await seed(MASTER_KEY);
+    const sent: { path: string; key: string | null; body: string }[] = [];
+    const worker = createWorker({
+      openStorage: () => storage,
+      fetch: mockNerdGraph().fetch,
+      telemetryFetch: async (url, init) => {
+        sent.push({
+          path: event(new Request(String(url))),
+          key: new Headers(init.headers).get('api-key'),
+          body: String(init.body),
+        });
+        return new Response('{}');
+      },
+      logSink: () => {},
+    });
+    const otelEnv = {
+      ...env,
+      RB_OTEL: 'on',
+      RB_OTEL_ENDPOINT: 'https://otlp.example.test:4318',
+      RB_OTEL_HEADERS: 'api-key=fake-license-key',
+    } as WorkerEnv;
+    const ctx = fakeCtx();
+    const client = await connect(worker, otelEnv, ctx, token);
+    await client.callTool({ name: 'whoami', arguments: {} });
+    await client.close();
+    await ctx.settle();
+    expect(sent.map((s) => s.path).sort()).toEqual(['/v1/metrics', '/v1/traces']);
+    expect(sent.every((s) => s.key === 'fake-license-key')).toBe(true);
+    expect(sent.map((s) => s.body).join('')).not.toContain('a@example.com');
+  });
+
+  it('fails the boot closed on RB_OTEL=on without an endpoint', async () => {
+    const { storage } = await seed(MASTER_KEY);
+    const worker = createWorker({ openStorage: () => storage, logSink: () => {} });
+    const res = await call(worker, { ...env, RB_OTEL: 'on' } as WorkerEnv, fakeCtx(), '/health');
+    expect(res.status).toBe(503);
+  });
+});

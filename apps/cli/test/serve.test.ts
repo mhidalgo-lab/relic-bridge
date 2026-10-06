@@ -63,6 +63,16 @@ describe('query cache settings (P7-02)', () => {
 describe('serveSettings', () => {
   const base = { env: {}, platform: 'linux', homeDir: '/home/u' };
 
+  it('self-monitoring (P7-08) is off by default and validated when on', () => {
+    expect(serveSettings(base).telemetry).toBeNull();
+    const env = { RB_OTEL: 'on', RB_OTEL_ENDPOINT: 'https://otlp.example.test:4318', RB_OTEL_SAMPLE: '0.1' };
+    expect(serveSettings({ ...base, env: { ...base.env, ...env } }).telemetry).toMatchObject({
+      endpoint: 'https://otlp.example.test:4318',
+      traceSampleRate: 0.1,
+    });
+    expect(() => serveSettings({ ...base, env: { ...base.env, RB_OTEL: 'on' } })).toThrow(ConfigError);
+  });
+
   it('defaults to 127.0.0.1:8787, loopback Host allowlist and the per-user data directory', () => {
     const s = serveSettings(base);
     expect(s).toMatchObject({

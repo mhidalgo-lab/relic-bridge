@@ -281,7 +281,7 @@ environment variable (`secrets.ts`); the node-only terminal pieces live in `host
   (`packages/core/src/output`, [output formats guide](guide/output-formats.md)).
 - **Errors**: stable error codes (`RB_AUTH_*`, `RB_LIMIT_*`, `RB_NERDGRAPH_*`, `RB_BUDGET_EXHAUSTED`, …), mapped to
   MCP tool errors with actionable messages for the agent. Secrets are never echoed.
-- **Observability**: structured JSON logs (redacted); optional OpenTelemetry export (Phase 7).
+- **Observability**: structured JSON logs (redacted); optional OTLP/HTTP self-monitoring export, off by default (P7-08, `docs/guide/observability.md`).
 - **Configuration**: env vars with the `RB_` prefix plus the storage-backed settings. A config schema is validated at boot.
 
 ## 7. Tool catalogue (target)

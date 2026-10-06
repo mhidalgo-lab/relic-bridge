@@ -148,3 +148,55 @@ describe('tasks are visible to their creator only', () => {
     expect(call).not.toContain('"resultType":"task"');
   });
 });
+
+describe('composite report tasks (P7-21)', () => {
+  const REPORT = {
+    name: 'generate_alert_insights_report',
+    arguments: { issue_id: 'issue-alpha-issue', account: 2, sections: ['errors', 'related'] },
+  };
+  const calls = () => h.nerdGraph.calls.length;
+
+  it('an insights report task is visible to its creator only, and completes for it', async () => {
+    const a = await h.addTenant('tasks-a');
+    const taskId = await startTaskOn(h.app, a.token.value, REPORT, { slug: 'tasks-a' });
+    // Only the issue lookup ran when the task was created.
+    expect(h.nerdGraph.calls.map((c) => c.op)).toEqual(['RbAiIssues']);
+
+    const sameGrant = await h.addToken(a.grantId);
+    const otherGrant = await h.addToken(await h.addGrant(a.projectId));
+    const b = await h.addTenant('tasks-b');
+    h.world.clock.advance(5000);
+    const before = calls();
+    for (const [token, slug] of [
+      [sameGrant.value, 'tasks-a'],
+      [otherGrant.value, 'tasks-a'],
+      [b.token.value, 'tasks-b'],
+    ] as const) {
+      for (const method of METHODS) {
+        const res = await rpc(h.app, token, method, { taskId }, { slug });
+        expect(res.error, `${slug} ${method}`).toEqual(NOT_FOUND);
+      }
+    }
+    // Nobody else ran sections on the creator's behalf.
+    expect(calls()).toBe(before);
+
+    const own = await rpc(h.app, a.token.value, 'tasks/get', { taskId }, { slug: 'tasks-a' });
+    expect(own.result).toMatchObject({ status: 'completed' });
+    const text = JSON.stringify(own.result);
+    expect(text).toContain('Error groups');
+    expect(text).not.toContain('"resultType":"task"');
+    // The partial results are enveloped New Relic data, like a synchronous call.
+    expect(text).toMatch(/untrusted/i);
+  });
+
+  it('a task of a tool the grant lost completes with RB_AUTH_FORBIDDEN and runs no section', async () => {
+    const a = await h.addTenant('tasks-a');
+    const taskId = await startTaskOn(h.app, a.token.value, REPORT, { slug: 'tasks-a' });
+    await h.world.storage.grants.update(a.grantId, { tools: ['whoami'] });
+    h.world.clock.advance(5000);
+    const before = calls();
+    const res = await rpc(h.app, a.token.value, 'tasks/get', { taskId }, { slug: 'tasks-a' });
+    expect(JSON.stringify(res.result)).toContain('RB_AUTH_FORBIDDEN');
+    expect(calls()).toBe(before);
+  });
+});

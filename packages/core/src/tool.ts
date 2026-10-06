@@ -29,6 +29,11 @@ export interface ToolOutput<O = unknown> {
    */
   task?: TaskJob;
   /**
+   * With `task`: the complete answer to give instead when the task can't be stored (P7-21), for tools whose plain output
+   * is only a placeholder. Run once, in the same request.
+   */
+  taskFallback?: () => Promise<ToolOutput>;
+  /**
    * Ask the person to approve (P7-20): the server answers the call with an MCP `input_required` result carrying this
    * elicitation, and the client calls again with the answer (`ToolContext.elicitation`). Set only by write tools when
    * `ctx.elicitation` is present.

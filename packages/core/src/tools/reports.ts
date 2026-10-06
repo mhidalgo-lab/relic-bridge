@@ -11,6 +11,7 @@ import { runNrql } from '../nrql/engine.ts';
 import { type NrqlQuery, nrql } from '../nrql/template.ts';
 import { envelope } from '../output/envelope.ts';
 import { shapeRows } from '../output/format.ts';
+import type { TaskJob } from '../tasks.ts';
 import { parseTimeRange } from '../time/range.ts';
 import { defineTool, type ToolDefinition, type ToolOutput } from '../tool.ts';
 import { createChangeTools, FATAL_CODES } from './changes.ts';
@@ -320,6 +321,66 @@ const INSIGHTS_DESCRIPTION = `Investigation report for one alert issue (issue_id
 
 Use it to start investigating a specific alert. Each section is the result of the matching tool (get_entity, get_golden_metrics, list_error_groups, analyze_entity_logs, list_change_events, get_related_entities): drill in with those. Runs up to ${INSIGHTS_COST} requests in that priority order; what does not fit or fails is marked skipped or error (partial: true): ask for fewer sections or max_metrics. For an entity without a specific issue use entity_health. Uses New Relic's experimental aiIssues API. ${UNTRUSTED}`;
 
+/** Sections run per `tasks/get` of an insights task (P7-21). */
+const STEP_SECTIONS = 3;
+/** Largest task state (JSON characters) kept while sections are still to run; past it the rest is skipped. */
+const MAX_INSIGHTS_STATE_CHARS = 300_000;
+const SIZE_NOTE = 'Task size limit reached: not run.';
+
+const issueState = z.strictObject({
+  id: z.string().max(200),
+  title: z.string().max(5000),
+  state: z.string().max(200).nullable(),
+  priority: z.string().max(200).nullable(),
+  createdAt: z.string().max(100).nullable(),
+  activatedAt: z.string().max(100).nullable(),
+  acknowledgedAt: z.string().max(100).nullable(),
+  closedAt: z.string().max(100).nullable(),
+  updatedAt: z.string().max(100).nullable(),
+  entities: z.array(z.string().max(1000)).max(500),
+  entityGuids: z.array(z.string().max(1000)).max(500),
+  entityTypes: z.array(z.string().max(1000)).max(500),
+  policies: z.array(z.string().max(1000)).max(500),
+  conditions: z.array(z.string().max(1000)).max(500),
+  sources: z.array(z.string().max(1000)).max(500),
+  mutingState: z.string().max(200).nullable(),
+  correlated: z.boolean().nullable(),
+  idle: z.boolean().nullable(),
+  incidentCount: z.number().nullable(),
+  description: z.string().max(100_000).nullable(),
+  link: z.string().max(5000).nullable(),
+});
+
+/** What an insights task keeps between polls (sealed at rest, P7-21): the call, the issue and the sections done. */
+const insightsTaskState = z.strictObject({
+  args: insightsInput,
+  account: z.number().int(),
+  issue: issueState,
+  win: z.strictObject({ sinceMs: z.number(), untilMs: z.number(), cut: z.boolean() }).nullable(),
+  notes: z.array(z.string().max(2000)).max(20),
+  sections: z
+    .array(
+      z.strictObject({
+        name: z.enum(INSIGHT_SECTIONS),
+        status: z.enum(SECTION_STATUSES),
+        note: z.string().max(5000).nullable(),
+        data: z.record(z.string(), z.unknown()).nullable(),
+        text: z.string().nullable(),
+      }),
+    )
+    .max(INSIGHT_SECTIONS.length),
+});
+type InsightsTaskState = z.infer<typeof insightsTaskState>;
+
+function insightsTaskJob(state: InsightsTaskState): TaskJob {
+  const total = (state.args.sections ?? INSIGHT_SECTIONS).length;
+  return {
+    state,
+    pollIntervalMs: 1000,
+    statusMessage: `Building the alert insights report: ${state.sections.length} of ${total} sections done.`,
+  };
+}
+
 // ---------------------------------------------------------------------------------------------------------------------
 // generate_user_impact_report
 // ---------------------------------------------------------------------------------------------------------------------
@@ -549,6 +610,179 @@ export function createReportTools(deps: ToolDeps = {}): ToolDefinition[] {
     return grantedSibling(t);
   };
 
+  interface InsightsBase {
+    account: number;
+    issue: IssueRow;
+    win: IssueWindow | null;
+    notes: string[];
+  }
+  interface InsightsPlan extends InsightsBase {
+    /** Sections to run in priority order (empty when the issue has no entity or start time). */
+    items: PlanItem<InsightSection>[];
+    argsFor: (name: InsightSection, granted: number) => [string, Record<string, unknown>];
+  }
+
+  /** The sections an insights report would run, from the issue and its window (pure; no request). */
+  const insightsPlan = (
+    args: z.infer<typeof insightsInput>,
+    ctx: ToolContext,
+    base: InsightsBase,
+  ): InsightsPlan => {
+    const { issue, win } = base;
+    const guid = issue.entityGuids[0] ?? null;
+    const wanted = new Set<InsightSection>(args.sections ?? INSIGHT_SECTIONS);
+    if (guid === null || win === null) {
+      return { ...base, items: [], argsFor: () => ['', {}] };
+    }
+    const window = rangeText(win.sinceMs, win.untilMs);
+    const changeSince = Math.max(
+      win.sinceMs - (args.change_lookback_hours ?? DEFAULT_CHANGE_LOOKBACK_HOURS) * HOUR_MS,
+      win.untilMs - ctx.limits.maxWindowDays * DAY_MS,
+    );
+    const metrics = args.max_metrics ?? DEFAULT_REPORT_METRICS;
+    const items = [
+      { name: 'entity' as const, cost: 1 },
+      { name: 'golden_metrics' as const, cost: goldenCost(metrics), minCost: goldenCost(1) },
+      { name: 'errors' as const, cost: 1 },
+      { name: 'logs' as const, cost: 3 * NRQL_COST },
+      { name: 'changes' as const, cost: 1 },
+      { name: 'related' as const, cost: 1 },
+    ].filter((i) => wanted.has(i.name));
+    const argsFor = (name: InsightSection, granted: number): [string, Record<string, unknown>] => {
+      switch (name) {
+        case 'entity':
+          return ['get_entity', { entity_guid: guid }];
+        case 'golden_metrics':
+          return [
+            'get_golden_metrics',
+            { entity_guid: guid, time_range: window, max_metrics: goldenMetricsFor(granted) },
+          ];
+        case 'errors':
+          return [
+            'list_error_groups',
+            { entity_guid: guid, time_range: window, sort_by: 'occurrences', minimal_output: true },
+          ];
+        case 'logs':
+          return ['analyze_entity_logs', { entity_guid: guid, time_range: window }];
+        case 'changes':
+          return [
+            'list_change_events',
+            {
+              entity_guid: guid,
+              time_range: rangeText(changeSince, win.untilMs),
+              limit: 10,
+              minimal_output: true,
+            },
+          ];
+        case 'related':
+          return ['get_related_entities', { entity_guid: guid, limit: RELATED_LIMIT }];
+      }
+    };
+    return { ...base, items, argsFor };
+  };
+
+  /** Look the issue up (one request), work out its window and the sections to run. */
+  const prepareInsights = async (
+    args: z.infer<typeof insightsInput>,
+    ctx: ToolContext,
+  ): Promise<InsightsPlan> => {
+    const account = singleAccount(ctx, args.account);
+    const lookback = lookbackRange(ctx, args.lookback);
+    const issue = await lookupIssue(client(ctx), ctx, account, args.issue_id, lookback);
+    const win = issueWindow(
+      issue,
+      ctx.clock.now(),
+      (args.before_minutes ?? DEFAULT_BEFORE_MINUTES) * MINUTE_MS,
+      ctx.limits.maxWindowDays * DAY_MS,
+    );
+    const notes: string[] = [];
+    if (win?.cut)
+      notes.push(
+        "The issue lasted longer than this connection's window limit: the window was cut after its start.",
+      );
+    if (issue.entityGuids.length > 1)
+      notes.push(
+        `The issue has ${issue.entityGuids.length} entities; the sections cover the first one. Rerun the tools with another guid for the rest.`,
+      );
+    return insightsPlan(args, ctx, { account, issue, win, notes });
+  };
+
+  /** All sections in this request, planned against its remaining budget. */
+  const runInsightsInline = async (
+    prepared: InsightsPlan,
+    args: z.infer<typeof insightsInput>,
+    ctx: ToolContext,
+  ): Promise<ToolOutput> => {
+    const notes = [...prepared.notes];
+    const plan = planBudget(prepared.items, ctx.budget.remaining);
+    const ran = await Promise.all(
+      plan.run.map(({ name, granted }) => {
+        const [toolName, toolArgs] = prepared.argsFor(name, granted);
+        return runSection(name, tool(toolName), toolArgs, ctx);
+      }),
+    );
+    const golden = plan.run.find((r) => r.name === 'golden_metrics');
+    if (golden && goldenMetricsFor(golden.granted) < (args.max_metrics ?? DEFAULT_REPORT_METRICS))
+      notes.push(`Golden metrics reduced to ${goldenMetricsFor(golden.granted)} to fit the request budget.`);
+    return assembleInsights(args, prepared, ran, notes);
+  };
+
+  /** The report from the sections that ran (in any order); the others are not applicable or skipped. */
+  const assembleInsights = (
+    args: z.infer<typeof insightsInput>,
+    prepared: InsightsPlan,
+    ran: readonly SectionResult[],
+    notes: string[],
+  ): ToolOutput => {
+    const { account, issue, win } = prepared;
+    const guid = issue.entityGuids[0] ?? null;
+    const notApplicable = guid === null || win === null;
+    const why = guid === null ? 'The issue names no entity.' : 'The issue has no start time.';
+    const wanted = new Set<InsightSection>(args.sections ?? INSIGHT_SECTIONS);
+    const sections: SectionResult[] = [];
+    for (const name of INSIGHT_SECTIONS) {
+      if (!wanted.has(name)) continue;
+      sections.push(
+        ran.find((s) => s.name === name) ??
+          (notApplicable ? notRun(name, 'not_applicable', why) : notRun(name, 'skipped', BUDGET_NOTE)),
+      );
+    }
+    const partial = sections.some(
+      (s) => s.status === 'partial' || s.status === 'error' || s.status === 'skipped',
+    );
+    const count = (s: SectionStatus) => sections.filter((x) => x.status === s).length;
+    const lines = [
+      `Alert insights for issue ${issue.id} in account ${account}` +
+        `${win ? `, window ${isoText(win.sinceMs)} to ${isoText(win.untilMs)} (UTC)` : ''}: ` +
+        `${count('ok')} section(s) complete` +
+        `${count('partial') ? `, ${count('partial')} partial` : ''}` +
+        `${count('error') ? `, ${count('error')} failed` : ''}` +
+        `${count('skipped') ? `, ${count('skipped')} skipped (budget or grant, see the section notes)` : ''}` +
+        `${count('not_applicable') ? `, ${count('not_applicable')} not applicable` : ''}.` +
+        `${partial ? ' Partial report: see the section notes.' : ''}`,
+    ];
+    for (const n of notes) lines.push(`Note: ${n}`);
+    lines.push('## Issue', issueBlock(issue));
+    for (const s of sections) {
+      lines.push(`## ${SECTION_TITLES[s.name as InsightSection]} [${s.status}]`);
+      if (s.note) lines.push(`Note: ${s.note}`);
+      if (s.text) lines.push(s.text);
+    }
+    return {
+      text: lines.join('\n'),
+      structured: {
+        accountId: account,
+        issue,
+        since: win ? isoText(win.sinceMs) : null,
+        until: win ? isoText(win.untilMs) : null,
+        entityGuid: guid,
+        sections: sections.map(({ text: _text, ...s }) => s),
+        partial,
+        notes,
+      },
+    };
+  };
+
   const insights = defineTool({
     name: 'generate_alert_insights_report',
     title: 'Generate alert insights report',
@@ -561,131 +795,79 @@ export function createReportTools(deps: ToolDeps = {}): ToolDefinition[] {
     group: 'incident-response',
     phase: 6,
     handler: async (args, ctx) => {
-      const account = singleAccount(ctx, args.account);
-      const lookback = lookbackRange(ctx, args.lookback);
-      const issue = await lookupIssue(client(ctx), ctx, account, args.issue_id, lookback);
-      const now = ctx.clock.now();
-      const maxWindowMs = ctx.limits.maxWindowDays * DAY_MS;
-      const win = issueWindow(
-        issue,
-        now,
-        (args.before_minutes ?? DEFAULT_BEFORE_MINUTES) * MINUTE_MS,
-        maxWindowMs,
-      );
-      const guid = issue.entityGuids[0] ?? null;
-      const wanted = new Set<InsightSection>(args.sections ?? INSIGHT_SECTIONS);
-      const notes: string[] = [];
-      if (win?.cut)
-        notes.push(
-          "The issue lasted longer than this connection's window limit: the window was cut after its start.",
-        );
-      if (issue.entityGuids.length > 1)
-        notes.push(
-          `The issue has ${issue.entityGuids.length} entities; the sections cover the first one. Rerun the tools with another guid for the rest.`,
-        );
-
-      const sections: SectionResult[] = [];
-      if (guid === null || win === null) {
-        const why = guid === null ? 'The issue names no entity.' : 'The issue has no start time.';
-        for (const name of INSIGHT_SECTIONS)
-          if (wanted.has(name)) sections.push(notRun(name, 'not_applicable', why));
-      } else {
-        const window = rangeText(win.sinceMs, win.untilMs);
-        const changeSince = Math.max(
-          win.sinceMs - (args.change_lookback_hours ?? DEFAULT_CHANGE_LOOKBACK_HOURS) * HOUR_MS,
-          win.untilMs - maxWindowMs,
-        );
-        const metrics = args.max_metrics ?? DEFAULT_REPORT_METRICS;
-        const items: PlanItem<InsightSection>[] = [
-          { name: 'entity' as const, cost: 1 },
-          { name: 'golden_metrics' as const, cost: goldenCost(metrics), minCost: goldenCost(1) },
-          { name: 'errors' as const, cost: 1 },
-          { name: 'logs' as const, cost: 3 * NRQL_COST },
-          { name: 'changes' as const, cost: 1 },
-          { name: 'related' as const, cost: 1 },
-        ].filter((i) => wanted.has(i.name));
-        const plan = planBudget(items, ctx.budget.remaining);
-        const argsFor = (name: InsightSection, granted: number): [string, Record<string, unknown>] => {
-          switch (name) {
-            case 'entity':
-              return ['get_entity', { entity_guid: guid }];
-            case 'golden_metrics':
-              return [
-                'get_golden_metrics',
-                { entity_guid: guid, time_range: window, max_metrics: goldenMetricsFor(granted) },
-              ];
-            case 'errors':
-              return [
-                'list_error_groups',
-                { entity_guid: guid, time_range: window, sort_by: 'occurrences', minimal_output: true },
-              ];
-            case 'logs':
-              return ['analyze_entity_logs', { entity_guid: guid, time_range: window }];
-            case 'changes':
-              return [
-                'list_change_events',
-                {
-                  entity_guid: guid,
-                  time_range: rangeText(changeSince, win.untilMs),
-                  limit: 10,
-                  minimal_output: true,
-                },
-              ];
-            case 'related':
-              return ['get_related_entities', { entity_guid: guid, limit: RELATED_LIMIT }];
-          }
+      const prepared = await prepareInsights(args, ctx);
+      // MCP Tasks (P7-21): a client that takes a task gets the sections one bounded step per `tasks/get`, each inside its
+      // own request budget; the same report comes out. Not worth a task when no section can run.
+      if (ctx.tasks?.accepted === true && prepared.items.length > 0) {
+        const state: InsightsTaskState = {
+          args,
+          account: prepared.account,
+          issue: prepared.issue,
+          win: prepared.win,
+          notes: prepared.notes,
+          sections: [],
         };
-        const ran = await Promise.all(
-          plan.run.map(({ name, granted }) => {
-            const [toolName, toolArgs] = argsFor(name, granted);
-            return runSection(name, tool(toolName), toolArgs, ctx);
-          }),
-        );
-        const golden = plan.run.find((r) => r.name === 'golden_metrics');
-        if (golden && goldenMetricsFor(golden.granted) < metrics)
-          notes.push(
-            `Golden metrics reduced to ${goldenMetricsFor(golden.granted)} to fit the request budget.`,
-          );
-        for (const name of INSIGHT_SECTIONS) {
-          if (!wanted.has(name)) continue;
-          sections.push(ran.find((s) => s.name === name) ?? notRun(name, 'skipped', BUDGET_NOTE));
-        }
+        return {
+          // Complete answer when the host can't store the task (the server calls `taskFallback`).
+          text: 'The report continues as a task.',
+          task: insightsTaskJob(state),
+          taskFallback: () => runInsightsInline(prepared, args, ctx),
+        };
       }
-
-      const partial = sections.some(
-        (s) => s.status === 'partial' || s.status === 'error' || s.status === 'skipped',
+      return runInsightsInline(prepared, args, ctx);
+    },
+    resumeTask: async (raw, ctx) => {
+      const state = insightsTaskState.parse(raw);
+      const prepared = insightsPlan(state.args, ctx, {
+        account: state.account,
+        issue: state.issue as IssueRow,
+        win: state.win,
+        notes: [...state.notes],
+      });
+      const done = new Set(state.sections.map((s) => s.name));
+      const pending = prepared.items.filter((i) => !done.has(i.name));
+      // At most STEP_SECTIONS per poll, and past the first only what fits in full: a section that merely did not fit in
+      // this request is run by the next poll, not skipped. The first one gets the usual reduced-depth/skip planning.
+      const chosen: PlanItem<InsightSection>[] = [];
+      let left = ctx.budget.remaining;
+      for (const item of pending) {
+        if (chosen.length >= STEP_SECTIONS) break;
+        if (chosen.length > 0 && item.cost > left) break;
+        chosen.push(item);
+        left -= item.cost;
+      }
+      const plan = planBudget(chosen, ctx.budget.remaining);
+      const notes = [...state.notes];
+      const ran = await Promise.all(
+        plan.run.map(({ name, granted }) => {
+          const [toolName, toolArgs] = prepared.argsFor(name, granted);
+          return runSection(name, tool(toolName), toolArgs, ctx);
+        }),
       );
-      const count = (s: SectionStatus) => sections.filter((x) => x.status === s).length;
-      const lines = [
-        `Alert insights for issue ${issue.id} in account ${account}` +
-          `${win ? `, window ${isoText(win.sinceMs)} to ${isoText(win.untilMs)} (UTC)` : ''}: ` +
-          `${count('ok')} section(s) complete` +
-          `${count('partial') ? `, ${count('partial')} partial` : ''}` +
-          `${count('error') ? `, ${count('error')} failed` : ''}` +
-          `${count('skipped') ? `, ${count('skipped')} skipped (budget or grant, see the section notes)` : ''}` +
-          `${count('not_applicable') ? `, ${count('not_applicable')} not applicable` : ''}.` +
-          `${partial ? ' Partial report: see the section notes.' : ''}`,
+      const golden = plan.run.find((r) => r.name === 'golden_metrics');
+      if (golden && goldenMetricsFor(golden.granted) < (state.args.max_metrics ?? DEFAULT_REPORT_METRICS))
+        notes.push(
+          `Golden metrics reduced to ${goldenMetricsFor(golden.granted)} to fit the request budget.`,
+        );
+      const sections: SectionResult[] = [
+        ...state.sections,
+        ...ran,
+        ...plan.skipped.map((name) => notRun(name, 'skipped', BUDGET_NOTE)),
       ];
-      for (const n of notes) lines.push(`Note: ${n}`);
-      lines.push('## Issue', issueBlock(issue));
-      for (const s of sections) {
-        lines.push(`## ${SECTION_TITLES[s.name as InsightSection]} [${s.status}]`);
-        if (s.note) lines.push(`Note: ${s.note}`);
-        if (s.text) lines.push(s.text);
-      }
-      return {
-        text: lines.join('\n'),
-        structured: {
-          accountId: account,
-          issue,
-          since: win ? isoText(win.sinceMs) : null,
-          until: win ? isoText(win.untilMs) : null,
-          entityGuid: guid,
-          sections: sections.map(({ text: _text, ...s }) => s),
-          partial,
-          notes,
-        },
+      const next: InsightsTaskState = {
+        ...state,
+        notes,
+        sections: sections as InsightsTaskState['sections'],
       };
+      let remaining = prepared.items.filter((i) => !sections.some((s) => s.name === i.name));
+      // The sealed record is capped: past the cap the rest is skipped and the report completes with what it has.
+      if (remaining.length > 0 && JSON.stringify(next).length > MAX_INSIGHTS_STATE_CHARS) {
+        for (const i of remaining) sections.push(notRun(i.name, 'skipped', SIZE_NOTE));
+        remaining = [];
+      }
+      if (remaining.length > 0)
+        return { text: 'The report continues as a task.', task: insightsTaskJob(next) };
+      return assembleInsights(state.args, prepared, sections, notes);
     },
   });
 

@@ -256,6 +256,10 @@ with the `queryId` later. On a remote server (`serve`, Cloudflare), a client tha
 as a normal call. Task results are kept for 15 minutes, only for the device (token or OAuth sign-in) that started the
 query. Nothing to configure. Which clients support it: [client compatibility](../reference/client-compatibility.md#mcp-tasks-p7-13-2026-10-06).
 
+On a Tasks-declaring client, `generate_alert_insights_report` is also a task: the call looks the issue up and returns the task, and each poll
+runs up to three report sections inside its own request budget and quota. The finished report is the same as the synchronous one;
+you get it from the last poll. Clients without Tasks get the report in one call as before.
+
 ## Other clients and MCP Inspector
 
 Any client that can launch a stdio server works: give it the command `npx -y relic-bridge` and the three `env`

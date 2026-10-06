@@ -301,7 +301,7 @@ export function buildMcpServer({
             ? Object.freeze({ ...withTasks, elicitation: Object.freeze(elicitationFrom(extra)) })
             : withTasks;
         try {
-          const out = await invoke(def, input, ctx);
+          let out = await invoke(def, input, ctx);
           if (out.inputRequired !== undefined && ctx.elicitation !== undefined) {
             return inputRequired({
               inputRequests: {
@@ -335,6 +335,7 @@ export function buildMcpServer({
                 tool: def.name,
                 error: error instanceof Error ? error.name : typeof error,
               });
+              if (out.taskFallback !== undefined) out = await out.taskFallback();
             }
           }
           return toCallToolResult(out, ctx);

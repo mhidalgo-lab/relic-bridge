@@ -257,3 +257,15 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   `candidates` field (needs output-schema changes); (d) charge the resolution cost only when `name` is given (needs
   per-call cost).
 - **Needs:** owner's call on (b) to (d); whether P6-18 is wanted.
+
+
+## P6-18 — Name input on report, investigation and signal tools
+
+### P6-18 — Adapter instead of per-tool edits; resolution cost charged to every call
+- **Context:** 16 tools take an entity guid with different shapes (required/optional, some already have `account`).
+- **Assumption made:** one adapter (`withEntityName`) wraps them in `createBuiltinTools`; tools called directly from
+  `createXTools` (outside the registry) do not get `name`. Cost is raised by `RESOLVE_COST` (4) for all calls, as in P6-17.
+  APM tools search only `APM` entities and `get_dashboard` only dashboards (fewer false ambiguities). `generate_alert_insights_report`
+  is unchanged (issue id input only).
+- **Options:** (a) keep; (b) charge the cost only when `name` is given; (c) fold the P6-17 tools into the adapter too.
+- **Needs:** owner's call on (b), (c).

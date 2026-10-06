@@ -5,6 +5,7 @@ import { createApmTools } from './apm.ts';
 import { createChangeTools } from './changes.ts';
 import { createDashboardTools } from './dashboards.ts';
 import { createEntityTools } from './entities.ts';
+import { type EntityNameOptions, withEntityName } from './entity-ref.ts';
 import { createEntityResolver, createEntityResolveTools } from './entity-resolver.ts';
 import { createErrorTools } from './errors.ts';
 import { createGoldenMetricTools } from './golden.ts';
@@ -68,11 +69,32 @@ export {
 } from './schema.ts';
 export { createSyntheticTools } from './synthetics.ts';
 
+/** Tools that also take an entity name instead of its guid (P6-17, P6-18). Composites call their section tools directly. */
+const APM = { domain: 'APM' } as const;
+const NAME_INPUT: Readonly<Record<string, EntityNameOptions>> = {
+  list_top_transactions: { field: 'entity_guid', required: true, ...APM },
+  analyze_transactions: { field: 'entity_guid', required: true, ...APM },
+  analyze_threads: { field: 'entity_guid', required: true, ...APM },
+  list_gc_metrics: { field: 'entity_guid', required: true, ...APM },
+  analyze_deployment_impact: { field: 'entity_guid', required: true, ...APM },
+  analyze_entity_logs: { field: 'entity_guid', required: true },
+  list_recent_logs: { field: 'entity_guid', required: false },
+  list_error_groups: { field: 'entity_guid', required: false },
+  list_change_events: { field: 'entity_guid', required: false },
+  list_recent_issues: { field: 'entity_guid', required: false },
+  search_incidents: { field: 'entity_guid', required: false },
+  get_dashboard: { field: 'guid', required: true, domain: 'VIZ', type: 'DASHBOARD' },
+  dependency_health: { field: 'guid', required: true },
+  entity_health: { field: 'guid', required: true },
+  generate_user_impact_report: { field: 'entity_guid', required: false, conflictsWith: 'issue_id' },
+  trace_error: { field: 'entity_guid', required: false, requires: 'error_group_id' },
+};
+
 /** Every built-in tool, ready for `ToolRegistry.register`. Later tool groups add themselves here. */
 export function createBuiltinTools(options: ToolDeps = {}): ToolDefinition[] {
   // One resolver for every tool that accepts an entity name: a single cache, keyed per credential and account set.
   const deps: ToolDeps = { ...options, resolver: options.resolver ?? createEntityResolver(options) };
-  return [
+  const tools = [
     ...createIdentityTools(deps),
     ...createTimeTools(),
     ...createQueryTools(deps),
@@ -92,4 +114,9 @@ export function createBuiltinTools(options: ToolDeps = {}): ToolDefinition[] {
     ...createReportTools(deps),
     ...createInvestigationTools(deps),
   ];
+  const resolver = deps.resolver as NonNullable<ToolDeps['resolver']>;
+  return tools.map((t) => {
+    const o = NAME_INPUT[t.name];
+    return o ? withEntityName(t, resolver, o) : t;
+  });
 }

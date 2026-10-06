@@ -8,37 +8,37 @@
 | --- | --- | --- | --- | --- |
 | [`list_alert_conditions`](#list_alert_conditions) | alerting | read | 1 | 6 |
 | [`list_alert_policies`](#list_alert_policies) | alerting | read | 1 | 6 |
-| [`list_recent_issues`](#list_recent_issues) | alerting | read | 1 | 6 |
+| [`list_recent_issues`](#list_recent_issues) | alerting | read | 5 | 6 |
 | [`list_synthetic_monitors`](#list_synthetic_monitors) | alerting | read | 2 | 6 |
-| [`search_incidents`](#search_incidents) | alerting | read | 1 | 6 |
+| [`search_incidents`](#search_incidents) | alerting | read | 5 | 6 |
 | [`get_attributes`](#get_attributes) | discovery | read | 2 | 1 |
 | [`list_event_types`](#list_event_types) | discovery | read | 1 | 1 |
 | [`decode_entity_guid`](#decode_entity_guid) | entities | read | 0 | 1 |
-| [`get_dashboard`](#get_dashboard) | entities | read | 1 | 6 |
+| [`get_dashboard`](#get_dashboard) | entities | read | 5 | 6 |
 | [`get_entity`](#get_entity) | entities | read | 5 | 1 |
 | [`get_related_entities`](#get_related_entities) | entities | read | 5 | 1 |
 | [`list_dashboards`](#list_dashboards) | entities | read | 1 | 6 |
 | [`list_entity_types`](#list_entity_types) | entities | read | 1 | 1 |
 | [`resolve_entity`](#resolve_entity) | entities | read | 1 | 6 |
 | [`search_entities`](#search_entities) | entities | read | 1 | 1 |
-| [`entity_health`](#entity_health) | health | read | 10 | 6 |
+| [`entity_health`](#entity_health) | health | read | 14 | 6 |
 | [`get_golden_metrics`](#get_golden_metrics) | health | read | 15 | 1 |
 | [`list_accounts`](#list_accounts) | identity | read | 1 | 1 |
 | [`whoami`](#whoami) | identity | read | 1 | 1 |
-| [`analyze_deployment_impact`](#analyze_deployment_impact) | incident-response | read | 3 | 6 |
-| [`dependency_health`](#dependency_health) | incident-response | read | 17 | 6 |
+| [`analyze_deployment_impact`](#analyze_deployment_impact) | incident-response | read | 7 | 6 |
+| [`dependency_health`](#dependency_health) | incident-response | read | 21 | 6 |
 | [`generate_alert_insights_report`](#generate_alert_insights_report) | incident-response | read | 14 | 6 |
-| [`generate_user_impact_report`](#generate_user_impact_report) | incident-response | read | 9 | 6 |
-| [`list_change_events`](#list_change_events) | incident-response | read | 1 | 6 |
-| [`list_error_groups`](#list_error_groups) | incident-response | read | 1 | 6 |
-| [`trace_error`](#trace_error) | incident-response | read | 4 | 6 |
-| [`analyze_entity_logs`](#analyze_entity_logs) | performance | read | 3 | 6 |
+| [`generate_user_impact_report`](#generate_user_impact_report) | incident-response | read | 13 | 6 |
+| [`list_change_events`](#list_change_events) | incident-response | read | 5 | 6 |
+| [`list_error_groups`](#list_error_groups) | incident-response | read | 5 | 6 |
+| [`trace_error`](#trace_error) | incident-response | read | 8 | 6 |
+| [`analyze_entity_logs`](#analyze_entity_logs) | performance | read | 7 | 6 |
 | [`analyze_kafka_metrics`](#analyze_kafka_metrics) | performance | read | 3 | 6 |
-| [`analyze_threads`](#analyze_threads) | performance | read | 2 | 6 |
-| [`analyze_transactions`](#analyze_transactions) | performance | read | 2 | 6 |
-| [`list_gc_metrics`](#list_gc_metrics) | performance | read | 1 | 6 |
-| [`list_recent_logs`](#list_recent_logs) | performance | read | 1 | 6 |
-| [`list_top_transactions`](#list_top_transactions) | performance | read | 1 | 6 |
+| [`analyze_threads`](#analyze_threads) | performance | read | 6 | 6 |
+| [`analyze_transactions`](#analyze_transactions) | performance | read | 6 | 6 |
+| [`list_gc_metrics`](#list_gc_metrics) | performance | read | 5 | 6 |
+| [`list_recent_logs`](#list_recent_logs) | performance | read | 5 | 6 |
+| [`list_top_transactions`](#list_top_transactions) | performance | read | 5 | 6 |
 | [`get_query_result`](#get_query_result) | query | read | 1 | 1 |
 | [`run_nrql`](#run_nrql) | query | read | 4 | 1 |
 | [`time_range`](#time_range) | time | read | 0 | 1 |
@@ -109,7 +109,7 @@ readOnly: `true` · destructive: `false` · idempotent: `true` · openWorld: `tr
 
 ## `list_recent_issues`
 
-**List recent alert issues** · group `alerting` · phase 6 · kind `read` · cost 1 NerdGraph call
+**List recent alert issues** · group `alerting` · phase 6 · kind `read` · cost 5 NerdGraph calls
 
 List recent alert issues of one account: title, state (CREATED, ACTIVATED, DEACTIVATED, CLOSED), priority, when it opened, was acknowledged and closed, the entities, policy and condition behind it. An issue groups the related incidents (violations) into one thing to act on.
 
@@ -121,7 +121,7 @@ Use it first when asked "what is alerting?" or "what broke?": states ["ACTIVATED
 | --- | --- | --- | --- |
 | `states` | `"CREATED" \| "ACTIVATED" \| "DEACTIVATED" \| "CLOSED"[]` | no | Only issues in these states. ACTIVATED = open and notifying, CLOSED = resolved. |
 | `priority` | `"CRITICAL" \| "HIGH" \| "MEDIUM" \| "LOW"[]` | no | Only these priorities. |
-| `entity_guid` | `string` | no | Only issues/incidents that involve this entity (guid from search_entities). Implies its account. |
+| `entity_guid` | `string` | no | Only issues/incidents that involve this entity (guid from search_entities). Implies its account. Or give name instead. |
 | `policy_id` | `integer` | no | Only issues of this alert policy (id from list_alert_policies). |
 | `acknowledged` | `boolean` | no | true: only acknowledged issues; false: only unacknowledged. |
 | `contains` | `string` | no | Text to search for in the issue title, entity names and policy name. |
@@ -129,6 +129,7 @@ Use it first when asked "what is alerting?" or "what broke?": states ["ACTIVATED
 | `account` | `integer` | no | Account to read (must be one of list_accounts). Default: the default account of this connection. |
 | `cursor` | `string` | no | next_cursor from a previous call with the same filters, for the next page. |
 | `minimal_output` | `boolean` | no | Only id, title, state, priority, created and entities (default false). |
+| `name` | `string` | no | Entity name instead of guid (loose is fine: "shippingservice" finds "Shipping-Service"). If several entities match, nothing runs and the candidates are returned: pick one guid. |
 
 ### Output
 
@@ -186,7 +187,7 @@ readOnly: `true` · destructive: `false` · idempotent: `true` · openWorld: `tr
 
 ## `search_incidents`
 
-**Search alert incidents** · group `alerting` · phase 6 · kind `read` · cost 1 NerdGraph call
+**Search alert incidents** · group `alerting` · phase 6 · kind `read` · cost 5 NerdGraph calls
 
 Search the alert incidents (individual violations) of one account: title, state (CREATED = open, CLOSED), priority, times and the entities involved. Incidents are the raw signals; list_recent_issues shows them grouped into issues.
 
@@ -198,12 +199,13 @@ Use it to drill into what triggered an issue or to find violations of one entity
 | --- | --- | --- | --- |
 | `states` | `"CREATED" \| "CLOSED"[]` | no | Only incidents in these states (CREATED = open, CLOSED). |
 | `priority` | `"CRITICAL" \| "HIGH" \| "MEDIUM" \| "LOW"[]` | no | Only these priorities. |
-| `entity_guid` | `string` | no | Only issues/incidents that involve this entity (guid from search_entities). Implies its account. |
+| `entity_guid` | `string` | no | Only issues/incidents that involve this entity (guid from search_entities). Implies its account. Or give name instead. |
 | `contains` | `string` | no | Text to look for in the incident title and entity names. Applied to the page that was fetched, so a page can come back with fewer rows; follow next_cursor to search on. |
 | `time_range` | `string` | no | Time window, e.g. "last 6 hours", "yesterday", "2026-10-01 to 2026-10-02" (UTC). Default: "last 24 hours". Cannot be longer than this connection's window limit. |
 | `account` | `integer` | no | Account to read (must be one of list_accounts). Default: the default account of this connection. |
 | `cursor` | `string` | no | next_cursor from a previous call with the same filters, for the next page. |
 | `minimal_output` | `boolean` | no | Only id, title, state, priority, created and entities (default false). |
+| `name` | `string` | no | Entity name instead of guid (loose is fine: "shippingservice" finds "Shipping-Service"). If several entities match, nothing runs and the candidates are returned: pick one guid. |
 
 ### Output
 
@@ -312,7 +314,7 @@ readOnly: `true` · destructive: `false` · idempotent: `true` · openWorld: `fa
 
 ## `get_dashboard`
 
-**Get dashboard** · group `entities` · phase 6 · kind `read` · cost 1 NerdGraph call
+**Get dashboard** · group `entities` · phase 6 · kind `read` · cost 5 NerdGraph calls
 
 Get one dashboard by guid: its pages and widgets, with each widget's title, visualization and NRQL queries (and the text of markdown widgets), so you can reuse the queries.
 
@@ -322,8 +324,10 @@ Widgets are NOT executed. To get numbers, pass a widget's NRQL to run_nrql (it a
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `guid` | `string` | yes | Entity guid of the dashboard (from list_dashboards). |
+| `guid` | `string` | no | Entity guid of the dashboard (from list_dashboards). Give this or name. |
 | `minimal_output` | `boolean` | no | Page and widget titles and visualization only: no NRQL or markdown (default false). |
+| `name` | `string` | no | Entity name instead of guid (loose is fine: "shippingservice" finds "Shipping-Service"). If several entities match, nothing runs and the candidates are returned: pick one guid. |
+| `account` | `integer` | no | With name only: look in this account (must be one of list_accounts). Default: all of them. |
 
 ### Output
 
@@ -540,7 +544,7 @@ readOnly: `true` · destructive: `false` · idempotent: `true` · openWorld: `tr
 
 ## `entity_health`
 
-**Summarise entity health** · group `health` · phase 6 · kind `read` · cost 10 NerdGraph calls
+**Summarise entity health** · group `health` · phase 6 · kind `read` · cost 14 NerdGraph calls
 
 One-call health summary of an entity (guid from search_entities): the entity itself (alert severity, reporting), its golden metrics with trends, its open alert issues, its unresolved error groups (most frequent first) and its recent deployments. Start here for "is this service healthy?" and go deeper with the specific tools.
 
@@ -550,10 +554,12 @@ Runs about 10 requests, planned against the request budget in that priority orde
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `guid` | `string` | yes | The entity to summarise (guid from search_entities or resolve_entity). |
+| `guid` | `string` | no | The entity to summarise (guid from search_entities or resolve_entity). Give this or name. |
 | `time_range` | `string` | no | Window for golden metrics and error group counts. Default: "last 6 hours". |
 | `lookback_days` | `integer` | no | How far back to look for open issues and deployments (default 7, cut to this connection's window limit). |
 | `max_metrics` | `integer` | no | Golden metrics to run (default 5, max 10). |
+| `name` | `string` | no | Entity name instead of guid (loose is fine: "shippingservice" finds "Shipping-Service"). If several entities match, nothing runs and the candidates are returned: pick one guid. |
+| `account` | `integer` | no | With name only: look in this account (must be one of list_accounts). Default: all of them. |
 
 ### Output
 
@@ -665,7 +671,7 @@ readOnly: `true` · destructive: `false` · idempotent: `true` · openWorld: `tr
 
 ## `analyze_deployment_impact`
 
-**Analyze deployment impact** · group `incident-response` · phase 6 · kind `read` · cost 3 NerdGraph calls
+**Analyze deployment impact** · group `incident-response` · phase 6 · kind `read` · cost 7 NerdGraph calls
 
 Compare an APM application's health before and after a deployment: throughput, error rate and response time in two equal windows either side of the change, with the difference and a verdict for each (worse, better, similar, changed, inconclusive) and an overall call.
 
@@ -675,10 +681,12 @@ Pass the application's guid from search_entities. Without deployment_time it use
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `entity_guid` | `string` | yes | The APM application to analyse (guid from search_entities). |
+| `entity_guid` | `string` | no | The APM application to analyse (guid from search_entities). Give this or name. |
 | `deployment_time` | `string` | no | When the change happened, ISO 8601 (UTC unless it has an offset), e.g. "2026-10-01T14:30:00Z". Default: the latest deployment recorded for the entity in the lookback window. |
 | `compare_minutes` | `integer` | no | Length of the windows compared before and after the deployment (default 30, max 720). If less time has passed since the deployment, both windows shrink to match. |
 | `lookback` | `string` | no | Where to look for the latest deployment when deployment_time is not given. Default: "last 7 days". |
+| `name` | `string` | no | Entity name instead of guid (loose is fine: "shippingservice" finds "Shipping-Service"). If several entities match, nothing runs and the candidates are returned: pick one guid. |
+| `account` | `integer` | no | With name only: look in this account (must be one of list_accounts). Default: all of them. |
 
 ### Output
 
@@ -699,7 +707,7 @@ readOnly: `true` · destructive: `false` · idempotent: `true` · openWorld: `tr
 
 ## `dependency_health`
 
-**Check the health of dependencies** · group `incident-response` · phase 6 · kind `read` · cost 17 NerdGraph calls
+**Check the health of dependencies** · group `incident-response` · phase 6 · kind `read` · cost 21 NerdGraph calls
 
 Is the problem in this entity or in what it depends on? For a guid it finds the directly related entities (services it calls, services that call it, hosts, databases...), picks the alerting ones first, and measures each one's golden metrics next to the entity's own, flagging clear signals: an alert in CRITICAL or WARNING, not reporting, error rate, latency, CPU or memory trending up, or throughput trending down by 25% or more.
 
@@ -709,11 +717,13 @@ Runs about 17 requests by default (1 for the relationships, then one entity look
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `guid` | `string` | yes | The entity whose neighbours to check (guid from search_entities or resolve_entity). |
+| `guid` | `string` | no | The entity whose neighbours to check (guid from search_entities or resolve_entity). Give this or name. |
 | `direction` | `"OUTBOUND" \| "INBOUND" \| "BOTH"` | no | Relationships to follow: OUTBOUND (what it calls), INBOUND (what calls it) or BOTH (default). |
 | `max_dependencies` | `integer` | no | Most neighbours to measure (default 3, max 5); alerting ones are chosen first. |
 | `max_metrics` | `integer` | no | Golden metrics per entity (default 3, max 5). |
 | `since` | `string` | no | Time window, e.g. "last 6 hours", "yesterday", "2026-10-01 to 2026-10-02" (UTC). Default: "last 30 minutes". Cannot be longer than this connection's window limit. |
+| `name` | `string` | no | Entity name instead of guid (loose is fine: "shippingservice" finds "Shipping-Service"). If several entities match, nothing runs and the candidates are returned: pick one guid. |
+| `account` | `integer` | no | With name only: look in this account (must be one of list_accounts). Default: all of them. |
 
 ### Output
 
@@ -770,7 +780,7 @@ readOnly: `true` · destructive: `false` · idempotent: `true` · openWorld: `tr
 
 ## `generate_user_impact_report`
 
-**Generate user impact report** · group `incident-response` · phase 6 · kind `read` · cost 9 NerdGraph calls
+**Generate user impact report** · group `incident-response` · phase 6 · kind `read` · cost 13 NerdGraph calls
 
 Measure what end users saw while something was wrong: for an alert issue (issue_id) or an affected entity (entity_guid), find the front ends involved (browser apps, mobile apps and synthetic monitors that are affected themselves or directly related to the affected entities) and report per front end: browser page views, average load time, sessions, JavaScript errors and sessions with errors; mobile sessions, users, crashes and users with crashes; synthetic checks, failures and failing locations.
 
@@ -781,12 +791,13 @@ By default it also measures the equal window before and flags clear changes (js_
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `issue_id` | `string` | no | An alert issue id (from list_recent_issues): its entities are the affected ones. Give this or entity_guid. |
-| `entity_guid` | `string` | no | The affected entity (guid from search_entities), e.g. a back-end service. Give this or issue_id. |
+| `entity_guid` | `string` | no | The affected entity (guid from search_entities), e.g. a back-end service. Give this or issue_id. Or give name instead. |
 | `account` | `integer` | no | Account of the issue (with issue_id). Default: the default account. |
 | `lookback` | `string` | no | Where to look for the issue, e.g. "last 30 days". Default: the last 7 days (or this connection's window limit if shorter). |
 | `time_range` | `string` | no | Window to measure, e.g. "last 6 hours". Default: the issue window (from 30 minutes before it opened until it closed or now), or "last 1 hour" with entity_guid. |
 | `compare` | `boolean` | no | Also measure the equal window just before, to flag changes (default true; one more request per kind). |
 | `max_entities` | `integer` | no | Most front ends to measure (default 20, max 50). |
+| `name` | `string` | no | Entity name instead of guid (loose is fine: "shippingservice" finds "Shipping-Service"). If several entities match, nothing runs and the candidates are returned: pick one guid. |
 
 ### Output
 
@@ -809,7 +820,7 @@ readOnly: `true` · destructive: `false` · idempotent: `true` · openWorld: `tr
 
 ## `list_change_events`
 
-**List change events** · group `incident-response` · phase 6 · kind `read` · cost 1 NerdGraph call
+**List change events** · group `incident-response` · phase 6 · kind `read` · cost 5 NerdGraph calls
 
 List change events: what changed and when, newest first. These are the deployments, feature flag changes, configuration changes and other markers recorded in New Relic change tracking.
 
@@ -819,11 +830,12 @@ Use it for "what changed before things broke?". Without entity_guid it lists eve
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `entity_guid` | `string` | no | Only deployments of this entity (guid from search_entities). Implies its account. |
+| `entity_guid` | `string` | no | Only deployments of this entity (guid from search_entities). Implies its account. Or give name instead. |
 | `time_range` | `string` | no | Time window, e.g. "last 24 hours", "yesterday", "2026-10-01 to 2026-10-02" (UTC). Default: "last 7 days". Cannot be longer than this connection's window limit. |
 | `limit` | `integer` | no | Most events to return, newest first (default 25, max 100). |
 | `account` | `integer` | no | Account to read (must be one of list_accounts). Default: the default account of this connection. |
 | `minimal_output` | `boolean` | no | Only id, time, type, entity, version and a short description (default false). |
+| `name` | `string` | no | Entity name instead of guid (loose is fine: "shippingservice" finds "Shipping-Service"). If several entities match, nothing runs and the candidates are returned: pick one guid. |
 
 ### Output
 
@@ -843,7 +855,7 @@ readOnly: `true` · destructive: `false` · idempotent: `true` · openWorld: `tr
 
 ## `list_error_groups`
 
-**List error groups (Errors Inbox)** · group `incident-response` · phase 6 · kind `read` · cost 1 NerdGraph call
+**List error groups (Errors Inbox)** · group `incident-response` · phase 6 · kind `read` · cost 5 NerdGraph calls
 
 List the Errors Inbox error groups of one account: similar errors grouped into one item with its name, message, state (UNRESOLVED, RESOLVED, IGNORED), how many times it occurred in the window, when it was first and last seen, whether it regressed, and the entity it comes from.
 
@@ -854,7 +866,7 @@ Use it for "which errors are hurting us?" or "what new errors appeared after the
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `states` | `"UNRESOLVED" \| "RESOLVED" \| "IGNORED"[]` | no | Only error groups in these states (UNRESOLVED = open, RESOLVED, IGNORED). |
-| `entity_guid` | `string` | no | Only error groups of this entity (guid from search_entities). Implies its account. |
+| `entity_guid` | `string` | no | Only error groups of this entity (guid from search_entities). Implies its account. Or give name instead. |
 | `contains` | `string` | no | Free-text search over error group names and messages (done by New Relic). |
 | `assigned` | `boolean` | no | true: only groups assigned to someone; false: only unassigned groups. |
 | `sort_by` | `"occurrences" \| "last_seen" \| "first_seen"` | no | Order, most first. Default: New Relic order. occurrences = count in the window. |
@@ -862,6 +874,7 @@ Use it for "which errors are hurting us?" or "what new errors appeared after the
 | `account` | `integer` | no | Account to read (must be one of list_accounts). Default: the default account of this connection. |
 | `cursor` | `string` | no | next_cursor from a previous call with the same filters, for the next page. |
 | `minimal_output` | `boolean` | no | Only id, name, state, occurrences, last seen and entity (default false). |
+| `name` | `string` | no | Entity name instead of guid (loose is fine: "shippingservice" finds "Shipping-Service"). If several entities match, nothing runs and the candidates are returned: pick one guid. |
 
 ### Output
 
@@ -881,7 +894,7 @@ readOnly: `true` · destructive: `false` · idempotent: `true` · openWorld: `tr
 
 ## `trace_error`
 
-**Trace an error end to end** · group `incident-response` · phase 6 · kind `read` · cost 4 NerdGraph calls
+**Trace an error end to end** · group `incident-response` · phase 6 · kind `read` · cost 8 NerdGraph calls
 
 Follow one failing request through the system: from a trace id, or from an error group (error_group_id from list_error_groups, picking its most recent occurrence that has a trace), it gathers in one call the trace's spans (services involved, the root span, every error span and the slowest ones), the error events with their request attributes (class, message, request path and method, HTTP status), and the log lines written with the trace id.
 
@@ -893,10 +906,11 @@ Runs 3 requests (4 with error_group_id); they are planned against the request bu
 | --- | --- | --- | --- |
 | `trace_id` | `string` | no | A distributed trace id (the trace.id of spans, logs and errors). Give this or error_group_id. |
 | `error_group_id` | `string` | no | An Errors Inbox error group id (from list_error_groups): its most recent traced occurrence is followed. Give this or trace_id. |
-| `entity_guid` | `string` | no | With error_group_id: only occurrences from this entity. Implies its account. |
+| `entity_guid` | `string` | no | With error_group_id: only occurrences from this entity. Implies its account. Or give name instead. |
 | `include_synthetic` | `boolean` | no | With error_group_id: also pick occurrences caused by synthetic monitors (default false). |
 | `time_range` | `string` | no | Time window, e.g. "last 6 hours", "yesterday", "2026-10-01 to 2026-10-02" (UTC). Default: "last 24 hours". Cannot be longer than this connection's window limit. |
 | `account` | `integer` | no | Account to read (must be one of list_accounts). Default: the default account of this connection. |
+| `name` | `string` | no | Entity name instead of guid (loose is fine: "shippingservice" finds "Shipping-Service"). If several entities match, nothing runs and the candidates are returned: pick one guid. |
 
 ### Output
 
@@ -920,7 +934,7 @@ readOnly: `true` · destructive: `false` · idempotent: `true` · openWorld: `tr
 
 ## `analyze_entity_logs`
 
-**Analyze entity logs** · group `performance` · phase 6 · kind `read` · cost 3 NerdGraph calls
+**Analyze entity logs** · group `performance` · phase 6 · kind `read` · cost 7 NerdGraph calls
 
 Summarise the logs of an entity (guid from search_entities) over a time window: line counts by level, the most common message patterns (numbers, ids, times and addresses replaced by placeholders, so similar lines group together) and bursts (time buckets far above the usual rate).
 
@@ -930,9 +944,11 @@ Runs 3 requests. Patterns are computed from the newest 1000 lines of the window,
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `entity_guid` | `string` | yes | The entity whose logs to analyse (guid from search_entities). Its account is queried. |
+| `entity_guid` | `string` | no | The entity whose logs to analyse (guid from search_entities). Its account is queried. Give this or name. |
 | `level` | `"fatal" \| "error" \| "warn" \| "info" \| "debug" \| "trace"` | no | Restrict message patterns and bursts to this level. Level counts always cover all. |
 | `time_range` | `string` | no | Time window, e.g. "last 6 hours", "yesterday", "2026-10-01 to 2026-10-02" (UTC). Default: "last 1 hour". Cannot be longer than this connection's window limit. |
+| `name` | `string` | no | Entity name instead of guid (loose is fine: "shippingservice" finds "Shipping-Service"). If several entities match, nothing runs and the candidates are returned: pick one guid. |
+| `account` | `integer` | no | With name only: look in this account (must be one of list_accounts). Default: all of them. |
 
 ### Output
 
@@ -994,7 +1010,7 @@ readOnly: `true` · destructive: `false` · idempotent: `true` · openWorld: `tr
 
 ## `analyze_threads`
 
-**Analyze JVM threads** · group `performance` · phase 6 · kind `read` · cost 2 NerdGraph calls
+**Analyze JVM threads** · group `performance` · phase 6 · kind `read` · cost 6 NerdGraph calls
 
 Summarise the JVM threads of an APM Java application (guid from search_entities) over a time window: thread counts by state (runnable, blocked, waiting...), other thread metrics, and the CPU and memory metrics the agent reports, each as average and peak.
 
@@ -1004,9 +1020,11 @@ Runs 2 requests; if the request budget stops one, the other is still returned an
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `entity_guid` | `string` | yes | The APM application (guid from search_entities). Its account is the account queried. |
+| `entity_guid` | `string` | no | The APM application (guid from search_entities). Its account is the account queried. Give this or name. |
 | `time_range` | `string` | no | Time window, e.g. "last 1 hour", "last 24 hours", "2026-10-01..2026-10-02" (default "last 1 hour"). |
 | `minimal_output` | `boolean` | no | Fewer fields per row (default false). |
+| `name` | `string` | no | Entity name instead of guid (loose is fine: "shippingservice" finds "Shipping-Service"). If several entities match, nothing runs and the candidates are returned: pick one guid. |
+| `account` | `integer` | no | With name only: look in this account (must be one of list_accounts). Default: all of them. |
 
 ### Output
 
@@ -1029,7 +1047,7 @@ readOnly: `true` · destructive: `false` · idempotent: `true` · openWorld: `tr
 
 ## `analyze_transactions`
 
-**Analyze transactions** · group `performance` · phase 6 · kind `read` · cost 2 NerdGraph calls
+**Analyze transactions** · group `performance` · phase 6 · kind `read` · cost 6 NerdGraph calls
 
 Summarise the performance of an APM application (guid from search_entities), or of one transaction in it, over a time window: requests, throughput per minute, error rate, and average, p50, p95 and p99 duration in seconds. By default it also measures the equal window just before and says per metric whether things got worse, better or stayed similar (needs at least 30 requests in each window for latency and error verdicts).
 
@@ -1039,11 +1057,13 @@ Runs 2 requests (1 with compare_previous false). If the request budget stops the
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `entity_guid` | `string` | yes | The APM application (guid from search_entities). Its account is the account queried. |
+| `entity_guid` | `string` | no | The APM application (guid from search_entities). Its account is the account queried. Give this or name. |
 | `transaction_name` | `string` | no | Analyse only this transaction (exact name, as shown by list_top_transactions). Default: all. |
 | `transaction_type` | `"all" \| "web" \| "background"` | no | Only web transactions, only background (non-web) ones, or all (default). |
 | `time_range` | `string` | no | Time window, e.g. "last 6 hours", "yesterday", "2026-10-01 to 2026-10-02" (UTC). Default: "last 1 hour". Cannot be longer than this connection's window limit. |
 | `compare_previous` | `boolean` | no | Also measure the window of equal length just before time_range and compare (default true; false saves a request). |
+| `name` | `string` | no | Entity name instead of guid (loose is fine: "shippingservice" finds "Shipping-Service"). If several entities match, nothing runs and the candidates are returned: pick one guid. |
+| `account` | `integer` | no | With name only: look in this account (must be one of list_accounts). Default: all of them. |
 
 ### Output
 
@@ -1066,7 +1086,7 @@ readOnly: `true` · destructive: `false` · idempotent: `true` · openWorld: `tr
 
 ## `list_gc_metrics`
 
-**List GC and heap metrics** · group `performance` · phase 6 · kind `read` · cost 1 NerdGraph call
+**List GC and heap metrics** · group `performance` · phase 6 · kind `read` · cost 5 NerdGraph calls
 
 List the garbage-collection and heap metrics of an APM Java application (guid from search_entities) over a time window: per collector and heap metric, the average, peak, total and number of samples.
 
@@ -1076,9 +1096,11 @@ Runs 1 request. If the entity reports no GC or heap metrics (not a Java applicat
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `entity_guid` | `string` | yes | The APM application (guid from search_entities). Its account is the account queried. |
+| `entity_guid` | `string` | no | The APM application (guid from search_entities). Its account is the account queried. Give this or name. |
 | `time_range` | `string` | no | Time window, e.g. "last 1 hour", "last 24 hours", "2026-10-01..2026-10-02" (default "last 1 hour"). |
 | `minimal_output` | `boolean` | no | Fewer fields per row (default false). |
+| `name` | `string` | no | Entity name instead of guid (loose is fine: "shippingservice" finds "Shipping-Service"). If several entities match, nothing runs and the candidates are returned: pick one guid. |
+| `account` | `integer` | no | With name only: look in this account (must be one of list_accounts). Default: all of them. |
 
 ### Output
 
@@ -1099,7 +1121,7 @@ readOnly: `true` · destructive: `false` · idempotent: `true` · openWorld: `tr
 
 ## `list_recent_logs`
 
-**List recent logs** · group `performance` · phase 6 · kind `read` · cost 1 NerdGraph call
+**List recent logs** · group `performance` · phase 6 · kind `read` · cost 5 NerdGraph calls
 
 List the most recent log lines (newest first) of one account or one entity (guid from search_entities) in a time window, optionally only one level (fatal, error, warn, info, debug, trace) or lines containing some text. Default: the last hour, 20 lines, max 100.
 
@@ -1109,13 +1131,14 @@ Use it to see what an application was logging around an incident. For counts by 
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `entity_guid` | `string` | no | Only logs of this entity (guid from search_entities); its account is the account queried. Omit to read the account-wide logs. |
+| `entity_guid` | `string` | no | Only logs of this entity (guid from search_entities); its account is the account queried. Omit to read the account-wide logs. Or give name instead. |
 | `account` | `integer` | no | Account to read (must be one of list_accounts). Default: the default account of this connection. |
 | `level` | `"fatal" \| "error" \| "warn" \| "info" \| "debug" \| "trace"` | no | Only lines of this level (case variants such as ERROR/error are matched). |
 | `contains` | `string` | no | Only lines whose message contains this text (matched literally, case as typed). |
 | `time_range` | `string` | no | Time window, e.g. "last 6 hours", "yesterday", "2026-10-01 to 2026-10-02" (UTC). Default: "last 1 hour". Cannot be longer than this connection's window limit. |
 | `limit` | `integer` | no | Most lines to return (default 20, max 100). |
 | `minimal_output` | `boolean` | no | Only timestamp, level and message (default false). |
+| `name` | `string` | no | Entity name instead of guid (loose is fine: "shippingservice" finds "Shipping-Service"). If several entities match, nothing runs and the candidates are returned: pick one guid. |
 
 ### Output
 
@@ -1134,7 +1157,7 @@ readOnly: `true` · destructive: `false` · idempotent: `true` · openWorld: `tr
 
 ## `list_top_transactions`
 
-**List top transactions** · group `performance` · phase 6 · kind `read` · cost 1 NerdGraph call
+**List top transactions** · group `performance` · phase 6 · kind `read` · cost 5 NerdGraph calls
 
 List the busiest, slowest or most error-prone transactions of an APM application (guid from search_entities) in a time window, with throughput, error count and rate, and average, p50, p95 and p99 duration in seconds.
 
@@ -1144,13 +1167,15 @@ Use it to find which endpoints to look at: sort_by slowest (default, by p95), er
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `entity_guid` | `string` | yes | The APM application (guid from search_entities). Its account is the account queried. |
+| `entity_guid` | `string` | no | The APM application (guid from search_entities). Its account is the account queried. Give this or name. |
 | `sort_by` | `"slowest" \| "errors" \| "throughput"` | no | slowest = highest 95th percentile duration (default), errors = most failed transactions, throughput = most requests. |
 | `limit` | `integer` | no | Most transactions to return (default 10, max 50). |
 | `transaction_type` | `"all" \| "web" \| "background"` | no | Only web transactions, only background (non-web) ones, or all (default). |
 | `name_contains` | `string` | no | Only transactions whose name contains this text (case-insensitive). |
 | `time_range` | `string` | no | Time window, e.g. "last 6 hours", "yesterday", "2026-10-01 to 2026-10-02" (UTC). Default: "last 1 hour". Cannot be longer than this connection's window limit. |
 | `minimal_output` | `boolean` | no | Only name, requests, error rate and p95 duration (default false). |
+| `name` | `string` | no | Entity name instead of guid (loose is fine: "shippingservice" finds "Shipping-Service"). If several entities match, nothing runs and the candidates are returned: pick one guid. |
+| `account` | `integer` | no | With name only: look in this account (must be one of list_accounts). Default: all of them. |
 
 ### Output
 

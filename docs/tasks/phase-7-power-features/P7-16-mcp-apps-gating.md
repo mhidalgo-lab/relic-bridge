@@ -2,11 +2,11 @@
 id: P7-16
 title: "MCP Apps: capability-gated UI metadata and an operator switch"
 phase: 7
-status: todo
+status: review
 priority: low
 depends_on: [P7-04]
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P7-16 — MCP Apps: capability-gated UI metadata and an operator switch
@@ -23,8 +23,16 @@ allowed; clients without MCP Apps ignore it. The spec suggests servers check the
 - `RB_MCP_APPS=on|off` (default on) for `serve`, stdio and the Worker, documented in the configuration guide.
 
 ## Acceptance criteria
-- [ ] With the switch off, `tools/list` and `resources/list` show no UI fields or resource (tests on Node and Worker).
-- [ ] Capability gating implemented where the capabilities are available, documented where they are not.
+- [x] With the switch off, `tools/list` and `resources/list` show no UI fields or resource (tests on Node and Worker).
+- [x] Capability gating implemented where the capabilities are available, documented where they are not.
+
+## Result
+- `buildMcpServer({ mcpApps })` (default true). Off: the app resource is not registered, so no tool links to it.
+  On: capabilities are read per request (`server.getClientCapabilities()`; the SDK fills it from the 2026-07-28
+  envelope, or from `initialize` on stdio) and the tool `_meta` / resource `enabled` flags are getters, because the SDK's
+  `tools/list` and `resources/list` handlers get no request context. `clientAppsSupport()` answers yes / no / unknown;
+  only `no` hides. A stateless 2025-era HTTP request has no capabilities (`unknown`) and still gets the view.
+- `RB_MCP_APPS` in `serve`, stdio (including setup mode) and the Worker; invalid values stop startup.
 
 ## Security notes
 None beyond P7-04 (less surface when off).

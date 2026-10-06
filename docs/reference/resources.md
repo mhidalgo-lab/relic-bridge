@@ -36,4 +36,4 @@ Schema resources are readers over `list_event_types` and `get_attributes`: the s
 
 - Kind: MCP Apps view (static HTML); MIME type `text/html;profile=mcp-app`
 - Offered when the connection can use `run_nrql`.
-- Self-contained page bundled with the server (no external script, style or URL; no CSP domains). Clients that render MCP Apps show it for the tools whose `_meta.ui.resourceUri` names it, drawing that tool result only; other clients ignore it. See `docs/guide/charts.md`.
+- Self-contained page bundled with the server (no external script, style or URL; no CSP domains). Clients that render MCP Apps show it for the tools whose `_meta.ui.resourceUri` names it, drawing that tool result only; other clients ignore it, and `RB_MCP_APPS=off` removes it. See `docs/guide/charts.md`.

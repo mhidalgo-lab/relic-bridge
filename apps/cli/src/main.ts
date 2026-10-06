@@ -26,7 +26,13 @@ import {
   serveSettings,
   startServer,
 } from './serve.ts';
-import { isUnconfigured, serveProjectOverStdio, serveSetupModeOverStdio, stdioWriteTools } from './stdio.ts';
+import {
+  isUnconfigured,
+  serveProjectOverStdio,
+  serveSetupModeOverStdio,
+  stdioMcpApps,
+  stdioWriteTools,
+} from './stdio.ts';
 import { nerdGraphFetch } from './test-hooks.ts';
 
 /** Everything `main` needs from the process, injected so it can be tested without spawning. */
@@ -206,7 +212,7 @@ export function main(rt: CliRuntime): MainResult {
   if (isUnconfigured(rt.env, args)) {
     // Setup mode (P7-14): list the tools so clients, registries and inspectors can see them; every call explains
     // what to configure. No key, so nothing can reach New Relic.
-    const { handle, tools } = serveSetupModeOverStdio({ logger });
+    const { handle, tools } = serveSetupModeOverStdio({ logger, mcpApps: stdioMcpApps(rt.env) });
     logger.warn('no configuration: serving the tool list only (setup mode); tool calls explain what to set', {
       version: VERSION,
       tools: tools.length,
@@ -232,6 +238,7 @@ export function main(rt: CliRuntime): MainResult {
       logger,
       queryCache: createProcessQueryCache(queryCacheSettings(rt.env)),
       writeTools: stdioWriteTools(rt.env),
+      mcpApps: stdioMcpApps(rt.env),
       ...(fetch === undefined ? {} : { fetch }),
     });
     logger.info('serving MCP over stdio', {

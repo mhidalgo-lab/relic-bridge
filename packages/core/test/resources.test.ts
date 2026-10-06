@@ -65,7 +65,14 @@ async function connect(
   const server = buildMcpServer({ tools, ctx, ...(onToolCall ? { onToolCall } : {}) });
   const [clientT, serverT] = InMemoryTransport.createLinkedPair();
   await server.connect(serverT);
-  const client = new Client({ name: 'test', version: '0.0.0' });
+  const client = new Client(
+    { name: 'test', version: '0.0.0' },
+    {
+      capabilities: {
+        extensions: { 'io.modelcontextprotocol/ui': { mimeTypes: ['text/html;profile=mcp-app'] } },
+      },
+    },
+  );
   await client.connect(clientT);
   clients.push(client);
   return client;

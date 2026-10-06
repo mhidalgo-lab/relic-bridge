@@ -96,7 +96,8 @@ the client did refresh concurrently.
 `run_nrql` and `get_query_result` link to an MCP Apps view (`ui://relic-bridge/nrql-chart`,
 [charts guide](../guide/charts.md)). Evidence: the server side (resource listing and reading, tool `_meta.ui`, grant
 filtering) is **T**; the view itself is **T** in jsdom driven through the spec's postMessage protocol (spec 2026-01-26).
-No real host rendered it.
+No real host rendered it. Since P7-16 the link and the view are shown only to clients that declare MCP Apps support
+(`RB_MCP_APPS=off` removes them for everyone); the declaration check is **T** on the HTTP app, the Worker and stdio.
 
 | Client | Renders the chart | Without it |
 |---|---|---|

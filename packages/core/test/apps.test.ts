@@ -7,9 +7,11 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   buildMcpServer,
   CHART_APP_HTML,
+  clientAppsSupport,
   createBuiltinTools,
   type FetchLike,
   MCP_APP_MIME_TYPE,
+  MCP_APPS_EXTENSION,
   NRQL_CHART_URI,
   RESOURCES,
   type ResourceDefinition,
@@ -56,11 +58,26 @@ const nrqlTools = () =>
     ['run_nrql', 'get_query_result', 'whoami'].includes(t.name),
   );
 
-async function connect(tools: readonly ToolDefinition[], resources?: readonly ResourceDefinition[]) {
-  const server = buildMcpServer({ tools, ctx: testContext(), ...(resources ? { resources } : {}) });
+const APPS = { [MCP_APPS_EXTENSION]: { mimeTypes: [MCP_APP_MIME_TYPE] } };
+
+async function connect(
+  tools: readonly ToolDefinition[],
+  resources?: readonly ResourceDefinition[],
+  opts: { mcpApps?: boolean; extensions?: Record<string, Record<string, string[]>> } = {},
+) {
+  const server = buildMcpServer({
+    tools,
+    ctx: testContext(),
+    ...(resources ? { resources } : {}),
+    ...(opts.mcpApps === undefined ? {} : { mcpApps: opts.mcpApps }),
+  });
   const [clientT, serverT] = InMemoryTransport.createLinkedPair();
   await server.connect(serverT);
-  const client = new Client({ name: 'test', version: '0.0.0' });
+  // Declares MCP Apps unless a test says otherwise (P7-16: the view is shown to clients that declare it).
+  const client = new Client(
+    { name: 'test', version: '0.0.0' },
+    { capabilities: { extensions: opts.extensions ?? APPS } },
+  );
   await client.connect(clientT);
   clients.push(client);
   return client;
@@ -137,5 +154,52 @@ describe('MCP Apps chart view', () => {
     expect(withView).toEqual(without);
     expect(Object.keys(withView._meta ?? {})).toEqual(['relic-bridge/result']);
     expect(JSON.stringify(withView)).not.toContain('ui://');
+  });
+});
+
+describe('MCP Apps gating (P7-16)', () => {
+  const linked = async (client: Client) =>
+    (await client.listTools()).tools.filter((t) => t._meta?.['ui'] !== undefined).map((t) => t.name);
+
+  it('clientAppsSupport: yes only for the declared MIME type, unknown only without capabilities', () => {
+    expect(clientAppsSupport(undefined)).toBe('unknown');
+    expect(clientAppsSupport(null)).toBe('unknown');
+    expect(clientAppsSupport({})).toBe('no');
+    expect(clientAppsSupport({ extensions: null })).toBe('no');
+    expect(clientAppsSupport({ extensions: { [MCP_APPS_EXTENSION]: {} } })).toBe('no');
+    expect(clientAppsSupport({ extensions: { [MCP_APPS_EXTENSION]: { mimeTypes: ['text/html'] } } })).toBe(
+      'no',
+    );
+    expect(
+      clientAppsSupport({ extensions: { [MCP_APPS_EXTENSION]: { mimeTypes: 'text/html;profile=mcp-app' } } }),
+    ).toBe('no');
+    expect(
+      clientAppsSupport({ extensions: { [MCP_APPS_EXTENSION]: { mimeTypes: [MCP_APP_MIME_TYPE] } } }),
+    ).toBe('yes');
+  });
+
+  it('a client that declares MCP Apps gets the link and the view', async () => {
+    const client = await connect(nrqlTools());
+    expect((await linked(client)).sort()).toEqual(['get_query_result', 'run_nrql']);
+    expect((await client.listResources()).resources.map((r) => r.uri)).toContain(NRQL_CHART_URI);
+    expect((await client.readResource({ uri: NRQL_CHART_URI })).contents).toHaveLength(1);
+  });
+
+  it('a client that connected without the declaration gets neither, and cannot read the view', async () => {
+    const client = await connect(nrqlTools(), undefined, { extensions: { 'other/ext': {} } });
+    expect(await linked(client)).toEqual([]);
+    const run = (await client.listTools()).tools.find((t) => t.name === 'run_nrql');
+    expect(run?._meta).toBeUndefined();
+    expect((await client.listResources()).resources.map((r) => r.uri)).not.toContain(NRQL_CHART_URI);
+    await expect(client.readResource({ uri: NRQL_CHART_URI })).rejects.toThrow();
+  });
+
+  it('mcpApps: false removes the link and the view even for a declaring client; other resources stay', async () => {
+    const client = await connect(nrqlTools(), undefined, { mcpApps: false, extensions: APPS });
+    expect(await linked(client)).toEqual([]);
+    const uris = (await client.listResources()).resources.map((r) => r.uri);
+    expect(uris).not.toContain(NRQL_CHART_URI);
+    expect(uris).toContain('relic://nrql/reference');
+    await expect(client.readResource({ uri: NRQL_CHART_URI })).rejects.toThrow();
   });
 });

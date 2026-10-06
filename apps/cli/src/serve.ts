@@ -315,6 +315,8 @@ export interface ServeSettings {
   readonly writeTools: boolean;
   /** Registry-friendly discovery (P7-14, `RB_PUBLIC_TOOL_CATALOG=on`); off by default. */
   readonly publicToolCatalog: boolean;
+  /** MCP Apps chart view (P7-16, `RB_MCP_APPS`); on by default. */
+  readonly mcpApps: boolean;
   readonly warnings: readonly string[];
 }
 
@@ -495,6 +497,7 @@ export function serveSettings(input: {
     telemetry: telemetrySettings(env),
     writeTools: writeToolsSetting(env, audit, warnings, rateLimits?.write ?? null),
     publicToolCatalog: publicToolCatalogSetting(env, warnings, rateLimits !== null),
+    mcpApps: onOff(env, 'RB_MCP_APPS', true),
     warnings,
   };
 }
@@ -655,6 +658,7 @@ export async function startServer(options: StartServerOptions): Promise<RunningS
     queryCache: createProcessQueryCache(settings.queryCache, keyring.queryCacheKeys().id),
     writeTools: settings.writeTools,
     publicToolCatalog: settings.publicToolCatalog,
+    mcpApps: settings.mcpApps,
     // MCP Tasks (P7-13): sealed task records in the `kv` table, purged with the other expired rows.
     taskStore: storage.kv,
     ...(hooks === undefined ? {} : { hooks }),

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import { type CallToolResult, McpServer, type StandardSchemaWithJSON } from '@modelcontextprotocol/server';
-import { toolUiMeta } from './apps/index.ts';
+import { clientAppsSupport, toolUiMeta } from './apps/index.ts';
 import { toCallToolResult } from './call-result.ts';
 import type { ToolContext } from './context.ts';
 import { ERROR_META_KEY, toToolErrorResult } from './errors.ts';
@@ -54,6 +54,12 @@ export interface BuildServerOptions {
    * is in `tools` are registered.
    */
   resources?: readonly ResourceDefinition[];
+  /**
+   * Offer the MCP Apps views (P7-16, `RB_MCP_APPS`; default true). False: no `ui://` resource and no `_meta.ui` on any
+   * tool, whatever the client declares. True: both are shown to a client that declared MCP Apps support (or whose
+   * capabilities are unknown, see `clientAppsSupport`) and hidden from one that did not.
+   */
+  mcpApps?: boolean;
   /** Called after every tool call, success or error. Must not throw; a throw or rejection is swallowed. */
   onToolCall?: (event: ToolCallEvent) => void;
 }
@@ -153,6 +159,7 @@ export function buildMcpServer({
   onToolCall,
   prompts,
   resources,
+  mcpApps = true,
 }: BuildServerOptions): McpServer {
   // Tasks (P7-13) are offered only where the host bound a task store to the request (HTTP project routes).
   const offersTasks = typeof context !== 'function' && context.tasks !== undefined;
@@ -202,7 +209,13 @@ export function buildMcpServer({
     }
   };
 
-  const offeredResources = selectResources(allowedTools, resources);
+  const offeredResources = selectResources(allowedTools, resources).filter(
+    (r) => mcpApps || r.kind !== 'app',
+  );
+  // The client's capabilities are read when a request is served, not when the server is built: on 2026-07-28 they
+  // come from that request's `_meta`, on a 2025-era connection from its `initialize`. A per-request server instance
+  // never shares them with another request (T21).
+  const showApps = (): boolean => clientAppsSupport(server.server.getClientCapabilities()) !== 'no';
   // A tool links to its MCP Apps view only when that view is offered on this connection (P7-04).
   const appUris = new Set(offeredResources.filter((r) => r.kind === 'app').map((r) => r.uri));
   for (const def of tools) {
@@ -215,35 +228,48 @@ export function buildMcpServer({
       ...(def.outputSchema ? { outputSchema: withCachedJsonSchema(def.outputSchema) } : {}),
       ...(ui === undefined ? {} : { _meta: toolUiMeta(ui) }),
     };
-    server.registerTool(def.name, config, async (input: unknown, extra: unknown): Promise<CallToolResult> => {
-      const base = contextFor();
-      // A client that declared the Tasks extension on this request may get a task for a tool that can resume one.
-      const ctx =
-        base.tasks !== undefined && def.resumeTask !== undefined && clientDeclaresTasks(envelopeOf(extra))
-          ? Object.freeze({ ...base, tasks: Object.freeze({ ...base.tasks, accepted: true }) })
-          : base;
-      try {
-        const out = await invoke(def, input, ctx);
-        if (out.task !== undefined && ctx.tasks?.accepted === true) {
-          try {
-            const task = await createTask(ctx, def.name, out.task);
-            // The CreateTaskResult of the extension. `content: []` keeps the SDK's tools/call result check satisfied;
-            // clients read the task fields.
-            return { resultType: 'task', ...task, content: [] } as unknown as CallToolResult;
-          } catch (error) {
-            // No task store right now: answer as a client without the extension would get it (the handle).
-            ctx.logger.warn('task not created, answering inline', {
-              requestId: ctx.requestId,
-              tool: def.name,
-              error: error instanceof Error ? error.name : typeof error,
-            });
+    const registered = server.registerTool(
+      def.name,
+      config,
+      async (input: unknown, extra: unknown): Promise<CallToolResult> => {
+        const base = contextFor();
+        // A client that declared the Tasks extension on this request may get a task for a tool that can resume one.
+        const ctx =
+          base.tasks !== undefined && def.resumeTask !== undefined && clientDeclaresTasks(envelopeOf(extra))
+            ? Object.freeze({ ...base, tasks: Object.freeze({ ...base.tasks, accepted: true }) })
+            : base;
+        try {
+          const out = await invoke(def, input, ctx);
+          if (out.task !== undefined && ctx.tasks?.accepted === true) {
+            try {
+              const task = await createTask(ctx, def.name, out.task);
+              // The CreateTaskResult of the extension. `content: []` keeps the SDK's tools/call result check satisfied;
+              // clients read the task fields.
+              return { resultType: 'task', ...task, content: [] } as unknown as CallToolResult;
+            } catch (error) {
+              // No task store right now: answer as a client without the extension would get it (the handle).
+              ctx.logger.warn('task not created, answering inline', {
+                requestId: ctx.requestId,
+                tool: def.name,
+                error: error instanceof Error ? error.name : typeof error,
+              });
+            }
           }
+          return toCallToolResult(out, ctx);
+        } catch (error) {
+          return toToolErrorResult(error, ctx.requestId);
         }
-        return toCallToolResult(out, ctx);
-      } catch (error) {
-        return toToolErrorResult(error, ctx.requestId);
-      }
-    });
+      },
+    );
+    if (ui !== undefined) {
+      // `tools/list` reads `_meta` for each request: the view link is shown only to a client that can render it.
+      const linked = registered._meta;
+      Object.defineProperty(registered, '_meta', {
+        enumerable: true,
+        get: () => (showApps() ? linked : undefined),
+        set: () => undefined,
+      });
+    }
   }
   for (const def of selectPrompts(allowedTools, prompts)) {
     server.registerPrompt(def.name, promptConfig(def, withCachedJsonSchema), (args: unknown) => ({
@@ -259,11 +285,16 @@ export function buildMcpServer({
       ],
     }));
   }
-  registerResources(server, {
+  const registeredResources = registerResources(server, {
     defs: offeredResources,
     tools,
     contextFor,
     invoke: (def, input) => invoke(def, input, contextFor()),
   });
+  // An app view is listed and readable only for a client that can render it (`enabled` is read per request).
+  for (const [uri, resource] of registeredResources) {
+    if (!appUris.has(uri)) continue;
+    Object.defineProperty(resource, 'enabled', { enumerable: true, get: showApps, set: () => undefined });
+  }
   return server;
 }

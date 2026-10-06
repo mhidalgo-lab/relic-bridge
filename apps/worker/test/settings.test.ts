@@ -88,6 +88,12 @@ describe('parseWorkerSettings', () => {
     fails({ RB_PLAN: { nested: true } }, 'RB_PLAN');
   });
 
+  it('parses RB_MCP_APPS (P7-16): on by default, off turns the chart view off', () => {
+    expect(parseWorkerSettings({}).mcpApps).toBe(true);
+    expect(parseWorkerSettings({ RB_MCP_APPS: 'off' }).mcpApps).toBe(false);
+    fails({ RB_MCP_APPS: 'maybe' }, 'RB_MCP_APPS');
+  });
+
   it('parses RB_WRITE_TOOLS (P7-09): off by default, needs the audit log', () => {
     expect(parseWorkerSettings({}).writeTools).toBe(false);
     const on = parseWorkerSettings({ RB_WRITE_TOOLS: 'on' });

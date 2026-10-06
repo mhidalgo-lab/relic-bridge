@@ -313,7 +313,7 @@ environment variable (`secrets.ts`); the node-only terminal pieces live in `host
 
 Plus MCP **prompts** (seven investigation workflows, P6-11, `packages/core/src/prompts.ts`, reference in `docs/reference/prompts.md`; registered by `buildMcpServer` only when a tool they use is in the connection's allowed list) and **resources** (P6-12, `packages/core/src/resources.ts`, reference in `docs/reference/resources.md`: a static NRQL cheat sheet and per-account event-type and attribute snapshots, served by the `list_event_types` / `get_attributes` handlers so account checks, limits, cache and audit are the tools' own; registered only when that tool is allowed),
 and **MCP Apps** charts (P7-04, `packages/core/src/apps`, [guide](guide/charts.md)): one `ui://relic-bridge/nrql-chart`
-resource (`text/html;profile=mcp-app`, offered with `run_nrql`) linked from `run_nrql` / `get_query_result` by
+resource (`text/html;profile=mcp-app`, offered with `run_nrql` to clients that declare MCP Apps, P7-16; `RB_MCP_APPS=off` removes it) linked from `run_nrql` / `get_query_result` by
 `_meta.ui.resourceUri`. The view is a dependency-free page (`packages/core/assets/chart-app.*`, embedded at build time by
 `scripts/gen-app-assets.ts`) that draws the tool's `structuredContent` as SVG inside the host's sandboxed iframe; tool
 results themselves are unchanged, so other clients fall back to the text table.

@@ -154,3 +154,35 @@ export function groupUsage(
   }
   return out;
 }
+
+// The same counters inside a Workers Durable Object's SQLite storage (one object per grant, so no `grant_id` column).
+// Kept here with the other SQL (`apps/worker` holds none): every statement is bound parameters only.
+
+export const QUOTA_OBJECT_DDL =
+  'CREATE TABLE IF NOT EXISTS usage (period TEXT PRIMARY KEY, queries INTEGER NOT NULL, inspected INTEGER NOT NULL)';
+/** Parameters: period, cap, cap. */
+export const QUOTA_OBJECT_RESERVE_SQL =
+  'INSERT INTO usage (period, queries, inspected) VALUES (?, 1, 0) ' +
+  'ON CONFLICT(period) DO UPDATE SET queries = queries + 1 WHERE ? IS NULL OR queries < ? RETURNING queries, inspected';
+/** Parameters: period. */
+export const QUOTA_OBJECT_RELEASE_SQL = 'UPDATE usage SET queries = MAX(queries - 1, 0) WHERE period = ?';
+/** Parameters: period, events. */
+export const QUOTA_OBJECT_ADD_SQL =
+  'INSERT INTO usage (period, queries, inspected) VALUES (?, 0, ?) ' +
+  'ON CONFLICT(period) DO UPDATE SET inspected = inspected + excluded.inspected RETURNING queries, inspected';
+/** Parameters: period. */
+export const QUOTA_OBJECT_ONE_SQL = 'SELECT queries, inspected FROM usage WHERE period = ?';
+/** Parameters: the current day key, the current month key. */
+export const QUOTA_OBJECT_CLEANUP_SQL =
+  "DELETE FROM usage WHERE (substr(period, 1, 1) = 'd' AND period < ?) OR (substr(period, 1, 1) = 'm' AND period < ?)";
+/** How many periods remain, and how many of them are days. */
+export const QUOTA_OBJECT_COUNTS_SQL =
+  "SELECT count(*) AS n, coalesce(sum(substr(period, 1, 1) = 'd'), 0) AS days FROM usage";
+/** Whether the object has ever held quota counters (its other storage is one rate-limit bucket). */
+export const QUOTA_OBJECT_EXISTS_SQL = "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'usage'";
+
+/** The statement reading the counters of `periods` (parameters: the periods). */
+export function quotaObjectGetSql(periods: readonly string[]): string {
+  checkPeriods(periods);
+  return `SELECT period, queries, inspected FROM usage WHERE period IN (${periods.map(() => '?').join(', ')})`;
+}

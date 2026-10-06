@@ -34,6 +34,15 @@ import {
   checkPeriod,
   checkPeriods,
   periodResetsAt,
+  QUOTA_OBJECT_ADD_SQL,
+  QUOTA_OBJECT_CLEANUP_SQL,
+  QUOTA_OBJECT_COUNTS_SQL,
+  QUOTA_OBJECT_DDL,
+  QUOTA_OBJECT_EXISTS_SQL,
+  QUOTA_OBJECT_ONE_SQL,
+  QUOTA_OBJECT_RELEASE_SQL,
+  QUOTA_OBJECT_RESERVE_SQL,
+  quotaObjectGetSql,
   type UsageByPeriod,
   type UsageCounters,
   usagePeriods,
@@ -224,9 +233,7 @@ export class SharedLimiter extends DurableObject<unknown> {
   #usage(): SqlStorage {
     const sql = this.ctx.storage.sql;
     if (!this.#usageReady) {
-      sql.exec(
-        'CREATE TABLE IF NOT EXISTS usage (period TEXT PRIMARY KEY, queries INTEGER NOT NULL, inspected INTEGER NOT NULL)',
-      );
+      sql.exec(QUOTA_OBJECT_DDL);
       this.#usageReady = true;
     }
     return sql;
@@ -248,17 +255,9 @@ export class SharedLimiter extends DurableObject<unknown> {
       return null;
     }
     if (maxQueries !== null && !intIn(maxQueries, 1, Number.MAX_SAFE_INTEGER)) return null;
-    const rows = this.#usage()
-      .exec<{ queries: number; inspected: number }>(
-        'INSERT INTO usage (period, queries, inspected) VALUES (?, 1, 0) ' +
-          'ON CONFLICT(period) DO UPDATE SET queries = queries + 1 WHERE ? IS NULL OR queries < ? ' +
-          'RETURNING queries, inspected',
-        period,
-        maxQueries,
-        maxQueries,
-      )
-      .toArray();
-    const row = rows[0];
+    const row = this.#usage()
+      .exec<{ queries: number; inspected: number }>(QUOTA_OBJECT_RESERVE_SQL, period, maxQueries, maxQueries)
+      .toArray()[0];
     if (row === undefined) return null;
     await this.#armCleanup(period);
     return { queries: row.queries, inspected: row.inspected };
@@ -270,7 +269,7 @@ export class SharedLimiter extends DurableObject<unknown> {
     } catch {
       return;
     }
-    this.#usage().exec('UPDATE usage SET queries = MAX(queries - 1, 0) WHERE period = ?', period);
+    this.#usage().exec(QUOTA_OBJECT_RELEASE_SQL, period);
   }
 
   async quotaAdd(period: string, events: number): Promise<UsageCounters> {
@@ -282,37 +281,29 @@ export class SharedLimiter extends DurableObject<unknown> {
     }
     if (!intIn(events, 0, Number.MAX_SAFE_INTEGER)) {
       const cur = this.#usage()
-        .exec<{ queries: number; inspected: number }>(
-          'SELECT queries, inspected FROM usage WHERE period = ?',
-          period,
-        )
+        .exec<{ queries: number; inspected: number }>(QUOTA_OBJECT_ONE_SQL, period)
         .toArray()[0];
       return cur === undefined
         ? { queries: 0, inspected: 0 }
         : { queries: cur.queries, inspected: cur.inspected };
     }
     const row = this.#usage()
-      .exec<{ queries: number; inspected: number }>(
-        'INSERT INTO usage (period, queries, inspected) VALUES (?, 0, ?) ' +
-          'ON CONFLICT(period) DO UPDATE SET inspected = inspected + excluded.inspected RETURNING queries, inspected',
-        period,
-        events,
-      )
+      .exec<{ queries: number; inspected: number }>(QUOTA_OBJECT_ADD_SQL, period, events)
       .one();
     await this.#armCleanup(period);
     return { queries: row.queries, inspected: row.inspected };
   }
 
   async quotaGet(periods: readonly string[]): Promise<UsageByPeriod> {
+    let sql: string;
     try {
-      checkPeriods(periods);
+      sql = quotaObjectGetSql(periods);
     } catch {
       return {};
     }
     const found: Record<string, UsageCounters> = {};
-    const marks = periods.map(() => '?').join(', ');
     for (const r of this.#usage().exec<{ period: string; queries: number; inspected: number }>(
-      `SELECT period, queries, inspected FROM usage WHERE period IN (${marks})`,
+      sql,
       ...periods,
     )) {
       found[r.period] = { queries: r.queries, inspected: r.inspected };
@@ -324,27 +315,17 @@ export class SharedLimiter extends DurableObject<unknown> {
   async #quotaAlarm(): Promise<void> {
     const sql = this.#usage();
     const now = usagePeriods(Date.now());
-    sql.exec(
-      "DELETE FROM usage WHERE (substr(period, 1, 1) = 'd' AND period < ?) OR (substr(period, 1, 1) = 'm' AND period < ?)",
-      now.day,
-      now.month,
-    );
-    const left = sql
-      .exec<{ day: number }>("SELECT count(*) AS day FROM usage WHERE substr(period, 1, 1) = 'd'")
-      .one().day;
-    const any = sql.exec<{ n: number }>('SELECT count(*) AS n FROM usage').one().n;
-    if (any === 0) return;
-    await this.ctx.storage.setAlarm(periodResetsAt(left > 0 ? 'day' : 'month', Date.now()) + 3_600_000);
+    sql.exec(QUOTA_OBJECT_CLEANUP_SQL, now.day, now.month);
+    const { n, days } = sql.exec<{ n: number; days: number }>(QUOTA_OBJECT_COUNTS_SQL).one();
+    if (n === 0) return;
+    await this.ctx.storage.setAlarm(periodResetsAt(days > 0 ? 'day' : 'month', Date.now()) + 3_600_000);
   }
 
   /** Deletes the bucket once it has refilled completely (indistinguishable from no bucket), else re-arms. */
   async alarm(): Promise<void> {
     const storage = this.ctx.storage;
     // A quota object (it created its `usage` table) cleans up its periods; every other object holds one bucket.
-    const quota = this.ctx.storage.sql
-      .exec("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'usage'")
-      .toArray();
-    if (quota.length > 0) return this.#quotaAlarm();
+    if (this.ctx.storage.sql.exec(QUOTA_OBJECT_EXISTS_SQL).toArray().length > 0) return this.#quotaAlarm();
     const bucket = await storage.get<TokenBucket>(BUCKET_KEY);
     if (bucket === undefined) return;
     if (bucket.fullAt <= Date.now()) {

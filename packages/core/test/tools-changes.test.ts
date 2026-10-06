@@ -432,7 +432,7 @@ describe('analyze_deployment_impact', () => {
   it('returns a partial result when the request budget covers only one window', async () => {
     const { fetch, calls } = impactFetch(stats(3000, 1, 0.2, 0.4), stats(3000, 1, 0.2, 0.4));
     // One request for the entity lookup leaves one for the two windows.
-    const client = await connect(fetch, { budget: createBudget(2) });
+    const client = await connect(fetch, { budget: createBudget(3) });
     const r = await client.callTool({
       name: 'analyze_deployment_impact',
       arguments: { entity_guid: guidOf(A) },

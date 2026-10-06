@@ -32,6 +32,8 @@ const PAGE = 200;
 const CATALOGUE_PAGES = 3;
 /** Candidates shown for an ambiguous or loose match. */
 export const MAX_RESOLVE_CANDIDATES = 10;
+/** Most requests one name resolution sends (the exact search plus the catalogue scan). */
+export const RESOLVE_CALLS: number = 1 + CATALOGUE_PAGES;
 
 export type MatchTier = 'guid' | 'exact' | 'case_insensitive' | 'normalised' | 'substring';
 
@@ -324,7 +326,8 @@ export function createEntityResolveTools(deps: ToolDeps = {}): ToolDefinition[] 
     outputSchema: resolveOutput,
     kind: 'read',
     openWorld: true,
-    cost: 1,
+    // An exact-name search, then up to CATALOGUE_PAGES pages of the catalogue scan.
+    cost: RESOLVE_CALLS,
     group: 'entities',
     phase: 6,
     handler: async (input, ctx) => {

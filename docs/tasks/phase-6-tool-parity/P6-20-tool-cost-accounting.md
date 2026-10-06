@@ -2,11 +2,11 @@
 id: P6-20
 title: "Honest tool costs and budget planning (polls, retries, resolution)"
 phase: 6
-status: todo
+status: review
 priority: medium
 depends_on: [P6-18]
 adr: [ADR-0010]
-owner: ""
+owner: claude-agent
 ---
 
 # P6-20 — Honest tool costs and budget planning (polls, retries, resolution)
@@ -27,11 +27,19 @@ request budget (`affordable`) and by composites to plan sections, but it underco
 - Charge `RESOLVE_COST` only when `name` is given if a per-call cost is introduced (P6-17/P6-18 decision).
 
 ## Acceptance criteria
-- [ ] A test asserts, per tool, that the worst-case calls (mock forcing async + poll on every NRQL, name input) are at most
+- [x] A test asserts, per tool, that the worst-case calls (mock forcing async + poll on every NRQL, name input) are at most
       the declared cost, or the tool degrades to a partial result before exceeding it.
-- [ ] Workers Free preset (`callBudget: 45`): every composite at its maximum arguments ends within the budget with a
+- [x] Workers Free preset (`callBudget: 45`): every composite at its maximum arguments ends within the budget with a
       partial result, never `RB_BUDGET_EXHAUSTED` for the whole call.
-- [ ] `docs/reference/tools.md` regenerated.
+- [x] `docs/reference/tools.md` regenerated.
+
+## Outcome
+Rule: every NRQL costs `NRQL_COST` = 2; retries are not counted (budget-capped). Declared costs now include it, composites
+plan with `goldenCost`/`goldenMetricsFor`, parallel NRQL parts start only as many as `startableNrql` allows, `resolve_entity`
+costs 4, `generate_user_impact_report` runs at most 5 queries (cost 14). Test: `packages/core/test/tool-costs.test.ts`
+(forced async + poll, async unavailable, name path, wide golden/related answers, resolver worst case, Free budget 45).
+The Workers Free test covers composites at their maximum arguments. Charging `RESOLVE_COST` only with `name` stays open
+(pending-decisions/phase-6.md).
 
 ## Security notes
 T5 / ADR-0010 (subrequest DoS). The per-request budget remains the control.

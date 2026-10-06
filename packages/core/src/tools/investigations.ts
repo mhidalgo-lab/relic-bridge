@@ -15,7 +15,7 @@ import { defineTool, type ToolDefinition } from '../tool.ts';
 import { createChangeTools, FATAL_CODES } from './changes.ts';
 import { checkGuid, createEntityTools } from './entities.ts';
 import { createErrorTools } from './errors.ts';
-import { createGoldenMetricTools } from './golden.ts';
+import { createGoldenMetricTools, goldenCost, goldenMetricsFor } from './golden.ts';
 import { cleanName } from './identity.ts';
 import { createIssueTools } from './issues.ts';
 import { cleanLogMessage } from './logs.ts';
@@ -34,8 +34,10 @@ import {
   assertWindowWithinLimit,
   grantedSibling,
   label,
+  NRQL_COST,
   num,
   singleAccount,
+  startableNrql,
   type ToolDeps,
   timeRangeInput,
   toolClient,
@@ -254,7 +256,7 @@ const traceOutput = z.object({
 
 const TRACE_DESCRIPTION = `Follow one failing request through the system: from a trace_id, or from an error group (error_group_id from list_error_groups: its latest occurrence with a trace), get the trace's spans (services, root, error and slowest spans), the error events with request attributes (class, message, path, method, status) and the log lines with that trace id.
 
-Use it for "follow this error" or "where did this request fail?". Runs 3 requests (4 with error_group_id); a part that fails or does not fit is noted (partial: true). spans_missing means the trace was sampled out or is outside time_range (default last 24 hours); errors and logs still help. Only log lines with the trace id are returned: for other lines use list_recent_logs with a narrow time_range. One account per call (an entity, by entity_guid or name, implies it); synthetic traffic is skipped unless include_synthetic; query strings are removed from paths. ${UNTRUSTED}`;
+Use it for "follow this error" or "where did this request fail?". Runs 3 queries (4 with error_group_id); a part that fails or does not fit is noted (partial: true). spans_missing means the trace was sampled out or is outside time_range (default last 24 hours); errors and logs still help. Only log lines with the trace id are returned: for other lines use list_recent_logs with a narrow time_range. One account per call (an entity, by entity_guid or name, implies it); synthetic traffic is skipped unless include_synthetic; query strings are removed from paths. ${UNTRUSTED}`;
 
 const spanQuery = (traceId: string, sinceMs: number, untilMs: number): NrqlQuery =>
   nrql`SELECT ${nrql.identifier('timestamp')}, id, ${nrql.identifier('parent.id')} AS parentId, name, ${nrql.identifier('entity.name')} AS service, category, ${nrql.identifier('duration.ms')} AS durationMs, ${nrql.identifier('error.class')} AS errorClass, ${nrql.identifier('error.message')} AS errorMessage FROM Span WHERE ${nrql.identifier('trace.id')} = ${traceId} LIMIT ${SPAN_LIMIT} SINCE ${Math.floor(sinceMs / 1000)} UNTIL ${Math.ceil(untilMs / 1000)}`;
@@ -336,9 +338,12 @@ const depOutput = z.object({
   notes: z.array(z.string()),
 });
 
+/** One relationship lookup, then the golden metrics of the entity and of each dependency (default depth). */
+const DEP_COST = 1 + goldenCost(DEFAULT_METRICS) * (1 + DEFAULT_DEPENDENCIES);
+
 const DEP_DESCRIPTION = `Is the problem in this entity or in what it depends on? For an entity (guid or name) it measures the golden metrics of the entity and of its directly related entities (alerting ones first) side by side, flagging clear signals (alerting, not reporting, rising error rate, latency, CPU or memory, throughput down 25% or more).
 
-Use it for "is it my dependency?". Runs about ${1 + (1 + DEFAULT_METRICS) * (1 + DEFAULT_DEPENDENCIES)} requests by default (fewer with max_dependencies or max_metrics); what does not fit is marked skipped (partial: true). Neighbours in accounts outside this connection are left out (hidden_outside_scope). For the entity alone use entity_health; for the plain list of neighbours use get_related_entities.. ${UNTRUSTED}`;
+Use it for "is it my dependency?". Runs about ${DEP_COST} requests by default (fewer with max_dependencies or max_metrics); what does not fit is marked skipped (partial: true). Neighbours in accounts outside this connection are left out (hidden_outside_scope). For the entity alone use entity_health; for the plain list of neighbours use get_related_entities.. ${UNTRUSTED}`;
 
 // ---------------------------------------------------------------------------------------------------------------------
 // entity_health
@@ -389,7 +394,7 @@ const healthOutput = z.object({
   notes: z.array(z.string()),
 });
 
-const HEALTH_COST = 1 + (1 + HEALTH_METRICS) + 1 + 1 + 1;
+const HEALTH_COST = goldenCost(HEALTH_METRICS) + 1 + 1 + 1 + 1;
 
 const HEALTH_DESCRIPTION = `One-call health check of an entity (guid or name): alert severity and reporting, golden metrics with trends, open alert issues, top unresolved error groups and recent deployments.
 
@@ -441,8 +446,8 @@ export function createInvestigationTools(deps: ToolDeps = {}): ToolDefinition[] 
     outputSchema: traceOutput,
     kind: 'read',
     openWorld: true,
-    // Spans, error events, logs; one more to find the trace of an error group.
-    cost: 4,
+    // Spans, error events and logs; one more NRQL to find the trace of an error group.
+    cost: 4 * NRQL_COST,
     group: 'incident-response',
     phase: 6,
     handler: async (args, ctx) => {
@@ -528,9 +533,9 @@ export function createInvestigationTools(deps: ToolDeps = {}): ToolDefinition[] 
       }
 
       const items: PlanItem<'spans' | 'errors' | 'logs'>[] = [
-        { name: 'spans', cost: 1 },
-        { name: 'errors', cost: 1 },
-        { name: 'logs', cost: 1 },
+        { name: 'spans', cost: NRQL_COST },
+        { name: 'errors', cost: NRQL_COST },
+        { name: 'logs', cost: NRQL_COST },
       ];
       const plan = planBudget(items, ctx.budget.remaining);
       const builders = {
@@ -666,7 +671,8 @@ export function createInvestigationTools(deps: ToolDeps = {}): ToolDefinition[] 
     outputSchema: depOutput,
     kind: 'read',
     openWorld: true,
-    cost: 1 + (1 + DEFAULT_METRICS) * (1 + DEFAULT_DEPENDENCIES),
+    // Beyond the defaults (max_dependencies, max_metrics) the plan degrades to a partial result within the budget.
+    cost: DEP_COST,
     group: 'incident-response',
     phase: 6,
     handler: async (args, ctx) => {
@@ -724,8 +730,8 @@ export function createInvestigationTools(deps: ToolDeps = {}): ToolDefinition[] 
       ];
       const planItems: PlanItem<string>[] = targets.map((t) => ({
         name: t.guid,
-        cost: 1 + metricsEach,
-        minCost: 2,
+        cost: goldenCost(metricsEach),
+        minCost: goldenCost(1),
       }));
       const plan = planBudget(planItems, ctx.budget.remaining);
       const granted = new Map(plan.run.map((r) => [r.name, r.granted]));
@@ -738,7 +744,7 @@ export function createInvestigationTools(deps: ToolDeps = {}): ToolDefinition[] 
             await runSection(
               name,
               golden,
-              { guid: name, since: range.since + ' to ' + range.until, max_metrics: Math.max(1, g - 1) },
+              { guid: name, since: range.since + ' to ' + range.until, max_metrics: goldenMetricsFor(g) },
               ctx,
             ),
           );
@@ -806,7 +812,7 @@ export function createInvestigationTools(deps: ToolDeps = {}): ToolDefinition[] 
         notes.push(
           `${notMeasured} more related entit${notMeasured === 1 ? 'y was' : 'ies were'} not measured: raise max_dependencies.`,
         );
-      if (granted.size > 0 && [...granted.values()].some((g) => g - 1 < metricsEach))
+      if (granted.size > 0 && [...granted.values()].some((g) => goldenMetricsFor(g) < metricsEach))
         notes.push('Golden metrics were reduced to fit the request budget.');
 
       const flagged = deps2.filter((d) => d.signals.length > 0);
@@ -892,7 +898,7 @@ export function createInvestigationTools(deps: ToolDeps = {}): ToolDefinition[] 
 
       const items: PlanItem<HealthSection>[] = [
         { name: 'entity', cost: 1 },
-        { name: 'golden_metrics', cost: 1 + metrics, minCost: 2 },
+        { name: 'golden_metrics', cost: goldenCost(metrics), minCost: goldenCost(1) },
         { name: 'issues', cost: 1 },
         { name: 'errors', cost: 1 },
         { name: 'changes', cost: 1 },
@@ -908,7 +914,7 @@ export function createInvestigationTools(deps: ToolDeps = {}): ToolDefinition[] 
               {
                 guid: args.guid,
                 since: range.since + ' to ' + range.until,
-                max_metrics: Math.max(1, granted - 1),
+                max_metrics: goldenMetricsFor(granted),
               },
             ];
           case 'issues':
@@ -946,8 +952,10 @@ export function createInvestigationTools(deps: ToolDeps = {}): ToolDefinition[] 
         }),
       );
       const golden = plan.run.find((r) => r.name === 'golden_metrics');
-      if (golden && golden.granted - 1 < metrics)
-        notes.push(`Golden metrics reduced to ${golden.granted - 1} to fit the request budget.`);
+      if (golden && goldenMetricsFor(golden.granted) < metrics)
+        notes.push(
+          `Golden metrics reduced to ${goldenMetricsFor(golden.granted)} to fit the request budget.`,
+        );
       const sections: SectionResult[] = HEALTH_SECTIONS.map(
         (name) => ran.find((s) => s.name === name) ?? notRun(name, 'skipped', BUDGET_NOTE),
       );

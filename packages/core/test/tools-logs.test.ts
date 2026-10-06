@@ -331,7 +331,7 @@ describe('analyze_entity_logs', () => {
 
   it('returns what it can when the budget stops later parts', async () => {
     const { fetch, calls } = recording(respond);
-    const client = await connect(fetch, { budget: createBudget(1) });
+    const client = await connect(fetch, { budget: createBudget(2) });
     const r = await client.callTool({ name: 'analyze_entity_logs', arguments: { entity_guid: guidOf(A) } });
     expect(r.isError ?? false).toBe(false);
     const s = r.structuredContent as {

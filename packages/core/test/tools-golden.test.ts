@@ -220,8 +220,8 @@ describe('get_golden_metrics', () => {
       },
       () => entityBody(THREE),
     );
-    // One request for the entity, two for metrics; the third metric is skipped without a request.
-    const client = await connect(fetch, { budget: createBudget(3) });
+    // One request for the entity, two NRQL queries (two requests each); the third metric is skipped without a request.
+    const client = await connect(fetch, { budget: createBudget(5) });
     const r = await client.callTool({ name: 'get_golden_metrics', arguments: { guid: GUID } });
     expect(r.isError).toBeFalsy();
     const s = r.structuredContent as Out;
@@ -341,7 +341,7 @@ describe('get_golden_metrics', () => {
       },
       () => entityBody(THREE.slice(0, 2)),
     );
-    const c2 = await connect(mixed.fetch, { budget: createBudget(4) });
+    const c2 = await connect(mixed.fetch, { budget: createBudget(5) });
     const r2 = await c2.callTool({ name: 'get_golden_metrics', arguments: { guid: GUID } });
     expect((r2.structuredContent as Out).metrics.map((m) => m.status)).toEqual(['no_data', 'pending']);
   });

@@ -20,7 +20,7 @@ An agent picks a tool from its name, description and input schema, nothing else.
    (`packages/core/test/evals/quality.ts`) and both sides must name each other.
 4. **Inputs that matter.** Defaults that change the answer (window, sort), paging (`next_cursor`), and "(guid or name)" for
    every tool that takes an entity: never "guid from search_entities", the name is resolved for the agent.
-5. **Cost.** A tool that usually runs 6 or more requests says "Runs about N requests" and what happens when the budget is
+5. **Cost.** A tool that usually runs 8 or more requests says "Runs about N requests" and what happens when the budget is
    short (skipped / partial).
 6. **Limits an agent would otherwise discover by failing**, briefly: APM only, Java only, experimental API, no
    "lines around this error" mode in the log tools (use a narrow `time_range`).

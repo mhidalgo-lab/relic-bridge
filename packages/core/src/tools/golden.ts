@@ -13,10 +13,23 @@ import { checkGuid, isNonNull, outOfScope, requireField } from './entity-common.
 import { entityRefFields, RESOLVE_COST, refineEntityRef, resolveEntityRef } from './entity-ref.ts';
 import { createEntityResolver } from './entity-resolver.ts';
 import { cleanName } from './identity.ts';
-import { assertWindowWithinLimit, type ToolDeps, toolClient, UNTRUSTED } from './shared.ts';
+import {
+  assertWindowWithinLimit,
+  NRQL_COST,
+  startableNrql,
+  type ToolDeps,
+  toolClient,
+  UNTRUSTED,
+} from './shared.ts';
 
 export const DEFAULT_GOLDEN_SINCE = 'last 30 minutes';
 const DEFAULT_MAX_METRICS = 10;
+
+/** Requests `get_golden_metrics` sends for `metrics` golden metrics (entity lookup + NRQL each), name resolution aside. */
+export const goldenCost = (metrics: number): number => 1 + NRQL_COST * metrics;
+/** The golden metrics a grant of `granted` requests pays for (at least one). */
+export const goldenMetricsFor = (granted: number): number =>
+  Math.max(1, Math.floor((granted - 1) / NRQL_COST));
 const MAX_METRICS = 20;
 const MAX_QUERY_CHARS = 4096;
 /** Relative change between the two halves of the window that still counts as flat. */
@@ -250,8 +263,8 @@ export function createGoldenMetricTools(deps: ToolDeps = {}): ToolDefinition[] {
     outputSchema: output,
     kind: 'read',
     openWorld: true,
-    // One entity lookup plus one query per metric (default cap).
-    cost: 1 + DEFAULT_MAX_METRICS + RESOLVE_COST,
+    // One entity lookup plus one NRQL per metric (default cap), and the name resolution.
+    cost: goldenCost(DEFAULT_MAX_METRICS) + RESOLVE_COST,
     group: 'health',
     phase: 1,
     handler: async (rawArgs, ctx) => {
@@ -279,8 +292,8 @@ export function createGoldenMetricTools(deps: ToolDeps = {}): ToolDefinition[] {
         .filter((m) => m.query !== '');
       const cap = args.max_metrics ?? DEFAULT_MAX_METRICS;
       const wanted = defs.slice(0, cap);
-      // Budget-aware: start only as many as the remaining budget can pay for (one request each).
-      const startable = Math.min(wanted.length, ctx.budget.remaining);
+      // Budget-aware: start only as many as the remaining budget can pay for (NRQL_COST requests each).
+      const startable = startableNrql(wanted.length, ctx.budget.remaining);
       const ran = await Promise.all(
         wanted
           .slice(0, startable)

@@ -257,7 +257,11 @@ environment variable (`secrets.ts`); the node-only terminal pieces live in `host
 
 - **Budget**: per-invocation counter of NerdGraph calls (external `fetch`; D1/KV have their own larger Workers allowance),
   configured by `RB_PLAN` (`free` = 45, `paid` = 1000) or `RB_CALL_BUDGET`. Tools declare an expected cost and check
-  `budget.canSpend(n)`; a tool whose cost exceeds the budget is not registered. `RB_MAX_RESPONSE_BYTES` is a platform ceiling over each project's `maxResponseBytes`.
+  `budget.canSpend(n)`; a tool whose cost exceeds the budget is not registered.
+  Cost rule (P6-20): every NRQL counts as 2 requests (`NRQL_COST`: async submit + one poll, or the async attempt + the sync
+  fallback), an entity name adds up to 4 (`RESOLVE_COST`), retries are not counted (they follow a failure and each attempt
+  spends a unit, so the budget still caps them). Composites plan in these units and degrade to a partial result;
+  `tool-costs.test.ts` forces the worst case on every tool and asserts requests ≤ declared cost. `RB_MAX_RESPONSE_BYTES` is a platform ceiling over each project's `maxResponseBytes`.
 - **Concurrency**: per-credential semaphore (default 5) inside an invocation and process; ≤ 6 on Workers. Optional
   Durable Object global limiter (Phase 7).
 - **Query limits** (per project, can be tightened per grant):

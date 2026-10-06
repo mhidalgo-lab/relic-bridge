@@ -21,9 +21,11 @@ import {
   assertWindowWithinLimit,
   cursorInput,
   label,
+  NRQL_COST,
   nextCursorOf,
   num,
   singleAccount,
+  startableNrql,
   type ToolDeps,
   toolClient,
   UNTRUSTED,
@@ -256,8 +258,8 @@ export function createSyntheticTools(deps: ToolDeps = {}): ToolDefinition[] {
     outputSchema: output,
     kind: 'read',
     openWorld: true,
-    // Monitor search plus the check-results query.
-    cost: 2,
+    // Monitor search plus the check-results NRQL.
+    cost: 1 + NRQL_COST,
     group: 'alerting',
     phase: 6,
     handler: async (args, ctx) => {
@@ -305,7 +307,7 @@ export function createSyntheticTools(deps: ToolDeps = {}): ToolDefinition[] {
       let results = new Map<string, MonitorResults>();
       let resultsRead = false;
       if (wantResults && range && matches.length > 0) {
-        if (ctx.budget.remaining < 1) {
+        if (ctx.budget.remaining < NRQL_COST) {
           partial = true;
           notes.push('Check results: Request budget exhausted.');
         } else {

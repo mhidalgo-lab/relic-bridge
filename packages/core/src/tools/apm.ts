@@ -13,7 +13,9 @@ import { checkGuid } from './entities.ts';
 import { cleanName } from './identity.ts';
 import {
   assertWindowWithinLimit,
+  NRQL_COST,
   singleAccount,
+  startableNrql,
   type ToolDeps,
   timeRangeInput,
   toolClient,
@@ -262,7 +264,8 @@ export function createApmTools(deps: ToolDeps = {}): ToolDefinition[] {
     outputSchema: listOutput,
     kind: 'read',
     openWorld: true,
-    cost: 1,
+    // One NRQL.
+    cost: NRQL_COST,
     group: 'performance',
     phase: 6,
     handler: async (args, ctx) => {
@@ -379,8 +382,8 @@ export function createApmTools(deps: ToolDeps = {}): ToolDefinition[] {
     outputSchema: analyzeOutput,
     kind: 'read',
     openWorld: true,
-    // The current window and, by default, the previous one.
-    cost: 2,
+    // The current window and, by default, the previous one (one NRQL each).
+    cost: 2 * NRQL_COST,
     group: 'performance',
     phase: 6,
     handler: async (args, ctx) => {
@@ -419,7 +422,7 @@ export function createApmTools(deps: ToolDeps = {}): ToolDefinition[] {
           : []),
       ];
       // Budget-aware: the current window comes first, the rest is skipped when the budget is short.
-      const startable = Math.min(queries.length, ctx.budget.remaining);
+      const startable = startableNrql(queries.length, ctx.budget.remaining);
       const ran = await Promise.all(queries.slice(0, startable).map((w) => window(ctx, account, w.q)));
       const outcomes = queries.map(
         (_, i): Outcome => ran[i] ?? { ok: false, note: 'Request budget exhausted.' },

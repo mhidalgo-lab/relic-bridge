@@ -233,7 +233,7 @@ describe('analyze_transactions', () => {
 
   it('returns the current window as partial when the budget covers one query', async () => {
     const { fetch, calls } = recording(() => nrqlBody([agg(3000, 1, 0.2, 0.4)]));
-    const client = await connect(fetch, { budget: createBudget(1) });
+    const client = await connect(fetch, { budget: createBudget(2) });
     const r = await client.callTool({ name: 'analyze_transactions', arguments: { entity_guid: guidOf(A) } });
     expect(r.isError ?? false).toBe(false);
     const s = r.structuredContent as {

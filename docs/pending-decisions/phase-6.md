@@ -328,3 +328,15 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Context:** agents reported `pnpm bench:cpu` as noisy during Phase 6. See the review's Local CI section for the
   measurements and what changed in `scripts/bench-cpu.ts`.
 - **Needs:** nothing unless the owner prefers a different gate.
+
+### P6-20 — Cost rule: count polls, retries not counted
+- **Context:** declared costs undercounted real NerdGraph calls (review M2).
+- **Assumption made:** one rule: every NRQL costs 2 (`maxPolls: 1` means submit + one poll, or async attempt + sync
+  fallback); retries are not in the declared cost (the per-request budget still caps them); `RESOLVE_COST` stays a flat 4
+  on the entity tools whether or not `name` is given (a static cost cannot see the arguments), so `affordable` is
+  conservative for guid callers. `generate_user_impact_report` now runs at most 5 queries (cost 14) instead of planning
+  against the whole remaining budget. `run_nrql` keeps cost 1 + default polls (the caller can raise `max_polls`).
+  The "Runs ..." hint threshold in the description lint moved from 6 to 8 (name resolution made most entity tools 5 to 8).
+- **Options:** (a) keep; (b) `maxPolls: 0` inside composites (cost 1 per NRQL, pending results reported more often);
+  (c) charge the resolver only when `name` is given, via a per-call cost.
+- **Needs:** owner's call; none blocks Phase 7.

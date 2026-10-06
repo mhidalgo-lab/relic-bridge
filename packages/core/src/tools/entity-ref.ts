@@ -5,12 +5,12 @@ import type { ToolContext } from '../context.ts';
 import { ErrorCode, RbError } from '../errors.ts';
 import type { ToolDefinition } from '../tool.ts';
 import { kind } from './entity-common.ts';
-import { type EntityResolver, MAX_RESOLVE_CANDIDATES } from './entity-resolver.ts';
+import { type EntityResolver, MAX_RESOLVE_CANDIDATES, RESOLVE_CALLS } from './entity-resolver.ts';
 import { cleanName } from './identity.ts';
 import { accountIdSchema } from './shared.ts';
 
 /** Worst case NerdGraph requests of one name resolution: a LIKE search plus a three-page catalogue scan. */
-export const RESOLVE_COST = 4;
+export const RESOLVE_COST: number = RESOLVE_CALLS;
 
 /** One wording for the `name` input of every entity tool (P6-19). Keep the prefix: the description lint keys on it. */
 const NAME_DESCRIPTION =

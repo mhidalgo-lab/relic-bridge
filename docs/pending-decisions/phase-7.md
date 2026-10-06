@@ -77,3 +77,15 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Needs:** owner connects a deployed server to claude.ai or Claude Desktop, runs `SELECT count(*) FROM Transaction
   FACET appName TIMESERIES SINCE 1 hour ago`, and reports whether the chart shows (and in which theme); then tick the
   last P7-04 criterion and update `docs/reference/client-compatibility.md`.
+
+### P7-05 — doctor: scope trimmed, probes chosen without an owner
+- **Context:** The task listed client-config-file checks and remote token validity. Both need per-client file parsing
+  and a token input that must not be a flag.
+- **Assumption made:** Moved to follow-up P7-17. Doctor exits `1` only on `fail` (warnings exit `0`). The remote MCP
+  probe is an unauthenticated `POST /p/doctor-probe/mcp` (expects 401); the Workers drift check duplicates
+  `normalizeConfig` from `scripts/cloudflare-setup.ts` (the CLI cannot import scripts) and only looks at the default
+  `wrangler.local.jsonc`. The New Relic clock check issues a `HEAD` to the region's NerdGraph endpoint.
+- **Options:** add `--strict` (warnings exit 1); move `normalizeConfig` into a shared package; drop the clock probe to
+  keep `doctor` to a single NerdGraph request.
+- **Needs:** owner confirms the exit-code policy and whether the unauthenticated probe is acceptable against servers
+  with WAF/rate limits.

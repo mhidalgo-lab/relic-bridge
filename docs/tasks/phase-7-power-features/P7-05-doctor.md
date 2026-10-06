@@ -2,11 +2,11 @@
 id: P7-05
 title: "relic-bridge doctor"
 phase: 7
-status: todo
+status: review
 priority: medium
 depends_on: [P6-13]
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P7-05 — relic-bridge doctor
@@ -37,12 +37,12 @@ Exit codes: `0` no `fail` (warnings allowed), `1` at least one `fail`, `2` usage
 `{ ok, checks: [{id,status,title,detail?,fix?}] }`. Output is built only from redacted strings.
 
 ## Acceptance criteria
-- [ ] Each failure has an actionable fix message.
-- [ ] Human and `--json` output; exit codes as above; `--offline` makes no network call.
-- [ ] No secret (NR key, master key, admin token, `rb_` token) appears in any output, including on failures (tests with
+- [x] Each failure has an actionable fix message.
+- [x] Human and `--json` output; exit codes as above; `--offline` makes no network call.
+- [x] No secret (NR key, master key, admin token, `rb_` token) appears in any output, including on failures (tests with
       fake secrets assert this).
-- [ ] Tests with mocked fetch/fs cover each check's ok/warn/fail paths.
-- [ ] `docs/reference/cli.md` and `docs/guide/troubleshooting.md` updated.
+- [x] Tests with mocked fetch/fs cover each check's ok/warn/fail paths.
+- [x] `docs/reference/cli.md` and `docs/guide/troubleshooting.md` updated.
 
 ## Security notes
 Never prints secrets. Only NerdGraph (with the user's own key, same as the server does) and, with `--remote`, the

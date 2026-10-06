@@ -4,6 +4,11 @@ Start with the agent: ask it to run `whoami`. It reports the region, default acc
 never shows the key. Then read the server's log (JSON lines on stderr: Claude Code `claude --debug`, Claude Desktop's
 MCP log file, VS Code *MCP: List Servers > Show Output*).
 
+Or run `relic-bridge doctor` (add `--remote https://your-server` for a deployed instance, `--offline` to avoid network
+calls, `--json` for scripts). It checks Node, your config, the New Relic key and region, the master key, the database,
+`RB_PUBLIC_URL`, clock skew and the remote server, and prints a fix for each problem without ever showing a secret. See
+the [CLI reference](../reference/cli.md#doctor).
+
 ## Server won't start or doesn't appear
 
 | Message / symptom | Cause and fix |

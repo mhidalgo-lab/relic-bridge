@@ -77,13 +77,20 @@ export function readWidget(
   }
   const cfg = isRecord(raw) ? raw : {};
   const rawQueries = Array.isArray(cfg['nrqlQueries']) ? cfg['nrqlQueries'] : [];
-  const parsed: { accountId: number | null; nrql: string }[] = [];
+  const parsed: { accountId: number | null; accounts: (number | null)[]; nrql: string }[] = [];
   for (const q of rawQueries.slice(0, MAX_QUERIES_PER_WIDGET)) {
     if (!isRecord(q) || typeof q['query'] !== 'string') continue;
-    parsed.push({ accountId: num(q['accountId']), nrql: q['query'] });
+    // Older widgets carry `accountId`, multi-account ones `accountIds` (phase 6 review): every account named counts.
+    const accounts = [
+      ...(q['accountId'] === undefined ? [] : [num(q['accountId'])]),
+      ...(Array.isArray(q['accountIds']) ? q['accountIds'].map(num) : []),
+    ];
+    parsed.push({ accountId: accounts[0] ?? null, accounts, nrql: q['query'] });
   }
   // An unknown account counts as foreign: nothing proves the connection may see what the query reads.
-  const withheld = parsed.some((q) => q.accountId === null || !allowed.has(q.accountId));
+  const withheld = parsed.some(
+    (q) => q.accounts.length === 0 || q.accounts.some((a) => a === null || !allowed.has(a)),
+  );
   const markdown = typeof cfg['text'] === 'string' ? cfg['text'] : null;
   const show = includeContent && !withheld;
   return {

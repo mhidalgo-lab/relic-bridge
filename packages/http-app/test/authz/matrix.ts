@@ -328,6 +328,18 @@ export const PUBLIC_ROUTES: readonly RouteCase[] = [
 ];
 
 /**
+ * The static tool catalog (P7-14): registered only with `publicToolCatalog` (`RB_PUBLIC_TOOL_CATALOG=on`), else 404.
+ * Unauthenticated by design; `public-catalog.test.ts` checks it answers alike whatever a caller presents.
+ */
+export const PUBLIC_CATALOG_ROUTES: readonly RouteCase[] = [
+  {
+    method: 'GET',
+    pattern: '/.well-known/relic-bridge/tools.json',
+    path: '/.well-known/relic-bridge/tools.json',
+  },
+];
+
+/**
  * The OAuth 2.1 endpoints (P5-01): registered only with the `oauth` option. Unauthenticated by design (the token and
  * registration bodies are their own credentials); `oauth-suite.ts` checks they answer alike whatever a caller presents.
  */

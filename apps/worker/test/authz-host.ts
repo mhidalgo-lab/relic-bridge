@@ -46,7 +46,14 @@ function envFor(over: Partial<HttpAppOptions>): WorkerEnv {
     vars['RB_FINGERPRINT_SECRET'] = SECRET;
   }
   if (over.writeTools === true) vars['RB_WRITE_TOOLS'] = 'on';
-  const { accessCacheTtlMs: _a, passthrough: _p, writeTools: _w, ...unsupported } = over;
+  if (over.publicToolCatalog === true) vars['RB_PUBLIC_TOOL_CATALOG'] = 'on';
+  const {
+    accessCacheTtlMs: _a,
+    passthrough: _p,
+    writeTools: _w,
+    publicToolCatalog: _c,
+    ...unsupported
+  } = over;
   if (Object.keys(unsupported).length > 0) {
     throw new Error(`worker host cannot map the options ${Object.keys(unsupported).join(', ')}`);
   }

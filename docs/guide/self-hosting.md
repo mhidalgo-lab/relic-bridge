@@ -47,6 +47,8 @@ relic-bridge serve --port 9000 --db /var/lib/relic-bridge/relic-bridge.db
 | `RB_ALLOWED_ORIGINS` | = `RB_ALLOWED_HOSTS` | Hostnames allowed in a browser `Origin` header; a request with any other `Origin` (or `null`) is refused with 403. Requests without `Origin` (every non-browser MCP client) pass. |
 | `RB_CORS_ORIGINS` | none (CORS off) | Origins (`https://app.example.com`) that may call the MCP endpoints from a browser. |
 | `RB_ACCESS_CACHE_TTL` | `30` | Seconds a token's resolved access is cached, `0`-`60`. A revoked token, grant or project stops working within this time; `0` disables the cache. Never longer than the token's or grant's expiry. |
+| `RB_QUERY_CACHE` | `on` | NRQL query cache in process memory (P7-02): a repeated query within its TTL is answered without a New Relic call. Entries never cross grants, credentials, keys, accounts or query limits. `off` sends every query to New Relic. See [query cache](query-cache.md). |
+| `RB_QUERY_CACHE_TTL` | `30` | Seconds a result over a moving window (`SINCE 30 minutes ago`) is reused, `0`-`300`; `0` caches only fixed windows that ended at least 15 minutes ago (kept 10 minutes). |
 | `RB_RATE_LIMIT` | `on` | `off` disables all rate limiting (not recommended; warned at start). |
 | `RB_RATE_LIMIT_IP` | `600/60` | Requests per client IP before authentication: `<requests>/<seconds>` (bucket size / refill window) or `off`. |
 | `RB_RATE_LIMIT_AUTH_FAIL` | `10/300` | Failed authentications per client IP. Past it, further **failures** from that IP get `429` instead of `401` until the bucket refills (one failure per 30 s with the default); a valid token is still served. On the pass-through route every request from that IP is refused (checking a New Relic key costs a NerdGraph call). |

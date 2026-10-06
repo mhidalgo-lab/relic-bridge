@@ -2,7 +2,7 @@
 id: P7-02
 title: "Query cache (Cache API / in-memory LRU)"
 phase: 7
-status: in-progress
+status: review
 priority: medium
 depends_on: [P6-13]
 adr: []
@@ -46,15 +46,15 @@ New Relic call, without ever serving one tenant's, credential's or grant's resul
    tools through `ToolContext.queryCache`; it holds results keyed by the isolation key above, never credentials.
 
 ## Acceptance criteria
-- [ ] Task refined (this file) before implementation.
-- [ ] Never shared across credentials, keys (rotation / pass-through), regions, grants/projects, account sets or
+- [x] Task refined (this file) before implementation.
+- [x] Never shared across credentials, keys (rotation / pass-through), regions, grants/projects, account sets or
       query limits (tests in core; HTTP test across two grants and two pass-through keys).
-- [ ] Relative windows expire within the short TTL; absolute settled windows use the long TTL; clock going back is a
+- [x] Relative windows expire within the short TTL; absolute settled windows use the long TTL; clock going back is a
       miss (tests).
-- [ ] Size caps: oversized entries are not stored; the LRU stays within entries and bytes (tests).
-- [ ] Workers Cache API store works in the workers pool (encrypted body, expiry, budget spent) and isolates tenants.
-- [ ] `cache: "bypass"`, `RB_QUERY_CACHE=off` and `cache` meta tested; cache hits spend no NerdGraph budget.
-- [ ] THREAT_MODEL T16 updated; configuration reference documents the variables.
+- [x] Size caps: oversized entries are not stored; the LRU stays within entries and bytes (tests).
+- [x] Workers Cache API store works in the workers pool (encrypted body, expiry, budget spent) and isolates tenants.
+- [x] `cache: "bypass"`, `RB_QUERY_CACHE=off` and `cache` meta tested; cache hits spend no NerdGraph budget.
+- [x] THREAT_MODEL T16 updated; configuration reference documents the variables.
 
 ## Security notes
 **T16**, T21, T4 (keys carry no secrets), T5 (limits enforced before lookup).

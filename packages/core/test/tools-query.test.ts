@@ -183,6 +183,7 @@ describe('query tools: catalogue', () => {
       'format',
       'detail',
       'max_rows',
+      'cache',
     ]);
     expect(run?.inputSchema.required).toEqual(['nrql']);
     for (const hint of [

@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+import type { QueryCacheInfo } from '../cache/query-cache.ts';
 import type { ToolContext } from '../context.ts';
 import { ErrorCode, RbError } from '../errors.ts';
 import {
@@ -30,6 +31,8 @@ export interface RunNrqlInput {
   readonly maxPolls?: number;
   /** Include cost stats (inspected count, scanned events). Selects `rawResponse`, which doubles the payload. */
   readonly stats?: boolean;
+  /** `bypass`: skip the query cache and run the query (the fresh result replaces the entry). Default `use`. */
+  readonly cache?: 'use' | 'bypass';
 }
 
 export interface NrqlStats {
@@ -72,6 +75,8 @@ export interface NrqlComplete {
   readonly nrql?: string;
   /** Wall time of this call (submit + polls), measured with `ctx.clock`. */
   readonly durationMs?: number;
+  /** What the query cache did (P7-02). Absent only for `get_query_result` polls, which are never cached. */
+  readonly cache?: QueryCacheInfo;
 }
 
 export interface NrqlPending {
@@ -323,17 +328,77 @@ async function run(
   deps: NrqlDeps,
 ): Promise<NrqlOutcome> {
   if (text.trim() === '') throw new RbError(ErrorCode.InputInvalid, 'The NRQL query is empty.');
+  // Accounts and limits first: a query this connection may not run is refused before the cache is consulted (T16).
   const accounts = resolveAccounts(ctx, input.accounts);
   const checked = enforceQueryLimits(text, ctx.limits, ctx.clock.now());
   if (checked.notes.length > 0) ctx.logger.info('nrql adjusted by limits', { notes: checked.notes });
   const started = ctx.clock.now();
-  const outcome = await execute(ctx, { ...input, nrql: checked.nrql }, accounts, deps);
-  return {
+  const finish = (outcome: NrqlOutcome, cache: QueryCacheInfo | undefined): NrqlOutcome => ({
     ...outcome,
     notes: checked.notes,
     nrql: checked.nrql,
     durationMs: Math.max(0, ctx.clock.now() - started),
-  };
+    ...(cache === undefined || outcome.status !== 'complete' ? {} : { cache }),
+  });
+
+  const binding = ctx.queryCache;
+  const life = binding?.cache.lifetime(checked.fixedEndMs, started);
+  if (binding === undefined || life === null || life === undefined) {
+    return finish(await execute(ctx, { ...input, nrql: checked.nrql }, accounts, deps), { status: 'off' });
+  }
+  const stats = input.stats ?? false;
+  const id = await binding.cache.idFor(ctx, {
+    scope: binding.scope,
+    nrql: checked.nrql,
+    accounts,
+    stats,
+    bucket: life.bucket,
+  });
+  const bypass = input.cache === 'bypass';
+  if (!bypass) {
+    const hit = await binding.cache.get(ctx, id);
+    const cached = hit === undefined ? undefined : fromCache(hit.entry.body, accounts);
+    if (hit !== undefined && cached !== undefined) {
+      ctx.logger.debug('nrql cache hit', { store: hit.store });
+      const now = ctx.clock.now();
+      return finish(cached, {
+        status: 'hit',
+        store: hit.store,
+        ageSeconds: Math.max(0, Math.round((now - hit.entry.storedAt) / 1000)),
+        ttlSeconds: Math.round((hit.entry.expiresAt - hit.entry.storedAt) / 1000),
+      });
+    }
+  }
+  const outcome = await execute(ctx, { ...input, nrql: checked.nrql }, accounts, deps);
+  if (outcome.status !== 'complete') return finish(outcome, undefined);
+  const stored = await binding.cache.put(ctx, id, toCache(outcome), life.ttlMs);
+  return finish(outcome, {
+    status: bypass ? 'bypass' : 'miss',
+    stored,
+    ...(stored ? { ttlSeconds: Math.round(life.ttlMs / 1000) } : {}),
+  });
+}
+
+/** What is cached of a complete outcome: the New Relic result only, never per-call fields (notes, timing, cache). */
+function toCache(outcome: NrqlComplete): string {
+  const { notes: _n, nrql: _q, durationMs: _d, cache: _c, polls: _p, ...result } = outcome;
+  return JSON.stringify(result);
+}
+
+/** Parse a cached result; anything that does not look like one (or names other accounts) is a miss. */
+function fromCache(body: string, accounts: readonly number[]): NrqlComplete | undefined {
+  let value: unknown;
+  try {
+    value = JSON.parse(body);
+  } catch {
+    return undefined;
+  }
+  if (value === null || typeof value !== 'object') return undefined;
+  const v = value as Partial<NrqlComplete>;
+  if (v.status !== 'complete' || !Array.isArray(v.results) || !Array.isArray(v.accounts)) return undefined;
+  // Defence in depth: the id already covers the accounts; a mismatch can only mean a corrupted entry.
+  if (v.accounts.length !== accounts.length || v.accounts.some((a, i) => a !== accounts[i])) return undefined;
+  return { ...(v as NrqlComplete), polls: 0, notes: [] };
 }
 
 async function execute(

@@ -10,7 +10,15 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { parseCliArgs, UsageError } from '../src/args.ts';
 import { ConfigError } from '../src/config.ts';
 import { main } from '../src/main.ts';
-import { defaultConfigDir, defaultDataDir, resolveDbPath, serveSettings, startServer } from '../src/serve.ts';
+import {
+  createProcessQueryCache,
+  defaultConfigDir,
+  defaultDataDir,
+  queryCacheSettings,
+  resolveDbPath,
+  serveSettings,
+  startServer,
+} from '../src/serve.ts';
 import { memoryFs } from './helpers.ts';
 
 describe('serve arguments', () => {
@@ -28,6 +36,27 @@ describe('serve arguments', () => {
     expect(() => parseCliArgs(['keys', 'generate', '--host', 'x'])).toThrow(UsageError);
     expect(() => parseCliArgs(['serve', '--config', 'a.yaml'])).toThrow(UsageError);
     expect(() => parseCliArgs(['serve', 'extra'])).toThrow(UsageError);
+  });
+});
+
+describe('query cache settings (P7-02)', () => {
+  it('defaults on with a 30 s TTL; reads RB_QUERY_CACHE and RB_QUERY_CACHE_TTL', () => {
+    expect(queryCacheSettings({})).toEqual({ enabled: true, relativeTtlMs: 30_000 });
+    expect(queryCacheSettings({ RB_QUERY_CACHE: 'off', RB_QUERY_CACHE_TTL: '0' })).toEqual({
+      enabled: false,
+      relativeTtlMs: 0,
+    });
+    expect(queryCacheSettings({ RB_QUERY_CACHE_TTL: '300' }).relativeTtlMs).toBe(300_000);
+    expect(() => queryCacheSettings({ RB_QUERY_CACHE: 'maybe' })).toThrow(ConfigError);
+    expect(() => queryCacheSettings({ RB_QUERY_CACHE_TTL: '301' })).toThrow(ConfigError);
+    expect(() => queryCacheSettings({ RB_QUERY_CACHE_TTL: '-1' })).toThrow(ConfigError);
+  });
+
+  it('builds the process cache, or none when off', () => {
+    expect(createProcessQueryCache({ enabled: false, relativeTtlMs: 30_000 })).toBeNull();
+    expect(createProcessQueryCache({ enabled: true, relativeTtlMs: 10_000 })?.policy.relativeTtlMs).toBe(
+      10_000,
+    );
   });
 });
 

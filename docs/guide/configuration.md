@@ -52,6 +52,10 @@ Used when no config file is given.
 
 See [query limits](query-limits.md) for what each limit does.
 
+The NRQL query cache (both modes) is set with `RB_QUERY_CACHE` (`on` by default, `off`) and `RB_QUERY_CACHE_TTL`
+(seconds a result over a moving window is reused, `0`-`300`, default `30`). It lives in the process memory and is gone
+when the process exits; see [query cache](query-cache.md).
+
 ## YAML mode
 
 ```yaml
@@ -102,6 +106,8 @@ each project shows up as its own server with its own tools and key.
 - `whoami` reports the project slug (YAML mode), region, default account, limits and the enabled tools. It never shows
   the key.
 - Each tool call gets its own request id and a budget of 1000 NerdGraph calls; at most 5 NerdGraph calls run at once.
+- Results of NRQL queries are reused for a short time ([query cache](query-cache.md)); `run_nrql` takes
+  `cache: "bypass"` for a fresh answer.
 
 ## Test-only settings
 

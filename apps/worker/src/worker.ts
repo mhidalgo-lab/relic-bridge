@@ -14,7 +14,19 @@ import {
   loadKeyringFromEnv,
   verifyKeyChecks,
 } from '@relic-bridge/auth';
-import { createLogger, type FetchLike, type Logger, type LogSink, Secret, VERSION } from '@relic-bridge/core';
+import {
+  type CacheApiLike,
+  CacheApiQueryCacheStore,
+  createLogger,
+  type FetchLike,
+  type Logger,
+  type LogSink,
+  MemoryQueryCacheStore,
+  QueryCache,
+  type QueryCacheStore,
+  Secret,
+  VERSION,
+} from '@relic-bridge/core';
 import {
   ADMIN_TOKEN_ADVICE,
   adminTokenLooksWeak,
@@ -99,6 +111,37 @@ export interface WorkerOptions {
    * deployment turns it on with `RB_OAUTH=on` (P5-04).
    */
   readonly oauth?: OAuthOptions;
+  /** Cache API override for the query cache (tests). Default: `caches.open(QUERY_CACHE_NAME)` when available. */
+  readonly queryCacheApi?: CacheApiLike;
+}
+
+/** Named Cache API cache of the NRQL query cache (P7-02). */
+export const QUERY_CACHE_NAME = 'relic-bridge-query-cache';
+
+/**
+ * The query cache for one isolate (P7-02): the isolate's memory LRU, then (mode `on`) the colo's Cache API with
+ * bodies encrypted under a master-key-derived key. Entry ids are keyed with the master key too, so every isolate of a
+ * deployment computes the same id and no one without the key can link an id to a query.
+ */
+export function createWorkerQueryCache(
+  settings: WorkerSettings['queryCache'],
+  keys: { readonly id: CryptoKey; readonly data: CryptoKey },
+  cacheApi?: CacheApiLike,
+): QueryCache | null {
+  if (settings.mode === 'off') return null;
+  const stores: QueryCacheStore[] = [new MemoryQueryCacheStore()];
+  const storage = (globalThis as { caches?: { open(name: string): Promise<CacheApiLike> } }).caches;
+  if (settings.mode === 'on' && (cacheApi !== undefined || storage !== undefined)) {
+    stores.push(
+      new CacheApiQueryCacheStore({
+        cache:
+          cacheApi ??
+          (() => (storage as { open(name: string): Promise<CacheApiLike> }).open(QUERY_CACHE_NAME)),
+        aesKey: keys.data,
+      }),
+    );
+  }
+  return new QueryCache({ stores, macKey: keys.id, policy: { relativeTtlMs: settings.relativeTtlMs } });
 }
 
 /** What one scheduled run may spend on deleting audit rows. */
@@ -313,6 +356,7 @@ async function boot(env: WorkerEnv, options: WorkerOptions): Promise<Runtime> {
     callBudget: settings.callBudget,
     maxResponseBytes: settings.maxResponseBytes,
     concurrencyPerCredential: settings.concurrency,
+    queryCache: createWorkerQueryCache(settings.queryCache, keyring.queryCacheKeys(), options.queryCacheApi),
     // Background work (audit rows) must outlive the response: the runtime cancels unawaited promises otherwise.
     waitUntil: (c, task) => c.executionCtx.waitUntil(task),
     ...(hooks === undefined ? {} : { hooks }),
@@ -411,6 +455,7 @@ export function createWorker(options: WorkerOptions = {}): WorkerHandler {
       rateLimit: runtime.limiter,
       passthrough: settings.passthrough,
       oauth: runtime.oauth,
+      queryCache: settings.queryCache.mode,
     });
     return runtime;
   };

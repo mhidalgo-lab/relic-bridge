@@ -10,9 +10,9 @@ export const MAX_DESCRIPTION_CHARS = 1200;
 export const MAX_PURPOSE_CHARS = 450;
 /**
  * Ceiling of the whole catalogue as agents see it: every description plus its input JSON Schema (characters, roughly 4
- * per token). 65 683 before P6-13, 61 291 after it, 51 980 after P6-19, 53 1xx after P6-24 (a `limit` and a `cursor` on every list, about 110 characters per tool); raise it only on purpose, every tool list is paid in every conversation.
+ * per token). 65 683 before P6-13, 61 291 after it, 51 980 after P6-19, 53 1xx after P6-24 (a `limit` and a `cursor` on every list, about 110 characters per tool), 53 587 after P7-02 (`run_nrql` `cache: "bypass"`); raise it only on purpose, every tool list is paid in every conversation.
  */
-export const TOOLS_LIST_BUDGET = 53_500;
+export const TOOLS_LIST_BUDGET = 53_600;
 /** Tools that run this many requests or more must say so ("Runs ..."). */
 export const COST_HINT_FROM = 8;
 /** Two descriptions this similar (Jaccard of their content words) must be a declared confusable pair. */

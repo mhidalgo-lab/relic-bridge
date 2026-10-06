@@ -17,7 +17,15 @@ import { isManageArgv, parseManageArgs } from './manage/args.ts';
 import { MANAGE_HELP } from './manage/help.ts';
 import type { ManageHost } from './manage/io.ts';
 import { runManage } from './manage/run.ts';
-import { isBootError, type RunningServer, resolveDbPath, serveSettings, startServer } from './serve.ts';
+import {
+  createProcessQueryCache,
+  isBootError,
+  queryCacheSettings,
+  type RunningServer,
+  resolveDbPath,
+  serveSettings,
+  startServer,
+} from './serve.ts';
 import { serveProjectOverStdio } from './stdio.ts';
 import { nerdGraphFetch } from './test-hooks.ts';
 
@@ -210,6 +218,7 @@ export function main(rt: CliRuntime): MainResult {
     const { handle, tools } = serveProjectOverStdio({
       project,
       logger,
+      queryCache: createProcessQueryCache(queryCacheSettings(rt.env)),
       ...(fetch === undefined ? {} : { fetch }),
     });
     logger.info('serving MCP over stdio', {

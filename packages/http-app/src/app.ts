@@ -43,6 +43,7 @@ import {
   LimiterPool,
   type Logger,
   newRequestId,
+  QueryCache,
   type QueryLimits,
   type Secret,
   silentLogger,
@@ -296,6 +297,11 @@ export interface HttpAppOptions {
    * `/p/:slug/mcp` next to device tokens. Needs `identity` (its public URL is the issuer, its `kv` holds the state).
    */
   readonly oauth?: OAuthOptions;
+  /**
+   * NRQL query cache (P7-02). Default: an in-memory LRU keyed with the master-key-derived id key. `null` turns caching
+   * off (`RB_QUERY_CACHE=off`). Entries are scoped per grant and per pass-through key (THREAT_MODEL T16).
+   */
+  readonly queryCache?: QueryCache | null;
 }
 
 type Env = { Variables: { requestId: string; started: number; log: Record<string, unknown> } };
@@ -491,6 +497,11 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
     options.accessCacheMaxEntries ?? DEFAULT_ACCESS_CACHE_ENTRIES,
   );
   const limiters = new LimiterPool(options.concurrencyPerCredential);
+  // The NRQL query cache lives with the app (process / isolate), never in module state (T21); scopes keep grants apart.
+  const queryCache =
+    options.queryCache === null
+      ? undefined
+      : (options.queryCache ?? new QueryCache({ macKey: options.keyring.queryCacheKeys().id }));
   // One tool set per app: its caches are keyed by credential id, region and account (never shared across tenants).
   const allTools = createBuiltinTools(options.fetch ? { fetch: options.fetch } : {});
   const catalog = allTools.map((t) => t.name);
@@ -1155,6 +1166,14 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
           budget: createBudget(callBudget),
           limiter: limiters.for(credential.id),
           limits: capLimits(access.limits),
+          ...(queryCache === undefined
+            ? {}
+            : {
+                queryCache: Object.freeze({
+                  cache: queryCache,
+                  scope: `project:${access.projectId}/grant:${access.grantId}`,
+                }),
+              }),
           connection: Object.freeze({
             project: access.projectSlug,
             allowedTools: access.tools,
@@ -1326,6 +1345,10 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
           // Per request: no per-key state that grows with the number of keys seen (the rate limiter bounds the rest).
           limiter: createSemaphoreLimiter(concurrency),
           limits: ptLimits,
+          // Keyed by the key fingerprint id and the key itself (hashed): one caller's key never reads another's entries.
+          ...(queryCache === undefined
+            ? {}
+            : { queryCache: Object.freeze({ cache: queryCache, scope: 'passthrough' }) }),
           connection: Object.freeze({ allowedTools: ptToolNames, unavailableTools: ptGranted.unavailable }),
           logger: logger.child({ requestId, keyId }),
           clock,

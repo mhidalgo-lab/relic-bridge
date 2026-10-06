@@ -1288,6 +1288,7 @@ A query still running after timeout_seconds returns a queryId and accountId: pas
 | `format` | `"auto" \| "table" \| "csv" \| "json"` | no | Text format: "auto" (default: table, CSV above 8 columns), "table", "csv", "json". structuredContent is always JSON. |
 | `detail` | `"auto" \| "summary" \| "full"` | no | Big timeseries/facet results: "auto" (default) summarizes, "full" returns max_rows rows, "summary" always. |
 | `max_rows` | `integer` | no | Most rows shown (default 100, max 1000). Display cap only (NRQL LIMIT limits the query). |
+| `cache` | `"use" \| "bypass"` | no | "bypass" skips the short-lived query cache. |
 
 ### Output
 

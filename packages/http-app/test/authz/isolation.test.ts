@@ -138,6 +138,65 @@ describe('caches never cross credentials, account sets or limits', () => {
   });
 });
 
+describe('query cache (P7-02, T16): entries never cross grants, projects or credentials', () => {
+  const NRQL = 'SELECT count(*) FROM Transaction SINCE 1 hour ago';
+  const nrqlCalls = () => h.nerdGraph.calls.filter((c) => c.op === 'RbNrql').length;
+  const run = async (client: Client) => {
+    const r = await client.callTool({ name: 'run_nrql', arguments: { nrql: NRQL } });
+    return {
+      text: textOf(r),
+      cache: (r._meta?.['relic-bridge/result'] as { cache?: { status: string } } | undefined)?.cache?.status,
+    };
+  };
+
+  it('the same grant hits; another grant, project or credential runs its own query', async () => {
+    const credentialId = await h.addCredential({ key: NR_KEY, reachable: [1, 2, 999] });
+    const projectId = await h.addProject('qc-one', { credentialId, allowed: [1, 2] });
+    const grantA = await connect(
+      h.app,
+      'qc-one',
+      (await h.addToken(await h.addGrant(projectId))).value,
+      'modern',
+    );
+    const grantB = await connect(
+      h.app,
+      'qc-one',
+      (await h.addToken(await h.addGrant(projectId))).value,
+      'modern',
+    );
+    clients.push(grantA, grantB);
+    const other = await tenantClient('qc-two', { credentialId, allowed: [1, 2] });
+    const otherKey = await tenantClient('qc-three', { key: NR_KEY_B, allowed: [1, 2] });
+
+    expect((await run(grantA)).cache).toBe('miss');
+    const calls = nrqlCalls();
+    expect((await run(grantA)).cache).toBe('hit');
+    expect(nrqlCalls()).toBe(calls);
+
+    for (const client of [grantB, other.client, otherKey.client]) {
+      const before = nrqlCalls();
+      expect((await run(client)).cache).toBe('miss');
+      expect(nrqlCalls()).toBe(before + 1);
+    }
+    const beta = await run(otherKey.client);
+    expect(beta.cache).toBe('hit');
+    expect(beta.text).toContain('beta');
+    expect(beta.text).not.toContain('alpha');
+    expect((await run(grantA)).text).not.toContain('beta');
+  });
+
+  it('cache "bypass" asks New Relic again', async () => {
+    const a = await tenantClient('qc-bypass', { key: NR_KEY });
+    await run(a.client);
+    const before = nrqlCalls();
+    const r = await a.client.callTool({ name: 'run_nrql', arguments: { nrql: NRQL, cache: 'bypass' } });
+    expect(
+      (r._meta?.['relic-bridge/result'] as { cache?: { status: string } } | undefined)?.cache?.status,
+    ).toBe('bypass');
+    expect(nrqlCalls()).toBe(before + 1);
+  });
+});
+
 describe('concurrent tenants (T21)', () => {
   it('interleaved requests of two tenants with different keys never mix', async () => {
     h.nerdGraph.delayMs = 5;

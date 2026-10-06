@@ -120,6 +120,7 @@ not log secrets in the first place; this only stops them from spreading into an 
 | `inspectedCount` | Events inspected, when cost stats were requested |
 | `polls` | Async polls made |
 | `notes` | Query-limit adjustments |
+| `cache` | NRQL results: what the [query cache](query-cache.md) did: `status` (`hit`, `miss`, `bypass`, `off`), `store`, `ageSeconds`, `ttlSeconds`, `stored` |
 | `tokenEstimate` | Rough size of text + structured content (characters / 4) |
 
 ## Compact lists

@@ -2,10 +2,10 @@
 id: P6-15
 title: "Decide on a raw NerdGraph tool (ADR)"
 phase: 6
-status: in-progress
+status: review
 priority: low
 depends_on: [P5-07]
-adr: []
+adr: [0014]
 owner: claude-agent
 ---
 
@@ -20,16 +20,20 @@ Make an explicit, documented decision about raw GraphQL passthrough, which sever
 - If accepted: implement + negative tests (mutation rejected, other-account ids rejected).
 
 ## Acceptance criteria
-- [ ] ADR (next number) covers threats (mutations bypassing read-only and `mcp:read`, account isolation, secret-revealing
+- [x] ADR (next number) covers threats (mutations bypassing read-only and `mcp:read`, account isolation, secret-revealing
   fields such as `actor.apiAccess`, cost/limits, prompt injection), options (none; allow-listed operations; parsed-AST
   validation; opt-in per project, off by default, never on OAuth/pass-through), prior art (P0-10, official server) and a
   recommendation.
-- [ ] If the recommendation implements anything, only the safest opt-in-off-by-default form with exhaustive negative tests
+- [x] If the recommendation implements anything, only the safest opt-in-off-by-default form with exhaustive negative tests
   (mutations incl. aliases/fragments/directives/introspection tricks, account arguments, depth/complexity limits, key
   field deny-list); if that form is large, it is deferred to a new task file instead.
-- [ ] A regression test fails if core ever ships a raw GraphQL tool or a mutation document without a deliberate change.
-- [ ] THREAT_MODEL T22 (and implementation status) updated with the outcome.
-- [ ] The recommendation is logged as a pending owner decision in `docs/pending-decisions/phase-6.md`.
+- [x] A regression test fails if core ever ships a raw GraphQL tool or a mutation document without a deliberate change.
+- [x] THREAT_MODEL T22 (and implementation status) updated with the outcome.
+- [x] The recommendation is logged as a pending owner decision in `docs/pending-decisions/phase-6.md`.
+
+## Outcome
+ADR-0014: no raw NerdGraph tool. Guards in `defineDocument` (mutation opt-in, no subscriptions) and
+`packages/core/test/no-raw-nerdgraph.test.ts`; the safest opt-in form is deferred to P7-15 (blocked on the owner).
 
 ## Security notes
 T22, T3.

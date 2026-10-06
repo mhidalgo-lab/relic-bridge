@@ -210,3 +210,20 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   `get_related_entities`, `get_golden_metrics` and report tools; (c) raise the scan cap or page it for very large accounts;
   (d) verify a pasted guid with one `get_entity` call.
 - **Needs:** owner's call on (b) to (d).
+
+## P6-15 — Raw NerdGraph tool decision
+
+### P6-15 — No raw NerdGraph tool (ADR-0014); opt-in design parked as P7-15 (blocked)
+- **Context:** Several community servers ship an ungated GraphQL passthrough (prior-art S2); the official server does not.
+  A raw document bypasses read-only annotations and the OAuth `mcp:read` consent (mutations), the account allowlist and
+  GUID checks (`actor.account(id:)`, `entitySearch`, `accounts`), and can select key-revealing fields
+  (`actor.apiAccess ... key`) or side-effecting ones (`embeddedChartUrl`). A safe validator needs the `graphql` parser,
+  schema-aware argument checks and per-row result filtering: large, and costly on Workers.
+- **Assumption made:** ADR-0014 accepted as "no raw tool"; missing NerdGraph reads become typed tools. Implemented only
+  guards: `defineDocument` refuses subscriptions and requires `{ mutation: true }` for mutations (none use it), plus tests
+  that fail on a passthrough-shaped tool or any non-query request. The safest opt-in form is specified in
+  P7-15 (`status: blocked`), not built.
+- **Options:** (a) keep "no raw tool" (recommended); (b) build P7-15 (off by default, separate grant, never on OAuth or
+  pass-through, parsed query-only, allow-listed root paths, account and field checks) after a new ADR; (c) build P7-15 for
+  stdio/self-hosted bearer connections only; (d) drop P7-15 entirely.
+- **Needs:** owner's confirmation of ADR-0014 (or a concrete NerdGraph read that justifies (b)/(c)); then unblock or drop P7-15.

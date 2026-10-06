@@ -2,6 +2,7 @@
 import { createLogger, type Logger } from '@relic-bridge/core';
 import type { AuditRecord, Storage } from '@relic-bridge/storage';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { writeDetails } from '../src/audit.ts';
 import {
   type AuditNrqlMode,
   createAuditRecorder,
@@ -467,5 +468,40 @@ describe('admin actions and retention', () => {
     expect(await recorder.purge(90)).toBe(1);
     expect((await rows()).map((r) => r.action)).toEqual(['recent']);
     expect(await recorder.purge(5)).toBe(1);
+  });
+});
+
+describe('writeDetails (P7-19): nested arguments', () => {
+  const event = (input: unknown) =>
+    ({ tool: 'create_dashboard', input, status: 'ok', durationMs: 1, errorCode: null }) as never;
+  const nested = {
+    name: 'D',
+    pages: [
+      {
+        name: 'P',
+        widgets: Array.from({ length: 25 }, () => ({
+          title: 't',
+          queries: [{ nrql: "SELECT count(*) FROM Log WHERE user = 'alice@example.com'" }],
+        })),
+      },
+    ],
+  };
+  const firstNrql = (d: Record<string, unknown> | undefined) =>
+    (d?.['input'] as typeof nested | undefined)?.pages[0]?.widgets[0]?.queries[0]?.nrql;
+
+  it('masks nested NRQL per mode and bounds arrays', () => {
+    const masked = writeDetails(event(nested));
+    expect(firstNrql(masked)).not.toContain('alice');
+    expect(firstNrql(writeDetails(event(nested), 'hash'))).not.toContain('alice');
+    expect(firstNrql(writeDetails(event(nested), 'off'))).toBe('(omitted)');
+    expect(firstNrql(writeDetails(event(nested), 'full'))).toContain('alice');
+    const widgets =
+      (masked?.['input'] as { pages: { widgets: unknown[] }[] } | undefined)?.pages[0]?.widgets ?? [];
+    expect(widgets.length).toBe(21);
+    expect(widgets[20]).toBe('… 5 more');
+  });
+
+  it('is not used for read tools', () => {
+    expect(writeDetails({ ...(event({}) as object), tool: 'run_nrql' } as never)).toBeUndefined();
   });
 });

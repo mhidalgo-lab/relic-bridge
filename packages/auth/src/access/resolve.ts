@@ -318,7 +318,10 @@ export function computeAccess(input: ComputeAccessInput): AccessDecision {
   const tools = [...new Set(catalog)].filter((name) =>
     WRITE_TOOL_NAMES.includes(name)
       ? // Explicit names only: `null` ("every tool") never implies a write tool.
-        writeKey && projectTools?.includes(name) === true && grantTools?.includes(name) === true
+        writeKey &&
+        projectTools?.includes(name) === true &&
+        grantTools?.includes(name) === true &&
+        (limits.rawNrql || !RAW_NRQL_TOOLS.includes(name))
       : (projectTools === null || projectTools.includes(name)) &&
         (grantTools === null || grantTools.includes(name)) &&
         (limits.rawNrql || !RAW_NRQL_TOOLS.includes(name)),

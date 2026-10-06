@@ -2,7 +2,7 @@
 id: P7-09
 title: "Opt-in write tools"
 phase: 7
-status: in-progress
+status: review
 priority: medium
 depends_on: [P6-13]
 adr: [0008, 0014, 0015]
@@ -52,20 +52,20 @@ off by default, and turning writes on must be a deliberate act at each layer (AD
   explicit list.
 
 ## Acceptance criteria
-- [ ] ADR-0015 written; THREAT_MODEL (T6, T22, new T31) updated.
-- [ ] Cannot be enabled by grant alone (needs project opt-in), nor by project alone, nor without the server flag.
-- [ ] Write tools never come from `null` tool lists, never on pass-through, never with someone else's personal key.
-- [ ] OAuth: `mcp:write` advertised only when enabled, required to list write tools, shown distinctly on consent,
+- [x] ADR-0015 written; THREAT_MODEL (T6, T22, new T31) updated.
+- [x] Cannot be enabled by grant alone (needs project opt-in), nor by project alone, nor without the server flag.
+- [x] Write tools never come from `null` tool lists, never on pass-through, never with someone else's personal key.
+- [x] OAuth: `mcp:write` advertised only when enabled, required to list write tools, shown distinctly on consent,
       never granted via remembered consent or `prompt=none`.
-- [ ] Only owners can add write tools to a project or grant through the admin API.
-- [ ] Annotations: `readOnlyHint` false, `destructiveHint` true only for `close_issue`, `idempotentHint` per tool;
+- [x] Only owners can add write tools to a project or grant through the admin API.
+- [x] Annotations: `readOnlyHint` false, `destructiveHint` true only for `close_issue`, `idempotentHint` per tool;
       descriptions state the side effect; `confirm: true` required; `dry_run` sends no mutation.
-- [ ] Account isolation: foreign account, foreign GUID, issue touching a foreign account → refused before any mutation.
-- [ ] Mutation allow-list in `defineDocument`; contract test: write tools send only their own allow-listed mutation.
-- [ ] Stricter write rate limit; audit records diffs (no secrets).
-- [ ] Negative authz tests (P2-12 suite) for every write tool: read-only grant, `mcp:read` token, project without the
+- [x] Account isolation: foreign account, foreign GUID, issue touching a foreign account → refused before any mutation.
+- [x] Mutation allow-list in `defineDocument`; contract test: write tools send only their own allow-listed mutation.
+- [x] Stricter write rate limit; audit records diffs (no secrets).
+- [x] Negative authz tests (P2-12 suite) for every write tool: read-only grant, `mcp:read` token, project without the
       tool, server flag off, cross-account target, admin vs owner, other user's key, pass-through.
-- [ ] Docs: security, admin guide, clients, tool reference (generated), configuration.
+- [x] Docs: security, admin guide, clients, tool reference (generated), configuration.
 
 ## Security notes
 **T6 escalation path**: a prompt-injected agent can act. Kept narrow: three reversible-or-small actions, explicit

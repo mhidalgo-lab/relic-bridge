@@ -150,6 +150,10 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Options:** keep writes unbuilt/unshipped until verified; drop `close_issue` (the only irreversible one); require a
   separate project flag in addition to explicit names; allow writes on pass-through behind its own flag; different
   rate-limit default; require the audit log on stdio too (a file).
+- **Also assumed:** the local `relic-bridge project/grant` commands cannot name write tools (read-only catalog; use the
+  admin API/panel as an owner); `mcp:write` is listed in the protected resource metadata when on, but the 401 challenge
+  keeps `scope="mcp:read"` (a client that asks for every advertised scope shows the write box each time and loses
+  "don't ask again"); writes with `RB_RATE_LIMIT=off` only warn.
 - **Needs:** (1) the owner's explicit decision to enable writes on any deployment (and ADR-0015 confirmation);
   (2) a live check of each mutation (RESEARCH §26: field and argument names, category/type case for change events)
   with `dry_run` first, then one real call on a test entity/issue in US and EU; (3) whether `close_issue` should ship.

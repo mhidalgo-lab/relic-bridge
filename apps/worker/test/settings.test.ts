@@ -94,6 +94,9 @@ describe('parseWorkerSettings', () => {
     expect(on.writeTools).toBe(true);
     expect(on.warnings.join(' ')).toContain('RB_WRITE_TOOLS=on');
     fails({ RB_WRITE_TOOLS: 'on', RB_AUDIT: 'off' }, 'RB_WRITE_TOOLS');
+    expect(parseWorkerSettings({ RB_WRITE_TOOLS: 'on', RB_RATE_LIMIT: 'off' }).warnings.join(' ')).toContain(
+      'not rate limited',
+    );
     fails({ RB_WRITE_TOOLS: 'sure' }, 'RB_WRITE_TOOLS');
   });
 

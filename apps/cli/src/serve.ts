@@ -317,7 +317,12 @@ export interface ServeSettings {
 }
 
 /** `RB_WRITE_TOOLS` (P7-09, ADR-0015): off by default; refused without the audit log (every write must be recorded). */
-export function writeToolsSetting(env: Env, audit: AuditSettings, warnings: string[]): boolean {
+export function writeToolsSetting(
+  env: Env,
+  audit: AuditSettings,
+  warnings: string[],
+  writeLimit: RateLimitRule | null = null,
+): boolean {
   const on = onOff(env, 'RB_WRITE_TOOLS', false);
   if (!on) return false;
   if (!audit.enabled) {
@@ -329,6 +334,9 @@ export function writeToolsSetting(env: Env, audit: AuditSettings, warnings: stri
   warnings.push(
     'RB_WRITE_TOOLS=on: write tools can be enabled per project and grant (owners only). See docs/guide/security-basics.md.',
   );
+  if (writeLimit === null) {
+    warnings.push('RB_WRITE_TOOLS=on with the write rate limit off: write tool calls are not rate limited.');
+  }
   return true;
 }
 
@@ -469,7 +477,7 @@ export function serveSettings(input: {
     oauth: oauthSettings(env, identity),
     queryCache: queryCacheSettings(env),
     telemetry: telemetrySettings(env),
-    writeTools: writeToolsSetting(env, audit, warnings),
+    writeTools: writeToolsSetting(env, audit, warnings, rateLimits?.write ?? null),
     warnings,
   };
 }

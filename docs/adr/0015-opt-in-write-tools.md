@@ -92,4 +92,10 @@ allow-list to exactly the documents in `nerdgraph/mutations.ts`. The raw NerdGra
 - The mutation field and argument names come from New Relic's documentation and the P0-09 input types; they are not
   verified live (no mutation may be run without the owner). See RESEARCH §6 and the pending decisions.
 - `close_issue` is the one irreversible action; owners who want only reversible writes enable the other two.
+- A change event's `user` is free text the agent fills in; New Relic shows it as given. Who really made the call is in
+  the relic-bridge audit row (grant, user, token), not in the event.
+- `relic-bridge project/grant` management commands on the local database use the read-only catalog, so they cannot name
+  write tools; owners use the admin API or panel (which also enforces the owner rule).
+- With writes on, the protected resource metadata lists `mcp:write`; the `WWW-Authenticate` challenge still names
+  `mcp:read` only, so a client that follows the challenge asks for read access unless it chooses otherwise.
 - Reversible: turning the flag off removes every write tool at once, everywhere, including from existing tokens.

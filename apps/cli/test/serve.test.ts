@@ -89,6 +89,11 @@ describe('serveSettings', () => {
     expect(() => serveSettings({ ...base, env: { ...base.env, RB_WRITE_TOOLS: 'maybe' } })).toThrow(
       ConfigError,
     );
+    const unlimited = serveSettings({
+      ...base,
+      env: { ...base.env, RB_WRITE_TOOLS: 'on', RB_RATE_LIMIT_WRITE: 'off' },
+    });
+    expect(unlimited.warnings.join(' ')).toContain('not rate limited');
   });
 
   it('defaults to 127.0.0.1:8787, loopback Host allowlist and the per-user data directory', () => {

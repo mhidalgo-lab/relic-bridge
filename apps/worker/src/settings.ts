@@ -237,6 +237,9 @@ export function parseWorkerSettings(vars: WorkerVars): WorkerSettings {
   if (writeTools && !auditEnabled) {
     throw new WorkerConfigError('RB_WRITE_TOOLS', 'RB_WRITE_TOOLS=on needs RB_AUDIT=on');
   }
+  if (writeTools && !rateLimit) {
+    warnings.push('RB_WRITE_TOOLS=on with RB_RATE_LIMIT=off: write tool calls are not rate limited.');
+  }
   if (writeTools) {
     warnings.push(
       'RB_WRITE_TOOLS=on: write tools can be enabled per project and grant (owners only). See docs/guide/security-basics.md.',

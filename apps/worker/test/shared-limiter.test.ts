@@ -431,17 +431,15 @@ describe('SharedLimiter: quota counters', () => {
     const now = usagePeriods(Date.now());
     await stub.quotaReserve(now.day, null);
     await stub.quotaReserve(now.month, null);
-    await runInDurableObject(stub, async (_i, s: DurableObjectState) => {
-      await s.storage.put('q:d2020-01-01', { queries: 5, inspected: 0 });
-      await s.storage.put('q:m2020-01', { queries: 9, inspected: 0 });
-    });
+    // Periods long over: written through the API like any other, then dropped by the alarm.
+    await stub.quotaReserve('d2020-01-01', null);
+    await stub.quotaAdd('m2020-01', 9);
     await evictDurableObject(stub);
     expect((await stub.quotaGet([now.day]))[now.day]?.queries).toBe(1);
     expect(await runDurableObjectAlarm(stub)).toBe(true);
-    const keys = await runInDurableObject(stub, async (_i, s: DurableObjectState) =>
-      [...(await s.storage.list({ prefix: 'q:' })).keys()].sort(),
+    expect(Object.keys(await stub.quotaGet([now.day, now.month, 'd2020-01-01', 'm2020-01'])).sort()).toEqual(
+      [now.day, now.month].sort(),
     );
-    expect(keys).toEqual([`q:${now.day}`, `q:${now.month}`].sort());
     const alarm = await runInDurableObject(stub, (_i, s: DurableObjectState) => s.storage.getAlarm());
     expect(alarm).not.toBeNull();
   });

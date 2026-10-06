@@ -863,9 +863,12 @@ Sources: SQLite [UPSERT](https://www.sqlite.org/lang_upsert.html) and [RETURNING
 - A D1 `prepare(...).all()` on a statement with `RETURNING` returns the rows (the existing adapter does this for `INSERT ...
   RETURNING *`); `.run()` returns only `meta.changes`.
 - D1 limits a statement to 100 bound parameters: the usage read is bounded to 50 grants x 4 periods (54).
-- A Durable Object runs one event at a time and its input gate holds back other events while a storage call is awaited,
-  so `get` then `put` of one key inside a method is atomic; the test runs 40 concurrent reservations against a cap of 10
-  and sees exactly 10 succeed. An error thrown inside the object that crosses RPC also reaches the runtime as an unhandled
-  error, so the quota methods return refusals instead of throwing.
+- A Durable Object runs JavaScript for one event at a time, but an `await` lets another event in. A first version that
+  read a counter with `storage.get`, checked it and wrote it with `storage.put` overshot a cap of 8 by one in about one run
+  in three (four isolates, 20 parallel calls), whatever the input-gate documentation suggests for such code. The final
+  version uses the SQLite storage API of the SQLite-backed class (`ctx.storage.sql.exec`, synchronous): the cap check and the
+  increment are one `INSERT ... ON CONFLICT DO UPDATE ... WHERE ... RETURNING` with no `await` before the result is used, and
+  the same load held the cap in each of 14 consecutive runs. An error thrown inside the object that crosses RPC
+  also reaches the runtime as an unhandled error, so the quota methods return refusals instead of throwing.
 - UTC period keys (`d2026-10-06`, `m2026-10`) sort lexicographically in time order, which is how the object's cleanup alarm
   tells ended periods from current ones.

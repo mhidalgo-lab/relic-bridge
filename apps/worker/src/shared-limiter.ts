@@ -12,15 +12,15 @@
 //                                  does not refill it; an alarm deletes the stored bucket once it is full again.
 //
 //   `quota:<grant id>`             a grant's usage counters per UTC period (P7-12, `RB_SHARED_LIMITER=on`): the same
-//                                  contract as the storage table (`reserve` refuses at the cap, atomically: the object
-//                                  runs one event at a time and storage calls are input-gated), persisted, with an alarm
-//                                  that drops periods that have ended. Saves a D1 write per NerdGraph call.
+//                                  contract as the storage table (`reserve` refuses at the cap, atomically: one SQL
+//                                  statement run synchronously inside the object), persisted, with an alarm that drops
+//                                  periods that have ended. Saves a D1 write per NerdGraph call.
 //
 // Object names are credential ids (storage ids, or HMAC fingerprint ids for pass-through keys) and rate-limit keys:
 // never a New Relic key or any request data (T21). The client side (`createSharedConcurrency`, `WorkersRateLimiter`)
 // treats every failure to reach an object as "count in this isolate instead" and never blocks on it.
 import { DurableObject } from 'cloudflare:workers';
-import type { DurableObjectState } from '@cloudflare/workers-types';
+import type { DurableObjectState, SqlStorage } from '@cloudflare/workers-types';
 import { ErrorCode, type Limiter, type Logger, RbError } from '@relic-bridge/core';
 import {
   isRateLimitRule,
@@ -57,7 +57,6 @@ export const WARN_EVERY_MS = 60_000;
 export const CONCURRENCY_PREFIX = 'concurrency:';
 /** Name prefix of the quota objects (one per grant). */
 export const QUOTA_PREFIX = 'quota:';
-const QUOTA_KEY = 'q:';
 
 export type AcquireResult =
   | { readonly ok: true; readonly lease: string }
@@ -217,22 +216,28 @@ export class SharedLimiter extends DurableObject<unknown> {
   }
 
   // --- quota counters (P7-12) ----------------------------------------------------------------------------------------
+  // One row per period in the object's SQLite storage, changed by single statements run synchronously (no `await`
+  // between the check and the write), so no other event can run in between: the cap cannot be overshot.
 
-  async #readUsage(period: string): Promise<{ queries: number; inspected: number }> {
-    const v = await this.ctx.storage.get<{ queries: number; inspected: number }>(`${QUOTA_KEY}${period}`);
-    return v === undefined ? { queries: 0, inspected: 0 } : { queries: v.queries, inspected: v.inspected };
+  #usageReady = false;
+
+  #usage(): SqlStorage {
+    const sql = this.ctx.storage.sql;
+    if (!this.#usageReady) {
+      sql.exec(
+        'CREATE TABLE IF NOT EXISTS usage (period TEXT PRIMARY KEY, queries INTEGER NOT NULL, inspected INTEGER NOT NULL)',
+      );
+      this.#usageReady = true;
+    }
+    return sql;
   }
 
-  async #writeUsage(period: string, value: UsageCounters): Promise<void> {
+  /** Arms the cleanup alarm for the end of `period` (an hour later) unless one is set. */
+  async #armCleanup(period: string): Promise<void> {
     const storage = this.ctx.storage;
-    await storage.put(`${QUOTA_KEY}${period}`, { queries: value.queries, inspected: value.inspected });
-    if ((await storage.getAlarm()) === null) await storage.setAlarm(this.#cleanupAt(period));
-  }
-
-  /** An hour after the period of `period` ends, so the row is dropped once nothing can read it any more. */
-  #cleanupAt(period: string): number {
+    if ((await storage.getAlarm()) !== null) return;
     const name = period.startsWith('m') ? 'month' : 'day';
-    return periodResetsAt(name, Date.now()) + 3_600_000;
+    await storage.setAlarm(periodResetsAt(name, Date.now()) + 3_600_000);
   }
 
   /** As `grant_usage`: adds one query unless the period already has `maxQueries`; `null` when refused. */
@@ -243,11 +248,20 @@ export class SharedLimiter extends DurableObject<unknown> {
       return null;
     }
     if (maxQueries !== null && !intIn(maxQueries, 1, Number.MAX_SAFE_INTEGER)) return null;
-    const cur = await this.#readUsage(period);
-    if (maxQueries !== null && cur.queries >= maxQueries) return null;
-    const next = { queries: cur.queries + 1, inspected: cur.inspected };
-    await this.#writeUsage(period, next);
-    return next;
+    const rows = this.#usage()
+      .exec<{ queries: number; inspected: number }>(
+        'INSERT INTO usage (period, queries, inspected) VALUES (?, 1, 0) ' +
+          'ON CONFLICT(period) DO UPDATE SET queries = queries + 1 WHERE ? IS NULL OR queries < ? ' +
+          'RETURNING queries, inspected',
+        period,
+        maxQueries,
+        maxQueries,
+      )
+      .toArray();
+    const row = rows[0];
+    if (row === undefined) return null;
+    await this.#armCleanup(period);
+    return { queries: row.queries, inspected: row.inspected };
   }
 
   async quotaRelease(period: string): Promise<void> {
@@ -256,8 +270,7 @@ export class SharedLimiter extends DurableObject<unknown> {
     } catch {
       return;
     }
-    const cur = await this.#readUsage(period);
-    if (cur.queries > 0) await this.#writeUsage(period, { ...cur, queries: cur.queries - 1 });
+    this.#usage().exec('UPDATE usage SET queries = MAX(queries - 1, 0) WHERE period = ?', period);
   }
 
   async quotaAdd(period: string, events: number): Promise<UsageCounters> {
@@ -267,11 +280,27 @@ export class SharedLimiter extends DurableObject<unknown> {
     } catch {
       return { queries: 0, inspected: 0 };
     }
-    if (!intIn(events, 0, Number.MAX_SAFE_INTEGER)) return this.#readUsage(period);
-    const cur = await this.#readUsage(period);
-    const next = { queries: cur.queries, inspected: cur.inspected + events };
-    await this.#writeUsage(period, next);
-    return next;
+    if (!intIn(events, 0, Number.MAX_SAFE_INTEGER)) {
+      const cur = this.#usage()
+        .exec<{ queries: number; inspected: number }>(
+          'SELECT queries, inspected FROM usage WHERE period = ?',
+          period,
+        )
+        .toArray()[0];
+      return cur === undefined
+        ? { queries: 0, inspected: 0 }
+        : { queries: cur.queries, inspected: cur.inspected };
+    }
+    const row = this.#usage()
+      .exec<{ queries: number; inspected: number }>(
+        'INSERT INTO usage (period, queries, inspected) VALUES (?, 0, ?) ' +
+          'ON CONFLICT(period) DO UPDATE SET inspected = inspected + excluded.inspected RETURNING queries, inspected',
+        period,
+        events,
+      )
+      .one();
+    await this.#armCleanup(period);
+    return { queries: row.queries, inspected: row.inspected };
   }
 
   async quotaGet(periods: readonly string[]): Promise<UsageByPeriod> {
@@ -281,33 +310,41 @@ export class SharedLimiter extends DurableObject<unknown> {
       return {};
     }
     const found: Record<string, UsageCounters> = {};
-    for (const p of periods) {
-      const v = await this.ctx.storage.get<UsageCounters>(`${QUOTA_KEY}${p}`);
-      if (v !== undefined) found[p] = { queries: v.queries, inspected: v.inspected };
+    const marks = periods.map(() => '?').join(', ');
+    for (const r of this.#usage().exec<{ period: string; queries: number; inspected: number }>(
+      `SELECT period, queries, inspected FROM usage WHERE period IN (${marks})`,
+      ...periods,
+    )) {
+      found[r.period] = { queries: r.queries, inspected: r.inspected };
     }
     return found;
   }
 
   /** Drops the counters of periods that have ended; re-arms for the next period end while any remain. */
   async #quotaAlarm(): Promise<void> {
-    const storage = this.ctx.storage;
+    const sql = this.#usage();
     const now = usagePeriods(Date.now());
-    const keys = [...(await storage.list({ prefix: QUOTA_KEY })).keys()];
-    const stale = keys.filter((k) => {
-      const p = k.slice(QUOTA_KEY.length);
-      return p.startsWith('m') ? p < now.month : p < now.day;
-    });
-    if (stale.length > 0) await storage.delete(stale);
-    const live = keys.filter((k) => !stale.includes(k));
-    if (live.length === 0) return;
-    const hasDay = live.some((k) => k.startsWith(`${QUOTA_KEY}d`));
-    await storage.setAlarm(periodResetsAt(hasDay ? 'day' : 'month', Date.now()) + 3_600_000);
+    sql.exec(
+      "DELETE FROM usage WHERE (substr(period, 1, 1) = 'd' AND period < ?) OR (substr(period, 1, 1) = 'm' AND period < ?)",
+      now.day,
+      now.month,
+    );
+    const left = sql
+      .exec<{ day: number }>("SELECT count(*) AS day FROM usage WHERE substr(period, 1, 1) = 'd'")
+      .one().day;
+    const any = sql.exec<{ n: number }>('SELECT count(*) AS n FROM usage').one().n;
+    if (any === 0) return;
+    await this.ctx.storage.setAlarm(periodResetsAt(left > 0 ? 'day' : 'month', Date.now()) + 3_600_000);
   }
 
   /** Deletes the bucket once it has refilled completely (indistinguishable from no bucket), else re-arms. */
   async alarm(): Promise<void> {
     const storage = this.ctx.storage;
-    if ((await storage.list({ prefix: QUOTA_KEY, limit: 1 })).size > 0) return this.#quotaAlarm();
+    // A quota object (it created its `usage` table) cleans up its periods; every other object holds one bucket.
+    const quota = this.ctx.storage.sql
+      .exec("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'usage'")
+      .toArray();
+    if (quota.length > 0) return this.#quotaAlarm();
     const bucket = await storage.get<TokenBucket>(BUCKET_KEY);
     if (bucket === undefined) return;
     if (bucket.fullAt <= Date.now()) {

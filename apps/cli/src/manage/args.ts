@@ -52,6 +52,8 @@ const OPTIONS = {
   provider: { type: 'string' },
   ttl: { type: 'string' },
   confirm: { type: 'string' },
+  config: { type: 'string' },
+  offline: { type: 'boolean' },
 } as const;
 
 export type ManageOptionName = keyof typeof OPTIONS;
@@ -70,6 +72,7 @@ interface Spec {
 
 /** Command → what it accepts. A flag outside its command's list is a usage error. */
 const SPECS: Readonly<Record<string, Spec>> = {
+  doctor: { args: 0, flags: ['config', 'project', 'offline'] },
   init: {
     args: 0,
     flags: [
@@ -162,6 +165,7 @@ const BOOLEAN_FLAGS: ReadonlySet<string> = new Set([
   'never',
   'follow',
   'no-config',
+  'offline',
 ]);
 
 /** Whether argv names a management command (so `main` hands it over). */
@@ -177,7 +181,7 @@ export function isManageArgv(argv: readonly string[]): boolean {
   const second = words[1];
   if (first === undefined) return false;
   if (first === 'init' || first === 'admin-token' || first === 'user' || first === 'project') return true;
-  if (first === 'setup-link') return true;
+  if (first === 'setup-link' || first === 'doctor') return true;
   if (first === 'grant' || first === 'token') return true;
   if (first === 'credential') return second !== 'revalidate' || words.length > 2;
   if (first === 'audit') return second === 'tail';
@@ -211,7 +215,7 @@ export function parseManageArgs(argv: readonly string[]): ManageArgs {
   const first = positionals[0] ?? '';
   let command: string;
   let rest: string[];
-  if (first === 'init' || first === 'setup-link') {
+  if (first === 'init' || first === 'setup-link' || first === 'doctor') {
     command = first;
     rest = positionals.slice(1);
   } else {

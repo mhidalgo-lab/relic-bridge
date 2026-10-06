@@ -295,6 +295,11 @@ Write tools (stdio and serve, off by default; see docs/adr/0015-opt-in-write-too
                          named explicitly (stdio: RB_TOOLS or the YAML tools list; serve: the
                          project and the grant). serve needs RB_AUDIT=on.
 
+Registry-friendly discovery (serve, off by default; see docs/guide/registry-listing.md):
+  RB_PUBLIC_TOOL_CATALOG off (default) or on: answer initialize and tools/list without a token
+                         (static read-only tool list, the same for every project URL) and serve
+                         /.well-known/relic-bridge/tools.json. Tool calls still need a token.
+
 Self-monitoring (serve, off by default):
   RB_OTEL                off (default) or on: export traces and metrics about this server over OTLP
                          (needs RB_OTEL_ENDPOINT; optional RB_OTEL_HEADERS, RB_OTEL_SAMPLE). See docs/guide/observability.md.

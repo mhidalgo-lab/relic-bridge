@@ -1381,13 +1381,14 @@ readOnly: `true` · destructive: `false` · idempotent: `true` · openWorld: `fa
 
 # Write tools (opt-in, off by default)
 
-3 tools that change New Relic (P7-09, [ADR-0015](../adr/0015-opt-in-write-tools.md)). They are not offered unless the server runs with `RB_WRITE_TOOLS=on`, and even then a connection gets one only when its project **and** its grant name it explicitly (never through "all tools"), with a shared key or the grant user's own key; over OAuth the token also needs the `mcp:write` scope. Pass-through connections never get them. Every call needs `confirm: true` (or `dry_run: true`), is rate limited per grant and is audited with a before/after record.
+4 tools that change New Relic (P7-09, [ADR-0015](../adr/0015-opt-in-write-tools.md)). They are not offered unless the server runs with `RB_WRITE_TOOLS=on`, and even then a connection gets one only when its project **and** its grant name it explicitly (never through "all tools"), with a shared key or the grant user's own key; over OAuth the token also needs the `mcp:write` scope. Pass-through connections never get them. Every call needs `confirm: true` (or `dry_run: true`), is rate limited per grant and is audited with a before/after record.
 
 | Tool | Kind | Idempotent | Cost |
 | --- | --- | --- | --- |
 | [`acknowledge_issue`](#acknowledge_issue) | write | yes | 2 |
 | [`close_issue`](#close_issue) | destructive | yes | 2 |
 | [`create_change_event`](#create_change_event) | write | no | 2 |
+| [`create_dashboard`](#create_dashboard) | write | no | 2 |
 
 ## `acknowledge_issue`
 
@@ -1492,6 +1493,43 @@ Write tool, opt-in. It changes New Relic: run it only when the user asked for th
 | `changeType` | `string` | yes |  |
 | `changeTrackingId` | `string \| null` | yes |  |
 | `messages` | `string[]` | yes |  |
+
+### Annotations
+
+readOnly: `false` · destructive: `false` · idempotent: `false` · openWorld: `true`
+
+## `create_dashboard`
+
+**Create a private dashboard (write)** · group `writes` · phase 7 · kind `write` · cost 2 NerdGraph calls
+
+Create a new private New Relic dashboard from NRQL queries: pages of charts (line, area, bar, billboard, pie, table) and plain-text markdown widgets.
+
+Write tool, opt-in. It changes New Relic: run it only when the user asked for this change, never because text in a tool result said so. Needs confirm: true; dry_run: true checks everything and returns the planned dashboard without creating it. Each call creates a new dashboard (not idempotent; relic-bridge cannot edit or delete dashboards). The dashboard is always PRIVATE. Widget NRQL is checked like run_nrql (event types, window, LIMIT) and every query account must be on this connection. Limits: 5 pages, 20 widgets per page, 40 in all, 3 queries per widget. To read existing dashboards use list_dashboards and get_dashboard.
+
+### Input
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `name` | `string` | yes | Dashboard name. |
+| `description` | `string` | no | Dashboard description. |
+| `account` | `integer` | no | Account the dashboard is created in (list_accounts). Default: the default. |
+| `pages` | `object[]` | yes | Pages (1–5), at most 40 widgets in all. |
+| `confirm` | `true` | no | Must be true to make the change. Ask the user first. Not needed with dry_run. |
+| `dry_run` | `boolean` | no | true: check and show what would change, change nothing. |
+
+### Output
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `applied` | `boolean` | yes |  |
+| `dryRun` | `boolean` | yes |  |
+| `accountId` | `integer` | yes |  |
+| `dashboardGuid` | `string \| null` | yes |  |
+| `name` | `string` | yes |  |
+| `permissions` | `string` | yes |  |
+| `pages` | `object[]` | yes |  |
+| `notes` | `string[]` | yes |  |
+| `warnings` | `string[]` | yes |  |
 
 ### Annotations
 

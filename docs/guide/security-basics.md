@@ -62,13 +62,14 @@ or ask you to do something. So:
 
 ## Write tools (opt-in)
 
-Three tools can change New Relic ([ADR-0015](../adr/0015-opt-in-write-tools.md)):
+Four tools can change New Relic ([ADR-0015](../adr/0015-opt-in-write-tools.md)):
 
 | Tool | What it does | Undo |
 |---|---|---|
 | `create_change_event` | Records a change marker (deployment, configuration, feature flag, operational or business event) on one entity | none here (it is a marker, it changes no setting) |
 | `acknowledge_issue` | Marks an alert issue as being handled | in the New Relic UI |
 | `close_issue` | Closes an alert issue (stops its notifications) | none: New Relic opens a new issue if the condition still violates. Marked **destructive** |
+| `create_dashboard` | Creates a new **private** dashboard from NRQL queries (charts and plain-text markdown) | delete it in the New Relic UI (relic-bridge never edits or deletes dashboards) |
 
 They are **off at every layer** and each layer has to be opened on purpose:
 
@@ -85,6 +86,15 @@ They are **off at every layer** and each layer has to be opened on purpose:
 Each call needs `confirm: true` (or `dry_run: true` to preview), reads its target first and refuses anything outside the
 connection's accounts, sends its change once (never retried), is limited to 20 writes per hour per grant
 (`RB_RATE_LIMIT_WRITE`) and is written to the [audit log](audit-log.md) with its arguments and a before/after record.
+
+`create_dashboard` has extra rules, because its widgets carry NRQL that New Relic runs whenever someone opens the
+dashboard: the dashboard is always **private** (there is no argument to share it); every widget query is checked like
+`run_nrql` (the raw-NRQL switch, so with `rawNrql: false` the tool is not offered at all; allowed and denied event
+types; the time window; `LIMIT`) and its account must be one of the connection's accounts; at most 5 pages, 20 widgets
+per page and 40 in all; names and text are bounded, and markdown widgets may not hold links, images or HTML. Its audit
+row keeps a summary (pages, widgets, accounts, event types and a SHA-256 of the exact dashboard sent), not every query.
+Once created, the dashboard's queries run in the New Relic UI under the viewer's own rights and time picker, outside
+relic-bridge's limits.
 
 The agent sets `confirm: true` itself, so it is not a human approval: a prompt-injected agent can still try a write you
 allowed. Enable only the tools you need, prefer `acknowledge_issue` over `close_issue`, and keep write-enabled grants

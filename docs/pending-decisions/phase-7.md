@@ -300,3 +300,22 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Options:** default traceparent on; propagate to NerdGraph (it does not use it today); flush logs from a Worker cron or
   per-request `waitUntil` with a dedicated log hook in `createHttpApp`; export `debug`.
 - **Needs:** owner's call on (1) and (3); verify against a real OTLP endpoint (New Relic) that `/v1/logs` is accepted.
+
+### P7-19 — create_dashboard: PRIVATE only, raw-NRQL gated, summary audit, unverified live
+- **Context:** A dashboard is the first write other people can see, and its widgets hold NRQL that New Relic runs
+  whenever it is opened, under the viewer's rights and time picker (outside relic-bridge's limits). No mutation could
+  be sent to New Relic.
+- **Assumption made:** (1) `permissions` is always `PRIVATE`, not an argument; a non-private answer is a warning, not
+  an error (the dashboard exists and there is no delete). (2) The tool counts as a raw-NRQL tool: hidden with
+  `rawNrql: false`. Widget NRQL gets the `run_nrql` limits and the checked text is stored. (3) Widgets may read any of
+  the connection's allowed accounts, not only the dashboard's account. (4) Typed widget configuration only (area, bar,
+  billboard, line, pie, table, markdown); no variables, links, thresholds or `rawConfiguration`; layout computed on a
+  12-column grid. (5) Limits: 5 pages, 20 widgets per page, 40 in all, 3 queries per widget; markdown without links,
+  URLs, images or HTML. (6) The audit record is a summary plus a SHA-256 of the exact dashboard sent (rows are capped at
+  2000 characters); NRQL nested in the stored arguments is masked per `RB_AUDIT_NRQL`. (7) Not idempotent, kind
+  `write` (not destructive).
+- **Options:** allow `PUBLIC_READ_ONLY` behind another flag; widgets only in the dashboard's account; allow links in
+  markdown to New Relic hosts; store full widget NRQL in a separate audit column; offer dashboard deletion for
+  dashboards relic-bridge created.
+- **Needs:** owner's call on (1)–(5); a live check (RESEARCH §26): `viz.*` ids, typed `configuration` without
+  `rawConfiguration`, that an API-key-created PRIVATE dashboard is private to the key's user; `dry_run` first.

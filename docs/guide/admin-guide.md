@@ -127,7 +127,7 @@ Members cannot create grants or widen them; that stays with administrators. The 
 
 ### Enabling write tools (owners)
 
-With `RB_WRITE_TOOLS=on` the tool checklists also show three write tools, badged `write` or `destructive`
+With `RB_WRITE_TOOLS=on` the tool checklists also show the write tools, badged `write` or `destructive`
 ([what they do](security-basics.md#write-tools-opt-in), [ADR-0015](../adr/0015-opt-in-write-tools.md)). To let one
 person use, say, `acknowledge_issue`:
 

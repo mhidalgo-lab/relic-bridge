@@ -2,7 +2,7 @@
 id: P7-19
 title: "create_dashboard write tool"
 phase: 7
-status: in-progress
+status: review
 priority: low
 depends_on: [P7-09]
 adr: [0015]
@@ -36,12 +36,12 @@ Split out of P7-09 because its blast radius is larger than the first three write
 - Contract test (only `RbCreateDashboard` sent, variables only), P2-12 negative cases, `TOOL_CASES`/catalog guards.
 
 ## Acceptance criteria
-- [ ] Never shares a dashboard publicly (`PRIVATE` fixed, not an argument); widget accounts and NRQL go through the read
+- [x] Never shares a dashboard publicly (`PRIVATE` fixed, not an argument); widget accounts and NRQL go through the read
       limits (raw-NRQL switch, event types, window, LIMIT); audit records the planned dashboard as the diff.
-- [ ] Size limits and text sanitising (names, descriptions, markdown without links/HTML, no secrets).
-- [ ] Negative authz cases (cross-account widget, foreign dashboard account, read-only token, project without the tool,
+- [x] Size limits and text sanitising (names, descriptions, markdown without links/HTML, no secrets).
+- [x] Negative authz cases (cross-account widget, foreign dashboard account, read-only token, project without the tool,
       flag off, raw NRQL off, denied event type, confirm missing, dry run sends nothing).
-- [ ] ADR-0015 addendum, THREAT_MODEL T31, tool reference regenerated, guides list the tool.
+- [x] ADR-0015 addendum, THREAT_MODEL T31, tool reference regenerated, guides list the tool.
 
 ## Security notes
 T6/T31: an injected agent could publish data into a dashboard other users can see; private permissions only. T26 (no

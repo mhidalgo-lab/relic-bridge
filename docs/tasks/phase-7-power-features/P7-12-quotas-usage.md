@@ -2,11 +2,11 @@
 id: P7-12
 title: "Per-grant quotas and usage dashboard"
 phase: 7
-status: todo
+status: in-progress
 priority: low
 depends_on: [P6-13]
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P7-12 — Per-grant quotas and usage dashboard

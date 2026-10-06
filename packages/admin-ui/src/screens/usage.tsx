@@ -3,12 +3,21 @@
 // Usage statistics (P4-05): tool calls, error rates, durations and inspected events per tool, project, grant, device
 // token or day, over 24 hours to 90 days, plus the slowest calls. The numbers come from the admin API's bounded SQL
 // aggregate (`GET /audit/stats`: `tool_call` rows only, at most 100 groups); the bars are `<meter>` elements, which
-// need no inline style and are announced by screen readers.
+// need no inline style and are announced by screen readers. Since P7-12 the page also shows the quota usage of the
+// grants that have one (`GET /usage/quotas`: one bounded counter read) and a 14-day series of calls and inspected events.
 import type { Context, Hono } from 'hono';
+import type { JSX } from 'hono/jsx/jsx-runtime';
 import { Button, DataTable, Layout, LinkButton, QueryForm, SelectField } from '../components.tsx';
 import type { UiKit } from '../kit.ts';
 import { Actor, loadNames, type Names } from './audit.tsx';
-import { type AuditRow, parseAudit, parseUsage } from './data.ts';
+import {
+  type AuditRow,
+  parseAudit,
+  parseQuotaUsage,
+  parseUsage,
+  type QuotaUsage,
+  type UsageRow,
+} from './data.ts';
 import { isOk, listOne, loadFailed, When } from './shared.tsx';
 
 const BASE = '/admin/usage';
@@ -29,6 +38,7 @@ const GROUPS = [
 ] as const;
 const DEFAULT_WINDOW = '7d';
 const SLOWEST = 10;
+const SERIES_DAYS = 14;
 
 type Group = (typeof GROUPS)[number][0];
 
@@ -57,6 +67,168 @@ function labelOf(group: Group, key: string | null, names: Names): string {
     default:
       return key;
   }
+}
+
+/** `1,234 of 5,000 (25%)`, or the plain count when there is no cap. */
+export const usedOf = (used: number, cap: number | null): string =>
+  cap === null
+    ? used.toLocaleString('en-US')
+    : `${used.toLocaleString('en-US')} of ${cap.toLocaleString('en-US')} (${percent(used, cap)})`;
+
+/** One quota measure: the text and, with a cap, a meter (low/high/optimum drive the colour without inline style). */
+function QuotaMeter(props: {
+  readonly used: number;
+  readonly cap: number | null;
+  readonly label: string;
+  readonly warnPercent: number;
+}): JSX.Element {
+  const { used, cap } = props;
+  return (
+    <>
+      {usedOf(used, cap)}
+      {cap === null ? null : (
+        <>
+          {' '}
+          <meter
+            min={0}
+            max={cap}
+            low={Math.floor((cap * props.warnPercent) / 100)}
+            high={Math.floor((cap * props.warnPercent) / 100)}
+            optimum={0}
+            value={Math.min(used, cap)}
+            aria-label={props.label}
+          >
+            {used}
+          </meter>
+        </>
+      )}
+    </>
+  );
+}
+
+export function QuotaTable(props: {
+  readonly rows: readonly QuotaUsage[];
+  readonly names: Names;
+  readonly truncated: boolean;
+}): JSX.Element {
+  const who = (r: QuotaUsage): string =>
+    props.names.grants.get(r.grantId) ?? r.label ?? r.userId ?? r.grantId;
+  return (
+    <section aria-labelledby="quotas-heading">
+      <h2 id="quotas-heading">Quotas</h2>
+      <p>
+        Usage of the current UTC day and month against each grant's caps. Only real New Relic calls count;
+        results served from the query cache are free. Set caps on the grant's page.
+      </p>
+      <DataTable
+        caption="Grants with a usage quota"
+        empty="No grant has a quota."
+        rows={props.rows}
+        columns={[
+          {
+            header: 'Grant',
+            cell: (r) => <a href={`/admin/grants/${encodeURIComponent(r.grantId)}`}>{who(r)}</a>,
+          },
+          {
+            header: 'Calls today',
+            cell: (r) => (
+              <QuotaMeter
+                used={r.day.queries}
+                cap={r.quota.day?.queries ?? null}
+                label={`${who(r)}: calls today`}
+                warnPercent={r.quota.warnPercent}
+              />
+            ),
+          },
+          {
+            header: 'Events today',
+            cell: (r) => (
+              <QuotaMeter
+                used={r.day.inspected}
+                cap={r.quota.day?.inspectedEvents ?? null}
+                label={`${who(r)}: events inspected today`}
+                warnPercent={r.quota.warnPercent}
+              />
+            ),
+          },
+          {
+            header: 'Calls this month',
+            cell: (r) => (
+              <QuotaMeter
+                used={r.month.queries}
+                cap={r.quota.month?.queries ?? null}
+                label={`${who(r)}: calls this month`}
+                warnPercent={r.quota.warnPercent}
+              />
+            ),
+          },
+          {
+            header: 'Events this month',
+            cell: (r) => (
+              <QuotaMeter
+                used={r.month.inspected}
+                cap={r.quota.month?.inspectedEvents ?? null}
+                label={`${who(r)}: events inspected this month`}
+                warnPercent={r.quota.warnPercent}
+              />
+            ),
+          },
+        ]}
+      />
+      {props.truncated ? <p class="muted">More grants have a quota than the 50 shown.</p> : null}
+    </section>
+  );
+}
+
+/** Calls and inspected events per day for the last days, newest first (CSS-only bars: `<meter>`). */
+export function DailySeries(props: { readonly rows: readonly UsageRow[] }): JSX.Element {
+  const topCalls = props.rows.reduce((n, r) => Math.max(n, r.calls), 0);
+  const topEvents = props.rows.reduce((n, r) => Math.max(n, r.inspectedCount), 0);
+  return (
+    <section aria-labelledby="series-heading">
+      <h2 id="series-heading">Last {SERIES_DAYS} days</h2>
+      <DataTable
+        caption={`Tool calls and events inspected per day, last ${SERIES_DAYS} days`}
+        empty="No tool calls in the last days."
+        rows={props.rows}
+        columns={[
+          { header: 'Day (UTC)', cell: (r) => r.key ?? '—' },
+          {
+            header: 'Calls',
+            cell: (r) => (
+              <>
+                {r.calls}{' '}
+                <meter
+                  min={0}
+                  max={Math.max(topCalls, 1)}
+                  value={r.calls}
+                  aria-label={`${r.key}: ${r.calls} calls`}
+                >
+                  {r.calls}
+                </meter>
+              </>
+            ),
+          },
+          {
+            header: 'Events inspected',
+            cell: (r) => (
+              <>
+                {r.inspectedCount.toLocaleString('en-US')}{' '}
+                <meter
+                  min={0}
+                  max={Math.max(topEvents, 1)}
+                  value={r.inspectedCount}
+                  aria-label={`${r.key}: ${r.inspectedCount} events inspected`}
+                >
+                  {r.inspectedCount}
+                </meter>
+              </>
+            ),
+          },
+        ]}
+      />
+    </section>
+  );
 }
 
 export function registerUsage(ui: Hono, kit: UiKit): void {
@@ -97,6 +269,30 @@ export function registerUsage(ui: Hono, kit: UiKit): void {
         tokens: new Map(),
         grants: new Map(),
       };
+
+      // Quota usage and the daily series: two more bounded reads; a failure of either only hides its section.
+      const quotas = await kit.callAdmin(c, principal, { method: 'GET', path: '/usage/quotas' });
+      const quotaBody = isOk(quotas) ? (quotas.body as { data?: unknown; truncated?: unknown } | null) : null;
+      const quotaRows = (Array.isArray(quotaBody?.data) ? quotaBody.data : []).flatMap((r: unknown) => {
+        const row =
+          typeof r === 'object' && r !== null ? parseQuotaUsage(r as Record<string, unknown>) : null;
+        return row === null ? [] : [row];
+      });
+      const series = await kit.callAdmin(c, principal, {
+        method: 'GET',
+        path: '/audit/stats',
+        query: {
+          groupBy: 'day',
+          since: String(until - SERIES_DAYS * 86_400_000),
+          until: String(until),
+          limit: String(SERIES_DAYS + 1),
+        },
+      });
+      const seriesData = isOk(series) ? (series.body as { data?: unknown } | null)?.data : null;
+      const seriesRows = (Array.isArray(seriesData) ? seriesData : []).flatMap((r: unknown) => {
+        const row = typeof r === 'object' && r !== null ? parseUsage(r as Record<string, unknown>) : null;
+        return row === null ? [] : [row];
+      });
 
       const total = rows.reduce((n, r) => n + r.calls, 0);
       const top = rows.reduce((n, r) => Math.max(n, r.calls), 0);
@@ -147,6 +343,10 @@ export function registerUsage(ui: Hono, kit: UiKit): void {
               { header: 'Events inspected', cell: (r) => r.inspectedCount },
             ]}
           />
+          {isOk(quotas) ? (
+            <QuotaTable rows={quotaRows} names={names} truncated={quotaBody?.truncated === true} />
+          ) : null}
+          {isOk(series) ? <DailySeries rows={seriesRows} /> : null}
           <section aria-labelledby="slowest-heading">
             <h2 id="slowest-heading">Slowest calls</h2>
             <DataTable

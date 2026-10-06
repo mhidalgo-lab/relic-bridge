@@ -3,7 +3,8 @@
 // invisible to every reader, so this only reclaims space (abandoned login transactions, unused setup links, ended
 // sessions); it never changes behaviour. Each batch is one small DELETE, and a backlog beyond the budget is finished
 // by the next run.
-import type { KvRepository } from './types.ts';
+import type { GrantUsageRepository, KvRepository } from './types.ts';
+import { USAGE_PURGE_DEFAULT, USAGE_RETENTION_MS } from './usage.ts';
 
 export interface KvPurgeBudget {
   /** Rows per DELETE statement. */
@@ -45,4 +46,22 @@ export async function purgeExpiredKv(
     if (n < b.batchRows) return { removed, batches, complete: true };
   }
   return { removed, batches, complete: false };
+}
+
+/**
+ * Deletes quota counter rows nobody has touched for `USAGE_RETENTION_MS` (P7-12), oldest first, in at most `maxBatches`
+ * statements of 1000 rows. Counters of the current day and month are updated on every call, so they are never old.
+ */
+export async function purgeGrantUsage(
+  usage: Pick<GrantUsageRepository, 'purgeBefore'>,
+  now: number,
+  maxBatches = 5,
+): Promise<number> {
+  let removed = 0;
+  for (let i = 0; i < maxBatches; i++) {
+    const n = await usage.purgeBefore(now - USAGE_RETENTION_MS, USAGE_PURGE_DEFAULT);
+    removed += n;
+    if (n < USAGE_PURGE_DEFAULT) break;
+  }
+  return removed;
 }

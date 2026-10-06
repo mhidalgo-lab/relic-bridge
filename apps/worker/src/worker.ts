@@ -47,7 +47,13 @@ import {
   TelemetryConfigError,
   telemetrySettingsFromEnv,
 } from '@relic-bridge/http-app';
-import { type KvPurgeBudget, purgeExpiredKv, type Storage, StorageError } from '@relic-bridge/storage';
+import {
+  type KvPurgeBudget,
+  purgeExpiredKv,
+  purgeGrantUsage,
+  type Storage,
+  StorageError,
+} from '@relic-bridge/storage';
 import { createD1Storage } from '@relic-bridge/storage/d1';
 import type { Context } from 'hono';
 import { strictlyPublicCimdFetch } from './cimd-fetch.ts';
@@ -59,7 +65,7 @@ import {
   WorkerConfigError,
   type WorkerSettings,
 } from './settings.ts';
-import { createSharedConcurrency } from './shared-limiter.ts';
+import { createDurableQuotaStore, createSharedConcurrency } from './shared-limiter.ts';
 
 /**
  * After failed boots, requests answer 503 at once instead of retrying: 5 s after the first failure, 15 s after the
@@ -394,6 +400,10 @@ async function boot(env: WorkerEnv, options: WorkerOptions): Promise<Runtime> {
     ...(settings.sharedLimiter === 'on' && sharedNs !== undefined
       ? { sharedConcurrency: createSharedConcurrency(sharedNs, { max: settings.concurrency, logger: log }) }
       : {}),
+    // Quota counters in the shared limiter's `quota:` objects when it is on (a D1 write per call saved), else storage.
+    ...(settings.sharedLimiter === 'on' && sharedNs !== undefined
+      ? { quotaStore: createDurableQuotaStore(sharedNs, { fallback: storage.grantUsage, logger: log }) }
+      : {}),
     queryCache: createWorkerQueryCache(settings.queryCache, keyring.queryCacheKeys(), options.queryCacheApi),
     writeTools: settings.writeTools,
     // Background work (audit rows) must outlive the response: the runtime cancels unawaited promises otherwise.
@@ -609,6 +619,9 @@ export function createWorker(options: WorkerOptions = {}): WorkerHandler {
       const storage = await (options.openStorage ?? openD1Storage)(env);
       const result = await purgeExpiredKv(storage.kv, options.kvPurge, now);
       logger.info('kv purge finished', { ...result });
+      // Quota counters of long-gone periods (P7-12).
+      const usage = await purgeGrantUsage(storage.grantUsage, now());
+      if (usage > 0) logger.info('quota counters purged', { removed: usage });
     } catch (error) {
       logger.error('kv purge failed', bootFailure(error));
     }

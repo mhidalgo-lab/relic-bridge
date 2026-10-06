@@ -57,7 +57,7 @@ import {
   type TelemetrySettings,
   telemetrySettingsFromEnv,
 } from '@relic-bridge/http-app';
-import { purgeExpiredKv, StorageError } from '@relic-bridge/storage';
+import { purgeExpiredKv, purgeGrantUsage, StorageError } from '@relic-bridge/storage';
 import { openSqliteStorage } from '@relic-bridge/storage-sqlite';
 import type { Context } from 'hono';
 import { parseRetentionDays } from './audit.ts';
@@ -587,16 +587,22 @@ export async function startServer(options: StartServerOptions): Promise<RunningS
   const purgeKv = (): void => {
     if (kvPurging) return;
     kvPurging = true;
-    purgeExpiredKv(storage.kv).then(
-      (result) => {
-        kvPurging = false;
+    purgeExpiredKv(storage.kv)
+      .then(async (result) => {
         if (result.removed > 0) logger.info('expired kv rows purged', { ...result });
-      },
-      (error: unknown) => {
-        kvPurging = false;
-        logger.warn('kv purge failed', { error: error instanceof Error ? error.name : typeof error });
-      },
-    );
+        // Quota counters of long-gone periods (P7-12).
+        const usage = await purgeGrantUsage(storage.grantUsage, Date.now());
+        if (usage > 0) logger.info('quota counters purged', { removed: usage });
+      })
+      .then(
+        () => {
+          kvPurging = false;
+        },
+        (error: unknown) => {
+          kvPurging = false;
+          logger.warn('kv purge failed', { error: error instanceof Error ? error.name : typeof error });
+        },
+      );
   };
   const purgeHousekeeping = (): void => {
     purgeAudit();

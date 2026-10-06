@@ -12,6 +12,7 @@ export interface FlashMessage {
 /** Every flash code. Screens add theirs here and in the catalogue below. */
 export type FlashCode =
   | 'saved'
+  | 'quota_removed'
   | 'created'
   | 'created_with_notes'
   | 'deleted'
@@ -47,6 +48,7 @@ export type FlashCode =
 /** Every flash message the UI can show. */
 export const FLASH_MESSAGES: Readonly<Record<FlashCode, FlashMessage>> = Object.freeze({
   saved: { kind: 'success', text: 'Saved.' },
+  quota_removed: { kind: 'success', text: 'Quota removed. The grant is no longer capped.' },
   created: { kind: 'success', text: 'Created.' },
   created_with_notes: {
     kind: 'info',

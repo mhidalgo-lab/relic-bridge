@@ -27,10 +27,10 @@ export type UiAuthResult =
 
 /** One admin API call (`path` relative to `/api/admin/v1`; build it with {@link adminPath}). */
 export interface AdminCall {
-  readonly method: 'GET' | 'POST' | 'PATCH' | 'DELETE';
+  readonly method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   readonly path: string;
   readonly query?: Readonly<Record<string, string>>;
-  /** JSON body for POST/PATCH. */
+  /** JSON body for POST/PUT/PATCH. */
   readonly body?: unknown;
 }
 

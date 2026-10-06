@@ -26,6 +26,7 @@ export {
   type KvPurgeBudget,
   type KvPurgeResult,
   purgeExpiredKv,
+  purgeGrantUsage,
 } from './kv-purge.ts';
 export { createMemoryStorage, type MemoryStorageOptions } from './memory.ts';
 export {

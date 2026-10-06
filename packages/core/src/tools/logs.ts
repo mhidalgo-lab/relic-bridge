@@ -16,8 +16,18 @@ import { FATAL_CODES } from './changes.ts';
 import { checkGuid } from './entities.ts';
 import { cleanName, errorNote } from './identity.ts';
 import {
+  bindingOf,
+  listLimit,
+  nextTimePosition,
+  pageByTime,
+  readTimeCursor,
+  timeCursor,
+  timeFetchSize,
+} from './paging.ts';
+import {
   accountInput,
   assertWindowWithinLimit,
+  cursorInput,
   label,
   NRQL_COST,
   num,
@@ -161,10 +171,13 @@ export function recentQuery(
   limit: number,
   sinceMs: number,
   untilMs: number,
+  /** Page cursor: only lines at or before this instant (epoch ms). */
+  atOrBeforeMs?: number,
 ): NrqlQuery {
   const { since, until } = bounds(sinceMs, untilMs);
   const contains = pattern === undefined ? nrql`` : nrql`AND message LIKE ${pattern}`;
-  return nrql`SELECT timestamp, level, message FROM Log WHERE timestamp IS NOT NULL ${scope(guid)} ${levelFilter(level)} ${contains} ORDER BY timestamp DESC LIMIT ${limit} SINCE ${since} UNTIL ${until}`;
+  const upTo = atOrBeforeMs === undefined ? nrql`` : nrql`AND timestamp <= ${atOrBeforeMs}`;
+  return nrql`SELECT timestamp, level, message FROM Log WHERE timestamp IS NOT NULL ${scope(guid)} ${levelFilter(level)} ${contains} ${upTo} ORDER BY timestamp DESC LIMIT ${limit} SINCE ${since} UNTIL ${until}`;
 }
 
 export function levelCountQuery(guid: string, sinceMs: number, untilMs: number): NrqlQuery {
@@ -219,13 +232,8 @@ const listInput = z.strictObject({
     .optional()
     .describe('Only lines whose message contains this text (matched literally, case as typed).'),
   time_range: RANGE_FIELD,
-  limit: z
-    .number()
-    .int()
-    .min(1)
-    .max(MAX_LIMIT)
-    .optional()
-    .describe(`Most lines to return (default ${DEFAULT_LIMIT}, max ${MAX_LIMIT}).`),
+  limit: listLimit('lines, newest first', DEFAULT_LIMIT, MAX_LIMIT),
+  cursor: cursorInput,
   minimal_output: z.boolean().optional().describe('Only timestamp, level and message.'),
 });
 
@@ -241,11 +249,11 @@ const listOutput = z.object({
   since: z.string(),
   until: z.string(),
   logs: z.array(logRow),
-  /** The page is full: older lines in the window exist. */
-  truncated: z.boolean(),
+  /** Older lines in the window exist: pass this as cursor (same filters) to read them. */
+  nextCursor: z.string().nullable(),
 });
 
-const LIST_DESCRIPTION = `Read the most recent log lines (newest first) of one account or one entity (guid or name), optionally only one level or lines containing some text. Default: the last hour, ${DEFAULT_LIMIT} lines, max ${MAX_LIMIT}.
+const LIST_DESCRIPTION = `Read the most recent log lines (newest first) of one account or one entity (guid or name), optionally only one level or lines containing some text. Default: the last hour, ${DEFAULT_LIMIT} lines, max ${MAX_LIMIT}; older lines: page with cursor (keeps the first window).
 
 Use it to read what was logged around an incident. For counts by level, common message patterns and bursts use analyze_entity_logs; for the lines of one failing request use trace_error. There is no "lines around this error" mode: set a narrow time_range around the error's time instead. Messages are cut to ${MAX_MESSAGE_CHARS} characters and scrubbed of credential-like strings, but may still hold personal data. ${UNTRUSTED}`;
 
@@ -347,14 +355,40 @@ export function createLogTools(deps: ToolDeps = {}): ToolDefinition[] {
       const limit = args.limit ?? DEFAULT_LIMIT;
       const pattern = args.contains === undefined ? undefined : likePattern(args.contains);
 
+      // A cursor keeps the window of the first call and the instant the last page ended at; the window is checked
+      // against the limits again, and nothing else (account, entity, filters) is ever taken from a cursor (T3).
+      const binding = await bindingOf(
+        'list_recent_logs',
+        account,
+        args.entity_guid,
+        args.level,
+        args.contains,
+      );
+      const pos = args.cursor === undefined ? null : readTimeCursor(binding, args.cursor);
+      const sinceMs = pos?.s ?? range.sinceMs;
+      const untilMs = pos === null ? range.untilMs : pos.t + 1;
+      if (pos !== null) assertWindowWithinLimit({ windowMs: untilMs - sinceMs }, ctx.limits);
+      const fetchSize = timeFetchSize(limit, pos);
+
       const done = complete(
         await run(
           ctx,
           account,
-          recentQuery(args.entity_guid, args.level, pattern, limit, range.sinceMs, range.untilMs),
+          recentQuery(args.entity_guid, args.level, pattern, fetchSize, sinceMs, untilMs, pos?.t),
         ),
       );
-      const shown = done.results.slice(0, limit).map((r) => {
+      const paged = pageByTime(
+        done.results,
+        (r) => num(r['timestamp']),
+        pos,
+        limit,
+        done.results.length >= fetchSize,
+      );
+      const next = paged.more ? nextTimePosition(paged.times, pos, sinceMs) : null;
+      const nextCursor = next === null ? null : timeCursor(binding, next);
+      const since = pos === null ? range.since : new Date(sinceMs).toISOString();
+      const until = pos === null ? range.until : new Date(untilMs).toISOString();
+      const shown = paged.items.map((r) => {
         const ts = num(r['timestamp']);
         return {
           timestamp: ts === null ? null : new Date(ts).toISOString(),
@@ -368,13 +402,14 @@ export function createLogTools(deps: ToolDeps = {}): ToolDefinition[] {
       const logs = args.minimal_output
         ? (pickFields(shown, ['timestamp', 'level', 'message']) as typeof shown)
         : shown;
-      const truncated = done.results.length >= limit;
 
       const lines = [
-        `${shown.length} log line${shown.length === 1 ? '' : 's'}${args.entity_guid ? ' of the entity' : ''} in account ${account}, ${range.since} to ${range.until} (UTC), newest first.`,
+        `${shown.length} log line${shown.length === 1 ? '' : 's'}${args.entity_guid ? ' of the entity' : ''} in account ${account}, ${since} to ${until} (UTC), newest first.`,
       ];
-      if (truncated)
-        lines.push('The list is full: older lines exist. Raise limit, or narrow with level or contains.');
+      if (nextCursor)
+        lines.push(
+          'Older lines exist: call again with the same filters and cursor set to the nextCursor below.',
+        );
       if (shown.length === 0)
         lines.push('No log lines found. Check the window, the filters and that the entity sends logs.');
       else
@@ -384,15 +419,16 @@ export function createLogTools(deps: ToolDeps = {}): ToolDefinition[] {
             { format: 'csv', source: 'New Relic Log data', maxRows: MAX_LIMIT },
           ).text,
         );
+      if (nextCursor) lines.push(`nextCursor: ${nextCursor}`);
       return {
         text: lines.join('\n'),
         structured: {
           accountId: account,
           entityGuid: args.entity_guid ?? null,
-          since: range.since,
-          until: range.until,
+          since,
+          until,
           logs,
-          truncated,
+          nextCursor,
         },
       };
     },

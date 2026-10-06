@@ -131,6 +131,52 @@ describe('tool arguments and outputs follow the naming convention (docs/dev/tool
       expect(problems).toContain(expected);
     }
   });
+
+  it('the paging lint catches what it claims to (mutated tools, P6-24)', () => {
+    const make = (name: string, input: z.ZodRawShape, output: z.ZodRawShape, description: string) =>
+      defineTool({
+        name,
+        title: name,
+        description,
+        inputSchema: z.strictObject(input),
+        outputSchema: z.object(output),
+        kind: 'read',
+        openWorld: false,
+        cost: 0,
+        group: 'test',
+        phase: 6,
+        handler: async () => ({ text: '' }),
+      }) as unknown as ToolDefinition;
+    const noLimit = make(
+      'list_a',
+      { cursor: z.string().optional() },
+      { nextCursor: z.string().nullable() },
+      'List a things for the paging lint test.',
+    );
+    const both = make(
+      'list_b',
+      { limit: z.number().int().optional(), cursor: z.string().optional() },
+      { nextCursor: z.string().nullable(), truncated: z.boolean() },
+      'List b things for the paging lint test.',
+    );
+    const unexplained = make(
+      'list_c',
+      { limit: z.number().int().optional() },
+      { truncated: z.boolean() },
+      'List c things for the paging lint test.',
+    );
+    const explained = make(
+      'list_d',
+      { limit: z.number().int().optional() },
+      { truncated: z.boolean() },
+      'List d things. Not paged: a top-N for the paging lint test.',
+    );
+    const problems = lintNaming([noLimit, both, unexplained, explained]).join('\n');
+    expect(problems).toContain('list_a: pages with "cursor" but takes no "limit"');
+    expect(problems).toContain('list_b: returns both "nextCursor" and "truncated"');
+    expect(problems).toContain('list_c: has "limit" and "truncated" but no cursor');
+    expect(problems).not.toContain('list_d');
+  });
 });
 
 describe('agent eval set (P6-13)', () => {

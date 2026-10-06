@@ -57,6 +57,7 @@ export {
 export { createInvestigationTools } from './investigations.ts';
 export { createIssueTools } from './issues.ts';
 export { createLogTools } from './logs.ts';
+export { bindingOf, decodePageCursor, encodePageCursor } from './paging.ts';
 export {
   createQueryTools,
   MAX_NRQL_CHARS,

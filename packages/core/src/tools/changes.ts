@@ -18,8 +18,18 @@ import { defineTool, type ToolDefinition } from '../tool.ts';
 import { checkGuid, guidAgrees, isNonNull, outOfScope, requireField } from './entities.ts';
 import { cleanName, errorNote, maskEmail } from './identity.ts';
 import {
+  bindingOf,
+  listLimit,
+  nextTimePosition,
+  pageByTime,
+  readTimeCursor,
+  timeCursor,
+  timeFetchSize,
+} from './paging.ts';
+import {
   accountInput,
   assertWindowWithinLimit,
+  cursorInput,
   label,
   NRQL_COST,
   num,
@@ -80,13 +90,8 @@ const listInput = z.strictObject({
     .optional()
     .describe('Only deployments of this entity (guid). Implies its account.'),
   time_range: timeRangeInput(DEFAULT_WINDOW),
-  limit: z
-    .number()
-    .int()
-    .min(1)
-    .max(MAX_LIMIT)
-    .optional()
-    .describe(`Most events to return, newest first (default ${DEFAULT_LIMIT}, max ${MAX_LIMIT}).`),
+  limit: listLimit('events, newest first', DEFAULT_LIMIT, MAX_LIMIT),
+  cursor: cursorInput,
   account: accountInput,
   minimal_output: z
     .boolean()
@@ -100,14 +105,14 @@ const listOutput = z.object({
   until: z.string(),
   scope: z.enum(['account', 'entity_deployments']),
   events: z.array(z.record(z.string(), z.unknown())),
-  /** The page is full: older events in the window may exist. Narrow the window or raise limit. */
-  truncated: z.boolean(),
+  /** Older events in the window exist: pass this as cursor (same filters) to read them. */
+  nextCursor: z.string().nullable(),
   hiddenOutsideScope: z.boolean(),
 });
 
 const LIST_DESCRIPTION = `List change events, newest first: deployments, feature flag and configuration changes and other change-tracking markers, with time, type, user, entity, description and, for deployments, version, commit, changelog and link.
 
-Use it for "what changed before things broke?". With an entity (guid or name) it lists that entity's deployments; without one, every change event of one account. No paging: if truncated is true, narrow time_range or raise limit. To judge whether a deployment hurt use analyze_deployment_impact. It cannot record a change. ${UNTRUSTED}`;
+Use it for "what changed before things broke?". With an entity (guid or name) it lists that entity's deployments; without one, every change event of one account. Older events: page with cursor (keeps the first window). To judge whether a deployment hurt use analyze_deployment_impact. It cannot record a change. ${UNTRUSTED}`;
 
 function eventRow(e: ChangeEventData, entityGuid: string | null) {
   return {
@@ -456,13 +461,24 @@ export function createChangeTools(deps: ToolDeps = {}): ToolDefinition[] {
       const limit = args.limit ?? DEFAULT_LIMIT;
       const range = parseTimeRange(args.time_range ?? DEFAULT_WINDOW, ctx.clock.now());
       assertWindowWithinLimit(range, ctx.limits);
-      const timeWindow = { startTime: range.sinceMs, endTime: range.untilMs };
+
+      // A cursor keeps the window of the first call and the instant the last page ended at; the window is checked
+      // against the limits again, and nothing else (account, entity) is ever taken from a cursor (T3).
+      const position = async (account: number, entityGuid: string | undefined) => {
+        const binding = await bindingOf('list_change_events', account, entityGuid);
+        const pos = args.cursor === undefined ? null : readTimeCursor(binding, args.cursor);
+        const sinceMs = pos?.s ?? range.sinceMs;
+        const untilMs = pos === null ? range.untilMs : pos.t + 1;
+        if (pos !== null) assertWindowWithinLimit({ windowMs: untilMs - sinceMs }, ctx.limits);
+        return { binding, pos, sinceMs, untilMs };
+      };
 
       let account: number;
       let rows: EventRow[];
       let hiddenOutsideScope = false;
-      let truncated: boolean;
+      let upstreamFull: boolean;
       let scope: 'account' | 'entity_deployments';
+      let at: Awaited<ReturnType<typeof position>>;
 
       if (args.entity_guid !== undefined) {
         const guid = args.entity_guid;
@@ -476,9 +492,11 @@ export function createChangeTools(deps: ToolDeps = {}): ToolDefinition[] {
         }
         account = singleAccount(ctx, decoded.accountId);
         scope = 'entity_deployments';
+        at = await position(account, guid);
+        const fetchSize = timeFetchSize(limit, at.pos);
         const result = await client(ctx).query(ENTITY_DEPLOYMENTS_QUERY, {
           guid: guid,
-          filter: { limit, timeWindow },
+          filter: { limit: fetchSize, timeWindow: { startTime: at.sinceMs, endTime: at.untilMs } },
         });
         const entity = requireField(result.data.actor.entity, result, ctx);
         const reported = entity.accountId ?? account;
@@ -491,12 +509,18 @@ export function createChangeTools(deps: ToolDeps = {}): ToolDefinition[] {
         hiddenOutsideScope = all.length > mine.length;
         const name = typeof entity.name === 'string' ? cleanName(entity.name, 200) : null;
         rows = mine.map((d) => deploymentRow({ ...d, entityGuid: d.entityGuid ?? guid }, name));
-        truncated = all.length >= limit;
+        upstreamFull = all.length >= fetchSize;
       } else {
         account = singleAccount(ctx, args.account);
         scope = 'account';
+        at = await position(account, undefined);
+        const fetchSize = timeFetchSize(limit, at.pos);
         const result = await client(ctx).query(CHANGE_EVENTS_QUERY, {
-          filter: { accountIds: [account], limit, timeWindow },
+          filter: {
+            accountIds: [account],
+            limit: fetchSize,
+            timeWindow: { startTime: at.sinceMs, endTime: at.untilMs },
+          },
         });
         const all = (result.data.actor.changeTracking?.changeTrackingSearch?.changeEvents ?? []).filter(
           isNonNull,
@@ -518,19 +542,35 @@ export function createChangeTools(deps: ToolDeps = {}): ToolDefinition[] {
         });
         hiddenOutsideScope = all.length > vouched.length;
         rows = vouched;
-        truncated = all.length >= limit;
+        upstreamFull = all.length >= fetchSize;
       }
-      rows = rows.sort(newestFirst).slice(0, limit);
+      const paged = pageByTime(
+        rows.sort(newestFirst),
+        (r) => {
+          const t = r.time === null ? Number.NaN : Date.parse(r.time);
+          return Number.isFinite(t) ? t : null;
+        },
+        at.pos,
+        limit,
+        upstreamFull,
+      );
+      rows = paged.items;
+      const next = paged.more ? nextTimePosition(paged.times, at.pos, at.sinceMs) : null;
+      const nextCursor = next === null ? null : timeCursor(at.binding, next);
       const events = args.minimal_output
         ? pickFields(rows, MINIMAL_FIELDS)
         : (rows as Record<string, unknown>[]);
 
+      const since = at.pos === null ? range.since : new Date(at.sinceMs).toISOString();
+      const until = at.pos === null ? range.until : new Date(at.untilMs).toISOString();
       const lines = [
-        `${rows.length} change event${rows.length === 1 ? '' : 's'} ${scope === 'entity_deployments' ? '(deployments of the entity) ' : ''}in account ${account}, ${range.since} to ${range.until} (UTC), newest first.`,
+        `${rows.length} change event${rows.length === 1 ? '' : 's'} ${scope === 'entity_deployments' ? '(deployments of the entity) ' : ''}in account ${account}, ${since} to ${until} (UTC), newest first.`,
       ];
       if (hiddenOutsideScope) lines.push("Note: events outside this connection's accounts were left out.");
-      if (truncated)
-        lines.push('The page is full: older events may exist. Narrow time_range or raise limit.');
+      if (nextCursor)
+        lines.push(
+          'Older events exist: call again with the same filters and cursor set to the nextCursor below.',
+        );
       if (rows.length > 0) {
         lines.push(
           shapeRows(
@@ -554,15 +594,16 @@ export function createChangeTools(deps: ToolDeps = {}): ToolDefinition[] {
           ).text,
         );
       }
+      if (nextCursor) lines.push(`nextCursor: ${nextCursor}`);
       return {
         text: lines.join('\n'),
         structured: {
           accountId: account,
-          since: range.since,
-          until: range.until,
+          since,
+          until,
           scope,
           events,
-          truncated,
+          nextCursor,
           hiddenOutsideScope,
         },
       };

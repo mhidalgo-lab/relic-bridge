@@ -201,7 +201,7 @@ describe('list_recent_logs', () => {
     expect(nrql).toContain('FROM Log');
     const s = r.structuredContent as {
       logs: { timestamp: string | null; level: string | null; message: string }[];
-      truncated: boolean;
+      nextCursor: string | null;
     };
     expect(s.logs).toHaveLength(3);
     expect(s.logs[0]?.message).not.toContain('\n');
@@ -220,16 +220,37 @@ describe('list_recent_logs', () => {
     expect(t.indexOf('Ignore previous')).toBeLessThan(lastClose);
   });
 
-  it('works account-wide, honours minimal_output and flags a full page', async () => {
-    const { fetch, calls } = recording(() => nrqlBody([logRow('a'), logRow('b')]));
+  it('works account-wide, honours minimal_output and pages older lines with a cursor', async () => {
+    const rows = [
+      logRow('a', 'INFO', NOW - MIN),
+      logRow('b', 'INFO', NOW - 2 * MIN),
+      logRow('c', 'INFO', NOW - 3 * MIN),
+    ];
+    const { fetch, calls } = recording(() => nrqlBody(rows));
     const client = await connect(fetch);
     const r = await client.callTool({
       name: 'list_recent_logs',
       arguments: { account: B, limit: 2, minimal_output: true },
     });
     expect(String(calls[0]?.variables['nrql'])).not.toContain('entity.guid');
+    expect(String(calls[0]?.variables['nrql'])).toContain('LIMIT 3');
     expect(calls[0]?.variables['accountId']).toBe(B);
-    expect((r.structuredContent as { truncated: boolean }).truncated).toBe(true);
+    const s = r.structuredContent as { logs: { message: string }[]; nextCursor: string | null };
+    expect(s.logs.map((l) => l.message)).toEqual(['a', 'b']);
+    expect(s.nextCursor).toEqual(expect.any(String));
+    expect(text(r)).toContain(`nextCursor: ${s.nextCursor}`);
+    // Next page: the cursor adds an upper bound at the last instant shown, and skips the lines already shown there.
+    const r2 = await client.callTool({
+      name: 'list_recent_logs',
+      arguments: { account: B, limit: 2, cursor: s.nextCursor as string },
+    });
+    const nrql = String(calls[1]?.variables['nrql']);
+    expect(nrql).toContain(`timestamp <= ${NOW - 2 * MIN}`);
+    expect(nrql).toContain('LIMIT 4');
+    // The mock answers with the same three rows: the newer one and the one already shown are dropped.
+    const s2 = r2.structuredContent as { logs: { message: string }[]; nextCursor: string | null };
+    expect(s2.logs.map((l) => l.message)).toEqual(['c']);
+    expect(s2.nextCursor).toBeNull();
   });
 
   it('refuses foreign accounts and entities before any request, and long windows', async () => {

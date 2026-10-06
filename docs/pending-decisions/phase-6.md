@@ -380,3 +380,22 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Options:** (a) run `pnpm test:live` with a key and record the result; (b) tighten `nrql.identifier` to refuse
   comment markers now, without measuring.
 - **Needs:** owner runs the live suite once.
+
+### P6-24 — Paging parity: unsigned bound cursors, default page sizes, tools/list budget
+- **Context:** every list now takes `limit` and pages (or says it is bounded). Lists without a page size upstream need a
+  composite cursor (upstream cursor + offset), and lists without a cursor (`list_change_events`, `list_recent_logs`) a
+  time cursor.
+- **Assumption made:** (1) cursors are bound to tool + account + filters by a SHA-256 hash checked on use, not signed with
+  a secret: scope never comes from a cursor, so a forged cursor only picks a start position in the caller's own list, and
+  there is no key to manage on Workers or stdio. (2) Defaults: 25 (conditions, issues, incidents, error groups, change
+  events), 50 (policies), 100 (accounts), 200 (entity kinds, event types), max 200 (1000 for the two catalogues), so
+  a call returns less text than the whole upstream page did. (3) `search_entities`, `list_dashboards` and
+  `list_synthetic_monitors` moved to the same bound cursors (a raw NerdGraph cursor is no longer accepted anywhere).
+  (4) The offline `tools/list` budget grew from 52 000 to 53 500 characters (about 110 characters per list tool for
+  `limit` and `cursor`; descriptions were kept unchanged where the router baseline would move). (5) `list_top_transactions`
+  and `get_attributes` stay bounded, not paged. (6) Breaking, listed in `.changeset/paging-limit-parity.md`
+  (`truncated` removed from the paged tools).
+- **Options:** (a) keep; (b) HMAC-sign cursors with a per-deployment secret (stops a client crafting a start offset, adds
+  key handling); (c) keep the 52 000 budget by dropping the `limit` description text or the `cursor` argument on the
+  small catalogue lists; (d) page `list_top_transactions` through a second NRQL with `OFFSET`.
+- **Needs:** owner's call; `pnpm eval:tools` with the owner's key to confirm tool choice did not regress.

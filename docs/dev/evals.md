@@ -27,7 +27,7 @@ An agent picks a tool from its name, description and input schema, nothing else.
 7. **End with the untrusted-data sentence** (`UNTRUSTED` in `packages/core/src/tools/shared.ts`) on every tool that
    returns New Relic text. The result repeats a fuller notice in front of every data block, so one short sentence is enough.
 8. **Bounded.** At most 1 200 characters per description; the whole catalogue (descriptions plus input schemas) at most
-   52 000 characters (`TOOLS_LIST_BUDGET`; it was 65 683 before P6-13 and 61 291 before P6-19). Every tool is sent in every conversation.
+   53 500 characters (`TOOLS_LIST_BUDGET`; it was 65 683 before P6-13, 61 291 before P6-19 and 52 000 before P6-24, which added `limit` and `cursor` to every list). Every tool is sent in every conversation.
 9. Behaviour, names and schemas do not change in a description edit. Renaming a tool is a breaking change. Argument and
    output names follow [tool-conventions.md](tool-conventions.md) (P6-22), checked by `lintNaming` in the same test file.
 10. No uppercase NRQL keywords followed by a space in source strings: the NRQL template lint rejects them (write

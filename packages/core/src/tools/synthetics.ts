@@ -16,13 +16,13 @@ import { defineTool, type ToolDefinition } from '../tool.ts';
 import { FATAL_CODES } from './changes.ts';
 import { guidAgrees, isNonNull, requireField } from './entities.ts';
 import { cleanName, errorNote } from './identity.ts';
+import { bindingOf, pageUpstream } from './paging.ts';
 import {
   accountInput,
   assertWindowWithinLimit,
   cursorInput,
   label,
   NRQL_COST,
-  nextCursorOf,
   num,
   singleAccount,
   type ToolDeps,
@@ -281,13 +281,23 @@ export function createSyntheticTools(deps: ToolDeps = {}): ToolDefinition[] {
       ];
       if (args.name_contains) parts.push(entityQuery`name LIKE ${`%${args.name_contains}%`}`);
       const query = entityQuery.and(parts);
-      const result = await client(ctx).query(SYNTHETIC_MONITORS_QUERY, {
-        query: query.text,
-        cursor: args.cursor ?? null,
-        options: { limit },
+      let count: unknown;
+      const page = await pageUpstream({
+        binding: await bindingOf('list_synthetic_monitors', account, query.text),
+        cursor: args.cursor,
+        limit,
+        fetchPage: async (upstream) => {
+          const result = await client(ctx).query(SYNTHETIC_MONITORS_QUERY, {
+            query: query.text,
+            cursor: upstream,
+            options: { limit },
+          });
+          const es = requireField(result.data.actor.entitySearch, result, ctx);
+          count = es.count;
+          return { items: (es.results?.entities ?? []).filter(isNonNull), next: es.results?.nextCursor };
+        },
       });
-      const es = requireField(result.data.actor.entitySearch, result, ctx);
-      const all = (es.results?.entities ?? []).filter(isNonNull);
+      const all = page.items;
       // Defence in depth (T3): the filter names the account; drop anything else NerdGraph returns.
       const inScope = (e: SyntheticMonitorOutline) =>
         e.accountId === account && typeof e.guid === 'string' && guidAgrees(e.guid, account);
@@ -298,8 +308,8 @@ export function createSyntheticTools(deps: ToolDeps = {}): ToolDefinition[] {
           (args.monitor_type === undefined || e.monitorType === args.monitor_type) &&
           (args.status === undefined || e.status === args.status),
       );
-      const nextCursor = nextCursorOf(es.results?.nextCursor);
-      const total = num(es.count);
+      const nextCursor = page.nextCursor;
+      const total = num(count);
 
       const notes: string[] = [];
       if (hidden) notes.push("Results outside this connection's accounts were left out.");

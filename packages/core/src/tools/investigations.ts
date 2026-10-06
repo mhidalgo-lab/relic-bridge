@@ -706,7 +706,7 @@ export function createInvestigationTools(deps: ToolDeps = {}): ToolDefinition[] 
           relationship: string | null;
         }[];
         hiddenOutsideScope: boolean;
-        truncated: boolean;
+        nextCursor: string | null;
       };
       const seen = new Set<string>([args.entity_guid]);
       const candidates = relData.related
@@ -720,7 +720,7 @@ export function createInvestigationTools(deps: ToolDeps = {}): ToolDefinition[] 
       const notMeasured = candidates.length - chosen.length;
       if (relData.hiddenOutsideScope)
         notes.push('Relationships into accounts this connection does not allow were left out.');
-      if (relData.truncated) notes.push(`Only the first ${RELATED_FETCH} relationships were read.`);
+      if (relData.nextCursor) notes.push(`Only the first ${RELATED_FETCH} relationships were read.`);
 
       // Plan: the entity itself first, then neighbours in priority order (alerting first).
       const targets = [

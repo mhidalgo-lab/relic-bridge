@@ -11,6 +11,7 @@ import { defineTool, type ToolDefinition } from '../tool.ts';
 import { compareWindows, FATAL_CODES, numberOf, type WindowStats } from './changes.ts';
 import { checkGuid } from './entities.ts';
 import { cleanName, errorNote } from './identity.ts';
+import { listLimit } from './paging.ts';
 import {
   assertWindowWithinLimit,
   NRQL_COST,
@@ -127,13 +128,7 @@ const listInput = z.strictObject({
     .describe(
       'slowest = highest p95 duration (default), errors = most failed transactions, throughput = most requests.',
     ),
-  limit: z
-    .number()
-    .int()
-    .min(1)
-    .max(MAX_LIMIT)
-    .optional()
-    .describe(`Most transactions to return (default ${DEFAULT_LIMIT}, max ${MAX_LIMIT}).`),
+  limit: listLimit('transactions', DEFAULT_LIMIT, MAX_LIMIT),
   transaction_type: TYPE_FIELD,
   name_contains: z
     .string()
@@ -158,7 +153,7 @@ const listOutput = z.object({
 
 const LIST_DESCRIPTION = `Rank the transactions of an APM application (guid or name) by p95 latency (default), errors or throughput, with throughput, error count and rate, and average, p50, p95 and p99 duration in seconds.
 
-Use it to find which endpoints to look at. Rows with few requests have noisy percentiles: check the requests column. For the application as a whole, or a before/after view, use analyze_transactions. ${UNTRUSTED}`;
+Use it to find which endpoints to look at. Not paged: a top-N (truncated says there are more; raise limit or filter by name_contains). Rows with few requests have noisy percentiles: check the requests column. For the application as a whole, or a before/after view, use analyze_transactions. ${UNTRUSTED}`;
 
 const LIST_MINIMAL = ['name', 'requests', 'errorRate', 'p95DurationSeconds'] as const;
 

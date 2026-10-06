@@ -16,12 +16,12 @@ import { parseTimeRange } from '../time/range.ts';
 import { defineTool, type ToolDefinition } from '../tool.ts';
 import { checkGuid, isNonNull, requireField } from './entities.ts';
 import { cleanName } from './identity.ts';
+import { bindingOf, listLimit, pageUpstream } from './paging.ts';
 import {
   accountInput,
   assertWindowWithinLimit,
   cursorInput,
   label,
-  nextCursorOf,
   num,
   singleAccount,
   type ToolDeps,
@@ -32,6 +32,8 @@ import {
 
 const DEFAULT_WINDOW = 'last 24 hours';
 const MAX_LIST = 10;
+const DEFAULT_LIMIT = 25;
+const MAX_LIMIT = 200;
 const MAX_TITLE_CHARS = 300;
 const MAX_DESCRIPTION_CHARS = 500;
 const MAX_CONTAINS = 256;
@@ -76,6 +78,7 @@ const issuesInput = z.strictObject({
     .describe('Text to search for in the issue title, entity names and policy name.'),
   time_range: windowInput,
   account: accountInput,
+  limit: listLimit('rows', DEFAULT_LIMIT, MAX_LIMIT),
   cursor: cursorInput,
   minimal_output: z.boolean().optional().describe('Only id, title, state, priority, created and entities.'),
 });
@@ -95,10 +98,11 @@ const incidentsInput = z.strictObject({
     .max(MAX_CONTAINS)
     .optional()
     .describe(
-      'Text in the incident title or entity names. Filters the fetched page only: page with cursor to search on.',
+      'Text in the incident title or entity names. Filters each fetched page only: a page can be short or empty: page on with cursor.',
     ),
   time_range: windowInput,
   account: accountInput,
+  limit: listLimit('rows', DEFAULT_LIMIT, MAX_LIMIT),
   cursor: cursorInput,
   minimal_output: z.boolean().optional().describe('Only id, title, state, priority, created and entities.'),
 });
@@ -115,11 +119,11 @@ const incidentsOutput = z.object({ incidents: z.array(z.record(z.string(), z.unk
 
 const ISSUES_DESCRIPTION = `List recent alert issues of one account (what is or was alerting): title, state, priority, when it opened, was acknowledged and closed, and the entities, policy and condition behind it.
 
-Start here for "what is alerting?" or "what broke?": states ["ACTIVATED"] gives the open ones. An issue groups related incidents; for the individual violations use search_incidents. Filter by entity (guid or name). Page with cursor. It cannot acknowledge or close anything. Uses New Relic's experimental aiIssues API. ${UNTRUSTED}`;
+Start here for "what is alerting?" or "what broke?": states ["ACTIVATED"] gives the open ones. An issue groups related incidents; for the individual violations use search_incidents. Filter by entity (guid or name). Page with cursor (keeps the first window). It cannot acknowledge or close anything. Uses New Relic's experimental aiIssues API. ${UNTRUSTED}`;
 
 const INCIDENTS_DESCRIPTION = `Search the alert incidents (individual violations) of one account: title, state (CREATED = open, CLOSED), priority, times and the entities involved.
 
-Use it to drill into what triggered an issue or to find one entity's violations; for the grouped view ("what is alerting?") use list_recent_issues. Filter by entity (guid or name). Page with cursor. Uses New Relic's experimental aiIssues API. ${UNTRUSTED}`;
+Use it to drill into what triggered an issue or to find one entity's violations; for the grouped view ("what is alerting?") use list_recent_issues. Filter by entity (guid or name). Page with cursor (keeps the first window). Uses New Relic's experimental aiIssues API. ${UNTRUSTED}`;
 
 /** `["a", null]` or a comma-separated string (some incident fields are plain strings) → clean strings. */
 function listOf(v: readonly (string | number | null)[] | string | null | undefined): string[] {
@@ -339,15 +343,27 @@ export function createIssueTools(deps: ToolDeps = {}): ToolDefinition[] {
       if (input.policy_id !== undefined) filter['policyIds'] = [Number(input.policy_id)];
       if (input.acknowledged !== undefined) filter['isAcknowledged'] = input.acknowledged;
       if (input.contains) filter['contains'] = input.contains;
-      const result = await client(ctx).query(AI_ISSUES_QUERY, {
-        accountId: account,
-        cursor: input.cursor ?? null,
-        filter,
-        timeWindow: { startTime: range.sinceMs, endTime: range.untilMs },
+      const paged = await pageUpstream({
+        binding: await bindingOf('list_recent_issues', account, filter),
+        cursor: input.cursor,
+        limit: input.limit ?? DEFAULT_LIMIT,
+        window: range,
+        checkWindow: (w) => assertWindowWithinLimit({ windowMs: w.untilMs - w.sinceMs }, ctx.limits),
+        fetchPage: async (upstream, w) => {
+          const result = await client(ctx).query(AI_ISSUES_QUERY, {
+            accountId: account,
+            cursor: upstream,
+            filter,
+            timeWindow: { startTime: w?.sinceMs ?? range.sinceMs, endTime: w?.untilMs ?? range.untilMs },
+          });
+          const acct = requireField(result.data.actor.account, result, ctx);
+          const found = acct.aiIssues?.issues;
+          return { items: (found?.issues ?? []).filter(isNonNull), next: found?.nextCursor };
+        },
       });
-      const acct = requireField(result.data.actor.account, result, ctx);
-      const page = acct.aiIssues?.issues;
-      const all = (page?.issues ?? []).filter(isNonNull);
+      const all = paged.items;
+      const since = new Date(paged.window?.sinceMs ?? range.sinceMs).toISOString();
+      const until = new Date(paged.window?.untilMs ?? range.untilMs).toISOString();
       const scoped = (i: AiIssueData) =>
         inScope(ctx, account, {
           accountIds: accountIdsOf(i.accountIds),
@@ -355,13 +371,13 @@ export function createIssueTools(deps: ToolDeps = {}): ToolDefinition[] {
         });
       const rows = all.filter(scoped).map(toIssue);
       const hiddenOutsideScope = all.some((i) => !scoped(i));
-      const nextCursor = nextCursorOf(page?.nextCursor);
+      const nextCursor = paged.nextCursor;
       const issues = input.minimal_output
         ? pickFields(rows, MINIMAL_FIELDS)
         : (rows as Record<string, unknown>[]);
 
       const lines = [
-        `${rows.length} alert ${plural(rows.length, 'issue', 'issues')} in account ${account}, ${range.since} to ${range.until} (UTC).`,
+        `${rows.length} alert ${plural(rows.length, 'issue', 'issues')} in account ${account}, ${since} to ${until} (UTC).`,
       ];
       if (hiddenOutsideScope) lines.push("Note: results outside this connection's accounts were left out.");
       if (nextCursor)
@@ -394,8 +410,8 @@ export function createIssueTools(deps: ToolDeps = {}): ToolDefinition[] {
         text: lines.join('\n'),
         structured: {
           accountId: account,
-          since: range.since,
-          until: range.until,
+          since,
+          until,
           issues,
           nextCursor,
           hiddenOutsideScope,
@@ -421,15 +437,27 @@ export function createIssueTools(deps: ToolDeps = {}): ToolDefinition[] {
       if (input.states) filter['states'] = input.states;
       if (input.priority) filter['priority'] = input.priority;
       if (guid) filter['entityGuids'] = [guid];
-      const result = await client(ctx).query(AI_INCIDENTS_QUERY, {
-        accountId: account,
-        cursor: input.cursor ?? null,
-        filter,
-        timeWindow: { startTime: range.sinceMs, endTime: range.untilMs },
+      const paged = await pageUpstream({
+        binding: await bindingOf('search_incidents', account, filter, input.contains),
+        cursor: input.cursor,
+        limit: input.limit ?? DEFAULT_LIMIT,
+        window: range,
+        checkWindow: (w) => assertWindowWithinLimit({ windowMs: w.untilMs - w.sinceMs }, ctx.limits),
+        fetchPage: async (upstream, w) => {
+          const result = await client(ctx).query(AI_INCIDENTS_QUERY, {
+            accountId: account,
+            cursor: upstream,
+            filter,
+            timeWindow: { startTime: w?.sinceMs ?? range.sinceMs, endTime: w?.untilMs ?? range.untilMs },
+          });
+          const acct = requireField(result.data.actor.account, result, ctx);
+          const found = acct.aiIssues?.incidents;
+          return { items: (found?.incidents ?? []).filter(isNonNull), next: found?.nextCursor };
+        },
       });
-      const acct = requireField(result.data.actor.account, result, ctx);
-      const page = acct.aiIssues?.incidents;
-      const all = (page?.incidents ?? []).filter(isNonNull);
+      const all = paged.items;
+      const since = new Date(paged.window?.sinceMs ?? range.sinceMs).toISOString();
+      const until = new Date(paged.window?.untilMs ?? range.untilMs).toISOString();
       const scoped = (i: AiIncidentData) =>
         inScope(ctx, account, {
           accountIds: accountIdsOf(i.accountIds),
@@ -444,13 +472,13 @@ export function createIssueTools(deps: ToolDeps = {}): ToolDefinition[] {
             needle === undefined || `${r.title}\n${r.entities.join('\n')}`.toLowerCase().includes(needle),
         );
       const hiddenOutsideScope = all.some((i) => !scoped(i));
-      const nextCursor = nextCursorOf(page?.nextCursor);
+      const nextCursor = paged.nextCursor;
       const incidents = input.minimal_output
         ? pickFields(rows, MINIMAL_FIELDS)
         : (rows as Record<string, unknown>[]);
 
       const lines = [
-        `${rows.length} alert ${plural(rows.length, 'incident', 'incidents')} in account ${account}, ${range.since} to ${range.until} (UTC).`,
+        `${rows.length} alert ${plural(rows.length, 'incident', 'incidents')} in account ${account}, ${since} to ${until} (UTC).`,
       ];
       if (hiddenOutsideScope) lines.push("Note: results outside this connection's accounts were left out.");
       if (nextCursor)
@@ -481,8 +509,8 @@ export function createIssueTools(deps: ToolDeps = {}): ToolDefinition[] {
         text: lines.join('\n'),
         structured: {
           accountId: account,
-          since: range.since,
-          until: range.until,
+          since,
+          until,
           incidents,
           nextCursor,
           hiddenOutsideScope,

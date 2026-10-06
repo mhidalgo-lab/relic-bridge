@@ -8,7 +8,7 @@
 // Adding a tool: add its entry to TOOL_CASES (the guard below fails until you do), with at least one call that names
 // a foreign account when the tool takes an account or a GUID.
 import type { Client } from '@modelcontextprotocol/client';
-import { ERROR_META_KEY, ErrorCode } from '@relic-bridge/core';
+import { bindingOf, ERROR_META_KEY, ErrorCode, encodePageCursor } from '@relic-bridge/core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CATALOG, connect, NR_KEY } from '../fixtures.ts';
 import { accountsNamed, createHarness, FOREIGN, guidOf, type Harness, HONEST_ID, LEAK } from './harness.ts';
@@ -356,6 +356,80 @@ describe('tool isolation against a hostile NerdGraph', () => {
       }
     });
   }
+
+  // P6-24: a cursor is client input. It is bound to the tool, the account and the filters of the call that is
+  // resumed, so it cannot be replayed on another account, another tool or a different filter set, and a bare upstream
+  // (NerdGraph) cursor is refused instead of being handed to NerdGraph.
+  describe('cursors cannot be forged into another account, tool or filter set', () => {
+    const PAGED_TOOLS = [
+      'search_entities',
+      'list_entity_types',
+      'list_event_types',
+      'list_accounts',
+      'list_alert_policies',
+      'list_alert_conditions',
+      'list_recent_issues',
+      'search_incidents',
+      'list_error_groups',
+      'list_change_events',
+      'list_recent_logs',
+      'list_synthetic_monitors',
+      'list_dashboards',
+    ] as const;
+
+    it('refuses a bare upstream cursor and a cursor minted for another binding, on every paged tool', async () => {
+      const client = await isoClient();
+      for (const tool of PAGED_TOOLS) {
+        const foreign = encodePageCursor(await bindingOf('other_tool', 2, 'x'), { u: 'abc', o: 0 });
+        for (const cursor of ['NEXT_PAGE_FROM_ANOTHER_ACCOUNT', foreign, 'not base64 at all!']) {
+          const args = tool === 'list_accounts' ? { cursor } : { account: 1, cursor };
+          const r = await client.callTool({ name: tool, arguments: args });
+          const code = (r._meta?.[ERROR_META_KEY] as { code?: string } | undefined)?.code;
+          expect(r.isError, `${tool} with ${cursor.slice(0, 20)}`).toBe(true);
+          // Our own refusal, not a schema error about some other argument.
+          expect(code, `${tool} with ${cursor.slice(0, 20)}`).toBe(ErrorCode.InputInvalid);
+        }
+      }
+    });
+
+    it('a cursor minted for account 1 works there and is refused on account 2 and with other filters', async () => {
+      const client = await isoClient();
+      const mint = async (account: number, filter?: string) =>
+        encodePageCursor(await bindingOf('list_alert_policies', account, filter), { u: 'abc', o: 0 });
+      const call = (args: Record<string, unknown>) =>
+        client.callTool({ name: 'list_alert_policies', arguments: args });
+      const before = h.nerdGraph.calls.length;
+      expect((await call({ account: 1, cursor: await mint(1) })).isError ?? false).toBe(false);
+      expect(h.nerdGraph.calls.length).toBeGreaterThan(before);
+      const mid = h.nerdGraph.calls.length;
+      const onOtherAccount = await call({ account: 2, cursor: await mint(1) });
+      const withOtherFilter = await call({ account: 1, name_contains: 'x', cursor: await mint(1) });
+      for (const r of [onOtherAccount, withOtherFilter]) {
+        expect(r.isError).toBe(true);
+        expect((r._meta?.[ERROR_META_KEY] as { code?: string } | undefined)?.code).toBe(
+          ErrorCode.InputInvalid,
+        );
+      }
+      expect(h.nerdGraph.calls.length, 'refused before any NerdGraph call').toBe(mid);
+    });
+
+    it('a time cursor cannot widen the window past the connection limit', async () => {
+      const client = await isoClient();
+      const now = Date.now();
+      const cursor = encodePageCursor(
+        await bindingOf('list_recent_logs', 1, undefined, undefined, undefined),
+        {
+          t: now,
+          k: 0,
+          s: now - 400 * 86_400_000,
+        },
+      );
+      const before = h.nerdGraph.calls.length;
+      const r = await client.callTool({ name: 'list_recent_logs', arguments: { account: 1, cursor } });
+      expect(r.isError).toBe(true);
+      expect(h.nerdGraph.calls.length).toBe(before);
+    });
+  });
 
   it('alert tools drop rows of other accounts and say so', async () => {
     const client = await isoClient();

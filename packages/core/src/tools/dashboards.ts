@@ -18,11 +18,11 @@ import { shapeRows } from '../output/format.ts';
 import { defineTool, type ToolDefinition } from '../tool.ts';
 import { checkGuid, guidAgrees, isNonNull, outOfScope, requireField } from './entities.ts';
 import { cleanName } from './identity.ts';
+import { bindingOf, pageUpstream } from './paging.ts';
 import {
   accountInput,
   cursorInput,
   label,
-  nextCursorOf,
   num,
   singleAccount,
   type ToolDeps,
@@ -213,21 +213,31 @@ export function createDashboardTools(deps: ToolDeps = {}): ToolDefinition[] {
       ];
       if (args.name_contains) parts.push(entityQuery`name LIKE ${`%${args.name_contains}%`}`);
       const query = entityQuery.and(parts);
-      const result = await client(ctx).query(DASHBOARDS_QUERY, {
-        query: query.text,
-        cursor: args.cursor ?? null,
-        options: { limit },
+      let count: unknown;
+      const page = await pageUpstream({
+        binding: await bindingOf('list_dashboards', account, query.text),
+        cursor: args.cursor,
+        limit,
+        fetchPage: async (upstream) => {
+          const result = await client(ctx).query(DASHBOARDS_QUERY, {
+            query: query.text,
+            cursor: upstream,
+            options: { limit },
+          });
+          const es = requireField(result.data.actor.entitySearch, result, ctx);
+          count = es.count;
+          return { items: (es.results?.entities ?? []).filter(isNonNull), next: es.results?.nextCursor };
+        },
       });
-      const es = requireField(result.data.actor.entitySearch, result, ctx);
-      const all = (es.results?.entities ?? []).filter(isNonNull);
+      const all = page.items;
       const inScope = (e: DashboardOutline) =>
         e.accountId === account && typeof e.guid === 'string' && guidAgrees(e.guid, account);
       const scoped = all.filter(inScope).slice(0, limit);
       const notes: string[] = [];
       const hiddenOutsideScope = all.some((e) => !inScope(e));
       if (hiddenOutsideScope) notes.push("Results outside this connection's accounts were left out.");
-      const nextCursor = nextCursorOf(es.results?.nextCursor);
-      const total = num(es.count);
+      const nextCursor = page.nextCursor;
+      const total = num(count);
       const minimal = args.minimal_output === true;
       const dashboards = scoped.map((e) => {
         const base = { guid: e.guid as string, name: cleanName(e.name ?? '') };

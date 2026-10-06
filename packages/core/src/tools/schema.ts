@@ -10,9 +10,11 @@ import type { TimeRange } from '../time/index.ts';
 import { parseTimeRange } from '../time/range.ts';
 import { defineTool, type ToolDefinition } from '../tool.ts';
 import { cleanName } from './identity.ts';
+import { bindingOf, listLimit, pageList } from './paging.ts';
 import {
   accountIdSchema as accountId,
   assertWindowWithinLimit,
+  cursorInput,
   type ToolDeps,
   timeRangeInput,
   toolClient,
@@ -32,7 +34,13 @@ const EVENT_TYPE_RE = /^[A-Za-z_][A-Za-z0-9_.:\-/]{0,254}$/;
 const accountField = accountId.optional().describe('Account id (list_accounts). Default: the default.');
 const windowField = timeRangeInput(DEFAULT_SCHEMA_SINCE);
 
-const listInput = z.strictObject({ account: accountField, time_range: windowField });
+const DEFAULT_EVENT_TYPES = 200;
+const listInput = z.strictObject({
+  account: accountField,
+  time_range: windowField,
+  limit: listLimit('event types', DEFAULT_EVENT_TYPES, MAX_EVENT_TYPES),
+  cursor: cursorInput,
+});
 const attributesInput = z.strictObject({
   event_type: z
     .string()
@@ -55,6 +63,8 @@ const listOutput = z.object({
   /** The connection has an event-type allow list: its entries are listed without asking New Relic. */
   fromAllowList: z.boolean(),
   cached: z.boolean(),
+  /** More event types exist: pass this as cursor (same account and time_range) to read them. */
+  nextCursor: z.string().nullable(),
 });
 
 const attributesOutput = z.object({
@@ -74,7 +84,7 @@ Call it before writing NRQL for an unfamiliar account, then get_attributes for t
 
 const ATTRIBUTES_DESCRIPTION = `List the attributes (name and type) recorded on one event type in one account, optionally with one sample event, so NRQL uses real attribute names.
 
-Pass event_type from list_event_types. Attribute lists are cached for 5 minutes; samples are always fresh. ${UNTRUSTED}`;
+Pass event_type from list_event_types. Not paged: at most ${MAX_ATTRIBUTES} attributes (truncated says if cut). Attribute lists are cached for 5 minutes; samples are always fresh. ${UNTRUSTED}`;
 
 interface CacheEntry<T> {
   readonly at: number;
@@ -212,7 +222,14 @@ export function createSchemaTools(deps: ToolDeps = {}): ToolDefinition[] {
         if (!hit) typesCache.set(key, all, ctx.clock.now());
         types = all.filter((t) => !deny.has(t.trim().toLowerCase()));
       }
-      types = types.map((t) => cleanName(t, MAX_NAME_CHARS)).slice(0, MAX_EVENT_TYPES);
+      types = types.map((t) => cleanName(t, MAX_NAME_CHARS));
+      const paged = pageList(
+        types,
+        await bindingOf('list_event_types', account, sinceText),
+        args.cursor,
+        args.limit ?? DEFAULT_EVENT_TYPES,
+      );
+      types = paged.items;
       const lines = [
         `${types.length} event type${types.length === 1 ? '' : 's'} in account ${account} (${sinceText})` +
           `${cached ? ', cached' : ''}${allow ? ', from the connection allow list' : ''}. Call get_attributes with one of them.`,
@@ -225,6 +242,7 @@ export function createSchemaTools(deps: ToolDeps = {}): ToolDefinition[] {
           ).text,
         );
       }
+      if (paged.nextCursor) lines.push(`nextCursor: ${paged.nextCursor}`);
       return {
         text: lines.join('\n'),
         structured: {
@@ -234,6 +252,7 @@ export function createSchemaTools(deps: ToolDeps = {}): ToolDefinition[] {
           eventTypes: types,
           fromAllowList: allow !== undefined,
           cached,
+          nextCursor: paged.nextCursor,
         },
       };
     },

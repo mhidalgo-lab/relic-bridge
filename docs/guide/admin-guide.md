@@ -184,11 +184,51 @@ scrolling, and follows your light or dark setting.
 | A key leaked or rotated at New Relic | *Keys*, open it, *Replace the key*; revoke the old one in New Relic. |
 | A user wants another provider | Owner: user page, *Move to another provider* (or `relic-bridge user unbind`). Until they sign in again, anyone controlling that email at a configured provider can take the account; check with the person first. |
 | Who did what | *Audit*: filter by time, kind, status, user, device; *Download CSV* (up to 5,000 rows). Members see only their own rows. |
-| What is used | *Usage*: calls, errors, denied calls and timings per tool, project, grant, device or day. |
+| What is used | *Usage*: calls, errors, denied calls and timings per tool, project, grant, device or day, and the quota counters of grants that have one. |
+| Cap what one grant may spend | *Grants*, open it, *Usage quota* (see [Quotas](#quotas-per-grant)). |
 | Add a device quickly | *Connect*: pick the project, create a token, copy the snippet. |
 
 ![Audit viewer](images/audit-light.png#gh-light-mode-only)
 ![Audit viewer](images/audit-dark.png#gh-dark-mode-only)
+
+### Quotas per grant
+
+A grant can carry a **quota** (P7-12): caps per **UTC day** and per **UTC month** on
+
+- **calls**: real New Relic (NerdGraph) calls. One tool call is one to a few calls (the tool reference lists each tool's
+  cost). A repeated query answered from the [query cache](query-cache.md) makes no call and costs nothing; retries of
+  one call after a New Relic error count once; a request refused before New Relic (not allowed, bad input, over a limit)
+  counts nothing.
+- **events inspected**: the number of events New Relic reports as inspected by NRQL queries. While a grant has this cap,
+  NRQL asks New Relic for its cost statistics (a larger answer from New Relic; the agent still only sees them when it
+  asks). The number is known after the query, so the cap is checked *before* each call: once the counter is at or above
+  it the next call is refused, and the queries already running can take it somewhat past the cap.
+
+What the agent sees:
+
+- At `warnPercent` of any cap (default 80) every result carries one extra line: *Quota warning: this connection has used
+  85% of its daily New Relic call quota (85 of 100); it starts again at 2026-10-07T00:00:00.000Z (UTC).*
+- Past a cap the tool fails with **`RB_LIMIT_QUOTA`**: *The daily New Relic call quota for this connection is used up*,
+  with the period, which cap, its value and when it starts again. Nothing else is revealed: not the project, other grants,
+  their usage or the key. No call reaches New Relic. Everything else the grant can do (the list of tools, prompts) still
+  works.
+
+Set it on the grant's page, or with the API (`PUT /api/admin/v1/grants/{id}/quota`, `{"quota": {"day": {"queries": 200,
+"inspectedEvents": 50000000}, "month": {"queries": 3000}, "warnPercent": 80}}`; `{"quota": null}` removes it; `POST
+/grants` takes `quota` too). It is also in the config export and import (a quota of an existing grant is not changed by an
+import, like the rest of the grant). Changing a quota keeps the counters, so lowering a cap below today's use refuses
+at once, and it takes effect on the next request on the server that handled the change (other servers: within the
+access cache TTL, 30 s by default). Usage is on the **Usage** page (`GET /usage/quotas`).
+
+Where the counters live: in the database (`grant_usage`, one row per grant and period, changed by a single atomic
+statement, so concurrent calls from several devices or Worker isolates cannot overshoot a cap), or, on Workers with
+`RB_SHARED_LIMITER=on`, in one [Durable Object](cloudflare-limits.md#shared-limiter-durable-object-optional) per grant, which
+spares a D1 write on every New Relic call. A grant with a quota costs one counter write per New Relic call (two with
+both a day and a month cap). If the counters cannot be reached the call is **allowed** and a warning is logged: a cost
+control should not turn a database or Durable Object outage into an outage of the tool. Quotas apply to grants only; the
+stdio server and the pass-through endpoint have none. Denials are audited once per grant, period and cap every 15 minutes
+(`quota.denied`, plus the ordinary `tool_call` error rows), and every quota change is an admin audit row
+(`grant.quota_set`).
 
 ## 10. Settings added in Phase 4
 

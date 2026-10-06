@@ -176,6 +176,13 @@ How it behaves:
   (one row per active address or grant, deleted once idle). Object calls count against the 1,000 Cloudflare-service
   subrequests per request on Free, not the 50 external ones that NerdGraph uses.
 
+- **Quota counters (P7-12):** with `on`, the per-grant [usage quota](admin-guide.md#quotas-per-grant) counters live in
+  one object per grant (named `quota:<grant id>`, holding at most the current day's and month's counters, an alarm drops
+  periods that ended). Each New Relic call of a grant that has a quota costs one object request (two with both a day and a
+  month cap) instead of a D1 write, and the cap is exact across isolates. An unreachable object falls back to the
+  `grant_usage` table in D1 (still a cap; the two counts are separate until the object is back). Without `on` the counters
+  are in D1: one write per call, atomic (a single `INSERT ... ON CONFLICT DO UPDATE ... WHERE`).
+
 Use `rules` when the auth-failure, sign-in or write limits must hold across isolates (a public instance); use `on` when
 several people or agents share one New Relic key and you see `RB_NERDGRAPH_RATE_LIMITED`.
 

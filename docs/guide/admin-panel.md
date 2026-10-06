@@ -56,9 +56,15 @@ grant on it at once. A personal key can be a project's default only when its own
 refuses every request until you enable it again. *Delete* removes the project with its grants and tokens.
 
 **Grants** (`/admin/grants`). Filter by project or person. A grant page shows its key, tools, accounts, rate limit,
-expiry and device tokens. Parts that its project does not allow are listed under *Parts with no effect*: access is
-always the intersection of the grant and the project. A grant can't be edited: create a new one and revoke the old one.
-*Revoke* stops all its tokens at once and keeps it listed. *Delete* removes it with its tokens.
+expiry, usage quota and device tokens. Parts that its project does not allow are listed under *Parts with no effect*:
+access is always the intersection of the grant and the project. A grant can't be edited, apart from its usage quota (below):
+create a new one and revoke the old one. *Revoke* stops all its tokens at once and keeps it listed. *Delete* removes it
+with its tokens.
+
+*Usage quota* (admins and owners; only owners for a grant of an owner or on an owner's key) caps what the grant may
+spend of the shared New Relic key per UTC day and per UTC month: real New Relic calls, and events New Relic inspected
+for NRQL queries. Fill in the caps you want and leave the rest blank; blank everywhere removes the quota. *Warn at percent*
+(default 80) is when results start to carry a warning. See [Quotas](admin-guide.md#quotas-per-grant).
 
 **Devices** (`/admin/tokens`). Every token with its device name, prefix (`rb_live_Ab3d…`), grant, status, last use
 (updated at most every 5 minutes) and expiry. *Revoke…* asks for confirmation, then the device loses access at once.
@@ -100,7 +106,10 @@ can open this page too, but see only their own entries (their tool calls and the
 
 **Usage** (`/admin/usage`, admins and owners). Tool calls over the last 24 hours, 7, 30 or 90 days, grouped by tool,
 project, grant, device or day: calls (with a bar), errors and denied calls with their share, mean and slowest time,
-and events New Relic inspected. Below, the ten slowest calls of the window. Only tool calls are counted. On a
+and events New Relic inspected. Below it: **Quotas** (each grant that has one, with the day and month counters
+against its caps), **Last 14 days** (calls and inspected events per day, as bars) and the ten slowest calls of the
+window. The bars are plain `<meter>` elements (no script, no inline style). Only tool calls are counted in the first
+table and the series; the quota counters are the real New Relic calls. On a
 Cloudflare Worker with a very busy audit log, a 90-day view reads every row of the window; prefer shorter windows
 there (see [Cloudflare limits](cloudflare-limits.md)).
 

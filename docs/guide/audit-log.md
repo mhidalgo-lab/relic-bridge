@@ -12,7 +12,7 @@ One row per event, with these fields (empty when they don't apply):
 |---|---|
 | `ts` | When, epoch milliseconds. |
 | `kind` | `tool_call`, `auth` (a refused request) or `admin` (a change to credentials, projects, grants, tokens). |
-| `action` | The tool name (`run_nrql`), or `auth.denied`, `request.rejected`, `tool.not_granted`, `auth.suppressed`, `admin.suppressed`, or an admin verb such as `token.create`. |
+| `action` | The tool name (`run_nrql`), or `auth.denied`, `request.rejected`, `tool.not_granted`, `quota.denied`, `auth.suppressed`, `admin.suppressed`, or an admin verb such as `token.create` or `grant.quota_set`. |
 | `status` | `ok`, `error` (the tool failed) or `denied`. |
 | `request_id` | Matches the `requestId` in the server log. |
 | `user_id`, `grant_id`, `token_id`, `project_id` | Who, by id. Labels and names live on those records; the project's slug is also kept in `details` so the row stays readable after a deletion. |
@@ -111,6 +111,12 @@ default), `project`, `grant`, `token` or `day` (UTC), optionally narrowed by `ac
 back (`limit`, default 50). `GET /audit?order=slowest` lists the rows with the longest durations. Cost: the aggregate
 reads every `tool_call` row in the window, using the timestamp index. That is cheap on SQLite; on D1 each row read
 counts against the plan's row-read allowance, so keep dashboards on short windows if you record very many calls.
+
+`quota.denied` (P7-12) is an `auth` row written when a grant's usage quota first refused a call; `details` holds the
+project slug, the period (`day` or `month`), the cap that ran out (`queries` or `inspectedEvents`) and its value, with
+the error code `RB_LIMIT_QUOTA`. At most one such row per grant, period and cap is written every 15 minutes, and they
+share the per-minute cap of all refusal rows; every refused call is also an ordinary `tool_call` row with that error code.
+Changes to a quota are `admin` rows `grant.quota_set` (the new caps in `details.quota`).
 
 ## Retention
 

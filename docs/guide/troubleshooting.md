@@ -45,6 +45,7 @@ Tool errors carry a stable code and usually a hint.
 | `RB_NERDGRAPH_UNAVAILABLE` | New Relic had a server or network error. | Retry shortly; check New Relic's status page. |
 | `RB_BUDGET_EXHAUSTED` | One tool call needed too many NerdGraph requests (limit 1000). | Ask for a narrower request. |
 | `RB_NERDGRAPH_ERROR` | NerdGraph returned another error; the (redacted) message is included. | Read the message; for NRQL errors, correct the query. |
+| `RB_LIMIT_QUOTA` | The grant's usage quota for the day or month is used up (the error says which and when it starts again). | An administrator can raise or remove it: [Quotas](admin-guide.md#quotas-per-grant). |
 | `RB_AUTH_UNAUTHORIZED`, `RB_LIMIT_RATE` | Used by the hosted modes (tokens, rate limits). stdio never returns them. | See [hosted server](#hosted-self-hosted-server) above. |
 | `RB_INTERNAL` | A bug. The message includes a reference, and details are in the stderr log. | Report an issue with the log line (check it for secrets first). |
 

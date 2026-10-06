@@ -848,3 +848,24 @@ Sources: Cloudflare docs via the Cloudflare docs search, pages updated 2026-09-2
   value on stdin. PasswordVault entries are per user and readable by that user's processes.
 - **WSL2:** `uname` is Linux, so the libsecret backend is used; the Windows credential store is a different trust
   domain and is not bridged.
+
+## 29. Atomic quota counters on SQLite, D1 and Durable Objects (P7-12, tested in node:sqlite and workerd, not measured on a deployment)
+
+Sources: SQLite [UPSERT](https://www.sqlite.org/lang_upsert.html) and [RETURNING](https://www.sqlite.org/lang_returning.html),
+[D1 SQL statements](https://developers.cloudflare.com/d1/sql-api/sql-statements/),
+[Durable Object storage and input gates](https://developers.cloudflare.com/durable-objects/api/storage-api/).
+
+- `INSERT ... ON CONFLICT(...) DO UPDATE SET c = c + 1 WHERE <cap check> RETURNING c` is one statement: when the `WHERE`
+  is false no row is updated and `RETURNING` yields nothing, so "refused at the cap" is "no row back". It works on
+  `node:sqlite` and (same engine) on D1, where it is the only way to a cap that concurrent isolates cannot overshoot, because
+  D1 has no interactive transactions. In the `DO UPDATE ... WHERE` the unqualified column is the stored row; `excluded.` is
+  the row proposed for insertion (a first insert is never checked, which is why a cap of at least 1 is required).
+- A D1 `prepare(...).all()` on a statement with `RETURNING` returns the rows (the existing adapter does this for `INSERT ...
+  RETURNING *`); `.run()` returns only `meta.changes`.
+- D1 limits a statement to 100 bound parameters: the usage read is bounded to 50 grants x 4 periods (54).
+- A Durable Object runs one event at a time and its input gate holds back other events while a storage call is awaited,
+  so `get` then `put` of one key inside a method is atomic; the test runs 40 concurrent reservations against a cap of 10
+  and sees exactly 10 succeed. An error thrown inside the object that crosses RPC also reaches the runtime as an unhandled
+  error, so the quota methods return refusals instead of throwing.
+- UTC period keys (`d2026-10-06`, `m2026-10`) sort lexicographically in time order, which is how the object's cleanup alarm
+  tells ended periods from current ones.

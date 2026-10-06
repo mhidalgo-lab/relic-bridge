@@ -2,7 +2,7 @@
 id: P7-12
 title: "Per-grant quotas and usage dashboard"
 phase: 7
-status: in-progress
+status: review
 priority: low
 depends_on: [P6-13]
 adr: []
@@ -41,8 +41,9 @@ hit. Quotas count what New Relic actually served, not what a tool declares it co
    logged (a cost control must not turn a store outage into an outage of the tool; pending decision logged).
 5. **Admin API**: `grants` carry `quota`; `POST /grants` accepts it; `PUT /grants/{id}/quota` sets or clears it (owner boundary
    as for other grant changes, audit `grant.quota_set`); `GET /usage/quotas` lists current usage against the quota of
-   the grants that have one (at most 50). Quota changes and quota denials are audited (`quota.denied` auth-kind rows,
-   at most one per grant per period per isolate/process, so a runaway agent cannot flood the audit log).
+   the grants that have one (at most 50). Quota changes (`grant.quota_set`) and quota denials (`quota.denied` auth-kind
+   rows, at most one per grant, period and cap every 15 minutes per recorder, inside the per-minute refusal cap, so a
+   runaway agent cannot flood the audit log) are audited.
 6. **Import/export (P6-06/P7-06)**: bundle grants carry `quota`; the import validates it; the diff shows it.
 7. **Dashboard** (`/admin/usage`, owner/admin, extends P4-05): per grant used vs cap for day and month (CSS bars,
    CSP-safe), a 14-day calls/inspected series from the audit aggregate (one bounded `stats` query, `groupBy day`), a
@@ -50,19 +51,19 @@ hit. Quotas count what New Relic actually served, not what a tool declares it co
 8. **CLI**: `grants create --quota-*` is out of scope (admin API/UI only).
 
 ## Acceptance criteria
-- [ ] Task refined (this file) before implementation.
-- [ ] `reserve` is atomic: 50 concurrent reserves against a cap of 10 yield exactly 10 successes on memory, SQLite
+- [x] Task refined (this file) before implementation.
+- [x] `reserve` is atomic: 50 concurrent reserves against a cap of 10 yield exactly 10 successes on memory, SQLite
       and D1 (contract suite); period rollover starts at zero; cascade on grant delete; forward-only migration.
-- [ ] Quotas count real NerdGraph calls: a tool call that hits the query cache or is refused earlier does not count
+- [x] Quotas count real NerdGraph calls: a tool call that hits the query cache or is refused earlier does not count
       (core + HTTP tests); retries do not count twice.
-- [ ] Hard deny returns `RB_LIMIT_QUOTA` with period and reset time and no foreign counters; soft warning appears at
+- [x] Hard deny returns `RB_LIMIT_QUOTA` with period and reset time and no foreign counters; soft warning appears at
       `warnPercent`; the inspected budget denies once reached.
-- [ ] DO-backed counters on Workers (workers pool): atomic cap, persistence, cleanup alarm; storage fallback when
+- [x] DO-backed counters on Workers (workers pool): atomic cap, persistence, cleanup alarm; storage fallback when
       the shared limiter is off; store failure allows the call.
-- [ ] Admin API set/clear/list with owner boundary, audit of changes and rate-capped audit of denials; negative authz
+- [x] Admin API set/clear/list with owner boundary, audit of changes and rate-capped audit of denials; negative authz
       tests, authz matrix and `UI_ROUTES` updated; import/export round trip with quota.
-- [ ] Usage dashboard and quota form: axe clean, CSP-safe, only bounded queries.
-- [ ] Docs, THREAT_MODEL T5 and the pending decisions log updated.
+- [x] Usage dashboard and quota form: axe clean, CSP-safe, only bounded queries.
+- [x] Docs, THREAT_MODEL T5 and the pending decisions log updated.
 
 ## Security notes
 T5 (cost control with real counts), T17 (quota audit rows are rate-capped), T21 (no request state in module state;

@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   buildMcpServer,
   createBudget,
+  createBuiltinTools,
   createEntityResolver,
   createEntityResolveTools,
   ENTITY_RESOLVE_TTL_MS,
@@ -163,7 +164,7 @@ describe('resolveEntity tiers', () => {
     const r = await createEntityResolver({ fetch }).resolve(ctxFor(), { query: 'zzz yy' });
     expect(r.status).toBe('not_found');
     expect(r.incomplete).toBe(true);
-    expect(calls.filter((c) => !c.query.includes('LIKE'))).toHaveLength(3);
+    expect(calls.filter((c) => !String(c.query).includes('LIKE'))).toHaveLength(3);
   });
 });
 
@@ -278,5 +279,69 @@ describe('resolve_entity tool', () => {
     expect(calls.map((c) => c.query).join('\n')).toContain("x\\' OR name = \\'y");
     const bad = await client.callTool({ name: 'resolve_entity', arguments: { query: 'x', extra: 1 } });
     expect(bad.isError).toBe(true);
+  });
+});
+
+describe('name input on entity tools (P6-17)', () => {
+  let clients: Client[] = [];
+  afterEach(async () => {
+    await Promise.all(clients.map((c) => c.close()));
+    clients = [];
+  });
+
+  async function connectBuiltin(fetch: FetchLike) {
+    const server = buildMcpServer({
+      tools: createBuiltinTools({ fetch, sleep: async () => {} }),
+      ctx: ctxFor(),
+    });
+    const [ct, st] = InMemoryTransport.createLinkedPair();
+    await server.connect(st);
+    const client = new Client({ name: 'test', version: '0.0.0' });
+    await client.connect(ct);
+    clients.push(client);
+    return client;
+  }
+
+  it('an ambiguous name returns the candidates as an error and fetches nothing else', async () => {
+    const { fetch, calls } = fakeNerdGraph([
+      E(A, 'checkout-api'),
+      E(A, 'checkout-web'),
+      E(OTHER, 'checkout-x'),
+    ]);
+    const client = await connectBuiltin(fetch);
+    const r = await client.callTool({ name: 'get_entity', arguments: { name: 'checkout' } });
+    expect(r.isError).toBe(true);
+    const text = (r.content as { text: string }[]).map((c) => c.text).join('\n');
+    expect(text).toContain('RB_INPUT_INVALID');
+    expect(text).toContain(guidOf(A, 'checkout-api'));
+    expect(text).toContain(guidOf(A, 'checkout-web'));
+    // Never an entity of an account outside the connection, and no entity lookup was made.
+    expect(text).not.toContain(guidOf(OTHER, 'checkout-x'));
+    expect(calls.every((c) => String(c.query).includes('accountId IN'))).toBe(true);
+  });
+
+  it('every name-taking tool shares one resolver cache', async () => {
+    const { fetch, calls } = fakeNerdGraph([E(A, 'checkout-api')]);
+    const client = await connectBuiltin(fetch);
+    // The fake answers entity lookups with a search payload: the tool fails after resolving, which is all we need.
+    await client.callTool({ name: 'get_entity', arguments: { name: 'checkout-api' } });
+    const n = calls.length;
+    await client.callTool({ name: 'get_golden_metrics', arguments: { name: 'checkout-api' } });
+    await client.callTool({ name: 'get_related_entities', arguments: { name: 'checkout-api' } });
+    expect(calls.filter((c) => String(c.query).includes('LIKE')).length).toBe(1);
+    expect(n).toBeGreaterThan(0);
+  });
+
+  it('rejects guid together with name, and neither', async () => {
+    const { fetch, calls } = fakeNerdGraph([]);
+    const client = await connectBuiltin(fetch);
+    for (const name of ['get_entity', 'get_related_entities', 'get_golden_metrics']) {
+      for (const args of [{}, { guid: guidOf(A, 'x'), name: 'x' }]) {
+        const r = await client.callTool({ name, arguments: args });
+        expect(r.isError, name).toBe(true);
+        expect((r.content as { text: string }[]).map((c) => c.text).join(' ')).toMatch(/exactly one of/i);
+      }
+    }
+    expect(calls).toEqual([]);
   });
 });

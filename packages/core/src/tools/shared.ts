@@ -6,6 +6,7 @@ import { ErrorCode, RbError } from '../errors.ts';
 import { type FetchLike, type NerdGraphClient, nerdGraphFor } from '../nerdgraph/client.ts';
 import { resolveAccounts } from '../nrql/engine.ts';
 import type { TimeRange } from '../time/index.ts';
+import type { EntityResolver } from './entity-resolver.ts';
 
 /**
  * Runtime dependencies for built-in tools. Set once when the tool list is built (tests, the CLI's mock endpoint);
@@ -16,6 +17,8 @@ export interface ToolDeps {
   readonly fetch?: FetchLike;
   /** Wait used between retries and polls. Default: setTimeout. */
   readonly sleep?: (ms: number) => Promise<void>;
+  /** Entity-name resolver shared by every tool that accepts a name (P6-17). Default: one per tool group. */
+  readonly resolver?: EntityResolver;
 }
 
 export const DAY_MS = 86_400_000;

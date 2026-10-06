@@ -1,24 +1,50 @@
 // SPDX-License-Identifier: Apache-2.0
 import { z } from 'zod';
-import type { ToolContext } from '../context.ts';
 import { ErrorCode, RbError } from '../errors.ts';
-import { graphQLErrorToRbError, type NerdGraphResult } from '../nerdgraph/client.ts';
 import {
   ENTITY_QUERY,
   ENTITY_SEARCH_QUERY,
   ENTITY_TYPES_QUERY,
-  type EntityOutlineData,
   RELATED_ENTITIES_QUERY,
   type RelatedEntitiesVariables,
 } from '../nerdgraph/entities.ts';
-import { type DecodedEntityGuid, decodeEntityGuid } from '../nerdgraph/entity-guid.ts';
-import { type EntitySearchQuery, entityQuery, MAX_ENTITY_QUERY_LIST } from '../nerdgraph/entity-query.ts';
-import { resolveAccounts } from '../nrql/engine.ts';
+import { decodeEntityGuid } from '../nerdgraph/entity-guid.ts';
+import { type EntitySearchQuery, entityQuery } from '../nerdgraph/entity-query.ts';
 import { flattenTags } from '../output/compact.ts';
 import { envelope } from '../output/envelope.ts';
 import { shapeRows } from '../output/format.ts';
 import { defineTool, type ToolDefinition } from '../tool.ts';
+import {
+  accountFilter,
+  checkGuid,
+  type EntityRow,
+  guidAgrees,
+  isNonNull,
+  kind,
+  label,
+  outOfScope,
+  requireField,
+  scopeAccounts,
+  toRow,
+} from './entity-common.ts';
+import { entityRefFields, RESOLVE_COST, refineEntityRef, resolveEntityRef } from './entity-ref.ts';
+import { createEntityResolver } from './entity-resolver.ts';
 import { cleanName } from './identity.ts';
+
+export {
+  accountFilter,
+  checkGuid,
+  type EntityRow,
+  guidAgrees,
+  isNonNull,
+  kind,
+  label,
+  outOfScope,
+  requireField,
+  scopeAccounts,
+  toRow,
+};
+
 import { accountIdSchema as accountId, type ToolDeps, toolClient } from './shared.ts';
 
 /** Most entities per search call: NerdGraph's page size (P0-09). */
@@ -29,8 +55,6 @@ const DEFAULT_RELATED_RESULTS = 50;
 const MAX_TAG_FILTERS = 10;
 const MAX_TAGS_SHOWN = 100;
 const MAX_TAG_CHARS = 300;
-/** Domain, type, severity and relationship names are New Relic codes; anything else is dropped (shown as unknown). */
-const CODE_RE = /^[A-Za-z0-9_]{1,64}$/;
 /** `list_entity_types` cache (THREAT_MODEL T21: keyed by credential, region and account set; never shared across). */
 export const ENTITY_TYPES_TTL_MS: number = 10 * 60_000;
 const ENTITY_TYPES_CACHE_MAX = 64;
@@ -101,7 +125,8 @@ const searchOutput = z.object({
   query: z.string(),
 });
 
-const getEntityInput = z.strictObject({ guid });
+const GUID_HINT = 'Entity guid, exactly as returned by search_entities. Give this or name.';
+const getEntityInput = refineEntityRef(z.strictObject(entityRefFields(GUID_HINT)));
 
 const getEntityOutput = entityRow.extend({
   entityType: z.string().nullable(),
@@ -112,30 +137,32 @@ const getEntityOutput = entityRow.extend({
   goldenMetricTitles: z.array(z.string()).nullable(),
 });
 
-const relatedInput = z.strictObject({
-  guid,
-  direction: z
-    .enum(['INBOUND', 'OUTBOUND', 'BOTH'])
-    .optional()
-    .describe(
-      'INBOUND (entities pointing at this one, e.g. callers), OUTBOUND (what it calls/hosts…), BOTH (default).',
-    ),
-  types: z
-    .array(z.strictObject({ domain: domainField, type: typeField }))
-    .min(1)
-    .max(10)
-    .optional()
-    .describe('Only related entities of these kinds, e.g. [{"domain": "APM", "type": "APPLICATION"}].'),
-  limit: z
-    .number()
-    .int()
-    .min(1)
-    .max(MAX_RELATED_RESULTS)
-    .optional()
-    .describe(
-      `Most relationships to return (default ${DEFAULT_RELATED_RESULTS}, max ${MAX_RELATED_RESULTS}).`,
-    ),
-});
+const relatedInput = refineEntityRef(
+  z.strictObject({
+    ...entityRefFields(GUID_HINT),
+    direction: z
+      .enum(['INBOUND', 'OUTBOUND', 'BOTH'])
+      .optional()
+      .describe(
+        'INBOUND (entities pointing at this one, e.g. callers), OUTBOUND (what it calls/hosts…), BOTH (default).',
+      ),
+    types: z
+      .array(z.strictObject({ domain: domainField, type: typeField }))
+      .min(1)
+      .max(10)
+      .optional()
+      .describe('Only related entities of these kinds, e.g. [{"domain": "APM", "type": "APPLICATION"}].'),
+    limit: z
+      .number()
+      .int()
+      .min(1)
+      .max(MAX_RELATED_RESULTS)
+      .optional()
+      .describe(
+        `Most relationships to return (default ${DEFAULT_RELATED_RESULTS}, max ${MAX_RELATED_RESULTS}).`,
+      ),
+  }),
+);
 
 const relatedOutput = z.object({
   entity: z.object({ guid: z.string(), name: z.string().nullable() }),
@@ -195,114 +222,6 @@ const DECODE_DESCRIPTION = `Decode an entity guid offline: account id, domain, t
 
 No request is sent to New Relic. Use it to tell which account an entity belongs to before querying it.`;
 
-export const isNonNull = <T>(v: T | null | undefined): v is T => v !== null && v !== undefined;
-
-/**
- * A New Relic code (`APM`, `APPLICATION`, `CRITICAL`, `CALLS`…). Restricted to a strict charset, so it is safe to show
- * outside the untrusted-data envelope; anything else becomes null.
- */
-export function label(value: string | null | undefined): string | null {
-  return typeof value === 'string' && CODE_RE.test(value) ? value : null;
-}
-
-/** Accounts a search or catalogue covers: the requested one (checked) or every allowed account. */
-export function scopeAccounts(ctx: ToolContext, account: number | undefined): number[] {
-  const accounts =
-    account === undefined ? [...new Set(ctx.accounts.allowed)] : resolveAccounts(ctx, [account]);
-  if (accounts.length === 0) {
-    throw new RbError(ErrorCode.AuthForbidden, 'This connection has no accounts.');
-  }
-  if (accounts.length > MAX_ENTITY_QUERY_LIST) {
-    throw new RbError(
-      ErrorCode.InputInvalid,
-      `This connection has more than ${MAX_ENTITY_QUERY_LIST} accounts.`,
-      {
-        hint: 'Pass "account" to search one account at a time.',
-      },
-    );
-  }
-  return accounts;
-}
-
-/** `accountId IN ('1', '2')`. Quoted like the P0-09 probe (`accountId = '…'`), escaped by the tag anyway. */
-export function accountFilter(accounts: readonly number[]): EntitySearchQuery {
-  return entityQuery`accountId IN ${accounts.map(String)}`;
-}
-
-/** Offline account check for a GUID, before any request (T3). */
-export function checkGuid(ctx: ToolContext, value: string): DecodedEntityGuid {
-  const decoded = decodeEntityGuid(value);
-  if (!ctx.accounts.allowed.includes(decoded.accountId)) throw outOfScope(decoded.accountId);
-  return decoded;
-}
-
-/**
- * Whether a returned entity's GUID agrees with the account NerdGraph reported for it. A GUID encodes its account, so a
- * mismatch is inconsistent data and the row can't be vouched for (T3). GUIDs that don't decode are judged by the
- * reported account alone.
- */
-export function guidAgrees(guid: string, account: number): boolean {
-  try {
-    return decodeEntityGuid(guid).accountId === account;
-  } catch {
-    return true;
-  }
-}
-
-export function outOfScope(account: number): RbError {
-  return new RbError(
-    ErrorCode.AuthForbidden,
-    `This entity belongs to account ${account}, which is not available on this connection.`,
-    { hint: 'Use list_accounts to see the accounts you can query.', details: { account } },
-  );
-}
-
-function notFound(): RbError {
-  return new RbError(ErrorCode.InputInvalid, 'No entity with this guid is visible to this key.', {
-    hint: 'Check the guid (use search_entities), and that the key can read its account.',
-  });
-}
-
-/** A required field came back null: map the field error if there is one. */
-export function requireField<T>(
-  value: T | null | undefined,
-  result: NerdGraphResult<unknown>,
-  ctx: ToolContext,
-): T {
-  if (isNonNull(value)) return value;
-  throw result.warnings.length > 0
-    ? graphQLErrorToRbError(result.warnings[0], ctx.credential.region)
-    : notFound();
-}
-
-export interface EntityRow {
-  guid: string;
-  name: string;
-  accountId: number | null;
-  domain: string | null;
-  type: string | null;
-  alertSeverity: string | null;
-  reporting: boolean | null;
-}
-
-export function toRow(
-  e: EntityOutlineData,
-  fallback?: { guid?: string | null; accountId?: number | null },
-): EntityRow {
-  return {
-    guid: e.guid ?? fallback?.guid ?? '',
-    name: cleanName(e.name ?? ''),
-    accountId: e.accountId ?? fallback?.accountId ?? null,
-    domain: label(e.domain),
-    type: label(e.type),
-    alertSeverity: label(e.alertSeverity),
-    reporting: typeof e.reporting === 'boolean' ? e.reporting : null,
-  };
-}
-
-export const kind = (r: { domain: string | null; type: string | null }): string =>
-  [r.domain, r.type].filter(isNonNull).join('/') || 'unknown';
-
 interface TypesCacheEntry {
   readonly at: number;
   readonly types: z.infer<typeof listTypesOutput>['types'];
@@ -311,6 +230,7 @@ interface TypesCacheEntry {
 /** `search_entities`, `get_entity`, `get_related_entities`, `list_entity_types`, `decode_entity_guid`. */
 export function createEntityTools(deps: ToolDeps = {}): ToolDefinition[] {
   const client = toolClient(deps);
+  const resolver = deps.resolver ?? createEntityResolver(deps);
   // Per tool-set instance (≈ per isolate). Holds no credentials; the key includes the credential id and account set.
   const typesCache = new Map<string, TypesCacheEntry>();
 
@@ -396,10 +316,13 @@ export function createEntityTools(deps: ToolDeps = {}): ToolDefinition[] {
     outputSchema: getEntityOutput,
     kind: 'read',
     openWorld: true,
-    cost: 1,
+    // One entity lookup, plus a name resolution when `name` is given.
+    cost: 1 + RESOLVE_COST,
     group: 'entities',
     phase: 1,
-    handler: async (input, ctx) => {
+    handler: async (rawInput, ctx) => {
+      const ref = await resolveEntityRef(resolver, ctx, rawInput);
+      const input = { guid: ref.guid };
       const decoded = checkGuid(ctx, input.guid);
       const result = await client(ctx).query(ENTITY_QUERY, { guid: input.guid });
       const e = requireField(result.data.actor.entity, result, ctx);
@@ -452,7 +375,7 @@ export function createEntityTools(deps: ToolDeps = {}): ToolDefinition[] {
         `golden metrics: ${(goldenMetricTitles ?? []).join('; ')}`,
       ];
       lines.push(envelope(body.join('\n'), { source: 'New Relic entity' }));
-      return { text: lines.join('\n'), structured };
+      return { text: [...(ref.note ? [ref.note] : []), ...lines].join('\n'), structured };
     },
   });
 
@@ -464,10 +387,12 @@ export function createEntityTools(deps: ToolDeps = {}): ToolDefinition[] {
     outputSchema: relatedOutput,
     kind: 'read',
     openWorld: true,
-    cost: 1,
+    cost: 1 + RESOLVE_COST,
     group: 'entities',
     phase: 1,
-    handler: async (input, ctx) => {
+    handler: async (rawInput, ctx) => {
+      const ref = await resolveEntityRef(resolver, ctx, rawInput);
+      const input = { ...rawInput, guid: ref.guid };
       const decoded = checkGuid(ctx, input.guid);
       const limit = input.limit ?? DEFAULT_RELATED_RESULTS;
       const filter: RelatedEntitiesVariables['filter'] = {
@@ -544,7 +469,7 @@ export function createEntityTools(deps: ToolDeps = {}): ToolDefinition[] {
       if (hasMore) lines.push('More relationships exist: narrow with direction or types.');
       if (rows.length > 0) lines.push(shaped.text);
       return {
-        text: lines.join('\n'),
+        text: [...(ref.note ? [ref.note] : []), ...lines].join('\n'),
         structured: {
           entity: { guid: self, name: typeof entity.name === 'string' ? cleanName(entity.name) : null },
           related: rows,

@@ -142,6 +142,46 @@ describe('MCP contract: every registered tool', () => {
     }
   });
 
+  describe('name instead of guid (P6-17)', () => {
+    const NAME_TOOLS = ['get_entity', 'get_related_entities', 'get_golden_metrics'];
+
+    it.each(NAME_TOOLS)('%s: a name resolves and answers like the guid', async (name) => {
+      const { client, mock } = await connectAll();
+      const byName = await client.callTool({ name, arguments: { name: 'checkout' } });
+      expect(byName.isError, resultText(byName)).toBeFalsy();
+      expect(resultText(byName)).toContain('Resolved name "checkout"');
+      const def = registry.get(name);
+      expect(def?.outputSchema?.safeParse(byName.structuredContent).success).toBe(true);
+      expect(mock.calls.map((c) => c.body.query).some((q) => /entitySearch/.test(q))).toBe(true);
+      // A guid never searches.
+      const before = mock.calls.length;
+      await client.callTool({ name, arguments: { guid: MOCK_GUID } });
+      const sent = mock.calls.slice(before).map((c) => c.body.query);
+      expect(sent.some((q) => /entitySearch/.test(q))).toBe(false);
+    });
+
+    it.each(NAME_TOOLS)('%s: guid XOR name, account only with a name', async (name) => {
+      const { client, mock } = await connectAll();
+      for (const args of [
+        {},
+        { guid: MOCK_GUID, name: 'checkout' },
+        { guid: MOCK_GUID, account: MOCK_ACCOUNT },
+      ]) {
+        const r = await client.callTool({ name, arguments: args }).catch((e: unknown) => e);
+        if (!(r instanceof Error)) expect((r as { isError?: boolean }).isError).toBe(true);
+      }
+      expect(mock.calls).toHaveLength(0);
+    });
+
+    it.each(NAME_TOOLS)('%s: an unknown name is an input error, nothing else runs', async (name) => {
+      const { client, mock } = await connectAll();
+      const r = await client.callTool({ name, arguments: { name: 'no-such-service-anywhere' } });
+      expect(r.isError).toBe(true);
+      expect((r._meta?.[ERROR_META_KEY] as { code?: string } | undefined)?.code).toBe('RB_INPUT_INVALID');
+      expect(mock.calls.every((c) => /entitySearch/.test(c.body.query))).toBe(true);
+    });
+  });
+
   it('unknown tool names are rejected', async () => {
     const { client } = await connectAll();
     const r = await client.callTool({ name: 'delete_everything', arguments: {} }).catch((e: unknown) => e);

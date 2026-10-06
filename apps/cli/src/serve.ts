@@ -313,6 +313,8 @@ export interface ServeSettings {
   readonly telemetry: TelemetrySettings | null;
   /** Opt-in write tools (P7-09, `RB_WRITE_TOOLS=on`); off by default. Needs the audit log on. */
   readonly writeTools: boolean;
+  /** Registry-friendly discovery (P7-14, `RB_PUBLIC_TOOL_CATALOG=on`); off by default. */
+  readonly publicToolCatalog: boolean;
   readonly warnings: readonly string[];
 }
 
@@ -338,6 +340,20 @@ export function writeToolsSetting(
     warnings.push('RB_WRITE_TOOLS=on with the write rate limit off: write tool calls are not rate limited.');
   }
   return true;
+}
+
+/**
+ * `RB_PUBLIC_TOOL_CATALOG` (P7-14): off by default. On, registries and inspectors can list the static read-only tool
+ * catalog without a credential; tool calls and data still need one.
+ */
+export function publicToolCatalogSetting(env: Env, warnings: string[], rateLimited: boolean): boolean {
+  const on = onOff(env, 'RB_PUBLIC_TOOL_CATALOG', false);
+  if (on && !rateLimited) {
+    warnings.push(
+      'RB_PUBLIC_TOOL_CATALOG=on with rate limiting off: unauthenticated discovery is not rate limited.',
+    );
+  }
+  return on;
 }
 
 function oauthSettings(env: Env, identity: IdentitySettings | null): OAuthSettings | null {
@@ -478,6 +494,7 @@ export function serveSettings(input: {
     queryCache: queryCacheSettings(env),
     telemetry: telemetrySettings(env),
     writeTools: writeToolsSetting(env, audit, warnings, rateLimits?.write ?? null),
+    publicToolCatalog: publicToolCatalogSetting(env, warnings, rateLimits !== null),
     warnings,
   };
 }
@@ -637,6 +654,7 @@ export async function startServer(options: StartServerOptions): Promise<RunningS
     hsts: settings.hsts,
     queryCache: createProcessQueryCache(settings.queryCache, keyring.queryCacheKeys().id),
     writeTools: settings.writeTools,
+    publicToolCatalog: settings.publicToolCatalog,
     // MCP Tasks (P7-13): sealed task records in the `kv` table, purged with the other expired rows.
     taskStore: storage.kv,
     ...(hooks === undefined ? {} : { hooks }),

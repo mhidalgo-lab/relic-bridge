@@ -86,6 +86,11 @@ export interface WorkerSettings {
   readonly passthrough: boolean;
   /** `RB_WRITE_TOOLS=on` (P7-09, ADR-0015): offer the opt-in write tools. Off by default; needs `RB_AUDIT=on`. */
   readonly writeTools: boolean;
+  /**
+   * `RB_PUBLIC_TOOL_CATALOG=on` (P7-14): unauthenticated `initialize` / `tools/list` and the static catalog at
+   * `/.well-known/relic-bridge/tools.json`, for registries and inspectors. Off by default.
+   */
+  readonly publicToolCatalog: boolean;
   readonly logLevel: LogLevel;
   readonly warnings: readonly string[];
 }
@@ -262,6 +267,14 @@ export function parseWorkerSettings(vars: WorkerVars): WorkerSettings {
     );
   }
 
+  // Registry-friendly discovery (P7-14): static, read-only tool definitions only; never data or project existence.
+  const publicToolCatalog = onOff(vars, 'RB_PUBLIC_TOOL_CATALOG', false);
+  if (publicToolCatalog && !rateLimit) {
+    warnings.push(
+      'RB_PUBLIC_TOOL_CATALOG=on with RB_RATE_LIMIT=off: unauthenticated discovery is not rate limited.',
+    );
+  }
+
   const level = (text(vars, 'RB_LOG_LEVEL')?.toLowerCase() ?? 'info') as LogLevel;
   if (!LOG_LEVELS.includes(level)) {
     throw new WorkerConfigError('RB_LOG_LEVEL', `RB_LOG_LEVEL must be one of ${LOG_LEVELS.join(', ')}`);
@@ -282,6 +295,7 @@ export function parseWorkerSettings(vars: WorkerVars): WorkerSettings {
     sharedLimiter,
     passthrough,
     writeTools,
+    publicToolCatalog,
     logLevel: level,
     warnings,
   };

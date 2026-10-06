@@ -3,6 +3,14 @@ export * from './apps/index.ts';
 export * from './cache/query-cache.ts';
 export { toCallToolResult } from './call-result.ts';
 export {
+  type CatalogTool,
+  PUBLIC_DISCOVERY_METHODS,
+  publicCatalogTools,
+  TOOL_CATALOG_PATH,
+  type ToolCatalog,
+  toolCatalog,
+} from './catalog.ts';
+export {
   type AccountScope,
   type Budget,
   type Clock,

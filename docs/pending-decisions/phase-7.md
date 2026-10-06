@@ -61,3 +61,19 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Options:** verify and fix the two formats (one-line change in `packages/core/src/links.ts`); add `link` fields to
   `get_entity` / `list_recent_issues` / `get_dashboard`; drop the unverified kinds.
 - **Needs:** owner opens one link of each kind in US and EU and reports; then drop the "unverified" wording.
+
+### P7-04 — MCP Apps charts: always advertised, unverified in a real client
+- **Context:** No MCP Apps host was available in the autonomous run, so "renders in at least one Claude surface" is
+  not verified. The view follows the stable spec 2026-01-26 and is tested in jsdom through its postMessage protocol.
+- **Assumption made:** The `ui://relic-bridge/nrql-chart` resource and `_meta.ui` on `run_nrql` / `get_query_result`
+  are offered to every client whose connection allows `run_nrql` (clients without MCP Apps ignore them); no capability
+  check and no switch (follow-up task P7-16). Both the current `_meta.ui.resourceUri` and the deprecated flat
+  `_meta["ui/resourceUri"]` are sent for older hosts. Tools are `visibility: ["model"]` (the view can't call tools).
+  The page carries its own `<meta>` CSP (`default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline';
+  connect-src 'none'`), on top of the host's.
+- **Options:** gate on the client capability and add `RB_MCP_APPS` (P7-16); drop the deprecated key once Claude is
+  confirmed on `ui.resourceUri`; tighten the meta CSP to script/style hashes (risk: a host that injects a bootstrap
+  script would be blocked; unknown); chart more tools (golden metrics, `analyze_*`).
+- **Needs:** owner connects a deployed server to claude.ai or Claude Desktop, runs `SELECT count(*) FROM Transaction
+  FACET appName TIMESERIES SINCE 1 hour ago`, and reports whether the chart shows (and in which theme); then tick the
+  last P7-04 criterion and update `docs/reference/client-compatibility.md`.

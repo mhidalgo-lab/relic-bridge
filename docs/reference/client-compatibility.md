@@ -91,6 +91,20 @@ the client did refresh concurrently.
   reachable from the internet. See the manual checklist.
 - **Real CIMD document fetches** (`claude.ai/oauth/...`): tests use stand-in documents shaped like the documented ones.
 
+## MCP Apps charts (P7-04, 2026-10-06)
+
+`run_nrql` and `get_query_result` link to an MCP Apps view (`ui://relic-bridge/nrql-chart`,
+[charts guide](../guide/charts.md)). Evidence: the server side (resource listing and reading, tool `_meta.ui`, grant
+filtering) is **T**; the view itself is **T** in jsdom driven through the spec's postMessage protocol (spec 2026-01-26).
+No real host rendered it.
+
+| Client | Renders the chart | Without it |
+|---|---|---|
+| Hosted Claude (web, Desktop) | D (the MCP Apps project lists Claude as a host), **M** | text table (T) |
+| Claude mobile | ? , **M** | text table |
+| Claude Code, Cursor, MCP Inspector | ? (no MCP Apps host documented) | text table (T: results unchanged) |
+| ChatGPT, VS Code | D (listed as hosts by the MCP Apps project), not tested | text table |
+
 ## Re-run procedure (each minor release)
 
 1. `pnpm test && pnpm test:workers` (the suite is `packages/http-app/test/authz/client-conformance-suite.ts`, run on

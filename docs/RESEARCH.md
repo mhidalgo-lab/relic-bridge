@@ -744,3 +744,31 @@ Sources: developers.cloudflare.com/workers/runtime-apis/cache/, /workers/platfor
   recalled from New Relic launcher links, not checked.
 - Issue page `/alerts-ai/issues/<issueId>?account=<id>`: a best guess, not checked.
 - No UI host is documented for the JP region, so JP gets no links.
+
+## 25. MCP Apps extension (P7-04, from the specification 2026-10-06, not run in a real host)
+
+Sources: github.com/modelcontextprotocol/ext-apps `specification/2026-01-26/apps.mdx` and `src/spec.types.ts`
+(`LATEST_PROTOCOL_VERSION = "2026-01-26"`; a `draft` folder exists), via Context7 `/modelcontextprotocol/ext-apps`.
+
+- Extension id `io.modelcontextprotocol/ui`; a host declares `capabilities.extensions["io.modelcontextprotocol/ui"]
+  .mimeTypes: ["text/html;profile=mcp-app"]`. The spec suggests (SHOULD-level example) registering UI tools only for
+  such clients; unknown `_meta` is ignored by others. MCP 2026-07-28 / SDK 2.2 carry client capabilities in request
+  `_meta` (`CLIENT_CAPABILITIES_META_KEY`), which P7-16 can use on the stateless transport (not checked).
+- UI resources use the `ui://` scheme and MIME `text/html;profile=mcp-app`. Content `_meta.ui`: `csp`
+  (`connectDomains`, `resourceDomains`, `frameDomains`, `baseUriDomains`; empty or omitted = none),
+  `permissions`, `domain`, `prefersBorder`.
+- Tools link with `_meta.ui.resourceUri`; `_meta.ui.visibility` (default `["model","app"]`) controls whether the app may
+  call the tool. The flat `_meta["ui/resourceUri"]` is deprecated "and will be removed before GA".
+- Host default CSP when `ui.csp` is omitted: `default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self'
+  'unsafe-inline'; img-src 'self' data:; media-src 'self' data:; connect-src 'none'`. Web hosts must use a sandbox proxy
+  on a different origin (`allow-scripts allow-same-origin`), `frame-src 'none'` and `object-src 'none'` by default.
+- View ↔ host: JSON-RPC 2.0 over `postMessage`. The view sends `ui/initialize` (`appInfo`, `appCapabilities`,
+  `protocolVersion`), gets `hostContext` (theme `light`/`dark`, `styles.variables` with standard names such as
+  `--color-background-primary`, `locale`, `timeZone`, `containerDimensions`, ...), then sends
+  `ui/notifications/initialized`. The host must not send anything before that. It then sends
+  `ui/notifications/tool-input` and `ui/notifications/tool-result` (the `CallToolResult`: `content`,
+  `structuredContent`, `_meta`, `isError`), `host-context-changed`, `tool-cancelled`, and the request
+  `ui/resource-teardown`. The view reports `ui/notifications/size-changed` (`width`, `height`).
+- Not verified: which Claude surfaces render MCP Apps today, whether any host still needs the deprecated flat key, and
+  whether a host injects anything into the page that the view's own `<meta>` CSP would block.
+

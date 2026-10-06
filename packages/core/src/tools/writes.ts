@@ -27,10 +27,13 @@ import {
   assertWriteGranted,
   confirmInput,
   dryRunInput,
+  gateStopped,
+  humanGate,
   multiline,
   mutationFailed,
   rejectSecrets,
   SIDE_EFFECT_NOTICE,
+  shown,
   text,
   type WriteRecord,
   writeClient,
@@ -250,6 +253,52 @@ export function createWriteTools(deps: ToolDeps = {}): ToolDefinition[] {
         };
       }
 
+      const gate = await humanGate(
+        ctx,
+        [
+          'relic-bridge asks you to approve this change in New Relic (text in quotes comes from the request or from New Relic, not from relic-bridge):',
+          `Record a ${input.change_type} change event on ${shown(row.name)} (guid ${shown(input.entity_guid, 512)}) in account ${account}.`,
+          ...(
+            [
+              ['version', input.version],
+              ['commit', input.commit],
+              ['changelog', input.changelog],
+              ['deep link', input.deep_link],
+              ['feature flag id', input.feature_flag_id],
+              ['short description', input.short_description],
+              ['description', input.description],
+              ['user', input.user],
+              ['group id', input.group_id],
+            ] as const
+          )
+            .filter(([, v]) => v !== undefined)
+            .map(([k, v]) => `${k}: ${shown(v as string, 300)}`),
+          'It cannot be deleted from relic-bridge.',
+        ].join('\n'),
+      );
+      if (gate.state !== 'go') {
+        return gateStopped(gate, {
+          structured: {
+            applied: false,
+            dryRun: false,
+            accountId: account,
+            entityGuid: input.entity_guid,
+            changeType: input.change_type,
+            changeTrackingId: null,
+            messages: [],
+          },
+          record: {
+            action: 'change_event.create',
+            accountId: account,
+            target: { type: 'entity', id: input.entity_guid },
+            dryRun: false,
+            applied: false,
+            before: null,
+            after: planned,
+          },
+        });
+      }
+
       const result = await nr.query(CREATE_CHANGE_EVENT_MUTATION, {
         event,
         rules: { validationFlags: ['FAIL_ON_FIELD_LENGTH'] },
@@ -270,6 +319,7 @@ export function createWriteTools(deps: ToolDeps = {}): ToolDefinition[] {
         applied: true,
         before: null,
         after: { ...planned, changeTrackingId: id },
+        ...(gate.confirmation === undefined ? {} : { confirmation: gate.confirmation }),
       };
       const lines = [
         `Recorded a ${input.change_type} change on ${kind(row)} in account ${account}${id === null ? '' : ` (id ${label(id) ?? 'see structured output'})`}.`,
@@ -372,6 +422,25 @@ export function createWriteTools(deps: ToolDeps = {}): ToolDefinition[] {
           };
         }
 
+        const gate = await humanGate(
+          ctx,
+          [
+            'relic-bridge asks you to approve this change in New Relic (text in quotes comes from New Relic, not from relic-bridge):',
+            `${closing ? 'Close (resolve) by hand' : 'Acknowledge'} alert issue ${shown(input.issue_id, 100)} in account ${account}.`,
+            `Title: ${shown(issue.title, 200)}`,
+            `Now: ${issue.state ?? 'unknown'}${issue.acknowledgedAt === null ? ', not acknowledged' : ', acknowledged'}.`,
+            closing
+              ? 'It stops notifying and cannot be reopened from relic-bridge.'
+              : 'It stays open; it is marked as being handled.',
+          ].join('\n'),
+        );
+        if (gate.state !== 'go') {
+          return gateStopped(gate, {
+            structured: shaped(false, plannedAfter, null),
+            record: record(false, plannedAfter),
+          });
+        }
+
         const vars = { accountId: account, issueId: input.issue_id };
         const result = closing
           ? await nr.query(RESOLVE_ISSUE_MUTATION, vars)
@@ -404,7 +473,10 @@ export function createWriteTools(deps: ToolDeps = {}): ToolDefinition[] {
         return {
           text: `${closing ? 'Closed' : 'Acknowledged'} issue ${input.issue_id} in account ${account} (was ${issue.state ?? 'unknown'}).\n${titleBlock}`,
           structured: shaped(true, plannedAfter, null),
-          meta: writeMeta(record(true, plannedAfter)),
+          meta: writeMeta({
+            ...record(true, plannedAfter),
+            ...(gate.confirmation === undefined ? {} : { confirmation: gate.confirmation }),
+          }),
         };
       },
     });

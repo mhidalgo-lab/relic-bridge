@@ -241,6 +241,13 @@ before running non-read-only tools (Claude Code, Claude Desktop, VS Code) do. **
 (`permissions.allow` in Claude Code, "always allow" in Desktop, `chat.tools.autoApprove` in VS Code): the client's prompt
 is the one approval the model cannot give itself. Each call also needs `confirm: true`; `dry_run: true` previews.
 
+If your client supports **MCP elicitation** (a form the server can show you), relic-bridge also asks you, in that form,
+to approve the exact change just before it is made (what, where, the values; text from New Relic is shown in quotes).
+Decline or cancel and nothing is changed; the answer is recorded in the [audit log](audit-log.md). This works on stdio
+and, over HTTP, with clients speaking protocol 2026-07-28; an older client over HTTP cannot be asked and only the
+`confirm: true` flow applies. Never set your client to auto-accept these forms. Which clients show them is not yet
+verified: [client compatibility](../reference/client-compatibility.md).
+
 ## Slow queries and MCP Tasks
 
 A NRQL query that is still running after `timeout_seconds` comes back as a handle: the agent calls `get_query_result`

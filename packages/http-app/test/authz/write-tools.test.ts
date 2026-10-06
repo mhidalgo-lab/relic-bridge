@@ -880,3 +880,79 @@ describe('OAuth: mcp:write', () => {
     });
   });
 });
+
+describe('confirmation through elicitation (P7-20): stateless HTTP', () => {
+  const FORM = { elicitation: { form: {} } };
+  const asker = async (slug: string, era: 'legacy' | 'modern', answer: () => Record<string, unknown>) => {
+    const app = h.makeApp({ writeTools: true });
+    const { token } = await setup(slug);
+    const client = await connect(app, slug, token.value, era, undefined, FORM);
+    clients.push(client);
+    const asked: string[] = [];
+    client.setRequestHandler('elicitation/create', (request) => {
+      asked.push((request.params as { message: string }).message);
+      return answer() as never;
+    });
+    return { client, asked };
+  };
+  const mutations = (from: number) => h.nerdGraph.calls.slice(from).filter((c) => MUTATIONS.has(c.op));
+
+  for (const tool of WRITES) {
+    it(`${tool}: a 2026-07-28 client is asked, and an approval sends one mutation`, async () => {
+      const { client, asked } = await asker(`el-ok-${tool.replaceAll('_', '-')}`, 'modern', () => ({
+        action: 'accept',
+        content: { confirm: true },
+      }));
+      const before = h.nerdGraph.calls.length;
+      const r = await client.callTool({ name: tool, arguments: GOOD[tool] as Record<string, unknown> });
+      expect(r.isError ?? false, JSON.stringify(r).slice(0, 300)).toBe(false);
+      expect(asked.length).toBe(1);
+      expect(mutations(before).length).toBe(1);
+    });
+
+    it(`${tool}: a decline sends no mutation and is audited`, async () => {
+      const slug = `el-no-${tool.replaceAll('_', '-')}`;
+      const { client } = await asker(slug, 'modern', () => ({ action: 'decline' }));
+      const before = h.nerdGraph.calls.length;
+      const r = await client.callTool({ name: tool, arguments: GOOD[tool] as Record<string, unknown> });
+      expect(r.isError ?? false).toBe(false);
+      expect(r.structuredContent).toMatchObject({ applied: false });
+      expect(mutations(before)).toEqual([]);
+      await vi.waitFor(async () => {
+        const rows = (await h.auditRows()).filter((x) => x.kind === 'tool_call' && x.action === tool);
+        const record = rows.map(
+          (x) => (x.details as { write?: { record?: { confirmation?: string } } }).write?.record,
+        );
+        expect(record.some((x) => x?.confirmation === 'declined')).toBe(true);
+      });
+    });
+  }
+
+  it('a 2025-era stateless client cannot be asked: the confirm: true flow stays', async () => {
+    const { client, asked } = await asker('el-legacy', 'legacy', () => ({
+      action: 'accept',
+      content: { confirm: true },
+    }));
+    const before = h.nerdGraph.calls.length;
+    const r = await client.callTool({
+      name: 'close_issue',
+      arguments: GOOD['close_issue'] as Record<string, unknown>,
+    });
+    expect(r.isError ?? false).toBe(false);
+    expect(asked).toEqual([]);
+    expect(mutations(before).length).toBe(1);
+  });
+
+  it('a client that declares no elicitation is not asked', async () => {
+    const app = h.makeApp({ writeTools: true });
+    const { token } = await setup('el-none');
+    const client = await open(app, 'el-none', token.value);
+    const before = h.nerdGraph.calls.length;
+    const r = await client.callTool({
+      name: 'close_issue',
+      arguments: GOOD['close_issue'] as Record<string, unknown>,
+    });
+    expect(r.isError ?? false).toBe(false);
+    expect(mutations(before).length).toBe(1);
+  });
+});

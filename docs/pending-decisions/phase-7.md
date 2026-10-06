@@ -319,3 +319,22 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   dashboards relic-bridge created.
 - **Needs:** owner's call on (1)–(5); a live check (RESEARCH §26): `viz.*` ids, typed `configuration` without
   `rawConfiguration`, that an API-key-created PRIVATE dashboard is private to the key's user; `dry_run` first.
+
+### P7-20 — Write confirmation through elicitation: automatic when declared, per-round rate limit
+- **Context:** A model-set `confirm: true` is not a human approval. MCP elicitation asks the person. The SDK supports it
+  statelessly on 2026-07-28 (multi-round-trip) and through a shim on 2025-era connections that kept `initialize`
+  (stdio); a stateless 2025-era HTTP client cannot be asked. Nothing was run against a real client.
+- **Assumption made:** (1) On whenever the client declares form elicitation and the host did not pass `elicitWrites:
+  false`; no env switch or per-grant setting. (2) It adds to `confirm: true` (not a replacement), never for dry runs or
+  no-ops. (3) A client without it, or a stateless 2025-era HTTP client, keeps the `confirm: true` flow, so those
+  connections get no human approval. (4) The approval is bound to a hash of the exact message; no `requestState`. (5)
+  Wait bound 5 minutes on the shim path; on 2026-07-28 the client's timeout applies. (6) Each round is audited
+  (`confirmation`: `asked`/`accepted`/`declined`/`cancelled`) and counts against the per-grant write rate limit, so a
+  confirmed write uses two of the 20 per hour.
+- **Options:** an `RB_WRITE_ELICITATION=required|auto|off` setting (`required` refuses writes for clients that cannot be
+  asked, which would exclude stateless 2025-era HTTP clients); count only the answered round against the rate limit;
+  an HMAC `requestState` with a deadline for a hard expiry of an approval; URL-mode elicitation (a page on the
+  relic-bridge origin with a CSRF-protected approve button) for clients without form support, which would also work for
+  phones.
+- **Needs:** owner's call on (1), (3) and (6); a check of how Claude Code, Claude Desktop, VS Code and the phone apps
+  show the form and whether any auto-accepts it.

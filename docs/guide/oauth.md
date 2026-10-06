@@ -56,6 +56,10 @@ address that differs from `RB_PUBLIC_URL` is refused by careful clients.
    - **Device name** (optional) labels this connection in your device list.
    - **Don't ask again for this app** (off by default) remembers the approval for 30 days, for this app, this
      address and this project only.
+   - **Changes in New Relic** (only on servers with write tools on, and only when the app asks for the `mcp:write`
+     scope): a separate box lists the changes your access allows and an unticked **Also allow changes** checkbox.
+     Leave it unticked and the app is read-only. Such requests are never remembered and never answered silently
+     ([write tools](security-basics.md#write-tools-opt-in)).
 3. **Allow** sends the app back with a one-time code; **Deny** sends it back with `access_denied`.
 
 On a phone the same page fits the screen (no zooming).
@@ -141,4 +145,8 @@ itself when its grant stops working (revoked, expired, key removed): you are ask
 - Approvals and denials are in the audit log (`oauth.consent.approve`, `oauth.consent.deny`, `oauth.consent.forget`),
   as are disconnects (`oauth_device.revoke`), refused renewals (`oauth.token.refused`) and reused refresh tokens
   (`oauth.token.reuse`), renewals answered again inside the reuse window (`oauth.token.replay`), and earlier connections replaced by a new one of the same app (`oauth.device.replace`). Each row's token id is `oauth_…`, the same for every request of that connected app.
+- Scopes: every token carries `mcp:read`. `mcp:write` is advertised (authorization server and protected resource
+  metadata) only when the server runs with `RB_WRITE_TOOLS=on`; a token gets it only when the app asked for it, you
+  ticked the box and your grant has write tools. A token without it never lists a write tool. The audit row
+  `oauth.consent.approve` records the granted scope (`grantedScope`).
 - Developers: [docs/dev/oauth.md](../dev/oauth.md).

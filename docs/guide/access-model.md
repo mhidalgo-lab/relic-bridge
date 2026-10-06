@@ -28,7 +28,8 @@ flowchart TD
 Every request is resolved afresh (cached for at most a minute):
 
 ```
-tools    = project tools ∩ grant tools                          (minus run_nrql / get_query_result when raw NRQL is off)
+tools    = project tools ∩ grant tools                          (minus run_nrql / get_query_result when raw NRQL is off;
+                                                                 write tools only when both name them, see below)
 accounts = accounts the key can read ∩ project accounts ∩ grant accounts
 limits   = project limits, tightened by the grant               (smaller number wins; raw NRQL needs both;
                                                                  event-type allow lists intersect, deny lists add up)
@@ -47,6 +48,9 @@ flowchart LR
 - Tools a connection may not use are **not listed** to the client at all, and calls to them are refused anyway.
 - The default account is the project's default when it is still allowed, else the first allowed account in the
   project's order.
+- **Write tools** (opt-in, server flag `RB_WRITE_TOOLS=on`) are never implied by "all tools": the project and the grant
+  must both name them, only owners can do that, and the key must be shared or the grant user's own. Details:
+  [write tools](security-basics.md#write-tools-opt-in).
 
 ### Fail closed
 

@@ -232,6 +232,15 @@ Only the Claude Code snippet was checked (against its documentation and its CLI)
 Desktop snippets follow each client's documentation but haven't been run by the maintainers. For
 problems, see [troubleshooting](troubleshooting.md#hosted-self-hosted-server).
 
+## Write tools and your client
+
+If your server offers write tools ([write tools](security-basics.md#write-tools-opt-in)), they show up only on a
+connection whose project and grant name them (and, over OAuth, whose app asked for `mcp:write` and you ticked "Also allow
+changes"). They are annotated `readOnlyHint: false` (`close_issue` also `destructiveHint: true`), so clients that ask
+before running non-read-only tools (Claude Code, Claude Desktop, VS Code) do. **Don't add them to auto-approve lists**
+(`permissions.allow` in Claude Code, "always allow" in Desktop, `chat.tools.autoApprove` in VS Code): the client's prompt
+is the one approval the model cannot give itself. Each call also needs `confirm: true`; `dry_run: true` previews.
+
 ## Other clients and MCP Inspector
 
 Any client that can launch a stdio server works: give it the command `npx -y relic-bridge` and the three `env`

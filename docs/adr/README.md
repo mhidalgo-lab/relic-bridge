@@ -21,3 +21,4 @@ Statuses: `proposed` · `accepted` · `accepted (pending spike PX-NN)` · `super
 | [0012](0012-cimd-resolved-by-relic-bridge.md) | Client ID Metadata Documents resolved by relic-bridge, per-runtime SSRF guard | accepted (P5-03) |
 | [0013](0013-refresh-token-reuse-interval.md) | Refresh token reuse interval for concurrent refreshes | accepted (P5-09, owner confirmation pending) |
 | [0014](0014-no-raw-nerdgraph-tool.md) | No raw NerdGraph passthrough tool | accepted (P6-15, owner confirmation pending) |
+| [0015](0015-opt-in-write-tools.md) | Opt-in write tools: three typed writes, off at every layer | accepted (P7-09, owner confirmation pending) |

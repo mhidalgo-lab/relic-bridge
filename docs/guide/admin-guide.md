@@ -93,7 +93,7 @@ On a Worker, `pnpm cf:setup --sign-in` asks for the public URL and each provider
 
 | Role | In the panel and API |
 |---|---|
-| `owner` | Everything, including master-key rotation, setup links, **moving a user to another provider**, and managing other owners. The bootstrap `RB_ADMIN_TOKEN` acts as owner. |
+| `owner` | Everything, including master-key rotation, setup links, **moving a user to another provider**, managing other owners and **enabling write tools** on projects and grants. The bootstrap `RB_ADMIN_TOKEN` acts as owner. |
 | `admin` | Keys, projects, grants, device tokens and users, the audit log with CSV export, usage statistics and the connect page. Cannot create, promote, change or sign out an owner, and cannot act on an owner's personal keys, grants or device tokens (or make an owner's key a project default). |
 | `member` | Overview, their own rows in the audit log, and **My access**: their own keys, their grants and device tokens. |
 
@@ -124,6 +124,24 @@ nobody shares a key. You (admin or owner) shape the access; members attach their
 
 Members cannot create grants or widen them; that stays with administrators. The matching API is `/api/admin/v1/me/*`
 ([admin access](admin-access.md#member-self-service-apiadminv1me)).
+
+### Enabling write tools (owners)
+
+With `RB_WRITE_TOOLS=on` the tool checklists also show three write tools, badged `write` or `destructive`
+([what they do](security-basics.md#write-tools-opt-in), [ADR-0015](../adr/0015-opt-in-write-tools.md)). To let one
+person use, say, `acknowledge_issue`:
+
+1. As an owner, open the project and tick `acknowledge_issue` (next to "all tools" if you keep the rest: the choice is
+   then saved as an explicit list of today's read tools plus the write tool, so read tools added in later versions need
+   ticking later).
+2. On that person's grant, tick it too. "Every tool the project enables" never includes write tools.
+3. The grant must use a shared key or the person's own key; with someone else's personal key (for example your key as
+   the project default) write tools stay off for that grant.
+4. Their OAuth app must ask for `mcp:write`, and they tick "Also allow changes" on the consent screen. Device tokens
+   need nothing more.
+
+Admins see the write tools but get `403` when they try to add one. Every write appears in the audit log (`Tool call`
+rows with a `write` record). Turn the server flag off to remove every write tool at once.
 
 ## 7. Using it from a phone
 

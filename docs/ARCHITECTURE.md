@@ -104,7 +104,8 @@ Access token (static bearer, per device)   or   OAuth client session (per device
 **Effective permissions for a request**
 
 ```
-tools    = project.enabledTools ∩ grant.tools
+tools    = project.enabledTools ∩ grant.tools               (write tools: only when both name them explicitly and the key
+                                                            is shared or the grant user's own; OAuth also needs mcp:write)
 accounts = credential.reachableAccounts ∩ project.allowedAccounts ∩ grant.accounts
 key      = grant.credential ?? project.defaultCredential   (must exist, else 403)
 limits   = project.limits tightened by grant.limits        (min of numbers, rawNrql AND, allow ∩, deny ∪)

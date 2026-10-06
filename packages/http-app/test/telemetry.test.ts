@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Self-monitoring (P7-08, T30): a local mock OTLP receiver stands in for the collector; no real endpoint or key.
 import { createLogger, type FetchLike } from '@relic-bridge/core';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   createHttpApp,
   createTelemetry,

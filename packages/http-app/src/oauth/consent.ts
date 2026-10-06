@@ -29,7 +29,7 @@ import {
   type UiPrincipal,
 } from '@relic-bridge/admin-ui';
 import { resolveAccess } from '@relic-bridge/auth';
-import type { Clock, Logger } from '@relic-bridge/core';
+import { type Clock, type Logger, WRITE_TOOL_NAMES } from '@relic-bridge/core';
 import type { KvRepository, Storage } from '@relic-bridge/storage';
 import type { Context } from 'hono';
 import type { AdminAuditEvent } from '../audit.ts';
@@ -44,6 +44,7 @@ import {
 import {
   deviceLabel,
   MAX_DEVICE_LABEL_CHARS,
+  MCP_WRITE_SCOPE,
   OAUTH_AUTHORIZE_PATH,
   type OAuthApproval,
   type OAuthConsentApi,
@@ -183,6 +184,8 @@ export function createConsentScreen(deps: ConsentScreenDeps): ConsentScreen {
       readonly status?: 'ok' | 'denied';
       readonly errorCode?: string | null;
       readonly remembered?: 'used' | 'saved' | false;
+      /** The scope the token was issued with (approvals only): shows whether `mcp:write` was granted. */
+      readonly granted?: readonly string[];
     },
   ): void => {
     const r = api.request;
@@ -205,6 +208,7 @@ export function createConsentScreen(deps: ConsentScreenDeps): ConsentScreen {
         clientHost: r.clientHost,
         redirectHost: r.redirectHost,
         scope: r.scope.join(' '),
+        ...(extra.granted === undefined ? {} : { grantedScope: extra.granted.join(' ') }),
         ...(extra.remembered === undefined ? {} : { remembered: extra.remembered }),
       },
     });
@@ -256,10 +260,12 @@ export function createConsentScreen(deps: ConsentScreenDeps): ConsentScreen {
         now: clock.now(),
       });
       if (!decision.ok || decision.access.userId !== userId) continue;
+      const title = (t: string) => deps.toolTitles.get(t) ?? t;
       options.push({
         id: grant.id,
         label: grant.label ?? `Your access (${grant.id})`,
-        tools: decision.access.tools.map((t) => deps.toolTitles.get(t) ?? t),
+        tools: decision.access.tools.filter((t) => !WRITE_TOOL_NAMES.includes(t)).map(title),
+        writeTools: decision.access.tools.filter((t) => WRITE_TOOL_NAMES.includes(t)).map(title),
         accounts: decision.access.accounts.allowed,
         expiresAt: decision.access.expiresAt,
       });
@@ -296,6 +302,7 @@ export function createConsentScreen(deps: ConsentScreenDeps): ConsentScreen {
         project: { slug: r.projectSlug, name: projectName },
         grants: options,
         offline: r.scope.includes('offline_access'),
+        writeRequested: r.scope.includes(MCP_WRITE_SCOPE),
         selected: form.selected,
         label: form.label,
         error: form.error,
@@ -354,6 +361,7 @@ export function createConsentScreen(deps: ConsentScreenDeps): ConsentScreen {
     const stored = parseStored(await kv.get(rememberKey(userId, id)));
     if (stored === null || stored.expiresAt <= clock.now()) return null;
     if (stored.projectSlug !== api.request.projectSlug) return null;
+    if (api.request.scope.includes(MCP_WRITE_SCOPE)) return null;
     return api.request.scope.every((s) => stored.scope.includes(s)) ? stored : null;
   };
 
@@ -411,7 +419,15 @@ export function createConsentScreen(deps: ConsentScreenDeps): ConsentScreen {
       // A remembered approval answers at once (never for HEAD: nothing is issued for a request whose answer is
       // discarded; never when the client asks for the page with `prompt=consent` / `login`). It goes through
       // `approve()` like a click on Allow; if that fails the row is dropped and the page is shown.
-      if (c.req.method === 'GET' && !prompt.includes('consent') && !prompt.includes('login')) {
+      // A request for `mcp:write` (P7-09) is never answered from memory or silently: the user decides every time.
+      const writeRequested = api.request.scope.includes(MCP_WRITE_SCOPE);
+      if (silent && writeRequested) return redirectTo(api.refuseSilently('consent_required'));
+      if (
+        c.req.method === 'GET' &&
+        !writeRequested &&
+        !prompt.includes('consent') &&
+        !prompt.includes('login')
+      ) {
         const id = await approvalId(api);
         const stored = await remembered(principal.userId, id, api);
         if (stored !== null) {
@@ -424,6 +440,7 @@ export function createConsentScreen(deps: ConsentScreenDeps): ConsentScreen {
             consentAudit(c, 'oauth.consent.approve', principal, api, {
               grantId: stored.grantId,
               remembered: 'used',
+              granted: result.scope,
             });
             return redirectTo(result.redirectTo);
           }
@@ -501,7 +518,13 @@ export function createConsentScreen(deps: ConsentScreenDeps): ConsentScreen {
           error: 'Choose one of your accesses on this project.',
         });
       }
-      const result = await api.approve({ userId: principal.userId, grantId: grant.id, label });
+      const writeRequested = api.request.scope.includes(MCP_WRITE_SCOPE);
+      const result = await api.approve({
+        userId: principal.userId,
+        grantId: grant.id,
+        label,
+        write: writeRequested && single(fields, CONSENT_FIELDS.write) === '1',
+      });
       if (!result.ok) {
         consentAudit(c, 'oauth.consent.approve', principal, api, {
           grantId: grant.id,
@@ -518,12 +541,16 @@ export function createConsentScreen(deps: ConsentScreenDeps): ConsentScreen {
           principal,
         );
       }
+      // An approval that involved `mcp:write` is never remembered (P7-09).
       const saved =
-        single(fields, CONSENT_FIELDS.remember) === '1' && (await remember(principal, api, grant, label));
+        !writeRequested &&
+        single(fields, CONSENT_FIELDS.remember) === '1' &&
+        (await remember(principal, api, grant, label));
       consentAudit(c, 'oauth.consent.approve', principal, api, {
         grantId: grant.id,
         projectId,
         remembered: saved ? 'saved' : false,
+        granted: result.scope,
       });
       return leaveTo(c, result.redirectTo);
     },

@@ -34,7 +34,7 @@ import type {
   TokenExchangeCallbackResult,
 } from '@cloudflare/workers-oauth-provider';
 import { type DenyReason, type EffectiveAccess, resolveAccess } from '@relic-bridge/auth';
-import type { Clock, Logger } from '@relic-bridge/core';
+import { type Clock, type Logger, WRITE_TOOL_NAMES } from '@relic-bridge/core';
 import { type CredentialRecord, type KvRepository, SLUG_RE, type Storage } from '@relic-bridge/storage';
 import type { Context } from 'hono';
 import type { AdminAuditEvent } from '../audit.ts';
@@ -73,7 +73,18 @@ export const MCP_REALM = 'relic-bridge';
 
 /** The scope every MCP token carries (read-only tools). Grants, not scopes, decide what a token may do. */
 export const MCP_SCOPE = 'mcp:read';
+/**
+ * The scope a token needs before any write tool is listed (P7-09, ADR-0015). Advertised only when the deployment turns
+ * write tools on; granted only when the client asks for it and the user ticks the separate box on the consent screen.
+ */
+export const MCP_WRITE_SCOPE = 'mcp:write';
 export const OAUTH_SCOPES: readonly string[] = Object.freeze([MCP_SCOPE, 'offline_access']);
+/** {@link OAUTH_SCOPES} of a deployment with write tools on. */
+export const OAUTH_WRITE_SCOPES: readonly string[] = Object.freeze([
+  MCP_SCOPE,
+  MCP_WRITE_SCOPE,
+  'offline_access',
+]);
 
 export const DEFAULT_OAUTH_ACCESS_TTL_S = 3600;
 export const DEFAULT_OAUTH_REFRESH_TTL_S: number = 30 * 86_400;
@@ -140,7 +151,7 @@ export interface OAuthAuthorizationRequest {
 }
 
 export type OAuthApproval =
-  | { readonly ok: true; readonly redirectTo: string }
+  | { readonly ok: true; readonly redirectTo: string; readonly scope: readonly string[] }
   /** `client_refused`: a metadata-document client whose document can no longer be fetched or validated. */
   | { readonly ok: false; readonly reason: DenyReason | 'client_refused' };
 
@@ -159,6 +170,11 @@ export interface OAuthConsentApi {
     readonly userId: string;
     readonly grantId: string;
     readonly label?: string | null;
+    /**
+     * The user ticked "allow changes" (P7-09). `mcp:write` is granted only with this, when the request asked for it and
+     * the grant has write tools; anything else gets a read-only token. Never set for a remembered approval.
+     */
+    readonly write?: boolean;
   }): Promise<OAuthApproval>;
   /** The `access_denied` redirect (with `state` and `iss`). */
   deny(description?: string): string;
@@ -381,6 +397,8 @@ export interface OAuthRuntimeDeps {
   readonly defaultConsent?: OAuthConsentHandler;
   /** `admin` audit rows (refresh reuse, refused issuance); never rejects. */
   readonly audit?: (event: AdminAuditEvent) => Promise<void>;
+  /** Write tools are on (`RB_WRITE_TOOLS=on`, P7-09): `mcp:write` is advertised and may be granted. Default false. */
+  readonly writeScope?: boolean;
 }
 
 /** Longest device label kept as grant metadata (P5-04). */
@@ -573,6 +591,7 @@ export function createOAuthRuntime(deps: OAuthRuntimeDeps): OAuthRuntime {
     }
     return host;
   });
+  const writeScope = deps.writeScope === true;
   const consent = options.consent ?? deps.defaultConsent;
   if (typeof consent !== 'function') throw new TypeError('oauth.consent must be a function');
   const cimd = options.clientMetadataDocuments;
@@ -629,7 +648,7 @@ export function createOAuthRuntime(deps: OAuthRuntimeDeps): OAuthRuntime {
     const built = new mod.OAuthAuthorizationServer<ProviderEnv>({
       issuer,
       resources: list,
-      scopesSupported: [...OAUTH_SCOPES],
+      scopesSupported: [...(writeScope ? OAUTH_WRITE_SCOPES : OAUTH_SCOPES)],
       authorizeEndpoint: OAUTH_AUTHORIZE_PATH,
       tokenEndpoint: OAUTH_TOKEN_PATH,
       ...(registration ? { clientRegistrationEndpoint: OAUTH_REGISTER_PATH } : {}),
@@ -1502,7 +1521,7 @@ export function createOAuthRuntime(deps: OAuthRuntimeDeps): OAuthRuntime {
       const body = {
         resource: resourceUrl(slug),
         authorization_servers: [issuer],
-        scopes_supported: [MCP_SCOPE],
+        scopes_supported: writeScope ? [MCP_SCOPE, MCP_WRITE_SCOPE] : [MCP_SCOPE],
         bearer_methods_supported: ['header'],
       };
       return new Response(JSON.stringify(body), {
@@ -1762,7 +1781,13 @@ export function createOAuthRuntime(deps: OAuthRuntimeDeps): OAuthRuntime {
       const client: ClientInfo | null = await helpers.lookupClient(authRequest.clientId);
       if (client === null) return jsonError(400, 'invalid_client', 'Unknown client.');
       const requested = authRequest.scope;
-      const scope = [MCP_SCOPE, ...(requested.includes('offline_access') ? ['offline_access'] : [])];
+      // `mcp:write` only when this deployment has write tools and the client asked for it (P7-09); the user still has
+      // to tick its box, and `approve` drops it otherwise.
+      const scope = [
+        MCP_SCOPE,
+        ...(writeScope && requested.includes(MCP_WRITE_SCOPE) ? [MCP_WRITE_SCOPE] : []),
+        ...(requested.includes('offline_access') ? ['offline_access'] : []),
+      ];
       const metadataDocument = looksLikeClientIdUrl(authRequest.clientId);
       const request: OAuthAuthorizationRequest = Object.freeze({
         clientId: authRequest.clientId,
@@ -1793,10 +1818,12 @@ export function createOAuthRuntime(deps: OAuthRuntimeDeps): OAuthRuntime {
           userId,
           grantId,
           label,
+          write,
         }: {
           readonly userId: string;
           readonly grantId: string;
           readonly label?: string | null;
+          readonly write?: boolean;
         }) => {
           if (used) throw new Error('an authorization request is approved at most once');
           used = true;
@@ -1813,6 +1840,12 @@ export function createOAuthRuntime(deps: OAuthRuntimeDeps): OAuthRuntime {
           });
           if (!decision.ok) return { ok: false, reason: decision.reason } as const;
           if (decision.access.userId !== userId) return { ok: false, reason: 'principal_mismatch' } as const;
+          // Writes need all three: the client asked, the user ticked the box, the grant has write tools (P7-09).
+          const writes =
+            write === true &&
+            scope.includes(MCP_WRITE_SCOPE) &&
+            decision.access.tools.some((t) => WRITE_TOOL_NAMES.includes(t));
+          const granted = Object.freeze(scope.filter((s) => s !== MCP_WRITE_SCOPE || writes));
           const props: OAuthGrantProps = {
             grantId,
             projectSlug: slug,
@@ -1826,7 +1859,7 @@ export function createOAuthRuntime(deps: OAuthRuntimeDeps): OAuthRuntime {
             // T25: grant metadata is stored unencrypted: only the device label the user typed (checked text) and the
             // access grant id (P5-05: revoking that grant revokes this device too), never an email or other personal data.
             metadata: storedLabel === null ? { grant: grantId } : { label: storedLabel, grant: grantId },
-            scope,
+            scope: [...granted],
             props,
             // Review H1: the provider's default revokes the user's other devices of this client and resource as soon
             // as a code is *issued*. With a remembered approval that is one cross-site GET: any page could disconnect
@@ -1837,7 +1870,7 @@ export function createOAuthRuntime(deps: OAuthRuntimeDeps): OAuthRuntime {
           const code = new URL(redirectTo).searchParams.get('code');
           if (code === null) throw new Error('the provider returned no authorization code');
           await deps.kv.put(await codeMarker(code), '1', { expirationTtl: OAUTH_CODE_TTL_S });
-          return { ok: true, redirectTo } as const;
+          return { ok: true, redirectTo, scope: granted } as const;
         },
       });
       return api;
@@ -1876,12 +1909,20 @@ export function createOAuthRuntime(deps: OAuthRuntimeDeps): OAuthRuntime {
       if (decision.access.userId !== props.userId) {
         return { ok: false, stage: 'access', tokenId, reason: 'principal_mismatch' };
       }
+      // A token without `mcp:write` never sees a write tool, whatever the grant allows (P7-09, ADR-0015).
+      let access = decision.access;
+      if (!(writeScope && validated.scope.includes(MCP_WRITE_SCOPE))) {
+        const tools = access.tools.filter((t) => !WRITE_TOOL_NAMES.includes(t));
+        if (tools.length === 0) return { ok: false, stage: 'access', tokenId, reason: 'no_tools' };
+        if (tools.length !== access.tools.length)
+          access = Object.freeze({ ...access, tools: Object.freeze(tools) });
+      }
       return {
         ok: true,
         tokenId,
         clientId: validated.clientId,
         tokenExpiresAt: validated.expiresAt * 1000,
-        access: decision.access,
+        access,
         credential: decision.credential,
       };
     },

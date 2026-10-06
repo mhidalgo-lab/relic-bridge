@@ -272,7 +272,7 @@ HTTP server (serve):
                          behind a proxy, or every client shares the proxy's address for
                          rate limiting.
   RB_RATE_LIMIT          on (default) or off: all rate limiting.
-  RB_RATE_LIMIT_IP | _AUTH_FAIL | _TOKEN | _GRANT | _PASSTHROUGH_KEY | _SIGN_IN
+  RB_RATE_LIMIT_IP | _AUTH_FAIL | _TOKEN | _GRANT | _PASSTHROUGH_KEY | _SIGN_IN | _WRITE
                          One limit each, "<requests>/<seconds>" or off (see the self-hosting
                          guide for the defaults).
 
@@ -288,6 +288,12 @@ Audit log (serve):
   RB_AUDIT_RETENTION_DAYS  Days to keep rows (default 90; 0 keeps everything). Purged at
                          startup and hourly.
   RB_AUDIT_CLIENT_IP     on (default) or off: record the client address on refused requests.
+
+Write tools (stdio and serve, off by default; see docs/adr/0015-opt-in-write-tools.md):
+  RB_WRITE_TOOLS         off (default) or on: offer the write tools (create_change_event,
+                         acknowledge_issue, close_issue). Even then a tool works only when it is
+                         named explicitly (stdio: RB_TOOLS or the YAML tools list; serve: the
+                         project and the grant). serve needs RB_AUDIT=on.
 
 Self-monitoring (serve, off by default):
   RB_OTEL                off (default) or on: export traces and metrics about this server over OTLP

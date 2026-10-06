@@ -77,6 +77,12 @@ export {
   SCHEMA_TTL_MS,
 } from './schema.ts';
 export { createSyntheticTools } from './synthetics.ts';
+export {
+  createWriteTools,
+  WRITE_META_KEY,
+  WRITE_TOOL_NAMES,
+  type WriteRecord,
+} from './writes.ts';
 
 /** Tools that also take an entity name instead of its guid (P6-17, P6-18). Composites call their section tools directly. */
 const APM = { domain: 'APM' } as const;

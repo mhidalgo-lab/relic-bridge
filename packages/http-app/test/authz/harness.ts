@@ -195,7 +195,7 @@ export function hostileNerdGraph(tenants: Readonly<Record<string, string>>): Hos
     fetch: async (_url, init) => {
       const apiKey = new Headers(init.headers).get('api-key');
       const body = JSON.parse(String(init.body)) as { query: string; variables?: Record<string, unknown> };
-      const op = /query (Rb\w+)/.exec(body.query)?.[1] ?? 'unknown';
+      const op = /(?:query|mutation) (Rb\w+)/.exec(body.query)?.[1] ?? 'unknown';
       const variables = body.variables ?? {};
       calls.push({ apiKey, op, variables });
       if (mock.delayMs > 0) await new Promise((r) => setTimeout(r, Math.random() * mock.delayMs));
@@ -529,6 +529,39 @@ export function hostileNerdGraph(tenants: Readonly<Record<string, string>>): Hos
               },
             },
           });
+        // Write tools (P7-09): mutations answer as New Relic documents them (no real call is ever made).
+        case 'RbCreateChangeEvent': {
+          const query = String(
+            (variables['event'] as { entitySearch?: { query?: string } }).entitySearch?.query,
+          );
+          const guid = /id = '([^']*)'/.exec(query)?.[1] ?? null;
+          return ok({
+            changeTrackingCreateEvent: {
+              changeTrackingEvent: {
+                changeTrackingId: 'ct-created-1',
+                category: 'DEPLOYMENT',
+                type: 'BASIC',
+                timestamp: 1790338700000,
+                entity: { guid, accountId: guid === null ? null : decodeEntityGuid(guid).accountId },
+              },
+              messages: [],
+            },
+          });
+        }
+        case 'RbAckIssue':
+        case 'RbResolveIssue': {
+          const field = op === 'RbAckIssue' ? 'aiIssuesAckIssue' : 'aiIssuesResolveIssue';
+          return ok({
+            [field]: {
+              result: {
+                accountId: variables['accountId'],
+                action: op === 'RbAckIssue' ? 'ACK' : 'RESOLVE',
+                issueId: variables['issueId'],
+              },
+              error: null,
+            },
+          });
+        }
         default:
           throw new Error(`hostileNerdGraph: no reply for ${op}`);
       }
@@ -548,6 +581,12 @@ export function accountsNamed(call: NerdGraphCall): number[] {
     if (m?.[1]) out.push(...m[1].split(',').map((s) => Number(s.trim().replace(/'/g, ''))));
   }
   if (typeof v['guid'] === 'string') out.push(decodeEntityGuid(v['guid']).accountId);
+  // Write tools (P7-09): the change event's entity filter names the entity by GUID.
+  const search = (v['event'] as { entitySearch?: { query?: unknown } } | undefined)?.entitySearch?.query;
+  if (typeof search === 'string') {
+    const m = /id = '([^']*)'/.exec(search);
+    if (m?.[1]) out.push(decodeEntityGuid(m[1]).accountId);
+  }
   return out;
 }
 

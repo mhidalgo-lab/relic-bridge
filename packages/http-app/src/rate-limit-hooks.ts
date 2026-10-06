@@ -15,7 +15,7 @@
 // and the comparison is constant time, so timing adds nothing the status code does not already say. The pass-through
 // route keeps the strict rule (refuse a locked IP before anything): checking a New Relic key asks NerdGraph, and the
 // key is the caller's, not one of our 256-bit secrets.
-import type { Logger } from '@relic-bridge/core';
+import { type Logger, WRITE_TOOL_NAMES } from '@relic-bridge/core';
 import type { Context } from 'hono';
 import type { AuthFailureInfo, AuthScope, HttpAppHooks, McpRequestInfo } from './app.ts';
 import type { PassthroughRequestInfo } from './passthrough.ts';
@@ -46,6 +46,12 @@ export interface RateLimitRules {
    * off.
    */
   readonly oauth?: RateLimitRule | null;
+  /**
+   * Write tool calls per grant (P7-09, ADR-0015), on top of `token` and `grant`: stricter, and it fails closed (a limiter
+   * outage refuses writes instead of allowing them). Dry runs count too. Optional for callers built before it; `null` =
+   * off.
+   */
+  readonly write?: RateLimitRule | null;
 }
 
 /** Sized for personal use: one MCP request makes a handful of NerdGraph calls against NRQL's 3,000/min/account. */
@@ -57,6 +63,7 @@ export const DEFAULT_RATE_LIMITS: RateLimitRules = Object.freeze({
   passthroughKey: Object.freeze({ requests: 120, perSeconds: 60 }),
   signIn: Object.freeze({ requests: 60, perSeconds: 300 }),
   oauth: Object.freeze({ requests: 60, perSeconds: 300 }),
+  write: Object.freeze({ requests: 20, perSeconds: 3600 }),
 });
 
 export interface RateLimitHooksOptions {
@@ -186,6 +193,22 @@ export function createRateLimitHooks(options: RateLimitHooksOptions): HttpAppHoo
         if (r && !r.allowed) {
           mark(c, 'rate_limit_grant');
           return rateLimited(r.retryAfterMs);
+        }
+      }
+      // Write tools (P7-09): a stricter bucket per grant, charged only for a granted write tool (an ungranted one is
+      // answered "not found" anyway). Fails closed: no answer from the limiter, no write.
+      const writeRule = rules.write;
+      if (
+        writeRule &&
+        info.mcpMethod === 'tools/call' &&
+        info.mcpName !== null &&
+        WRITE_TOOL_NAMES.includes(info.mcpName) &&
+        info.access.tools.includes(info.mcpName)
+      ) {
+        const r = await guard('write', () => post.take(`write:${info.grantId}`, writeRule));
+        if (r === undefined || !r.allowed) {
+          mark(c, 'rate_limit_write');
+          return rateLimited(r?.retryAfterMs ?? 60_000);
         }
       }
       return undefined;

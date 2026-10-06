@@ -63,6 +63,41 @@ async function expectAccessible(name: string, page: string): Promise<void> {
   expect(violations, `${name}: ${JSON.stringify(violations, null, 2)}`).toEqual([]);
 }
 
+describe('consent page: write access (P7-09)', () => {
+  const withWrites = props({
+    writeRequested: true,
+    grants: [
+      { ...props().grants[0], writeTools: ['Close an alert issue (destructive write)'] } as never,
+      props().grants[1] as never,
+    ],
+  });
+
+  it('shows changes apart, with an unticked box and no "don’t ask again"; accessible', async () => {
+    const page = html(withWrites);
+    const doc = parse(page);
+    const box = doc.querySelector('input#write') as HTMLInputElement | null;
+    expect(box?.type).toBe('checkbox');
+    expect(box?.checked).toBe(false);
+    expect(doc.querySelector('input#remember')).toBeNull();
+    expect(doc.body.textContent).toContain('also asks to make changes in New Relic');
+    expect(doc.body.textContent).toContain('Changes, only if you allow them below: Close an alert issue');
+    await expectAccessible('write requested', page);
+  });
+
+  it('without write tools on any access: a notice, no box', () => {
+    const doc = parse(html(props({ writeRequested: true })));
+    expect(doc.querySelector('input#write')).toBeNull();
+    expect(doc.body.textContent).toContain('gets read-only access');
+  });
+
+  it('not requested: nothing about changes, remember box as before', () => {
+    const doc = parse(html(props({ grants: withWrites.grants })));
+    expect(doc.querySelector('input#write')).toBeNull();
+    expect(doc.querySelector('input#remember')).not.toBeNull();
+    expect(doc.body.textContent).not.toContain('Changes, only if');
+  });
+});
+
 describe('consent page', () => {
   it('is accessible in every state', async () => {
     await expectAccessible('dynamic, two grants', html(props()));

@@ -125,11 +125,20 @@ interface GrantFormProps {
   readonly message?: string | undefined;
 }
 
+/**
+ * The tools a grant on `p` can choose from: what the project enables. A project with every tool (`null`) enables the read
+ * tools only: write tools must be named by the project first (P7-09).
+ */
+function toolsOfProject(p: { readonly enabledTools: readonly string[] | null }, tools: readonly UiTool[]) {
+  return p.enabledTools === null
+    ? tools.filter((t) => t.kind === 'read')
+    : tools.filter((t) => p.enabledTools?.includes(t.name));
+}
+
 function grantFormPage(props: GrantFormProps) {
   const p = props.project;
   const v = props.values;
-  const projectTools =
-    p.enabledTools === null ? props.tools : props.tools.filter((t) => p.enabledTools?.includes(t.name));
+  const projectTools = toolsOfProject(p, props.tools);
   const def = props.credentials.find((c) => c.id === p.defaultCredentialId);
   const emails = new Map(props.users.map((u) => [u.id, u.email]));
   return (
@@ -440,7 +449,7 @@ export function registerGrants(ui: Hono, kit: UiKit): void {
       const credentialId = field(form, 'credentialId');
       if (credentialId !== null && !isId(credentialId))
         errors['credentialId'] = 'Choose a key from the list.';
-      const tools = toolsFrom(form);
+      const tools = toolsFrom(form, toolsOfProject(project, catalog));
       if ('error' in tools) errors['tools'] = tools.error;
       const allAccounts = form.fields.get('accounts_all') !== null;
       const accounts = allAccounts ? null : accountsFrom(form, 'accounts');

@@ -7,7 +7,16 @@
 // failed write is logged, never surfaced to the caller (an audit outage must not become a service outage).
 
 import type { ToolCallEvent } from '@relic-bridge/core';
-import { type Clock, type Logger, redact, redactValue, silentLogger, systemClock } from '@relic-bridge/core';
+import {
+  type Clock,
+  type Logger,
+  redact,
+  redactValue,
+  silentLogger,
+  systemClock,
+  WRITE_META_KEY,
+  WRITE_TOOL_NAMES,
+} from '@relic-bridge/core';
 import type { AuditEntry, AuditKind, AuditLogRepository, AuditStatus } from '@relic-bridge/storage';
 import type { Context } from 'hono';
 import type { AuthFailureInfo, HttpAppHooks, McpRequestInfo, RejectInfo } from './app.ts';
@@ -154,6 +163,29 @@ export interface AuditRecorder {
   purge(retentionDays: number, options?: { readonly limit?: number }): Promise<number>;
 }
 
+/** Longest string kept from a write tool's arguments in `details.write.input`. */
+const AUDIT_MAX_WRITE_ARG_CHARS = 120;
+
+/**
+ * What a write tool call did (P7-09, ADR-0015), for `details.write`: the tool's own record (action, account, target,
+ * dry run, applied, before/after) when it got that far, and always the arguments it was called with (strings capped;
+ * `sanitizeDetails` redacts the whole row). Never the result rows.
+ */
+export function writeDetails(event: ToolCallEvent): Record<string, unknown> | undefined {
+  if (!WRITE_TOOL_NAMES.includes(event.tool)) return undefined;
+  const input: Record<string, unknown> = {};
+  const raw =
+    typeof event.input === 'object' && event.input !== null ? (event.input as Record<string, unknown>) : {};
+  for (const [k, v] of Object.entries(raw)) {
+    input[k] =
+      typeof v === 'string' && v.length > AUDIT_MAX_WRITE_ARG_CHARS
+        ? `${v.slice(0, AUDIT_MAX_WRITE_ARG_CHARS)}…`
+        : v;
+  }
+  const record = event.meta?.[WRITE_META_KEY];
+  return { input, ...(typeof record === 'object' && record !== null ? { record } : {}) };
+}
+
 const asNumberList = (v: unknown): number[] | null =>
   Array.isArray(v) && v.length > 0 && v.every((n) => Number.isSafeInteger(n)) ? (v as number[]) : null;
 
@@ -268,7 +300,15 @@ export function createAuditRecorder(options: AuditRecorderOptions): AuditRecorde
       inspectedCount:
         typeof inspected === 'number' && Number.isFinite(inspected) ? Math.trunc(inspected) : null,
       errorCode: event.errorCode,
-      details,
+      details: (() => {
+        const write = writeDetails(event);
+        if (write === undefined) return details;
+        // Too large with the arguments: keep the record (account, target, diff) and drop the argument text.
+        const full = sanitizeDetails({ ...details, write });
+        if (full !== null && !('note' in full)) return full;
+        const { input: _input, ...recordOnly } = write;
+        return sanitizeDetails({ ...details, write: { ...recordOnly, inputOmitted: true } }) ?? details;
+      })(),
     });
   };
 

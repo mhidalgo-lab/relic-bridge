@@ -36,7 +36,7 @@ import {
   type UpdateProjectInput,
   updateProject,
 } from '@relic-bridge/auth';
-import { type Clock, type Logger, redact, Secret } from '@relic-bridge/core';
+import { type Clock, type Logger, redact, Secret, WRITE_TOOL_NAMES } from '@relic-bridge/core';
 import {
   type AccessTokenRecord,
   type AuditQuery,
@@ -1350,6 +1350,19 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
     );
   };
   /**
+   * Write tools (P7-09, ADR-0015) act in New Relic: only an owner (or the admin token) may put one on a project or a
+   * grant. `current` is what is already enabled: keeping or removing write tools is not adding them.
+   */
+  const guardWriteTools = (
+    c: Context,
+    names: readonly string[] | null | undefined,
+    current: readonly string[] | null = null,
+  ) => {
+    const added = (names ?? []).filter((n) => WRITE_TOOL_NAMES.includes(n) && !(current ?? []).includes(n));
+    if (added.length === 0 || actsAsOwner(c)) return;
+    throw new AdminApiError('forbidden', 'only an owner can enable write tools', { detail: 'write_tools' });
+  };
+  /**
    * A grant acts for its user and for the owner of the personal key it names. A project default stays out: an owner
    * who made their own key a project's default shared it with that project (admins cannot make that choice for them:
    * project create and update are guarded).
@@ -1701,6 +1714,7 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
       async () => {
         await guardOwnerAssets(c, [await credentialOwnerId(body.defaultCredentialId)]);
         await guardProjectDefault(c, body.defaultCredentialId);
+        guardWriteTools(c, body.enabledTools);
         return createProject(storage, compact(body) as CreateProjectInput, catalog);
       },
       (p) => ({ targetId: p.id, projectId: p.id }),
@@ -1727,11 +1741,9 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
       },
       async () => {
         await guardOwnerAssets(c, [await credentialOwnerId(body.defaultCredentialId)]);
-        await guardProjectDefault(
-          c,
-          body.defaultCredentialId,
-          (await storage.projects.get(id))?.defaultCredentialId,
-        );
+        const current = await storage.projects.get(id);
+        await guardProjectDefault(c, body.defaultCredentialId, current?.defaultCredentialId);
+        guardWriteTools(c, body.enabledTools, current?.enabledTools ?? null);
         return updateProject(storage, id, compact(body) as UpdateProjectInput, catalog, clock.now());
       },
     );
@@ -1787,6 +1799,7 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
           c,
           await grantUsers({ userId: body.userId ?? null, credentialId: body.credentialId ?? null }),
         );
+        guardWriteTools(c, body.tools);
         return createGrant(storage, compact(body) as CreateGrantInput, catalog, clock.now());
       },
       (r) => ({ targetId: r.grant.id, projectId: r.grant.projectId }),

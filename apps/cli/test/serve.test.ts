@@ -73,6 +73,24 @@ describe('serveSettings', () => {
     expect(() => serveSettings({ ...base, env: { ...base.env, RB_OTEL: 'on' } })).toThrow(ConfigError);
   });
 
+  it('write tools (P7-09): off by default, on with RB_WRITE_TOOLS=on, refused without the audit log', () => {
+    expect(serveSettings(base).writeTools).toBe(false);
+    const on = serveSettings({ ...base, env: { ...base.env, RB_WRITE_TOOLS: 'on' } });
+    expect(on.writeTools).toBe(true);
+    expect(on.warnings.join(' ')).toContain('RB_WRITE_TOOLS=on');
+    expect(on.rateLimits?.write).toEqual({ requests: 20, perSeconds: 3600 });
+    expect(
+      serveSettings({ ...base, env: { ...base.env, RB_WRITE_TOOLS: 'on', RB_RATE_LIMIT_WRITE: '5/60' } })
+        .rateLimits?.write,
+    ).toEqual({ requests: 5, perSeconds: 60 });
+    expect(() =>
+      serveSettings({ ...base, env: { ...base.env, RB_WRITE_TOOLS: 'on', RB_AUDIT: 'off' } }),
+    ).toThrow(/RB_AUDIT/);
+    expect(() => serveSettings({ ...base, env: { ...base.env, RB_WRITE_TOOLS: 'maybe' } })).toThrow(
+      ConfigError,
+    );
+  });
+
   it('defaults to 127.0.0.1:8787, loopback Host allowlist and the per-user data directory', () => {
     const s = serveSettings(base);
     expect(s).toMatchObject({

@@ -56,6 +56,7 @@ relic-bridge serve --port 9000 --db /var/lib/relic-bridge/relic-bridge.db
 | `RB_RATE_LIMIT_GRANT` | `300/60` | Requests per grant, unless the grant has its own `rateLimit`, which replaces this. |
 | `RB_RATE_LIMIT_SIGN_IN` | `60/300` | Sign-in requests (`/auth/*`: chooser, provider start, callback, logout) per client IP, on top of `RB_RATE_LIMIT_IP`. Every sign-in start stores a short-lived login state, so this bounds what an unauthenticated client can store. On Workers it is counted per isolate. |
 | `RB_RATE_LIMIT_PASSTHROUGH_KEY` | `120/60` | [Pass-through](#pass-through-mode) requests per New Relic key. |
+| `RB_RATE_LIMIT_WRITE` | `20/3600` | Write tool calls per grant ([write tools](security-basics.md#write-tools-opt-in)), on top of the token and grant limits. Fails closed: a limiter error refuses the write. |
 | `RB_TRUSTED_PROXY_HOPS` | `0` | Reverse proxies in front of the server (0-5). `X-Forwarded-For` is only believed for that many hops, counted from the right; with `0` the socket address is the client. **Set it behind a proxy**, or all clients share the proxy's address and one bad device can lock the others out. |
 | `RB_AUDIT` | `on` | `off` stops recording tool calls, refusals and admin changes. See the [audit log](audit-log.md). |
 | `RB_AUDIT_NRQL` | `mask` | `mask` (literal values hidden), `hash`, `full` or `off`: how NRQL text is stored. |
@@ -64,6 +65,7 @@ relic-bridge serve --port 9000 --db /var/lib/relic-bridge/relic-bridge.db
 | `RB_OTEL`, `RB_OTEL_ENDPOINT`, `RB_OTEL_HEADERS`, `RB_OTEL_SAMPLE` | `off` | Opt-in OTLP self-monitoring; see [observability](observability.md). |
 | `RB_ADMIN_TOKEN` | unset (admin API off unless sign-in is configured) | Bootstrap admin token for `/api/admin/v1` ([admin API](#admin-api)); it acts as `owner`. With sign-in configured the admin API also takes [admin sessions](admin-access.md). 32-512 printable characters, no spaces, randomly generated: predictable values (fewer than 8 distinct characters, a repeated block, runs such as `abcdef…`) and placeholders (`changeme…`) are refused at start, hand-made ones start with a warning. Or `RB_ADMIN_TOKEN_FILE` (a `0600` file). |
 | `RB_PASSTHROUGH` | `off` | `on` adds `/passthrough/mcp`, where callers bring their own New Relic key ([pass-through mode](#pass-through-mode)). |
+| `RB_WRITE_TOOLS` | `off` | `on` offers the opt-in write tools (`create_change_event`, `acknowledge_issue`, `close_issue`). Each still needs its name in the project **and** the grant (owners only), and over OAuth the `mcp:write` scope. Needs `RB_AUDIT=on`. See [ADR-0015](../adr/0015-opt-in-write-tools.md) and [write tools](security-basics.md#write-tools-opt-in). |
 | `RB_PASSTHROUGH_IDENTITY_TTL` | `60` | Seconds a pass-through key's reachable accounts are cached, `0`-`300` (`0` asks New Relic on every request). |
 | `RB_HSTS` | `auto` | `Strict-Transport-Security` when the request arrived over https; `true` behind a TLS-terminating proxy. |
 | `RB_LOG_LEVEL` | `info` | One JSON line per request on stderr (never the token or the New Relic key). |

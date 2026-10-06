@@ -172,6 +172,7 @@ function rateLimitSettings(env: Env, warnings: string[]): RateLimitRules | null 
     grant: pick('RB_RATE_LIMIT_GRANT', DEFAULT_RATE_LIMITS.grant),
     signIn: pick('RB_RATE_LIMIT_SIGN_IN', DEFAULT_RATE_LIMITS.signIn ?? null),
     passthroughKey: pick('RB_RATE_LIMIT_PASSTHROUGH_KEY', DEFAULT_RATE_LIMITS.passthroughKey),
+    write: pick('RB_RATE_LIMIT_WRITE', DEFAULT_RATE_LIMITS.write ?? null),
   };
   if (rules.authFailures === null) {
     warnings.push('RB_RATE_LIMIT_AUTH_FAIL=off: failed authentications are not throttled per IP.');
@@ -310,7 +311,25 @@ export interface ServeSettings {
   readonly queryCache: QueryCacheSettings;
   /** Self-monitoring via OTLP (P7-08, `RB_OTEL=on`); `null` when off (the default). */
   readonly telemetry: TelemetrySettings | null;
+  /** Opt-in write tools (P7-09, `RB_WRITE_TOOLS=on`); off by default. Needs the audit log on. */
+  readonly writeTools: boolean;
   readonly warnings: readonly string[];
+}
+
+/** `RB_WRITE_TOOLS` (P7-09, ADR-0015): off by default; refused without the audit log (every write must be recorded). */
+export function writeToolsSetting(env: Env, audit: AuditSettings, warnings: string[]): boolean {
+  const on = onOff(env, 'RB_WRITE_TOOLS', false);
+  if (!on) return false;
+  if (!audit.enabled) {
+    throw new ConfigError(
+      'RB_WRITE_TOOLS=on needs the audit log (RB_AUDIT=on): every write must be recorded.',
+      'See docs/adr/0015-opt-in-write-tools.md.',
+    );
+  }
+  warnings.push(
+    'RB_WRITE_TOOLS=on: write tools can be enabled per project and grant (owners only). See docs/guide/security-basics.md.',
+  );
+  return true;
 }
 
 function oauthSettings(env: Env, identity: IdentitySettings | null): OAuthSettings | null {
@@ -432,6 +451,7 @@ export function serveSettings(input: {
     );
   }
 
+  const audit = auditSettings(env, warnings);
   return {
     port: Number(portRaw),
     host,
@@ -443,12 +463,13 @@ export function serveSettings(input: {
     hsts,
     rateLimits,
     trustedProxyHops: Number(hopsRaw),
-    audit: auditSettings(env, warnings),
+    audit,
     passthrough: passthroughSettings(env, warnings),
     identity,
     oauth: oauthSettings(env, identity),
     queryCache: queryCacheSettings(env),
     telemetry: telemetrySettings(env),
+    writeTools: writeToolsSetting(env, audit, warnings),
     warnings,
   };
 }
@@ -601,6 +622,7 @@ export async function startServer(options: StartServerOptions): Promise<RunningS
     ...(settings.accessCacheTtlMs === undefined ? {} : { accessCacheTtlMs: settings.accessCacheTtlMs }),
     hsts: settings.hsts,
     queryCache: createProcessQueryCache(settings.queryCache, keyring.queryCacheKeys().id),
+    writeTools: settings.writeTools,
     ...(hooks === undefined ? {} : { hooks }),
     ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
     // Admin API: the bootstrap token, admin sessions (sign-in configured, P4-02), or both.

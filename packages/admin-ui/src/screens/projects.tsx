@@ -231,7 +231,10 @@ function ProjectForm(props: ProjectFormProps) {
 }
 
 /** Read the project form: the admin API body, the values to show again, and field errors. */
-function readProjectForm(form: VerifiedForm): {
+function readProjectForm(
+  form: VerifiedForm,
+  catalog: readonly UiTool[],
+): {
   body: Record<string, unknown>;
   values: ProjectValues;
   errors: Record<string, string>;
@@ -261,7 +264,7 @@ function readProjectForm(form: VerifiedForm): {
   if (defaultAccountId !== null && accounts.length > 0 && !accounts.includes(defaultAccountId)) {
     errors['defaultAccountId'] = 'The default account must be one of the allowed accounts.';
   }
-  const tools = toolsFrom(form);
+  const tools = toolsFrom(form, catalog);
   if ('error' in tools) errors['tools'] = tools.error;
   const limits = limitsFrom(form);
   if ('errors' in limits) Object.assign(errors, limits.errors);
@@ -624,7 +627,7 @@ export function registerProjects(ui: Hono, kit: UiKit): void {
   ui.post(
     ROUTE,
     kit.form('admin', async (c, principal, form) => {
-      const { body, values, errors } = readProjectForm(form);
+      const { body, values, errors } = readProjectForm(form, tools);
       const again = async (errs: Record<string, string>, message?: string, status = 422) =>
         htmlResponse(
           createPage({
@@ -670,7 +673,7 @@ export function registerProjects(ui: Hono, kit: UiKit): void {
       if (!isId(id)) return kit.redirect(BASE, 'not_found');
       const { res: got, project } = await load(c, principal, id);
       if (project === null) return kit.redirect(BASE, flashFor(problemOf(got)));
-      const { body, values, errors } = readProjectForm(form);
+      const { body, values, errors } = readProjectForm(form, tools);
       const show = async (opts: Parameters<typeof detailPage>[3], status: number) =>
         htmlResponse(detailPage(principal, await detailData(c, principal, project), ctx(), opts), status);
       if (Object.keys(errors).length > 0) return show({ values, errors }, 422);

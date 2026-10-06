@@ -23,8 +23,13 @@ export interface ConsentGrantOption {
   readonly id: string;
   /** The grant's label, or a fixed fallback. */
   readonly label: string;
-  /** Tool titles the grant allows (effective access). */
+  /** Read-only tool titles the grant allows (effective access). */
   readonly tools: readonly string[];
+  /**
+   * Write tool titles the grant allows (P7-09). Shown only when the app asked for `mcp:write`; the token gets them only
+   * when the user also ticks the separate "allow changes" box.
+   */
+  readonly writeTools?: readonly string[];
   /** New Relic account ids the grant allows (effective access). */
   readonly accounts: readonly number[];
   /** Epoch ms, or null. */
@@ -53,6 +58,8 @@ export interface ConsentPageProps {
   readonly grants: readonly ConsentGrantOption[];
   /** The client asked for a refresh token (stays connected until revoked or unused). */
   readonly offline: boolean;
+  /** The client asked for `mcp:write` on a deployment with write tools on (P7-09). Never remembered. */
+  readonly writeRequested?: boolean;
   /** Pre-selected grant id. */
   readonly selected?: string | undefined;
   /** Device label field value. */
@@ -71,11 +78,13 @@ export const CONSENT_FIELDS: {
   readonly grant: 'grant';
   readonly label: 'label';
   readonly remember: 'remember';
+  readonly write: 'write';
 } = Object.freeze({
   decision: 'decision',
   grant: 'grant',
   label: 'label',
   remember: 'remember',
+  write: 'write',
 } as const);
 
 /** Longest device label the form accepts. */
@@ -112,6 +121,7 @@ function ClientIdentity(props: { readonly client: ConsentClient }): JSX.Element 
 function GrantChoice(props: {
   readonly grants: readonly ConsentGrantOption[];
   readonly selected?: string | undefined;
+  readonly writeRequested: boolean;
 }): JSX.Element {
   const only = props.grants.length === 1;
   return (
@@ -137,6 +147,9 @@ function GrantChoice(props: {
             <label for={id}>{g.label}</label>
             <span class="hint" id={`${id}-hint`}>
               {`Tools: ${g.tools.join(', ')}. Accounts: ${g.accounts.join(', ')}.`}
+              {props.writeRequested && (g.writeTools ?? []).length > 0
+                ? ` Changes, only if you allow them below: ${(g.writeTools ?? []).join(', ')}.`
+                : null}
               {g.expiresAt === null ? null : (
                 <>
                   {' Ends '}
@@ -151,10 +164,51 @@ function GrantChoice(props: {
   );
 }
 
+/**
+ * The separate approval for changes (P7-09, ADR-0015): an unticked box, shown apart from the read access, only when the
+ * app asked for `mcp:write` and one of the user's accesses includes write tools.
+ */
+function WriteChoice(props: { readonly grants: readonly ConsentGrantOption[] }): JSX.Element {
+  const any = props.grants.some((g) => (g.writeTools ?? []).length > 0);
+  if (!any) {
+    return (
+      <p class="flash flash-info">
+        The app also asked to make changes in New Relic. Your access does not include any, so it gets
+        read-only access.
+      </p>
+    );
+  }
+  return (
+    <section class="card consent-write" aria-labelledby="consent-write">
+      <h2 id="consent-write">The app also asks to make changes in New Relic</h2>
+      <p class="flash flash-error">
+        With this, the app can record change events and acknowledge or close alert issues in your accounts, as
+        you. An app that reads text planted in your telemetry could be tricked into doing so. Allow it only if
+        you need it; leave it unticked for read-only access.
+      </p>
+      <div class="check">
+        <input
+          type="checkbox"
+          id={CONSENT_FIELDS.write}
+          name={CONSENT_FIELDS.write}
+          value="1"
+          aria-describedby={`${CONSENT_FIELDS.write}-hint`}
+        />
+        <label for={CONSENT_FIELDS.write}>Also allow changes in New Relic</label>
+        <span class="hint" id={`${CONSENT_FIELDS.write}-hint`}>
+          Only the changes listed with the access you choose. This is never remembered: the app asks every
+          time.
+        </span>
+      </div>
+    </section>
+  );
+}
+
 /** The consent page: who is asking, where the answer goes, which project and which of the user's grants. */
 export function ConsentPage(props: ConsentPageProps): JSX.Element {
   const { client, project } = props;
   const usable = props.grants.length > 0;
+  const writeRequested = props.writeRequested === true;
   return (
     <Layout title="Connect an app" viewer={props.viewer}>
       {props.error ? (
@@ -180,7 +234,8 @@ export function ConsentPage(props: ConsentPageProps): JSX.Element {
       <Form action={props.action} csrf={props.viewer.csrf} label="Allow or deny the app">
         {usable ? (
           <>
-            <GrantChoice grants={props.grants} selected={props.selected} />
+            <GrantChoice grants={props.grants} selected={props.selected} writeRequested={writeRequested} />
+            {writeRequested ? <WriteChoice grants={props.grants} /> : null}
             <TextField
               name={CONSENT_FIELDS.label}
               label="Device name (optional)"
@@ -189,20 +244,22 @@ export function ConsentPage(props: ConsentPageProps): JSX.Element {
               maxlength={CONSENT_LABEL_MAX}
               autocomplete="off"
             />
-            <div class="check">
-              <input
-                type="checkbox"
-                id={CONSENT_FIELDS.remember}
-                name={CONSENT_FIELDS.remember}
-                value="1"
-                aria-describedby={`${CONSENT_FIELDS.remember}-hint`}
-              />
-              <label for={CONSENT_FIELDS.remember}>Don’t ask again for this app</label>
-              <span class="hint" id={`${CONSENT_FIELDS.remember}-hint`}>
-                {`For ${props.rememberDays} days, for this app, this address and this project only. `}
-                <a href={localHref(props.approvalsHref)}>Remembered apps</a>
-              </span>
-            </div>
+            {writeRequested ? null : (
+              <div class="check">
+                <input
+                  type="checkbox"
+                  id={CONSENT_FIELDS.remember}
+                  name={CONSENT_FIELDS.remember}
+                  value="1"
+                  aria-describedby={`${CONSENT_FIELDS.remember}-hint`}
+                />
+                <label for={CONSENT_FIELDS.remember}>Don’t ask again for this app</label>
+                <span class="hint" id={`${CONSENT_FIELDS.remember}-hint`}>
+                  {`For ${props.rememberDays} days, for this app, this address and this project only. `}
+                  <a href={localHref(props.approvalsHref)}>Remembered apps</a>
+                </span>
+              </div>
+            )}
           </>
         ) : (
           <p class="flash flash-info">

@@ -2,11 +2,11 @@
 id: P6-19
 title: "Trim tool input schema text (tools/list size)"
 phase: 6
-status: todo
+status: review
 priority: low
 depends_on: [P6-13]
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P6-19 — Trim tool input schema text (tools/list size)
@@ -23,9 +23,10 @@ what agents need.
 - Lower `TOOLS_LIST_BUDGET` (`packages/core/test/evals/quality.ts`) to the new size; keep the offline router baseline.
 
 ## Acceptance criteria
-- [ ] `tools/list` catalogue at least 15% smaller than after P6-13; budget lowered to match.
-- [ ] Description lint and router baseline still pass; no input name, type or validation change.
-- [ ] `pnpm eval:tools` tool-choice rate not lower than the P6-13 baseline (once that baseline exists).
+- [x] `tools/list` catalogue at least 15% smaller than after P6-13 (61 267 to 51 980 characters, 15.2%); budget lowered to 52 000.
+- [x] Description lint and router baseline still pass; no input name, type or validation change.
+- [ ] `pnpm eval:tools` tool-choice rate not lower than the P6-13 baseline (once that baseline exists). Not run: needs an
+      API key and spends money; the owner runs it before merging (see the phase-6 decisions log).
 
 ## Security notes
 None: wording only. Field descriptions must keep stating account and scope rules (T3).

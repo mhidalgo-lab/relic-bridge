@@ -24,6 +24,7 @@ import {
   num,
   singleAccount,
   type ToolDeps,
+  timeRangeInput,
   toolClient,
   UNTRUSTED,
 } from './shared.ts';
@@ -75,15 +76,8 @@ const listInput = z.strictObject({
     .min(1)
     .max(256)
     .optional()
-    .describe('Only deployments of this entity (guid from search_entities). Implies its account.'),
-  time_range: z
-    .string()
-    .min(1)
-    .max(200)
-    .optional()
-    .describe(
-      `Time window, e.g. "last 24 hours", "yesterday", "2026-10-01 to 2026-10-02" (UTC). Default: "${DEFAULT_WINDOW}". Cannot be longer than this connection's window limit.`,
-    ),
+    .describe('Only deployments of this entity (guid). Implies its account.'),
+  time_range: timeRangeInput(DEFAULT_WINDOW),
   limit: z
     .number()
     .int()
@@ -95,7 +89,7 @@ const listInput = z.strictObject({
   minimal_output: z
     .boolean()
     .optional()
-    .describe('Only id, time, type, entity, version and a short description (default false).'),
+    .describe('Only id, time, type, entity, version and a short description.'),
 });
 
 const listOutput = z.object({
@@ -111,7 +105,7 @@ const listOutput = z.object({
 
 const LIST_DESCRIPTION = `List change events, newest first: deployments, feature flag and configuration changes and other change-tracking markers, with time, type, user, entity, description and, for deployments, version, commit, changelog and link.
 
-Use it for "what changed before things broke?". With an entity (guid or name) it lists that entity's deployments; without one, every change event of one account. The window defaults to the last 7 days. No paging: if maybe_more is true, narrow time_range or raise limit. To judge whether a deployment hurt use analyze_deployment_impact. It cannot record a change. ${UNTRUSTED}`;
+Use it for "what changed before things broke?". With an entity (guid or name) it lists that entity's deployments; without one, every change event of one account. No paging: if maybe_more is true, narrow time_range or raise limit. To judge whether a deployment hurt use analyze_deployment_impact. It cannot record a change. ${UNTRUSTED}`;
 
 function eventRow(e: ChangeEventData, entityGuid: string | null) {
   return {
@@ -175,7 +169,7 @@ const analyzeInput = z.strictObject({
     .max(40)
     .optional()
     .describe(
-      'When the change happened, ISO 8601 (UTC unless it has an offset), e.g. "2026-10-01T14:30:00Z". Default: the latest deployment recorded for the entity in the lookback window.',
+      'When the change happened, ISO 8601 (UTC unless offset), e.g. "2026-10-01T14:30:00Z". Default: the entity\'s latest deployment in the lookback window.',
     ),
   compare_minutes: z
     .number()
@@ -184,7 +178,7 @@ const analyzeInput = z.strictObject({
     .max(MAX_COMPARE_MINUTES)
     .optional()
     .describe(
-      `Length of the windows compared before and after the deployment (default ${DEFAULT_COMPARE_MINUTES}, max ${MAX_COMPARE_MINUTES}). If less time has passed since the deployment, both windows shrink to match.`,
+      `Minutes compared before and after the deployment (default ${DEFAULT_COMPARE_MINUTES}, max ${MAX_COMPARE_MINUTES}); shrinks if the deployment is recent.`,
     ),
   lookback: z
     .string()
@@ -192,7 +186,7 @@ const analyzeInput = z.strictObject({
     .max(200)
     .optional()
     .describe(
-      `Where to look for the latest deployment when deployment_time is not given. Default: "${DEFAULT_WINDOW}".`,
+      `Where to find the latest deployment when deployment_time is omitted. Default "${DEFAULT_WINDOW}".`,
     ),
 });
 
@@ -249,7 +243,7 @@ const analyzeOutput = z.object({
 
 const ANALYZE_DESCRIPTION = `Compare an APM application's throughput, error rate and response time in equal windows before and after a deployment, with a verdict per metric (worse, better, similar, changed, inconclusive) and an overall call.
 
-Takes the application (guid or name). Uses its latest deployment of the last 7 days (see list_change_events) unless deployment_time is given, e.g. for an unrecorded rollout. Windows default to 30 minutes each and shrink for a recent deployment (5 minutes minimum). Runs about 3 requests; a stopped window leaves the other (partial). An indication, not proof: traffic shifts and other changes also move these numbers; verdicts need at least ${MIN_SAMPLES} transactions per window. APM applications only. For a comparison with the previous window, without a deployment, use analyze_transactions. ${UNTRUSTED}`;
+Takes the application (guid or name). Uses its latest deployment of the last 7 days (see list_change_events) unless deployment_time is given, e.g. for an unrecorded rollout. Windows default to 30 minutes each, shorter for a recent deployment. Runs about 3 requests; a stopped window leaves the other (partial). An indication, not proof: traffic shifts and other changes also move these numbers; verdicts need at least ${MIN_SAMPLES} transactions per window. APM applications only. Without a deployment, compare with the previous window using analyze_transactions. ${UNTRUSTED}`;
 
 export interface WindowStats {
   /** Transactions counted. */

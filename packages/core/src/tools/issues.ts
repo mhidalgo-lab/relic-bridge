@@ -25,6 +25,7 @@ import {
   num,
   singleAccount,
   type ToolDeps,
+  timeRangeInput,
   toolClient,
   UNTRUSTED,
 } from './shared.ts';
@@ -38,22 +39,13 @@ const ISSUE_STATES = ['CREATED', 'ACTIVATED', 'DEACTIVATED', 'CLOSED'] as const;
 const INCIDENT_STATES = ['CREATED', 'CLOSED'] as const;
 const PRIORITIES = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'] as const;
 
-const windowInput = z
-  .string()
-  .min(1)
-  .max(200)
-  .optional()
-  .describe(
-    `Time window, e.g. "last 6 hours", "yesterday", "2026-10-01 to 2026-10-02" (UTC). Default: "${DEFAULT_WINDOW}". Cannot be longer than this connection's window limit.`,
-  );
+const windowInput = timeRangeInput(DEFAULT_WINDOW);
 const entityGuidInput = z
   .string()
   .min(1)
   .max(256)
   .optional()
-  .describe(
-    'Only issues/incidents that involve this entity (guid from search_entities). Implies its account.',
-  );
+  .describe('Only issues/incidents that involve this entity (guid). Implies its account.');
 const priorityInput = z.array(z.enum(PRIORITIES)).min(1).max(4).optional().describe('Only these priorities.');
 
 const issuesInput = z.strictObject({
@@ -85,10 +77,7 @@ const issuesInput = z.strictObject({
   time_range: windowInput,
   account: accountInput,
   cursor: cursorInput,
-  minimal_output: z
-    .boolean()
-    .optional()
-    .describe('Only id, title, state, priority, created and entities (default false).'),
+  minimal_output: z.boolean().optional().describe('Only id, title, state, priority, created and entities.'),
 });
 
 const incidentsInput = z.strictObject({
@@ -106,15 +95,12 @@ const incidentsInput = z.strictObject({
     .max(MAX_CONTAINS)
     .optional()
     .describe(
-      'Text to look for in the incident title and entity names. Applied to the page that was fetched, so a page can come back with fewer rows; follow next_cursor to search on.',
+      'Text in the incident title or entity names. Filters the fetched page only: follow next_cursor to search on.',
     ),
   time_range: windowInput,
   account: accountInput,
   cursor: cursorInput,
-  minimal_output: z
-    .boolean()
-    .optional()
-    .describe('Only id, title, state, priority, created and entities (default false).'),
+  minimal_output: z.boolean().optional().describe('Only id, title, state, priority, created and entities.'),
 });
 
 const pageOutput = {
@@ -127,13 +113,13 @@ const pageOutput = {
 const issuesOutput = z.object({ issues: z.array(z.record(z.string(), z.unknown())), ...pageOutput });
 const incidentsOutput = z.object({ incidents: z.array(z.record(z.string(), z.unknown())), ...pageOutput });
 
-const ISSUES_DESCRIPTION = `List recent alert issues of one account (what is or was alerting): title, state (CREATED, ACTIVATED, DEACTIVATED, CLOSED), priority, when it opened, was acknowledged and closed, and the entities, policy and condition behind it.
+const ISSUES_DESCRIPTION = `List recent alert issues of one account (what is or was alerting): title, state, priority, when it opened, was acknowledged and closed, and the entities, policy and condition behind it.
 
-Start here for "what is alerting?" or "what broke?": states ["ACTIVATED"] gives the open ones. An issue groups related incidents; for the individual violations use search_incidents. Filter by priority, entity (guid or name), policy_id, acknowledged or contains; the window defaults to the last 24 hours. Page with next_cursor. It cannot acknowledge or close anything. Uses New Relic's experimental aiIssues API. ${UNTRUSTED}`;
+Start here for "what is alerting?" or "what broke?": states ["ACTIVATED"] gives the open ones. An issue groups related incidents; for the individual violations use search_incidents. Filter by entity (guid or name). Page with next_cursor. It cannot acknowledge or close anything. Uses New Relic's experimental aiIssues API. ${UNTRUSTED}`;
 
 const INCIDENTS_DESCRIPTION = `Search the alert incidents (individual violations) of one account: title, state (CREATED = open, CLOSED), priority, times and the entities involved.
 
-Use it to drill into what triggered an issue or to find one entity's violations; for the grouped view ("what is alerting?") use list_recent_issues. Filter by states, priority, entity (guid or name) or contains (applied to each fetched page); the window defaults to the last 24 hours. Page with next_cursor. Uses New Relic's experimental aiIssues API. ${UNTRUSTED}`;
+Use it to drill into what triggered an issue or to find one entity's violations; for the grouped view ("what is alerting?") use list_recent_issues. Filter by entity (guid or name). Page with next_cursor. Uses New Relic's experimental aiIssues API. ${UNTRUSTED}`;
 
 /** `["a", null]` or a comma-separated string (some incident fields are plain strings) → clean strings. */
 function listOf(v: readonly (string | number | null)[] | string | null | undefined): string[] {

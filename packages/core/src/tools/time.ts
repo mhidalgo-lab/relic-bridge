@@ -10,8 +10,7 @@ const timeRangeInput = z.strictObject({
     .min(1)
     .max(200)
     .describe(
-      'A time expression, e.g. "last 2 hours", "past 30 minutes", "today", "yesterday", "this week", "last month", ' +
-        '"2026-10-01T08:00:00Z to 2026-10-01T10:00:00Z" or "2026-10-01 to 2026-10-03". Times are UTC.',
+      'A time expression, e.g. "last 2 hours", "yesterday", "this week", "2026-10-01T08:00:00Z to 2026-10-01T10:00:00Z" or "2026-10-01 to 2026-10-03". UTC.',
     ),
 });
 

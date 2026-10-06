@@ -22,6 +22,7 @@ import {
   num,
   singleAccount,
   type ToolDeps,
+  timeRangeInput,
   toolClient,
   UNTRUSTED,
 } from './shared.ts';
@@ -51,14 +52,7 @@ const LEVEL_VARIANTS: Record<Level, readonly string[]> = {
   trace: ['TRACE', 'trace', 'Trace'],
 };
 
-const RANGE_FIELD = z
-  .string()
-  .min(1)
-  .max(200)
-  .optional()
-  .describe(
-    `Time window, e.g. "last 6 hours", "yesterday", "2026-10-01 to 2026-10-02" (UTC). Default: "${DEFAULT_WINDOW}". Cannot be longer than this connection's window limit.`,
-  );
+const RANGE_FIELD = timeRangeInput(DEFAULT_WINDOW);
 const LEVEL_FIELD = z
   .enum(LEVELS)
   .optional()
@@ -231,9 +225,7 @@ const GUID_OPTIONAL = z
   .min(1)
   .max(256)
   .optional()
-  .describe(
-    'Only logs of this entity (guid from search_entities); its account is the account queried. Omit to read the account-wide logs.',
-  );
+  .describe('Only logs of this entity (guid; its account is queried). Omit for the account-wide logs.');
 
 const listInput = z.strictObject({
   entity_guid: GUID_OPTIONAL,
@@ -253,7 +245,7 @@ const listInput = z.strictObject({
     .max(MAX_LIMIT)
     .optional()
     .describe(`Most lines to return (default ${DEFAULT_LIMIT}, max ${MAX_LIMIT}).`),
-  minimal_output: z.boolean().optional().describe('Only timestamp, level and message (default false).'),
+  minimal_output: z.boolean().optional().describe('Only timestamp, level and message.'),
 });
 
 const logRow = z.object({
@@ -272,7 +264,7 @@ const listOutput = z.object({
   maybeMore: z.boolean(),
 });
 
-const LIST_DESCRIPTION = `Read the most recent log lines (newest first) of one account or one entity (guid or name), optionally only one level (fatal, error, warn, info, debug, trace) or lines containing some text. Default: the last hour, ${DEFAULT_LIMIT} lines, max ${MAX_LIMIT}.
+const LIST_DESCRIPTION = `Read the most recent log lines (newest first) of one account or one entity (guid or name), optionally only one level or lines containing some text. Default: the last hour, ${DEFAULT_LIMIT} lines, max ${MAX_LIMIT}.
 
 Use it to read what was logged around an incident. For counts by level, common message patterns and bursts use analyze_entity_logs; for the lines of one failing request use trace_error. There is no "lines around this error" mode: set a narrow time_range around the error's time instead. Messages are cut to ${MAX_MESSAGE_CHARS} characters and scrubbed of credential-like strings, but may still hold personal data. ${UNTRUSTED}`;
 

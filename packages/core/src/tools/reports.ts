@@ -256,7 +256,7 @@ const lookbackInput = z
   .max(200)
   .optional()
   .describe(
-    'Where to look for the issue, e.g. "last 30 days". Default: the last 7 days (or this connection\'s window limit if shorter).',
+    'Where to find the issue, e.g. "last 30 days". Default: last 7 days (or the window limit if shorter).',
   );
 
 const insightsInput = z.strictObject({
@@ -270,7 +270,7 @@ const insightsInput = z.strictObject({
     .max(720)
     .optional()
     .describe(
-      `Minutes before the issue opened to include, as the baseline (default ${DEFAULT_BEFORE_MINUTES}). The window ends when the issue closed, or now.`,
+      `Minutes before the issue opened to include (default ${DEFAULT_BEFORE_MINUTES}). The window ends when the issue closed, or now.`,
     ),
   change_lookback_hours: z
     .number()
@@ -278,9 +278,7 @@ const insightsInput = z.strictObject({
     .min(1)
     .max(168)
     .optional()
-    .describe(
-      `How many hours before the window to look for deployments and other changes (default ${DEFAULT_CHANGE_LOOKBACK_HOURS}).`,
-    ),
+    .describe(`Hours before the window to look for changes (default ${DEFAULT_CHANGE_LOOKBACK_HOURS}).`),
   sections: z
     .array(z.enum(INSIGHT_SECTIONS))
     .min(1)
@@ -315,7 +313,7 @@ const INSIGHTS_COST = 14;
 
 const INSIGHTS_DESCRIPTION = `Investigation report for one alert issue (issue_id from list_recent_issues): the issue, then for its first entity the details, golden metrics, Errors Inbox groups and a log summary over the issue window (${DEFAULT_BEFORE_MINUTES} minutes before it opened until it closed, or now), the changes in the ${DEFAULT_CHANGE_LOOKBACK_HOURS} hours before, and the related entities.
 
-Use it to start investigating a specific alert. Each section is the result of the matching tool (get_entity, get_golden_metrics, list_error_groups, analyze_entity_logs, list_change_events, get_related_entities), so you can drill in with those. Runs up to ${INSIGHTS_COST} requests in that priority order; what does not fit or fails is marked skipped or error (partial: true), so on a small budget ask for fewer sections or max_metrics. For an entity without a specific issue use entity_health. Uses New Relic's experimental aiIssues API. ${UNTRUSTED}`;
+Use it to start investigating a specific alert. Each section is the result of the matching tool (get_entity, get_golden_metrics, list_error_groups, analyze_entity_logs, list_change_events, get_related_entities): drill in with those. Runs up to ${INSIGHTS_COST} requests in that priority order; what does not fit or fails is marked skipped or error (partial: true): ask for fewer sections or max_metrics. For an entity without a specific issue use entity_health. Uses New Relic's experimental aiIssues API. ${UNTRUSTED}`;
 
 // ---------------------------------------------------------------------------------------------------------------------
 // generate_user_impact_report
@@ -446,17 +444,15 @@ const impactInput = z.strictObject({
   issue_id: issueIdInput
     .optional()
     .describe(
-      'An alert issue id (from list_recent_issues): its entities are the affected ones. Give this or entity_guid.',
+      'An alert issue id (list_recent_issues): its entities are the affected ones. Give this or entity_guid.',
     ),
   entity_guid: z
     .string()
     .min(1)
     .max(256)
     .optional()
-    .describe(
-      'The affected entity (guid from search_entities), e.g. a back-end service. Give this or issue_id.',
-    ),
-  account: accountInput.describe('Account of the issue (with issue_id). Default: the default account.'),
+    .describe('The affected entity guid. Give this or issue_id.'),
+  account: accountInput.describe('Account of the issue (with issue_id). Default: the default.'),
   lookback: lookbackInput,
   time_range: z
     .string()
@@ -469,9 +465,7 @@ const impactInput = z.strictObject({
   compare: z
     .boolean()
     .optional()
-    .describe(
-      'Also measure the equal window just before, to flag changes (default true; one more request per kind).',
-    ),
+    .describe('Also measure the window before, to flag changes (default true; one more request per kind).'),
   max_entities: z
     .number()
     .int()
@@ -513,7 +507,7 @@ const impactOutput = z.object({
 
 const IMPACT_COST = 9;
 
-const IMPACT_DESCRIPTION = `Measure what end users saw while something was wrong: for an alert issue (issue_id) or an affected entity (entity_guid or name), find the front ends involved (browser apps, mobile apps and synthetic monitors affected or directly related) and report browser page views, load time, sessions and JavaScript errors; mobile sessions, users and crashes; synthetic checks, failures and failing locations.
+const IMPACT_DESCRIPTION = `Measure what end users saw while something was wrong: for an alert issue (issue_id) or an affected entity (entity_guid or name), find the front ends involved (browser apps, mobile apps, synthetic monitors) and report page views, load time, sessions and JavaScript errors; mobile sessions, users and crashes; synthetic checks, failures and failing locations.
 
 By default it also measures the equal window before and flags clear changes (js_errors_up, slower_page_loads, fewer_page_views, crashes_up, fewer_sessions, failing_checks). Runs about ${IMPACT_COST} requests (more when the front ends span several accounts); what does not fit is marked not_run (partial: true). Only front ends in this connection's accounts are measured. ${UNTRUSTED}`;
 

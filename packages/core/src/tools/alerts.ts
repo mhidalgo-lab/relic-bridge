@@ -39,10 +39,7 @@ const policiesInput = z.strictObject({
     .describe('Part of the policy name (case-insensitive substring match).'),
   account: accountInput,
   cursor: cursorInput,
-  minimal_output: z
-    .boolean()
-    .optional()
-    .describe('Only id, name and account of each policy (default false).'),
+  minimal_output: z.boolean().optional().describe('Only id, name and account of each policy.'),
 });
 
 const policiesOutput = z.object({
@@ -77,7 +74,7 @@ const conditionsInput = z.strictObject({
   minimal_output: z
     .boolean()
     .optional()
-    .describe('Only id, name, policy, enabled, type, NRQL query and thresholds (default false).'),
+    .describe('Only id, name, policy, enabled, type, NRQL query and thresholds.'),
 });
 
 const conditionsOutput = z.object({

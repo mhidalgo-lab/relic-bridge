@@ -37,15 +37,13 @@ const RANGE_FIELD = z
   .min(1)
   .max(200)
   .optional()
-  .describe(
-    `Time window, e.g. "last 1 hour", "last 24 hours", "2026-10-01..2026-10-02" (default "${DEFAULT_WINDOW}").`,
-  );
-const MINIMAL_FIELD = z.boolean().optional().describe('Fewer fields per row (default false).');
+  .describe(`Window, e.g. "last 6 hours" (UTC ranges allowed). Default "${DEFAULT_WINDOW}".`);
+const MINIMAL_FIELD = z.boolean().optional().describe('Fewer fields per row.');
 const ENTITY_FIELD = z
   .string()
   .min(1)
   .max(256)
-  .describe('The APM application (guid from search_entities). Its account is the account queried.');
+  .describe('The APM application (guid; its account is queried).');
 
 const bounds = (sinceMs: number, untilMs: number) => ({
   since: Math.floor(sinceMs / 1000),

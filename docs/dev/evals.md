@@ -27,7 +27,7 @@ An agent picks a tool from its name, description and input schema, nothing else.
 7. **End with the untrusted-data sentence** (`UNTRUSTED` in `packages/core/src/tools/shared.ts`) on every tool that
    returns New Relic text. The result repeats a fuller notice in front of every data block, so one short sentence is enough.
 8. **Bounded.** At most 1 200 characters per description; the whole catalogue (descriptions plus input schemas) at most
-   64 000 characters (`TOOLS_LIST_BUDGET`; it was 65 683 before P6-13). Every tool is sent in every conversation.
+   52 000 characters (`TOOLS_LIST_BUDGET`; it was 65 683 before P6-13 and 61 291 before P6-19). Every tool is sent in every conversation.
 9. Behaviour, names and schemas do not change in a description edit. Renaming a tool is a breaking change.
 10. No uppercase NRQL keywords followed by a space in source strings: the NRQL template lint rejects them (write
     "SINCE 1 hour ago", not a full query).
@@ -57,10 +57,11 @@ top-3 hit count drops below `ROUTER_BASELINE` in `tool-descriptions.test.ts`.
 |---|---|---|---|
 | before P6-13 | 30 / 44 | 35 / 44 | 65 683 chars |
 | P6-13 | 30 / 44 | 38 / 44 | 61 267 chars |
+| P6-19 | not below `ROUTER_BASELINE` | | 51 980 chars |
 
 Do not tune descriptions to this router: it is a regression alarm, not the goal. If a deliberate change lowers it, lower
-the baseline in the same PR and say why. Input schemas are now the larger part of the catalogue; trimming them is
-P6-19.
+the baseline in the same PR and say why. P6-19 trimmed the input schemas: shared wording for `account`, `cursor`, `time_range` and the entity `name`, no
+`$schema` keyword (MCP defaults to 2020-12), enum lists and defaults not repeated in field text.
 
 ## LLM eval (`pnpm eval:tools`)
 

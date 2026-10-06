@@ -19,6 +19,7 @@ import {
   num,
   singleAccount,
   type ToolDeps,
+  timeRangeInput,
   toolClient,
   UNTRUSTED,
 } from './shared.ts';
@@ -46,7 +47,7 @@ const input = z.strictObject({
     .min(1)
     .max(256)
     .optional()
-    .describe('Only error groups of this entity (guid from search_entities). Implies its account.'),
+    .describe('Only error groups of this entity (guid). Implies its account.'),
   contains: z
     .string()
     .min(1)
@@ -61,20 +62,10 @@ const input = z.strictObject({
     .enum(['occurrences', 'last_seen', 'first_seen'])
     .optional()
     .describe('Order, most first. Default: New Relic order. occurrences = count in the window.'),
-  time_range: z
-    .string()
-    .min(1)
-    .max(200)
-    .optional()
-    .describe(
-      `Time window, e.g. "last 6 hours", "yesterday", "2026-10-01 to 2026-10-02" (UTC). Default: "${DEFAULT_WINDOW}". Cannot be longer than this connection's window limit.`,
-    ),
+  time_range: timeRangeInput(DEFAULT_WINDOW),
   account: accountInput,
   cursor: cursorInput,
-  minimal_output: z
-    .boolean()
-    .optional()
-    .describe('Only id, name, state, occurrences, last seen and entity (default false).'),
+  minimal_output: z.boolean().optional().describe('Only id, name, state, occurrences, last seen and entity.'),
 });
 
 const output = z.object({
@@ -87,9 +78,9 @@ const output = z.object({
   hiddenOutsideScope: z.boolean(),
 });
 
-const DESCRIPTION = `List the Errors Inbox error groups of one account (similar errors grouped into one item): name, message, state (UNRESOLVED, RESOLVED, IGNORED), occurrences in the window, first and last seen, whether it regressed, and the entity it comes from.
+const DESCRIPTION = `List the Errors Inbox error groups of one account (similar errors grouped into one item): name, message, state, occurrences in the window, first and last seen, whether it regressed, and the entity it comes from.
 
-Use it for "which errors hurt us?" (sort_by "occurrences") or "what new errors appeared?" (sort_by "first_seen"). Filter by entity (guid or name), states, contains or assigned; the window defaults to the last 24 hours. To follow one group to its trace, spans and logs use trace_error; events_query is NRQL for run_nrql. Page with next_cursor. It cannot resolve, ignore or assign anything. ${UNTRUSTED}`;
+Use it for "which errors hurt us?" (sort_by "occurrences") or "what new errors appeared?" (sort_by "first_seen"). Filter by entity (guid or name). To follow one group to its trace, spans and logs use trace_error; events_query is NRQL for run_nrql. Page with next_cursor. It cannot resolve, ignore or assign anything. ${UNTRUSTED}`;
 
 const iso = (ms: unknown): string | null => {
   const n = num(ms);

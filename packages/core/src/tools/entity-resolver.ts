@@ -295,9 +295,7 @@ const resolveInput = z.strictObject({
     .regex(/^[A-Za-z][A-Za-z0-9_]{0,63}$/)
     .optional()
     .describe('Only this type, e.g. APPLICATION, HOST.'),
-  account: accountIdSchema
-    .optional()
-    .describe('Only this account (must be one of list_accounts). Default: every account of this connection.'),
+  account: accountIdSchema.optional().describe('Only this account (one of list_accounts). Default: all.'),
 });
 
 const resolveOutput = z.object({
@@ -313,7 +311,7 @@ const resolveOutput = z.object({
 
 const DESCRIPTION = `Resolve one loose entity name (e.g. "shippingservice") to exactly one guid, or return the candidates when it is ambiguous (never a guess).
 
-Most entity tools take the name directly, so call this only when you need the guid itself or want to check which entity a name means. To list or filter many entities use search_entities. Matching order: exact guid, exact name, case-insensitive name, name ignoring case, spaces and punctuation, then substring; the best matching group decides. Only this connection's accounts are searched; cached for 5 minutes. ${UNTRUSTED}`;
+Most entity tools take the name directly, so call this only when you need the guid itself or want to check which entity a name means. To list or filter many entities use search_entities. Matching order: exact guid, exact name, case-insensitive, ignoring spaces and punctuation, then substring; the best group decides. Only this connection's accounts are searched; cached for 5 minutes. ${UNTRUSTED}`;
 
 /** `resolve_entity`. */
 export function createEntityResolveTools(deps: ToolDeps = {}): ToolDefinition[] {

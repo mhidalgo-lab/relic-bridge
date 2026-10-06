@@ -3,6 +3,7 @@ import { type CallToolResult, McpServer, type StandardSchemaWithJSON } from '@mo
 import type { ToolContext } from './context.ts';
 import { ERROR_META_KEY, toToolErrorResult } from './errors.ts';
 import { type PromptDefinition, promptConfig, renderPrompt, selectPrompts } from './prompts.ts';
+import { withoutDialect } from './registry.ts';
 import { type ResourceDefinition, registerResources, selectResources } from './resources.ts';
 import { annotationsFor, type ToolDefinition, type ToolOutput } from './tool.ts';
 import { VERSION } from './version.ts';
@@ -87,7 +88,7 @@ export function withCachedJsonSchema(schema: StandardSchemaWithJSON): StandardSc
       let json = memo.get(key);
       if (json === undefined) {
         // Frozen: the same object is handed to every request, so nobody may change it.
-        json = deepFreeze(std.jsonSchema[io](options));
+        json = deepFreeze(withoutDialect(std.jsonSchema[io](options)));
         memo.set(key, json);
       }
       return json;

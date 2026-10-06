@@ -31,8 +31,7 @@ const format = z
   .enum(OUTPUT_FORMATS as [OutputFormat, ...OutputFormat[]])
   .optional()
   .describe(
-    `How rows are rendered in the text result: "auto" (default: markdown table up to ${TABLE_MAX_COLUMNS} columns, CSV above), ` +
-      '"table", "csv" or "json". structuredContent always carries the rows as JSON.',
+    `Text rendering: "auto" (default: table up to ${TABLE_MAX_COLUMNS} columns, CSV above), "table", "csv" or "json". structuredContent always has JSON rows.`,
   );
 
 const maxRows = z
@@ -42,8 +41,7 @@ const maxRows = z
   .max(MAX_OUTPUT_CAPS.maxRows)
   .optional()
   .describe(
-    `Most rows to show (default ${DEFAULT_OUTPUT_CAPS.maxRows}, max ${MAX_OUTPUT_CAPS.maxRows}). An output cap only: ` +
-      'use LIMIT in the NRQL to control how many rows New Relic returns.',
+    `Most rows shown (default ${DEFAULT_OUTPUT_CAPS.maxRows}, max ${MAX_OUTPUT_CAPS.maxRows}). Output cap only: use NRQL LIMIT to limit the query.`,
   );
 
 // Strict: an unknown argument (e.g. `account` instead of `accounts`) must fail, not silently query the default account.
@@ -52,18 +50,13 @@ const runNrqlInput = z.strictObject({
     .string()
     .min(1)
     .max(MAX_NRQL_CHARS)
-    .describe(
-      'The full NRQL query, with a SINCE clause; add FACET … LIMIT n for breakdowns and LIMIT for raw events.',
-    ),
+    .describe('Full NRQL with a SINCE clause; FACET … LIMIT n for breakdowns, LIMIT for raw events.'),
   accounts: z
     .array(accountId)
     .min(1)
     .max(MAX_QUERY_ACCOUNTS)
     .optional()
-    .describe(
-      "Account ids to query. Default: the connection's default account. More than one runs a cross-account " +
-        'query (results combined). See list_accounts.',
-    ),
+    .describe('Account ids (list_accounts). Default: the default. Several run a cross-account query.'),
   timeout_s: z
     .number()
     .int()
@@ -71,8 +64,7 @@ const runNrqlInput = z.strictObject({
     .max(MAX_NRQL_TIMEOUT_S)
     .optional()
     .describe(
-      `Seconds New Relic may spend on the query before it continues in the background (1–${MAX_NRQL_TIMEOUT_S}, ` +
-        'default 10). Slow queries then return a query handle for get_query_result.',
+      `Seconds to wait (1–${MAX_NRQL_TIMEOUT_S}, default 10). A slower query continues and returns a handle for get_query_result.`,
     ),
   format,
   max_rows: maxRows,
@@ -91,10 +83,10 @@ const getQueryResultInput = z.strictObject({
 const RUN_NRQL_DESCRIPTION = `Run a read-only NRQL query and return the rows: the general-purpose tool for counts, rates, percentiles, top-N, time series and raw events.
 
 Prefer a purpose-built tool when one fits (entity_health, analyze_transactions, list_error_groups, analyze_entity_logs...): fewer requests and shaped output. NRQL tips:
-- Always add SINCE (e.g. SINCE 1 hour ago); without it NRQL reads the last hour only. Long windows may be refused by the connection's query limits.
-- Aggregate instead of pulling raw events: count(*), average(), percentile(duration, 95), uniqueCount(), rate(count(*), 1 minute).
+- Always add SINCE (e.g. SINCE 1 hour ago); without it NRQL reads the last hour. Long windows may exceed the connection's query limits.
+- Aggregate instead of pulling raw events: count(*), average(), percentile(duration, 95), uniqueCount().
 - FACET attr LIMIT n for top-N, TIMESERIES 5 minutes for trends, WHERE to filter.
-- Raw-event queries (no aggregate) get LIMIT 10 unless you set LIMIT; every LIMIT is capped by the connection.
+- Raw-event queries get LIMIT 10 unless you set one; the connection caps every LIMIT.
 - Unsure of event types or attribute names? Call list_event_types and get_attributes instead of guessing.
 If the query is still running after timeout_s you get a query_id and account: call get_query_result with them after the suggested wait. ${UNTRUSTED}`;
 

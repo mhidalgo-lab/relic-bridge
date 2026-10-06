@@ -189,6 +189,33 @@ describe('relic-bridge serve (built CLI)', () => {
       expect(apiKeys.length).toBeGreaterThan(0);
       expect(apiKeys.every((k) => k === FAKE_KEY)).toBe(true);
 
+      // MCP Tasks (P7-13): `serve` keeps task records, so a 2026-07-28 client sees the extension.
+      const discover = await fetch(`${base}/p/prod/mcp`, {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${tokens.prod}`,
+          'content-type': 'application/json',
+          accept: 'application/json, text/event-stream',
+          'mcp-method': 'server/discover',
+          'mcp-protocol-version': '2026-07-28',
+        },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 1,
+          method: 'server/discover',
+          params: {
+            _meta: {
+              'io.modelcontextprotocol/protocolVersion': '2026-07-28',
+              'io.modelcontextprotocol/clientInfo': { name: 'serve-e2e', version: '0' },
+              'io.modelcontextprotocol/clientCapabilities': {},
+            },
+          },
+        }),
+      });
+      expect(await discover.json()).toMatchObject({
+        result: { capabilities: { extensions: { 'io.modelcontextprotocol/tasks': {} } } },
+      });
+
       // A token of another project, a bad token and no token: one identical 401.
       const bodies = new Set<string>();
       for (const auth of [`Bearer ${tokens.other}`, 'Bearer rb_live_nope', undefined]) {

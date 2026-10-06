@@ -637,6 +637,8 @@ export async function startServer(options: StartServerOptions): Promise<RunningS
     hsts: settings.hsts,
     queryCache: createProcessQueryCache(settings.queryCache, keyring.queryCacheKeys().id),
     writeTools: settings.writeTools,
+    // MCP Tasks (P7-13): sealed task records in the `kv` table, purged with the other expired rows.
+    taskStore: storage.kv,
     ...(hooks === undefined ? {} : { hooks }),
     ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
     // Admin API: the bootstrap token, admin sessions (sign-in configured, P4-02), or both.

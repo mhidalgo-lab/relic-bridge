@@ -22,7 +22,7 @@ import {
   toRow,
 } from './entity-common.ts';
 import { cleanName } from './identity.ts';
-import { accountIdSchema, nextCursorOf, type ToolDeps, toolClient } from './shared.ts';
+import { accountIdSchema, nextCursorOf, type ToolDeps, toolClient, UNTRUSTED } from './shared.ts';
 
 /** How long a lookup is reused (P6-14). */
 export const ENTITY_RESOLVE_TTL_MS: number = 5 * 60_000;
@@ -311,9 +311,9 @@ const resolveOutput = z.object({
   accounts: z.array(z.number().int()),
 });
 
-const DESCRIPTION = `Resolve a loose entity name to one entity guid, or list the candidates when the name is ambiguous.
+const DESCRIPTION = `Resolve one loose entity name (e.g. "shippingservice") to exactly one guid, or return the candidates when it is ambiguous (never a guess).
 
-Use it before get_entity, get_related_entities or get_golden_metrics when you only know a name like "shippingservice". Matching order: exact guid, exact name, case-insensitive name, name ignoring case, spaces and punctuation, then substring. The best matching group decides: one entity resolves, several come back as candidates (never a guess), none says not_found. Only accounts of this connection are searched; results are cached for 5 minutes. Names come from New Relic and are inside an untrusted-data block.`;
+Most entity tools take the name directly, so call this only when you need the guid itself or want to check which entity a name means. To list or filter many entities use search_entities. Matching order: exact guid, exact name, case-insensitive name, name ignoring case, spaces and punctuation, then substring; the best matching group decides. Only this connection's accounts are searched; cached for 5 minutes. ${UNTRUSTED}`;
 
 /** `resolve_entity`. */
 export function createEntityResolveTools(deps: ToolDeps = {}): ToolDefinition[] {

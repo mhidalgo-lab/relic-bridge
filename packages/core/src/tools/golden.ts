@@ -13,7 +13,7 @@ import { checkGuid, isNonNull, outOfScope, requireField } from './entity-common.
 import { entityRefFields, RESOLVE_COST, refineEntityRef, resolveEntityRef } from './entity-ref.ts';
 import { createEntityResolver } from './entity-resolver.ts';
 import { cleanName } from './identity.ts';
-import { assertWindowWithinLimit, type ToolDeps, toolClient } from './shared.ts';
+import { assertWindowWithinLimit, type ToolDeps, toolClient, UNTRUSTED } from './shared.ts';
 
 export const DEFAULT_GOLDEN_SINCE = 'last 30 minutes';
 const DEFAULT_MAX_METRICS = 10;
@@ -92,9 +92,9 @@ const output = z.object({
   totalMetrics: z.number().int(),
 });
 
-const DESCRIPTION = `Health summary of one entity from its golden metrics: the handful of metrics New Relic defines as the key signals for that kind of entity (throughput, response time and error rate for a service; CPU and memory for a host; and so on).
+const DESCRIPTION = `Golden metrics of one entity (guid or name): the key signals New Relic defines for its kind (throughput, response time and error rate for a service; CPU and memory for a host...), each with its latest value, a trend (up, down, flat) and the NRQL that produced it.
 
-Pass a guid from search_entities. Each metric returns its latest value, a trend (up, down, flat: the later half of the window compared with the earlier half) and the NRQL that produced it, so you can rerun or refine it with run_nrql. since defaults to the last 30 minutes. If the request budget or a query limit stops some metrics, the others are still returned and the missing ones are marked skipped or error. Titles and values come from New Relic and are inside an untrusted-data block.`;
+Use it for current metric values, and refine any metric with run_nrql. For metrics plus issues, errors and deployments in one call use entity_health. since defaults to the last 30 minutes. Runs one entity lookup, then one query per metric (up to max_metrics); metrics stopped by the request budget or query limits are marked skipped or error. ${UNTRUSTED}`;
 
 const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 

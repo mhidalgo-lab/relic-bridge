@@ -41,6 +41,8 @@ export interface ManageContext {
   readonly fs: ConfigFs;
   readonly platform: string;
   readonly homeDir?: string;
+  /** Working directory (project-level client config files for `doctor --client-configs`). */
+  readonly cwd?: string;
   /** OS keychain override (tests); the real one for this platform is created when a command needs it. */
   readonly keychain?: Keychain;
   /** Machine-readable output on stdout. */

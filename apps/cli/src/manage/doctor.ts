@@ -27,11 +27,12 @@ import { openSqliteStorage } from '@relic-bridge/storage-sqlite';
 import { UsageError } from '../args.ts';
 import { ConfigError, type LoadedConfig, loadConfig } from '../config.ts';
 import { createKeychain, KeychainError } from '../keychain.ts';
-import { resolveMasterKeyEnv } from '../keys.ts';
+import { readKeyFile, resolveMasterKeyEnv } from '../keys.ts';
 import { resolveDbPath } from '../serve.ts';
 import { nerdGraphFetch } from '../test-hooks.ts';
 import type { ManageArgs } from './args.ts';
 import { parseRemoteUrl } from './client.ts';
+import { checkClientConfigs, checkRemoteToken } from './doctor-clients.ts';
 import type { ManageContext } from './io.ts';
 
 export type CheckStatus = 'ok' | 'warn' | 'fail' | 'skip';
@@ -708,6 +709,20 @@ export function renderReport(report: DoctorReport): string {
   return `${lines.join('\n')}\n`;
 }
 
+/** The device token for the remote check: `--token-file` (mode 0600) or `RB_TOKEN`, never an argument value. */
+function readDeviceToken(ctx: ManageContext, file: string | undefined): { value?: string; error?: string } {
+  try {
+    const raw =
+      file !== undefined
+        ? readKeyFile('--token-file', file, ctx.fs, ctx.platform)
+        : (ctx.env['RB_TOKEN'] ?? '');
+    const value = raw.trim();
+    return value === '' ? {} : { value };
+  } catch (error) {
+    return { error: errText(error) };
+  }
+}
+
 /** Exit 0 when nothing failed (warnings allowed), 1 when any check failed. A usage error (bad --remote) is thrown. */
 export async function doctorCommand(ctx: ManageContext, args: ManageArgs, logger: Logger): Promise<number> {
   const offline = args.values.offline === true;
@@ -719,6 +734,12 @@ export async function doctorCommand(ctx: ManageContext, args: ManageArgs, logger
   }
   const now = ctx.host.now ?? Date.now;
   const checks: CheckResult[] = [];
+  const extraSecrets: string[] = [];
+  const wantsConfigs = args.values['client-configs'] === true;
+  const tokenFile = args.values['token-file'];
+  if (tokenFile !== undefined && remote === undefined) {
+    throw new UsageError('--token-file needs --remote (the token is checked against that server).');
+  }
 
   checks.push(checkNode(ctx.host.nodeVersion ?? process.versions.node));
   const config = checkConfig(ctx, args);
@@ -742,7 +763,30 @@ export async function doctorCommand(ctx: ManageContext, args: ManageArgs, logger
   }
   checks.push(checkWorkersDrift(ctx));
 
-  const report = buildReport(checks, scrubber(secretsOf(ctx, config.loaded)));
+  let slugs: string[] = [];
+  if (wantsConfigs) {
+    const found = checkClientConfigs(ctx, remote, args.values.insecure === true);
+    checks.push(...found.results);
+    slugs = found.slugs;
+    extraSecrets.push(...found.tokens);
+  }
+  if (remote !== undefined && !offline) {
+    const token = readDeviceToken(ctx, tokenFile);
+    if (token.error !== undefined) {
+      checks.push(
+        fail(
+          'remote-token',
+          token.error,
+          'Put the token in a file with mode 0600 (--token-file) or in RB_TOKEN.',
+        ),
+      );
+    } else if (token.value !== undefined) {
+      extraSecrets.push(token.value);
+      checks.push(await checkRemoteToken(ctx, remote, args.values.project ?? slugs[0], token.value));
+    }
+  }
+
+  const report = buildReport(checks, scrubber([...secretsOf(ctx, config.loaded), ...extraSecrets]));
   ctx.stdout(json ? `${JSON.stringify(report)}\n` : renderReport(report));
   return report.ok ? 0 : 1;
 }

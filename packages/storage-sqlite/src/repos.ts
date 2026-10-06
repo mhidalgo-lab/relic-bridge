@@ -25,13 +25,18 @@ import {
   checkGrantPrincipal,
   checkKeyHint,
   checkLimit,
+  checkPeriod,
+  checkPeriods,
   checkRegion,
   checkRole,
   checkTokenHash,
   checkTokenPrefix,
+  checkUsageCount,
   type EncryptedKey,
   type GrantRecord,
   type GrantsRepository,
+  type GrantUsageRepository,
+  groupUsage,
   InvalidInputError,
   type JsonValue,
   KV_INCREMENT_SQL,
@@ -51,8 +56,15 @@ import {
   type SettingsRepository,
   type Storage,
   UNBOUND_ENABLED_SQL,
+  USAGE_ADD_INSPECTED_SQL,
+  USAGE_PURGE_DEFAULT,
+  USAGE_PURGE_SQL,
+  USAGE_RELEASE_SQL,
+  USAGE_RESERVE_SQL,
   type UserRecord,
   type UsersRepository,
+  usageGetSql,
+  usageOf,
 } from '@relic-bridge/storage';
 import { mapSqliteError } from './errors.ts';
 
@@ -428,6 +440,7 @@ export function createRepositories(
       accountIds: jsonOrNull<number[]>(r['account_ids']),
       limits: JSON.parse(str(r['limits'])) as GrantRecord['limits'],
       rateLimit: jsonOrNull<GrantRecord['rateLimit'] & object>(r['rate_limit']),
+      quota: jsonOrNull<GrantRecord['quota'] & object>(r['quota']),
       createdAt: num(r['created_at']),
       updatedAt: num(r['updated_at']),
       expiresAt: numOrNull(r['expires_at']),
@@ -459,7 +472,7 @@ export function createRepositories(
         checkGrantPrincipal(input.userId ?? null, input.label ?? null);
         const t = now();
         run(
-          'INSERT INTO grants (id, project_id, user_id, label, credential_id, tools, account_ids, limits, rate_limit, created_at, updated_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+          'INSERT INTO grants (id, project_id, user_id, label, credential_id, tools, account_ids, limits, rate_limit, quota, created_at, updated_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
           [
             input.id,
             input.projectId,
@@ -470,6 +483,7 @@ export function createRepositories(
             toJson(input.accountIds),
             JSON.stringify(input.limits ?? {}),
             toJson(input.rateLimit),
+            toJson(input.quota),
             t,
             t,
             input.expiresAt ?? null,
@@ -484,7 +498,7 @@ export function createRepositories(
         const n = merge(cur, patch);
         checkGrantPrincipal(n.userId, n.label);
         run(
-          'UPDATE grants SET label = ?, credential_id = ?, tools = ?, account_ids = ?, limits = ?, rate_limit = ?, updated_at = ?, expires_at = ?, revoked_at = ? WHERE id = ?',
+          'UPDATE grants SET label = ?, credential_id = ?, tools = ?, account_ids = ?, limits = ?, rate_limit = ?, quota = ?, updated_at = ?, expires_at = ?, revoked_at = ? WHERE id = ?',
           [
             n.label,
             n.credentialId,
@@ -492,6 +506,7 @@ export function createRepositories(
             toJson(n.accountIds),
             JSON.stringify(n.limits),
             toJson(n.rateLimit),
+            toJson(n.quota),
             now(),
             n.expiresAt,
             n.revokedAt,
@@ -503,6 +518,45 @@ export function createRepositories(
     delete: (id) =>
       call(() => {
         if (run('DELETE FROM grants WHERE id = ?', [id]) === 0) throw new NotFoundError('grant', id);
+      }),
+  };
+
+  // ----------------------------------------------------------------------------------------------- grant usage
+  // One statement each (shared SQL, `usage.ts`): the cap check and the increment cannot be separated by another caller.
+  const grantUsageRepo: GrantUsageRepository = {
+    reserve: (grantId, period, maxQueries) =>
+      call(() => {
+        checkPeriod(period);
+        const r = one(USAGE_RESERVE_SQL, [grantId, period, now(), maxQueries, maxQueries]);
+        return r === null ? null : usageOf(r);
+      }),
+    release: (grantId, period) =>
+      call(() => {
+        checkPeriod(period);
+        run(USAGE_RELEASE_SQL, [now(), grantId, period]);
+      }),
+    addInspected: (grantId, period, events) =>
+      call(() => {
+        checkPeriod(period);
+        checkUsageCount(events, 'grant_usage.inspected');
+        return usageOf(one(USAGE_ADD_INSPECTED_SQL, [grantId, period, events, now()]));
+      }),
+    get: (grantId, periods) =>
+      call(() => {
+        checkPeriods(periods);
+        const q = usageGetSql([grantId], periods);
+        return freeze(groupUsage(all(q.sql, q.params))[grantId] ?? {});
+      }),
+    getMany: (grantIds, periods) =>
+      call(() => {
+        const q = usageGetSql([...new Set(grantIds)], periods);
+        return freeze(groupUsage(all(q.sql, q.params)));
+      }),
+    purgeBefore: (before, limit) =>
+      call(() => {
+        checkLimit(limit, 'grant_usage.limit');
+        const max = Math.min(Math.max(1, Math.trunc(limit ?? USAGE_PURGE_DEFAULT)), USAGE_PURGE_DEFAULT);
+        return run(USAGE_PURGE_SQL, [before, max]);
       }),
   };
 
@@ -823,6 +877,7 @@ export function createRepositories(
     auditLog: auditRepo,
     settings: settingsRepo,
     kv: kvRepo,
+    grantUsage: grantUsageRepo,
     loadAccessRecords,
   };
 }

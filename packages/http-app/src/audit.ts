@@ -22,6 +22,7 @@ import type { Context } from 'hono';
 import type { AuthFailureInfo, HttpAppHooks, McpRequestInfo, RejectInfo } from './app.ts';
 import type { LoginAuditEvent } from './identity.ts';
 import type { PassthroughRequestInfo } from './passthrough.ts';
+import type { QuotaDenial } from './quota.ts';
 
 /** How NRQL text is stored. `mask` is the default: enough to see what was asked, without the values. */
 export type AuditNrqlMode = 'mask' | 'hash' | 'full' | 'off';
@@ -34,6 +35,9 @@ export const AUDIT_MAX_DETAILS_CHARS = 2000;
 /** Default cap on refusal rows per minute (all kinds of `auth` rows together). */
 export const DEFAULT_AUDIT_AUTH_ROWS_PER_MINUTE = 120;
 export const DEFAULT_AUDIT_RETENTION_DAYS = 90;
+/** A grant's quota refusals are audited at most once per this interval (P7-12): a runaway agent cannot flood the log. */
+export const QUOTA_DENIED_AUDIT_INTERVAL_MS = 15 * 60_000;
+const QUOTA_DENIED_MAX_GRANTS = 1000;
 
 const DAY_MS = 86_400_000;
 const MINUTE_MS = 60_000;
@@ -252,6 +256,9 @@ export function createAuditRecorder(options: AuditRecorderOptions): AuditRecorde
     if (admit) await write(entry);
   };
 
+  // Last `quota.denied` row per grant and period: bookkeeping for this recorder, bounded, not request data.
+  const quotaDeniedAt = new Map<string, number>();
+
   const ipDetails = (c: Context): Record<string, unknown> => {
     if (!options.getClientIp) return {};
     try {
@@ -369,6 +376,31 @@ export function createAuditRecorder(options: AuditRecorderOptions): AuditRecorde
         { mode: 'passthrough', region: info.region },
         event,
       );
+    },
+
+    // A grant's quota refused a call (P7-12): one `auth` row per grant, period and measure per interval, and also under
+    // the per-minute cap of all `auth` rows. Each refused call is still an ordinary `tool_call` error row.
+    async onQuotaDenied(_c: Context, info: McpRequestInfo, denial: QuotaDenial) {
+      const key = `${info.grantId}\n${denial.period}\n${denial.measure}`;
+      const now = clock.now();
+      const last = quotaDeniedAt.get(key);
+      if (last !== undefined && now - last < QUOTA_DENIED_AUDIT_INTERVAL_MS) return;
+      if (quotaDeniedAt.size >= QUOTA_DENIED_MAX_GRANTS) quotaDeniedAt.clear();
+      quotaDeniedAt.set(key, now);
+      await writeAuth({
+        ts: now,
+        kind: 'auth',
+        action: 'quota.denied',
+        status: 'denied',
+        ...identity(info),
+        errorCode: 'RB_LIMIT_QUOTA',
+        details: {
+          project: info.projectSlug,
+          period: denial.period,
+          measure: denial.measure,
+          limit: denial.limit,
+        },
+      });
     },
 
     // A `tools/call` for a tool this grant doesn't include is answered by the MCP layer as "unknown tool", so the

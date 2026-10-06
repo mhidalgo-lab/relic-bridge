@@ -110,6 +110,7 @@ import {
   reachableAccounts,
   readPassthroughHeaders,
 } from './passthrough.ts';
+import { createQuotaGuard, type QuotaDenial, type QuotaStore } from './quota.ts';
 import {
   applySecurityHeaders,
   checkHost,
@@ -129,7 +130,7 @@ export const DEFAULT_CALL_BUDGET = 1000;
 
 export type StorageForHttp = Pick<
   Storage,
-  'projects' | 'grants' | 'users' | 'credentials' | 'accessTokens' | 'settings'
+  'projects' | 'grants' | 'users' | 'credentials' | 'accessTokens' | 'settings' | 'grantUsage'
 >;
 
 /** What the hooks know about an authenticated MCP request. Never contains the token or the New Relic key. */
@@ -230,6 +231,11 @@ export interface HttpAppHooks {
     info: PassthroughRequestInfo,
     event: ToolCallEvent,
   ): Promise<void> | void;
+  /**
+   * A grant's quota refused a NerdGraph call (P7-12; audit). Runs in the background; must not throw. Carries the
+   * period, what ran out, the cap and the reset time of that grant only.
+   */
+  onQuotaDenied?(c: Context, info: McpRequestInfo, denial: QuotaDenial): Promise<void> | void;
   afterMcp?(
     c: Context,
     info: McpRequestInfo,
@@ -316,6 +322,11 @@ export interface HttpAppOptions {
    * connections never get write tools.
    */
   readonly writeTools?: boolean;
+  /**
+   * Where per-grant quota counters live (P7-12). Default: `storage.grantUsage` (atomic on SQLite and D1). The Worker passes
+   * its Durable Object store when `RB_SHARED_LIMITER=on`.
+   */
+  readonly quotaStore?: QuotaStore;
 }
 
 type Env = { Variables: { requestId: string; started: number; log: Record<string, unknown> } };
@@ -511,6 +522,8 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
     options.accessCacheMaxEntries ?? DEFAULT_ACCESS_CACHE_ENTRIES,
   );
   const limiters = new LimiterPool(options.concurrencyPerCredential);
+  // Per-grant quota counters (P7-12): the host's store, else the storage table (atomic on SQLite and D1).
+  const quotaStore: QuotaStore = options.quotaStore ?? options.storage.grantUsage;
   // The process-local slot first, then the shared one: only calls this process would run anyway compete across them.
   const sharedConcurrency = options.sharedConcurrency;
   const withShared = (local: Limiter, credentialId: string): Limiter => {
@@ -895,6 +908,7 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
       ADMIN_API_BASE,
       createAdminApi({
         storage: admin.storage,
+        usage: quotaStore,
         keyring: options.keyring,
         ...(adminVerifier ? { verifier: adminVerifier } : {}),
         ...(sessions ? { sessions } : {}),
@@ -1190,6 +1204,26 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
           budget: createBudget(callBudget),
           limiter: withShared(limiters.for(credential.id), credential.id),
           limits: capLimits(access.limits),
+          ...(access.quota === null
+            ? {}
+            : {
+                quota: createQuotaGuard({
+                  store: quotaStore,
+                  grantId: access.grantId,
+                  quota: access.quota,
+                  now: () => clock.now(),
+                  logger: toolLogger,
+                  onDenied: (denial) => {
+                    const hook = hooks.onQuotaDenied;
+                    if (hook)
+                      runInBackground(
+                        c,
+                        Promise.resolve().then(() => hook(c, info, denial)),
+                        'on_quota_denied',
+                      );
+                  },
+                }),
+              }),
           ...(queryCache === undefined
             ? {}
             : {

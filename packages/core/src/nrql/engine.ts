@@ -401,7 +401,39 @@ function fromCache(body: string, accounts: readonly number[]): NrqlComplete | un
   return { ...(v as NrqlComplete), polls: 0, notes: [] };
 }
 
+/**
+ * Runs the query and settles the grant's quota (P7-12): while the grant has an inspected-events budget the query always
+ * asks for cost stats, the events New Relic reports are counted, and stats the caller did not ask for are dropped again.
+ */
 async function execute(
+  ctx: ToolContext,
+  input: Omit<RunNrqlInput, 'nrql'> & { readonly nrql: string },
+  accounts: number[],
+  deps: NrqlDeps,
+): Promise<NrqlOutcome> {
+  const asked = input.stats ?? false;
+  const track = ctx.quota?.tracksInspected === true;
+  const outcome = await executeQuery(
+    ctx,
+    track && !asked ? { ...input, stats: true } : input,
+    accounts,
+    deps,
+  );
+  return settleQuota(ctx, outcome, asked);
+}
+
+async function settleQuota(ctx: ToolContext, outcome: NrqlOutcome, asked: boolean): Promise<NrqlOutcome> {
+  if (outcome.status !== 'complete') return outcome;
+  const events = outcome.stats?.inspectedCount;
+  if (ctx.quota !== undefined && typeof events === 'number' && events > 0) {
+    await ctx.quota.recordInspected(events);
+  }
+  if (asked || outcome.stats === undefined) return outcome;
+  const { stats: _unasked, ...rest } = outcome;
+  return rest;
+}
+
+async function executeQuery(
   ctx: ToolContext,
   input: Omit<RunNrqlInput, 'nrql'> & { readonly nrql: string },
   accounts: number[],
@@ -506,13 +538,15 @@ export async function getQueryResult(
     throw new RbError(ErrorCode.InputInvalid, 'queryId is not a valid query handle.');
   }
   const started = ctx.clock.now();
-  const outcome = await pollOnce(
+  const asked = input.stats ?? false;
+  const polled = await pollOnce(
     ctx,
     deps.client ?? nerdGraphFor(ctx),
     account as number,
     input.queryId,
-    input.stats ?? false,
+    asked || ctx.quota?.tracksInspected === true,
     1,
   );
+  const outcome = await settleQuota(ctx, polled, asked);
   return { ...outcome, durationMs: Math.max(0, ctx.clock.now() - started) };
 }

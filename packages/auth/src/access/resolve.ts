@@ -11,11 +11,14 @@ import {
 } from '@relic-bridge/core';
 import {
   type CredentialRecord,
+  cloneQuota,
   type GrantRecord,
+  isStoredQuota,
   limitsSchema,
   NR_REGIONS,
   type ProjectRecord,
   type StoredLimits,
+  type StoredQuota,
   type StoredRateLimit,
   type UserRecord,
 } from '@relic-bridge/storage';
@@ -95,6 +98,8 @@ export interface EffectiveAccess {
   readonly accounts: AccountScope;
   readonly limits: QueryLimits;
   readonly rateLimit: StoredRateLimit | null;
+  /** The grant's usage caps (P7-12); null = unlimited. */
+  readonly quota: StoredQuota | null;
   /** The grant's expiry, so a cache of this result can expire with it (P2-06). */
   readonly expiresAt: number | null;
 }
@@ -121,6 +126,14 @@ export interface ComputeAccessInput {
   readonly catalog: readonly string[];
   /** Epoch milliseconds. */
   readonly now: number;
+}
+
+/** A frozen copy of a valid quota (a cached access result is shared between requests). */
+function freezeQuota(q: StoredQuota): StoredQuota {
+  const c = cloneQuota(q);
+  if (c.day !== undefined) Object.freeze(c.day);
+  if (c.month !== undefined) Object.freeze(c.month);
+  return Object.freeze(c);
 }
 
 const deny = (reason: DenyReason): AccessDecision => Object.freeze({ ok: false as const, reason });
@@ -284,7 +297,8 @@ export function computeAccess(input: ComputeAccessInput): AccessDecision {
     (grant.tools !== null && !isStringArray(grant.tools)) ||
     (grant.accountIds !== null && !isAccountArray(grant.accountIds)) ||
     !isAccountArray(credential.reachableAccountIds) ||
-    (grant.rateLimit !== null && !isRateLimit(grant.rateLimit))
+    (grant.rateLimit !== null && !isRateLimit(grant.rateLimit)) ||
+    (grant.quota !== null && !isStoredQuota(grant.quota))
   ) {
     return deny('invalid_config');
   }
@@ -331,6 +345,7 @@ export function computeAccess(input: ComputeAccessInput): AccessDecision {
     accounts: Object.freeze({ allowed: Object.freeze(allowed), default: defaultAccount }),
     limits,
     rateLimit: grant.rateLimit === null ? null : Object.freeze({ ...grant.rateLimit }),
+    quota: grant.quota === null ? null : freezeQuota(grant.quota),
     expiresAt: grant.expiresAt,
   });
   return Object.freeze({ ok: true as const, access });

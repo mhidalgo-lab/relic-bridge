@@ -139,6 +139,14 @@ export {
   type PassthroughRequestInfo,
 } from './passthrough.ts';
 export {
+  createQuotaGuard,
+  type QuotaDenial,
+  type QuotaGuardOptions,
+  type QuotaMeasure,
+  type QuotaStore,
+  quotaError,
+} from './quota.ts';
+export {
   DEFAULT_RATE_LIMIT_MAX_KEYS,
   isRateLimitRule,
   MemoryRateLimiter,

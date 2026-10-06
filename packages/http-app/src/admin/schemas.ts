@@ -111,6 +111,39 @@ const RateLimitSchema = z
   })
   .openapi('RateLimit');
 
+const quotaCap = z.number().int().min(1).max(1_000_000_000_000_000);
+
+const QuotaPeriodSchema = z
+  .strictObject({
+    queries: quotaCap
+      .optional()
+      .openapi({ description: 'Real NerdGraph calls per period (cache hits are free).' }),
+    inspectedEvents: quotaCap
+      .optional()
+      .openapi({ description: 'Events New Relic reports as inspected by NRQL queries per period.' }),
+  })
+  .refine((p) => p.queries !== undefined || p.inspectedEvents !== undefined, 'name at least one cap')
+  .openapi('QuotaPeriod');
+
+/** Per-grant usage caps (P7-12): UTC day and UTC month, a soft warning and a hard stop. */
+export const QuotaSchema = z
+  .strictObject({
+    day: QuotaPeriodSchema.optional(),
+    month: QuotaPeriodSchema.optional(),
+    warnPercent: z
+      .number()
+      .int()
+      .min(1)
+      .max(99)
+      .optional()
+      .openapi({ description: 'Percent of a cap at which results carry a warning. Default 80.' }),
+  })
+  .refine((q) => q.day !== undefined || q.month !== undefined, 'name day and/or month')
+  .openapi('Quota', {
+    description:
+      'Caps per UTC day and UTC month. Past a cap the connection gets `RB_LIMIT_QUOTA` until the period ends.',
+  });
+
 const page = <T extends z.ZodType>(item: T, name: string) =>
   z
     .object({
@@ -323,6 +356,7 @@ export const GrantSchema = z
     accountIds: z.array(z.number().int()).nullable(),
     limits: LimitsSchema,
     rateLimit: RateLimitSchema.nullable(),
+    quota: QuotaSchema.nullable(),
     createdAt: timestamp('Created'),
     updatedAt: timestamp('Last change'),
     expiresAt: nullableTimestamp('Expires'),
@@ -345,6 +379,7 @@ export const CreateGrantBody = z
     accountIds: accountIds.nullable().optional(),
     limits: LimitsSchema.optional(),
     rateLimit: RateLimitSchema.nullable().optional(),
+    quota: QuotaSchema.nullable().optional(),
     expiresAt: z
       .number()
       .int()
@@ -354,6 +389,40 @@ export const CreateGrantBody = z
       .openapi({ description: 'Epoch ms, in the future.' }),
   })
   .openapi('CreateGrant');
+
+export const SetQuotaBody = z
+  .strictObject({ quota: QuotaSchema.nullable() })
+  .openapi('SetQuota', { description: "The grant's whole quota; `null` removes it. Counters are kept." });
+
+const UsagePeriodSchema = z
+  .object({
+    period: z
+      .string()
+      .openapi({ description: 'Period key: `d2026-10-06` (UTC day) or `m2026-10` (UTC month).' }),
+    queries: z.number().int(),
+    inspected: z.number().int(),
+    resetsAt: timestamp('The period ends and the counters start again'),
+  })
+  .openapi('UsagePeriod');
+
+export const QuotaUsageRow = z
+  .object({
+    grantId: z.string(),
+    projectId: z.string(),
+    userId: z.string().nullable(),
+    label: z.string().nullable(),
+    quota: QuotaSchema,
+    day: UsagePeriodSchema,
+    month: UsagePeriodSchema,
+  })
+  .openapi('QuotaUsage');
+
+export const QuotaUsageResponse = z
+  .object({
+    data: z.array(QuotaUsageRow),
+    truncated: z.boolean().openapi({ description: 'More grants have a quota than the 50 listed.' }),
+  })
+  .openapi('QuotaUsageResponse');
 
 export const GrantQuery = PageQuery.extend({
   projectId: idRef('Only this project.').optional(),
@@ -860,6 +929,7 @@ const BundleGrantSchema = z.strictObject({
   accountIds: accountIds.nullable(),
   limits: LimitsSchema,
   rateLimit: RateLimitSchema.nullable(),
+  quota: QuotaSchema.nullable().optional(),
   expiresAt: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).nullable(),
 });
 

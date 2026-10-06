@@ -15,6 +15,7 @@ export const ErrorCode = {
   LimitQuery: 'RB_LIMIT_QUERY',
   LimitResponseTooLarge: 'RB_LIMIT_RESPONSE_TOO_LARGE',
   LimitRate: 'RB_LIMIT_RATE',
+  LimitQuota: 'RB_LIMIT_QUOTA',
   NerdGraphError: 'RB_NERDGRAPH_ERROR',
   NerdGraphRateLimited: 'RB_NERDGRAPH_RATE_LIMITED',
   NerdGraphTimeout: 'RB_NERDGRAPH_TIMEOUT',

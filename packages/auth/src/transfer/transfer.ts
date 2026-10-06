@@ -13,6 +13,7 @@
 import { type Clock, isRbError, type Secret } from '@relic-bridge/core';
 import {
   type CredentialRecord,
+  cloneQuota,
   type EncryptedKey,
   type GrantRecord,
   newId,
@@ -165,6 +166,7 @@ export async function exportConfig(
       limits: cleanLimits(g.limits),
       rateLimit:
         g.rateLimit === null ? null : { requests: g.rateLimit.requests, perSeconds: g.rateLimit.perSeconds },
+      quota: g.quota === null ? null : cloneQuota(g.quota),
       expiresAt: g.expiresAt,
     };
     const key = grantKey(grant);
@@ -624,6 +626,7 @@ export async function importConfig(
             same(x.accountIds, g.accountIds) &&
             same(x.limits, g.limits) &&
             same(x.rateLimit, g.rateLimit) &&
+            same(x.quota, g.quota ?? null) &&
             x.expiresAt === g.expiresAt,
         );
         if (equal) record({ kind: 'grant', key, action: 'unchanged' });
@@ -646,6 +649,7 @@ export async function importConfig(
               accountIds: g.accountIds,
               limits: g.limits,
               rateLimit: g.rateLimit,
+              quota: g.quota ?? null,
               expiresAt: g.expiresAt,
             },
             deps.catalog,

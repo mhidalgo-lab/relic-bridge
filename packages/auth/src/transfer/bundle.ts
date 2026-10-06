@@ -4,8 +4,8 @@
 // uniqueness and that every reference resolves inside the bundle.
 
 import { redact } from '@relic-bridge/core';
-import type { NrRegion, StoredLimits, StoredRateLimit, UserRole } from '@relic-bridge/storage';
-import { SLUG_RE } from '@relic-bridge/storage';
+import type { NrRegion, StoredLimits, StoredQuota, StoredRateLimit, UserRole } from '@relic-bridge/storage';
+import { isStoredQuota, SLUG_RE } from '@relic-bridge/storage';
 import { AccessError } from '../access/errors.ts';
 
 export const BUNDLE_FORMAT = 'relic-bridge-config';
@@ -61,6 +61,8 @@ export interface BundleGrant {
   readonly accountIds: readonly number[] | null;
   readonly limits: StoredLimits;
   readonly rateLimit: StoredRateLimit | null;
+  /** Usage caps (P7-12). Absent in files exported before quotas existed: same as null. */
+  readonly quota?: StoredQuota | null;
   /** Epoch ms; null = never. */
   readonly expiresAt: number | null;
 }
@@ -173,6 +175,9 @@ export function validateBundle(bundle: ConfigBundle, catalog: readonly string[])
     }
     if (g.credential !== null && !refs.has(g.credential)) {
       throw invalid(`grants: a credential of project "${g.project}" is not in credentials`, 'grants');
+    }
+    if (g.quota !== undefined && g.quota !== null && !isStoredQuota(g.quota)) {
+      throw invalid(`grants: invalid quota for a grant of project "${g.project}"`, 'grants');
     }
     const unknown = unknownTools(g.tools);
     if (unknown.length > 0) {

@@ -39,6 +39,7 @@ export {
 } from './migrate.ts';
 export { MIGRATIONS } from './migrations.generated.ts';
 export * from './types.ts';
+export * from './usage.ts';
 export { lastOwnerGuardSql, UNBOUND_ENABLED_SQL } from './user-guards.ts';
 export * from './validate.ts';
 export {

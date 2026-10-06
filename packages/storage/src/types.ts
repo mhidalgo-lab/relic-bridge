@@ -229,6 +229,22 @@ export interface StoredRateLimit {
   readonly perSeconds: number;
 }
 
+/** Usage caps of one UTC period (P7-12). Absent number = no cap on that measure. */
+export interface StoredQuotaPeriod {
+  /** Real NerdGraph calls (a cache hit makes none). */
+  readonly queries?: number;
+  /** Events New Relic reports as inspected by NRQL queries. */
+  readonly inspectedEvents?: number;
+}
+
+/** Per-grant quota (P7-12): caps per UTC day and per UTC month, with a soft warning before the hard stop. */
+export interface StoredQuota {
+  readonly day?: StoredQuotaPeriod;
+  readonly month?: StoredQuotaPeriod;
+  /** Percent of a cap at which results carry a warning (1-99, default 80). */
+  readonly warnPercent?: number;
+}
+
 export interface GrantRecord {
   readonly id: string;
   readonly projectId: string;
@@ -245,6 +261,8 @@ export interface GrantRecord {
   /** Tightens the project limits (P2-04). */
   readonly limits: StoredLimits;
   readonly rateLimit: StoredRateLimit | null;
+  /** Usage caps (P7-12); null = unlimited. */
+  readonly quota: StoredQuota | null;
   readonly createdAt: number;
   readonly updatedAt: number;
   readonly expiresAt: number | null;
@@ -261,13 +279,22 @@ export interface NewGrant {
   readonly accountIds?: readonly number[] | null;
   readonly limits?: StoredLimits;
   readonly rateLimit?: StoredRateLimit | null;
+  readonly quota?: StoredQuota | null;
   readonly expiresAt?: number | null;
 }
 
 export type GrantPatch = Partial<
   Pick<
     GrantRecord,
-    'label' | 'credentialId' | 'tools' | 'accountIds' | 'limits' | 'rateLimit' | 'expiresAt' | 'revokedAt'
+    | 'label'
+    | 'credentialId'
+    | 'tools'
+    | 'accountIds'
+    | 'limits'
+    | 'rateLimit'
+    | 'quota'
+    | 'expiresAt'
+    | 'revokedAt'
   >
 >;
 
@@ -278,6 +305,45 @@ export interface GrantsRepository {
   update(id: string, patch: GrantPatch): Promise<GrantRecord>;
   /** Deletes the grant and its access tokens. */
   delete(id: string): Promise<void>;
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Grant usage counters (P7-12)
+// ---------------------------------------------------------------------------------------------------------------
+
+/** What one grant used in one period. */
+export interface UsageCounters {
+  readonly queries: number;
+  readonly inspected: number;
+}
+
+/** Counters by period key (`d2026-10-06`, `m2026-10`, see `usagePeriods`). A period never used is absent. */
+export type UsageByPeriod = Readonly<Record<string, UsageCounters>>;
+
+/**
+ * Atomic usage counters per grant and UTC period (P7-12). One row per grant and period; rows go with their grant.
+ * Every method is ONE statement on the SQL adapters, so concurrent calls (other isolates included) never lose a count
+ * and `reserve` never lets a cap be exceeded.
+ */
+export interface GrantUsageRepository {
+  /**
+   * Adds one query to the period unless it already has `maxQueries` (`null` = no cap): the check and the increment are
+   * one conditional write. Resolves the new counters, or `null` when the cap was reached (nothing changed).
+   */
+  reserve(grantId: string, period: string, maxQueries: number | null): Promise<UsageCounters | null>;
+  /** Gives one reserved query back (never below zero), e.g. when a later period's cap refused the call. */
+  release(grantId: string, period: string): Promise<void>;
+  /** Adds `events` inspected events (a non-negative integer) and resolves the new counters. */
+  addInspected(grantId: string, period: string, events: number): Promise<UsageCounters>;
+  /** The counters of `periods` (at most 4). */
+  get(grantId: string, periods: readonly string[]): Promise<UsageByPeriod>;
+  /** `get` for up to 50 grants in one query. Grants without usage are absent. */
+  getMany(
+    grantIds: readonly string[],
+    periods: readonly string[],
+  ): Promise<Readonly<Record<string, UsageByPeriod>>>;
+  /** Housekeeping: deletes rows last updated before `before` (oldest first, at most `limit`, default and max 1000). */
+  purgeBefore(before: number, limit?: number): Promise<number>;
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -525,6 +591,8 @@ export interface Storage {
   readonly auditLog: AuditLogRepository;
   readonly settings: SettingsRepository;
   readonly kv: KvRepository;
+  /** Per-grant quota counters (P7-12). */
+  readonly grantUsage: GrantUsageRepository;
   /**
    * Optional (P3-09): the token, project, grant, user, credential and credential owner behind one access decision in
    * ONE storage call (a D1 `batch()`, a SQLite read transaction), under the `AccessRecords` contract. Adapters

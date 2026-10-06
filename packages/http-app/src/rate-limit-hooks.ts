@@ -281,6 +281,9 @@ export function mergeHooks(...sets: readonly (HttpAppHooks | undefined)[]): Http
     async onPassthroughToolCall(c, info, event) {
       await Promise.allSettled(hooks.map((h) => h.onPassthroughToolCall?.(c, info, event)));
     },
+    async onQuotaDenied(c, info, denial) {
+      await Promise.allSettled(hooks.map((h) => h.onQuotaDenied?.(c, info, denial)));
+    },
     async afterMcp(c, info, outcome) {
       await Promise.allSettled(hooks.map((h) => h.afterMcp?.(c, info, outcome)));
     },

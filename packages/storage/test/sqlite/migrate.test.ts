@@ -83,7 +83,9 @@ describe('migrate (node:sqlite)', () => {
       expect(info.map((c) => c.name).sort(), cfg.name).toEqual(cfg.columns.map((c) => c.name).sort());
       for (const col of cfg.columns) {
         const got = info.find((c) => c.name === col.name);
-        expect(got?.pk === 1, `${cfg.name}.${col.name} pk`).toBe(col.primary);
+        // A column of a composite primary key (`grant_usage`, P7-12) reports its position, not 1.
+        const inPk = col.primary || cfg.primaryKeys.some((pk) => pk.columns.includes(col));
+        expect((got?.pk ?? 0) > 0, `${cfg.name}.${col.name} pk`).toBe(inPk);
         expect(got?.notnull === 1 || col.primary, `${cfg.name}.${col.name} not null`).toBe(col.notNull);
       }
       const indexes = (

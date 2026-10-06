@@ -102,6 +102,18 @@ function nrqlPayload(bytes: number): string {
   return head + parts.join(',') + tail;
 }
 
+/** A 2000-point faceted timeseries (4 series x 500 buckets): the summary path of P7-01. */
+function timeseriesPayload(): string {
+  const results = Array.from({ length: 2000 }, (_, i) => ({
+    beginTimeSeconds: 1_790_000_000 + Math.floor(i / 4) * 60,
+    endTimeSeconds: 1_790_000_060 + Math.floor(i / 4) * 60,
+    facet: `checkout-service-${i % 4}`,
+    'average.duration': 0.05 + ((i * 7) % 31) / 1000 + (i === 1234 ? 2 : 0),
+    count: 100 + ((i * 13) % 57),
+  }));
+  return `{"data":{"actor":{"account":{"nrql":{"results":${JSON.stringify(results)},"metadata":{"eventTypes":["Transaction"],"facets":["facet"],"messages":null,"timeWindow":null},"totalResult":null,"otherResult":null,"queryProgress":{"queryId":null,"completed":true,"retryAfter":null,"resultExpiration":null}}}}}}`;
+}
+
 function nerdgraph(nrqlBody: string): FetchLike {
   return async (_url, init) => {
     const body = JSON.parse(String(init.body)) as { variables?: Record<string, unknown> };
@@ -382,4 +394,26 @@ describe('cpu', () => {
       );
     });
   }
+
+  it('tool.run_nrql.summary2000', async ({ task }) => {
+    const { worker, ctx } = await warmWorker(nerdgraph(timeseriesPayload()));
+    const body = {
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'tools/call',
+      params: {
+        name: 'run_nrql',
+        arguments: {
+          nrql: 'SELECT average(duration), count(*) FROM Transaction FACET appName TIMESERIES 1 minute SINCE 1 day ago',
+        },
+      },
+    };
+    record(
+      task,
+      await measure(async () => drain(await rpc(worker, ctx, body)), {
+        iterations: 60,
+        after: () => ctx.settle(),
+      }),
+    );
+  });
 });

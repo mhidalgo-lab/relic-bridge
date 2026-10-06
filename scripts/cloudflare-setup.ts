@@ -34,6 +34,8 @@ export interface SetupOptions {
   publicUrl: string | undefined;
   /** Allow generating a new RB_MASTER_KEY although the Worker already has RB_ADMIN_TOKEN (orphans stored keys). */
   replaceMasterKey: boolean;
+  /** `--shared-limiter rules|on`: deploy with RB_SHARED_LIMITER (P7-10, the Durable Object limiter). */
+  sharedLimiter: 'rules' | 'on' | undefined;
 }
 
 export interface WranglerResult {
@@ -129,6 +131,7 @@ export function parseArgs(argv: readonly string[]): SetupOptions | 'help' {
     signIn: false,
     publicUrl: undefined,
     replaceMasterKey: false,
+    sharedLimiter: undefined,
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i] as string;
@@ -150,7 +153,11 @@ export function parseArgs(argv: readonly string[]): SetupOptions | 'help' {
     else if (a === '--backup-file') o.backupFile = value();
     else if (a === '--sign-in') o.signIn = true;
     else if (a === '--public-url') o.publicUrl = value();
-    else throw new SetupError(`unknown option ${a}`);
+    else if (a === '--shared-limiter') {
+      const v = value();
+      if (v !== 'rules' && v !== 'on') throw new SetupError('--shared-limiter must be rules or on');
+      o.sharedLimiter = v;
+    } else throw new SetupError(`unknown option ${a}`);
   }
   if (!WORKER_NAME_RE.test(o.name)) {
     throw new SetupError('--name must be lowercase letters, digits and dashes (max 63 characters)');
@@ -174,6 +181,10 @@ Deploys relic-bridge to your Cloudflare account (run \`wrangler login\` first).
                        RB_<GOOGLE|GITHUB|OIDC>_CLIENT_ID / _CLIENT_SECRET (and RB_OIDC_ISSUER) in your environment, so
                        it also works without a terminal. Client secrets are sent as Worker secrets, never as arguments.
   --public-url <url>   The https origin people use for this Worker (with --sign-in); not a secret.
+  --shared-limiter rules|on
+                       Count limits in the SharedLimiter Durable Object for every isolate (P7-10): \`rules\` for the
+                       auth-failure, sign-in, OAuth and write limits, \`on\` also for NerdGraph concurrency per key.
+                       Each check is a Durable Object request (Free plan: 100,000 a day). See cloudflare-limits.md.
   --dry-run            Print what would happen; generates and sends nothing, calls no Cloudflare API
 `;
 
@@ -374,7 +385,7 @@ export async function runSetup(opts: SetupOptions, deps: SetupDeps): Promise<{ u
     );
     log('     unless --replace-master-key is given; --assume-new is refused if the Worker already exists');
     log(
-      `  3. wrangler deploy --keep-vars (Wrangler provisions the D1 and KV resources; RB_PLAN=${opts.plan}${opts.passthrough ? ', RB_PASSTHROUGH=on' : ''})`,
+      `  3. wrangler deploy --keep-vars (Wrangler provisions the D1 and KV resources and the SharedLimiter Durable Object namespace; RB_PLAN=${opts.plan}${opts.passthrough ? ', RB_PASSTHROUGH=on' : ''}${opts.sharedLimiter === undefined ? '' : `, RB_SHARED_LIMITER=${opts.sharedLimiter}`})`,
     );
     if (opts.signIn) {
       log(
@@ -481,6 +492,7 @@ export async function runSetup(opts: SetupOptions, deps: SetupDeps): Promise<{ u
   // silently resetting an operator's security settings on each re-run.
   const deployArgs = ['deploy', ...cfg, '--keep-vars', '--var', `RB_PLAN:${opts.plan}`];
   if (opts.passthrough) deployArgs.push('--var', 'RB_PASSTHROUGH:on');
+  if (opts.sharedLimiter !== undefined) deployArgs.push('--var', `RB_SHARED_LIMITER:${opts.sharedLimiter}`);
   for (const [k, v] of Object.entries(signIn?.vars ?? {})) deployArgs.push('--var', `${k}:${v}`);
   const dep = await deps.wrangler(deployArgs);
   if (dep.code !== 0)

@@ -179,7 +179,7 @@ describe('query tools: catalogue', () => {
     expect(Object.keys(run?.inputSchema.properties ?? {})).toEqual([
       'nrql',
       'accounts',
-      'timeout_s',
+      'timeout_seconds',
       'format',
       'max_rows',
     ]);
@@ -201,7 +201,7 @@ describe('query tools: catalogue', () => {
     const schema = inputJsonSchema(run as never) as { properties: Record<string, Record<string, unknown>> };
     expect(schema).toMatchObject({ additionalProperties: false });
     expect(schema.properties['nrql']).toMatchObject({ maxLength: 4096 });
-    expect(schema.properties['timeout_s']).toMatchObject({ minimum: 1, maximum: 120 });
+    expect(schema.properties['timeout_seconds']).toMatchObject({ minimum: 1, maximum: 120 });
     expect(schema.properties['max_rows']).toMatchObject({ minimum: 1, maximum: 1000 });
   });
 });
@@ -218,7 +218,7 @@ describe('run_nrql', () => {
     expect(t).toContain('untrusted-data');
     expect(nrqlResultSchema.parse(r.structuredContent)).toMatchObject({
       status: 'complete',
-      accounts: [A],
+      accountIds: [A],
       rows: [{ count: 0 }],
       nrql: NRQL,
       truncated: false,
@@ -227,15 +227,15 @@ describe('run_nrql', () => {
     expect(t).not.toContain(FAKE_KEY);
   });
 
-  it('passes accounts and timeout_s, and runs cross-account queries', async () => {
+  it('passes accounts and timeout_seconds, and runs cross-account queries', async () => {
     const { client, calls } = await setup([fixtureResponse('cross_account')]);
     const r = await client.callTool({
       name: 'run_nrql',
-      arguments: { nrql: NRQL, accounts: [A, B], timeout_s: 30 },
+      arguments: { nrql: NRQL, accounts: [A, B], timeout_seconds: 30 },
     });
     expect(r.isError).toBeFalsy();
     expect(calls[0]?.body.variables).toMatchObject({ accounts: [A, B], timeout: 30 });
-    expect(r.structuredContent).toMatchObject({ status: 'complete', accounts: [A, B] });
+    expect(r.structuredContent).toMatchObject({ status: 'complete', accountIds: [A, B] });
   });
 
   it('applies format and max_rows to the output', async () => {
@@ -326,17 +326,17 @@ describe('run_nrql', () => {
       polled(false),
       polled(true, [{ count: 7 }]),
     ]);
-    const first = await client.callTool({ name: 'run_nrql', arguments: { nrql: NRQL, timeout_s: 1 } });
+    const first = await client.callTool({ name: 'run_nrql', arguments: { nrql: NRQL, timeout_seconds: 1 } });
     expect(first.isError).toBeFalsy();
     const pending = nrqlResultSchema.parse(first.structuredContent);
-    expect(pending).toMatchObject({ status: 'pending', queryId: 'q-123e4567-e89b', account: A });
+    expect(pending).toMatchObject({ status: 'pending', queryId: 'q-123e4567-e89b', accountId: A });
     expect(text(first)).toContain('get_query_result');
     expect(calls).toHaveLength(4);
     expect(sleeps).toEqual([2000, 2000, 2000]);
 
     const second = await client.callTool({
       name: 'get_query_result',
-      arguments: { query_id: pending.queryId, account: pending.account },
+      arguments: { query_id: pending.queryId, account: pending.accountId },
     });
     expect(second.isError).toBeFalsy();
     expect(calls).toHaveLength(5);
@@ -382,8 +382,8 @@ describe('query tools: negative authorization and input validation', () => {
   it.each([
     ['run_nrql', { nrql: '' }],
     ['run_nrql', { nrql: 'x'.repeat(4097) }],
-    ['run_nrql', { nrql: NRQL, timeout_s: 0 }],
-    ['run_nrql', { nrql: NRQL, timeout_s: 121 }],
+    ['run_nrql', { nrql: NRQL, timeout_seconds: 0 }],
+    ['run_nrql', { nrql: NRQL, timeout_seconds: 121 }],
     ['run_nrql', { nrql: NRQL, max_rows: 1001 }],
     ['run_nrql', { nrql: NRQL, format: 'html' }],
     ['run_nrql', { nrql: NRQL, accounts: [] }],

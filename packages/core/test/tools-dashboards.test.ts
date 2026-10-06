@@ -154,7 +154,7 @@ describe('list_dashboards', () => {
       ]),
     );
     const client = await connect(fetch);
-    const r = await client.callTool({ name: 'list_dashboards', arguments: { name: "o'brien" } });
+    const r = await client.callTool({ name: 'list_dashboards', arguments: { name_contains: "o'brien" } });
     expect(r.isError ?? false).toBe(false);
     expect(calls).toHaveLength(1);
     expect(calls[0]?.query).not.toContain("o'brien");
@@ -178,7 +178,7 @@ describe('list_dashboards', () => {
     const s = r.structuredContent as { nextCursor: string; dashboards: Record<string, unknown>[] };
     expect(s.nextCursor).toBe('abc123');
     expect(s.dashboards[0]).not.toHaveProperty('permalink');
-    expect(text(r)).toContain('next_cursor: abc123');
+    expect(text(r)).toContain('nextCursor: abc123');
   });
 
   it('refuses a foreign account before any request', async () => {
@@ -215,7 +215,7 @@ describe('get_dashboard', () => {
       ]),
     );
     const client = await connect(fetch);
-    const r = await client.callTool({ name: 'get_dashboard', arguments: { guid: G1 } });
+    const r = await client.callTool({ name: 'get_dashboard', arguments: { entity_guid: G1 } });
     expect(r.isError ?? false).toBe(false);
     expect(calls).toHaveLength(1);
     expect(calls[0]?.variables).toEqual({ guid: G1 });
@@ -238,7 +238,10 @@ describe('get_dashboard', () => {
       detail([{ guid: 'p', name: 'P', widgets: [widget('T', A, 'SELECT 1 FROM X')] }]),
     );
     const client = await connect(fetch);
-    const r = await client.callTool({ name: 'get_dashboard', arguments: { guid: G1, minimal_output: true } });
+    const r = await client.callTool({
+      name: 'get_dashboard',
+      arguments: { entity_guid: G1, minimal_output: true },
+    });
     expect(text(r)).not.toContain('SELECT 1');
     expect(
       (r.structuredContent as { pages: { widgets: { queries: unknown[] }[] }[] }).pages[0]?.widgets[0]
@@ -251,7 +254,7 @@ describe('get_dashboard', () => {
     const pages = Array.from({ length: 25 }, (_, i) => ({ guid: `p${i}`, name: `P${i}`, widgets }));
     const { fetch } = recording(() => detail(pages));
     const client = await connect(fetch);
-    const r = await client.callTool({ name: 'get_dashboard', arguments: { guid: G1 } });
+    const r = await client.callTool({ name: 'get_dashboard', arguments: { entity_guid: G1 } });
     const s = r.structuredContent as { truncated: boolean; pages: { widgets: unknown[] }[] };
     expect(s.truncated).toBe(true);
     expect(s.pages).toHaveLength(20);
@@ -261,11 +264,11 @@ describe('get_dashboard', () => {
   it('refuses a foreign guid offline and a forged account answer', async () => {
     const { fetch, calls } = recording(() => detail([], OTHER));
     const client = await connect(fetch);
-    const r1 = await client.callTool({ name: 'get_dashboard', arguments: { guid: guidOf(OTHER) } });
+    const r1 = await client.callTool({ name: 'get_dashboard', arguments: { entity_guid: guidOf(OTHER) } });
     expect(r1.isError).toBe(true);
     expect(errorCode(r1)).toBe(ErrorCode.AuthForbidden);
     expect(calls).toHaveLength(0);
-    const r2 = await client.callTool({ name: 'get_dashboard', arguments: { guid: G1 } });
+    const r2 = await client.callTool({ name: 'get_dashboard', arguments: { entity_guid: G1 } });
     expect(r2.isError).toBe(true);
     expect(text(r2)).not.toContain('Ops board');
   });

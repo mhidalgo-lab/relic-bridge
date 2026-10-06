@@ -31,7 +31,7 @@ const MAX_TERMS = 10;
 const POLICY_ID_RE = /^[0-9]{1,18}$/;
 
 const policiesInput = z.strictObject({
-  name: z
+  name_contains: z
     .string()
     .min(1)
     .max(MAX_NAME_FILTER)
@@ -43,7 +43,7 @@ const policiesInput = z.strictObject({
 });
 
 const policiesOutput = z.object({
-  account: z.number().int(),
+  accountId: z.number().int(),
   policies: z.array(z.record(z.string(), z.unknown())),
   /** Matches NerdGraph reported for the filter (before account filtering). */
   total: z.number().int().nullable(),
@@ -57,7 +57,7 @@ const conditionsInput = z.strictObject({
     .regex(POLICY_ID_RE)
     .optional()
     .describe('Only the conditions of this alert policy (id from list_alert_policies).'),
-  name: z
+  name_contains: z
     .string()
     .min(1)
     .max(MAX_NAME_FILTER)
@@ -78,7 +78,7 @@ const conditionsInput = z.strictObject({
 });
 
 const conditionsOutput = z.object({
-  account: z.number().int(),
+  accountId: z.number().int(),
   conditions: z.array(z.record(z.string(), z.unknown())),
   total: z.number().int().nullable(),
   nextCursor: z.string().nullable(),
@@ -87,11 +87,11 @@ const conditionsOutput = z.object({
 
 const POLICIES_DESCRIPTION = `List the alert policies of one account: id, name and incident preference (PER_POLICY, PER_CONDITION, PER_CONDITION_AND_TARGET: how violations roll up into issues).
 
-Use it to find a policy id for list_alert_conditions. name filters by case-insensitive substring. One account per call (default: the default account). If next_cursor is returned, call again with the same filters and that cursor. ${UNTRUSTED}`;
+Use it to find a policy id for list_alert_conditions. name_contains filters by case-insensitive substring. One account per call (default: the default account). If nextCursor is returned, pass it as cursor with the same filters. ${UNTRUSTED}`;
 
 const CONDITIONS_DESCRIPTION = `List the NRQL alert conditions of one account: name, policy, enabled, type (STATIC, BASELINE, OUTLIER), the NRQL query evaluated and its thresholds.
 
-Use it to see what an alert watches and when it fires. Filter by policy_id (from list_alert_policies), name or query_contains. One account per call; page with next_cursor. For what is firing now use list_recent_issues. ${UNTRUSTED}`;
+Use it to see what an alert watches and when it fires. Filter by policy_id (from list_alert_policies), name_contains or query_contains. One account per call; page with cursor. For what is firing now use list_recent_issues. ${UNTRUSTED}`;
 
 function toTerm(t: AlertTermData) {
   return {
@@ -161,7 +161,7 @@ export function createAlertTools(deps: ToolDeps = {}): ToolDefinition[] {
       const result = await client(ctx).query(ALERT_POLICIES_QUERY, {
         accountId: account,
         cursor: input.cursor ?? null,
-        criteria: input.name ? { nameLike: input.name } : {},
+        criteria: input.name_contains ? { nameLike: input.name_contains } : {},
       });
       const acct = requireField(result.data.actor.account, result, ctx);
       const search = acct.alerts?.policiesSearch;
@@ -189,7 +189,8 @@ export function createAlertTools(deps: ToolDeps = {}): ToolDefinition[] {
           `${total !== null && total > rows.length ? ` (${total} match in total)` : ''}.`,
       ];
       if (hiddenOutsideScope) lines.push("Note: results outside this connection's accounts were left out.");
-      if (nextCursor) lines.push('More results: call again with the same filters and the next_cursor below.');
+      if (nextCursor)
+        lines.push('More results: call again with the same filters and cursor set to the nextCursor below.');
       if (rows.length > 0) {
         lines.push(
           shapeRows(
@@ -202,10 +203,10 @@ export function createAlertTools(deps: ToolDeps = {}): ToolDefinition[] {
           ).text,
         );
       }
-      if (nextCursor) lines.push(`next_cursor: ${nextCursor}`);
+      if (nextCursor) lines.push(`nextCursor: ${nextCursor}`);
       return {
         text: lines.join('\n'),
-        structured: { account, policies, total, nextCursor, hiddenOutsideScope },
+        structured: { accountId: account, policies, total, nextCursor, hiddenOutsideScope },
       };
     },
   });
@@ -225,7 +226,7 @@ export function createAlertTools(deps: ToolDeps = {}): ToolDefinition[] {
       const account = singleAccount(ctx, input.account);
       const criteria: { policyId?: string; nameLike?: string; queryLike?: string } = {};
       if (input.policy_id) criteria.policyId = input.policy_id;
-      if (input.name) criteria.nameLike = input.name;
+      if (input.name_contains) criteria.nameLike = input.name_contains;
       if (input.query_contains) criteria.queryLike = input.query_contains;
       const result = await client(ctx).query(ALERT_CONDITIONS_QUERY, {
         accountId: account,
@@ -251,7 +252,8 @@ export function createAlertTools(deps: ToolDeps = {}): ToolDefinition[] {
           `${total !== null && total > rows.length ? ` (${total} match in total)` : ''}.`,
       ];
       if (hiddenOutsideScope) lines.push("Note: results outside this connection's accounts were left out.");
-      if (nextCursor) lines.push('More results: call again with the same filters and the next_cursor below.');
+      if (nextCursor)
+        lines.push('More results: call again with the same filters and cursor set to the nextCursor below.');
       if (rows.length > 0) {
         lines.push(
           shapeRows(
@@ -274,10 +276,10 @@ export function createAlertTools(deps: ToolDeps = {}): ToolDefinition[] {
           ).text,
         );
       }
-      if (nextCursor) lines.push(`next_cursor: ${nextCursor}`);
+      if (nextCursor) lines.push(`nextCursor: ${nextCursor}`);
       return {
         text: lines.join('\n'),
-        structured: { account, conditions, total, nextCursor, hiddenOutsideScope },
+        structured: { accountId: account, conditions, total, nextCursor, hiddenOutsideScope },
       };
     },
   });

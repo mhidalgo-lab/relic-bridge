@@ -104,7 +104,7 @@ describe('list_alert_policies', () => {
     const { client, calls } = await setup([policiesBody([policy(A, '1', 'checkout')], 'CUR_2', 3)]);
     const r = await client.callTool({
       name: 'list_alert_policies',
-      arguments: { name: "o'; } query { evil", cursor: 'abc' },
+      arguments: { name_contains: "o'; } query { evil", cursor: 'abc' },
     });
     expect(r.isError ?? false).toBe(false);
     expect(calls[0]?.body.variables).toEqual({
@@ -117,7 +117,7 @@ describe('list_alert_policies', () => {
     expect(s.policies.map((p) => p.name)).toEqual(['checkout']);
     expect(s.nextCursor).toBe('CUR_2');
     expect(s.total).toBe(3);
-    expect(text(r)).toContain('next_cursor: CUR_2');
+    expect(text(r)).toContain('nextCursor: CUR_2');
     expect(text(r)).toContain('<untrusted-data');
   });
 
@@ -192,7 +192,7 @@ describe('list_alert_conditions', () => {
     const { client, calls } = await setup([conditionsBody([condition(A, '9', 'High error rate')])]);
     const r = await client.callTool({
       name: 'list_alert_conditions',
-      arguments: { policy_id: '8000026', name: 'error', query_contains: 'Transaction' },
+      arguments: { policy_id: '8000026', name_contains: 'error', query_contains: 'Transaction' },
     });
     expect(r.isError ?? false).toBe(false);
     expect(calls[0]?.body.variables).toEqual({

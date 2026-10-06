@@ -103,9 +103,9 @@ const costOf = (name: string) => tools.find((t) => t.name === name)?.cost ?? 0;
 
 /** Largest depth arguments a composite accepts, to prove it degrades instead of overrunning. */
 const MAX_ARGS: Record<string, Record<string, unknown>> = {
-  get_golden_metrics: { guid: MOCK_GUID, max_metrics: 20 },
-  dependency_health: { guid: MOCK_GUID, max_dependencies: 5, max_metrics: 5 },
-  entity_health: { guid: MOCK_GUID },
+  get_golden_metrics: { entity_guid: MOCK_GUID, max_metrics: 20 },
+  dependency_health: { entity_guid: MOCK_GUID, max_dependencies: 5, max_metrics: 5 },
+  entity_health: { entity_guid: MOCK_GUID },
   generate_alert_insights_report: { issue_id: 'issue-1' },
   generate_user_impact_report: { issue_id: 'issue-1' },
 };
@@ -158,7 +158,7 @@ describe('declared cost bounds the worst-case requests of a call (P6-20)', () =>
 
       it.each(byName)('%s by name', async (name) => {
         const { client, mock } = await connect(mode, 500);
-        const { guid: _g, entity_guid: _e, ...rest } = SAMPLE_CALLS[name] ?? {};
+        const { entity_guid: _e, ...rest } = SAMPLE_CALLS[name] ?? {};
         const args = NAME_ARGS[name] ?? { ...rest, name: 'checkout' };
         const r = await client.callTool({ name, arguments: args });
         expect(r.isError, resultText(r)).toBeFalsy();

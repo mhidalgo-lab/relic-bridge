@@ -354,3 +354,19 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   `structuredContent`.
 - **Needs:** owner's call; none blocks Phase 7.
 
+
+### P6-22 — One naming convention, applied as a breaking change without aliases
+- **Context:** review M6: the same concept had several argument and output names (`guid` / `entity_guid`, `since` /
+  `time_range`, `name` as a filter or as an entity, `account` / `accountId`, `hasMore` / `maybeMore`, ...).
+- **Assumption made:** tool names stay (grants store them, so no storage migration); arguments and output fields were
+  renamed in place with no deprecated aliases, listed as breaking in `.changeset/tool-naming-convention.md`, because
+  nothing has been released. `entity_guid` everywhere (also on single-entity tools such as `get_entity`), `name` only as
+  the entity name to resolve, `name_contains` for substring filters, `time_range` for the window (`lookback` /
+  `lookback_days` kept as the second window of the reports, `entity_health` and `analyze_deployment_impact`),
+  `accountId` / `...AccountId(s)` in output. `resolve_entity` keeps `query` (it also takes a guid). The structured
+  `_meta` of NRQL results keeps `accounts` (diagnostic metadata, not part of the output schema). Paging behaviour gaps
+  (no cursor on bounded lists, no `limit` on cursor-only lists) became P6-24. The tools/list catalogue stayed under its
+  52 000-character budget by shortening the shared entity `name` description.
+- **Options:** (a) keep; (b) add deprecated aliases for the old argument names until 1.1 (costs schema size on every
+  tools/list and needs the strict schemas to accept both); (c) `guid` instead of `entity_guid` on single-entity tools.
+- **Needs:** owner's call before 1.0; `pnpm eval:tools` with the owner's key to confirm tool choice did not regress.

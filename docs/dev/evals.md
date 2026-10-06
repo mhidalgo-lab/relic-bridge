@@ -18,7 +18,7 @@ An agent picks a tool from its name, description and input schema, nothing else.
 3. **When not to: name the sibling.** For every tool it is confused with, say which one to use instead ("for the
    individual violations use search_incidents"). The pairs are listed in `CONFUSABLE_PAIRS`
    (`packages/core/test/evals/quality.ts`) and both sides must name each other.
-4. **Inputs that matter.** Defaults that change the answer (window, sort), paging (`next_cursor`), and "(guid or name)" for
+4. **Inputs that matter.** Defaults that change the answer (window, sort), paging (`cursor`), and "(guid or name)" for
    every tool that takes an entity: never "guid from search_entities", the name is resolved for the agent.
 5. **Cost.** A tool that usually runs 8 or more requests says "Runs about N requests" and what happens when the budget is
    short (skipped / partial).
@@ -28,7 +28,8 @@ An agent picks a tool from its name, description and input schema, nothing else.
    returns New Relic text. The result repeats a fuller notice in front of every data block, so one short sentence is enough.
 8. **Bounded.** At most 1 200 characters per description; the whole catalogue (descriptions plus input schemas) at most
    52 000 characters (`TOOLS_LIST_BUDGET`; it was 65 683 before P6-13 and 61 291 before P6-19). Every tool is sent in every conversation.
-9. Behaviour, names and schemas do not change in a description edit. Renaming a tool is a breaking change.
+9. Behaviour, names and schemas do not change in a description edit. Renaming a tool is a breaking change. Argument and
+   output names follow [tool-conventions.md](tool-conventions.md) (P6-22), checked by `lintNaming` in the same test file.
 10. No uppercase NRQL keywords followed by a space in source strings: the NRQL template lint rejects them (write
     "SINCE 1 hour ago", not a full query).
 

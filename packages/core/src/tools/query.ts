@@ -57,7 +57,7 @@ const runNrqlInput = z.strictObject({
     .max(MAX_QUERY_ACCOUNTS)
     .optional()
     .describe('Account ids (list_accounts). Default: the default. Several run a cross-account query.'),
-  timeout_s: z
+  timeout_seconds: z
     .number()
     .int()
     .min(1)
@@ -74,8 +74,8 @@ const getQueryResultInput = z.strictObject({
   query_id: z
     .string()
     .regex(QUERY_ID_RE)
-    .describe('The query_id returned by run_nrql when the query was still running.'),
-  account: accountId.describe('The account the query runs in (the "account" returned with the query_id).'),
+    .describe('The queryId returned by run_nrql when the query was still running.'),
+  account: accountId.describe('The account the query runs in (the accountId returned with the queryId).'),
   format,
   max_rows: maxRows,
 });
@@ -88,9 +88,9 @@ Prefer a purpose-built tool when one fits (entity_health, analyze_transactions, 
 - FACET attr LIMIT n for top-N, TIMESERIES 5 minutes for trends, WHERE to filter.
 - Raw-event queries get LIMIT 10 unless you set one; the connection caps every LIMIT.
 - Unsure of event types or attribute names? Call list_event_types and get_attributes instead of guessing.
-If the query is still running after timeout_s you get a query_id and account: call get_query_result with them after the suggested wait. ${UNTRUSTED}`;
+If the query is still running after timeout_seconds you get a queryId and accountId: call get_query_result with them (query_id, account) after the suggested wait. ${UNTRUSTED}`;
 
-const GET_QUERY_RESULT_DESCRIPTION = `Fetch the result of a slow NRQL query that run_nrql returned as still running (status "pending"), using the query_id and account from that response.
+const GET_QUERY_RESULT_DESCRIPTION = `Fetch the result of a slow NRQL query that run_nrql returned as still running (status "pending"), using the queryId and accountId from that response.
 
 If it is still running you get the handle back with a new wait time: call again later. New Relic keeps results only until expiresAt. ${UNTRUSTED}`;
 
@@ -122,7 +122,7 @@ export function createQueryTools(deps: ToolDeps = {}): ToolDefinition[] {
         {
           nrql: input.nrql,
           ...(input.accounts ? { accounts: input.accounts } : {}),
-          ...(input.timeout_s === undefined ? {} : { timeoutS: input.timeout_s }),
+          ...(input.timeout_seconds === undefined ? {} : { timeoutS: input.timeout_seconds }),
           mode: 'auto',
         },
         { client: client(ctx), ...(deps.sleep ? { sleep: deps.sleep } : {}) },

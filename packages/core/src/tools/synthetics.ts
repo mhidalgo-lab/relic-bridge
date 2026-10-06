@@ -147,7 +147,12 @@ export function readChecks(
 
 const input = z.strictObject({
   account: accountInput,
-  name: z.string().min(1).max(200).optional().describe('Only monitors whose name contains this text.'),
+  name_contains: z
+    .string()
+    .min(1)
+    .max(200)
+    .optional()
+    .describe('Only monitors whose name contains this text.'),
   monitor_type: z
     .enum(MONITOR_TYPES)
     .optional()
@@ -192,7 +197,7 @@ const locationSchema = z.object({
 });
 
 const output = z.object({
-  account: z.number().int(),
+  accountId: z.number().int(),
   since: z.string().nullable(),
   until: z.string().nullable(),
   monitors: z.array(
@@ -215,13 +220,14 @@ const output = z.object({
   ),
   total: z.number().int().nullable(),
   nextCursor: z.string().nullable(),
+  hiddenOutsideScope: z.boolean(),
   partial: z.boolean(),
   notes: z.array(z.string()),
 });
 
 const DESCRIPTION = `List the synthetic monitors of one account (type, status, run period, monitored URL, alert severity) and, by default, their recent results: checks, failures, failure percentage, average duration, latest result and failure message, per monitor and per location (failing first).
 
-Runs 2 requests (monitor search, then SyntheticCheck results); if the second is stopped the monitors still come back (partial). monitor_type and status filter the returned page only. Page with next_cursor. Scripts, secure credentials and request headers are never read. ${UNTRUSTED}`;
+Runs 2 requests (monitor search, then SyntheticCheck results); if the second is stopped the monitors still come back (partial). monitor_type and status filter the returned page only. Page with cursor. Scripts, secure credentials and request headers are never read. ${UNTRUSTED}`;
 
 /** `list_synthetic_monitors` (read-only). */
 export function createSyntheticTools(deps: ToolDeps = {}): ToolDefinition[] {
@@ -273,7 +279,7 @@ export function createSyntheticTools(deps: ToolDeps = {}): ToolDefinition[] {
         entityQuery`domain = 'SYNTH'`,
         entityQuery`type = 'MONITOR'`,
       ];
-      if (args.name) parts.push(entityQuery`name LIKE ${`%${args.name}%`}`);
+      if (args.name_contains) parts.push(entityQuery`name LIKE ${`%${args.name_contains}%`}`);
       const query = entityQuery.and(parts);
       const result = await client(ctx).query(SYNTHETIC_MONITORS_QUERY, {
         query: query.text,
@@ -367,7 +373,7 @@ export function createSyntheticTools(deps: ToolDeps = {}): ToolDefinition[] {
       ];
       for (const n of notes) lines.push(`Note: ${n}`);
       if (nextCursor)
-        lines.push('More monitors: call again with the same filters and the next_cursor below.');
+        lines.push('More monitors: call again with the same filters and cursor set to the nextCursor below.');
       if (monitors.length > 0) {
         lines.push(
           shapeRows(
@@ -413,17 +419,18 @@ export function createSyntheticTools(deps: ToolDeps = {}): ToolDefinition[] {
             );
         }
       }
-      if (nextCursor) lines.push(`next_cursor: ${nextCursor}`);
+      if (nextCursor) lines.push(`nextCursor: ${nextCursor}`);
 
       return {
         text: lines.join('\n'),
         structured: {
-          account,
+          accountId: account,
           since: resultsRead && range ? range.since : null,
           until: resultsRead && range ? range.until : null,
           monitors,
           total,
           nextCursor,
+          hiddenOutsideScope: hidden,
           partial,
           notes,
         },

@@ -14,7 +14,7 @@ export const NRQL_NARROW_HINT =
 /** `structuredContent` of an NRQL result. One object type (MCP output schemas must be objects); `status` tells which. */
 export interface NrqlResult {
   status: 'complete' | 'pending';
-  accounts: number[];
+  accountIds: number[];
   /** Column names in display order (complete only). */
   columns?: string[] | undefined;
   /** The rows shown, with the same cuts as the text (complete only). */
@@ -27,10 +27,10 @@ export interface NrqlResult {
   totalRows?: number | undefined;
   returnedRows?: number | undefined;
   truncated: boolean;
-  /** Pending only: pass to get_query_result together with `account`. */
+  /** Pending only: pass to get_query_result (`query_id`) together with `accountId` (`account`). */
   queryId?: string | undefined;
-  account?: number | undefined;
-  retryAfterS?: number | undefined;
+  accountId?: number | undefined;
+  retryAfterSeconds?: number | undefined;
   expiresAt?: string | undefined;
   /** The NRQL actually sent (after query limits). */
   nrql?: string | undefined;
@@ -41,7 +41,7 @@ export interface NrqlResult {
 /** Output schema for tools returning `shapeNrqlOutcome` results (P1-06). */
 export const nrqlResultSchema: z.ZodType<NrqlResult> = z.object({
   status: z.enum(['complete', 'pending']),
-  accounts: z.array(z.number().int()),
+  accountIds: z.array(z.number().int()),
   columns: z.array(z.string()).optional(),
   rows: z.array(z.record(z.string(), z.unknown())).optional(),
   totalResult: z.record(z.string(), z.unknown()).optional(),
@@ -53,8 +53,8 @@ export const nrqlResultSchema: z.ZodType<NrqlResult> = z.object({
   returnedRows: z.number().int().optional(),
   truncated: z.boolean(),
   queryId: z.string().optional(),
-  account: z.number().int().optional(),
-  retryAfterS: z.number().optional(),
+  accountId: z.number().int().optional(),
+  retryAfterSeconds: z.number().optional(),
   expiresAt: z.string().optional(),
   nrql: z.string().optional(),
   notes: z.array(z.string()),
@@ -103,11 +103,11 @@ function shapePending(outcome: NrqlPending): ToolOutput<NrqlResult> {
   ];
   const structured: NrqlResult = {
     status: 'pending',
-    accounts: [outcome.account],
+    accountIds: [outcome.account],
     truncated: false,
     queryId: outcome.queryId,
-    account: outcome.account,
-    retryAfterS: outcome.retryAfterS,
+    accountId: outcome.account,
+    retryAfterSeconds: outcome.retryAfterS,
     ...(outcome.expiresAt ? { expiresAt: outcome.expiresAt } : {}),
     ...(outcome.nrql === undefined ? {} : { nrql: outcome.nrql }),
     notes: [...outcome.notes],
@@ -157,7 +157,7 @@ function shapeComplete(outcome: NrqlComplete, options: ShapeNrqlOptions): ToolOu
   const md = outcome.metadata;
   const structured: NrqlResult = {
     status: 'complete',
-    accounts: [...outcome.accounts],
+    accountIds: [...outcome.accounts],
     columns: shaped.columns,
     rows: shaped.rows,
     ...(outcome.totalResult ? { totalResult: clean(outcome.totalResult) } : {}),

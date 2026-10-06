@@ -63,8 +63,7 @@ export const SIGNAL_CHANGE = 0.25;
 const TRACE_ID_RE = /^[A-Za-z0-9._-]{8,64}$/;
 const GROUP_ID_RE = /^[A-Za-z0-9._:-]{1,128}$/;
 
-const guidInput = (what: string) =>
-  z.string().min(8).max(512).describe(`${what} (guid from search_entities or resolve_entity).`);
+const guidInput = (what: string) => z.string().min(8).max(512).describe(`${what} (entity guid).`);
 const rangeInput = (fallback: string) => timeRangeInput(fallback);
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -229,7 +228,7 @@ const spanSchema = z.object({
 });
 
 const traceOutput = z.object({
-  account: z.number().int(),
+  accountId: z.number().int(),
   traceId: z.string().nullable(),
   errorGroupId: z.string().nullable(),
   since: z.string(),
@@ -255,7 +254,7 @@ const traceOutput = z.object({
 
 const TRACE_DESCRIPTION = `Follow one failing request through the system: from a trace_id, or from an error group (error_group_id from list_error_groups: its latest occurrence with a trace), get the trace's spans (services, root, error and slowest spans), the error events with request attributes (class, message, path, method, status) and the log lines with that trace id.
 
-Use it for "follow this error" or "where did this request fail?". Runs 3 queries (4 with error_group_id); a part that fails or does not fit is noted (partial: true). spans_missing means the trace was sampled out or is outside time_range (default last 24 hours); errors and logs still help. Only log lines with the trace id are returned: for other lines use list_recent_logs with a narrow time_range. One account per call (an entity, by entity_guid or name, implies it); synthetic traffic is skipped unless include_synthetic; query strings are removed from paths. ${UNTRUSTED}`;
+Use it for "follow this error" or "where did this request fail?". Runs 3 queries (4 with error_group_id); a part that fails or does not fit is noted (partial: true). spansMissing means the trace was sampled out or is outside time_range (default last 24 hours); errors and logs still help. Only log lines with the trace id are returned: for other lines use list_recent_logs with a narrow time_range. One account per call (an entity, by entity_guid or name, implies it); synthetic traffic is skipped unless include_synthetic; query strings are removed from paths. ${UNTRUSTED}`;
 
 const spanQuery = (traceId: string, sinceMs: number, untilMs: number): NrqlQuery =>
   nrql`SELECT ${nrql.identifier('timestamp')}, id, ${nrql.identifier('parent.id')} AS parentId, name, ${nrql.identifier('entity.name')} AS service, category, ${nrql.identifier('duration.ms')} AS durationMs, ${nrql.identifier('error.class')} AS errorClass, ${nrql.identifier('error.message')} AS errorMessage FROM Span WHERE ${nrql.identifier('trace.id')} = ${traceId} LIMIT ${SPAN_LIMIT} SINCE ${Math.floor(sinceMs / 1000)} UNTIL ${Math.ceil(untilMs / 1000)}`;
@@ -286,7 +285,7 @@ export function groupTraceQuery(
 // ---------------------------------------------------------------------------------------------------------------------
 
 const depInput = z.strictObject({
-  guid: guidInput('The entity whose neighbours to check'),
+  entity_guid: guidInput('The entity whose neighbours to check'),
   direction: z
     .enum(['OUTBOUND', 'INBOUND', 'BOTH'])
     .optional()
@@ -307,7 +306,7 @@ const depInput = z.strictObject({
     .max(MAX_METRICS)
     .optional()
     .describe(`Golden metrics per entity (default ${DEFAULT_METRICS}, max ${MAX_METRICS}).`),
-  since: rangeInput('last 30 minutes'),
+  time_range: rangeInput('last 30 minutes'),
 });
 
 const depEntity = z.object({
@@ -333,6 +332,7 @@ const depOutput = z.object({
   notMeasured: z.number().int(),
   hiddenOutsideScope: z.boolean(),
   since: z.string(),
+  until: z.string(),
   partial: z.boolean(),
   notes: z.array(z.string()),
 });
@@ -342,7 +342,7 @@ const DEP_COST = 1 + goldenCost(DEFAULT_METRICS) * (1 + DEFAULT_DEPENDENCIES);
 
 const DEP_DESCRIPTION = `Is the problem in this entity or in what it depends on? For an entity (guid or name) it measures the golden metrics of the entity and of its directly related entities (alerting ones first) side by side, flagging clear signals (alerting, not reporting, rising error rate, latency, CPU or memory, throughput down 25% or more).
 
-Use it for "is it my dependency?". Runs about ${DEP_COST} requests by default (fewer with max_dependencies or max_metrics); what does not fit is marked skipped (partial: true). Neighbours in accounts outside this connection are left out (hidden_outside_scope). For the entity alone use entity_health; for the plain list of neighbours use get_related_entities.. ${UNTRUSTED}`;
+Use it for "is it my dependency?". Runs about ${DEP_COST} requests by default (fewer with max_dependencies or max_metrics); what does not fit is marked skipped (partial: true). Neighbours in accounts outside this connection are left out (hiddenOutsideScope). For the entity alone use entity_health; for the plain list of neighbours use get_related_entities. ${UNTRUSTED}`;
 
 // ---------------------------------------------------------------------------------------------------------------------
 // entity_health
@@ -359,7 +359,7 @@ const SECTION_TITLES: Record<HealthSection, string> = {
 };
 
 const healthInput = z.strictObject({
-  guid: guidInput('The entity to summarise'),
+  entity_guid: guidInput('The entity to summarise'),
   time_range: rangeInput(DEFAULT_HEALTH_WINDOW).describe(
     `Window for golden metrics and error group counts. Default: "${DEFAULT_HEALTH_WINDOW}".`,
   ),
@@ -382,8 +382,8 @@ const healthInput = z.strictObject({
 });
 
 const healthOutput = z.object({
-  guid: z.string(),
-  account: z.number().int(),
+  entityGuid: z.string(),
+  accountId: z.number().int(),
   since: z.string(),
   until: z.string(),
   sections: z.array(sectionSchema),
@@ -516,7 +516,7 @@ export function createInvestigationTools(deps: ToolDeps = {}): ToolDefinition[] 
         return {
           text: `No trace to follow for error group ${args.error_group_id ?? ''} in account ${account}, ${range.since} to ${range.until} (UTC). ${notes.join(' ')} Widen time_range, or include_synthetic if the group comes from monitors.`,
           structured: {
-            account,
+            accountId: account,
             traceId: null,
             errorGroupId: args.error_group_id ?? null,
             since: range.since,
@@ -635,7 +635,7 @@ export function createInvestigationTools(deps: ToolDeps = {}): ToolDefinition[] 
       return {
         text: lines.join('\n'),
         structured: {
-          account,
+          accountId: account,
           traceId,
           errorGroupId: args.error_group_id ?? null,
           since: range.since,
@@ -675,8 +675,8 @@ export function createInvestigationTools(deps: ToolDeps = {}): ToolDefinition[] 
     group: 'incident-response',
     phase: 6,
     handler: async (args, ctx) => {
-      const decoded = checkGuid(ctx, args.guid);
-      const range = parseTimeRange(args.since ?? 'last 30 minutes', ctx.clock.now());
+      const decoded = checkGuid(ctx, args.entity_guid);
+      const range = parseTimeRange(args.time_range ?? 'last 30 minutes', ctx.clock.now());
       assertWindowWithinLimit(range, ctx.limits);
       const maxDeps = args.max_dependencies ?? DEFAULT_DEPENDENCIES;
       const metricsEach = args.max_metrics ?? DEFAULT_METRICS;
@@ -686,7 +686,7 @@ export function createInvestigationTools(deps: ToolDeps = {}): ToolDefinition[] 
       const relatedTool = tool('get_related_entities');
       const rel = await relatedTool.handler(
         relatedTool.inputSchema.parse({
-          guid: args.guid,
+          entity_guid: args.entity_guid,
           limit: RELATED_FETCH,
           ...(args.direction ? { direction: args.direction } : {}),
         }),
@@ -706,9 +706,9 @@ export function createInvestigationTools(deps: ToolDeps = {}): ToolDefinition[] 
           relationship: string | null;
         }[];
         hiddenOutsideScope: boolean;
-        hasMore: boolean;
+        truncated: boolean;
       };
-      const seen = new Set<string>([args.guid]);
+      const seen = new Set<string>([args.entity_guid]);
       const candidates = relData.related
         .filter((r) => {
           if (seen.has(r.guid)) return false;
@@ -720,11 +720,11 @@ export function createInvestigationTools(deps: ToolDeps = {}): ToolDefinition[] 
       const notMeasured = candidates.length - chosen.length;
       if (relData.hiddenOutsideScope)
         notes.push('Relationships into accounts this connection does not allow were left out.');
-      if (relData.hasMore) notes.push(`Only the first ${RELATED_FETCH} relationships were read.`);
+      if (relData.truncated) notes.push(`Only the first ${RELATED_FETCH} relationships were read.`);
 
       // Plan: the entity itself first, then neighbours in priority order (alerting first).
       const targets = [
-        { guid: args.guid, who: 'self' as const },
+        { guid: args.entity_guid, who: 'self' as const },
         ...chosen.map((c) => ({ guid: c.guid, who: c })),
       ];
       const planItems: PlanItem<string>[] = targets.map((t) => ({
@@ -743,7 +743,11 @@ export function createInvestigationTools(deps: ToolDeps = {}): ToolDefinition[] 
             await runSection(
               name,
               golden,
-              { guid: name, since: range.since + ' to ' + range.until, max_metrics: goldenMetricsFor(g) },
+              {
+                entity_guid: name,
+                time_range: range.since + ' to ' + range.until,
+                max_metrics: goldenMetricsFor(g),
+              },
               ctx,
             ),
           );
@@ -776,7 +780,7 @@ export function createInvestigationTools(deps: ToolDeps = {}): ToolDefinition[] 
           metrics: (metrics as Record<string, unknown>[]).map(({ nrql: _n, ...m }) => m),
         };
       };
-      const selfEntity = build(args.guid, {
+      const selfEntity = build(args.entity_guid, {
         name: relData.entity.name,
         domain: null,
         type: null,
@@ -786,7 +790,7 @@ export function createInvestigationTools(deps: ToolDeps = {}): ToolDefinition[] 
         alertSeverity: null,
         reporting: null,
       });
-      const goldenSelf = sections.get(args.guid)?.data as
+      const goldenSelf = sections.get(args.entity_guid)?.data as
         | { entity?: { domain?: string | null; type?: string | null } }
         | null
         | undefined;
@@ -861,6 +865,7 @@ export function createInvestigationTools(deps: ToolDeps = {}): ToolDefinition[] 
           notMeasured,
           hiddenOutsideScope: relData.hiddenOutsideScope,
           since: range.since,
+          until: range.until,
           partial,
           notes,
         },
@@ -881,7 +886,7 @@ export function createInvestigationTools(deps: ToolDeps = {}): ToolDefinition[] 
     group: 'health',
     phase: 6,
     handler: async (args, ctx) => {
-      const decoded = checkGuid(ctx, args.guid);
+      const decoded = checkGuid(ctx, args.entity_guid);
       const account = singleAccount(ctx, decoded.accountId);
       const range = parseTimeRange(args.time_range ?? DEFAULT_HEALTH_WINDOW, ctx.clock.now());
       assertWindowWithinLimit(range, ctx.limits);
@@ -906,13 +911,13 @@ export function createInvestigationTools(deps: ToolDeps = {}): ToolDefinition[] 
       const argsFor = (name: HealthSection, granted: number): [string, Record<string, unknown>] => {
         switch (name) {
           case 'entity':
-            return ['get_entity', { guid: args.guid }];
+            return ['get_entity', { entity_guid: args.entity_guid }];
           case 'golden_metrics':
             return [
               'get_golden_metrics',
               {
-                guid: args.guid,
-                since: range.since + ' to ' + range.until,
+                entity_guid: args.entity_guid,
+                time_range: range.since + ' to ' + range.until,
                 max_metrics: goldenMetricsFor(granted),
               },
             ];
@@ -920,7 +925,7 @@ export function createInvestigationTools(deps: ToolDeps = {}): ToolDefinition[] 
             return [
               'list_recent_issues',
               {
-                entity_guid: args.guid,
+                entity_guid: args.entity_guid,
                 states: ['CREATED', 'ACTIVATED'],
                 time_range: lookback,
                 minimal_output: true,
@@ -930,7 +935,7 @@ export function createInvestigationTools(deps: ToolDeps = {}): ToolDefinition[] 
             return [
               'list_error_groups',
               {
-                entity_guid: args.guid,
+                entity_guid: args.entity_guid,
                 states: ['UNRESOLVED'],
                 sort_by: 'occurrences',
                 time_range: range.since + ' to ' + range.until,
@@ -940,7 +945,7 @@ export function createInvestigationTools(deps: ToolDeps = {}): ToolDefinition[] 
           case 'changes':
             return [
               'list_change_events',
-              { entity_guid: args.guid, time_range: lookback, limit: 5, minimal_output: true },
+              { entity_guid: args.entity_guid, time_range: lookback, limit: 5, minimal_output: true },
             ];
         }
       };
@@ -974,7 +979,7 @@ export function createInvestigationTools(deps: ToolDeps = {}): ToolDefinition[] 
       );
       const count = (s: SectionStatus) => sections.filter((x) => x.status === s).length;
       const lines = [
-        `Health of ${args.guid} in account ${account}, ${range.since} to ${range.until} (UTC): ` +
+        `Health of ${args.entity_guid} in account ${account}, ${range.since} to ${range.until} (UTC): ` +
           `${count('ok')} section(s) complete` +
           `${count('partial') ? `, ${count('partial')} partial` : ''}` +
           `${count('error') ? `, ${count('error')} failed` : ''}` +
@@ -994,8 +999,8 @@ export function createInvestigationTools(deps: ToolDeps = {}): ToolDefinition[] 
       return {
         text: lines.join('\n'),
         structured: {
-          guid: args.guid,
-          account,
+          entityGuid: args.entity_guid,
+          accountId: account,
           since: range.since,
           until: range.until,
           sections: sections.map(({ text: _text, ...s }) => s),

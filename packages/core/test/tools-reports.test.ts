@@ -532,7 +532,7 @@ describe('generate_user_impact_report', () => {
     const client = await connect(ng.fetch);
     const r = await client.callTool({
       name: 'generate_user_impact_report',
-      arguments: { issue_id: 'issue-1', compare: false },
+      arguments: { issue_id: 'issue-1', compare_previous: false },
     });
     expect(r.isError, resultText(r)).toBeFalsy();
     const s = r.structuredContent as {

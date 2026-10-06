@@ -95,19 +95,19 @@ const listInput = z.strictObject({
 });
 
 const listOutput = z.object({
-  account: z.number().int(),
+  accountId: z.number().int(),
   since: z.string(),
   until: z.string(),
   scope: z.enum(['account', 'entity_deployments']),
   events: z.array(z.record(z.string(), z.unknown())),
   /** The page is full: older events in the window may exist. Narrow the window or raise limit. */
-  maybeMore: z.boolean(),
+  truncated: z.boolean(),
   hiddenOutsideScope: z.boolean(),
 });
 
 const LIST_DESCRIPTION = `List change events, newest first: deployments, feature flag and configuration changes and other change-tracking markers, with time, type, user, entity, description and, for deployments, version, commit, changelog and link.
 
-Use it for "what changed before things broke?". With an entity (guid or name) it lists that entity's deployments; without one, every change event of one account. No paging: if maybe_more is true, narrow time_range or raise limit. To judge whether a deployment hurt use analyze_deployment_impact. It cannot record a change. ${UNTRUSTED}`;
+Use it for "what changed before things broke?". With an entity (guid or name) it lists that entity's deployments; without one, every change event of one account. No paging: if truncated is true, narrow time_range or raise limit. To judge whether a deployment hurt use analyze_deployment_impact. It cannot record a change. ${UNTRUSTED}`;
 
 function eventRow(e: ChangeEventData, entityGuid: string | null) {
   return {
@@ -461,7 +461,7 @@ export function createChangeTools(deps: ToolDeps = {}): ToolDefinition[] {
       let account: number;
       let rows: EventRow[];
       let hiddenOutsideScope = false;
-      let maybeMore: boolean;
+      let truncated: boolean;
       let scope: 'account' | 'entity_deployments';
 
       if (args.entity_guid !== undefined) {
@@ -491,7 +491,7 @@ export function createChangeTools(deps: ToolDeps = {}): ToolDefinition[] {
         hiddenOutsideScope = all.length > mine.length;
         const name = typeof entity.name === 'string' ? cleanName(entity.name, 200) : null;
         rows = mine.map((d) => deploymentRow({ ...d, entityGuid: d.entityGuid ?? guid }, name));
-        maybeMore = all.length >= limit;
+        truncated = all.length >= limit;
       } else {
         account = singleAccount(ctx, args.account);
         scope = 'account';
@@ -518,7 +518,7 @@ export function createChangeTools(deps: ToolDeps = {}): ToolDefinition[] {
         });
         hiddenOutsideScope = all.length > vouched.length;
         rows = vouched;
-        maybeMore = all.length >= limit;
+        truncated = all.length >= limit;
       }
       rows = rows.sort(newestFirst).slice(0, limit);
       const events = args.minimal_output
@@ -529,7 +529,7 @@ export function createChangeTools(deps: ToolDeps = {}): ToolDefinition[] {
         `${rows.length} change event${rows.length === 1 ? '' : 's'} ${scope === 'entity_deployments' ? '(deployments of the entity) ' : ''}in account ${account}, ${range.since} to ${range.until} (UTC), newest first.`,
       ];
       if (hiddenOutsideScope) lines.push("Note: events outside this connection's accounts were left out.");
-      if (maybeMore)
+      if (truncated)
         lines.push('The page is full: older events may exist. Narrow time_range or raise limit.');
       if (rows.length > 0) {
         lines.push(
@@ -557,12 +557,12 @@ export function createChangeTools(deps: ToolDeps = {}): ToolDefinition[] {
       return {
         text: lines.join('\n'),
         structured: {
-          account,
+          accountId: account,
           since: range.since,
           until: range.until,
           scope,
           events,
-          maybeMore,
+          truncated,
           hiddenOutsideScope,
         },
       };

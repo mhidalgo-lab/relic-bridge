@@ -108,12 +108,12 @@ describe('MCP contract: every registered tool', () => {
   describe('name instead of guid (P6-17)', () => {
     // Tool -> its guid input. Every other required argument is the sample call's.
     const NAME_INPUT: Record<string, string> = {
-      get_entity: 'guid',
-      get_related_entities: 'guid',
-      get_golden_metrics: 'guid',
-      get_dashboard: 'guid',
-      dependency_health: 'guid',
-      entity_health: 'guid',
+      get_entity: 'entity_guid',
+      get_related_entities: 'entity_guid',
+      get_golden_metrics: 'entity_guid',
+      get_dashboard: 'entity_guid',
+      dependency_health: 'entity_guid',
+      entity_health: 'entity_guid',
       generate_user_impact_report: 'entity_guid',
       list_top_transactions: 'entity_guid',
       analyze_transactions: 'entity_guid',
@@ -165,7 +165,7 @@ describe('MCP contract: every registered tool', () => {
       for (const args of [
         { ...byNameArgs(name, 'checkout'), [field]: MOCK_GUID },
         ...(['get_entity', 'get_related_entities', 'get_golden_metrics'].includes(name)
-          ? [{}, { guid: MOCK_GUID, account: MOCK_ACCOUNT }]
+          ? [{}, { entity_guid: MOCK_GUID, account: MOCK_ACCOUNT }]
           : []),
       ]) {
         const r = await client.callTool({ name, arguments: args }).catch((e: unknown) => e);

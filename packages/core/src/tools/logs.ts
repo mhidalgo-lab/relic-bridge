@@ -236,13 +236,13 @@ const logRow = z.object({
 });
 
 const listOutput = z.object({
-  account: z.number().int(),
+  accountId: z.number().int(),
   entityGuid: z.string().nullable(),
   since: z.string(),
   until: z.string(),
   logs: z.array(logRow),
   /** The page is full: older lines in the window exist. */
-  maybeMore: z.boolean(),
+  truncated: z.boolean(),
 });
 
 const LIST_DESCRIPTION = `Read the most recent log lines (newest first) of one account or one entity (guid or name), optionally only one level or lines containing some text. Default: the last hour, ${DEFAULT_LIMIT} lines, max ${MAX_LIMIT}.
@@ -266,7 +266,7 @@ const analyzeInput = z.strictObject({
 });
 
 const analyzeOutput = z.object({
-  account: z.number().int(),
+  accountId: z.number().int(),
   entityGuid: z.string(),
   since: z.string(),
   until: z.string(),
@@ -368,12 +368,12 @@ export function createLogTools(deps: ToolDeps = {}): ToolDefinition[] {
       const logs = args.minimal_output
         ? (pickFields(shown, ['timestamp', 'level', 'message']) as typeof shown)
         : shown;
-      const maybeMore = done.results.length >= limit;
+      const truncated = done.results.length >= limit;
 
       const lines = [
         `${shown.length} log line${shown.length === 1 ? '' : 's'}${args.entity_guid ? ' of the entity' : ''} in account ${account}, ${range.since} to ${range.until} (UTC), newest first.`,
       ];
-      if (maybeMore)
+      if (truncated)
         lines.push('The list is full: older lines exist. Raise limit, or narrow with level or contains.');
       if (shown.length === 0)
         lines.push('No log lines found. Check the window, the filters and that the entity sends logs.');
@@ -387,12 +387,12 @@ export function createLogTools(deps: ToolDeps = {}): ToolDefinition[] {
       return {
         text: lines.join('\n'),
         structured: {
-          account,
+          accountId: account,
           entityGuid: args.entity_guid ?? null,
           since: range.since,
           until: range.until,
           logs,
-          maybeMore,
+          truncated,
         },
       };
     },
@@ -531,7 +531,7 @@ export function createLogTools(deps: ToolDeps = {}): ToolDefinition[] {
       return {
         text: out.join('\n'),
         structured: {
-          account,
+          accountId: account,
           entityGuid: args.entity_guid,
           since: range.since,
           until: range.until,

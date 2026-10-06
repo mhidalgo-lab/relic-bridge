@@ -201,7 +201,7 @@ describe('list_recent_logs', () => {
     expect(nrql).toContain('FROM Log');
     const s = r.structuredContent as {
       logs: { timestamp: string | null; level: string | null; message: string }[];
-      maybeMore: boolean;
+      truncated: boolean;
     };
     expect(s.logs).toHaveLength(3);
     expect(s.logs[0]?.message).not.toContain('\n');
@@ -229,7 +229,7 @@ describe('list_recent_logs', () => {
     });
     expect(String(calls[0]?.variables['nrql'])).not.toContain('entity.guid');
     expect(calls[0]?.variables['accountId']).toBe(B);
-    expect((r.structuredContent as { maybeMore: boolean }).maybeMore).toBe(true);
+    expect((r.structuredContent as { truncated: boolean }).truncated).toBe(true);
   });
 
   it('refuses foreign accounts and entities before any request, and long windows', async () => {

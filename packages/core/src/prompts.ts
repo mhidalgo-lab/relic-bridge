@@ -74,7 +74,7 @@ export function renderPrompt(
     );
   }
   lines.push(
-    'Use only the tools listed in the steps. They are read-only. Pass account and time arguments to the tools only when given above.',
+    'Use only the tools listed in the steps. They are read-only. Every tool takes the values above under the same argument names (entity_guid, time_range, account, issue_id...): pass them only when given above.',
     '',
   );
   let n = 0;

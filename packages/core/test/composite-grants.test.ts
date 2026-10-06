@@ -37,7 +37,7 @@ const sent = (calls: { body: { query: string; variables: Record<string, unknown>
 describe('composite tools respect per-tool grants', () => {
   it('entity_health alone runs no section whose tool is not granted', async () => {
     const { client, mock } = await connect(['entity_health']);
-    const r = await client.callTool({ name: 'entity_health', arguments: { guid: MOCK_GUID } });
+    const r = await client.callTool({ name: 'entity_health', arguments: { entity_guid: MOCK_GUID } });
     expect(r.isError, resultText(r)).toBeFalsy();
     const s = r.structuredContent as { sections: { name: string; status: string; note: string | null }[] };
     for (const section of s.sections) {
@@ -49,7 +49,7 @@ describe('composite tools respect per-tool grants', () => {
 
   it('entity_health with list_error_groups granted runs only that section', async () => {
     const { client, mock } = await connect(['entity_health', 'list_error_groups']);
-    const r = await client.callTool({ name: 'entity_health', arguments: { guid: MOCK_GUID } });
+    const r = await client.callTool({ name: 'entity_health', arguments: { entity_guid: MOCK_GUID } });
     const s = r.structuredContent as { sections: { name: string; status: string }[] };
     expect(s.sections.filter((x) => x.status !== 'skipped').map((x) => x.name)).toEqual(['errors']);
     expect(sent(mock.calls)).not.toMatch(/aiIssues|changeTracking|deploymentSearch|goldenMetrics/);
@@ -72,7 +72,7 @@ describe('composite tools respect per-tool grants', () => {
 
   it('dependency_health without get_related_entities refuses before any request', async () => {
     const { client, mock } = await connect(['dependency_health']);
-    const r = await client.callTool({ name: 'dependency_health', arguments: { guid: MOCK_GUID } });
+    const r = await client.callTool({ name: 'dependency_health', arguments: { entity_guid: MOCK_GUID } });
     expect(r.isError).toBe(true);
     expect(resultText(r)).toContain('RB_TOOL_DISABLED');
     expect(mock.calls).toHaveLength(0);
@@ -89,7 +89,7 @@ describe('composite tools respect per-tool grants', () => {
       }),
     );
     clients.push(client);
-    const r = await client.callTool({ name: 'entity_health', arguments: { guid: MOCK_GUID } });
+    const r = await client.callTool({ name: 'entity_health', arguments: { entity_guid: MOCK_GUID } });
     const s = r.structuredContent as { sections: { status: string }[] };
     expect(s.sections.some((x) => x.status === 'ok')).toBe(true);
   });

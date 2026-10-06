@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// "An entity" as a tool input (P6-17): a `guid`, or a `name` resolved by the shared resolver (P6-14). Exactly one.
+// "An entity" as a tool input (P6-17): an `entity_guid`, or a `name` resolved by the shared resolver (P6-14). Exactly one.
 import { z } from 'zod';
 import type { ToolContext } from '../context.ts';
 import { ErrorCode, RbError } from '../errors.ts';
@@ -14,29 +14,29 @@ export const RESOLVE_COST: number = RESOLVE_CALLS;
 
 /** One wording for the `name` input of every entity tool (P6-19). Keep the prefix: the description lint keys on it. */
 const NAME_DESCRIPTION =
-  'Entity name instead of guid (loose match). If several match, nothing runs: candidates are returned.';
+  'Entity name instead of guid (loose match). Ambiguous: nothing runs, candidates are returned.';
 const NAME_ACCOUNT_DESCRIPTION = 'With name: this account only.';
 
 /** Input fields for a tool that takes an entity. Add `.refine(exactlyOneEntityRef…)` through `refineEntityRef`. */
 export function entityRefFields(guidDescription: string): {
-  guid: z.ZodOptional<z.ZodString>;
+  entity_guid: z.ZodOptional<z.ZodString>;
   name: z.ZodOptional<z.ZodString>;
   account: z.ZodOptional<z.ZodNumber>;
 } {
   return {
-    guid: z.string().min(8).max(512).optional().describe(guidDescription),
+    entity_guid: z.string().min(8).max(512).optional().describe(guidDescription),
     name: z.string().min(1).max(256).optional().describe(NAME_DESCRIPTION),
     account: accountIdSchema.optional().describe(NAME_ACCOUNT_DESCRIPTION),
   };
 }
 
-/** Exactly one of guid or name; `account` only with a name. */
+/** Exactly one of entity_guid or name; `account` only with a name. */
 export function refineEntityRef<T extends z.ZodObject<z.ZodRawShape>>(schema: T): T {
   return schema.superRefine((v, c) => {
-    const { guid, name, account } = v as { guid?: string; name?: string; account?: number };
-    if ((guid === undefined) === (name === undefined)) {
-      c.addIssue({ code: 'custom', message: 'Give exactly one of "guid" or "name".' });
-    } else if (account !== undefined && guid !== undefined) {
+    const { entity_guid, name, account } = v as { entity_guid?: string; name?: string; account?: number };
+    if ((entity_guid === undefined) === (name === undefined)) {
+      c.addIssue({ code: 'custom', message: 'Give exactly one of "entity_guid" or "name".' });
+    } else if (account !== undefined && entity_guid !== undefined) {
       c.addIssue({
         code: 'custom',
         message: '"account" only applies together with "name".',
@@ -47,7 +47,7 @@ export function refineEntityRef<T extends z.ZodObject<z.ZodRawShape>>(schema: T)
 }
 
 export interface EntityRefInput {
-  readonly guid?: string | undefined;
+  readonly entity_guid?: string | undefined;
   readonly name?: string | undefined;
   readonly account?: number | undefined;
   readonly domain?: string | undefined;
@@ -70,9 +70,9 @@ export async function resolveEntityRef(
   ctx: ToolContext,
   input: EntityRefInput,
 ): Promise<ResolvedRef> {
-  if (input.guid !== undefined) return { guid: input.guid, note: null };
+  if (input.entity_guid !== undefined) return { guid: input.entity_guid, note: null };
   if (input.name === undefined)
-    throw new RbError(ErrorCode.InputInvalid, 'Give exactly one of "guid" or "name".');
+    throw new RbError(ErrorCode.InputInvalid, 'Give exactly one of "entity_guid" or "name".');
   const r = await resolver.resolve(ctx, {
     query: input.name,
     ...(input.account === undefined ? {} : { account: input.account }),
@@ -92,12 +92,12 @@ export async function resolveEntityRef(
       ErrorCode.InputInvalid,
       `The name matches ${r.totalCandidates} entities (${r.matchedBy?.replace('_', ' ')} match); none was chosen.`,
       {
-        hint: 'Call again with "guid" set to one of the candidates, or narrow the name or "account".',
+        hint: 'Call again with "entity_guid" set to one of the candidates, or narrow the name or "account".',
         details: {
           candidates: r.candidates.slice(0, MAX_RESOLVE_CANDIDATES).map((c) => ({
             guid: c.guid,
             name: cleanName(c.name, 120),
-            account: c.accountId,
+            accountId: c.accountId,
             kind: kind(c),
           })),
           totalCandidates: r.totalCandidates,
@@ -114,7 +114,7 @@ export async function resolveEntityRef(
 
 /** How `withEntityName` adapts one tool. */
 export interface EntityNameOptions {
-  /** The tool's existing guid input, e.g. `guid` or `entity_guid`. */
+  /** The tool's guid input: `entity_guid` (P6-22). */
   readonly field: string;
   /** True when the tool cannot run without it (then exactly one of field or name). */
   readonly required: boolean;
@@ -128,7 +128,7 @@ export interface EntityNameOptions {
 }
 
 /**
- * Give an entity tool the P6-17 `guid` XOR `name` input without touching its code (P6-18): one shared behaviour for
+ * Give an entity tool the P6-17 `entity_guid` XOR `name` input without touching its code (P6-18): one shared behaviour for
  * every tool. The name is resolved once, up front, by the shared resolver (which only searches the connection's
  * accounts); the original handler then runs with the guid exactly as if the caller had passed it, so its own scope
  * checks (`checkGuid`, T3) still apply. Ambiguous or unknown names throw before the handler runs. The cost includes

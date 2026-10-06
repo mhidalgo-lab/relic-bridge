@@ -104,7 +104,7 @@ describe('list_recent_issues', () => {
       arguments: {
         states: ['ACTIVATED'],
         priority: ['CRITICAL', 'HIGH'],
-        policy_id: 8000026,
+        policy_id: '8000026',
         acknowledged: false,
         contains: "o'; } query { evil",
         cursor: 'abc',
@@ -128,7 +128,7 @@ describe('list_recent_issues', () => {
     const s = r.structuredContent as { issues: { id: string; title: string; entities: string[] }[] };
     expect(s.issues[0]).toMatchObject({ id: 'i1', title: 'High error rate', entities: ['checkout'] });
     expect((r.structuredContent as { nextCursor: string }).nextCursor).toBe('CUR_2');
-    expect(text(r)).toContain('next_cursor: CUR_2');
+    expect(text(r)).toContain('nextCursor: CUR_2');
   });
 
   it('entity_guid filters and implies its account; a conflicting account is refused', async () => {

@@ -95,11 +95,11 @@ describe('list_accounts', () => {
     expect(r.isError).toBeFalsy();
     const s = r.structuredContent as {
       accounts: { id: number; default: boolean }[];
-      unreachableAllowed: number[];
+      unreachableAccountIds: number[];
     };
     expect(s.accounts.map((a) => a.id)).toEqual([A, B]);
     expect(s.accounts.map((a) => a.default)).toEqual([true, false]);
-    expect(s.unreachableAllowed).toEqual([]);
+    expect(s.unreachableAccountIds).toEqual([]);
     expect(text(r)).toContain('2 usable accounts');
     expect(text(r)).not.toContain('Secret other account');
     expect(text(r)).not.toContain(String(C));
@@ -111,8 +111,8 @@ describe('list_accounts', () => {
   it('notes allowed accounts the key cannot read and an unreadable default', async () => {
     const { client } = await setup([identityBody([{ id: B, name: 'Staging' }])]);
     const r = await client.callTool({ name: 'list_accounts', arguments: {} });
-    const s = r.structuredContent as { unreachableAllowed: number[]; defaultAccountReachable: boolean };
-    expect(s.unreachableAllowed).toEqual([A]);
+    const s = r.structuredContent as { unreachableAccountIds: number[]; defaultAccountReachable: boolean };
+    expect(s.unreachableAccountIds).toEqual([A]);
     expect(s.defaultAccountReachable).toBe(false);
     expect(text(r)).toContain('not readable with this key');
   });
@@ -180,7 +180,7 @@ describe('whoami', () => {
       user: { id: 7, name: 'Jane', email: 'jane.doe@example.com' },
       region: 'US',
       project: 'acme',
-      defaultAccount: A,
+      defaultAccountId: A,
       defaultAccountReachable: true,
       accountCount: 1,
       allowedTools: ['whoami', 'run_nrql'],

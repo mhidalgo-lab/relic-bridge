@@ -6,6 +6,7 @@ import { type NrqlComplete, resolveAccounts, runNrql } from '../nrql/engine.ts';
 import { enforceQueryLimits } from '../nrql/limits.ts';
 import { type NrqlQuery, nrql } from '../nrql/template.ts';
 import { shapeRows } from '../output/format.ts';
+import type { TimeRange } from '../time/index.ts';
 import { parseTimeRange } from '../time/range.ts';
 import { defineTool, type ToolDefinition } from '../tool.ts';
 import { cleanName } from './identity.ts';
@@ -13,6 +14,7 @@ import {
   accountIdSchema as accountId,
   assertWindowWithinLimit,
   type ToolDeps,
+  timeRangeInput,
   toolClient,
   UNTRUSTED,
 } from './shared.ts';
@@ -28,14 +30,9 @@ const SAMPLE_VALUE_CHARS = 300;
 const EVENT_TYPE_RE = /^[A-Za-z_][A-Za-z0-9_.:\-/]{0,254}$/;
 
 const accountField = accountId.optional().describe('Account id (list_accounts). Default: the default.');
-const sinceField = z
-  .string()
-  .min(1)
-  .max(200)
-  .optional()
-  .describe(`Window in which the data must exist, as in time_range. Default "last 24 hours".`);
+const windowField = timeRangeInput(DEFAULT_SCHEMA_SINCE);
 
-const listInput = z.strictObject({ account: accountField, since: sinceField });
+const listInput = z.strictObject({ account: accountField, time_range: windowField });
 const attributesInput = z.strictObject({
   event_type: z
     .string()
@@ -43,7 +40,7 @@ const attributesInput = z.strictObject({
     .max(MAX_NAME_CHARS)
     .describe('Event type exactly as list_event_types returns it (case-sensitive), e.g. "Transaction".'),
   account: accountField,
-  since: sinceField,
+  time_range: windowField,
   sample: z
     .boolean()
     .optional()
@@ -51,8 +48,9 @@ const attributesInput = z.strictObject({
 });
 
 const listOutput = z.object({
-  account: z.number().int(),
+  accountId: z.number().int(),
   since: z.string(),
+  until: z.string(),
   eventTypes: z.array(z.string()),
   /** The connection has an event-type allow list: its entries are listed without asking New Relic. */
   fromAllowList: z.boolean(),
@@ -60,9 +58,10 @@ const listOutput = z.object({
 });
 
 const attributesOutput = z.object({
-  account: z.number().int(),
+  accountId: z.number().int(),
   eventType: z.string(),
   since: z.string(),
+  until: z.string(),
   attributes: z.array(z.object({ name: z.string(), type: z.string() })),
   truncated: z.boolean(),
   sample: z.record(z.string(), z.unknown()).nullable(),
@@ -71,7 +70,7 @@ const attributesOutput = z.object({
 
 const LIST_DESCRIPTION = `List the event types (NRQL tables such as Transaction, PageView, Log, Metric, SystemSample) that have data in one account.
 
-Call it before writing NRQL for an unfamiliar account, then get_attributes for the type you want. since defaults to the last 24 hours; cached for 5 minutes; only the event types this connection permits. ${UNTRUSTED}`;
+Call it before writing NRQL for an unfamiliar account, then get_attributes for the type you want. time_range defaults to the last 24 hours; cached for 5 minutes; only the event types this connection permits. ${UNTRUSTED}`;
 
 const ATTRIBUTES_DESCRIPTION = `List the attributes (name and type) recorded on one event type in one account, optionally with one sample event, so NRQL uses real attribute names.
 
@@ -102,16 +101,18 @@ function createCache<T>() {
   };
 }
 
-/** `SINCE n seconds ago [UNTIL m seconds ago]`, built from integers only. */
-function timeClause(sinceText: string, ctx: ToolContext): NrqlQuery {
+/** `SINCE n seconds ago [UNTIL m seconds ago]`, built from integers only, and the resolved window. */
+function timeClause(sinceText: string, ctx: ToolContext): { clause: NrqlQuery; range: TimeRange } {
   const now = ctx.clock.now();
   const range = parseTimeRange(sinceText, now);
   assertWindowWithinLimit(range, ctx.limits);
   const ago = Math.max(1, Math.ceil((now - range.sinceMs) / 1000));
   const untilAgo = Math.max(0, Math.floor((now - range.untilMs) / 1000));
-  return untilAgo > 0
-    ? nrql`SINCE ${ago} seconds ago UNTIL ${untilAgo} seconds ago`
-    : nrql`SINCE ${ago} seconds ago`;
+  const clause =
+    untilAgo > 0
+      ? nrql`SINCE ${ago} seconds ago UNTIL ${untilAgo} seconds ago`
+      : nrql`SINCE ${ago} seconds ago`;
+  return { clause, range };
 }
 
 const str = (v: unknown): string | null => (typeof v === 'string' && v !== '' ? v : null);
@@ -153,7 +154,7 @@ export function parseEventTypes(rows: readonly Record<string, unknown>[]): strin
 const complete = (o: { status: string }): NrqlComplete => {
   if (o.status !== 'complete') {
     throw new RbError(ErrorCode.NerdGraphTimeout, 'New Relic is still working on the schema query.', {
-      hint: 'Try again shortly, or use a shorter "since".',
+      hint: 'Try again shortly, or use a shorter time_range.',
     });
   }
   return o as NrqlComplete;
@@ -191,8 +192,8 @@ export function createSchemaTools(deps: ToolDeps = {}): ToolDefinition[] {
       const [account] = resolveAccounts(ctx, args.account === undefined ? undefined : [args.account]) as [
         number,
       ];
-      const sinceText = args.since ?? DEFAULT_SCHEMA_SINCE;
-      const clause = timeClause(sinceText, ctx);
+      const sinceText = args.time_range ?? DEFAULT_SCHEMA_SINCE;
+      const { clause, range } = timeClause(sinceText, ctx);
       const allow = ctx.limits.eventTypes.allow;
       const deny = new Set((ctx.limits.eventTypes.deny ?? []).map((e) => e.trim().toLowerCase()));
       let types: string[];
@@ -227,8 +228,9 @@ export function createSchemaTools(deps: ToolDeps = {}): ToolDefinition[] {
       return {
         text: lines.join('\n'),
         structured: {
-          account,
-          since: sinceText,
+          accountId: account,
+          since: range.since,
+          until: range.until,
           eventTypes: types,
           fromAllowList: allow !== undefined,
           cached,
@@ -259,8 +261,8 @@ export function createSchemaTools(deps: ToolDeps = {}): ToolDefinition[] {
       const [account] = resolveAccounts(ctx, args.account === undefined ? undefined : [args.account]) as [
         number,
       ];
-      const sinceText = args.since ?? DEFAULT_SCHEMA_SINCE;
-      const clause = timeClause(sinceText, ctx);
+      const sinceText = args.time_range ?? DEFAULT_SCHEMA_SINCE;
+      const { clause, range } = timeClause(sinceText, ctx);
       const query = nrql`SELECT keyset() FROM ${type} ${clause}`;
       // Limits (event-type allow/deny) are checked even on a cache hit: they can differ between requests.
       enforceQueryLimits(query.text, ctx.limits, ctx.clock.now());
@@ -319,9 +321,10 @@ export function createSchemaTools(deps: ToolDeps = {}): ToolDefinition[] {
       return {
         text: lines.join('\n'),
         structured: {
-          account,
+          accountId: account,
           eventType: args.event_type,
-          since: sinceText,
+          since: range.since,
+          until: range.until,
           attributes,
           truncated: schema.truncated,
           sample,

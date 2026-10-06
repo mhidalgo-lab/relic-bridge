@@ -92,7 +92,7 @@ describe('prepareServer', () => {
     expect(r.structuredContent).toMatchObject({
       project: 'acme',
       region: 'US',
-      defaultAccount: 1000001,
+      defaultAccountId: 1000001,
       allowedTools: ['whoami', 'list_accounts'],
     });
     expect(seen).toEqual([{ url: 'https://api.newrelic.com/graphql', key: FAKE_KEY }]);

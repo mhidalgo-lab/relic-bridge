@@ -308,7 +308,7 @@ const resolveOutput = z.object({
   totalCandidates: z.number().int(),
   incomplete: z.boolean(),
   cached: z.boolean(),
-  accounts: z.array(z.number().int()),
+  accountIds: z.array(z.number().int()),
 });
 
 const DESCRIPTION = `Resolve one loose entity name (e.g. "shippingservice") to exactly one guid, or return the candidates when it is ambiguous (never a guess).
@@ -372,7 +372,7 @@ export function createEntityResolveTools(deps: ToolDeps = {}): ToolDefinition[] 
           totalCandidates: r.totalCandidates,
           incomplete: r.incomplete,
           cached: r.cached,
-          accounts: [...r.accounts],
+          accountIds: [...r.accounts],
         },
       };
     },

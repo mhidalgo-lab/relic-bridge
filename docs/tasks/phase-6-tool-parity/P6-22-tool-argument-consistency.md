@@ -2,11 +2,11 @@
 id: P6-22
 title: "Consistent tool argument and output naming before 1.0"
 phase: 6
-status: todo
+status: review
 priority: medium
 depends_on: [P6-19]
 adr: []
-owner: ""
+owner: "claude-agent"
 ---
 
 # P6-22 — Consistent tool argument and output naming before 1.0
@@ -30,10 +30,15 @@ the same concept. Agents pay for it in wrong calls and the descriptions pay for 
   `minimal_output` on some list tools only.
 
 ## Acceptance criteria
-- [ ] A style rule in `docs/dev/tool-style.md` (or the P6-13 guide) and a test in `tool-descriptions.test.ts` that
-      enforces the argument names.
-- [ ] Changed names keep a deprecated alias for one minor release, or the change is listed in the changelog as breaking.
-- [ ] Offline router baseline not lower than before; `pnpm eval:tools` re-run when a key is available.
+- [x] A style rule in `docs/dev/tool-style.md` (or the P6-13 guide) and a test in `tool-descriptions.test.ts` that
+      enforces the argument names. → `docs/dev/tool-conventions.md`; `lintNaming` (`test/evals/naming.ts`) checks
+      every tool's input and output schema and every prompt, with a mutation test.
+- [x] Changed names keep a deprecated alias for one minor release, or the change is listed in the changelog as breaking.
+      → breaking, listed in `.changeset/tool-naming-convention.md` (nothing released yet). Tool names unchanged, so
+      stored grants need no migration.
+- [x] Offline router baseline not lower than before; `pnpm eval:tools` re-run when a key is available. → baseline
+      unchanged (top-1 30, top-3 38), catalogue 51 9xx / 52 000 characters; `pnpm eval:tools` still needs the owner's
+      key (pending decision).
 
 ## Security notes
 None beyond keeping every new alias behind the same schema validation.
@@ -43,3 +48,13 @@ None beyond keeping every new alias behind the same schema validation.
 
 ## Out of scope
 - New tools.
+
+## Outcome
+- Arguments: `guid` → `entity_guid` (7 tools), `since` → `time_range` (4), substring `name` → `name_contains` (5),
+  `timeout_s` → `timeout_seconds`, `policy_id` a string everywhere, `compare` → `compare_previous`. `name` now only
+  means an entity name resolved to `entity_guid`. `lookback` / `lookback_days` kept where a second window exists.
+- Output: `accountId` / `accountIds` / `...AccountId`, `entityGuid`, `total`, `truncated` (no `hasMore` / `maybeMore`),
+  resolved `since` + `until` everywhere, `hiddenOutsideScope` on every list that drops rows after fetching, units in
+  duration and rate names, `nextCursor` in text and structured output.
+- Prompts tell the agent the argument names are shared by every tool.
+- The paging gaps (cursor for bounded lists, `limit` for cursor-only lists) are behaviour, not naming: **P6-24**.

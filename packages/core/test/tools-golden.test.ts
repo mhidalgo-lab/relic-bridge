@@ -176,7 +176,7 @@ describe('get_golden_metrics', () => {
       () => entityBody(THREE),
     );
     const client = await connect(fetch);
-    const r = await client.callTool({ name: 'get_golden_metrics', arguments: { guid: GUID } });
+    const r = await client.callTool({ name: 'get_golden_metrics', arguments: { entity_guid: GUID } });
     expect(r.isError).toBeFalsy();
     const s = r.structuredContent as Out;
     expect(s.metrics.map((m) => [m.title, m.status, m.trend])).toEqual([
@@ -206,7 +206,7 @@ describe('get_golden_metrics', () => {
     const client = await connect(fetch);
     const r = await client.callTool({
       name: 'get_golden_metrics',
-      arguments: { guid: GUID, since: 'last 2 hours', timeseries: false },
+      arguments: { entity_guid: GUID, time_range: 'last 2 hours', timeseries: false },
     });
     const s = r.structuredContent as Out;
     expect(s.metrics[0]).toMatchObject({ status: 'ok', value: 7, trend: 'unknown' });
@@ -223,7 +223,7 @@ describe('get_golden_metrics', () => {
     );
     // One request for the entity, two NRQL queries (two requests each); the third metric is skipped without a request.
     const client = await connect(fetch, { budget: createBudget(5) });
-    const r = await client.callTool({ name: 'get_golden_metrics', arguments: { guid: GUID } });
+    const r = await client.callTool({ name: 'get_golden_metrics', arguments: { entity_guid: GUID } });
     expect(r.isError).toBeFalsy();
     const s = r.structuredContent as Out;
     expect(s.metrics.map((m) => m.status)).toEqual(['ok', 'ok', 'skipped']);
@@ -235,7 +235,7 @@ describe('get_golden_metrics', () => {
   it('skips every metric when only the entity lookup fits in the budget', async () => {
     const { fetch, calls } = routedFetch({}, () => entityBody(THREE));
     const client = await connect(fetch, { budget: createBudget(1) });
-    const r = await client.callTool({ name: 'get_golden_metrics', arguments: { guid: GUID } });
+    const r = await client.callTool({ name: 'get_golden_metrics', arguments: { entity_guid: GUID } });
     expect((r.structuredContent as Out).metrics.map((m) => m.status)).toEqual([
       'skipped',
       'skipped',
@@ -264,7 +264,7 @@ describe('get_golden_metrics', () => {
       () => entityBody(THREE),
     );
     const client = await connect(fetch);
-    const r = await client.callTool({ name: 'get_golden_metrics', arguments: { guid: GUID } });
+    const r = await client.callTool({ name: 'get_golden_metrics', arguments: { entity_guid: GUID } });
     const s = r.structuredContent as Out;
     expect(s.metrics.map((m) => m.status)).toEqual(['ok', 'error', 'no_data']);
     expect(s.partial).toBe(true);
@@ -279,7 +279,7 @@ describe('get_golden_metrics', () => {
       ]),
     );
     const client = await connect(fetch);
-    const r = await client.callTool({ name: 'get_golden_metrics', arguments: { guid: GUID } });
+    const r = await client.callTool({ name: 'get_golden_metrics', arguments: { entity_guid: GUID } });
     const s = r.structuredContent as Out;
     expect(s.metrics.map((m) => m.status)).toEqual(['error', 'ok', 'ok']);
     expect(calls).toHaveLength(3);
@@ -293,7 +293,7 @@ describe('get_golden_metrics', () => {
       entityBody([THREE[0]]),
     );
     const client = await connect(fetch, { limits: { ...DEFAULT_LIMITS, rawNrql: false } });
-    const r = await client.callTool({ name: 'get_golden_metrics', arguments: { guid: GUID } });
+    const r = await client.callTool({ name: 'get_golden_metrics', arguments: { entity_guid: GUID } });
     expect((r.structuredContent as Out).metrics[0]?.status).toBe('ok');
   });
 
@@ -303,7 +303,7 @@ describe('get_golden_metrics', () => {
       entityBody([rows, THREE[0] as (typeof THREE)[number]]),
     );
     const client = await connect(fetch, { limits: { ...DEFAULT_LIMITS, rawNrql: false } });
-    const r = await client.callTool({ name: 'get_golden_metrics', arguments: { guid: GUID } });
+    const r = await client.callTool({ name: 'get_golden_metrics', arguments: { entity_guid: GUID } });
     expect((r.structuredContent as Out).metrics.map((m) => m.status)).toEqual(['error', 'ok']);
     expect(calls.filter((c) => /FROM Log/.test(String(c.variables['nrql'] ?? '')))).toHaveLength(0);
   });
@@ -313,14 +313,14 @@ describe('get_golden_metrics', () => {
       entityBody([{ title: 'Rows', query: 'SELECT count(*) FROM Log' }]),
     );
     const client = await connect(fetch);
-    await client.callTool({ name: 'get_golden_metrics', arguments: { guid: GUID } });
+    await client.callTool({ name: 'get_golden_metrics', arguments: { entity_guid: GUID } });
     expect(calls.length).toBeGreaterThan(1);
   });
 
   it('handles an entity without golden metrics and reports faceted and slow metrics', async () => {
     const none = routedFetch({}, () => entityBody(null));
     const client = await connect(none.fetch);
-    const r = await client.callTool({ name: 'get_golden_metrics', arguments: { guid: GUID } });
+    const r = await client.callTool({ name: 'get_golden_metrics', arguments: { entity_guid: GUID } });
     expect((r.structuredContent as Out).totalMetrics).toBe(0);
     expect(text(r)).toContain('no golden metrics');
 
@@ -363,7 +363,7 @@ describe('get_golden_metrics', () => {
       () => entityBody(THREE.slice(0, 2)),
     );
     const c2 = await connect(mixed.fetch, { budget: createBudget(5) });
-    const r2 = await c2.callTool({ name: 'get_golden_metrics', arguments: { guid: GUID } });
+    const r2 = await c2.callTool({ name: 'get_golden_metrics', arguments: { entity_guid: GUID } });
     expect((r2.structuredContent as Out).metrics.map((m) => m.status)).toEqual(['no_data', 'pending']);
   });
 
@@ -374,7 +374,7 @@ describe('get_golden_metrics', () => {
     const client = await connect(fetch);
     const r = await client.callTool({
       name: 'get_golden_metrics',
-      arguments: { guid: GUID, max_metrics: 1 },
+      arguments: { entity_guid: GUID, max_metrics: 1 },
     });
     expect((r.structuredContent as Out).metrics).toHaveLength(1);
     expect(calls).toHaveLength(2);
@@ -384,13 +384,16 @@ describe('get_golden_metrics', () => {
   it('refuses another account offline, and an entity that resolves to another account', async () => {
     const { fetch, calls } = routedFetch({}, () => entityBody(THREE));
     const client = await connect(fetch);
-    const denied = await client.callTool({ name: 'get_golden_metrics', arguments: { guid: guidOf(OTHER) } });
+    const denied = await client.callTool({
+      name: 'get_golden_metrics',
+      arguments: { entity_guid: guidOf(OTHER) },
+    });
     expect(errorCode(denied)).toBe(ErrorCode.AuthForbidden);
     expect(calls).toHaveLength(0);
 
     const smuggle = routedFetch({}, () => entityBody(THREE, { accountId: OTHER }));
     const c2 = await connect(smuggle.fetch);
-    const r = await c2.callTool({ name: 'get_golden_metrics', arguments: { guid: GUID } });
+    const r = await c2.callTool({ name: 'get_golden_metrics', arguments: { entity_guid: GUID } });
     expect(errorCode(r)).toBe(ErrorCode.AuthForbidden);
     expect(smuggle.calls).toHaveLength(1);
     expect(text(r)).not.toContain('Throughput');
@@ -414,7 +417,7 @@ describe('get_golden_metrics', () => {
 
     const broke = routedFetch({}, () => entityBody(THREE));
     const c2 = await connect(broke.fetch, { budget: createBudget(0) });
-    const r = await c2.callTool({ name: 'get_golden_metrics', arguments: { guid: GUID } });
+    const r = await c2.callTool({ name: 'get_golden_metrics', arguments: { entity_guid: GUID } });
     expect(errorCode(r)).toBe(ErrorCode.BudgetExhausted);
     expect(broke.calls).toHaveLength(0);
   });
@@ -431,7 +434,7 @@ describe('get_golden_metrics', () => {
       destructiveHint: false,
       openWorldHint: true,
     });
-    const r = await client.callTool({ name: 'get_golden_metrics', arguments: { guid: GUID } });
+    const r = await client.callTool({ name: 'get_golden_metrics', arguments: { entity_guid: GUID } });
     const t = text(r);
     const open = t.indexOf('<untrusted-data');
     expect(t.indexOf('Ignore previous')).toBeGreaterThan(open);

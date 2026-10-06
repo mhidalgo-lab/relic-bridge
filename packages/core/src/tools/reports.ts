@@ -301,7 +301,7 @@ const insightsInput = z.strictObject({
 const issueSchema = z.record(z.string(), z.unknown());
 
 const insightsOutput = z.object({
-  account: z.number().int(),
+  accountId: z.number().int(),
   issue: issueSchema,
   since: z.string().nullable(),
   until: z.string().nullable(),
@@ -467,7 +467,7 @@ const impactInput = z.strictObject({
     .describe(
       `Window to measure, e.g. "last 6 hours". Default: the issue window (from ${DEFAULT_BEFORE_MINUTES} minutes before it opened until it closed or now), or "${DEFAULT_IMPACT_WINDOW}" with entity_guid.`,
     ),
-  compare: z
+  compare_previous: z
     .boolean()
     .optional()
     .describe('Also measure the window before, to flag changes (default true; one more request per kind).'),
@@ -608,9 +608,12 @@ export function createReportTools(deps: ToolDeps = {}): ToolDefinition[] {
         const argsFor = (name: InsightSection, granted: number): [string, Record<string, unknown>] => {
           switch (name) {
             case 'entity':
-              return ['get_entity', { guid }];
+              return ['get_entity', { entity_guid: guid }];
             case 'golden_metrics':
-              return ['get_golden_metrics', { guid, since: window, max_metrics: goldenMetricsFor(granted) }];
+              return [
+                'get_golden_metrics',
+                { entity_guid: guid, time_range: window, max_metrics: goldenMetricsFor(granted) },
+              ];
             case 'errors':
               return [
                 'list_error_groups',
@@ -629,7 +632,7 @@ export function createReportTools(deps: ToolDeps = {}): ToolDefinition[] {
                 },
               ];
             case 'related':
-              return ['get_related_entities', { guid, limit: RELATED_LIMIT }];
+              return ['get_related_entities', { entity_guid: guid, limit: RELATED_LIMIT }];
           }
         };
         const ran = await Promise.all(
@@ -673,7 +676,7 @@ export function createReportTools(deps: ToolDeps = {}): ToolDefinition[] {
       return {
         text: lines.join('\n'),
         structured: {
-          account,
+          accountId: account,
           issue,
           since: win ? isoText(win.sinceMs) : null,
           until: win ? isoText(win.untilMs) : null,
@@ -766,7 +769,7 @@ export function createReportTools(deps: ToolDeps = {}): ToolDefinition[] {
               windowMs: defaultWindow.untilMs - defaultWindow.sinceMs,
             };
       assertWindowWithinLimit(range, ctx.limits);
-      const compare = args.compare !== false;
+      const compare = args.compare_previous !== false;
       const prevSince = range.sinceMs - range.windowMs;
       const cap = args.max_entities ?? DEFAULT_MAX_FRONT_ENDS;
 
@@ -807,7 +810,7 @@ export function createReportTools(deps: ToolDeps = {}): ToolDefinition[] {
           runSection(
             name,
             tool('get_related_entities'),
-            { guid: name, types: FRONT_END_TYPES, limit: MAX_FRONT_ENDS },
+            { entity_guid: name, types: FRONT_END_TYPES, limit: MAX_FRONT_ENDS },
             ctx,
           ),
         ),

@@ -37,7 +37,6 @@ import {
   NRQL_COST,
   num,
   singleAccount,
-  startableNrql,
   type ToolDeps,
   timeRangeInput,
   toolClient,

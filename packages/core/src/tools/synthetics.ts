@@ -25,7 +25,6 @@ import {
   nextCursorOf,
   num,
   singleAccount,
-  startableNrql,
   type ToolDeps,
   toolClient,
   UNTRUSTED,

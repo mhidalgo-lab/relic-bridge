@@ -28,7 +28,6 @@ import {
   NRQL_COST,
   num,
   singleAccount,
-  startableNrql,
   type ToolDeps,
   toolClient,
   UNTRUSTED,

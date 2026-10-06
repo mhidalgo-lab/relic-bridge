@@ -149,7 +149,7 @@ describe('declared cost bounds the worst-case requests of a call (P6-20)', () =>
     describe(mode, () => {
       it.each(openWorld)('%s', async (name) => {
         const { client, mock } = await connect(mode, 500);
-        const r = await client.callTool({ name, arguments: SAMPLE_CALLS[name] ?? {} });
+        await client.callTool({ name, arguments: SAMPLE_CALLS[name] ?? {} });
         expect(
           mock.calls.length,
           `${name}: ${mock.calls.length} requests, declared ${costOf(name)}`,

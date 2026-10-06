@@ -13,6 +13,7 @@ import {
 } from '../nerdgraph/dashboards.ts';
 import { decodeEntityGuid } from '../nerdgraph/entity-guid.ts';
 import { entityQuery } from '../nerdgraph/entity-query.ts';
+import { envelope } from '../output/envelope.ts';
 import { shapeRows } from '../output/format.ts';
 import { defineTool, type ToolDefinition } from '../tool.ts';
 import { checkGuid, guidAgrees, isNonNull, outOfScope, requireField } from './entities.ts';
@@ -340,10 +341,16 @@ export function createDashboardTools(deps: ToolDeps = {}): ToolDefinition[] {
           });
         }
       }
+      // Name, description and link are written by dashboard editors: untrusted data (T6).
       lines.push(
-        `name: ${structured.name}`,
-        ...(structured.description ? [`description: ${structured.description}`] : []),
-        `link: ${structured.permalink ?? ''}`,
+        envelope(
+          [
+            `name: ${structured.name}`,
+            ...(structured.description ? [`description: ${structured.description}`] : []),
+            `link: ${structured.permalink ?? ''}`,
+          ].join('\n'),
+          { source: 'New Relic dashboard' },
+        ),
       );
       if (rows.length > 0)
         lines.push(

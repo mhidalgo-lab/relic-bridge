@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import type { CallToolResult } from '@modelcontextprotocol/server';
+import { envelope } from './output/envelope.ts';
 import { redact } from './redact.ts';
 
 /**
@@ -63,7 +64,10 @@ export function toToolErrorResult(error: unknown, requestId: string): CallToolRe
     : new RbError(ErrorCode.Internal, `Internal error. Reference: ${requestId}`);
   const lines = [`${rb.code}: ${rb.message}`];
   if (rb.hint) lines.push(`Hint: ${rb.hint}`);
-  if (rb.details && Object.keys(rb.details).length > 0) lines.push(`Details: ${JSON.stringify(rb.details)}`);
+  // Details may carry New Relic text (e.g. candidate entity names): untrusted data, so enveloped like results (T6).
+  if (rb.details && Object.keys(rb.details).length > 0) {
+    lines.push(envelope(`Details: ${JSON.stringify(rb.details)}`, { source: 'error details' }));
+  }
   return {
     isError: true,
     content: [{ type: 'text', text: redact(lines.join('\n')) }],

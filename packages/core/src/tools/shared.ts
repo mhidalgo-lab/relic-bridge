@@ -6,6 +6,7 @@ import { ErrorCode, RbError } from '../errors.ts';
 import { type FetchLike, type NerdGraphClient, nerdGraphFor } from '../nerdgraph/client.ts';
 import { resolveAccounts } from '../nrql/engine.ts';
 import type { TimeRange } from '../time/index.ts';
+import type { ToolDefinition } from '../tool.ts';
 import type { EntityResolver } from './entity-resolver.ts';
 
 /**
@@ -96,4 +97,32 @@ export function singleAccount(ctx: ToolContext, account: number | undefined): nu
   const [first] = resolveAccounts(ctx, account === undefined ? undefined : [account]);
   if (first === undefined) throw new RbError(ErrorCode.AuthForbidden, 'This connection has no accounts.');
   return first;
+}
+
+/**
+ * Whether this connection was granted `name`. `connection.allowedTools` is the grant's tool list (HTTP) or every
+ * listed tool (stdio); absent means no per-tool grant applies (tests, library use).
+ */
+export function isToolGranted(ctx: ToolContext, name: string): boolean {
+  const allowed = ctx.connection?.allowedTools;
+  return allowed === undefined || allowed.includes(name);
+}
+
+/**
+ * A sibling tool as a composite may call it (phase 6 review): the composite's own grant does not imply its parts, so a
+ * section whose tool the connection was not granted refuses with `RB_TOOL_DISABLED` before any request (T3).
+ */
+export function grantedSibling(def: ToolDefinition): ToolDefinition {
+  return {
+    ...def,
+    handler: async (input, ctx) => {
+      if (!isToolGranted(ctx, def.name)) {
+        throw new RbError(
+          ErrorCode.ToolDisabled,
+          `This connection is not granted ${def.name}: section not run.`,
+        );
+      }
+      return def.handler(input, ctx);
+    },
+  };
 }

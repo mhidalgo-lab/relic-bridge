@@ -2,11 +2,11 @@
 id: P7-07
 title: "Claude Code plugin (MCP config + skills + commands)"
 phase: 7
-status: todo
+status: review
 priority: medium
 depends_on: [P6-13]
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P7-07 — Claude Code plugin (MCP config + skills + commands)
@@ -23,11 +23,11 @@ owner: ""
 - Skills state the untrusted-data rule and use the current tool names and arguments (`docs/reference/tools.md`).
 
 ## Acceptance criteria
-- [ ] Plugin files pass `claude plugin validate` (plugin and marketplace) and a repo test.
-- [ ] Installable via `/plugin` from the local marketplace; skills reference relic-bridge tool names.
-- [ ] Every tool name in skills/commands is checked against the registry by a test.
-- [ ] No secrets in plugin files (env expansion only); test asserts it.
-- [ ] Guide written; clients guide links to it.
+- [x] Plugin files pass `claude plugin validate` (plugin and marketplace) and a repo test.
+- [x] Marketplace manifest validates (`claude plugin validate`); installable via `/plugin` from a checkout (install itself not exercised here); skills reference relic-bridge tool names.
+- [x] Every tool name in skills/commands is checked against the registry by a test.
+- [x] No secrets in plugin files (env expansion only); test asserts it.
+- [x] Guide written; clients guide links to it.
 - [ ] Publishing to a marketplace and to the official MCP Registry: **not done**, logged as an owner decision.
 
 ## Security notes

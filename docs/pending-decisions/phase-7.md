@@ -108,3 +108,16 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Needs:** owner confirms PBKDF2 is acceptable (or asks for Argon2id in the CLI), whether personal-key defaults should
   be refused on import, and whether existing grants should be updatable. Also run one real Node-to-Worker move (export
   with `--with-credentials`, `import --apply --remote https://<worker>`) against a deployed Worker, which this run could not.
+
+### P7-07 — Claude Code plugin: publishing, versioning and packaging chosen without an owner
+- **Context:** The task asks for marketplace listing and publishing to the official MCP Registry. Publishing is an
+  external, owner-only action; relic-bridge is also not on npm yet.
+- **Assumption made:** Only the manifests are prepared: `plugins/relic-bridge/` and a root `.claude-plugin/marketplace.json`
+  (source `./plugins/relic-bridge`, so the GitHub repo is itself a marketplace). The default `.mcp.json` is local stdio via
+  `npx -y relic-bridge`; the remote variant is a template (`mcp-remote.example.json`) because one file cannot offer both
+  without a failing server entry. The plugin version (0.1.0) is not yet synced by `scripts/release.ts`.
+- **Options:** publish to a community marketplace and the MCP Registry; use plugin `userConfig` prompts instead of
+  environment variables; bundle both servers; add the plugin to the release version sync.
+- **Needs:** owner decides whether/where to publish (after the v0.1 npm release), the GitHub owner/repo name in
+  `plugin.json` (`homepage` assumes `matiashidalgo/relic-bridge`), and whether to sync the plugin version in releases.
+  Also a real `/plugin install` smoke test with a live key, which this run could not do.

@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "relic-remote": {
+      "type": "http",
+      "url": "${RELIC_BRIDGE_URL}",
+      "headers": { "Authorization": "Bearer ${RELIC_BRIDGE_TOKEN}" }
+    }
+  }
+}

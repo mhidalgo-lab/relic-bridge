@@ -51,3 +51,13 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Options:** add `result_handle` + `page` to `run_nrql` backed by the cache entry id (needs a handle bound to the
   caller's scope so it can't be replayed by another grant).
 - **Needs:** owner's call; a new task if wanted.
+
+### P7-03 — UI link formats are unverified
+- **Context:** The autonomous run had no browser or New Relic login, so only the entity permalink is a known format.
+- **Assumption made:** Query builder (`launcher` + base64 `pane`) and issue (`alerts-ai/issues/<id>`) formats are best
+  recollection; the tool marks them `verified: false` and its description says so. JP is refused (no known host). The
+  tool is one new tool (~770 characters), so the `tools/list` budget went from 53 600 to 54 400. Links are not added to
+  other tools' output to avoid growing every result.
+- **Options:** verify and fix the two formats (one-line change in `packages/core/src/links.ts`); add `link` fields to
+  `get_entity` / `list_recent_issues` / `get_dashboard`; drop the unverified kinds.
+- **Needs:** owner opens one link of each kind in US and EU and reports; then drop the "unverified" wording.

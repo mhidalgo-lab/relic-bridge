@@ -12,6 +12,7 @@ import { createGoldenMetricTools } from './golden.ts';
 import { createIdentityTools } from './identity.ts';
 import { createInvestigationTools } from './investigations.ts';
 import { createIssueTools } from './issues.ts';
+import { createLinkTools } from './links.ts';
 import { createLogTools } from './logs.ts';
 import { createQueryTools, type ToolDeps } from './query.ts';
 import { createReportTools } from './reports.ts';
@@ -56,6 +57,7 @@ export {
 } from './identity.ts';
 export { createInvestigationTools } from './investigations.ts';
 export { createIssueTools } from './issues.ts';
+export { createLinkTools } from './links.ts';
 export { createLogTools } from './logs.ts';
 export { bindingOf, decodePageCursor, encodePageCursor } from './paging.ts';
 export {
@@ -104,6 +106,7 @@ export function createBuiltinTools(options: ToolDeps = {}): ToolDefinition[] {
   const tools = [
     ...createIdentityTools(deps),
     ...createTimeTools(),
+    ...createLinkTools(),
     ...createQueryTools(deps),
     ...createEntityTools(deps),
     ...createEntityResolveTools(deps),

@@ -2,7 +2,7 @@
 id: P6-13
 title: "Tool description quality and agent evals"
 phase: 6
-status: in-progress
+status: review
 priority: medium
 depends_on: [P6-10]
 adr: []
@@ -42,14 +42,16 @@ interface the model sees, so they are tested like code.
    a message) unless `ANTHROPIC_API_KEY` is set; never run in CI or tests. Writes a JSON report for the release notes.
 
 ## Acceptance criteria
-- [ ] Task refined (this file) before implementation.
-- [ ] Every built-in tool description follows the guide; `docs/reference/tools.md` regenerated.
-- [ ] Offline lint in `pnpm test` enforces the guide and the size budgets; `tools/list` total size not larger than before.
-- [ ] Eval set of at least 40 cases covering every tool, the P6-16 investigation tools and prompt-injection cases.
-- [ ] Offline router baseline recorded; a drop fails `pnpm test` (regressions block release).
+- [x] Task refined (this file) before implementation.
+- [x] Every built-in tool description follows the guide; `docs/reference/tools.md` regenerated.
+- [x] Offline lint in `pnpm test` enforces the guide and the size budgets; `tools/list` total size not larger than before.
+- [x] Eval set of at least 40 cases covering every tool, the P6-16 investigation tools and prompt-injection cases.
+- [x] Offline router baseline recorded; a drop fails `pnpm test` (regressions block release).
 - [ ] LLM runner implemented, gated on `ANTHROPIC_API_KEY`, documented; LLM baseline pass rate recorded (needs the owner's
       key: logged in `docs/pending-decisions/phase-6.md`).
-- [ ] `docs/dev/evals.md` written.
+      *Runner implemented, tested offline and documented; left unticked because the LLM baseline has not been run (no API
+      key, no paid calls in the autonomous run).*
+- [x] `docs/dev/evals.md` written.
 
 ## Security notes
 Prompt-injection cases (log lines, error messages, dashboard markdown containing instructions) are part of the eval set.
@@ -58,6 +60,13 @@ fixture text (no New Relic data, no credentials) to the model.
 
 ## Docs to update
 - `docs/dev/evals.md`, `docs/reference/tools.md` (generated), `docs/dev/testing.md` (link).
+
+## Outcome
+- Descriptions rewritten (purpose first, siblings named, "(guid or name)", cost, one untrusted-data sentence): catalogue
+  65 683 → 61 267 characters. Offline router: top-1 30/44 → 30/44, top-3 35/44 → 38/44.
+- Lint, eval set (44 cases, 3 injection), grading and router in `packages/core/test/evals/`, tested by
+  `packages/core/test/tool-descriptions.test.ts`; runner `scripts/eval-tools.ts` (`pnpm eval:tools`).
+- Follow-up: P6-19 (trim input schema text, the larger part of `tools/list`).
 
 ## Out of scope
 - Cutting the v0.6.0 release (owner, after the Phase 6 stack is merged; see `docs/dev/releasing.md`).

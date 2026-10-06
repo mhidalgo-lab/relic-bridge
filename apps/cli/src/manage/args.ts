@@ -54,6 +54,11 @@ const OPTIONS = {
   confirm: { type: 'string' },
   config: { type: 'string' },
   offline: { type: 'boolean' },
+  out: { type: 'string' },
+  'with-credentials': { type: 'boolean' },
+  apply: { type: 'boolean' },
+  'passphrase-file': { type: 'string' },
+  'passphrase-env': { type: 'string' },
 } as const;
 
 export type ManageOptionName = keyof typeof OPTIONS;
@@ -127,6 +132,8 @@ const SPECS: Readonly<Record<string, Spec>> = {
   'token list': { args: 0, flags: ['grant', 'limit'] },
   'token revoke': { args: 1, flags: [] },
   'keys rotate': { args: 0, flags: ['batch-size'] },
+  'config export': { args: 0, flags: ['out', 'with-credentials', 'passphrase-file', 'passphrase-env'] },
+  'config import': { args: 1, flags: ['apply', 'passphrase-file', 'passphrase-env'] },
   'audit tail': {
     args: 0,
     flags: [
@@ -166,6 +173,8 @@ const BOOLEAN_FLAGS: ReadonlySet<string> = new Set([
   'follow',
   'no-config',
   'offline',
+  'with-credentials',
+  'apply',
 ]);
 
 /** Whether argv names a management command (so `main` hands it over). */
@@ -182,7 +191,7 @@ export function isManageArgv(argv: readonly string[]): boolean {
   if (first === undefined) return false;
   if (first === 'init' || first === 'admin-token' || first === 'user' || first === 'project') return true;
   if (first === 'setup-link' || first === 'doctor') return true;
-  if (first === 'grant' || first === 'token') return true;
+  if (first === 'grant' || first === 'token' || first === 'config') return true;
   if (first === 'credential') return second !== 'revalidate' || words.length > 2;
   if (first === 'audit') return second === 'tail';
   // `keys rotate --remote <url>` (P3-11) runs on the server through the Admin API; without it, on a local file.
@@ -200,6 +209,7 @@ const WORDS: Readonly<Record<string, readonly string[]>> = {
   token: ['create', 'list', 'revoke'],
   audit: ['tail'],
   keys: ['rotate'],
+  config: ['export', 'import'],
 };
 
 /** Parse a management command line. Strict: an unknown flag (e.g. `--api-key`, `--admin-token`) is refused. */

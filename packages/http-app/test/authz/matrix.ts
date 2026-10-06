@@ -127,6 +127,25 @@ export const ADMIN_ROUTES: readonly RouteCase[] = [
   { method: 'GET', pattern: `${A}/audit/stats`, path: `${A}/audit/stats` },
   // Master-key rotation (P3-11): every row is already current in the fixture, so the control call changes nothing.
   { method: 'POST', pattern: `${A}/keys/rotate`, path: `${A}/keys/rotate`, body: {} },
+  // Config import/export (P7-06): owner only. Export without keys and a dry-run import of an empty bundle change nothing.
+  { method: 'POST', pattern: `${A}/config/export`, path: `${A}/config/export`, body: {} },
+  {
+    method: 'POST',
+    pattern: `${A}/config/import`,
+    path: `${A}/config/import`,
+    body: {
+      bundle: {
+        format: 'relic-bridge-config',
+        version: 1,
+        exportedAt: '2026-01-01T00:00:00.000Z',
+        users: [],
+        credentials: [],
+        projects: [],
+        grants: [],
+        settings: {},
+      },
+    },
+  },
   // Owner setup link (P4-01): the control call issues one (a single-use code in `kv`, nothing else changes).
   { method: 'POST', pattern: `${A}/setup-links`, path: `${A}/setup-links`, body: {} },
   // Member self-service (P4-10): a session user's own rows. The admin token is nobody (403 `no_user`); ids don't exist.

@@ -11,6 +11,7 @@ import type { ManageContext } from './io.ts';
 import { keysRotateRemote } from './keys.ts';
 import { iso, plain, table } from './render.ts';
 import { readNewRelicKey } from './secrets.ts';
+import { configExport, configImport } from './transfer.ts';
 
 export type Rec = Record<string, unknown>;
 const DAY_MS = 86_400_000;
@@ -590,4 +591,6 @@ export const HANDLERS: Readonly<Record<string, (run: Run) => Promise<number>>> =
   'token revoke': tokenRevoke,
   'audit tail': auditTail,
   'keys rotate': (run) => keysRotateRemote(run),
+  'config export': configExport,
+  'config import': configImport,
 };

@@ -2,11 +2,11 @@
 id: P7-06
 title: "Config import/export"
 phase: 7
-status: todo
+status: review
 priority: low
 depends_on: [P6-13]
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P7-06 — Config import/export
@@ -45,21 +45,21 @@ and reports what was applied; re-running resumes.
 mode 0600) and `relic-bridge config import <file> [--apply] [passphrase source]` (works with `--remote` and locally).
 
 ## Acceptance criteria
-- [ ] Export never contains plaintext keys, tokens, sessions, OAuth state or key check values (tests grep the output).
-- [ ] Encrypted export round-trips; wrong passphrase and tampered metadata/ciphertext are refused; versioned format.
-- [ ] Import validates strictly (schema, caps, references, catalog); dry run is the default and changes nothing.
-- [ ] Idempotent: import twice = second run all `unchanged`; round trip local SQLite → a second (Worker-style, D1-like
+- [x] Export never contains plaintext keys, tokens, sessions, OAuth state or key check values (tests grep the output).
+- [x] Encrypted export round-trips; wrong passphrase and tampered metadata/ciphertext are refused; versioned format.
+- [x] Import validates strictly (schema, caps, references, catalog); dry run is the default and changes nothing.
+- [x] Idempotent: import twice = second run all `unchanged`; round trip local SQLite → a second (Worker-style, D1-like
       memory/D1 storage) deployment through the Admin API is tested.
-- [ ] Owner-only (admin and member sessions get 403, no change); audited; owner boundary respected (no owner creation).
-- [ ] CLI: export file mode 0600, refuses to overwrite, passphrase never an option value.
-- [ ] Authz matrix lists both routes; docs and THREAT_MODEL updated.
+- [x] Owner-only (admin and member sessions get 403, no change); audited; owner boundary respected (no owner creation).
+- [x] CLI: export file mode 0600, refuses to overwrite, passphrase never an option value.
+- [x] Authz matrix lists both routes; docs and THREAT_MODEL updated.
 
 ## Security notes
 T7 (keys at rest/transit): the wrap key travels only over the admin TLS channel and is wiped after use; KDF cost is paid
 on the client (offline, not hot path). New threat T29 (config bundle): see THREAT_MODEL.
 
 ## Docs to update
-- Migration guide (`docs/guide/migrating-config.md`), CLI reference, Admin API reference, THREAT_MODEL T29, authz matrix.
+- Migration guide (`docs/guide/migrating-config.md`), CLI reference, Admin API reference (generated), THREAT_MODEL T29, authz matrix: done.
 
 ## Out of scope
 - Deleting/pruning entities that are absent from the file; modifying existing grants; importing tokens; OS keychain

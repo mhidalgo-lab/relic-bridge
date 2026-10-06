@@ -40,7 +40,13 @@ export {
   rankByName,
 } from './entity-resolver.ts';
 export { createErrorTools } from './errors.ts';
-export { createGoldenMetricTools, DEFAULT_GOLDEN_SINCE, summarizeSeries, withTimeClauses } from './golden.ts';
+export {
+  createGoldenMetricTools,
+  DEFAULT_GOLDEN_SINCE,
+  isAggregateOnlyNrql,
+  summarizeSeries,
+  withTimeClauses,
+} from './golden.ts';
 export {
   cleanName,
   createIdentityTools,

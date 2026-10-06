@@ -15,7 +15,7 @@ import { parseTimeRange } from '../time/range.ts';
 import { defineTool, type ToolDefinition } from '../tool.ts';
 import { FATAL_CODES } from './changes.ts';
 import { guidAgrees, isNonNull, requireField } from './entities.ts';
-import { cleanName } from './identity.ts';
+import { cleanName, errorNote } from './identity.ts';
 import {
   accountInput,
   assertWindowWithinLimit,
@@ -245,7 +245,7 @@ export function createSyntheticTools(deps: ToolDeps = {}): ToolDefinition[] {
     } catch (e) {
       if (!(e instanceof RbError) || FATAL_CODES.has(e.code)) throw e;
       if (e.code === ErrorCode.BudgetExhausted) return { note: 'Request budget exhausted.' };
-      return { note: cleanName(e.message, 300) };
+      return { note: errorNote(e) };
     }
   };
 

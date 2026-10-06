@@ -16,7 +16,7 @@ import { shapeRows } from '../output/format.ts';
 import { parseTimeRange } from '../time/range.ts';
 import { defineTool, type ToolDefinition } from '../tool.ts';
 import { checkGuid, guidAgrees, isNonNull, outOfScope, requireField } from './entities.ts';
-import { cleanName, maskEmail } from './identity.ts';
+import { cleanName, errorNote, maskEmail } from './identity.ts';
 import {
   accountInput,
   assertWindowWithinLimit,
@@ -592,7 +592,7 @@ export function createChangeTools(deps: ToolDeps = {}): ToolDefinition[] {
     } catch (e) {
       if (!(e instanceof RbError) || FATAL_CODES.has(e.code)) throw e;
       if (e.code === ErrorCode.BudgetExhausted) return { ok: false, note: 'Request budget exhausted.' };
-      return { ok: false, note: cleanName(e.message, 300) };
+      return { ok: false, note: errorNote(e) };
     }
   }
 

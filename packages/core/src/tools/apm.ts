@@ -10,7 +10,7 @@ import { parseTimeRange } from '../time/range.ts';
 import { defineTool, type ToolDefinition } from '../tool.ts';
 import { compareWindows, FATAL_CODES, numberOf, type WindowStats } from './changes.ts';
 import { checkGuid } from './entities.ts';
-import { cleanName } from './identity.ts';
+import { cleanName, errorNote } from './identity.ts';
 import {
   assertWindowWithinLimit,
   NRQL_COST,
@@ -370,7 +370,7 @@ export function createApmTools(deps: ToolDeps = {}): ToolDefinition[] {
     } catch (e) {
       if (!(e instanceof RbError) || FATAL_CODES.has(e.code)) throw e;
       if (e.code === ErrorCode.BudgetExhausted) return { ok: false, note: 'Request budget exhausted.' };
-      return { ok: false, note: cleanName(e.message, 300) };
+      return { ok: false, note: errorNote(e) };
     }
   }
 

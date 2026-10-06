@@ -17,7 +17,7 @@ import { createChangeTools, FATAL_CODES } from './changes.ts';
 import { checkGuid, createEntityTools } from './entities.ts';
 import { createErrorTools } from './errors.ts';
 import { createGoldenMetricTools, goldenCost, goldenMetricsFor } from './golden.ts';
-import { cleanName } from './identity.ts';
+import { errorNote } from './identity.ts';
 import { ISSUE_ID_RE, type IssueRow, lookupIssue } from './issues.ts';
 import { createLogTools } from './logs.ts';
 import {
@@ -217,7 +217,7 @@ export async function runSection(
       return { name, status: 'skipped', note: BUDGET_NOTE, data: null, text: null };
     if (e.code === ErrorCode.ToolDisabled)
       return { name, status: 'skipped', note: e.message, data: null, text: null };
-    return { name, status: 'error', note: cleanName(e.message, 300), data: null, text: null };
+    return { name, status: 'error', note: errorNote(e), data: null, text: null };
   }
 }
 
@@ -700,7 +700,7 @@ export function createReportTools(deps: ToolDeps = {}): ToolDefinition[] {
     } catch (e) {
       if (!(e instanceof RbError) || FATAL_CODES.has(e.code)) throw e;
       if (e.code === ErrorCode.BudgetExhausted) return { note: BUDGET_NOTE };
-      return { note: cleanName(e.message, 300) };
+      return { note: errorNote(e) };
     }
   };
 

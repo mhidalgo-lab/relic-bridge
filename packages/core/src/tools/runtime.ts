@@ -13,7 +13,7 @@ import { parseTimeRange } from '../time/range.ts';
 import { defineTool, type ToolDefinition } from '../tool.ts';
 import { FATAL_CODES } from './changes.ts';
 import { checkGuid } from './entities.ts';
-import { cleanName } from './identity.ts';
+import { cleanName, errorNote } from './identity.ts';
 import {
   accountInput,
   assertWindowWithinLimit,
@@ -396,7 +396,7 @@ export function createRuntimeTools(deps: ToolDeps = {}): ToolDefinition[] {
       // Credential, authorization and connection-limit errors (e.g. event type not allowed) hit every part alike.
       if (!(e instanceof RbError) || FATAL_CODES.has(e.code) || e.code === ErrorCode.LimitQuery) throw e;
       if (e.code === ErrorCode.BudgetExhausted) return { ok: false, note: 'Request budget exhausted.' };
-      return { ok: false, note: cleanName(e.message, 300) };
+      return { ok: false, note: errorNote(e) };
     }
   }
 

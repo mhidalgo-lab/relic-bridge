@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import { z } from 'zod';
 import type { NrqlComplete, NrqlOutcome, NrqlPending } from '../nrql/engine.ts';
-import { redactValue } from '../redact.ts';
+import { redact, redactValue } from '../redact.ts';
 import type { ToolOutput } from '../tool.ts';
 import { estimateTokens, type ShapeRowsOptions, shapeRows } from './format.ts';
 
@@ -153,6 +153,7 @@ function shapeComplete(outcome: NrqlComplete, options: ShapeNrqlOptions): ToolOu
   const lines = [summary, ...outcome.notes.map((n) => `Note: ${n}`), shaped.text];
   const clean = (v: Record<string, unknown>) =>
     (options.redactSecrets ?? true) ? (redactValue(v) as Record<string, unknown>) : v;
+  const scrub = (v: string) => ((options.redactSecrets ?? true) ? redact(v) : v);
   const md = outcome.metadata;
   const structured: NrqlResult = {
     status: 'complete',
@@ -162,14 +163,14 @@ function shapeComplete(outcome: NrqlComplete, options: ShapeNrqlOptions): ToolOu
     ...(outcome.totalResult ? { totalResult: clean(outcome.totalResult) } : {}),
     ...(outcome.otherResult ? { otherResult: clean(outcome.otherResult) } : {}),
     facets: [...md.facets],
-    eventTypes: [...md.eventTypes],
+    eventTypes: md.eventTypes.map(scrub),
     timeseries: md.timeseries,
     totalRows: total,
     returnedRows: shaped.stats.returnedRows,
     truncated: shaped.stats.truncated,
     ...(outcome.nrql === undefined ? {} : { nrql: outcome.nrql }),
     notes: [...outcome.notes],
-    messages: [...outcome.messages],
+    messages: outcome.messages.map(scrub),
   };
   return finish(lines.join('\n'), structured, {
     status: 'complete',

@@ -16,7 +16,7 @@ import { createChangeTools, FATAL_CODES } from './changes.ts';
 import { checkGuid, createEntityTools } from './entities.ts';
 import { createErrorTools } from './errors.ts';
 import { createGoldenMetricTools, goldenCost, goldenMetricsFor } from './golden.ts';
-import { cleanName } from './identity.ts';
+import { cleanName, errorNote } from './identity.ts';
 import { createIssueTools } from './issues.ts';
 import { cleanLogMessage } from './logs.ts';
 import {
@@ -432,7 +432,7 @@ export function createInvestigationTools(deps: ToolDeps = {}): ToolDefinition[] 
     } catch (e) {
       if (!(e instanceof RbError) || FATAL_CODES.has(e.code) || e.code === ErrorCode.LimitQuery) throw e;
       if (e.code === ErrorCode.BudgetExhausted) return { note: BUDGET_NOTE };
-      return { note: cleanName(e.message, MAX_TEXT) };
+      return { note: errorNote(e) };
     }
   };
 

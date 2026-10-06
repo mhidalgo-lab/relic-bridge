@@ -250,6 +250,28 @@ describe('list_alert_conditions', () => {
     expect(JSON.stringify(r)).not.toContain('LEAK');
   });
 
+  it('withholds the NRQL and data account of a condition that reads an account outside the connection', async () => {
+    const { client } = await setup([
+      conditionsBody([
+        condition(A, '1', 'mine'),
+        condition(A, '2', 'foreign', {
+          nrql: { query: 'FROM Log SELECT count(*) /* LEAKQ */', dataAccountId: OTHER },
+        }),
+      ]),
+    ]);
+    const r = await client.callTool({ name: 'list_alert_conditions', arguments: {} });
+    const s = r.structuredContent as {
+      conditions: { name: string; query: string; dataAccountId: number | null; queryWithheld: boolean }[];
+    };
+    expect(s.conditions.map((c) => [c.name, c.queryWithheld])).toEqual([
+      ['mine', false],
+      ['foreign', true],
+    ]);
+    expect(s.conditions[1]?.dataAccountId).toBeNull();
+    expect(JSON.stringify(r)).not.toContain('LEAKQ');
+    expect(JSON.stringify(r)).not.toContain(String(OTHER));
+  });
+
   it('minimal_output drops description, signal and runbook', async () => {
     const { client } = await setup([conditionsBody([condition(A, '1', 'c')])]);
     const r = await client.callTool({ name: 'list_alert_conditions', arguments: { minimal_output: true } });

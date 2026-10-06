@@ -32,7 +32,7 @@ Narrow it further when you can:
 
 - `accounts` / `RB_ACCOUNTS`: only the accounts the agent should see.
 - `tools` / `RB_TOOLS`: only the tools it needs.
-- `rawNrql: false`: no agent-written NRQL at all.
+- `rawNrql: false`: no agent-written NRQL at all. Golden metrics, whose NRQL comes from New Relic, still run but only when they are plain aggregate queries.
 - `eventTypes.deny` (e.g. `Log`): keep sensitive event types out of reach.
 
 See [configuration](configuration.md).

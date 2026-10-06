@@ -55,14 +55,14 @@ export function checkGuid(ctx: ToolContext, value: string): DecodedEntityGuid {
 
 /**
  * Whether a returned entity's GUID agrees with the account NerdGraph reported for it. A GUID encodes its account, so a
- * mismatch is inconsistent data and the row can't be vouched for (T3). GUIDs that don't decode are judged by the
- * reported account alone.
+ * mismatch is inconsistent data and the row can't be vouched for (T3). A GUID that does not decode cannot be vouched
+ * for either (and no tool can use it later).
  */
 export function guidAgrees(guid: string, account: number): boolean {
   try {
     return decodeEntityGuid(guid).accountId === account;
   } catch {
-    return true;
+    return false;
   }
 }
 

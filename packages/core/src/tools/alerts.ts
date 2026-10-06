@@ -108,7 +108,10 @@ const termText = (t: ReturnType<typeof toTerm>) =>
   `${t.priority ?? '?'} ${t.operator ?? '?'} ${t.threshold ?? '?'} for ${t.durationSeconds ?? '?'}s` +
   `${t.occurrences ? ` (${t.occurrences})` : ''}`;
 
-function toCondition(c: AlertConditionData) {
+function toCondition(c: AlertConditionData, allowed: readonly number[]) {
+  // A condition may read another account's data; its NRQL and account are withheld like dashboard widgets (T3).
+  const dataAccount = num(c.nrql?.dataAccountId);
+  const withheld = dataAccount !== null && !allowed.includes(dataAccount);
   const terms = (c.terms ?? []).filter(isNonNull).slice(0, MAX_TERMS).map(toTerm);
   const signal = c.signal;
   return {
@@ -117,8 +120,9 @@ function toCondition(c: AlertConditionData) {
     policyId: typeof c.policyId === 'string' ? cleanName(c.policyId, 32) : null,
     enabled: typeof c.enabled === 'boolean' ? c.enabled : null,
     type: label(c.type),
-    query: cleanName(c.nrql?.query ?? '', MAX_QUERY_CHARS),
-    dataAccountId: num(c.nrql?.dataAccountId),
+    query: withheld ? '(withheld: other account)' : cleanName(c.nrql?.query ?? '', MAX_QUERY_CHARS),
+    dataAccountId: withheld ? null : dataAccount,
+    queryWithheld: withheld,
     terms,
     description: c.description ? cleanName(c.description, MAX_DESCRIPTION_CHARS) : null,
     runbookUrl: c.runbookUrl ? cleanName(c.runbookUrl, 500) : null,
@@ -234,7 +238,7 @@ export function createAlertTools(deps: ToolDeps = {}): ToolDefinition[] {
       // Conditions carry no account id: the entity GUID is the only claim, and it must name the requested account (T3).
       const inScope = (c: (typeof all)[number]) =>
         typeof c.id === 'string' && (typeof c.entityGuid !== 'string' || guidAgrees(c.entityGuid, account));
-      const rows = all.filter(inScope).map(toCondition);
+      const rows = all.filter(inScope).map((c) => toCondition(c, ctx.accounts.allowed));
       const hiddenOutsideScope = all.some((c) => !inScope(c));
       const nextCursor = nextCursorOf(search?.nextCursor);
       const total = num(search?.totalCount);

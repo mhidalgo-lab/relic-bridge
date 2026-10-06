@@ -340,3 +340,17 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Options:** (a) keep; (b) `maxPolls: 0` inside composites (cost 1 per NRQL, pending results reported more often);
   (c) charge the resolver only when `name` is given, via a per-call cost.
 - **Needs:** owner's call; none blocks Phase 7.
+
+### P6-21 — Untrusted-text and scope hardening decisions
+- **Context:** Phase 6 review M3, M4, L1-L3.
+- **Assumption made:** (M3) the log secret patterns moved into the central `redact()` (this also settles the P6-06 (c)
+  question: every `cleanName` now gets them); (L3) `Note:` lines for failed sections show only the error code, since
+  the message is New Relic free text outside the envelope; `structuredContent` stays un-enveloped, residual documented;
+  (M4) with `rawNrql: false` golden metrics still run but only as aggregate-only queries (every select item a function
+  call, no `*`, sub-select or JOIN), a token-level screen rather than honouring the switch, which would disable
+  `get_golden_metrics` and the composites; (L1) foreign `dataAccountId` conditions keep their row but withhold NRQL and
+  account (`queryWithheld`); (L2) an undecodable GUID is not vouched for.
+- **Options:** (a) keep; (b) honour `rawNrql` strictly for golden metrics; (c) add an `_untrusted` marker to
+  `structuredContent`.
+- **Needs:** owner's call; none blocks Phase 7.
+

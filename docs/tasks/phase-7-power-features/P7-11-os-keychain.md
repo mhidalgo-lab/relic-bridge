@@ -2,7 +2,7 @@
 id: P7-11
 title: "OS keychain for local credentials"
 phase: 7
-status: in-progress
+status: review
 priority: low
 depends_on: [P6-13]
 adr: []
@@ -35,15 +35,15 @@ Node-only, in `apps/cli` (ADR-0004). Opt-in: nothing changes unless a keychain r
 - **Docs:** local config guide, `docs/reference/cli.md`, `docs/guide/secrets.md`, THREAT_MODEL (T7), RESEARCH.
 
 ## Acceptance criteria
-- [ ] macOS, Linux (libsecret) and Windows backends behind one interface; tests mock the process runner and never touch
+- [x] macOS, Linux (libsecret) and Windows backends behind one interface; tests mock the process runner and never touch
       the real keychain; macOS and Windows scripts are unit-tested for their stdin/argv shape only (no such hosts in CI).
-- [ ] Secrets are never in argv, logs, errors or `doctor` output (tests assert the spawn arguments).
-- [ ] `apiKey: keychain:<name>` works in stdio YAML; `RB_MASTER_KEY(_PREVIOUS)_KEYCHAIN` works for local commands and `serve`.
-- [ ] `keychain set|delete|status` commands, with `set` verifying by reading back.
-- [ ] `doctor` reports keychain status.
-- [ ] WSL2 behaviour documented (libsecret inside WSL; Windows credential store not bridged).
-- [ ] `check-package` still passes: no new dependency, one bundled file.
-- [ ] Threat model and docs updated.
+- [x] Secrets are never in argv, logs, errors or `doctor` output (tests assert the spawn arguments).
+- [x] `apiKey: keychain:<name>` works in stdio YAML; `RB_MASTER_KEY(_PREVIOUS)_KEYCHAIN` works for local commands and `serve`.
+- [x] `keychain set|delete|status` commands, with `set` verifying by reading back.
+- [x] `doctor` reports keychain status.
+- [x] WSL2 behaviour documented (libsecret inside WSL; Windows credential store not bridged).
+- [x] `check-package` still passes: no new dependency, one bundled file.
+- [x] Threat model and docs updated.
 
 ## Security notes
 T7 for local mode: a keychain entry is protected by the login session (macOS prompts per app on first read; libsecret

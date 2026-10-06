@@ -22,8 +22,8 @@ relic-bridge --help | --version
 | `--project <slug>` | `RB_PROJECT` | Project to serve from the file. Optional when the file has one project. |
 | `--log-level <level>` | `RB_LOG_LEVEL` | `debug`, `info` (default), `warn`, `error`. |
 | `--db <path>` | `RB_DB_PATH` | SQLite database for `serve`, the management commands, `db backup`, `keys rotate`, `credential revalidate` and `audit purge`; default `<data dir>/relic-bridge.db` (`RB_DATA_DIR`, see [self-hosting](self-hosting.md)). |
-| — | `RB_MASTER_KEY` / `RB_MASTER_KEY_FILE` | Master key that encrypts stored New Relic keys (remote modes, `keys rotate`, `credential revalidate`). See [secrets](secrets.md). |
-| — | `RB_MASTER_KEY_PREVIOUS` / `RB_MASTER_KEY_PREVIOUS_FILE` | Previous master key, only while rotating. |
+| — | `RB_MASTER_KEY` / `RB_MASTER_KEY_FILE` / `RB_MASTER_KEY_KEYCHAIN` | Master key that encrypts stored New Relic keys (remote modes, `keys rotate`, `credential revalidate`). See [secrets](secrets.md). |
+| — | `RB_MASTER_KEY_PREVIOUS` / `RB_MASTER_KEY_PREVIOUS_FILE` / `RB_MASTER_KEY_PREVIOUS_KEYCHAIN` | Previous master key, only while rotating. |
 | `--key-version <n>` | — | Version written into a key by `keys generate` (default 1). |
 
 Flags win over env vars. There is deliberately **no flag for the API key**: command lines show up in process lists and
@@ -87,7 +87,9 @@ Rules:
 - The file is validated at startup. Unknown keys are errors (a typo such as `apikey` or `rawnrql` fails instead of being
   ignored). Slugs must be unique.
 - `apiKey` should be exactly `${ENV_VAR}`: the key is read from that variable, which must be set in the client's `env`
-  block. A literal key works but logs a warning.
+  block. Or `keychain:<name>`: the key is read from the OS keychain entry you stored with
+  `relic-bridge keychain set <name>` (see [secrets](secrets.md#os-keychain-optional); nothing secret is then in the
+  client's config at all, and a missing entry stops startup with a fix). A literal key works but logs a warning.
 - These variables are **ignored** in YAML mode; the file is the source of truth: `NEW_RELIC_API_KEY`,
   `NEW_RELIC_ACCOUNT_ID`, `NEW_RELIC_REGION`, `RB_ACCOUNTS`, `RB_TOOLS` and every `RB_LIMITS_*`. (Variables your
   `${VAR}` references name are read, of course.) These still apply: `RB_CONFIG`, `RB_PROJECT` (unless `--project`

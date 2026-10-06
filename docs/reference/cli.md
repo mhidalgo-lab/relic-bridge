@@ -24,6 +24,8 @@ are redacted from the error. Process lists and shell history would leak them.
 
 - **New Relic key** (`credential add|rotate`, `init`): hidden prompt on a terminal; else stdin (first line);
   `--key-file <file>` (mode `0600`); `--key-env <VAR>` (the variable's *name*).
+- **OS keychain** (`keychain set <name>`): the value from the same sources as a New Relic key; it goes to the OS tool on
+  stdin. `keychain delete <name>` and `keychain status` print no value. See [secrets](../guide/secrets.md#os-keychain-optional).
 - **Config passphrase** (`config export --with-credentials`, `config import`): hidden prompt (asked twice on export);
   `--passphrase-file <file>` (mode `0600`); `--passphrase-env <VAR>` (the variable's *name*). Only the derived key
   reaches the server.
@@ -51,6 +53,7 @@ relic-bridge init [--db <path>] [--master-key-file <path>] [--label <l> --region
                   [--slug <s> --default-account <id> --accounts 1,2] [--device <name>] [--url <https://host>]
                   [--client claude-code|claude-code-powershell|claude-desktop|cursor|vscode|all] [--no-config]
 relic-bridge doctor [--config <file>] [--project <slug>] [--db <path>] [--offline] [--remote <url> [--insecure]] [--json]
+relic-bridge keychain set <name> [key source] | keychain delete <name> | keychain status
 relic-bridge admin-token generate
 relic-bridge config export --out <file> [--with-credentials (--passphrase-file <f> | --passphrase-env <VAR>)]
 relic-bridge config import <file> [--apply] [--passphrase-file <f> | --passphrase-env <VAR>]
@@ -128,7 +131,8 @@ Exit codes: `0` when nothing failed (warnings are allowed), `1` when a check fai
 | `node` | Node 24.11 or later. |
 | `config` | The stdio config (`--config` / `RB_CONFIG` YAML, or `NEW_RELIC_*` variables) loads; file permissions; plaintext key warning. Skipped when none is configured. |
 | `newrelic-key` | One NerdGraph call with your own key: User-key format, validity, region (a wrong region says which to use) and that the default account is reachable. Shows the key's prefix and last four characters only. `--offline` skips it. |
-| `master-key` | `RB_MASTER_KEY[_FILE]` loads (file mode `0600`); prints key versions, never the key. |
+| `keychain` | OS keychain backend usable and the entries that `keychain:<name>` / `RB_MASTER_KEY_KEYCHAIN` name exist (names only, never values). Skipped when nothing references the keychain. |
+| `master-key` | `RB_MASTER_KEY[_FILE\|_KEYCHAIN]` loads (file mode `0600`); prints key versions, never the key. |
 | `database` | The SQLite file exists, is not readable by others, opens, has no pending migrations, and the master key matches the stored key checks. Nothing is written. |
 | `public-url` | `RB_PUBLIC_URL` is https (or localhost), a bare origin, and its host is in `RB_ALLOWED_HOSTS`. |
 | `clock` | Skew against New Relic's (or, with `--remote`, the server's) `Date` header: warning over 30 s, failure over 300 s. |

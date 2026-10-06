@@ -64,7 +64,7 @@ export async function openLocalClient(options: LocalOptions): Promise<AdminClien
   let keyring: Keyring;
   if (options.needsKey) {
     try {
-      keyring = await loadKeyringFromEnv(resolveMasterKeyEnv(ctx.env, ctx.fs, ctx.platform));
+      keyring = await loadKeyringFromEnv(resolveMasterKeyEnv(ctx.env, ctx.fs, ctx.platform, ctx.keychain));
     } catch (error) {
       if (error instanceof CryptoError) {
         throw new ConfigError(

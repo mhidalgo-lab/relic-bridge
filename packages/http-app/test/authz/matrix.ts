@@ -113,6 +113,14 @@ export const ADMIN_ROUTES: readonly RouteCase[] = [
   { method: 'GET', pattern: `${A}/grants/:id`, path: `${A}/grants/grt_none` },
   { method: 'POST', pattern: `${A}/grants/:id/revoke`, path: `${A}/grants/grt_none/revoke` },
   { method: 'DELETE', pattern: `${A}/grants/:id`, path: `${A}/grants/grt_none` },
+  // P7-12: per-grant quota (admins and owners; an owner's grant only by owners) and the usage against it.
+  {
+    method: 'PUT',
+    pattern: `${A}/grants/:id/quota`,
+    path: `${A}/grants/grt_none/quota`,
+    body: { quota: { day: { queries: 10 } } },
+  },
+  { method: 'GET', pattern: `${A}/usage/quotas`, path: `${A}/usage/quotas` },
   { method: 'GET', pattern: `${A}/tokens`, path: `${A}/tokens` },
   {
     method: 'POST',
@@ -259,6 +267,7 @@ export const UI_ROUTES: readonly RouteCase[] = [
   ui('GET', '/admin/grants/new'),
   ui('POST', '/admin/grants'),
   ui('GET', '/admin/grants/:id', '/admin/grants/grt_none'),
+  ui('POST', '/admin/grants/:id/quota', '/admin/grants/grt_none/quota'),
   ui('POST', '/admin/grants/:id/revoke', '/admin/grants/grt_none/revoke'),
   ui('POST', '/admin/grants/:id/delete', '/admin/grants/grt_none/delete'),
   ui('GET', '/admin/tokens'),

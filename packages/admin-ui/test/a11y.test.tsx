@@ -280,6 +280,38 @@ describe('axe-core', () => {
       );
     });
 
+    it('P7-12: a grant with a quota, the quota form with errors, and the usage page with quotas', async () => {
+      const quota = {
+        day: { queries: 100, inspectedEvents: 1000 },
+        month: { queries: 2000 },
+        warnPercent: 80,
+      };
+      const a = app((call) => {
+        if (call.method === 'GET' && call.path === '/grants/grt_me') {
+          return { status: 200, body: { data: { ...sample().grants[0], quota } } };
+        }
+        if (call.method === 'GET' && call.path === '/usage/quotas') {
+          const row = (id: string, used: number) => ({
+            grantId: id,
+            projectId: 'prj_us',
+            userId: null,
+            label: id,
+            quota,
+            day: { period: 'd2026-10-06', queries: used, inspected: used * 5, resetsAt: T },
+            month: { period: 'm2026-10', queries: used, inspected: used, resetsAt: T },
+          });
+          return { status: 200, body: { data: [row('grt_me', 85), row('grt_ci', 100)], truncated: true } };
+        }
+        return undefined;
+      });
+      await expectAccessible('grant with quota', await page(a, '/admin/grants/grt_me'));
+      await expectAccessible('usage with quotas', await page(a, '/admin/usage'));
+      await expectAccessible(
+        'quota form errors',
+        await post(a, '/admin/grants/grt_me/quota', { day_queries: '0', warn: '100', month_events: 'x' }),
+      );
+    });
+
     it('empty lists and empty pickers', { timeout: 60_000 }, async () => {
       const a = app(undefined, true);
       for (const path of [

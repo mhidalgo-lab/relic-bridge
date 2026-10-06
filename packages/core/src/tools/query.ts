@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import { z } from 'zod';
+import { NRQL_CHART_URI } from '../apps/index.ts';
 import {
   DEFAULT_MAX_POLLS,
   getQueryResult,
@@ -125,6 +126,7 @@ export function createQueryTools(deps: ToolDeps = {}): ToolDefinition[] {
     cost: 1 + DEFAULT_MAX_POLLS,
     group: 'query',
     phase: 1,
+    ui: { resourceUri: NRQL_CHART_URI },
     handler: async (input, ctx) => {
       const outcome = await runRawNrql(
         ctx,
@@ -152,6 +154,7 @@ export function createQueryTools(deps: ToolDeps = {}): ToolDefinition[] {
     cost: 1,
     group: 'query',
     phase: 1,
+    ui: { resourceUri: NRQL_CHART_URI },
     handler: async (input, ctx) => {
       // Handles only come from run_nrql, so the same switch applies.
       assertRawNrqlAllowed(ctx.limits);

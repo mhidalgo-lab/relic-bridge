@@ -1,0 +1,140 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+/* relic-bridge NRQL chart (P7-04). Host theme variables (MCP Apps standard names) win over the fallbacks. */
+:root {
+  color-scheme: light dark;
+  --bg: var(--color-background-primary, #ffffff);
+  --fg: var(--color-text-primary, #1b1f24);
+  --muted: var(--color-text-secondary, #4f5761);
+  --border: var(--color-border-primary, #c4c9d0);
+  --grid: #e3e6ea;
+  --font: var(--font-sans, system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif);
+  --mono: var(--font-mono, ui-monospace, Menlo, Consolas, monospace);
+}
+
+:root[data-theme="dark"] {
+  --bg: var(--color-background-primary, #171717);
+  --fg: var(--color-text-primary, #f2f2f2);
+  --muted: var(--color-text-secondary, #a8afb8);
+  --border: var(--color-border-primary, #444a52);
+  --grid: #30343a;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: var(--color-background-primary, #171717);
+    --fg: var(--color-text-primary, #f2f2f2);
+    --muted: var(--color-text-secondary, #a8afb8);
+    --border: var(--color-border-primary, #444a52);
+    --grid: #30343a;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font: 13px / 1.4 var(--font);
+}
+
+main {
+  padding: 8px 12px;
+}
+
+.msg,
+.note {
+  color: var(--muted);
+  margin: 4px 0;
+}
+
+.nrql {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+  margin: 0 0 6px;
+}
+
+.bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  margin: 4px 0;
+}
+
+button,
+select {
+  font: inherit;
+  color: var(--fg);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px 8px;
+  cursor: pointer;
+}
+
+button[aria-pressed="true"] {
+  font-weight: 600;
+}
+
+button.series[aria-pressed="false"] {
+  opacity: 0.45;
+  text-decoration: line-through;
+}
+
+.swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  margin-right: 4px;
+}
+
+svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+svg text {
+  fill: var(--muted);
+  font-size: 10px;
+}
+
+svg .grid {
+  stroke: var(--grid);
+}
+
+svg .axis {
+  stroke: var(--border);
+}
+
+.table-wrap {
+  overflow-x: auto;
+}
+
+table {
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+th,
+td {
+  border-bottom: 1px solid var(--grid);
+  padding: 3px 8px;
+  text-align: left;
+  white-space: nowrap;
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+td.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}

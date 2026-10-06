@@ -2,7 +2,7 @@
 id: P7-10
 title: "Durable Object concurrency limiter for shared keys"
 phase: 7
-status: in-progress
+status: review
 priority: low
 depends_on: [P6-13]
 adr: [0010]
@@ -41,16 +41,16 @@ are per isolate only. An optional Durable Object gives exact counters shared by 
   facts), THREAT_MODEL (T1/T20 per-isolate notes), pending decisions of phases 3/4/5/7.
 
 ## Acceptance criteria
-- [ ] 20 parallel tool calls with one key through 4 simulated isolates (separate Worker instances sharing the
+- [x] 20 parallel tool calls with one key through 4 simulated isolates (separate Worker instances sharing the
       binding, in workerd) never exceed `RB_CONCURRENCY` NerdGraph calls in flight and get no NerdGraph 429 from a mock
       that answers 429 above that; without the object the same load exceeds it (baseline).
-- [ ] Durable Object tests with real stubs in the workers pool: FIFO slots, lease expiry frees a slot, wait timeout,
+- [x] Durable Object tests with real stubs in the workers pool: FIFO slots, lease expiry frees a slot, wait timeout,
       release of an unknown lease is harmless, buckets survive eviction, the cleanup alarm deletes a full bucket.
-- [ ] `WorkersRateLimiter`: `fail:`/`signin:`/`oauth:`/`write:` shared across limiter instances (take and peek);
+- [x] `WorkersRateLimiter`: `fail:`/`signin:`/`oauth:`/`write:` shared across limiter instances (take and peek);
       an unreachable object falls back to the isolate bucket; other namespaces unchanged.
-- [ ] Boot: off by default, `rules`/`on` without the binding warn and fall back, invalid values refused.
-- [ ] `cf:setup --shared-limiter` tested with the fake runner; `bench:cpu` unchanged (round trips are not CPU).
-- [ ] Docs and THREAT_MODEL updated; pending decisions of P3-04, P4-07/P4-20, P5-01/P5-10, P7-09 note "P7-10
+- [x] Boot: off by default, `rules`/`on` without the binding warn and fall back, invalid values refused.
+- [x] `cf:setup --shared-limiter` tested with the fake runner; `bench:cpu` unchanged (round trips are not CPU).
+- [x] Docs and THREAT_MODEL updated; pending decisions of P3-04, P4-07/P4-20, P5-01/P5-10, P7-09 note "P7-10
       addresses this".
 - [ ] Measured on a deployment: NerdGraph 429s gone under a real 20-client load; added latency per call (needs a
       deploy; not done in the autonomous run).

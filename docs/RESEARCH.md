@@ -795,3 +795,37 @@ are verified there, and the **root fields and argument names** come from New Rel
   header like the reads.
 - To verify (owner, P7-09 pending decision): one `dry_run` and one real call of each tool on a test entity / issue, in
   US and EU.
+
+## 27. Durable Objects for the shared limiter (P7-10, from documentation 2026-10-06, not measured on a deployment)
+
+Sources: Cloudflare docs via the Cloudflare docs search, pages updated 2026-09-28/30:
+[Durable Objects pricing](https://developers.cloudflare.com/durable-objects/platform/pricing/),
+[Durable Object class exports](https://developers.cloudflare.com/durable-objects/reference/durable-objects-migrations/),
+[legacy migrations](https://developers.cloudflare.com/durable-objects/reference/durable-object-class-migrations-legacy/),
+[Workers limits](https://developers.cloudflare.com/workers/platform/limits/#subrequests).
+
+- **Free plan:** Durable Objects are available on Workers Free, **SQLite-backed only**. Free limits per day: 100,000
+  requests, 13,000 GB-s duration, 5 M rows read, 100,000 rows written, 5 GB stored. Over a limit, "further operations of
+  that type will fail with an error" until 00:00 UTC (the limiter falls back to per-isolate counting). Paid: 1 M requests
+  and 400,000 GB-s per month included, then $0.15 per million requests and $12.50 per million GB-s; SQLite rows priced
+  like D1; SQLite storage billing on Paid since January 2026, never on Free.
+- **Billing units:** every RPC method call on a stub is its own billed request (calls on an `RpcTarget` returned by a call
+  share that session). Duration is wall clock while the object is active or idle but not eligible for hibernation (for
+  example with a pending `setTimeout`); idle objects eligible for hibernation are not billed. Key-value `get`/`put`/
+  `delete` are billed as rows read/written; each `setAlarm()` is one row written.
+- **Configuration:** new namespaces must be SQLite-backed (key-value backed namespaces cannot be created on accounts
+  without one since 2026-07-09). New Workers should declare classes with the declarative `exports` field
+  (`{ "Class": { "type": "durable-object", "storage": "sqlite" } }`, changelog 2026-06-30) instead of the `migrations`
+  array; a Worker uses one or the other, and once deployed with `exports` it cannot go back to `migrations`. Wrangler
+  4.144 accepts `exports` (`wrangler deploy --dry-run` lists the binding). Lifecycle changes apply only through
+  `wrangler deploy`, not `wrangler versions upload`. A class in code but not in `exports` is ignored (no namespace).
+- **Subrequests:** on Free, requests to Cloudflare services count against 1,000 per invocation, separate from the 50
+  external subrequests NerdGraph uses (Workers limits page; Durable Objects are assumed to be a "Cloudflare service" here,
+  the page names R2, KV and D1 explicitly).
+- **Placement and latency:** an object runs in one data center (chosen near its first caller), so each call from a far
+  isolate pays a network round trip; not measured.
+- **Local tests:** `@cloudflare/vitest-plugin` runs the objects in workerd with real stubs (`runInDurableObject`,
+  `runDurableObjectAlarm`, `evictDurableObject`); workerd may run a due alarm on its own before the test triggers it.
+- **NerdGraph side:** New Relic guarantees 25 concurrent requests per user (§2); P0-09 saw 30 parallel light queries
+  queued without a 429, so the 429 the shared limiter prevents was simulated in tests (a mock answering 429 above the
+  limit), not observed.

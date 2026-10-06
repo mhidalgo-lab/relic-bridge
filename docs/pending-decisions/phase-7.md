@@ -157,3 +157,22 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Needs:** (1) the owner's explicit decision to enable writes on any deployment (and ADR-0015 confirmation);
   (2) a live check of each mutation (RESEARCH §26: field and argument names, category/type case for change events)
   with `dry_run` first, then one real call on a test entity/issue in US and EU; (3) whether `close_issue` should ship.
+- **Update (P7-10):** P7-10 addresses this: with `RB_SHARED_LIMITER=rules` or `on` the 20-per-hour write limit is counted per grant for the whole deployment; an unreachable object falls back to the isolate bucket (still a limit). See docs/guide/cloudflare-limits.md#shared-limiter-durable-object-optional.
+
+### P7-10 — Durable Object limiter: opt-in, defaults and failure policy chosen without an owner
+- **Context:** The task asks for an optional Durable Object semaphore per credential; the owner also asked to consider
+  reusing it for the per-isolate rate rules. Nothing could be deployed, so cost and latency are from documentation only.
+- **Assumption made:** One SQLite-backed class `SharedLimiter`, declared in the committed `wrangler.jsonc` with the
+  declarative `exports` field (current Cloudflare recommendation for new Workers; once deployed with `exports` a Worker
+  cannot go back to `migrations`) and bound as `SHARED_LIMITER`, so every new deploy gets an (unused, free) namespace.
+  It is used only with `RB_SHARED_LIMITER`: `off` (default), `rules` (`fail:`, `signin:`, `oauth:`, `write:` counted
+  deployment-wide), `on` (also NerdGraph concurrency per credential). `ip:`/`token:`/`grant:`/`key:` stay on the Rate
+  Limiting binding. Leases 60 s, queue wait 10 s (then `RB_LIMIT_RATE`), queue 256; leases in memory only. An
+  unreachable object (outage, Free daily limit) falls back to per-isolate counting for every rule, including the
+  security rules (`fail:`) and the write limit, rather than failing closed (a Durable Object outage would otherwise
+  refuse every sign-in/OAuth/write request). Existing `wrangler.local.jsonc` copies lack the binding: the Worker warns.
+- **Options:** default `rules` on (cheap; changes behaviour for existing deployments); fail closed for `fail:`/`write:`
+  when the object is unreachable; use `migrations` instead of `exports`; move `ip:`/`token:`/`grant:` to the object
+  (exact limits, one more round trip per request); persist leases (two row writes per NerdGraph call); tune lease/wait.
+- **Needs:** owner's call on the default and the failure policy; on a deployment, measure the added latency per call
+  and confirm 429s disappear under a real 20-client load on one key (acceptance criterion left open).

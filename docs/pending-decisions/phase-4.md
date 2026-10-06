@@ -260,6 +260,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Options:** a tighter default; add `signin:` to the binding's shared prefixes (needs a second binding with its own
   limit, since the binding's limit is fixed per namespace).
 - **Needs:** nothing now.
+- **Update (P7-10):** P7-10 addresses this: `signin:` is counted by the Durable Object limiter with `RB_SHARED_LIMITER=rules` or `on` (exact 60 per 5 min per address across isolates). See docs/guide/cloudflare-limits.md#shared-limiter-durable-object-optional.
 
 ### P4-07 — A refused sign-in uses up a setup link
 - **Context:** The setup link is consumed before the user decision, so a sign-in that is then refused (disabled user,
@@ -486,3 +487,4 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   recorded, row count); (c) a second binding with its own limit for `signin:` (changes `wrangler.jsonc`, a deploy
   setting) or wait for the Durable Object limiter (P7-10).
 - **Needs:** owner choice only if either matters to you.
+- **Update (P7-10):** P7-10 addresses this: option (c) for the sign-in limit is available as the opt-in Durable Object limiter (`RB_SHARED_LIMITER=rules`); the CSV export audit part is unchanged. See docs/guide/cloudflare-limits.md#shared-limiter-durable-object-optional.

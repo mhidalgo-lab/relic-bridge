@@ -171,7 +171,8 @@ scrolling, and follows your light or dark setting.
 - Every form carries a CSRF token and is accepted only from the panel's own origin. Cross-site images, scripts, frames and
   `fetch` calls never reach the session. Bearer tokens never open a panel page.
 - Sign-in requests are rate limited per client address: default 60 per 5 minutes (`RB_RATE_LIMIT_SIGN_IN` on `serve`).
-  On Workers the rule is fixed at the default and counted per isolate (best effort), like the auth-failure throttle.
+  On Workers the rule is fixed at the default and counted per isolate (best effort), like the auth-failure throttle,
+  unless the shared limiter is on (`RB_SHARED_LIMITER=rules`, [Cloudflare limits](cloudflare-limits.md#shared-limiter-durable-object-optional)).
   Behind a reverse proxy, set `RB_TRUSTED_PROXY_HOPS` or everyone shares one address.
 
 ## 9. Everyday tasks
@@ -203,7 +204,7 @@ scrolling, and follows your light or dark setting.
 | `RB_LOGIN_AUTO_PROVISION` | `off` | `off`, `member` or `admin`. Never `owner`. |
 | `RB_SESSION_IDLE_MINUTES` | `30` | 5 to 1440. |
 | `RB_SESSION_MAX_HOURS` | `12` | 1 to 168. |
-| `RB_RATE_LIMIT_SIGN_IN` | `60/300` | Sign-in requests per client address (`serve` only; fixed on Workers, per isolate). |
+| `RB_RATE_LIMIT_SIGN_IN` | `60/300` | Sign-in requests per client address (`serve` only; fixed on Workers, per isolate unless `RB_SHARED_LIMITER` is on). |
 
 Variables go in the environment for `serve` (also Docker and compose). On a Worker, ids and public settings are
 variables and client secrets are Worker secrets; `pnpm cf:setup --sign-in` sets them (it asks for the public URL, each

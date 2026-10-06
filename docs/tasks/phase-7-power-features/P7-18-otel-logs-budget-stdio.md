@@ -2,11 +2,11 @@
 id: P7-18
 title: "OTLP follow-ups: logs, budget usage, stdio, trace context"
 phase: 7
-status: todo
+status: review
 priority: low
 depends_on: [P7-08]
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P7-18 — OTLP follow-ups: logs, budget usage, stdio, trace context
@@ -18,7 +18,11 @@ owner: ""
 - Accept an incoming `traceparent` so spans join the client's trace (decide privacy implications first).
 
 ## Acceptance criteria
-- [ ] Each item above implemented behind the existing `RB_OTEL` switch, or split out; redaction tests for new attributes.
+- [x] OTLP logs: the redacted log is exported through a second allowlist (`wrapLogger`, `/v1/logs`); tests for dropped fields, hostile messages, buffer bound, no self-feeding.
+- [x] Budget usage: `ToolCallEvent.nerdgraphCalls` / `nerdgraphBytes` (counted by the NerdGraph client on the budget), counters and span attributes; tests for numbers, junk values and a real tool call.
+- [x] stdio: `RB_OTEL` honoured by `relic-bridge stdio`; test that stdout is untouched and secrets are absent.
+- [x] Trace context: strict `traceparent` parsing, opt-in `RB_OTEL_TRACEPARENT`, ignored when off or malformed, never forwarded to NerdGraph (tests). Decision in the pending-decisions log.
+- [x] Redaction tests for every new attribute; docs and threat model updated.
 
 ## Security notes
 T30: every new attribute is allowlisted and pattern-validated.

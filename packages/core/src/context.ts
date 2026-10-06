@@ -30,6 +30,14 @@ export interface Budget {
   canSpend(n?: number): boolean;
   /** Spend `n` units or throw RB_BUDGET_EXHAUSTED. */
   spend(n?: number, what?: string): void;
+  /** NerdGraph attempts made so far (P7-18). Optional so custom budgets in tests need not implement it. */
+  readonly nerdgraphCalls?: number;
+  /** Response bytes read from NerdGraph so far (P7-18). */
+  readonly nerdgraphBytes?: number;
+  /** Called by the NerdGraph client once per attempt. */
+  noteNerdGraphCall?(): void;
+  /** Called by the NerdGraph client with the size of each successful response body. */
+  noteNerdGraphBytes?(n: number): void;
 }
 
 /** Bounds concurrent work (e.g. NerdGraph calls) for one credential (ADR-0010). See `createSemaphoreLimiter`. */
@@ -123,8 +131,22 @@ export interface ToolContext {
 /** Simple counting budget. One instance per request. */
 export function createBudget(limit: number): Budget {
   let used = 0;
+  let calls = 0;
+  let bytes = 0;
   return {
     limit,
+    get nerdgraphCalls() {
+      return calls;
+    },
+    get nerdgraphBytes() {
+      return bytes;
+    },
+    noteNerdGraphCall: () => {
+      calls += 1;
+    },
+    noteNerdGraphBytes: (n: number) => {
+      if (Number.isFinite(n) && n > 0) bytes += n;
+    },
     get used() {
       return used;
     },
@@ -146,6 +168,15 @@ export function createBudget(limit: number): Budget {
 
 /** A limiter that applies no bound (tests, one-shot scripts). Servers use `LimiterPool` per credential. */
 export const unboundedLimiter: Limiter = Object.freeze({ run: <T>(task: () => Promise<T>) => task() });
+
+/** The budget's NerdGraph usage as tool-call event fields (only what the budget counts). */
+export function budgetUsage(ctx: ToolContext): { nerdgraphCalls?: number; nerdgraphBytes?: number } {
+  const { nerdgraphCalls, nerdgraphBytes } = ctx.budget;
+  return {
+    ...(nerdgraphCalls === undefined ? {} : { nerdgraphCalls }),
+    ...(nerdgraphBytes === undefined ? {} : { nerdgraphBytes }),
+  };
+}
 
 /** Generate a request id with WebCrypto (works on Node and Workers). */
 export function newRequestId(): string {

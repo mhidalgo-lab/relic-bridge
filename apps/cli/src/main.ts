@@ -31,6 +31,7 @@ import {
   serveProjectOverStdio,
   serveSetupModeOverStdio,
   stdioMcpApps,
+  stdioTelemetry,
   stdioWriteTools,
 } from './stdio.ts';
 import { nerdGraphFetch } from './test-hooks.ts';
@@ -234,9 +235,11 @@ export function main(rt: CliRuntime): MainResult {
     for (const w of warnings) logger.warn(w);
     assertUserKey(project.apiKey);
     const fetch = nerdGraphFetch(rt.env, logger);
+    const telemetry = stdioTelemetry(rt.env, logger);
     const { handle, tools } = serveProjectOverStdio({
       project,
       logger,
+      ...(telemetry === undefined ? {} : { telemetry }),
       queryCache: createProcessQueryCache(queryCacheSettings(rt.env)),
       writeTools: stdioWriteTools(rt.env),
       mcpApps: stdioMcpApps(rt.env),
@@ -249,8 +252,16 @@ export function main(rt: CliRuntime): MainResult {
       region: project.region,
       defaultAccount: project.accounts.default,
       tools: tools.length,
+      telemetry: telemetry !== undefined,
     });
-    return { kind: 'serving', close: () => handle.close() };
+    return {
+      kind: 'serving',
+      close: async () => {
+        await handle.close();
+        telemetry?.close();
+        await telemetry?.flush();
+      },
+    };
   } catch (error) {
     if (error instanceof ConfigError) {
       logger.error(error.message, error.hint === undefined ? {} : { hint: error.hint });

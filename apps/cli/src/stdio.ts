@@ -25,6 +25,13 @@ import {
   WRITE_META_KEY,
   WRITE_TOOL_NAMES,
 } from '@relic-bridge/core';
+import {
+  createTelemetry,
+  type Telemetry,
+  TelemetryConfigError,
+  type TelemetrySettings,
+  telemetrySettingsFromEnv,
+} from '@relic-bridge/http-app';
 import { ConfigError, type Env, type ResolvedProject } from './config.ts';
 
 /**
@@ -82,6 +89,11 @@ export interface StdioServerOptions {
   readonly writeTools?: boolean;
   /** Offer the MCP Apps chart view (P7-16, `RB_MCP_APPS`); default true. */
   readonly mcpApps?: boolean;
+  /**
+   * Self-monitoring (P7-18, `RB_OTEL=on`): every tool call becomes metrics and a span, and the log is exported as OTLP
+   * logs. The exporter only uses `fetch` and the stderr logger; it never touches stdout, the MCP channel.
+   */
+  readonly telemetry?: Telemetry;
 }
 
 export interface PreparedServer {
@@ -92,7 +104,8 @@ export interface PreparedServer {
 
 /** Everything except the transport: tools, per-call context factory, server factory. */
 export function prepareServer(options: StdioServerOptions): PreparedServer {
-  const { project, logger } = options;
+  const { project, telemetry } = options;
+  const logger = telemetry === undefined ? options.logger : telemetry.wrapLogger(options.logger);
   const deps = options.fetch ? { fetch: options.fetch } : {};
   const tools = selectTools(project, [
     ...createBuiltinTools(deps),
@@ -127,6 +140,8 @@ export function prepareServer(options: StdioServerOptions): PreparedServer {
   });
   // stdio has no audit database: every write tool call is recorded on stderr instead (P7-09), never its arguments' text.
   const onToolCall = (event: ToolCallEvent): void => {
+    // Fire and forget: `recordToolCall` never rejects and a slow collector never delays the reply.
+    if (telemetry !== undefined) void telemetry.recordToolCall(event, { mode: 'stdio' });
     if (!WRITE_TOOL_NAMES.includes(event.tool)) return;
     logger.info('write tool call', {
       tool: event.tool,
@@ -151,6 +166,31 @@ export function serveProjectOverStdio(options: StdioServerOptions): {
     onerror: (error) => options.logger.warn('stdio transport error', { error: error.message }),
   });
   return { handle, tools };
+}
+
+/**
+ * `RB_OTEL` for stdio (P7-18): the same variables as `serve`; off by default. Bad values fail startup without echoing
+ * them. Trace context is not accepted (there is no inbound header), and nothing here writes to stdout.
+ */
+export function stdioTelemetry(env: Env, logger: Logger): Telemetry | undefined {
+  let settings: TelemetrySettings | null;
+  try {
+    settings = telemetrySettingsFromEnv(env);
+  } catch (error) {
+    if (error instanceof TelemetryConfigError) {
+      throw new ConfigError(`${error.message}.`, 'See docs/guide/observability.md.');
+    }
+    throw error;
+  }
+  if (settings === null) return undefined;
+  return createTelemetry({
+    endpoint: settings.endpoint,
+    headers: settings.headers,
+    traceSampleRate: settings.traceSampleRate,
+    runtime: 'node',
+    logger,
+    logFlushIntervalMs: 5000,
+  });
 }
 
 /** `RB_MCP_APPS` for stdio (P7-16): on unless `off`; any other value fails startup. */

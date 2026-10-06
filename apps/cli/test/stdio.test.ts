@@ -11,7 +11,8 @@ import {
   type QueryLimits,
   Secret,
 } from '@relic-bridge/core';
-import { afterEach, describe, expect, it } from 'vitest';
+import { createTelemetry } from '@relic-bridge/http-app';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ConfigError, type ResolvedProject } from '../src/config.ts';
 import {
   isUnconfigured,
@@ -20,6 +21,7 @@ import {
   SETUP_MESSAGE,
   selectTools,
   stdioMcpApps,
+  stdioTelemetry,
   stdioWriteTools,
 } from '../src/stdio.ts';
 import { FAKE_KEY, identityBody } from './helpers.ts';
@@ -299,6 +301,64 @@ describe('setup mode (P7-14)', () => {
       }
     } finally {
       await client.close();
+    }
+  });
+});
+
+describe('telemetry on stdio (P7-18)', () => {
+  it('is off without RB_OTEL, validates the settings, and never echoes them', () => {
+    const logger = createLogger({ level: 'error', sink: () => {} });
+    expect(stdioTelemetry({}, logger)).toBeUndefined();
+    expect(() => stdioTelemetry({ RB_OTEL: 'on' }, logger)).toThrow(ConfigError);
+    expect(() =>
+      stdioTelemetry({ RB_OTEL: 'on', RB_OTEL_ENDPOINT: 'http://user:pw@collector.example' }, logger),
+    ).toThrow(/https/);
+    const t = stdioTelemetry({ RB_OTEL: 'on', RB_OTEL_ENDPOINT: 'http://localhost:4318' }, logger);
+    t?.close();
+    expect(t).toBeDefined();
+  });
+
+  it('exports each tool call and the log through the mock receiver and writes nothing to stdout', async () => {
+    const posts: { path: string; body: string }[] = [];
+    const stdout = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      const lines: string[] = [];
+      const telemetry = createTelemetry({
+        endpoint: 'http://127.0.0.1:4318',
+        runtime: 'node',
+        fetch: async (url, init) => {
+          posts.push({ path: new URL(String(url)).pathname, body: String(init.body) });
+          return new Response('{}', { status: 200 });
+        },
+      });
+      const { factory } = prepareServer({
+        project: project({ tools: ['whoami'] }),
+        logger: createLogger({ level: 'info', sink: (l) => lines.push(l) }),
+        telemetry,
+        fetch: async () => Response.json(identityBody([{ id: 1000001, name: 'Prod' }])),
+      });
+      const [clientT, serverT] = InMemoryTransport.createLinkedPair();
+      await factory().connect(serverT);
+      const client = new Client({ name: 'test', version: '0.0.0' });
+      await client.connect(clientT);
+      await client.callTool({ name: 'whoami', arguments: {} });
+      await client.close();
+      await telemetry.flush();
+      telemetry.close();
+      const metrics = posts.filter((p) => p.path === '/v1/metrics').map((p) => p.body);
+      expect(metrics.length).toBe(1);
+      expect(metrics[0]).toContain('"stringValue":"stdio"');
+      expect(metrics[0]).toContain('relic_bridge.nerdgraph.calls');
+      expect(posts.some((p) => p.path === '/v1/traces')).toBe(true);
+      const all = posts.map((p) => p.body).join('\n');
+      expect(all).not.toContain(FAKE_KEY);
+      expect(all).not.toContain('jane.doe@example.com');
+      expect(stdout).not.toHaveBeenCalled();
+      expect(consoleLog).not.toHaveBeenCalled();
+    } finally {
+      stdout.mockRestore();
+      consoleLog.mockRestore();
     }
   });
 });

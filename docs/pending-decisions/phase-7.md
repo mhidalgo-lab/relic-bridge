@@ -287,3 +287,16 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Options:** let the server reveal "revoked" vs "expired" to a presenter of the token itself (weakens the uniform
   401); also test the token found in a client entry; search more locations (workspace folders, profiles).
 - **Needs:** owner's call on (1) and (2) if the uniform 401 should be relaxed.
+
+### P7-18 — OTLP follow-ups: traceparent is opt-in and not forwarded; logs flush with calls on Workers
+- **Context:** A client-supplied `traceparent` lets spans join the caller's trace, but the ids are caller-chosen and a
+  third party (New Relic's API) must not receive them for no benefit. Logs have no request hook on Workers.
+- **Assumption made:** (1) `RB_OTEL_TRACEPARENT` is off by default; when on, only a strict version-00 header is used, only for
+  the span's trace and parent ids, never for authorization, limits, audit or sampling; `tracestate` and baggage are
+  ignored. (2) `traceparent` is not propagated to NerdGraph. (3) Logs (`info`+) go through a second allowlist; messages that
+  do not look like fixed phrases are exported as `other`. On Workers they are flushed with the next tool call or rejected
+  request (inside `waitUntil`), on Node every 5 s and at shutdown, so a quiet Worker delays logs. (4) NerdGraph "calls" are
+  attempts (retries count, cache hits do not); bytes are the response bodies read.
+- **Options:** default traceparent on; propagate to NerdGraph (it does not use it today); flush logs from a Worker cron or
+  per-request `waitUntil` with a dedicated log hook in `createHttpApp`; export `debug`.
+- **Needs:** owner's call on (1) and (3); verify against a real OTLP endpoint (New Relic) that `/v1/logs` is accepted.

@@ -257,6 +257,7 @@ export class NerdGraphClient {
       // Retries only happen within budget: when it runs out, report the upstream failure, not the budget.
       if (lastError && !budget.canSpend()) throw lastError;
       budget.spend(1, `NerdGraph ${document.name}`);
+      budget.noteNerdGraphCall?.();
       const outcome = await limiter.run(() => this.#attempt(document, variables, options, attempt, log));
       if (outcome.kind === 'ok') return this.#interpret<TData>(outcome.body, attempt);
 
@@ -320,6 +321,7 @@ export class NerdGraphClient {
         } catch {
           throw new RbError(ErrorCode.NerdGraphError, 'NerdGraph returned an unreadable response.');
         }
+        this.#o.budget.noteNerdGraphBytes?.(bytes.byteLength);
         return { kind: 'ok', body, bytes: bytes.byteLength };
       }
       if (status === 401) {

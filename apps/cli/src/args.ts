@@ -305,8 +305,8 @@ Registry-friendly discovery (serve, off by default; see docs/guide/registry-list
                          /.well-known/relic-bridge/tools.json. Tool calls still need a token.
 
 Self-monitoring (serve, off by default):
-  RB_OTEL                off (default) or on: export traces and metrics about this server over OTLP
-                         (needs RB_OTEL_ENDPOINT; optional RB_OTEL_HEADERS, RB_OTEL_SAMPLE). See docs/guide/observability.md.
+  RB_OTEL                off (default) or on: export traces, metrics and logs about this server over OTLP
+                         (needs RB_OTEL_ENDPOINT; optional RB_OTEL_HEADERS, RB_OTEL_SAMPLE, RB_OTEL_TRACEPARENT). See docs/guide/observability.md.
 
 Admin API (serve):
   RB_ADMIN_TOKEN         Bootstrap admin token (32+ printable characters, e.g. from

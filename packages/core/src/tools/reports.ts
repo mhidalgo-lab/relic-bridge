@@ -56,7 +56,7 @@ export const IMPACT_MIN_ERRORS = 10;
 export const IMPACT_MIN_CRASHES = 5;
 
 const SECTION_STATUSES = ['ok', 'partial', 'error', 'skipped', 'not_applicable'] as const;
-type SectionStatus = (typeof SECTION_STATUSES)[number];
+export type SectionStatus = (typeof SECTION_STATUSES)[number];
 
 export const INSIGHT_SECTIONS = ['entity', 'golden_metrics', 'errors', 'logs', 'changes', 'related'] as const;
 type InsightSection = (typeof INSIGHT_SECTIONS)[number];
@@ -166,27 +166,32 @@ function lookbackRange(ctx: ToolContext, text: string | undefined) {
 // Sections
 // ---------------------------------------------------------------------------------------------------------------------
 
-const sectionSchema = z.object({
+export interface Section {
+  readonly name: string;
+  readonly status: SectionStatus;
+  /** Why the section is not `ok` (budget, error message, not applicable). */
+  readonly note: string | null;
+  /** The structured result of the tool the section reuses (same shape as calling that tool). */
+  readonly data: Record<string, unknown> | null;
+}
+export const sectionSchema: z.ZodType<Section> = z.object({
   name: z.string(),
   status: z.enum(SECTION_STATUSES),
-  /** Why the section is not `ok` (budget, error message, not applicable). */
   note: z.string().nullable(),
-  /** The structured result of the tool the section reuses (same shape as calling that tool). */
   data: z.record(z.string(), z.unknown()).nullable(),
 });
-type Section = z.infer<typeof sectionSchema>;
 
-interface SectionResult extends Section {
+export interface SectionResult extends Section {
   readonly text: string | null;
 }
 
-const BUDGET_NOTE = 'Request budget exhausted: not run.';
+export const BUDGET_NOTE = 'Request budget exhausted: not run.';
 
 /**
  * Run one sibling tool as a section. Credential and authorization errors abort the whole report (fail closed, like every
  * other multi-part tool); budget exhaustion makes the section `skipped`; other errors make it `error` with the message.
  */
-async function runSection(
+export async function runSection(
   name: string,
   tool: ToolDefinition,
   args: Record<string, unknown>,
@@ -211,7 +216,7 @@ async function runSection(
   }
 }
 
-const notRun = (name: string, status: SectionStatus, note: string): SectionResult => ({
+export const notRun = (name: string, status: SectionStatus, note: string): SectionResult => ({
   name,
   status,
   note,

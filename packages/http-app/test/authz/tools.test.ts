@@ -179,6 +179,23 @@ export const TOOL_CASES: Readonly<Record<string, readonly ToolCall[]>> = {
     { args: { entity_guid: guidOf(1) }, expect: 'ok' },
     { args: { issue_id: 'issue-alpha-issue', account: 2 }, expect: 'ok' },
   ],
+  trace_error: [
+    { args: { trace_id: 'abcdef0123456789', account: FOREIGN }, expect: 'refused', offline: true },
+    { args: { trace_id: 'abcdef0123456789', account: 3 }, expect: 'refused', offline: true },
+    { args: { error_group_id: 'eg-1', entity_guid: guidOf(FOREIGN) }, expect: 'refused', offline: true },
+    { args: { trace_id: 'abcdef0123456789', account: 1 }, expect: 'ok' },
+  ],
+  dependency_health: [
+    { args: { guid: guidOf(FOREIGN) }, expect: 'refused', offline: true },
+    { args: { guid: guidOf(3) }, expect: 'refused', offline: true },
+    // NerdGraph answers the entity's own golden metrics with an entity in the foreign account: fails closed.
+    { args: { guid: guidOf(1) }, expect: 'refused' },
+  ],
+  entity_health: [
+    { args: { guid: guidOf(FOREIGN) }, expect: 'refused', offline: true },
+    { args: { guid: guidOf(3) }, expect: 'refused', offline: true },
+    { args: { guid: guidOf(1) }, expect: 'refused' },
+  ],
   get_entity: [
     { args: { guid: guidOf(FOREIGN) }, expect: 'refused', offline: true },
     // NerdGraph answers with an entity in the foreign account behind an allowed account's GUID.

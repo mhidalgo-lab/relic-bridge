@@ -70,6 +70,8 @@ Offered when the connection can use at least one of: `generate_alert_insights_re
 4. `generate_user_impact_report`
 5. `list_change_events`
 6. `get_related_entities`
+7. `dependency_health`
+8. `trace_error`
 
 ## `investigate_kubernetes_pods`
 

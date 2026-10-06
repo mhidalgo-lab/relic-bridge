@@ -83,6 +83,38 @@ export function mockNerdGraph(): { fetch: FetchLike; calls: RecordedCall[] } {
           },
         ]);
       }
+      if (nrql.includes('FROM Span WHERE')) {
+        return nrqlBody([
+          { timestamp: 1790943000000, id: 's1', name: 'GET /checkout', service: 'checkout', durationMs: 120 },
+          {
+            timestamp: 1790943000050,
+            id: 's2',
+            parentId: 's1',
+            name: 'db.query',
+            service: 'orders-db',
+            durationMs: 80,
+            errorClass: 'TimeoutError',
+            errorMessage: 'query timed out',
+          },
+        ]);
+      }
+      if (nrql.includes('FROM TransactionError WHERE')) {
+        return nrqlBody([
+          {
+            timestamp: 1790943000000,
+            traceId: 'abcdef0123456789',
+            appName: 'checkout',
+            errorClass: 'TimeoutError',
+            errorMessage: 'query timed out',
+            requestMethod: 'GET',
+            requestUri: '/checkout?token=secret',
+            httpResponseCode: 500,
+          },
+        ]);
+      }
+      if (nrql.includes('FROM Log WHERE') && nrql.includes('trace.id')) {
+        return nrqlBody([{ timestamp: 1790943000000, level: 'ERROR', message: 'db timeout' }]);
+      }
       if (nrql.includes('rate(count')) {
         return nrqlBody([{ beginTimeSeconds: 0, endTimeSeconds: 60, Throughput: 1 }]);
       }

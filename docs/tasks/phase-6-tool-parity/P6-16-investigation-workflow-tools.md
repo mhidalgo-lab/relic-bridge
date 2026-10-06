@@ -2,7 +2,7 @@
 id: P6-16
 title: "Investigation workflow tools (error trace, dependency health)"
 phase: 6
-status: in-progress
+status: review
 priority: medium
 depends_on: [P6-05, P6-06, P6-03]
 adr: [0010]
@@ -38,11 +38,11 @@ skipped / partial (ADR-0010). Credential and authorization errors abort the whol
   `resolve_entity` first); cross-account trace stitching.
 
 ## Acceptance criteria
-- [ ] Design above approved (owner decisions logged in `docs/pending-decisions/phase-6.md`); the three tools implemented.
-- [ ] Fixture tests: happy path, sampled-out trace, budget planning, failing part, hostile text in envelopes, input validation.
-- [ ] Negative authorization cases for all three in the P2-12 suite; contract sample calls; CLI e2e tool count bumped.
-- [ ] Prompts (P6-11) reference the tools; tool reference regenerated; THREAT_MODEL and RESEARCH updated.
-- [ ] Evals (P6-13) updated: P6-13 is not started in this stack, so its task file gets a note to cover these tools.
+- [x] Design above approved (owner decisions logged in `docs/pending-decisions/phase-6.md`); the three tools implemented.
+- [x] Fixture tests: happy path, sampled-out trace, budget planning, failing part, hostile text in envelopes, input validation.
+- [x] Negative authorization cases for all three in the P2-12 suite; contract sample calls; CLI e2e tool count bumped.
+- [x] Prompts (P6-11) reference the tools; tool reference regenerated; THREAT_MODEL and RESEARCH updated.
+- [x] Evals (P6-13) updated: P6-13 is not started in this stack, so its task file gets a note to cover these tools.
 
 ## Security notes
 T6 — large amounts of untrusted text aggregated; keep the envelope: every NR-sourced string is cleaned and shown only inside

@@ -353,6 +353,13 @@ Sources: <https://github.com/cloudflare/workers-oauth-provider>, issues #264, #3
   agent events, but if it is missing every front end reads "no data"), `uuid` as a user proxy, and the related-entity types used to
   find front ends (`BROWSER/APPLICATION`, `MOBILE/APPLICATION`, `SYNTH/MONITOR`). Impact flags use fixed thresholds: rates 1.5x the
   window before with at least 10 JS errors / 5 crashes, load time 1.25x, volume drop below 0.75x with at least 30 before.
+- Investigation tools (P6-16, not verified against a real account): `trace_error` reads `Span` (`trace.id`, `id`, `parent.id`,
+  `name`, `entity.name`, `duration.ms`, `error.class`, `error.message`, `category`), `TransactionError` (`traceId`,
+  `error.group.guid`, `entityGuid`, `request.uri`, `request.method`, `httpResponseCode`, `transactionName`, `appName`) and `Log`
+  (`trace.id`). **Unverified:** `error.group.guid` on `TransactionError` as the link from an Errors Inbox group id, and
+  `nr.syntheticsMonitorId` as the marker of synthetic traffic on `TransactionError` (if either is wrong the group lookup finds
+  nothing and says so; `trace_id` still works). Spans are sampled: a missing trace is reported as `spans_missing`, not an error.
+  `dependency_health` signal thresholds are fixed (25% change between the two halves of the window, as in P1-09 trends).
 - **Trusted publishing** (OIDC from GitHub Actions, no long-lived npm token) needs npm CLI ≥ 11.5.1 and Node ≥ 22.14
   (Node 24 bundles npm 11), job permission `id-token: write`, and a GitHub-hosted runner. Each package has at most one
   trusted publisher (workflow file + optional environment); `npm trust github <pkg> --file release.yml --env release`

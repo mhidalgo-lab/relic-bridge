@@ -128,6 +128,14 @@ export const PROMPTS: readonly PromptDefinition[] = [
         tool: 'get_related_entities',
         text: 'Look at the entities one hop away (dependencies, hosts) for a shared cause.',
       },
+      {
+        tool: 'dependency_health',
+        text: 'Compare the affected entity with its alerting neighbours: is the problem in the entity or in what it depends on?',
+      },
+      {
+        tool: 'trace_error',
+        text: 'For the loudest error group of the affected entity, follow one traced occurrence through spans, error events and logs.',
+      },
     ],
   },
   {

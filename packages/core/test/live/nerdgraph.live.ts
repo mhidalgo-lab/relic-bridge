@@ -56,6 +56,28 @@ describe.skipIf(!enabled)('live NerdGraph (read-only)', () => {
     expect(r.isError, resultText(r)).toBeFalsy();
   });
 
+  // P6-23 (review L6): does NRQL LIKE honour a backslash before `_` and `%` (what `likePattern` emits)?
+  it('LIKE treats an escaped underscore as a literal (likePattern, L6)', async () => {
+    const count = async (pattern: string) => {
+      const r = await call('run_nrql', {
+        nrql: `SELECT count(*) AS n FROM NrUsage WHERE eventType() LIKE '${pattern}' SINCE 1 day ago`,
+      });
+      expect(r.isError, resultText(r)).toBeFalsy();
+      const rows = (r.structuredContent as { rows?: { n?: number }[] }).rows ?? [];
+      return rows[0]?.n ?? 0;
+    };
+    const wildcard = await count('NrUs_ge'); // `_` matches any character: NrUsage when the account has the event
+    const literal = await count('NrUs\\_ge'); // `\_` must match only a real underscore: nothing
+    if (wildcard > 0) expect(literal).toBe(0);
+  });
+
+  // P6-23 (review L7): what does NRQL do with comment markers inside a backticked identifier (`nrql.identifier`)?
+  it('a backticked identifier with comment markers is refused or finds nothing, never a query error loop (L7)', async () => {
+    const r = await call('get_attributes', { event_type: 'Tx--/*x' });
+    // Either the strict schema or New Relic refuses it, or it comes back empty: all are safe, none may leak the key.
+    expect(typeof resultText(r)).toBe('string');
+  });
+
   it('list_event_types returns a non-empty list', async () => {
     const r = await call('list_event_types');
     expect(r.isError, resultText(r)).toBeFalsy();

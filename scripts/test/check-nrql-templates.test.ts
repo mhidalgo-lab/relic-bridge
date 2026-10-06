@@ -35,6 +35,50 @@ describe('check-nrql-templates', () => {
     expect(checkSource('a.ts', 'const q = x.nrql`SELECT * FROM Log WHERE x = ${v}`;')).toHaveLength(1);
   });
 
+  it('flags lower- and mixed-case select ... from, but not prose', () => {
+    expect(checkSource('a.ts', "const q = 'select count(*) from Log where x = ' + v;")).toHaveLength(1);
+    expect(checkSource('a.ts', "const q = 'Select * From Log';")).toHaveLength(1);
+    expect(checkSource('a.ts', "const q = 'from Log select count(*)';")).toHaveLength(1);
+    expect(
+      checkSource('a.ts', "const a = 'Select a monitor from the list'; const b = 'pick from here';"),
+    ).toEqual([]);
+  });
+
+  it('flags clause fragments with an interpolation, not constants or plain prose', () => {
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: source code under test
+    expect(checkSource('a.ts', 'const f = `FACET ${field}`;')).toHaveLength(1);
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: source code under test
+    expect(checkSource('a.ts', 'const f = `SINCE ${when} UNTIL now`;')).toHaveLength(1);
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: source code under test
+    expect(checkSource('a.ts', 'const f = nrql`FACET ${nrql.identifier(f)}`;')).toEqual([]);
+    expect(checkSource('a.ts', 'const m = `Use SINCE 3 hours ago`; const n = "narrow the SINCE";')).toEqual(
+      [],
+    );
+    // The two numeric clause builders are exempt from this rule only.
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: source code under test
+    const clause = 'const c = `SINCE ${Math.floor(a)}`;';
+    expect(checkSource('packages/core/src/time/range.ts', clause)).toEqual([]);
+  });
+
+  it('flags entity-search filters not built with entityQuery', () => {
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: source code under test
+    expect(checkSource('a.ts', "const q = `name LIKE '%${n}%' AND accountId IN (${ids})`;")).toHaveLength(1);
+    expect(checkSource('a.ts', "const q = \"domain = 'APM' AND type = 'APPLICATION'\";")).toHaveLength(1);
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: source code under test
+    expect(checkSource('a.ts', 'const q = entityQuery`name LIKE ${p} AND accountId IN ${ids}`;')).toEqual([]);
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: source code under test
+    expect(checkSource('a.ts', "const m = 'The type is required'; const n = `name = ${x}`;")).toHaveLength(1);
+  });
+
+  it('flags GraphQL documents with an interpolation, but not with a constant fragment', () => {
+    expect(
+      // biome-ignore lint/suspicious/noTemplateCurlyInString: source code under test
+      checkSource('a.ts', 'const d = defineDocument(`query RbX { actor { a(id: ${id}) } }`);'),
+    ).toHaveLength(1);
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: source code under test
+    expect(checkSource('a.ts', 'const d = defineDocument(`query RbX { a { ${FIELDS} } }`);')).toEqual([]);
+  });
+
   it('ignores unrelated templates and strings', () => {
     // biome-ignore lint/suspicious/noTemplateCurlyInString: source code under test
     const src = "const msg = `Selected ${n} items`;\nconst s = 'from here' ;\nconst t = `fromage`;";

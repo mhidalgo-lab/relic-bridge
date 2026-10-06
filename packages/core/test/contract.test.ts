@@ -217,7 +217,7 @@ describe('MCP contract: every registered tool', () => {
       expect(searches).toBeLessThanOrEqual(RESOLVE_COST);
       // Everything, resolution included, stayed within the budget; some sections did not fit and say so.
       expect(mock.calls.length).toBeLessThanOrEqual(8);
-      expect(resultText(r)).toContain('skipped (budget)');
+      expect(resultText(r)).toContain('skipped (budget or grant');
     });
 
     it.each(NAME_TOOLS)('%s: an unknown name is an input error, nothing else runs', async (name) => {

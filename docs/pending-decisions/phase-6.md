@@ -370,3 +370,13 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Options:** (a) keep; (b) add deprecated aliases for the old argument names until 1.1 (costs schema size on every
   tools/list and needs the strict schemas to accept both); (c) `guid` instead of `entity_guid` on single-entity tools.
 - **Needs:** owner's call before 1.0; `pnpm eval:tools` with the owner's key to confirm tool choice did not regress.
+
+### P6-23 — Live probes for LIKE escaping and identifier comment markers not run
+- **Context:** review L6 (`\_` in `LIKE`) and L7 (`--`, `//`, `/*` inside backticked identifiers) need real NerdGraph.
+- **Assumption made:** both are accepted as open and low risk (L6 can only widen or empty a match; L7 reaches only
+  `get_attributes` `event_type`, and a rejected identifier fails closed). Probes were added to `pnpm test:live` and
+  `docs/RESEARCH.md` section 22 says they are unmeasured. `analyze_kafka_metrics` got no foreign-rows assertion: it reads
+  NRQL rows of one allowed account, with no per-row entities to drop.
+- **Options:** (a) run `pnpm test:live` with a key and record the result; (b) tighten `nrql.identifier` to refuse
+  comment markers now, without measuring.
+- **Needs:** owner runs the live suite once.

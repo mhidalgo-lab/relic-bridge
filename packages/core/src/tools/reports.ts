@@ -662,7 +662,7 @@ export function createReportTools(deps: ToolDeps = {}): ToolDefinition[] {
           `${count('ok')} section(s) complete` +
           `${count('partial') ? `, ${count('partial')} partial` : ''}` +
           `${count('error') ? `, ${count('error')} failed` : ''}` +
-          `${count('skipped') ? `, ${count('skipped')} skipped (budget)` : ''}` +
+          `${count('skipped') ? `, ${count('skipped')} skipped (budget or grant, see the section notes)` : ''}` +
           `${count('not_applicable') ? `, ${count('not_applicable')} not applicable` : ''}.` +
           `${partial ? ' Partial report: see the section notes.' : ''}`,
       ];
@@ -737,7 +737,10 @@ export function createReportTools(deps: ToolDeps = {}): ToolDefinition[] {
           args.issue_id,
           lookbackRange(ctx, args.lookback),
         );
-        const names = issue.entities;
+        // Empty names are dropped from `issue.entities`, so the two lists pair up only when none was dropped.
+        const names = issue.entities.length === issue.entityGuids.length ? issue.entities : [];
+        if (names.length === 0 && issue.entityGuids.length > 0 && issue.entities.length > 0)
+          notes.push('Entity names could not be matched to the entities of the issue and are left out.');
         affected = issue.entityGuids.map((guid, i) => ({ guid, name: names[i] ?? null }));
         defaultWindow = issueWindow(
           issue,

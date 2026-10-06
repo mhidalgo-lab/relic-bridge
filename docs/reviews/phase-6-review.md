@@ -183,22 +183,23 @@ an offline lint and a BM25 router baseline only. **decision** (existing P6-13 / 
   `structuredContent` carries cleaned but not enveloped text (clients that give it to the model rely on the
   description sentence). **task P6-21**, residual documented in THREAT_MODEL.
 - **L4** `entityQuery.and()` joins parts without parentheses: a future `OR` fragment would escape the
-  `accountId IN (...)` scope. Safe today. **task P6-23**
+  `accountId IN (...)` scope. Safe today. **fixed in P6-23**
 - **L5** `scripts/check-nrql-templates.ts` is case-sensitive, misses fragments without SELECT/FROM, entity-search
-  strings and `defineDocument` with `${}`. The type gate on `runNrql` is the real control. **task P6-23**
+  strings and `defineDocument` with `${}`. The type gate on `runNrql` is the real control. **fixed in P6-23** (clause fragments with an interpolation, entity-search filters and `${}` in documents now flagged; lower-case `select … from X` needs a capitalised event type to stay clear of prose; `nrql/limits.ts` and `time/range.ts` exempt from the fragment rule only, they build clauses from numbers).
 - **L6** `likePattern` escapes `%`/`_` with a backslash; NRQL honouring `\_` is unverified live (a value with `_` may
-  match nothing). **task P6-23**
+  match nothing). **open**: probe added to `pnpm test:live` (P6-23), not run without the owner's key.
 - **L7** `nrql.identifier` allows `--`, `//`, `/*` inside backticks (only `get_attributes` `event_type` is
-  user-supplied); needs one live probe. **task P6-23**
+  user-supplied); needs one live probe. **open**: probe added to `pnpm test:live` (P6-23), not run without the owner's key.
 - **L8** `generate_user_impact_report` pairs `entityGuids[i]` with `entities[i]` after empty names were dropped, so
-  front-end labels can shift. **task P6-23**
+  front-end labels can shift. **fixed in P6-23** (names are used only when the two lists have the same length).
 - **L9** Resource reads passed URI values to the tool handler without the tool's input schema (safe only because the
   handlers re-check). Now `safeParse`d first (`resources.ts:130`). **fixed**
 - **L10** `entity_health` was not referenced by any prompt (P6-16 criterion). Added as the first step of
   `investigate_error_spike`; `docs/reference/prompts.md` regenerated. **fixed**
 - **L11** Authz suite: `analyze_deployment_impact`, `get_dashboard`, `dependency_health`, `entity_health` never reach a
   success path over HTTP; some foreign-GUID cases missing; prompts and resources never tested over stdio. Section
-  summaries still say "skipped (budget)" when a section is skipped for a missing grant. **task P6-23**
+  summaries still say "skipped (budget)" when a section is skipped for a missing grant. **fixed in P6-23** (success paths,
+  missing foreign cases, stdio test, wording); `analyze_kafka_metrics` foreign-rows assertion accepted (account-level NRQL rows).
 - **L12** `docs/ROADMAP.md` status line still said "Phase 2 in review". **fixed**
 
 ### Informational (accepted)

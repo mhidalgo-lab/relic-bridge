@@ -2,6 +2,7 @@
 // The Worker's bindings (`wrangler.jsonc`). Secrets arrive through `wrangler secret put` (production) or `.dev.vars`
 // (local); they are never `vars` and never stored in D1 (THREAT_MODEL T7).
 import type { D1Database, KVNamespace, RateLimit } from '@cloudflare/workers-types';
+import type { SharedLimiterNamespace } from './shared-limiter.ts';
 
 /** Plain-text settings from `vars` (all optional; see `settings.ts` for defaults and validation). */
 export interface WorkerVars {
@@ -31,6 +32,12 @@ export interface WorkerVars {
   /** Whole days to keep audit rows (default 90; `0` keeps everything). The cron trigger deletes older rows. */
   readonly RB_AUDIT_RETENTION_DAYS?: string;
   readonly RB_RATE_LIMIT?: string;
+  /**
+   * Durable Object limiter (P7-10, docs/guide/cloudflare-limits.md): `off` (default), `rules` (auth-failure, sign-in,
+   * OAuth and write limits shared by every isolate) or `on` (also NerdGraph concurrency per credential). Needs the
+   * `SHARED_LIMITER` binding.
+   */
+  readonly RB_SHARED_LIMITER?: string;
   /** Self-monitoring via OTLP (P7-08, docs/guide/observability.md): `on` / `off` (default off). */
   readonly RB_OTEL?: string;
   /** OTLP base URL, e.g. https://otlp.nr-data.net:4318 (`/v1/traces`, `/v1/metrics` are appended). */
@@ -106,6 +113,8 @@ export interface WorkerBindings {
   readonly OAUTH_KV?: KVNamespace;
   /** Workers Rate Limiting binding (P3-04). */
   readonly RATE_LIMITER?: RateLimit | undefined;
+  /** Durable Object namespace of the `SharedLimiter` class (P7-10); used only with `RB_SHARED_LIMITER`. */
+  readonly SHARED_LIMITER?: SharedLimiterNamespace | undefined;
 }
 
 export type WorkerEnv = WorkerVars & WorkerSecrets & WorkerBindings;

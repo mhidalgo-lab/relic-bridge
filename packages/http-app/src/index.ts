@@ -146,6 +146,8 @@ export {
   type RateLimiter,
   type RateLimitResult,
   type RateLimitRule,
+  type TokenBucket,
+  tokenBucketStep,
 } from './rate-limit.ts';
 export {
   createRateLimitHooks,

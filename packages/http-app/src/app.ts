@@ -41,6 +41,7 @@ import {
   DEFAULT_CONCURRENCY,
   DEFAULT_LIMITS,
   type FetchLike,
+  type Limiter,
   LimiterPool,
   type Logger,
   newRequestId,
@@ -282,6 +283,11 @@ export interface HttpAppOptions {
   readonly maxResponseBytes?: number;
   /** NerdGraph calls in flight per credential (1-25, default 5). */
   readonly concurrencyPerCredential?: number;
+  /**
+   * Cross-process NerdGraph concurrency (P7-10; the Workers Durable Object limiter): a limiter for a credential id,
+   * entered after a slot of this process's own semaphore. It must fail open (never block) when its store is down.
+   */
+  readonly sharedConcurrency?: (credentialId: string) => Limiter;
   /** `'auto'` (default): HSTS when the request URL is https. `true` for a TLS-terminating proxy. */
   readonly hsts?: 'auto' | boolean;
   /** Runs background work (Workers: `executionCtx.waitUntil`). Default: try `executionCtx`, else fire-and-forget. */
@@ -505,6 +511,13 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
     options.accessCacheMaxEntries ?? DEFAULT_ACCESS_CACHE_ENTRIES,
   );
   const limiters = new LimiterPool(options.concurrencyPerCredential);
+  // The process-local slot first, then the shared one: only calls this process would run anyway compete across them.
+  const sharedConcurrency = options.sharedConcurrency;
+  const withShared = (local: Limiter, credentialId: string): Limiter => {
+    if (sharedConcurrency === undefined) return local;
+    const shared = sharedConcurrency(credentialId);
+    return Object.freeze({ run: <T>(task: () => Promise<T>) => local.run(() => shared.run(task)) });
+  };
   // The NRQL query cache lives with the app (process / isolate), never in module state (T21); scopes keep grants apart.
   const queryCache =
     options.queryCache === null
@@ -1175,7 +1188,7 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
           credential,
           accounts: access.accounts,
           budget: createBudget(callBudget),
-          limiter: limiters.for(credential.id),
+          limiter: withShared(limiters.for(credential.id), credential.id),
           limits: capLimits(access.limits),
           ...(queryCache === undefined
             ? {}
@@ -1354,7 +1367,7 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
           accounts: Object.freeze({ allowed: accounts, default: accounts[0] as number }),
           budget: createBudget(callBudget),
           // Per request: no per-key state that grows with the number of keys seen (the rate limiter bounds the rest).
-          limiter: createSemaphoreLimiter(concurrency),
+          limiter: withShared(createSemaphoreLimiter(concurrency), credentialId),
           limits: ptLimits,
           // Keyed by the key fingerprint id and the key itself (hashed): one caller's key never reads another's entries.
           ...(queryCache === undefined

@@ -59,6 +59,7 @@ import {
   WorkerConfigError,
   type WorkerSettings,
 } from './settings.ts';
+import { createSharedConcurrency } from './shared-limiter.ts';
 
 /**
  * After failed boots, requests answer 503 at once instead of retrying: 5 s after the first failure, 15 s after the
@@ -188,6 +189,8 @@ interface Runtime {
   readonly oauth: boolean;
   /** Where rate limits are counted: the binding plus the isolate, the isolate alone, or nowhere. */
   readonly limiter: 'binding+isolate' | 'isolate' | 'off';
+  /** What the Durable Object limiter counts (P7-10); `off` without `RB_SHARED_LIMITER` or the binding. */
+  readonly shared: 'rules+concurrency' | 'rules' | 'concurrency' | 'off';
   readonly app: {
     fetch(request: Request, env: WorkerEnv, ctx: ExecutionContext): Response | Promise<Response>;
   };
@@ -301,10 +304,18 @@ async function boot(env: WorkerEnv, options: WorkerOptions): Promise<Runtime> {
   if (settings.rateLimit && binding === undefined) {
     log.warn('RATE_LIMITER binding missing: rate limits are per isolate only (weaker).');
   }
+  // The Durable Object limiter (P7-10): opt-in; without the binding everything stays as it was, with a warning.
+  const sharedNs = settings.sharedLimiter === 'off' ? undefined : env.SHARED_LIMITER;
+  if (settings.sharedLimiter !== 'off' && sharedNs === undefined) {
+    log.warn(
+      `RB_SHARED_LIMITER=${settings.sharedLimiter} but the SHARED_LIMITER binding is missing: limits stay per isolate.`,
+    );
+  }
+  const durable = settings.rateLimit ? sharedNs : undefined;
   const rateLimitHooks = settings.rateLimit
     ? createRateLimitHooks({
-        limiter: new WorkersRateLimiter({ binding }),
-        preAuthLimiter: new WorkersRateLimiter({ binding }),
+        limiter: new WorkersRateLimiter({ binding, durable, logger: log }),
+        preAuthLimiter: new WorkersRateLimiter({ binding, durable, logger: log }),
         rules: DEFAULT_RATE_LIMITS,
         logger: log,
         getClientIp: workersClientIp,
@@ -380,6 +391,9 @@ async function boot(env: WorkerEnv, options: WorkerOptions): Promise<Runtime> {
     callBudget: settings.callBudget,
     maxResponseBytes: settings.maxResponseBytes,
     concurrencyPerCredential: settings.concurrency,
+    ...(settings.sharedLimiter === 'on' && sharedNs !== undefined
+      ? { sharedConcurrency: createSharedConcurrency(sharedNs, { max: settings.concurrency, logger: log }) }
+      : {}),
     queryCache: createWorkerQueryCache(settings.queryCache, keyring.queryCacheKeys(), options.queryCacheApi),
     writeTools: settings.writeTools,
     // Background work (audit rows) must outlive the response: the runtime cancels unawaited promises otherwise.
@@ -416,7 +430,18 @@ async function boot(env: WorkerEnv, options: WorkerOptions): Promise<Runtime> {
   });
 
   const limiter = !settings.rateLimit ? 'off' : binding === undefined ? 'isolate' : 'binding+isolate';
+  const shared: Runtime['shared'] =
+    sharedNs === undefined
+      ? 'off'
+      : settings.sharedLimiter === 'on'
+        ? settings.rateLimit
+          ? 'rules+concurrency'
+          : 'concurrency'
+        : settings.rateLimit
+          ? 'rules'
+          : 'off';
   return {
+    shared,
     settings,
     log,
     adminApi: adminRaw !== '' || identityProviders !== undefined,
@@ -478,6 +503,7 @@ export function createWorker(options: WorkerOptions = {}): WorkerHandler {
       signIn: runtime.identity,
       audit: settings.audit.enabled ? settings.audit.nrql : 'off',
       rateLimit: runtime.limiter,
+      sharedLimiter: runtime.shared,
       passthrough: settings.passthrough,
       oauth: runtime.oauth,
       queryCache: settings.queryCache.mode,

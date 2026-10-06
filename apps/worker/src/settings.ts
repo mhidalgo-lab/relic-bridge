@@ -56,6 +56,8 @@ export class WorkerConfigError extends Error {
   }
 }
 
+export type SharedLimiterMode = 'off' | 'rules' | 'on';
+
 export interface WorkerSettings {
   readonly plan: WorkerPlan;
   readonly callBudget: number;
@@ -75,6 +77,11 @@ export interface WorkerSettings {
     readonly retentionDays: number;
   };
   readonly rateLimit: boolean;
+  /**
+   * `RB_SHARED_LIMITER` (P7-10): which counters the Durable Object keeps for every isolate. `rules`: the rate-limit
+   * rules the Rate Limiting binding cannot express; `on`: those plus NerdGraph concurrency per credential.
+   */
+  readonly sharedLimiter: SharedLimiterMode;
   /** `RB_PASSTHROUGH=on`: `/passthrough/mcp` (needs `RB_FINGERPRINT_SECRET` and the rate-limit binding, checked at boot). */
   readonly passthrough: boolean;
   /** `RB_WRITE_TOOLS=on` (P7-09, ADR-0015): offer the opt-in write tools. Off by default; needs `RB_AUDIT=on`. */
@@ -225,6 +232,15 @@ export function parseWorkerSettings(vars: WorkerVars): WorkerSettings {
     warnings.push('RB_RATE_LIMIT=off disables all rate limiting (brute-force and abuse protection).');
   }
 
+  const sharedRaw = text(vars, 'RB_SHARED_LIMITER')?.toLowerCase() ?? 'off';
+  if (sharedRaw !== 'off' && sharedRaw !== 'rules' && sharedRaw !== 'on') {
+    throw new WorkerConfigError('RB_SHARED_LIMITER', 'RB_SHARED_LIMITER must be off, rules or on');
+  }
+  const sharedLimiter: SharedLimiterMode = sharedRaw;
+  if (sharedLimiter === 'rules' && !rateLimit) {
+    warnings.push('RB_SHARED_LIMITER=rules with RB_RATE_LIMIT=off: there are no rules to share.');
+  }
+
   // Pass-through on Workers needs a fingerprint secret shared by every isolate and the shared limiter (P3-04); both
   // are checked at boot (`worker.ts`), where the bindings are visible.
   const passthrough = onOff(vars, 'RB_PASSTHROUGH', false);
@@ -263,6 +279,7 @@ export function parseWorkerSettings(vars: WorkerVars): WorkerSettings {
     queryCache: { mode: cacheMode, relativeTtlMs: cacheTtl * 1000 },
     audit: { enabled: auditEnabled, nrql: nrql as AuditNrqlMode, clientIp: auditClientIp, retentionDays },
     rateLimit,
+    sharedLimiter,
     passthrough,
     writeTools,
     logLevel: level,

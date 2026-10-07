@@ -329,7 +329,15 @@ describe('list_alert_conditions', () => {
   it('tolerates missing optional fields and unknown enum values', async () => {
     const { client } = await setup([
       conditionsBody([
-        { id: '1', name: 'bare', nrql: null, terms: null, signal: null, type: 'NEW TYPE!' },
+        {
+          id: '1',
+          name: 'bare',
+          entityGuid: guidOf(A, 'CONDITION', '1'), // a row with no GUID is dropped (L5)
+          nrql: null,
+          terms: null,
+          signal: null,
+          type: 'NEW TYPE!',
+        },
         null,
       ]),
     ]);

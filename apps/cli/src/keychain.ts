@@ -138,7 +138,7 @@ function macBackend(run: Runner): Backend {
       // `security -i` reads commands from stdin, so the secret never appears in the process list. Name and secret are
       // restricted to characters that need no quoting.
       const r = run(
-        'security',
+        MAC_SECURITY,
         ['-i'],
         `add-generic-password -U -s ${KEYCHAIN_SERVICE} -a ${name} -w ${secret}\n`,
       );

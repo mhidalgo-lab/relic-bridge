@@ -260,6 +260,11 @@ On a Tasks-declaring client, `generate_alert_insights_report` is also a task: th
 runs up to three report sections inside its own request budget and quota. The finished report is the same as the synchronous one;
 you get it from the last poll. Clients without Tasks get the report in one call as before.
 
+Tasks are also served on **stdio** (a 2026-07-28 client that declares the extension; records live in the process only
+and are lost when it exits) and on the **pass-through** route (a task is visible only to the same New Relic key and
+region; a restart, or another replica without a shared `passthrough.fingerprintSecret`, loses it). Both are poll-only:
+there are no status notifications, so the client asks with `tasks/get`.
+
 ## Other clients and MCP Inspector
 
 Any client that can launch a stdio server works: give it the command `npx -y relic-bridge` and the three `env`

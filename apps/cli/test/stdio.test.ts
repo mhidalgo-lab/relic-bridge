@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import { Client } from '@modelcontextprotocol/client';
 import { InMemoryTransport } from '@modelcontextprotocol/server';
+import { serveStdio } from '@modelcontextprotocol/server/stdio';
 import {
   createBuiltinTools,
   createLogger,
@@ -360,5 +361,113 @@ describe('telemetry on stdio (P7-18)', () => {
       stdout.mockRestore();
       consoleLog.mockRestore();
     }
+  });
+});
+
+describe('MCP Tasks on stdio (P7-22)', () => {
+  const TASKS = 'io.modelcontextprotocol/tasks';
+  const container = (complete: boolean) => ({
+    results: complete ? [{ count: 42 }] : null,
+    metadata: complete ? { eventTypes: ['Transaction'], facets: [], messages: [], timeWindow: null } : null,
+    totalResult: null,
+    otherResult: null,
+    queryProgress: {
+      queryId: 'q-1',
+      completed: complete,
+      retryAfter: 2,
+      retryDeadline: null,
+      resultExpiration: null,
+    },
+  });
+  const fetchStub: FetchLike = async (_url, init) => {
+    const body = JSON.parse(String(init.body)) as { query: string; variables: Record<string, unknown> };
+    const op = /query (\w+)/.exec(body.query)?.[1];
+    if (op === 'RbNrql') {
+      return Response.json({
+        data: { actor: { account: { nrql: container(body.variables['async'] !== true) } } },
+      });
+    }
+    return Response.json({ data: { actor: { account: { nrqlQueryProgress: container(true) } } } });
+  };
+
+  /** A raw 2026-07-28 client (the SDK client has no Tasks support): one JSON-RPC exchange at a time. */
+  async function connect(tasks: boolean, clock: { now(): number }) {
+    const { factory, wrapTransport } = prepareServer({
+      project: project({ tools: ['run_nrql'] }),
+      logger: createLogger({ level: 'error', sink: () => {} }),
+      fetch: fetchStub,
+      clock,
+    });
+    const [clientT, serverT] = InMemoryTransport.createLinkedPair();
+    serveStdio(factory, { transport: wrapTransport(serverT) });
+    const waiting = new Map<
+      number,
+      (m: { result?: Record<string, unknown>; error?: { code: number } }) => void
+    >();
+    clientT.onmessage = (m) => {
+      const msg = m as { id?: number; result?: Record<string, unknown>; error?: { code: number } };
+      if (typeof msg.id === 'number') waiting.get(msg.id)?.(msg);
+    };
+    await clientT.start();
+    let id = 0;
+    return {
+      call(method: string, params: Record<string, unknown>) {
+        const n = ++id;
+        return new Promise<{ result?: Record<string, unknown>; error?: { code: number } }>((resolve) => {
+          waiting.set(n, resolve);
+          void clientT.send({
+            jsonrpc: '2.0',
+            id: n,
+            method,
+            params: {
+              ...params,
+              _meta: {
+                'io.modelcontextprotocol/protocolVersion': '2026-07-28',
+                'io.modelcontextprotocol/clientInfo': { name: 'test', version: '0' },
+                'io.modelcontextprotocol/clientCapabilities': tasks ? { extensions: { [TASKS]: {} } } : {},
+              },
+            },
+          } as never);
+        });
+      },
+      close: () => clientT.close(),
+    };
+  }
+  const SLOW_CALL = {
+    name: 'run_nrql',
+    arguments: { nrql: 'SELECT count(*) FROM Transaction SINCE 1 hour ago' },
+  };
+
+  it('a Tasks client gets a task for a slow query and polls it; the id is unguessable', async () => {
+    let now = 1_800_000_000_000;
+    const client = await connect(true, { now: () => now });
+    expect((await client.call('server/discover', {})).result).toMatchObject({
+      capabilities: { extensions: { [TASKS]: {} } },
+    });
+    const started = (await client.call('tools/call', SLOW_CALL)).result ?? {};
+    expect(started['resultType']).toBe('task');
+    const taskId = started['taskId'] as string;
+    expect(taskId).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    now += 5000;
+    expect((await client.call('tasks/get', { taskId })).result).toMatchObject({
+      status: 'completed',
+      resultType: 'complete',
+    });
+    // Unknown and malformed ids are the same "not found".
+    for (const id of ['A'.repeat(43), 'nope']) {
+      expect((await client.call('tasks/get', { taskId: id })).error).toMatchObject({ code: -32602 });
+      expect((await client.call('tasks/cancel', { taskId: id })).error).toMatchObject({ code: -32602 });
+    }
+    await client.close();
+  });
+
+  it('a client without the extension gets no task and no tasks/* answer', async () => {
+    const client = await connect(false, { now: () => 1_800_000_000_000 });
+    const out = (await client.call('tools/call', SLOW_CALL)).result ?? {};
+    expect(out['resultType']).not.toBe('task');
+    expect((await client.call('tasks/get', { taskId: 'A'.repeat(43) })).error).toMatchObject({
+      code: -32021,
+    });
+    await client.close();
   });
 });

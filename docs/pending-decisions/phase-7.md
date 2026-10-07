@@ -352,3 +352,15 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   per poll.
 - **Needs:** owner's call on (2) and (3); a real Tasks client to see how it handles a short multi-poll task.
 
+
+### P7-22 — Tasks on stdio and pass-through; no status notifications
+- **Context:** P7-13/P7-21 served Tasks on the project HTTP route only. Nothing ran against a real Tasks client.
+- **Assumption made:** (1) stdio serves tasks to a 2026-07-28 client that declares the extension, with an in-process
+  store (200 records max, 15 minutes, lost on exit). (2) Pass-through serves them to the same key fingerprint and region,
+  in the host's task store when there is one, else in-process. (3) `notifications/tasks` over `subscriptions/listen`
+  is not built: it needs work after a response (timer or Durable Object alarm). (4) The SDK cannot dispatch `tasks/*`
+  (2.2.0), so stdio wraps the transport.
+- **Options:** a Durable Object alarm / `serve` timer poller for status notifications; refusing pass-through tasks on
+  Workers without a host store; requiring `fingerprintSecret` for pass-through tasks so they survive a restart.
+- **Needs:** owner's call on (3) once a real client wants pushes; a check on a real stdio client (Claude Code,
+  Desktop) that it declares the extension at all.

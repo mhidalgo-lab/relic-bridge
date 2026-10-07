@@ -43,8 +43,47 @@ export interface TaskStore {
 }
 
 /**
+ * An in-process, bounded task store for hosts with exactly one caller per process (stdio) or no storage (pass-through
+ * without a shared store). Records are still sealed by the task code (the id is the key), never leave the process and
+ * are lost when it ends. Expired rows are dropped on access; the oldest go first above `maxEntries`.
+ */
+export function createMemoryTaskStore(
+  options: { readonly maxEntries?: number; readonly now?: () => number } = {},
+): TaskStore {
+  const max = options.maxEntries ?? 200;
+  if (!Number.isSafeInteger(max) || max < 1) throw new RangeError('maxEntries must be a positive integer');
+  const now = options.now ?? Date.now;
+  const rows = new Map<string, { readonly value: string; readonly expiresAt: number }>();
+  const sweep = (): void => {
+    const t = now();
+    for (const [key, row] of rows) if (row.expiresAt <= t) rows.delete(key);
+  };
+  return {
+    async get(key) {
+      const row = rows.get(key);
+      if (row === undefined) return null;
+      if (row.expiresAt <= now()) {
+        rows.delete(key);
+        return null;
+      }
+      return row.value;
+    },
+    async put(key, value, { expirationTtl }) {
+      sweep();
+      rows.delete(key);
+      rows.set(key, { value, expiresAt: now() + expirationTtl * 1000 });
+      while (rows.size > max) {
+        const oldest = rows.keys().next().value;
+        if (oldest === undefined) break;
+        rows.delete(oldest);
+      }
+    },
+  };
+}
+
+/**
  * Tasks for one request (`ToolContext.tasks`). Built by the HTTP host from the authenticated caller; absent where tasks
- * are not offered (stdio, pass-through).
+ * are not offered.
  */
 export interface TaskBinding {
   readonly store: TaskStore;

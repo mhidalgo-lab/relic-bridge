@@ -3,10 +3,12 @@
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import {
+  answerTaskRpc,
   buildMcpServer,
   cancelTask,
   clientDeclaresTasks,
   createBudget,
+  createMemoryTaskStore,
   createTask,
   defineTool,
   ErrorCode,
@@ -278,5 +280,78 @@ describe('buildMcpServer', () => {
     expect(caps(w.ctx())).toMatchObject({ extensions: { 'io.modelcontextprotocol/tasks': {} } });
     expect(caps(() => w.ctx())['extensions']).toBeUndefined();
     expect(caps(testContext())['extensions']).toBeUndefined();
+    // stdio (P7-22): a factory host that answers tasks/* itself asks for the extension explicitly.
+    const offered = buildMcpServer({
+      tools: [scripted([])],
+      ctx: () => w.ctx(),
+      offerTasks: true,
+    }) as unknown as {
+      server: { getCapabilities(): Record<string, unknown> };
+    };
+    expect(offered.server.getCapabilities()).toMatchObject({
+      extensions: { 'io.modelcontextprotocol/tasks': {} },
+    });
+  });
+});
+
+describe('createMemoryTaskStore (P7-22)', () => {
+  it('expires rows, drops the oldest above the bound and rejects a bad bound', async () => {
+    let now = 0;
+    const store = createMemoryTaskStore({ maxEntries: 2, now: () => now });
+    await store.put('a', '1', { expirationTtl: 10 });
+    await store.put('b', '2', { expirationTtl: 10 });
+    await store.put('c', '3', { expirationTtl: 10 });
+    expect(await store.get('a')).toBeNull();
+    expect(await store.get('b')).toBe('2');
+    now = 10_000;
+    expect(await store.get('b')).toBeNull();
+    expect(await store.get('c')).toBeNull();
+    expect(() => createMemoryTaskStore({ maxEntries: 0 })).toThrow(RangeError);
+  });
+
+  it('tasks on it are still sealed and owner-bound', async () => {
+    const store = createMemoryTaskStore();
+    const ctx = (owner: string) => testContext({ budget: createBudget(10), tasks: { store, owner } });
+    const tool = scripted([async () => ({ text: 'done' })]);
+    const task = await createTask(ctx('stdio'), 'slow', {
+      state: { secret: 'S3CRET' },
+      pollIntervalMs: 1000,
+    });
+    await expect(getTask(ctx('other'), task.taskId, { tools: [tool] })).rejects.toBeInstanceOf(
+      TaskNotFoundError,
+    );
+    expect((await getTask(ctx('stdio'), task.taskId, { tools: [tool] })).taskId).toBe(task.taskId);
+  });
+});
+
+describe('answerTaskRpc (P7-22)', () => {
+  const meta = (tasks: boolean) => ({
+    'io.modelcontextprotocol/protocolVersion': '2026-07-28',
+    'io.modelcontextprotocol/clientCapabilities': tasks
+      ? { extensions: { 'io.modelcontextprotocol/tasks': {} } }
+      : {},
+  });
+  const request = (taskId: unknown, tasks = true, method = 'tasks/get') => ({
+    jsonrpc: '2.0',
+    id: 1,
+    method,
+    params: { taskId, _meta: meta(tasks) },
+  });
+
+  it('answers a not-found, a missing capability and bad shapes without work', async () => {
+    const w = world();
+    const options = { ctx: w.ctx(), resume: { tools: [] }, log: {} };
+    const missing = await answerTaskRpc(request('A'.repeat(43)), options);
+    expect(missing.body['error']).toMatchObject({ code: -32602 });
+    expect((await answerTaskRpc(request('A'.repeat(43), false), options)).body['error']).toMatchObject({
+      code: -32021,
+    });
+    expect((await answerTaskRpc(request(7), options)).body['error']).toMatchObject({ code: -32602 });
+    expect((await answerTaskRpc([], options)).status).toBe(400);
+    const mismatch = await answerTaskRpc(request('A'.repeat(43)), {
+      ...options,
+      routingMatches: () => false,
+    });
+    expect(mismatch.body['error']).toMatchObject({ code: -32020 });
   });
 });

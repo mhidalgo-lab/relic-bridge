@@ -1,15 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
-import { type StdioServerHandle, serveStdio } from '@modelcontextprotocol/server/stdio';
+import type { JSONRPCMessage, MessageExtraInfo, Transport } from '@modelcontextprotocol/server';
+import { type StdioServerHandle, StdioServerTransport, serveStdio } from '@modelcontextprotocol/server/stdio';
 import {
+  answerTaskRpc,
   buildMcpServer,
   type Clock,
   createBudget,
   createBuiltinTools,
+  createMemoryTaskStore,
   createSemaphoreLimiter,
   createWriteTools,
   DEFAULT_LIMITS,
   ErrorCode,
   type FetchLike,
+  isTaskRequest,
   type Logger,
   newRequestId,
   publicCatalogTools,
@@ -100,6 +104,59 @@ export interface PreparedServer {
   readonly tools: readonly ToolDefinition[];
   /** Builds a fresh MCP server (serveStdio may call it more than once while negotiating the era). */
   readonly factory: () => ReturnType<typeof buildMcpServer>;
+  /**
+   * Wraps the connection's transport so `tasks/*` are answered here (P7-22): the SDK answers these spec methods
+   * `-32601` on 2026-07-28 and never reaches a handler. Everything else passes through untouched.
+   */
+  readonly wrapTransport: (inner: Transport) => Transport;
+}
+
+/**
+ * A transport that hands the three `tasks/*` requests to `answer` and replies on the same transport, and passes every
+ * other message to the SDK. Nothing but protocol messages is written (stdout is the MCP channel).
+ */
+export function withTaskDispatcher(
+  inner: Transport,
+  answer: (request: unknown) => Promise<unknown>,
+  onError: (error: Error) => void,
+): Transport {
+  let downstream: Transport['onmessage'];
+  const intercept = (message: JSONRPCMessage, extra?: MessageExtraInfo): void => {
+    if (!isTaskRequest(message)) {
+      downstream?.(message, extra);
+      return;
+    }
+    void answer(message)
+      .then((reply) => inner.send(reply as JSONRPCMessage))
+      .catch((error: unknown) => onError(error instanceof Error ? error : new Error(String(error))));
+  };
+  return {
+    start: () => inner.start(),
+    send: (message, options) => inner.send(message, options),
+    close: () => inner.close(),
+    get sessionId() {
+      return inner.sessionId;
+    },
+    get onmessage() {
+      return downstream;
+    },
+    set onmessage(handler) {
+      downstream = handler;
+      inner.onmessage = handler === undefined ? undefined : intercept;
+    },
+    get onclose() {
+      return inner.onclose;
+    },
+    set onclose(handler) {
+      inner.onclose = handler;
+    },
+    get onerror() {
+      return inner.onerror;
+    },
+    set onerror(handler) {
+      inner.onerror = handler;
+    },
+  };
 }
 
 /** Everything except the transport: tools, per-call context factory, server factory. */
@@ -125,6 +182,9 @@ export function prepareServer(options: StdioServerOptions): PreparedServer {
   });
   const queryCache =
     options.queryCache == null ? undefined : Object.freeze({ cache: options.queryCache, scope: 'stdio' });
+  // MCP Tasks (P7-22): one caller per process, so the records live in a bounded in-process store (sealed, never
+  // written anywhere, gone with the process). Only a 2026-07-28 client that declares the extension gets a task.
+  const tasks = Object.freeze({ store: createMemoryTaskStore(), owner: 'stdio' });
   // A fresh request id and budget per tool call (T21: nothing request-scoped is shared between calls).
   const contextFor = (): ToolContext => ({
     requestId: newRequestId(),
@@ -136,6 +196,7 @@ export function prepareServer(options: StdioServerOptions): PreparedServer {
     connection,
     logger,
     clock,
+    tasks,
     ...(queryCache === undefined ? {} : { queryCache }),
   });
   // stdio has no audit database: every write tool call is recorded on stderr instead (P7-09), never its arguments' text.
@@ -152,7 +213,25 @@ export function prepareServer(options: StdioServerOptions): PreparedServer {
   };
   return {
     tools,
-    factory: () => buildMcpServer({ tools, ctx: contextFor, onToolCall, mcpApps: options.mcpApps !== false }),
+    factory: () =>
+      buildMcpServer({
+        tools,
+        ctx: contextFor,
+        onToolCall,
+        mcpApps: options.mcpApps !== false,
+        offerTasks: true,
+      }),
+    wrapTransport: (inner) =>
+      withTaskDispatcher(
+        inner,
+        (request) =>
+          answerTaskRpc(request, {
+            ctx: contextFor(),
+            resume: { tools, onToolCall },
+            log: {},
+          }).then((answer) => answer.body),
+        (error) => logger.warn('stdio task reply failed', { error: error.message }),
+      ),
   };
 }
 
@@ -161,8 +240,9 @@ export function serveProjectOverStdio(options: StdioServerOptions): {
   handle: StdioServerHandle;
   tools: readonly ToolDefinition[];
 } {
-  const { tools, factory } = prepareServer(options);
+  const { tools, factory, wrapTransport } = prepareServer(options);
   const handle = serveStdio(factory, {
+    transport: wrapTransport(new StdioServerTransport()),
     onerror: (error) => options.logger.warn('stdio transport error', { error: error.message }),
   });
   return { handle, tools };
@@ -280,6 +360,8 @@ export function prepareSetupModeServer(options: {
   return {
     tools,
     factory: () => buildMcpServer({ tools, ctx: contextFor, mcpApps: options.mcpApps !== false }),
+    // No tasks without a credential.
+    wrapTransport: (inner) => inner,
   };
 }
 

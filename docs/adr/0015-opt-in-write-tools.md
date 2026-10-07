@@ -213,7 +213,8 @@ Phase 7 review M3: the answer key had no nonce or expiry, so a client resending 
   no mutation: the same change cannot be repeated within the window, and a retry after a lost reply is not sent again.
   The text tells the model to check the target with a read tool, and to ask the user again after a few minutes if the
   change is still wanted. A ledger store error refuses the write (fails closed).
-- **Cost.** An attempt that failed before reaching New Relic also spends its approval; repeating it needs a new
+- **Cost.** `acknowledge_issue` and `close_issue` go through the same gate, so their retry is also refused inside the
+  window (they are idempotent, so nothing is lost; the model reads the issue instead). An attempt that failed before reaching New Relic also spends its approval; repeating it needs a new
   approval after the window. Accepted: writes are rare and a duplicate change event or dashboard is worse.
 - **Residual.** Without elicitation (`confirm: true` flow, `RB_WRITE_APPROVAL=client`) there is no approval to bind, so a
   model that repeats the call repeats the write; a host that passes no ledger (custom embedders) gets the time bound

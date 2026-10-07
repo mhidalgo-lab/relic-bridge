@@ -414,3 +414,12 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   it needs a storage migration and an owner-only admin path.
 - **Needs:** owner's call on a per-project/grant flag (a follow-up task if wanted) and on making `required` the default
   once real clients are checked (already raised under the phase 7 review).
+
+### P7-26 — Write approvals bound to one attempt
+- **Context:** a replayed elicitation answer repeated non-idempotent writes.
+- **Assumption made:** approval key = tool + 10-minute bucket + message + change; single-use through a `kv.increment`
+  ledger (refuse a replay, no mutation) rather than an HMAC nonce in `requestState`; no NerdGraph idempotency key (none
+  exists for these mutations). A failed attempt also spends its approval. The `confirm: true`-only flow is not
+  rate-bound per change.
+- **Needs:** owner's call on whether to also refuse identical repeated writes in the `confirm: true` flow (it would
+  block legitimate repeats), and on the 10-minute window.

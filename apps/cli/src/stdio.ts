@@ -7,6 +7,7 @@ import {
   type Clock,
   createBudget,
   createBuiltinTools,
+  createMemoryApprovalLedger,
   createMemoryTaskStore,
   createSemaphoreLimiter,
   createWriteTools,
@@ -187,6 +188,8 @@ export function prepareServer(options: StdioServerOptions): PreparedServer {
   // MCP Tasks (P7-22): one caller per process, so the records live in a bounded in-process store (sealed, never
   // written anywhere, gone with the process). Only a 2026-07-28 client that declares the extension gets a task.
   const tasks = Object.freeze({ store: createMemoryTaskStore(), owner: 'stdio' });
+  // Spent write approvals (P7-26): one approval answers one attempt, remembered in this process for the window.
+  const writeApprovals = createMemoryApprovalLedger(options.clock ?? systemClock);
   // A fresh request id and budget per tool call (T21: nothing request-scoped is shared between calls).
   const contextFor = (): ToolContext => ({
     requestId: newRequestId(),
@@ -199,6 +202,7 @@ export function prepareServer(options: StdioServerOptions): PreparedServer {
     logger,
     clock,
     tasks,
+    writeApprovals,
     ...(queryCache === undefined ? {} : { queryCache }),
   });
   // stdio has no audit database: every write tool call is recorded on stderr instead (P7-09), never its arguments' text.

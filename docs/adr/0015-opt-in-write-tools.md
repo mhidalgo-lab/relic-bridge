@@ -177,8 +177,7 @@ tail is not approving the change:
   changes that read the same once the prompt collapses whitespace or redacts a secret-like string cannot share one
   approval.
 - An identical retry still finds its approval; for the non-idempotent tools (`create_change_event`,
-  `create_dashboard`) a replayed approval repeats the write. Binding approvals to a nonce or a time bucket is tracked
-  in P7-26.
+  `create_dashboard`) a replayed approval used to repeat the write. Fixed in P7-26 (below).
 
 ## Addendum: require a human approval (P7-25, 2026-10-07)
 
@@ -200,3 +199,22 @@ Phase 7 review M2: with writes on, a client that cannot be asked lets the model 
   capabilities at `tools/list` time, which a 2025-era stateless client does not send reliably, and a visible refusal is
   clearer than a missing tool). The tool call explains the refusal.
 - **Residual:** the answer is still only as good as the client (an auto-accepting client defeats it).
+
+## Addendum: an approval answers one attempt (P7-26, 2026-10-07)
+
+Phase 7 review M3: the answer key had no nonce or expiry, so a client resending the same `inputResponses` repeated
+`create_change_event` or `create_dashboard` (not idempotent, and NerdGraph offers no idempotency key for either).
+
+- **Bound to tool and time bucket.** The key now also hashes the tool name and a 10-minute bucket of the server clock.
+  An answer is honoured in the bucket it was asked in and the next one (10 to 20 minutes); a replay later asks again.
+- **Single use.** When the host provides a ledger (`ToolContext.writeApprovals`), the first call that spends an
+  approval records it atomically (storage `kv.increment`, one row per approval, expiring after 20 minutes, scoped to
+  project, grant and user; stdio uses a process-local map) and any second use is refused with `RB_INPUT_INVALID` and
+  no mutation: the same change cannot be repeated within the window, and a retry after a lost reply is not sent again.
+  The text tells the model to check the target with a read tool, and to ask the user again after a few minutes if the
+  change is still wanted. A ledger store error refuses the write (fails closed).
+- **Cost.** An attempt that failed before reaching New Relic also spends its approval; repeating it needs a new
+  approval after the window. Accepted: writes are rare and a duplicate change event or dashboard is worse.
+- **Residual.** Without elicitation (`confirm: true` flow, `RB_WRITE_APPROVAL=client`) there is no approval to bind, so a
+  model that repeats the call repeats the write; a host that passes no ledger (custom embedders) gets the time bound
+  only. No idempotency key is sent because NerdGraph has none for these mutations (unverified live).

@@ -28,6 +28,7 @@ export {
   systemClock,
   type ToolContext,
   unboundedLimiter,
+  type WriteApprovals,
 } from './context.ts';
 export {
   ERROR_META_KEY,

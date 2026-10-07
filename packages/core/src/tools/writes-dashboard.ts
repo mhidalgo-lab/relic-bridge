@@ -450,10 +450,15 @@ export function createDashboardWriteTool(client: (ctx: ToolContext) => NerdGraph
         };
       }
 
-      const gate = await humanGate(ctx, confirmationMessage(input, account, plan, summary.content), {
-        accountId: account,
-        dashboard: plan.variable,
-      });
+      const gate = await humanGate(
+        ctx,
+        'create_dashboard',
+        confirmationMessage(input, account, plan, summary.content),
+        {
+          accountId: account,
+          dashboard: plan.variable,
+        },
+      );
       if (gate.state !== 'go') {
         return gateStopped(gate, {
           structured: shaped(false, null, []),

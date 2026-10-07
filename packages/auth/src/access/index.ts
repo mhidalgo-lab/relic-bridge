@@ -58,3 +58,13 @@ export {
   type Principal,
   tightenLimits,
 } from './resolve.ts';
+export {
+  credentialWriteScope,
+  grantWriteScope,
+  namesWriteTools,
+  type ProjectScopeInput,
+  projectWriteScope,
+  quotaWidens,
+  tokenWriteScope,
+  type WriteScopeChange,
+} from './write-scope.ts';

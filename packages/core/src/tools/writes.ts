@@ -106,7 +106,7 @@ const changeOutput = z.object({
 
 const CHANGE_DESCRIPTION = `Record a change event (deployment, configuration change, feature flag, operational or business event) on one entity, so it shows in New Relic's change tracking next to the entity's charts.
 
-Write tool, opt-in. ${SIDE_EFFECT_NOTICE} Needs confirm: true; dry_run: true previews. Each call adds a new event (not idempotent; cannot be deleted here). To read past changes use list_change_events.`;
+Write tool, opt-in. ${SIDE_EFFECT_NOTICE} Needs confirm: true; dry_run: true previews. Each call adds a new event (not idempotent; cannot be deleted here). To read past changes use list_change_events. To create a dashboard instead, use create_dashboard.`;
 
 // ---------------------------------------------------------------------------------------------------------------------
 // acknowledge_issue / close_issue
@@ -129,11 +129,11 @@ const issueOutput = z.object({
 
 const ACK_DESCRIPTION = `Acknowledge one alert issue: marks it as being handled by someone; it stays open and keeps its incidents.
 
-Write tool, opt-in. ${SIDE_EFFECT_NOTICE} Needs confirm: true; dry_run: true previews. Repeating it changes nothing (an acknowledged or closed issue is left as is). Find issues with list_recent_issues.`;
+Write tool, opt-in. ${SIDE_EFFECT_NOTICE} Needs confirm: true; dry_run: true previews. Repeating it changes nothing (an acknowledged or closed issue is left as is). Find issues with list_recent_issues. For a permanent close, use close_issue.`;
 
 const CLOSE_DESCRIPTION = `Close (resolve) one alert issue by hand: it stops notifying and moves to CLOSED; relic-bridge cannot reopen it, and New Relic opens a new issue if the condition still violates.
 
-Destructive write tool, opt-in. ${SIDE_EFFECT_NOTICE} Needs confirm: true; dry_run: true previews. Closing a closed issue changes nothing. Prefer acknowledge_issue while someone is still investigating.`;
+Destructive write tool, opt-in. ${SIDE_EFFECT_NOTICE} Needs confirm: true; dry_run: true previews. Closing a closed issue changes nothing. Use acknowledge_issue to mark it as handled without closing.`;
 
 /** Write tools (P7-09). Hosts register them only with the server flag on (`RB_WRITE_TOOLS=on`). */
 export function createWriteTools(deps: ToolDeps = {}): ToolDefinition[] {

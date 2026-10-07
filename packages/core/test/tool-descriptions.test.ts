@@ -78,8 +78,16 @@ describe('tool descriptions follow the style guide (docs/dev/evals.md)', () => {
     }
   });
 
-  it('every confusable pair names real tools', () => {
-    for (const pair of CONFUSABLE_PAIRS) for (const n of pair) expect(names.has(n), n).toBe(true);
+  it('write tools pass every lint rule (P7-31)', () => {
+    expect(lintDescriptions(withWrites)).toEqual([]);
+  });
+
+  it('every confusable pair names real tools (in any combination of catalogs)', () => {
+    const allNames = new Set([...names, ...withWrites.map((t) => t.name)]);
+    for (const pair of CONFUSABLE_PAIRS) {
+      // Each pair must exist in the full set (read + write tools combined)
+      for (const n of pair) expect(allNames.has(n), n).toBe(true);
+    }
   });
 
   it('every tool that accepts an entity name is detected as such', () => {

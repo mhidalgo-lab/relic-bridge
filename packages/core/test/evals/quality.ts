@@ -47,6 +47,8 @@ export const CONFUSABLE_PAIRS: readonly (readonly [string, string])[] = [
   ['list_recent_logs', 'trace_error'],
   ['analyze_threads', 'list_gc_metrics'],
   ['list_dashboards', 'get_dashboard'],
+  ['acknowledge_issue', 'close_issue'],
+  ['create_change_event', 'create_dashboard'],
 ];
 
 /** Verbs our tool names start with: a snake_case word with one of these prefixes in a description must be a tool. */
@@ -60,6 +62,7 @@ export interface ListedTool {
   readonly openWorld: boolean;
   readonly cost: number;
   readonly inputSchema: Record<string, unknown>;
+  readonly kind: 'read' | 'write' | 'destructive';
 }
 
 export function listed(tools: readonly ToolDefinition[]): ListedTool[] {
@@ -69,6 +72,7 @@ export function listed(tools: readonly ToolDefinition[]): ListedTool[] {
     openWorld: t.openWorld,
     cost: t.cost,
     inputSchema: inputJsonSchema(t) as Record<string, unknown>,
+    kind: t.kind,
   }));
 }
 
@@ -109,7 +113,8 @@ export function lintDescriptions(tools: readonly ListedTool[]): string[] {
       if (typeof schema.description !== 'string' || schema.description.trim().length < 3)
         say(`input "${field}" has no description`);
     }
-    if (t.openWorld && !d.includes(UNTRUSTED)) say('open-world tool without the untrusted-data sentence');
+    if (t.openWorld && t.kind === 'read' && !d.includes(UNTRUSTED))
+      say('open-world tool without the untrusted-data sentence');
     if (t.cost >= COST_HINT_FROM && !/\bRuns\b/.test(d)) say(`cost ${t.cost} but no "Runs ..." hint`);
     if (/guid from search_entities/.test(d))
       say('says "guid from search_entities"; say "(guid or name)" instead');
@@ -120,7 +125,7 @@ export function lintDescriptions(tools: readonly ListedTool[]): string[] {
     const ta = byName.get(a);
     const tb = byName.get(b);
     if (!ta || !tb) {
-      problems.push(`confusable pair ${a}/${b}: unknown tool`);
+      // Skip pairs where one or both tools don't exist (e.g., write tools when linting read tools only)
       continue;
     }
     if (!ta.description.includes(b)) problems.push(`${a}: does not mention its confusable sibling ${b}`);

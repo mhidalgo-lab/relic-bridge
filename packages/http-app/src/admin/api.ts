@@ -40,6 +40,7 @@ import {
   type toTokenSummary,
   type UpdateProjectInput,
   updateProject,
+  userWriteScope,
   type WriteScopeChange,
 } from '@relic-bridge/auth';
 import { type Clock, type Logger, redact, Secret } from '@relic-bridge/core';
@@ -422,7 +423,9 @@ const routes = {
     tags: ['users'],
     summary: 'Update or disable a user',
     description:
-      'Demoting or disabling the last enabled owner is refused with `409 conflict`, `detail: last_owner` (P4-16).',
+      'Demoting or disabling the last enabled owner is refused with `409 conflict`, `detail: last_owner` (P4-16). ' +
+      'Re-enabling a user who holds a live grant naming a write tool is owner-only: `403 forbidden`, ' +
+      '`detail: write_scope` (P7-32).',
     request: { params: S.IdParam, ...BODY(S.UpdateUserBody) },
     responses: { 200: json(S.UserOne, 'Updated'), ...errors(404, 409, 413, 415) },
   }),
@@ -1391,19 +1394,24 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
   /**
    * The one owner guard for write scope (P7-09, P7-28, ADR-0015, THREAT_MODEL T31). Write tools act in New Relic: only
    * an owner (or the admin token) may add one to a project or grant, or widen what a project or grant that writes can
-   * reach (accounts, default account or key, limits, re-enabling, quota, a new token, rotating its key). What counts as
-   * widening lives in `@relic-bridge/auth` (`projectWriteScope`, `grantWriteScope`, `tokenWriteScope`,
-   * `credentialWriteScope`); every route that writes a project, grant, token or key runs its change through here.
-   * Narrowing (removing write tools, disabling, revoking, deleting, fewer accounts, a lower quota) stays open to admins.
+   * reach (accounts, default account or key, limits, re-enabling, quota, a new token, rotating its key), or re-enable a
+   * user whose grants write (P7-32). What counts as widening lives in `@relic-bridge/auth` (`projectWriteScope`,
+   * `grantWriteScope`, `tokenWriteScope`, `credentialWriteScope`, `userWriteScope`); every route that writes a project,
+   * grant, token, key or a user's disabled state runs its change through here. Narrowing (removing write tools,
+   * disabling, revoking, deleting, fewer accounts, a lower quota) stays open to admins.
    */
-  const guardWriteScope = (c: Context, scope: WriteScopeChange) => {
+  const guardWriteScope = (
+    c: Context,
+    scope: WriteScopeChange,
+    subject = 'a project or grant with write tools',
+  ) => {
     if ((!scope.addsWriteTools && scope.widened.length === 0) || actsAsOwner(c)) return;
     if (scope.addsWriteTools) {
       throw new AdminApiError('forbidden', 'only an owner can enable write tools', { detail: 'write_tools' });
     }
     throw new AdminApiError(
       'forbidden',
-      `only an owner can change ${scope.widened.join(', ')} of a project or grant with write tools`,
+      `only an owner can change ${scope.widened.join(', ')} of ${subject}`,
       { detail: 'write_scope', ...(scope.widened[0] === undefined ? {} : { field: scope.widened[0] }) },
     );
   };
@@ -1500,6 +1508,12 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
         if (principal?.kind === 'session' && principal.user.id === existing.id && privileged)
           throw denied('self');
         if ((existing.role === 'owner' || body.role === 'owner') && !actsAsOwner(c)) throw denied('owner');
+        // Re-enabling brings back the user's grants and tokens: owner-only when one of them writes (P7-32, T31).
+        guardWriteScope(
+          c,
+          await userWriteScope(storage, existing, body),
+          'a user whose grants have write tools',
+        );
         const patch: { -readonly [K in keyof UserPatch]: UserPatch[K] } = {};
         if (body.displayName !== undefined) patch.displayName = body.displayName;
         if (body.role !== undefined) patch.role = body.role;

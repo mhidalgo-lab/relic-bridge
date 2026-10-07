@@ -66,5 +66,6 @@ export {
   projectWriteScope,
   quotaWidens,
   tokenWriteScope,
+  userWriteScope,
   type WriteScopeChange,
 } from './write-scope.ts';

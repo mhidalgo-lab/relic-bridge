@@ -9,6 +9,7 @@ import {
   createHttpApp,
   createRateLimitHooks,
   type HttpAppHooks,
+  type McpRequestInfo,
   MemoryRateLimiter,
   maskNrql,
   mergeHooks,
@@ -295,6 +296,59 @@ describe('pass-through tool calls (P2-16)', () => {
     const recorder = createAuditRecorder({ storage: broken, logger, clock: world.clock });
     const merged = mergeHooks(recorder.hooks);
     await expect(merged.onPassthroughToolCall?.({} as never, info, event)).resolves.toBeUndefined();
+  });
+});
+
+describe('write intent (P7-28)', () => {
+  const info = {
+    requestId: 'req_w',
+    projectSlug: 'prod',
+    projectId: 'prj_1',
+    grantId: 'grt_1',
+    tokenId: 'tok_1',
+    userId: 'usr_1',
+    clientId: null,
+    mcpMethod: 'tools/call',
+    mcpName: 'close_issue',
+    listen: false,
+  } as unknown as McpRequestInfo;
+  const intent = {
+    tool: 'close_issue',
+    input: { issue_id: 'i-1', account: 1, confirm: true, note: `key ${NR_KEY}` },
+    record: { action: 'issue.close', accountId: 1, target: { type: 'issue', id: 'i-1' }, applied: false },
+  };
+
+  it('stores one redacted row before the mutation, awaited', async () => {
+    const { recorder } = makeApp();
+    await recorder.hooks.onWriteIntent?.({} as never, info, intent);
+    const [row] = await rows();
+    expect(row).toMatchObject({
+      kind: 'tool_call',
+      action: 'write.intent',
+      status: 'ok',
+      requestId: 'req_w',
+      grantId: 'grt_1',
+      projectId: 'prj_1',
+      accountIds: [1],
+      targetType: 'tool',
+      targetId: 'close_issue',
+      details: {
+        project: 'prod',
+        write: { phase: 'intent', tool: 'close_issue', record: { action: 'issue.close', applied: false } },
+      },
+    });
+    expect(JSON.stringify(row)).not.toContain(NR_KEY);
+  });
+
+  it('rejects when the row cannot be stored (the write is then refused), unlike every other hook', async () => {
+    const broken = {
+      ...world.storage,
+      auditLog: { ...world.storage.auditLog, append: () => Promise.reject(new Error('disk full')) },
+    } as Storage;
+    const recorder = createAuditRecorder({ storage: broken, logger, clock: world.clock });
+    await expect(mergeHooks(recorder.hooks).onWriteIntent?.({} as never, info, intent)).rejects.toThrow(
+      'disk full',
+    );
   });
 });
 

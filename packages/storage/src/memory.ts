@@ -2,7 +2,7 @@
 // In-memory adapter: the reference implementation of the `Storage` contract (tests, ephemeral servers). It enforces
 // the same unique, referential and row rules as the SQL schema. State lives in the instance (THREAT_MODEL T21);
 // records are copied in and out, so callers can't mutate stored rows.
-import { auditStatsSql, utcDay } from './audit-stats.ts';
+import { AUDIT_WRITE_INTENT_ACTION, auditStatsSql, utcDay } from './audit-stats.ts';
 import {
   ConflictError,
   InvalidInputError,
@@ -613,7 +613,8 @@ export function createMemoryStorage(options: MemoryStorageOptions = {}): Storage
       const limit = params.at(-1) as number;
       const groups = new Map<string | null, AuditStatsRow>();
       for (const r of audit) {
-        if (r.kind !== 'tool_call' || r.ts < q.since || r.ts >= q.until) continue;
+        if (r.kind !== 'tool_call' || r.action === AUDIT_WRITE_INTENT_ACTION) continue;
+        if (r.ts < q.since || r.ts >= q.until) continue;
         if (q.projectId !== undefined && r.projectId !== q.projectId) continue;
         if (q.userId !== undefined && r.userId !== q.userId) continue;
         if (q.grantId !== undefined && r.grantId !== q.grantId) continue;

@@ -123,6 +123,36 @@ export const writeMeta = (record: WriteRecord): Record<string, unknown> => ({
   'relic-bridge/result': { accounts: [record.accountId] },
 });
 
+/**
+ * Record the write before its mutation is sent (P7-28, THREAT_MODEL T14/T31): awaited, and a failure refuses the write
+ * with nothing sent, so no change reaches New Relic without an audit row (the outcome row follows after the call).
+ * Call it after every check and the human gate, right before the mutation. Without `ctx.writeAudit` (stdio, no audit
+ * log) it does nothing.
+ */
+export async function recordWriteIntent(
+  ctx: ToolContext,
+  tool: string,
+  input: unknown,
+  record: WriteRecord,
+): Promise<void> {
+  if (ctx.writeAudit === undefined) return;
+  try {
+    await ctx.writeAudit.intent({ tool, input, record: { ...record, applied: false } });
+  } catch (error) {
+    ctx.logger.error('write intent audit failed: write refused', {
+      tool,
+      error: error instanceof Error ? error.name : typeof error,
+    });
+    throw new RbError(
+      ErrorCode.Internal,
+      'The audit log could not record this write, so it was not sent: nothing was changed.',
+      {
+        hint: 'Try again later. If it keeps failing, the server operator should check the audit log storage.',
+      },
+    );
+  }
+}
+
 /** Fields every write tool's structured output starts with. */
 export const writeOutput: { applied: z.ZodBoolean; dryRun: z.ZodBoolean; accountId: z.ZodNumber } = {
   applied: z.boolean(),

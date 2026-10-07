@@ -78,6 +78,11 @@ export class AccessCache {
     this.#entries.set(key, Object.freeze({ ...value, expiresAt }));
   }
 
+  /** Drop one entry (its access was just refused on a fresh resolution). */
+  delete(key: string): void {
+    this.#entries.delete(key);
+  }
+
   clear(): void {
     this.#entries.clear();
   }

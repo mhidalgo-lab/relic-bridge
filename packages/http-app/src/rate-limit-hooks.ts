@@ -228,10 +228,21 @@ export function createRateLimitHooks(options: RateLimitHooksOptions): HttpAppHoo
   };
 }
 
-/** Compose hook sets: `before*` hooks run in order and the first Response wins; `on*`/`after*` hooks all run. */
+/**
+ * Compose hook sets: `before*` hooks run in order and the first Response wins; `on*`/`after*` hooks all run.
+ * `onWriteIntent` (P7-28) is present only when a set has one; they run in order and the first rejection refuses the write.
+ */
 export function mergeHooks(...sets: readonly (HttpAppHooks | undefined)[]): HttpAppHooks {
   const hooks = sets.filter((s): s is HttpAppHooks => s !== undefined);
+  const intents = hooks.filter((h) => h.onWriteIntent !== undefined);
   return {
+    ...(intents.length === 0
+      ? {}
+      : {
+          async onWriteIntent(c, info, intent) {
+            for (const h of intents) await h.onWriteIntent?.(c, info, intent);
+          },
+        }),
     async beforeAuth(c, requestId, scope) {
       for (const h of hooks) {
         const stop = await h.beforeAuth?.(c, requestId, scope);

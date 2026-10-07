@@ -30,6 +30,7 @@ import {
   gateStopped,
   humanGate,
   mutationFailed,
+  recordWriteIntent,
   rejectSecrets,
   SIDE_EFFECT_NOTICE,
   shown,
@@ -455,6 +456,10 @@ export function createDashboardWriteTool(client: (ctx: ToolContext) => NerdGraph
         });
       }
 
+      await recordWriteIntent(ctx, 'create_dashboard', input, {
+        ...record(false, null),
+        ...(gate.confirmation === undefined ? {} : { confirmation: gate.confirmation }),
+      });
       const result = await client(ctx).query(CREATE_DASHBOARD_MUTATION, {
         accountId: account,
         dashboard: plan.variable,

@@ -61,6 +61,8 @@ import {
   type ToolDefinition,
   toolCatalog,
   VERSION,
+  WRITE_TOOL_NAMES,
+  type WriteIntent,
 } from '@relic-bridge/core';
 import { type KvRepository, SLUG_RE, type Storage } from '@relic-bridge/storage';
 import { type Context, type ExecutionContext, Hono } from 'hono';
@@ -229,6 +231,12 @@ export interface HttpAppHooks {
   onRejected?(c: Context, info: RejectInfo): Promise<void> | void;
   /** After each tool call finished, success or error (audit). Runs in the background; must not throw. */
   onToolCall?(c: Context, info: McpRequestInfo, event: ToolCallEvent): Promise<void> | void;
+  /**
+   * A write tool is about to send its mutation (P7-28, audit). **Awaited**, and unlike every other hook it must reject
+   * when the row could not be stored: the write is then refused with nothing sent. `createHttpApp` refuses
+   * `writeTools: true` without it.
+   */
+  onWriteIntent?(c: Context, info: McpRequestInfo, intent: WriteIntent): Promise<void>;
   /** After the MCP handler answered (audit). Runs in the background (`waitUntil`); errors are logged. */
   /**
    * After each tool call on the pass-through route finished, success or error (audit, P2-16). Runs in the background;
@@ -591,6 +599,14 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
   const allTools = [...createBuiltinTools(toolDeps), ...(writeTools ? createWriteTools(toolDeps) : [])];
   const catalog = allTools.map((t) => t.name);
   const hooks = options.hooks ?? {};
+  // Every write is recorded before its mutation (P7-28): no audit hook, no write tools (`serve` and the Worker already
+  // refuse `RB_WRITE_TOOLS=on` with `RB_AUDIT=off`; this holds for any other host).
+  const onWriteIntent = hooks.onWriteIntent;
+  if (writeTools && onWriteIntent === undefined) {
+    throw new TypeError(
+      'writeTools needs an audit hook (hooks.onWriteIntent, e.g. createAuditRecorder().hooks)',
+    );
+  }
   // Scopes created by this app; the factory refuses anything else (defence in depth for `authInfo.extra`).
   const scopes = new WeakSet<RequestScope>();
   // Fails at construction (boot) for an unusable admin token, never per request.
@@ -1240,8 +1256,8 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
 
     const now = clock.now();
     const cacheKey = `${await hashToken(token)}\n${slug}`;
-    let resolved: Omit<CachedAccess, 'expiresAt'> | undefined = cache.get(cacheKey, now);
-    if (resolved === undefined) {
+    /** Resolve from storage (never the cache) and refresh the cache entry; a Response when refused. */
+    const resolveFresh = async (): Promise<Omit<CachedAccess, 'expiresAt'> | Response> => {
       // One storage call on SQL storage (D1: one batch round trip, P3-09); repository reads otherwise.
       let auth: AuthenticatedAccess | OAuthAuthentication;
       try {
@@ -1268,24 +1284,26 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
         return json(503, '{"error":"unavailable"}', { 'Retry-After': '5' });
       }
       if (!auth.ok) {
+        cache.delete(cacheKey);
         if (auth.stage === 'access') log['tokenId'] = auth.tokenId;
         return deny(auth.reason);
       }
-      resolved = {
+      const fresh = {
         tokenId: auth.tokenId,
         access: auth.access,
         credential: auth.credential,
         clientId: viaOAuth ? (auth as Extract<OAuthAuthentication, { ok: true }>).clientId : null,
       };
-      cache.set(cacheKey, resolved, now, [auth.tokenExpiresAt, auth.access.expiresAt]);
-    } else {
-      log['cached'] = true;
-    }
-    const { access, tokenId } = resolved;
-    const clientId = resolved.clientId ?? null;
-    log['tokenId'] = tokenId;
-    log['grantId'] = access.grantId;
-    if (clientId !== null) log['oauthClient'] = clientId;
+      cache.set(cacheKey, fresh, now, [auth.tokenExpiresAt, auth.access.expiresAt]);
+      return fresh;
+    };
+    let resolved: Omit<CachedAccess, 'expiresAt'> | Response | undefined = cache.get(cacheKey, now);
+    if (resolved === undefined) resolved = await resolveFresh();
+    else log['cached'] = true;
+    if (resolved instanceof Response) return resolved;
+    log['tokenId'] = resolved.tokenId;
+    log['grantId'] = resolved.access.grantId;
+    if (resolved.clientId != null) log['oauthClient'] = resolved.clientId;
 
     // What the request asks for comes from the body, never from the `Mcp-Method` / `Mcp-Name` headers alone: the SDK
     // cross-checks those only for modern requests, so a legacy request could name `subscriptions/listen` in a header
@@ -1293,6 +1311,23 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
     const rpc = await readRpc(c);
     if (rpc instanceof Response) return rpc;
     const { mcpMethod, mcpName } = rpc;
+    // A write tool call never runs on cached access (P7-28): a revoked grant, token or write tool stops the next write
+    // at once, on every process, instead of within the cache TTL. Reads keep the cache.
+    if (
+      log['cached'] === true &&
+      mcpMethod === 'tools/call' &&
+      mcpName !== null &&
+      WRITE_TOOL_NAMES.includes(mcpName)
+    ) {
+      resolved = await resolveFresh();
+      if (resolved instanceof Response) return resolved;
+      log['cached'] = false;
+    }
+    const { access, tokenId } = resolved;
+    const clientId = resolved.clientId ?? null;
+    log['tokenId'] = tokenId;
+    log['grantId'] = access.grantId;
+    if (clientId !== null) log['oauthClient'] = clientId;
     const info: McpRequestInfo = Object.freeze({
       requestId,
       projectSlug: access.projectSlug,
@@ -1378,6 +1413,13 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
                       `write-approval:${access.projectId}/${access.grantId}/${access.userId ?? '-'}/${key}`,
                       { expirationTtl: APPROVAL_LEDGER_TTL_SECONDS },
                     )) === 1,
+                }),
+              }),
+          ...(onWriteIntent === undefined
+            ? {}
+            : {
+                writeAudit: Object.freeze({
+                  intent: (intent: WriteIntent): Promise<void> => onWriteIntent(c, info, intent),
                 }),
               }),
           connection: Object.freeze({

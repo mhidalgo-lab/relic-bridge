@@ -270,6 +270,7 @@ export function createYamlStorage(
     kv: {
       get: none,
       put: readOnly,
+      compareAndPut: readOnly,
       delete: readOnly,
       take: readOnly,
       increment: readOnly,

@@ -39,6 +39,7 @@ import {
   groupUsage,
   InvalidInputError,
   type JsonValue,
+  KV_COMPARE_AND_PUT_SQL,
   KV_INCREMENT_SQL,
   type KvListResult,
   type KvPutOptions,
@@ -780,6 +781,11 @@ export function createRepositories(
           'INSERT INTO kv (key, value, expires_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, expires_at = excluded.expires_at',
           [key, value, expiresAt],
         );
+      }),
+    compareAndPut: (key, expected, value, opts: KvPutOptions = {}) =>
+      call(() => {
+        const expiresAt = kvExpiry(opts, now());
+        return run(KV_COMPARE_AND_PUT_SQL, [value, expiresAt, key, expected, now()]) > 0;
       }),
     delete: (key) =>
       call(() => {

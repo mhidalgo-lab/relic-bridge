@@ -543,6 +543,12 @@ export interface KvRepository {
   put(key: string, value: string, options?: KvPutOptions): Promise<void>;
   delete(key: string): Promise<void>;
   /**
+   * Atomic compare-and-swap (P7-29): writes `value` (with the expiry from `options`) only when `key` currently holds a
+   * live value exactly equal to `expected`. Resolves `true` when this call wrote it, `false` when the key is missing,
+   * expired or holds something else (left untouched). Of concurrent calls with the same `expected`, at most one wins.
+   */
+  compareAndPut(key: string, expected: string, value: string, options?: KvPutOptions): Promise<boolean>;
+  /**
    * Atomic read-and-delete (P4-01): resolves the live value and removes the key in one step, or `null` when there is
    * no live value. Of concurrent calls for one key at most one gets the value (single-use login state, setup links).
    */

@@ -73,6 +73,27 @@ describe('a slow run_nrql as a task', () => {
     expect(t.ng.ops).toHaveLength(3);
   });
 
+  it('concurrent tasks/get polls run one NerdGraph step, and a cancel in flight stays cancelled (P7-29)', async () => {
+    const t = await tasksWorld({ pending: 5 });
+    const created = await rpc(t.app, t.world.tokens.prod, 'tools/call', RUN);
+    const taskId = (created.result as Record<string, unknown>)['taskId'] as string;
+    t.world.clock.advance(2000);
+    const polls = await Promise.all(
+      [1, 2, 3, 4].map(() => rpc(t.app, t.world.tokens.prod, 'tasks/get', { taskId })),
+    );
+    expect(polls.every((p) => p.status === 200)).toBe(true);
+    // One submit and exactly one progress poll, however many polls raced.
+    expect(t.ng.ops).toEqual(['RbNrql', 'RbNrqlProgress']);
+    t.world.clock.advance(2000);
+    await Promise.all([
+      rpc(t.app, t.world.tokens.prod, 'tasks/get', { taskId }),
+      rpc(t.app, t.world.tokens.prod, 'tasks/cancel', { taskId }),
+    ]);
+    t.world.clock.advance(60_000);
+    const after = await rpc(t.app, t.world.tokens.prod, 'tasks/get', { taskId });
+    expect(after.result).toMatchObject({ status: 'cancelled' });
+  });
+
   it('keeps format, detail and max_rows for the final result', async () => {
     const t = await tasksWorld({ pending: 0 });
     const created = await rpc(t.app, t.world.tokens.prod, 'tools/call', {
@@ -230,6 +251,7 @@ describe('fallback: clients without the extension keep the queryId handle', () =
         put: async () => {
           throw new Error('store down');
         },
+        compareAndPut: async () => false,
       },
     });
     const res = await rpc(t.app, t.world.tokens.prod, 'tools/call', RUN);

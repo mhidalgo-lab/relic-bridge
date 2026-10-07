@@ -711,6 +711,12 @@ export function createMemoryStorage(options: MemoryStorageOptions = {}): Storage
     async put(key, value, opts: KvPutOptions = {}) {
       kv.set(key, { value, expiresAt: kvExpiry(opts, now()) });
     },
+    async compareAndPut(key, expected, value, opts: KvPutOptions = {}) {
+      const expiresAt = kvExpiry(opts, now());
+      if (live(key)?.value !== expected) return false;
+      kv.set(key, { value, expiresAt });
+      return true;
+    },
     async delete(key) {
       kv.delete(key);
     },

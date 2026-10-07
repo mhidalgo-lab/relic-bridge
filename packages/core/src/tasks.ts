@@ -40,6 +40,17 @@ export type TaskStatus = 'working' | 'input_required' | 'completed' | 'failed' |
 export interface TaskStore {
   get(key: string): Promise<string | null>;
   put(key: string, value: string, options: { readonly expirationTtl: number }): Promise<void>;
+  /**
+   * Atomic compare-and-swap (P7-29): store `value` only when the key still holds exactly `expected` (live). Resolves
+   * whether this call wrote it. A record is read, changed and written back, so every update goes through this: of two
+   * writers that read the same record, one loses and re-reads instead of overwriting.
+   */
+  compareAndPut(
+    key: string,
+    expected: string,
+    value: string,
+    options: { readonly expirationTtl: number },
+  ): Promise<boolean>;
 }
 
 /**
@@ -67,6 +78,12 @@ export function createMemoryTaskStore(
         return null;
       }
       return row.value;
+    },
+    async compareAndPut(key, expected, value, { expirationTtl }) {
+      const row = rows.get(key);
+      if (row === undefined || row.expiresAt <= now() || row.value !== expected) return false;
+      rows.set(key, { value, expiresAt: now() + expirationTtl * 1000 });
+      return true;
     },
     async put(key, value, { expirationTtl }) {
       sweep();
@@ -262,9 +279,17 @@ const clampPoll = (ms: number): number =>
 
 /**
  * Seal and store `record`. `charge`: spend one budget unit first (creation, cancellation); an update after work was
- * done is not charged, so a step that used its budget still keeps its outcome.
+ * done is not charged, so a step that used its budget still keeps its outcome. With `expected` (the sealed value this
+ * update builds on) the store swaps only if the record is still exactly that (P7-29): resolves the new sealed value, or
+ * `null` when another request changed the task first. Without it (creation of a fresh id) it is a plain put.
  */
-async function write(ctx: ToolContext, taskId: string, record: TaskRecord, charge = true): Promise<void> {
+async function write(
+  ctx: ToolContext,
+  taskId: string,
+  record: TaskRecord,
+  options: { readonly charge?: boolean; readonly expected?: string } = {},
+): Promise<string | null> {
+  const { charge = true, expected } = options;
   const tasks = binding(ctx);
   const now = ctx.clock.now();
   const ttlS = Math.ceil((record.expiresAt - now) / 1000);
@@ -283,9 +308,13 @@ async function write(ctx: ToolContext, taskId: string, record: TaskRecord, charg
     plain = JSON.stringify({ ...record, result: toToolErrorResult(error, ctx.requestId) });
   }
   if (charge) ctx.budget.spend(1, 'task storage');
-  await tasks.store.put(await storeKey(taskId), await seal(taskId, plain, record.owner), {
-    expirationTtl: ttlS,
-  });
+  const sealed = await seal(taskId, plain, record.owner);
+  const key = await storeKey(taskId);
+  if (expected === undefined) {
+    await tasks.store.put(key, sealed, { expirationTtl: ttlS });
+    return sealed;
+  }
+  return (await tasks.store.compareAndPut(key, expected, sealed, { expirationTtl: ttlS })) ? sealed : null;
 }
 
 function wire(taskId: string, record: TaskRecord): DetailedTask {
@@ -328,10 +357,22 @@ export async function createTask(ctx: ToolContext, tool: string, job: TaskJob): 
 }
 
 /** The caller's task, or `TaskNotFoundError` (unknown, malformed id, expired or someone else's). */
-async function read(ctx: ToolContext, taskId: unknown): Promise<{ id: string; record: TaskRecord }> {
-  const tasks = binding(ctx);
+async function read(ctx: ToolContext, taskId: unknown): Promise<Loaded> {
   if (typeof taskId !== 'string' || !TASK_ID_RE.test(taskId)) throw new TaskNotFoundError();
   ctx.budget.spend(1, 'task lookup');
+  return load(ctx, taskId);
+}
+
+/** A task as stored: the record and the exact sealed value it came from (what a compare-and-swap expects). */
+interface Loaded {
+  readonly id: string;
+  readonly record: TaskRecord;
+  readonly raw: string;
+}
+
+/** `read` without the budget charge or id check: the same task again after losing a swap. */
+async function load(ctx: ToolContext, taskId: string): Promise<Loaded> {
+  const tasks = binding(ctx);
   const value = await tasks.store.get(await storeKey(taskId));
   if (value === null) throw new TaskNotFoundError();
   const record = await unseal(taskId, value, tasks.owner);
@@ -339,7 +380,7 @@ async function read(ctx: ToolContext, taskId: unknown): Promise<{ id: string; re
   if (record === null || record.owner !== tasks.owner || record.expiresAt <= ctx.clock.now()) {
     throw new TaskNotFoundError();
   }
-  return { id: taskId, record };
+  return { id: taskId, record, raw: value };
 }
 
 /** Errors that say "not now" rather than "never": the task keeps working and the next poll tries again. */
@@ -367,17 +408,37 @@ export async function getTask(
   taskId: unknown,
   options: ResumeOptions,
 ): Promise<DetailedTask> {
-  const { id, record } = await read(ctx, taskId);
+  const { id, record, raw } = await read(ctx, taskId);
   const now = ctx.clock.now();
   if (record.status !== 'working' || now < record.polledAt + record.pollIntervalMs) return wire(id, record);
-  const next = await resume(ctx, record, options);
+  // Compare-and-swap (P7-29): the step is claimed by storing `polledAt = now` against the value this poll read, and
+  // the outcome is stored against the claim. Of concurrent polls one claims and runs the step; the others, and a poll
+  // whose task was cancelled meanwhile, lose the swap and answer with whatever is stored now (never overwriting it).
+  let held = raw;
+  const claim = async (): Promise<boolean> => {
+    const claimed = await write(ctx, id, { ...record, polledAt: now }, { charge: false, expected: held });
+    if (claimed === null) return false;
+    held = claimed;
+    return true;
+  };
+  const next = await resume(ctx, record, options, claim);
+  const current = async (): Promise<DetailedTask> => {
+    const latest = await load(ctx, id);
+    return wire(id, latest.record);
+  };
+  if (next === 'lost') return current();
   if (next === record) return wire(id, record);
   // Work was done: keep its outcome even if the step spent the rest of the budget (one storage call).
-  await write(ctx, id, next, false);
+  if ((await write(ctx, id, next, { charge: false, expected: held })) === null) return current();
   return wire(id, next);
 }
 
-async function resume(ctx: ToolContext, record: TaskRecord, options: ResumeOptions): Promise<TaskRecord> {
+async function resume(
+  ctx: ToolContext,
+  record: TaskRecord,
+  options: ResumeOptions,
+  claim: () => Promise<boolean>,
+): Promise<TaskRecord | 'lost'> {
   const now = ctx.clock.now();
   const def = options.tools.find((t) => t.name === record.tool);
   const done = (result: CallToolResult): TaskRecord => {
@@ -394,6 +455,7 @@ async function resume(ctx: ToolContext, record: TaskRecord, options: ResumeOptio
   }
   // One step needs the work and a write: leave the task as it is when the budget can't cover both.
   if (!ctx.budget.canSpend(2)) return record;
+  if (!(await claim())) return 'lost';
   const logger = ctx.logger.child({ requestId: ctx.requestId, tool: def.name, task: true });
   const started = ctx.clock.now();
   const observe = (status: 'ok' | 'error', errorCode: string | null, meta: ToolCallEvent['meta']) => {
@@ -445,18 +507,31 @@ async function resume(ctx: ToolContext, record: TaskRecord, options: ResumeOptio
 
 /** `tasks/cancel`: a non-terminal task of the caller becomes `cancelled` (its job state is dropped). */
 export async function cancelTask(ctx: ToolContext, taskId: unknown): Promise<void> {
-  const { id, record } = await read(ctx, taskId);
-  if (record.status !== 'working' && record.status !== 'input_required') return;
-  const now = ctx.clock.now();
-  const { state: _dropped, ...rest } = record;
-  await write(ctx, id, {
-    ...rest,
-    status: 'cancelled',
-    updatedAt: now,
-    polledAt: now,
-    statusMessage: 'Cancelled by the client.',
-  });
+  let { id, record, raw } = await read(ctx, taskId);
+  // A poll that claimed or finished a step changes the record under us: look again and cancel what is stored now.
+  for (let attempt = 0; attempt < CANCEL_ATTEMPTS; attempt++) {
+    if (record.status !== 'working' && record.status !== 'input_required') return;
+    const now = ctx.clock.now();
+    const { state: _dropped, ...rest } = record;
+    const stored = await write(
+      ctx,
+      id,
+      {
+        ...rest,
+        status: 'cancelled',
+        updatedAt: now,
+        polledAt: now,
+        statusMessage: 'Cancelled by the client.',
+      },
+      { charge: attempt === 0, expected: raw },
+    );
+    if (stored !== null) return;
+    ({ id, record, raw } = await load(ctx, id));
+  }
+  throw new RbError(ErrorCode.Internal, 'The task kept changing; cancel it again.');
 }
+
+const CANCEL_ATTEMPTS = 4;
 
 /**
  * `tasks/update`: no relic-bridge task ever asks for input, so there is nothing outstanding and every response is

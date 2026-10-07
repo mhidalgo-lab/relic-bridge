@@ -79,6 +79,7 @@ import {
   checkRole,
   checkTokenHash,
   checkTokenPrefix,
+  KV_COMPARE_AND_PUT_SQL,
   KV_INCREMENT_SQL,
   kvCounterExpiry,
   kvExpiry,
@@ -972,6 +973,11 @@ export async function createD1Storage(
           'INSERT INTO kv (key, value, expires_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, expires_at = excluded.expires_at',
           [key, value, expiresAt],
         );
+      }),
+    compareAndPut: (key, expected, value, opts = {}) =>
+      call(async () => {
+        const expiresAt = kvExpiry(opts, now());
+        return (await run(KV_COMPARE_AND_PUT_SQL, [value, expiresAt, key, expected, now()])) > 0;
       }),
     delete: (key) =>
       call(async () => {

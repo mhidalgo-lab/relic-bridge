@@ -615,6 +615,11 @@ describe('generate_alert_insights_report as an MCP task (P7-21)', () => {
   const store = {
     get: async (k: string) => rows.get(k) ?? null,
     put: async (k: string, v: string) => void rows.set(k, v),
+    compareAndPut: async (k: string, e: string, v: string) => {
+      if (rows.get(k) !== e) return false;
+      rows.set(k, v);
+      return true;
+    },
   };
   const setup = (budget = 45, o: Overrides = {}) => {
     rows.clear();

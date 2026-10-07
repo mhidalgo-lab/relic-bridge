@@ -93,6 +93,10 @@ export const KV_INCREMENT_SQL: string =
   'expires_at = CASE WHEN kv.expires_at IS NOT NULL AND kv.expires_at <= ? THEN excluded.expires_at ' +
   'ELSE kv.expires_at END RETURNING value';
 
+/** The SQL of `kv.compareAndPut` (SQLite and D1): one conditional update; the row count says whether this call won. */
+export const KV_COMPARE_AND_PUT_SQL: string =
+  'UPDATE kv SET value = ?, expires_at = ? WHERE key = ? AND value = ? AND (expires_at IS NULL OR expires_at > ?)';
+
 /** A row-count limit must be a finite number: NaN would bind as NULL (no limit) in SQL (P3-15). */
 export function checkLimit(limit: number | undefined, field: string): void {
   if (limit !== undefined && !Number.isFinite(limit)) throw new InvalidInputError(field);

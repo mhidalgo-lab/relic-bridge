@@ -240,6 +240,7 @@ export function runStorageContract(options: StorageContractOptions): void {
             s.settings.setIfAbsent('k', 1),
             s.settings.delete('k'),
             s.kv.put('k', 'v'),
+            s.kv.compareAndPut('k', 'v', 'w'),
             s.kv.delete('k'),
             s.kv.take('k'),
             s.kv.increment('k', { expirationTtl: 60 }),
@@ -1280,6 +1281,31 @@ export function runStorageContract(options: StorageContractOptions): void {
         await s.kv.delete('a');
         expect(await s.kv.get('a')).toBeNull();
         await s.close();
+      });
+
+      it('compareAndPut swaps only the exact live value, and one of many concurrent callers wins (P7-29)', async () => {
+        const { s, clock } = await fresh();
+        expect(await s.kv.compareAndPut('task:a', 'v0', 'v1', { expirationTtl: 60 })).toBe(false);
+        expect(await s.kv.get('task:a')).toBeNull();
+        await s.kv.put('task:a', 'v0', { expirationTtl: 60 });
+        expect(await s.kv.compareAndPut('task:a', 'other', 'v1', { expirationTtl: 60 })).toBe(false);
+        expect(await s.kv.get('task:a')).toBe('v0');
+        const wins = await Promise.all(
+          ['x', 'y', 'z', 'w'].map((v) => s.kv.compareAndPut('task:a', 'v0', v, { expirationTtl: 120 })),
+        );
+        expect(wins.filter(Boolean)).toHaveLength(1);
+        const winner = ['x', 'y', 'z', 'w'][wins.indexOf(true)];
+        expect(await s.kv.get('task:a')).toBe(winner);
+        // The new expiry applies.
+        expect((await s.kv.list({ prefix: 'task:' })).keys[0]?.expiration).toBe(
+          Math.floor(clock.t / 1000) + 120,
+        );
+        // An expired row is not swapped.
+        clock.advance(121_000);
+        expect(await s.kv.compareAndPut('task:a', winner as string, 'late', { expirationTtl: 60 })).toBe(
+          false,
+        );
+        expect(await s.kv.get('task:a')).toBeNull();
       });
 
       it('increment counts atomically in a fixed window that restarts after expiry (P5-03 shared caps)', async () => {

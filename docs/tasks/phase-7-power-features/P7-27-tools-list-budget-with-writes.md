@@ -2,7 +2,7 @@
 id: P7-27
 title: "tools/list size budget with write tools enabled, and headroom"
 phase: 7
-status: todo
+status: review
 priority: medium
 depends_on: [P7-19]
 adr: []
@@ -23,9 +23,9 @@ write tools add about 8 100 characters (`create_dashboard` about 3 350), so a wr
   budget policy (when a raise is allowed) in `docs/reference/tool-design.md` or equivalent.
 
 ## Acceptance criteria
-- [ ] Budget test covering write tools, failing on growth.
-- [ ] Built-in headroom of at least 1 000 characters, or a recorded policy.
-- [ ] `pnpm docs:tools` regenerated.
+- [x] Budget test covering write tools, failing on growth (`TOOLS_LIST_BUDGET_WITH_WRITES` 62 400; 60 483 now).
+- [x] Built-in headroom of at least 1 000 characters (1 500: 52 900 of 54 400), enforced by test; policy in `docs/dev/evals.md`.
+- [x] `pnpm docs:tools` regenerated.
 
 ## Docs to update
 - Generated tool docs; pending decisions if the budget changes.

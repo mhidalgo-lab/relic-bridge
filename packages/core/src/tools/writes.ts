@@ -76,25 +76,21 @@ const CHANGE_TYPES = [
 ] as const;
 
 const changeInput = z.strictObject({
-  entity_guid: z
-    .string()
-    .min(8)
-    .max(512)
-    .describe('The entity the change applies to (guid, e.g. from search_entities).'),
+  entity_guid: z.string().min(8).max(512).describe('Entity the change applies to (guid).'),
   change_type: z.enum(CHANGE_TYPES).describe('Category and type of the change.'),
   version: text(128, 'Deployed version. Required for DEPLOYMENT__*.').optional(),
-  commit: text(128, 'Commit id (deployments).').optional(),
-  changelog: text(1000, 'Changelog URL or text (deployments).').optional(),
+  commit: text(128, 'Commit id.').optional(),
+  changelog: text(1000, 'Changelog URL or text.').optional(),
   deep_link: z
     .url({ protocol: /^https$/ })
     .max(500)
     .optional()
-    .describe('https link to the system that made the change (deployments).'),
+    .describe('https link to the system that made the change.'),
   feature_flag_id: text(128, 'Feature flag id. Required for FEATURE_FLAG__BASIC.').optional(),
-  short_description: text(200, 'One-line summary shown in the UI.').optional(),
+  short_description: text(200, 'One-line summary.').optional(),
   description: multiline(2000, 'Longer description.').optional(),
   user: text(100, 'Who made the change.').optional(),
-  group_id: text(100, 'Correlates related changes across entities.').optional(),
+  group_id: text(100, 'Groups related changes.').optional(),
   confirm: confirmInput,
   dry_run: dryRunInput,
 });
@@ -109,7 +105,7 @@ const changeOutput = z.object({
 
 const CHANGE_DESCRIPTION = `Record a change event (deployment, configuration change, feature flag, operational or business event) on one entity, so it shows in New Relic's change tracking next to the entity's charts.
 
-Write tool, opt-in. ${SIDE_EFFECT_NOTICE} Needs confirm: true; dry_run: true previews. Each call adds a new event (not idempotent; events cannot be deleted here). To read past changes use list_change_events.`;
+Write tool, opt-in. ${SIDE_EFFECT_NOTICE} Needs confirm: true; dry_run: true previews. Each call adds a new event (not idempotent; cannot be deleted here). To read past changes use list_change_events.`;
 
 // ---------------------------------------------------------------------------------------------------------------------
 // acknowledge_issue / close_issue

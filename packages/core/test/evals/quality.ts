@@ -13,6 +13,12 @@ export const MAX_PURPOSE_CHARS = 450;
  * per token). 65 683 before P6-13, 61 291 after it, 51 980 after P6-19, 53 1xx after P6-24 (a `limit` and a `cursor` on every list, about 110 characters per tool), 53 587 after P7-02 (`run_nrql` `cache: "bypass"`), 54 367 after P7-03 (`get_ui_link`, one tool of 770 characters); raise it only on purpose, every tool list is paid in every conversation.
  */
 export const TOOLS_LIST_BUDGET = 54_400;
+/**
+ * The same ceiling for a `tools/list` with the write tools enabled (P7-27): the built-ins plus `create_change_event`,
+ * `acknowledge_issue`, `close_issue` and `create_dashboard`. Built-ins were 54 367 and the write tools about 8 100 before
+ * P7-27 trimmed both (52 900 and 7 583 after), so this is the built-in budget plus 8 000. Policy: docs/dev/evals.md.
+ */
+export const TOOLS_LIST_BUDGET_WITH_WRITES = 62_400;
 /** Tools that run this many requests or more must say so ("Runs ..."). */
 export const COST_HINT_FROM = 8;
 /** Two descriptions this similar (Jaccard of their content words) must be a declared confusable pair. */

@@ -319,7 +319,8 @@ describe('relic-bridge stdio (built CLI)', () => {
     expect(version).toMatch(/^\d+\.\d+\.\d+/);
     const help = execFileSync(process.execPath, [RELEASE_BIN, '--help']).toString();
     expect(help).toContain('relic-bridge [stdio]');
-  });
+    // Two cold starts of the built CLI: under a loaded machine they exceed the 5 s default (phase 7 review, L8).
+  }, 30_000);
 
   it('shuts down gracefully on SIGTERM', async () => {
     const s = new RawSession(

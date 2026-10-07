@@ -102,6 +102,22 @@ describe('serveSettings', () => {
     expect(unlimited.warnings.join(' ')).toContain('not rate limited');
   });
 
+  it('RB_WRITE_APPROVAL (P7-25): client by default, required on request, anything else refused', () => {
+    expect(serveSettings(base).requireWriteApproval).toBe(false);
+    const wt = { ...base.env, RB_WRITE_TOOLS: 'on' };
+    expect(serveSettings({ ...base, env: { ...wt, RB_WRITE_APPROVAL: 'client' } }).requireWriteApproval).toBe(
+      false,
+    );
+    expect(
+      serveSettings({ ...base, env: { ...wt, RB_WRITE_APPROVAL: 'required' } }).requireWriteApproval,
+    ).toBe(true);
+    const idle = serveSettings({ ...base, env: { ...base.env, RB_WRITE_APPROVAL: 'required' } });
+    expect(idle.warnings.join(' ')).toContain('no effect without RB_WRITE_TOOLS=on');
+    expect(() => serveSettings({ ...base, env: { ...wt, RB_WRITE_APPROVAL: 'always' } })).toThrow(
+      ConfigError,
+    );
+  });
+
   it('defaults to 127.0.0.1:8787, loopback Host allowlist and the per-user data directory', () => {
     const s = serveSettings(base);
     expect(s).toMatchObject({

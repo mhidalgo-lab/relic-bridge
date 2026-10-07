@@ -332,6 +332,11 @@ export interface HttpAppOptions {
    */
   readonly writeTools?: boolean;
   /**
+   * `RB_WRITE_APPROVAL=required` (P7-25): a write is refused unless the client can ask a person and the person approves
+   * (MCP elicitation). Default false: `confirm: true` alone is enough when the client cannot be asked.
+   */
+  readonly requireWriteApproval?: boolean;
+  /**
    * Where per-grant quota counters live (P7-12). Default: `storage.grantUsage` (atomic on SQLite and D1). The Worker passes
    * its Durable Object store when `RB_SHARED_LIMITER=on`.
    */
@@ -659,6 +664,7 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
         ctx: scope.ctx,
         toolsListChanged: false,
         mcpApps: options.mcpApps !== false,
+        requireWriteApproval: options.requireWriteApproval === true,
         ...(scope.onToolCall ? { onToolCall: scope.onToolCall } : {}),
       });
     },

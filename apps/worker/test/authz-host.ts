@@ -46,12 +46,14 @@ function envFor(over: Partial<HttpAppOptions>): WorkerEnv {
     vars['RB_FINGERPRINT_SECRET'] = SECRET;
   }
   if (over.writeTools === true) vars['RB_WRITE_TOOLS'] = 'on';
+  if (over.requireWriteApproval === true) vars['RB_WRITE_APPROVAL'] = 'required';
   if (over.publicToolCatalog === true) vars['RB_PUBLIC_TOOL_CATALOG'] = 'on';
   if (over.mcpApps === false) vars['RB_MCP_APPS'] = 'off';
   const {
     accessCacheTtlMs: _a,
     passthrough: _p,
     writeTools: _w,
+    requireWriteApproval: _r,
     publicToolCatalog: _c,
     mcpApps: _m,
     ...unsupported

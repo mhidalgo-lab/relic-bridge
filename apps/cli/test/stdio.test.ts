@@ -23,6 +23,7 @@ import {
   selectTools,
   stdioMcpApps,
   stdioTelemetry,
+  stdioWriteApproval,
   stdioWriteTools,
 } from '../src/stdio.ts';
 import { FAKE_KEY, identityBody } from './helpers.ts';
@@ -126,6 +127,13 @@ describe('write tools on stdio (P7-09)', () => {
     expect(stdioWriteTools({ RB_WRITE_TOOLS: 'off' })).toBe(false);
     expect(stdioWriteTools({ RB_WRITE_TOOLS: 'on' })).toBe(true);
     expect(() => stdioWriteTools({ RB_WRITE_TOOLS: 'yes please' })).toThrow(ConfigError);
+  });
+
+  it('RB_WRITE_APPROVAL parses client/required only (P7-25)', () => {
+    expect(stdioWriteApproval({})).toBe(false);
+    expect(stdioWriteApproval({ RB_WRITE_APPROVAL: 'client' })).toBe(false);
+    expect(stdioWriteApproval({ RB_WRITE_APPROVAL: 'required' })).toBe(true);
+    expect(() => stdioWriteApproval({ RB_WRITE_APPROVAL: 'on' })).toThrow(ConfigError);
   });
 
   it('every write call is recorded on stderr (no audit database on stdio), never the key', async () => {

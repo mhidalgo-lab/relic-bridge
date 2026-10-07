@@ -86,6 +86,8 @@ export interface WorkerSettings {
   readonly passthrough: boolean;
   /** `RB_WRITE_TOOLS=on` (P7-09, ADR-0015): offer the opt-in write tools. Off by default; needs `RB_AUDIT=on`. */
   readonly writeTools: boolean;
+  /** `RB_WRITE_APPROVAL=required` (P7-25): writes need a person's approval through elicitation. Default `client`. */
+  readonly requireWriteApproval: boolean;
   /**
    * `RB_PUBLIC_TOOL_CATALOG=on` (P7-14): unauthenticated `initialize` / `tools/list` and the static catalog at
    * `/.well-known/relic-bridge/tools.json`, for registries and inspectors. Off by default.
@@ -260,6 +262,14 @@ export function parseWorkerSettings(vars: WorkerVars): WorkerSettings {
   if (writeTools && !auditEnabled) {
     throw new WorkerConfigError('RB_WRITE_TOOLS', 'RB_WRITE_TOOLS=on needs RB_AUDIT=on');
   }
+  const approvalRaw = text(vars, 'RB_WRITE_APPROVAL')?.toLowerCase();
+  if (approvalRaw !== undefined && approvalRaw !== 'client' && approvalRaw !== 'required') {
+    throw new WorkerConfigError('RB_WRITE_APPROVAL', 'RB_WRITE_APPROVAL must be client or required');
+  }
+  const requireWriteApproval = approvalRaw === 'required';
+  if (requireWriteApproval && !writeTools) {
+    warnings.push('RB_WRITE_APPROVAL=required has no effect without RB_WRITE_TOOLS=on.');
+  }
   if (writeTools && !rateLimit) {
     warnings.push('RB_WRITE_TOOLS=on with RB_RATE_LIMIT=off: write tool calls are not rate limited.');
   }
@@ -302,6 +312,7 @@ export function parseWorkerSettings(vars: WorkerVars): WorkerSettings {
     sharedLimiter,
     passthrough,
     writeTools,
+    requireWriteApproval,
     publicToolCatalog,
     mcpApps: onOff(vars, 'RB_MCP_APPS', true),
     logLevel: level,

@@ -2,7 +2,7 @@
 id: P7-25
 title: "Owner switch to require human approval (elicitation) for write tools"
 phase: 7
-status: todo
+status: review
 priority: medium
 depends_on: [P7-20]
 adr: [ADR-0015]
@@ -22,9 +22,9 @@ P7-09 behaviour, but an owner has no way to say "writes only when a person appro
 - `tools/list` keeps listing write tools (or hides them, owner's call) for connections that cannot be asked.
 
 ## Acceptance criteria
-- [ ] Test on both hosts: `required` + a client without elicitation refuses the write (no mutation, audit row
+- [x] Test on both hosts: `required` + a client without elicitation refuses the write (no mutation, audit row
       `confirmation: unavailable`); with elicitation it asks as today.
-- [ ] Docs: ADR-0015 addendum, security guide, THREAT_MODEL T31.
+- [x] Docs: ADR-0015 addendum, security guide, THREAT_MODEL T31.
 
 ## Security notes
 T31, T6 (prompt injection driving writes).

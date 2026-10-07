@@ -104,6 +104,13 @@ describe('parseWorkerSettings', () => {
       'not rate limited',
     );
     fails({ RB_WRITE_TOOLS: 'sure' }, 'RB_WRITE_TOOLS');
+    // P7-25: the approval switch
+    expect(parseWorkerSettings({}).requireWriteApproval).toBe(false);
+    expect(
+      parseWorkerSettings({ RB_WRITE_TOOLS: 'on', RB_WRITE_APPROVAL: 'required' }).requireWriteApproval,
+    ).toBe(true);
+    expect(parseWorkerSettings({ RB_WRITE_APPROVAL: 'required' }).warnings.join(' ')).toContain('no effect');
+    fails({ RB_WRITE_APPROVAL: 'always' }, 'RB_WRITE_APPROVAL');
   });
 
   it('parses RB_PASSTHROUGH (secret and binding are checked at boot)', () => {

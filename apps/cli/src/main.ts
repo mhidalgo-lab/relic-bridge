@@ -32,6 +32,7 @@ import {
   serveSetupModeOverStdio,
   stdioMcpApps,
   stdioTelemetry,
+  stdioWriteApproval,
   stdioWriteTools,
 } from './stdio.ts';
 import { nerdGraphFetch } from './test-hooks.ts';
@@ -242,6 +243,7 @@ export function main(rt: CliRuntime): MainResult {
       ...(telemetry === undefined ? {} : { telemetry }),
       queryCache: createProcessQueryCache(queryCacheSettings(rt.env)),
       writeTools: stdioWriteTools(rt.env),
+      requireWriteApproval: stdioWriteApproval(rt.env),
       mcpApps: stdioMcpApps(rt.env),
       ...(fetch === undefined ? {} : { fetch }),
     });

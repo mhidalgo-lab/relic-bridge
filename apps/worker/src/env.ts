@@ -49,6 +49,8 @@ export interface WorkerVars {
   readonly RB_PASSTHROUGH?: string;
   /** Opt-in write tools (P7-09, docs/adr/0015-opt-in-write-tools.md): `on` / `off` (default off); needs RB_AUDIT=on. */
   readonly RB_WRITE_TOOLS?: string;
+  /** `client` (default) or `required` (P7-25): with `required` a write needs a person's approval through MCP elicitation. */
+  readonly RB_WRITE_APPROVAL?: string;
   /** `on`: registries and inspectors may list the static read-only tool catalog without a credential (P7-14). */
   readonly RB_PUBLIC_TOOL_CATALOG?: string;
   /** `off` removes the MCP Apps chart view (P7-16); default on. */

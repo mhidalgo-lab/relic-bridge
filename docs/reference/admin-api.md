@@ -96,7 +96,7 @@ Get a user
 
 Update or disable a user
 
-Demoting or disabling the last enabled owner is refused with `409 conflict`, `detail: last_owner` (P4-16).
+Demoting or disabling the last enabled owner is refused with `409 conflict`, `detail: last_owner` (P4-16). Re-enabling a user who holds a live grant naming a write tool is owner-only: `403 forbidden`, `detail: write_scope` (P7-32).
 
 | Parameter | In | Type | Required | Description |
 | --- | --- | --- | --- | --- |

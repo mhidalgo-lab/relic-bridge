@@ -254,5 +254,12 @@ kept a revoked write grant alive for up to 30 s per process.
   cache holds an entry, so a revoked grant, token, key or write tool stops the next write at once on every process.
   Reads keep the cache.
 - **Residual.** A crash between the intent row and the mutation's answer leaves an intent row without an outcome row:
-  read it as "may have been sent". Re-enabling a disabled user who holds a write grant is not covered by the guard
-  (follow-up P7-32).
+  read it as "may have been sent". Re-enabling a disabled user who holds a write grant was not covered by the guard
+  (follow-up P7-32, now closed: see below).
+- **P7-32: re-enabling a user.** `PATCH /users/{id}` with `disabled: false` brings back the user's grants and the tokens
+  on them, so it runs through the same guard (`userWriteScope`): an admin session gets `403 write_scope` (field
+  `disabled`) when the user is disabled and one of their own grants is live (not revoked) and names a write tool. Only
+  the user's own grants count: a write never runs on another user's personal key, so grants of other users on this
+  user's key never write. Re-enabling a user without such a grant, disabling, and other user edits stay open to admins.
+  No other user change restores write access (roles do not reach tools, unbinding is owner-only, revoked grants and
+  keys cannot be restored).

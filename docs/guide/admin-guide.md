@@ -143,8 +143,9 @@ person use, say, `acknowledge_issue`:
 Admins see the write tools but get `403` when they try to add one. Once a project or grant names a write tool, an
 admin also gets `403` (`write_scope`) for anything that widens where it writes: more allowed accounts, another default
 account or default key, any change of limits, re-enabling the project, lifting or raising the grant's quota, a new
-token on the grant, or rotating a key such a project or grant uses. Ask an owner (or use the admin token). Admins can
-still narrow: remove the write tools, disable the project, take accounts away, lower a quota, revoke or delete.
+token on the grant, or rotating a key such a project or grant uses. Re-enabling a disabled user who still holds a grant
+naming a write tool is owner-only too (it brings back that grant and its tokens). Ask an owner (or use the admin token). Admins can
+still narrow: remove the write tools, disable the project or the user, take accounts away, lower a quota, revoke or delete.
 
 Every write appears twice in the audit log: a `write.intent` row stored **before** the change is sent (if it cannot be
 stored, the write is refused and nothing is sent), then the `Tool call` row with its `write` record. An intent row

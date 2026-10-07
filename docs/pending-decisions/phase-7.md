@@ -462,3 +462,13 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   stored state, a cancel retries up to 4 times. A step whose outcome loses to a cancel is discarded (its NerdGraph call
   and budget are spent). The claim adds one uncharged storage write per step.
 - **Needs:** nothing; confirm the extra write per step is acceptable on D1.
+
+### P7-32 — Owner-only re-enable of users who hold write grants
+- **Context:** an admin could re-enable a user an owner disabled, bringing back that user's write grants and tokens.
+- **Assumption made:** `PATCH /users/{id}` with `disabled: false` runs through `guardWriteScope` (`userWriteScope`):
+  owner-only when the user is disabled and one of their **own** grants is live (not revoked) and names a write tool
+  (conservative, like P7-28: the grant's own list decides, whatever the project says; expired grants still count).
+  Grants of other users on this user's personal key are ignored (writes never use another user's key). Disabling,
+  renaming and re-enabling users without such a grant stay open to admins. No other user change was found that restores
+  write access.
+- **Needs:** nothing; confirm that counting expired (not revoked) grants is the wanted conservative choice.

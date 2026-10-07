@@ -59,7 +59,7 @@ export const IMPACT_MIN_VOLUME = 30;
 export const IMPACT_MIN_ERRORS = 10;
 export const IMPACT_MIN_CRASHES = 5;
 
-const SECTION_STATUSES = ['ok', 'partial', 'error', 'skipped', 'not_applicable'] as const;
+export const SECTION_STATUSES = ['ok', 'partial', 'error', 'skipped', 'not_applicable'] as const;
 export type SectionStatus = (typeof SECTION_STATUSES)[number];
 
 export const INSIGHT_SECTIONS = ['entity', 'golden_metrics', 'errors', 'logs', 'changes', 'related'] as const;
@@ -230,6 +230,35 @@ export const notRun = (name: string, status: SectionStatus, note: string): Secti
   text: null,
 });
 
+/** Largest task state (JSON characters) kept while work is still to run; past it the rest is skipped (T32). */
+export const MAX_TASK_STATE_CHARS = 300_000;
+export const SIZE_NOTE = 'Task size limit reached: not run.';
+
+/**
+ * One bounded step of a task (P7-21, P7-23): at most `max` of the pending items, and past the first only what fits in full
+ * into this request's remaining budget (an item that merely did not fit waits for the next poll, it is not skipped). The
+ * first one gets the usual reduced-depth/skip planning. Each item is a real call counted against this poll's budget. The
+ * items of a step run in parallel.
+ */
+export async function runSectionStep<N extends string>(opts: {
+  pending: readonly PlanItem<N>[];
+  max: number;
+  remaining: number;
+  run: (name: N, granted: number) => Promise<SectionResult>;
+}): Promise<{ plan: Plan<N>; ran: SectionResult[] }> {
+  const chosen: PlanItem<N>[] = [];
+  let left = opts.remaining;
+  for (const item of opts.pending) {
+    if (chosen.length >= opts.max) break;
+    if (chosen.length > 0 && item.cost > left) break;
+    chosen.push(item);
+    left -= item.cost;
+  }
+  const plan = planBudget(chosen, opts.remaining);
+  const ran = await Promise.all(plan.run.map(({ name, granted }) => opts.run(name, granted)));
+  return { plan, ran };
+}
+
 /** Issue fields shown in the report, inside an untrusted-data envelope (T6). */
 function issueBlock(issue: IssueRow): string {
   const body = [
@@ -323,9 +352,6 @@ Use it to start investigating a specific alert. Each section is the result of th
 
 /** Sections run per `tasks/get` of an insights task (P7-21). */
 const STEP_SECTIONS = 3;
-/** Largest task state (JSON characters) kept while sections are still to run; past it the rest is skipped. */
-const MAX_INSIGHTS_STATE_CHARS = 300_000;
-const SIZE_NOTE = 'Task size limit reached: not run.';
 
 const issueState = z.strictObject({
   id: z.string().max(200),
@@ -591,6 +617,56 @@ interface FrontEnd {
   via: 'affected' | 'related';
 }
 
+/** Lookups per `tasks/get` of an impact task, and queries per poll (P7-23). */
+const STEP_LOOKUPS = 3;
+const STEP_QUERIES = 2;
+
+interface ImpactBase {
+  issue: IssueRow | null;
+  affected: { guid: string; name: string | null }[];
+  range: { sinceMs: number; untilMs: number; windowMs: number };
+  /** Notes of the prepare step. */
+  notes: string[];
+}
+
+const lookupResult = z.strictObject({
+  guid: z.string().max(1000),
+  ran: z.boolean(),
+  status: z.enum(SECTION_STATUSES),
+  note: z.string().max(5000).nullable(),
+  rows: z
+    .array(
+      z.strictObject({ guid: z.string().max(1000), name: z.string().max(1000), accountId: z.number().int() }),
+    )
+    .max(MAX_FRONT_ENDS),
+});
+type LookupResult = z.infer<typeof lookupResult>;
+
+/** One impact query reduced to the per-guid numbers: raw per-group numbers, flags are computed in the last step. */
+const jobResult = z.strictObject({
+  name: z.string().max(1100),
+  ran: z.boolean(),
+  note: z.string().max(5000).nullable(),
+  numbers: z.record(z.string(), z.record(z.string(), z.number().nullable())).nullable(),
+  checks: z.record(z.string(), z.record(z.string(), z.unknown())).nullable(),
+  rowCount: z.number().int(),
+});
+type JobResult = z.infer<typeof jobResult>;
+
+/** What an impact task keeps between polls (sealed at rest, P7-23). */
+const impactTaskState = z.strictObject({
+  args: impactInput,
+  issue: issueState.nullable(),
+  affected: z
+    .array(z.strictObject({ guid: z.string().max(1000), name: z.string().max(1000).nullable() }))
+    .max(500),
+  range: z.strictObject({ sinceMs: z.number(), untilMs: z.number(), windowMs: z.number() }),
+  notes: z.array(z.string().max(2000)).max(20),
+  lookups: z.array(lookupResult).max(MAX_RELATED_LOOKUPS),
+  jobs: z.array(jobResult).max(IMPACT_MAX_QUERIES),
+});
+type ImpactTaskState = z.infer<typeof impactTaskState>;
+
 /** `generate_alert_insights_report`, `generate_user_impact_report` (read-only composites). */
 export function createReportTools(deps: ToolDeps = {}): ToolDefinition[] {
   const client = toolClient(deps);
@@ -826,24 +902,16 @@ export function createReportTools(deps: ToolDeps = {}): ToolDefinition[] {
       });
       const done = new Set(state.sections.map((s) => s.name));
       const pending = prepared.items.filter((i) => !done.has(i.name));
-      // At most STEP_SECTIONS per poll, and past the first only what fits in full: a section that merely did not fit in
-      // this request is run by the next poll, not skipped. The first one gets the usual reduced-depth/skip planning.
-      const chosen: PlanItem<InsightSection>[] = [];
-      let left = ctx.budget.remaining;
-      for (const item of pending) {
-        if (chosen.length >= STEP_SECTIONS) break;
-        if (chosen.length > 0 && item.cost > left) break;
-        chosen.push(item);
-        left -= item.cost;
-      }
-      const plan = planBudget(chosen, ctx.budget.remaining);
-      const notes = [...state.notes];
-      const ran = await Promise.all(
-        plan.run.map(({ name, granted }) => {
+      const { plan, ran } = await runSectionStep({
+        pending,
+        max: STEP_SECTIONS,
+        remaining: ctx.budget.remaining,
+        run: (name, granted) => {
           const [toolName, toolArgs] = prepared.argsFor(name, granted);
           return runSection(name, tool(toolName), toolArgs, ctx);
-        }),
-      );
+        },
+      });
+      const notes = [...state.notes];
       const golden = plan.run.find((r) => r.name === 'golden_metrics');
       if (golden && goldenMetricsFor(golden.granted) < (state.args.max_metrics ?? DEFAULT_REPORT_METRICS))
         notes.push(
@@ -861,7 +929,7 @@ export function createReportTools(deps: ToolDeps = {}): ToolDefinition[] {
       };
       let remaining = prepared.items.filter((i) => !sections.some((s) => s.name === i.name));
       // The sealed record is capped: past the cap the rest is skipped and the report completes with what it has.
-      if (remaining.length > 0 && JSON.stringify(next).length > MAX_INSIGHTS_STATE_CHARS) {
+      if (remaining.length > 0 && JSON.stringify(next).length > MAX_TASK_STATE_CHARS) {
         for (const i of remaining) sections.push(notRun(i.name, 'skipped', SIZE_NOTE));
         remaining = [];
       }
@@ -889,6 +957,475 @@ export function createReportTools(deps: ToolDeps = {}): ToolDefinition[] {
     }
   };
 
+  // ---- generate_user_impact_report: prepare, steps (related lookups, then queries), finalize (P7-23) ----------------
+
+  /** Issue lookup (one request), affected entities and the window to measure. */
+  const prepareImpact = async (args: z.infer<typeof impactInput>, ctx: ToolContext): Promise<ImpactBase> => {
+    if ((args.issue_id === undefined) === (args.entity_guid === undefined)) {
+      throw new RbError(ErrorCode.InputInvalid, 'Give exactly one of issue_id or entity_guid.', {
+        hint: 'issue_id for an alert issue, entity_guid for one affected entity.',
+      });
+    }
+    const notes: string[] = [];
+    let issue: IssueRow | null = null;
+    let affected: { guid: string; name: string | null }[];
+    let defaultWindow: { sinceMs: number; untilMs: number } | null = null;
+    if (args.issue_id !== undefined) {
+      const account = singleAccount(ctx, args.account);
+      issue = await lookupIssue(client(ctx), ctx, account, args.issue_id, lookbackRange(ctx, args.lookback));
+      // Empty names are dropped from `issue.entities`, so the two lists pair up only when none was dropped.
+      const names = issue.entities.length === issue.entityGuids.length ? issue.entities : [];
+      if (names.length === 0 && issue.entityGuids.length > 0 && issue.entities.length > 0)
+        notes.push('Entity names could not be matched to the entities of the issue and are left out.');
+      affected = issue.entityGuids.map((guid, i) => ({ guid, name: names[i] ?? null }));
+      defaultWindow = issueWindow(
+        issue,
+        ctx.clock.now(),
+        DEFAULT_BEFORE_MINUTES * MINUTE_MS,
+        ctx.limits.maxWindowDays * DAY_MS,
+      );
+    } else {
+      const guid = args.entity_guid as string;
+      const decoded = checkGuid(ctx, guid);
+      if (args.account !== undefined && args.account !== decoded.accountId) {
+        throw new RbError(
+          ErrorCode.InputInvalid,
+          `entity_guid belongs to account ${decoded.accountId}, not ${args.account}.`,
+          { hint: 'Omit account, or pass the entity account.' },
+        );
+      }
+      singleAccount(ctx, decoded.accountId);
+      affected = [{ guid, name: null }];
+    }
+    const range =
+      args.time_range !== undefined || defaultWindow === null
+        ? parseTimeRange(args.time_range ?? DEFAULT_IMPACT_WINDOW, ctx.clock.now())
+        : {
+            sinceMs: defaultWindow.sinceMs,
+            untilMs: defaultWindow.untilMs,
+            windowMs: defaultWindow.untilMs - defaultWindow.sinceMs,
+          };
+    assertWindowWithinLimit(range, ctx.limits);
+    return {
+      issue,
+      affected,
+      range: { sinceMs: range.sinceMs, untilMs: range.untilMs, windowMs: range.windowMs },
+      notes,
+    };
+  };
+
+  /** Front ends among the affected entities; the others are looked up for related front ends. Pure. */
+  const splitAffected = (base: ImpactBase, ctx: ToolContext) => {
+    const fronts = new Map<string, FrontEnd>();
+    const backends: string[] = [];
+    for (const a of base.affected) {
+      let d: ReturnType<typeof decodeEntityGuid>;
+      try {
+        d = decodeEntityGuid(a.guid);
+      } catch {
+        continue;
+      }
+      if (!ctx.accounts.allowed.includes(d.accountId)) continue;
+      const kind = frontEndKind(d.domain, d.type);
+      if (kind)
+        fronts.set(a.guid, { guid: a.guid, name: a.name, kind, accountId: d.accountId, via: 'affected' });
+      else backends.push(a.guid);
+    }
+    return { fronts, backends, lookups: backends.slice(0, MAX_RELATED_LOOKUPS) };
+  };
+
+  /** One related-entities lookup per back end, reduced to the rows the report needs. */
+  const runLookup = async (guid: string, ctx: ToolContext): Promise<LookupResult> => {
+    const r = await runSection(
+      guid,
+      tool('get_related_entities'),
+      { entity_guid: guid, types: FRONT_END_TYPES, limit: MAX_FRONT_ENDS },
+      ctx,
+    );
+    const ok = r.status === 'ok' || r.status === 'partial';
+    const rows = ok ? ((r.data?.['related'] ?? []) as Record<string, unknown>[]) : [];
+    return {
+      guid,
+      ran: true,
+      status: r.status,
+      note: r.note,
+      rows: rows
+        .filter(
+          (x) =>
+            typeof x['guid'] === 'string' && typeof x['name'] === 'string' && num(x['accountId']) !== null,
+        )
+        .slice(0, MAX_FRONT_ENDS)
+        .map((x) => ({
+          guid: x['guid'] as string,
+          name: x['name'] as string,
+          accountId: x['accountId'] as number,
+        })),
+    };
+  };
+
+  const notRunLookup = (guid: string, note: string): LookupResult => ({
+    guid,
+    ran: false,
+    status: 'skipped',
+    note,
+    rows: [],
+  });
+
+  interface ImpactGroup {
+    kind: FrontEndKind;
+    account: number;
+    guids: string[];
+  }
+
+  /** The front ends to measure, the query groups and the queries to run (in priority order). Pure. */
+  const impactPlan = (
+    args: z.infer<typeof impactInput>,
+    base: ImpactBase,
+    ctx: ToolContext,
+    lookups: readonly LookupResult[],
+  ) => {
+    const { fronts, lookups: wantedLookups } = splitAffected(base, ctx);
+    const notes: string[] = [];
+    let partial = false;
+    const { backends } = splitAffected(base, ctx);
+    if (backends.length > wantedLookups.length)
+      notes.push(
+        `Related front ends were looked up for the first ${MAX_RELATED_LOOKUPS} of ${backends.length} affected entities.`,
+      );
+    const skipped = wantedLookups
+      .map((g) => lookups.find((l) => l.guid === g))
+      .filter((l) => l?.ran !== true);
+    const bySize = skipped.filter((l) => l?.note === SIZE_NOTE).length;
+    if (skipped.length - bySize > 0) {
+      partial = true;
+      notes.push(
+        `Related front ends of ${skipped.length - bySize} entit(ies) not looked up: request budget exhausted.`,
+      );
+    }
+    if (bySize > 0) {
+      partial = true;
+      notes.push(`Related front ends of ${bySize} entit(ies) not looked up: task size limit reached.`);
+    }
+    for (const g of wantedLookups) {
+      const r = lookups.find((l) => l.guid === g);
+      if (!r?.ran) continue;
+      if (r.status !== 'ok' && r.status !== 'partial') {
+        partial = true;
+        notes.push(`Related front ends: ${r.note ?? 'not available'}`);
+        continue;
+      }
+      for (const row of r.rows) {
+        if (fronts.has(row.guid)) continue;
+        let d: ReturnType<typeof decodeEntityGuid>;
+        try {
+          d = decodeEntityGuid(row.guid);
+        } catch {
+          continue;
+        }
+        const kind = frontEndKind(d.domain, d.type);
+        // get_related_entities already dropped rows outside the connection's accounts (T3); checked again here.
+        if (!kind || d.accountId !== row.accountId || !ctx.accounts.allowed.includes(d.accountId)) continue;
+        fronts.set(row.guid, {
+          guid: row.guid,
+          name: row.name,
+          kind,
+          accountId: d.accountId,
+          via: 'related',
+        });
+      }
+    }
+    const all = [...fronts.values()];
+    const cap = args.max_entities ?? DEFAULT_MAX_FRONT_ENDS;
+    const measured = all.slice(0, cap);
+    if (all.length > measured.length)
+      notes.push(`${all.length - measured.length} more front end(s) not measured: raise max_entities.`);
+    // One query per kind and account, current windows first, then the comparison.
+    const groups = new Map<string, ImpactGroup>();
+    for (const f of measured) {
+      const key = `${f.kind}:${f.accountId}`;
+      const g = groups.get(key) ?? { kind: f.kind, account: f.accountId, guids: [] };
+      g.guids.push(f.guid);
+      groups.set(key, g);
+    }
+    const ORDER: Record<FrontEndKind, number> = { synthetic: 0, browser: 1, mobile: 2 };
+    const ordered = [...groups.entries()].sort((a, b) => ORDER[a[1].kind] - ORDER[b[1].kind]);
+    const compare = args.compare_previous !== false;
+    const wantedJobs: PlanItem<string>[] = [
+      ...ordered.map(([key]) => ({ name: `cur|${key}`, cost: NRQL_COST })),
+      ...(compare
+        ? ordered
+            .filter(([, g]) => g.kind !== 'synthetic')
+            .map(([key]) => ({ name: `prev|${key}`, cost: NRQL_COST }))
+        : []),
+    ];
+    const jobs = wantedJobs.slice(0, IMPACT_MAX_QUERIES);
+    if (wantedJobs.length > jobs.length) {
+      partial = true;
+      notes.push(
+        `${wantedJobs.length - jobs.length} query(ies) not run: the report sends at most ${IMPACT_MAX_QUERIES} (narrow with max_entities or an entity in one account).`,
+      );
+    }
+    return { notes, partial, measured, groups, jobs, compare };
+  };
+
+  /** One impact query, reduced to the per-guid numbers (the raw rows are not kept). */
+  const runImpactJob = async (
+    name: string,
+    groups: ReadonlyMap<string, ImpactGroup>,
+    range: { sinceMs: number; untilMs: number },
+    ctx: ToolContext,
+  ): Promise<JobResult> => {
+    const [when, key] = name.split('|') as ['cur' | 'prev', string];
+    const g = groups.get(key) as ImpactGroup;
+    const prevSince = range.sinceMs - (range.untilMs - range.sinceMs);
+    const [s, u] = when === 'cur' ? [range.sinceMs, range.untilMs] : [prevSince, range.sinceMs];
+    const q =
+      g.kind === 'browser'
+        ? browserQuery(g.guids, s, u)
+        : g.kind === 'mobile'
+          ? mobileQuery(g.guids, s, u)
+          : checkQuery(g.guids, s, u);
+    const r = await query(ctx, g.account, q);
+    if ('note' in r) return { name, ran: true, note: r.note, numbers: null, checks: null, rowCount: 0 };
+    const wanted = new Set(g.guids);
+    if (g.kind === 'synthetic')
+      return {
+        name,
+        ran: true,
+        note: null,
+        numbers: null,
+        checks: Object.fromEntries(readChecks(r.rows, wanted)) as unknown as Record<
+          string,
+          Record<string, unknown>
+        >,
+        rowCount: r.rows.length,
+      };
+    const fields = g.kind === 'browser' ? BROWSER_FIELDS : MOBILE_FIELDS;
+    return {
+      name,
+      ran: true,
+      note: null,
+      numbers: Object.fromEntries(readFacetNumbers(r.rows, fields, wanted)),
+      checks: null,
+      rowCount: r.rows.length,
+    };
+  };
+
+  const notRunJob = (name: string, note: string): JobResult => ({
+    name,
+    ran: false,
+    note,
+    numbers: null,
+    checks: null,
+    rowCount: 0,
+  });
+
+  const KIND_LABEL: Record<FrontEndKind, string> = {
+    browser: 'Browser',
+    mobile: 'Mobile',
+    synthetic: 'Synthetic',
+  };
+
+  /** The report from the prepared base, the lookups and the queries that ran. Everything else is derived. */
+  const assembleImpact = (
+    args: z.infer<typeof impactInput>,
+    base: ImpactBase,
+    ctx: ToolContext,
+    lookups: readonly LookupResult[],
+    jobResults: readonly JobResult[],
+  ): ToolOutput => {
+    const { issue, affected, range } = base;
+    const plan = impactPlan(args, base, ctx, lookups);
+    const { measured, groups, jobs, compare } = plan;
+    const notes = [...base.notes, ...plan.notes];
+    let partial = plan.partial;
+    const byName = new Map(jobResults.map((j) => [j.name, j]));
+    const skippedJobs = jobs.filter((j) => byName.get(j.name)?.ran !== true);
+    const sizeSkipped = skippedJobs.filter((j) => byName.get(j.name)?.note === SIZE_NOTE).length;
+    if (skippedJobs.length - sizeSkipped > 0) {
+      partial = true;
+      notes.push(`${skippedJobs.length - sizeSkipped} query(ies) not run: request budget exhausted.`);
+    }
+    if (sizeSkipped > 0) {
+      partial = true;
+      notes.push(`${sizeSkipped} query(ies) not run: task size limit reached.`);
+    }
+    for (const j of jobs) {
+      const r = byName.get(j.name);
+      if (!r?.ran || r.note === null) continue;
+      partial = true;
+      const [when, key] = j.name.split('|') as [string, string];
+      const g = groups.get(key);
+      notes.push(
+        `${g ? KIND_LABEL[g.kind] : ''} ${when === 'cur' ? 'signals' : 'comparison'} (account ${g?.account}): ${r.note}`,
+      );
+    }
+    for (const j of jobs) {
+      const r = byName.get(j.name);
+      if (j.name.startsWith('cur|synthetic') && r?.ran && r.note === null && r.rowCount >= SYNTH_ROWS)
+        notes.push(`Synthetic results are based on the first ${SYNTH_ROWS} monitor/location rows.`);
+    }
+    const frontEnds: z.infer<typeof frontEndSchema>[] = measured.map((f) => {
+      const key = `${f.kind}:${f.accountId}`;
+      const cur = byName.get(`cur|${key}`);
+      const prev = byName.get(`prev|${key}`);
+      const base2 = { guid: f.guid, name: f.name, kind: f.kind, accountId: f.accountId, via: f.via };
+      if (!cur?.ran || cur.note !== null)
+        return { ...base2, status: 'not_run' as const, current: null, previous: null, signals: [] };
+      if (f.kind === 'synthetic') {
+        const r = cur.checks?.[f.guid] as
+          | {
+              checks: number;
+              failures: number;
+              failurePercent: number;
+              lastResult: unknown;
+              locations: { location: string; failures: number; failurePercent: number; lastError: unknown }[];
+            }
+          | undefined;
+        const current = r
+          ? {
+              checks: r.checks,
+              failures: r.failures,
+              failurePercent: r.failurePercent,
+              lastResult: r.lastResult,
+              failingLocations: r.locations
+                .filter((l) => l.failures > 0)
+                .map((l) => ({
+                  location: l.location,
+                  failurePercent: l.failurePercent,
+                  lastError: l.lastError,
+                })),
+            }
+          : { checks: 0, failures: 0, failurePercent: 0, lastResult: null, failingLocations: [] };
+        const signals = current.checks === 0 ? ['no_data'] : current.failures > 0 ? ['failing_checks'] : [];
+        return { ...base2, status: 'ok' as const, current, previous: null, signals };
+      }
+      const fields = f.kind === 'browser' ? BROWSER_FIELDS : MOBILE_FIELDS;
+      const empty = Object.fromEntries(fields.map((k) => [k, 0])) as Numbers;
+      const current = cur.numbers?.[f.guid] ?? empty;
+      const previous = prev?.ran && prev.note === null ? (prev.numbers?.[f.guid] ?? empty) : null;
+      const signals =
+        f.kind === 'browser' ? browserSignals(current, previous) : mobileSignals(current, previous);
+      return { ...base2, status: 'ok' as const, current, previous, signals };
+    });
+
+    const sum = (kind: FrontEndKind, field: string): number | null => {
+      const rows = frontEnds.filter((f) => f.kind === kind && f.current !== null);
+      if (rows.length === 0) return null;
+      return rows.reduce((n, f) => n + (num((f.current as Record<string, unknown>)[field]) ?? 0), 0);
+    };
+    const totals = {
+      browserSessionsWithErrors: sum('browser', 'sessionsWithErrors'),
+      mobileUsersWithCrashes: sum('mobile', 'usersWithCrashes'),
+      failedSyntheticChecks: sum('synthetic', 'failures'),
+    };
+
+    const prevSince = range.sinceMs - range.windowMs;
+    const lines = [
+      `User impact ${issue ? `of issue ${issue.id}` : 'around the entity'}, ${isoText(range.sinceMs)} to ${isoText(range.untilMs)} (UTC)` +
+        `${compare ? ', compared with the equal window before' : ''}: ${frontEnds.length} front end(s) measured` +
+        ` (${frontEnds.filter((f) => f.signals.some((s) => s !== 'no_data')).length} with impact signals).` +
+        `${partial ? ' Partial report: see notes.' : ''}`,
+    ];
+    if (frontEnds.length === 0)
+      lines.push(
+        'No browser app, mobile app or synthetic monitor is affected or directly related. Check the entity relationships with get_related_entities.',
+      );
+    const totalBits = [
+      totals.browserSessionsWithErrors !== null
+        ? `browser sessions with JS errors: ${totals.browserSessionsWithErrors}`
+        : null,
+      totals.mobileUsersWithCrashes !== null
+        ? `mobile users with crashes: ${totals.mobileUsersWithCrashes}`
+        : null,
+      totals.failedSyntheticChecks !== null
+        ? `failed synthetic checks: ${totals.failedSyntheticChecks}`
+        : null,
+    ].filter((x) => x !== null);
+    if (totalBits.length > 0)
+      lines.push(
+        `Totals (per-app counts added up, so a user of several apps counts more than once): ${totalBits.join('; ')}.`,
+      );
+    for (const n of notes) lines.push(`Note: ${n}`);
+    if (issue) lines.push('## Issue', issueBlock(issue));
+    const cell = (v: unknown) => (typeof v === 'number' ? v : v === null || v === undefined ? '' : String(v));
+    for (const kind of ['browser', 'mobile', 'synthetic'] as const) {
+      const rows = frontEnds.filter((f) => f.kind === kind);
+      if (rows.length === 0) continue;
+      lines.push(`## ${KIND_LABEL[kind]}`);
+      lines.push(
+        shapeRows(
+          rows.map((f) => {
+            const c = (f.current ?? {}) as Record<string, unknown>;
+            const p = (f.previous ?? {}) as Record<string, unknown>;
+            const row: Record<string, unknown> = { name: f.name ?? f.guid, via: f.via, status: f.status };
+            if (kind === 'synthetic') {
+              row['checks'] = cell(c['checks']);
+              row['failed_pct'] = cell(c['failurePercent']);
+              row['failing_locations'] = Array.isArray(c['failingLocations'])
+                ? (c['failingLocations'] as { location: string }[]).map((l) => l.location).join('; ')
+                : '';
+            } else {
+              for (const k of kind === 'browser' ? BROWSER_FIELDS : MOBILE_FIELDS) {
+                row[k] = cell(c[k]);
+                if (f.previous) row[`${k}_before`] = cell(p[k]);
+              }
+            }
+            row['signals'] = f.signals.join(' ');
+            return row;
+          }),
+          { format: 'csv', source: `New Relic ${kind} signals`, maxRows: MAX_FRONT_ENDS },
+        ).text,
+      );
+    }
+
+    return {
+      text: lines.join('\n'),
+      structured: {
+        issue,
+        entityGuid: args.entity_guid ?? null,
+        since: isoText(range.sinceMs),
+        until: isoText(range.untilMs),
+        previousSince: compare ? isoText(prevSince) : null,
+        affected: affected.map((a) => a.guid),
+        frontEnds,
+        totals,
+        partial,
+        notes,
+      },
+    };
+  };
+
+  /** All lookups and queries in this request, planned against its remaining budget. */
+  const runImpactInline = async (
+    args: z.infer<typeof impactInput>,
+    base: ImpactBase,
+    ctx: ToolContext,
+  ): Promise<ToolOutput> => {
+    const wantedLookups = splitAffected(base, ctx).lookups;
+    const lookupPlan = planBudget(
+      wantedLookups.map((g) => ({ name: g, cost: 1 })),
+      ctx.budget.remaining,
+    );
+    const done = await Promise.all(lookupPlan.run.map(({ name }) => runLookup(name, ctx)));
+    const lookups = [...done, ...lookupPlan.skipped.map((g) => notRunLookup(g, BUDGET_NOTE))];
+    const plan = impactPlan(args, base, ctx, lookups);
+    const jobPlan = planBudget(plan.jobs, ctx.budget.remaining);
+    const results = await Promise.all(
+      jobPlan.run.map(({ name }) => runImpactJob(name, plan.groups, base.range, ctx)),
+    );
+    return assembleImpact(args, base, ctx, lookups, [
+      ...results,
+      ...jobPlan.skipped.map((n) => notRunJob(n, BUDGET_NOTE)),
+    ]);
+  };
+
+  const impactJob = (state: ImpactTaskState): TaskJob => ({
+    state,
+    pollIntervalMs: 1000,
+    statusMessage: `Building the user impact report: ${state.lookups.length + state.jobs.length} lookup(s) and quer(ies) done.`,
+  });
+
   const impact = defineTool({
     name: 'generate_user_impact_report',
     title: 'Generate user impact report',
@@ -901,327 +1438,84 @@ export function createReportTools(deps: ToolDeps = {}): ToolDefinition[] {
     group: 'incident-response',
     phase: 6,
     handler: async (args, ctx) => {
-      if ((args.issue_id === undefined) === (args.entity_guid === undefined)) {
-        throw new RbError(ErrorCode.InputInvalid, 'Give exactly one of issue_id or entity_guid.', {
-          hint: 'issue_id for an alert issue, entity_guid for one affected entity.',
+      const base = await prepareImpact(args, ctx);
+      // MCP Tasks (P7-23): related lookups and queries run a few per `tasks/get`, each inside its own budget. Only the
+      // per-group numbers are kept in the state (the flags are computed in the last step). Not worth a task with no work.
+      const work = splitAffected(base, ctx);
+      if (ctx.tasks?.accepted === true && (work.lookups.length > 0 || work.fronts.size > 0)) {
+        const state: ImpactTaskState = {
+          args,
+          issue: base.issue,
+          affected: base.affected,
+          range: base.range,
+          notes: base.notes,
+          lookups: [],
+          jobs: [],
+        };
+        return {
+          text: 'The report continues as a task.',
+          task: impactJob(state),
+          taskFallback: () => runImpactInline(args, base, ctx),
+        };
+      }
+      return runImpactInline(args, base, ctx);
+    },
+    resumeTask: async (raw, ctx) => {
+      const state = impactTaskState.parse(raw);
+      const base: ImpactBase = {
+        issue: state.issue as IssueRow | null,
+        affected: state.affected,
+        range: state.range,
+        notes: [...state.notes],
+      };
+      const wantedLookups = splitAffected(base, ctx).lookups;
+      const lookups: LookupResult[] = [...state.lookups];
+      const jobs: JobResult[] = [...state.jobs];
+      const pendingLookups = wantedLookups.filter((g) => !lookups.some((l) => l.guid === g));
+      if (pendingLookups.length > 0) {
+        const { plan, ran } = await runSectionStep({
+          pending: pendingLookups.map((g) => ({ name: g, cost: 1 })),
+          max: STEP_LOOKUPS,
+          remaining: ctx.budget.remaining,
+          run: async (name) => {
+            const r = await runLookup(name, ctx);
+            return { name, status: r.status, note: r.note, data: { lookup: r }, text: null };
+          },
         });
+        for (const r of ran) lookups.push((r.data as { lookup: LookupResult }).lookup);
+        for (const g of plan.skipped) lookups.push(notRunLookup(g, BUDGET_NOTE));
       }
-      const notes: string[] = [];
-      let issue: IssueRow | null = null;
-      let affected: { guid: string; name: string | null }[];
-      let defaultWindow: { sinceMs: number; untilMs: number } | null = null;
-      if (args.issue_id !== undefined) {
-        const account = singleAccount(ctx, args.account);
-        issue = await lookupIssue(
-          client(ctx),
-          ctx,
-          account,
-          args.issue_id,
-          lookbackRange(ctx, args.lookback),
-        );
-        // Empty names are dropped from `issue.entities`, so the two lists pair up only when none was dropped.
-        const names = issue.entities.length === issue.entityGuids.length ? issue.entities : [];
-        if (names.length === 0 && issue.entityGuids.length > 0 && issue.entities.length > 0)
-          notes.push('Entity names could not be matched to the entities of the issue and are left out.');
-        affected = issue.entityGuids.map((guid, i) => ({ guid, name: names[i] ?? null }));
-        defaultWindow = issueWindow(
-          issue,
-          ctx.clock.now(),
-          DEFAULT_BEFORE_MINUTES * MINUTE_MS,
-          ctx.limits.maxWindowDays * DAY_MS,
-        );
-      } else {
-        const guid = args.entity_guid as string;
-        const decoded = checkGuid(ctx, guid);
-        if (args.account !== undefined && args.account !== decoded.accountId) {
-          throw new RbError(
-            ErrorCode.InputInvalid,
-            `entity_guid belongs to account ${decoded.accountId}, not ${args.account}.`,
-            {
-              hint: 'Omit account, or pass the entity account.',
-            },
-          );
-        }
-        singleAccount(ctx, decoded.accountId);
-        affected = [{ guid, name: null }];
+      const lookupsDone = () => wantedLookups.every((g) => lookups.some((l) => l.guid === g));
+      if (pendingLookups.length === 0) {
+        const plan2 = impactPlan(state.args, base, ctx, lookups);
+        const pendingJobs = plan2.jobs.filter((j) => !jobs.some((r) => r.name === j.name));
+        const { plan, ran } = await runSectionStep({
+          pending: pendingJobs,
+          max: STEP_QUERIES,
+          remaining: ctx.budget.remaining,
+          run: async (name) => {
+            const r = await runImpactJob(name, plan2.groups, base.range, ctx);
+            return { name, status: 'ok', note: null, data: { job: r }, text: null };
+          },
+        });
+        for (const r of ran) jobs.push((r.data as { job: JobResult }).job);
+        for (const n of plan.skipped) jobs.push(notRunJob(n, BUDGET_NOTE));
       }
-      const range =
-        args.time_range !== undefined || defaultWindow === null
-          ? parseTimeRange(args.time_range ?? DEFAULT_IMPACT_WINDOW, ctx.clock.now())
-          : {
-              sinceMs: defaultWindow.sinceMs,
-              untilMs: defaultWindow.untilMs,
-              windowMs: defaultWindow.untilMs - defaultWindow.sinceMs,
-            };
-      assertWindowWithinLimit(range, ctx.limits);
-      const compare = args.compare_previous !== false;
-      const prevSince = range.sinceMs - range.windowMs;
-      const cap = args.max_entities ?? DEFAULT_MAX_FRONT_ENDS;
-
-      // Front ends among the affected entities; the others are looked up for related front ends.
-      const fronts = new Map<string, FrontEnd>();
-      const backends: string[] = [];
-      for (const a of affected) {
-        let d: ReturnType<typeof decodeEntityGuid>;
-        try {
-          d = decodeEntityGuid(a.guid);
-        } catch {
-          continue;
-        }
-        if (!ctx.accounts.allowed.includes(d.accountId)) continue;
-        const kind = frontEndKind(d.domain, d.type);
-        if (kind)
-          fronts.set(a.guid, { guid: a.guid, name: a.name, kind, accountId: d.accountId, via: 'affected' });
-        else backends.push(a.guid);
-      }
-      let partial = false;
-      const lookups = backends.slice(0, MAX_RELATED_LOOKUPS);
-      if (backends.length > lookups.length)
-        notes.push(
-          `Related front ends were looked up for the first ${MAX_RELATED_LOOKUPS} of ${backends.length} affected entities.`,
-        );
-      const relatedPlan = planBudget(
-        lookups.map((g) => ({ name: g, cost: 1 })),
-        ctx.budget.remaining,
-      );
-      if (relatedPlan.skipped.length > 0) {
-        partial = true;
-        notes.push(
-          `Related front ends of ${relatedPlan.skipped.length} entit(ies) not looked up: request budget exhausted.`,
-        );
-      }
-      const related = await Promise.all(
-        relatedPlan.run.map(({ name }) =>
-          runSection(
-            name,
-            tool('get_related_entities'),
-            { entity_guid: name, types: FRONT_END_TYPES, limit: MAX_FRONT_ENDS },
-            ctx,
-          ),
-        ),
-      );
-      for (const r of related) {
-        if (r.status !== 'ok' && r.status !== 'partial') {
-          partial = true;
-          notes.push(`Related front ends: ${r.note ?? 'not available'}`);
-          continue;
-        }
-        const rows = (r.data?.['related'] ?? []) as { guid: string; name: string; accountId: number }[];
-        for (const row of rows) {
-          if (fronts.has(row.guid)) continue;
-          let d: ReturnType<typeof decodeEntityGuid>;
-          try {
-            d = decodeEntityGuid(row.guid);
-          } catch {
-            continue;
-          }
-          const kind = frontEndKind(d.domain, d.type);
-          // get_related_entities already dropped rows outside the connection's accounts (T3); checked again here.
-          if (!kind || d.accountId !== row.accountId || !ctx.accounts.allowed.includes(d.accountId)) continue;
-          fronts.set(row.guid, {
-            guid: row.guid,
-            name: row.name,
-            kind,
-            accountId: d.accountId,
-            via: 'related',
-          });
-        }
-      }
-      const all = [...fronts.values()];
-      const measured = all.slice(0, cap);
-      if (all.length > measured.length)
-        notes.push(`${all.length - measured.length} more front end(s) not measured: raise max_entities.`);
-
-      // One query per kind and account, current windows first, then the comparison.
-      const groups = new Map<string, { kind: FrontEndKind; account: number; guids: string[] }>();
-      for (const f of measured) {
-        const key = `${f.kind}:${f.accountId}`;
-        const g = groups.get(key) ?? { kind: f.kind, account: f.accountId, guids: [] };
-        g.guids.push(f.guid);
-        groups.set(key, g);
-      }
-      const ORDER: Record<FrontEndKind, number> = { synthetic: 0, browser: 1, mobile: 2 };
-      const ordered = [...groups.entries()].sort((a, b) => ORDER[a[1].kind] - ORDER[b[1].kind]);
-      const wantedJobs: PlanItem<string>[] = [
-        ...ordered.map(([key]) => ({ name: `cur|${key}`, cost: NRQL_COST })),
-        ...(compare
-          ? ordered
-              .filter(([, g]) => g.kind !== 'synthetic')
-              .map(([key]) => ({ name: `prev|${key}`, cost: NRQL_COST }))
-          : []),
-      ];
-      const jobs = wantedJobs.slice(0, IMPACT_MAX_QUERIES);
-      if (wantedJobs.length > jobs.length) {
-        partial = true;
-        notes.push(
-          `${wantedJobs.length - jobs.length} query(ies) not run: the report sends at most ${IMPACT_MAX_QUERIES} (narrow with max_entities or an entity in one account).`,
-        );
-      }
-      const queryPlan = planBudget(jobs, ctx.budget.remaining);
-      const results = new Map<string, QueryOutcome>();
-      await Promise.all(
-        queryPlan.run.map(async ({ name }) => {
-          const [when, key] = name.split('|') as ['cur' | 'prev', string];
-          const g = groups.get(key) as { kind: FrontEndKind; account: number; guids: string[] };
-          const [s, u] = when === 'cur' ? [range.sinceMs, range.untilMs] : [prevSince, range.sinceMs];
-          const q =
-            g.kind === 'browser'
-              ? browserQuery(g.guids, s, u)
-              : g.kind === 'mobile'
-                ? mobileQuery(g.guids, s, u)
-                : checkQuery(g.guids, s, u);
-          results.set(name, await query(ctx, g.account, q));
-        }),
-      );
-      if (queryPlan.skipped.length > 0) {
-        partial = true;
-        notes.push(`${queryPlan.skipped.length} query(ies) not run: request budget exhausted.`);
-      }
-      const KIND_LABEL: Record<FrontEndKind, string> = {
-        browser: 'Browser',
-        mobile: 'Mobile',
-        synthetic: 'Synthetic',
+      const wantedJobs = () => (lookupsDone() ? impactPlan(state.args, base, ctx, lookups).jobs : null);
+      const pending = (): boolean => {
+        if (!lookupsDone()) return true;
+        return (wantedJobs() ?? []).some((j) => !jobs.some((r) => r.name === j.name));
       };
-      for (const [name, r] of results) {
-        if ('note' in r) {
-          partial = true;
-          const [when, key] = name.split('|') as [string, string];
-          const g = groups.get(key);
-          notes.push(
-            `${g ? KIND_LABEL[g.kind] : ''} ${when === 'cur' ? 'signals' : 'comparison'} (account ${g?.account}): ${r.note}`,
-          );
-        }
+      // The sealed record is capped: past the cap the rest is skipped and the report completes with what it has.
+      if (pending() && JSON.stringify({ ...state, lookups, jobs }).length > MAX_TASK_STATE_CHARS) {
+        for (const g of wantedLookups)
+          if (!lookups.some((l) => l.guid === g)) lookups.push(notRunLookup(g, SIZE_NOTE));
+        for (const j of wantedJobs() ?? [])
+          if (!jobs.some((r) => r.name === j.name)) jobs.push(notRunJob(j.name, SIZE_NOTE));
       }
-
-      for (const [name, r] of results) {
-        if (name.startsWith('cur|synthetic') && 'rows' in r && r.rows.length >= SYNTH_ROWS)
-          notes.push(`Synthetic results are based on the first ${SYNTH_ROWS} monitor/location rows.`);
-      }
-      const frontEnds: z.infer<typeof frontEndSchema>[] = measured.map((f) => {
-        const key = `${f.kind}:${f.accountId}`;
-        const cur = results.get(`cur|${key}`);
-        const prev = results.get(`prev|${key}`);
-        const wanted = new Set([f.guid]);
-        const base = { guid: f.guid, name: f.name, kind: f.kind, accountId: f.accountId, via: f.via };
-        if (!cur || 'note' in cur)
-          return { ...base, status: 'not_run' as const, current: null, previous: null, signals: [] };
-        if (f.kind === 'synthetic') {
-          const r = readChecks(cur.rows, wanted).get(f.guid);
-          const current = r
-            ? {
-                checks: r.checks,
-                failures: r.failures,
-                failurePercent: r.failurePercent,
-                lastResult: r.lastResult,
-                failingLocations: r.locations
-                  .filter((l) => l.failures > 0)
-                  .map((l) => ({
-                    location: l.location,
-                    failurePercent: l.failurePercent,
-                    lastError: l.lastError,
-                  })),
-              }
-            : { checks: 0, failures: 0, failurePercent: 0, lastResult: null, failingLocations: [] };
-          const signals = current.checks === 0 ? ['no_data'] : current.failures > 0 ? ['failing_checks'] : [];
-          return { ...base, status: 'ok' as const, current, previous: null, signals };
-        }
-        const fields = f.kind === 'browser' ? BROWSER_FIELDS : MOBILE_FIELDS;
-        const empty = Object.fromEntries(fields.map((k) => [k, 0])) as Numbers;
-        const current = readFacetNumbers(cur.rows, fields, wanted).get(f.guid) ?? empty;
-        const previous =
-          prev && !('note' in prev)
-            ? (readFacetNumbers(prev.rows, fields, wanted).get(f.guid) ?? empty)
-            : null;
-        const signals =
-          f.kind === 'browser' ? browserSignals(current, previous) : mobileSignals(current, previous);
-        return { ...base, status: 'ok' as const, current, previous, signals };
-      });
-
-      const sum = (kind: FrontEndKind, field: string): number | null => {
-        const rows = frontEnds.filter((f) => f.kind === kind && f.current !== null);
-        if (rows.length === 0) return null;
-        return rows.reduce((n, f) => n + (num((f.current as Record<string, unknown>)[field]) ?? 0), 0);
-      };
-      const totals = {
-        browserSessionsWithErrors: sum('browser', 'sessionsWithErrors'),
-        mobileUsersWithCrashes: sum('mobile', 'usersWithCrashes'),
-        failedSyntheticChecks: sum('synthetic', 'failures'),
-      };
-
-      const lines = [
-        `User impact ${issue ? `of issue ${issue.id}` : 'around the entity'}, ${isoText(range.sinceMs)} to ${isoText(range.untilMs)} (UTC)` +
-          `${compare ? ', compared with the equal window before' : ''}: ${frontEnds.length} front end(s) measured` +
-          ` (${frontEnds.filter((f) => f.signals.some((s) => s !== 'no_data')).length} with impact signals).` +
-          `${partial ? ' Partial report: see notes.' : ''}`,
-      ];
-      if (frontEnds.length === 0)
-        lines.push(
-          'No browser app, mobile app or synthetic monitor is affected or directly related. Check the entity relationships with get_related_entities.',
-        );
-      const totalBits = [
-        totals.browserSessionsWithErrors !== null
-          ? `browser sessions with JS errors: ${totals.browserSessionsWithErrors}`
-          : null,
-        totals.mobileUsersWithCrashes !== null
-          ? `mobile users with crashes: ${totals.mobileUsersWithCrashes}`
-          : null,
-        totals.failedSyntheticChecks !== null
-          ? `failed synthetic checks: ${totals.failedSyntheticChecks}`
-          : null,
-      ].filter((x) => x !== null);
-      if (totalBits.length > 0)
-        lines.push(
-          `Totals (per-app counts added up, so a user of several apps counts more than once): ${totalBits.join('; ')}.`,
-        );
-      for (const n of notes) lines.push(`Note: ${n}`);
-      if (issue) lines.push('## Issue', issueBlock(issue));
-      const cell = (v: unknown) =>
-        typeof v === 'number' ? v : v === null || v === undefined ? '' : String(v);
-      for (const kind of ['browser', 'mobile', 'synthetic'] as const) {
-        const rows = frontEnds.filter((f) => f.kind === kind);
-        if (rows.length === 0) continue;
-        lines.push(`## ${KIND_LABEL[kind]}`);
-        lines.push(
-          shapeRows(
-            rows.map((f) => {
-              const c = (f.current ?? {}) as Record<string, unknown>;
-              const p = (f.previous ?? {}) as Record<string, unknown>;
-              const row: Record<string, unknown> = { name: f.name ?? f.guid, via: f.via, status: f.status };
-              if (kind === 'synthetic') {
-                row['checks'] = cell(c['checks']);
-                row['failed_pct'] = cell(c['failurePercent']);
-                row['failing_locations'] = Array.isArray(c['failingLocations'])
-                  ? (c['failingLocations'] as { location: string }[]).map((l) => l.location).join('; ')
-                  : '';
-              } else {
-                for (const k of kind === 'browser' ? BROWSER_FIELDS : MOBILE_FIELDS) {
-                  row[k] = cell(c[k]);
-                  if (f.previous) row[`${k}_before`] = cell(p[k]);
-                }
-              }
-              row['signals'] = f.signals.join(' ');
-              return row;
-            }),
-            { format: 'csv', source: `New Relic ${kind} signals`, maxRows: MAX_FRONT_ENDS },
-          ).text,
-        );
-      }
-
-      return {
-        text: lines.join('\n'),
-        structured: {
-          issue,
-          entityGuid: args.entity_guid ?? null,
-          since: isoText(range.sinceMs),
-          until: isoText(range.untilMs),
-          previousSince: compare ? isoText(prevSince) : null,
-          affected: affected.map((a) => a.guid),
-          frontEnds,
-          totals,
-          partial,
-          notes,
-        },
-      };
+      if (pending())
+        return { text: 'The report continues as a task.', task: impactJob({ ...state, lookups, jobs }) };
+      return assembleImpact(state.args, base, ctx, lookups, jobs);
     },
   });
 

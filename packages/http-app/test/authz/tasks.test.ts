@@ -7,7 +7,7 @@ import { revokeAccessToken } from '@relic-bridge/auth';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { NR_KEY } from '../fixtures.ts';
 import { rpc, startTaskOn, TASKS } from '../tasks-fixtures.ts';
-import { createHarness, type Harness, NR_KEY_B } from './harness.ts';
+import { createHarness, guidOf, type Harness, HONEST_ID, NR_KEY_B } from './harness.ts';
 
 const NOT_FOUND = { code: -32602, message: 'Failed to retrieve task: Task not found' };
 const METHODS = ['tasks/get', 'tasks/cancel', 'tasks/update'] as const;
@@ -234,5 +234,78 @@ describe('tasks are visible to their creator only', () => {
         expect(res.status).toBe(401);
       }
     });
+  });
+});
+
+// Composite report tasks (P7-21, P7-23): partial results are New Relic data in the sealed record, one bounded step per
+// poll. Each one is visible to its creator only, runs nothing on anyone else's behalf and completes for the creator.
+const honest = (domain: string, type: string) => guidOf(1, HONEST_ID, domain, type);
+const COMPOSITES = [
+  {
+    name: 'generate_alert_insights_report',
+    arguments: { issue_id: 'issue-alpha-issue', account: 2, sections: ['errors', 'related'] },
+    marker: 'Error groups',
+  },
+  {
+    name: 'generate_user_impact_report',
+    arguments: { entity_guid: guidOf(1, '42', 'BROWSER', 'APPLICATION') },
+    marker: 'User impact',
+  },
+  { name: 'entity_health', arguments: { entity_guid: honest('APM', 'APPLICATION') }, marker: 'Health of' },
+  {
+    name: 'dependency_health',
+    arguments: { entity_guid: honest('APM', 'APPLICATION') },
+    marker: 'measured next to',
+  },
+] as const;
+
+describe.each(COMPOSITES)('composite report task: $name', (call) => {
+  const calls = () => h.nerdGraph.calls.length;
+  const REQUEST = { name: call.name, arguments: call.arguments };
+
+  it('is visible to its creator only, and completes for it', async () => {
+    const a = await h.addTenant('tasks-a');
+    const taskId = await startTaskOn(h.app, a.token.value, REQUEST, { slug: 'tasks-a' });
+
+    const sameGrant = await h.addToken(a.grantId);
+    const otherGrant = await h.addToken(await h.addGrant(a.projectId));
+    const b = await h.addTenant('tasks-b');
+    h.world.clock.advance(5000);
+    const before = calls();
+    for (const [token, slug] of [
+      [sameGrant.value, 'tasks-a'],
+      [otherGrant.value, 'tasks-a'],
+      [b.token.value, 'tasks-b'],
+    ] as const) {
+      for (const method of METHODS) {
+        const res = await rpc(h.app, token, method, { taskId }, { slug });
+        expect(res.error, `${slug} ${method}`).toEqual(NOT_FOUND);
+      }
+    }
+    // Nobody else ran a step on the creator's behalf.
+    expect(calls()).toBe(before);
+
+    let own = await rpc(h.app, a.token.value, 'tasks/get', { taskId }, { slug: 'tasks-a' });
+    for (let i = 0; i < 12 && own.result?.['status'] === 'working'; i++) {
+      h.world.clock.advance(2000);
+      own = await rpc(h.app, a.token.value, 'tasks/get', { taskId }, { slug: 'tasks-a' });
+    }
+    expect(own.result).toMatchObject({ status: 'completed' });
+    const text = JSON.stringify(own.result);
+    expect(text).toContain(call.marker);
+    expect(text).not.toContain('"resultType":"task"');
+    // The partial results are enveloped New Relic data, like a synchronous call.
+    expect(text).toMatch(/untrusted/i);
+  });
+
+  it('a task of a tool the grant lost completes with RB_AUTH_FORBIDDEN and runs no step', async () => {
+    const a = await h.addTenant('tasks-a');
+    const taskId = await startTaskOn(h.app, a.token.value, REQUEST, { slug: 'tasks-a' });
+    await h.world.storage.grants.update(a.grantId, { tools: ['whoami'] });
+    h.world.clock.advance(5000);
+    const before = calls();
+    const res = await rpc(h.app, a.token.value, 'tasks/get', { taskId }, { slug: 'tasks-a' });
+    expect(JSON.stringify(res.result)).toContain('RB_AUTH_FORBIDDEN');
+    expect(calls()).toBe(before);
   });
 });

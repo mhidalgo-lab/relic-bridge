@@ -44,6 +44,25 @@ export const ALLOWED_MUTATIONS: readonly string[] = Object.freeze([
 
 const OPERATION_RE = /^\s*(query|mutation|subscription)\s+([A-Za-z_][A-Za-z0-9_]*)/;
 
+/** True when the document's first selection set closes at the end of the text (no second operation or fragment). */
+function singleOperation(query: string): boolean {
+  let depth = 0;
+  let opened = false;
+  for (let i = 0; i < query.length; i++) {
+    const ch = query[i];
+    if (ch === '#') return false; // comments could hide braces; static documents need none
+    if (ch === '{') {
+      depth++;
+      opened = true;
+    } else if (ch === '}') {
+      depth--;
+      if (depth < 0) return false;
+      if (depth === 0) return query.slice(i + 1).trim() === '';
+    }
+  }
+  return opened && depth === 0;
+}
+
 /** Header names a document may not override: they carry the credential or the transport contract. */
 const RESERVED_HEADERS = new Set([
   'api-key',
@@ -84,6 +103,11 @@ export function defineDocument<TData, TVars extends Record<string, unknown> = Re
   // String literals are how input sneaks into a document. Values must be variables instead (T4).
   if (query.includes('"')) {
     throw new DocumentError(`Document ${op[2]} contains a string literal; pass values as GraphQL variables.`);
+  }
+  // One operation per document: the checks above read only the first, so a second (a mutation after an allowed query
+  // or mutation) would slip past the allow-list (phase 7 review, ADR-0014).
+  if (!singleOperation(query)) {
+    throw new DocumentError(`Document ${op[2]} must hold exactly one operation and nothing after it.`);
   }
   const headers: Record<string, string> = {};
   for (const [name, value] of Object.entries(options.headers ?? {})) {

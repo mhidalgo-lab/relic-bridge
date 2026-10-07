@@ -140,8 +140,17 @@ person use, say, `acknowledge_issue`:
 4. Their OAuth app must ask for `mcp:write`, and they tick "Also allow changes" on the consent screen. Device tokens
    need nothing more.
 
-Admins see the write tools but get `403` when they try to add one. Every write appears in the audit log (`Tool call`
-rows with a `write` record). Turn the server flag off to remove every write tool at once.
+Admins see the write tools but get `403` when they try to add one. Once a project or grant names a write tool, an
+admin also gets `403` (`write_scope`) for anything that widens where it writes: more allowed accounts, another default
+account or default key, any change of limits, re-enabling the project, lifting or raising the grant's quota, a new
+token on the grant, or rotating a key such a project or grant uses. Ask an owner (or use the admin token). Admins can
+still narrow: remove the write tools, disable the project, take accounts away, lower a quota, revoke or delete.
+
+Every write appears twice in the audit log: a `write.intent` row stored **before** the change is sent (if it cannot be
+stored, the write is refused and nothing is sent), then the `Tool call` row with its `write` record. An intent row
+without a matching tool call row means the call ended before reporting: check the target in New Relic. Write calls
+always check access in storage, so revoking a grant or token stops its next write at once. Turn the server flag off to
+remove every write tool at once.
 
 ## 7. Using it from a phone
 

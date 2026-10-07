@@ -2,7 +2,7 @@
 id: P7-28
 title: "Owner-only edits of write-enabled projects/grants, and audit before the mutation"
 phase: 7
-status: todo
+status: review
 priority: medium
 depends_on: [P7-09]
 adr: [ADR-0015]
@@ -28,10 +28,25 @@ Phase 7 review M5 and L-audit:
 - Write-tool calls skip the access cache (revocation takes effect at once, today up to 30 s per isolate).
 
 ## Acceptance criteria
-- [ ] Negative authz tests: admin session widening a write-enabled project/grant gets 403.
-- [ ] Test: audit store failure means no mutation is sent (or the documented alternative).
-- [ ] Test: revoking a write grant blocks the next write immediately.
-- [ ] THREAT_MODEL T31 updated.
+- [x] Negative authz tests: admin session widening a write-enabled project/grant gets 403
+  (`packages/http-app/test/authz/write-scope.test.ts`, HTTP app and Worker: every widening path, owner and admin token
+  allowed, narrowing allowed; rules in `packages/auth/test/write-scope.test.ts`).
+- [x] Test: audit store failure means no mutation is sent (`write-scope.test.ts`; recorder rejects in `audit.test.ts`;
+  `createHttpApp` refusal in `app.test.ts`).
+- [x] Test: revoking a write grant blocks the next write immediately (access cache on, revoked behind the app's back).
+- [x] THREAT_MODEL T31 updated.
+
+## Write paths audited
+Every writer of a project's default key, tools or accounts, and of grants, tokens and keys:
+- **Admin API** (`packages/http-app/src/admin/api.ts`): project create/update, grant create, grant quota, token create,
+  credential rotate go through `guardWriteScope` (rules: `packages/auth/src/access/write-scope.ts`); revoke, delete,
+  disable only narrow. The **admin UI** and the **CLI** (remote, and local: the admin API in-process with the admin
+  token) use this API.
+- **Config import** (P7-06) and **setup links**: owner-only routes (`requiredRole` and the handler).
+- **Member self-service** (P4-10): own grant, own key only; tools and accounts unchanged (not widening).
+- **OAuth consent**: picks among the user's own grants, writes none.
+- **Quotas**: `PUT /grants/{id}/quota` guarded (lifting or raising on a write grant).
+- Left over: re-enabling a user with a write grant (P7-32).
 
 ## Security notes
 T31, T14 (audit), T3.

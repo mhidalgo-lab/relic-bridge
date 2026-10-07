@@ -219,3 +219,40 @@ Phase 7 review M3: the answer key had no nonce or expiry, so a client resending 
 - **Residual.** Without elicitation (`confirm: true` flow, `RB_WRITE_APPROVAL=client`) there is no approval to bind, so a
   model that repeats the call repeats the write; a host that passes no ledger (custom embedders) gets the time bound
   only. No idempotency key is sent because NerdGraph has none for these mutations (unverified live).
+
+## Addendum: owner-only write scope, audit before the mutation (P7-28, 2026-10-07)
+
+Phase 7 review M5: owners alone could add a write tool, but an admin could still widen where an already write-enabled
+project or grant writes, the write audit row was written after the mutation in the background, and the access cache
+kept a revoked write grant alive for up to 30 s per process.
+
+- **One owner guard for write scope.** Every admin API route that writes a project, grant, token or key runs its change
+  through one guard (`guardWriteScope`), using the rules in `@relic-bridge/auth` (`write-scope.ts`). The admin UI and
+  the CLI (local and remote) go through the same API. An owner or the admin token passes; an admin session gets `403`
+  (`write_tools` when it adds a write tool, `write_scope` otherwise) for:
+  - a project that names a write tool and keeps one: more allowed accounts, another default account, another default
+    key, any change of limits (compared as a whole, so `rawNrql`, windows and event types alike), re-enabling it;
+  - a grant that names a write tool: lifting or raising its quota, and issuing it a new token (a token hands its holder
+    the write tools);
+  - a key that a writing project (default) or grant uses: rotating it (another key may reach more).
+  Narrowing stays open to admins so they can stop an incident: removing write tools (that change may also edit other
+  fields: nothing writes afterwards), disabling, fewer accounts, clearing the default key, a lower quota, revoking or
+  deleting. A project or grant is "write-enabled" when its own list names a write tool, whatever the other side says
+  (conservative: an owner may add the other half later).
+- **Other writers.** Config import (P7-06) and setup links are owner-only routes; OAuth consent only picks among the
+  user's own grants; member self-service (P4-10) acts on the member's own grant with the member's own key (the grant's
+  tools and accounts do not change), so neither path widens what an owner set.
+- **Audit before the mutation.** Each write tool, after every check and the human gate and right before its mutation,
+  awaits `ToolContext.writeAudit.intent(...)`. The HTTP app wires it to a new **awaited** hook `onWriteIntent`; the
+  audit recorder stores a `tool_call` row with action `write.intent` (target the tool, the capped and redacted
+  arguments, the record with `applied: false`), excluded from usage statistics. If the row cannot be stored the write
+  is refused (`RB_INTERNAL`, "nothing was changed") and no mutation is sent: writes fail closed on the audit log, reads
+  do not. The outcome row (`tool_call`, action = tool) follows after the call as before. `createHttpApp` throws on
+  `writeTools: true` without an `onWriteIntent` hook (`serve` and the Worker already refuse `RB_AUDIT=off`). stdio has
+  no audit database and keeps logging writes to stderr.
+- **Write calls skip the access cache.** A `tools/call` naming a write tool resolves access from storage even when the
+  cache holds an entry, so a revoked grant, token, key or write tool stops the next write at once on every process.
+  Reads keep the cache.
+- **Residual.** A crash between the intent row and the mutation's answer leaves an intent row without an outcome row:
+  read it as "may have been sent". Re-enabling a disabled user who holds a write grant is not covered by the guard
+  (follow-up P7-32).

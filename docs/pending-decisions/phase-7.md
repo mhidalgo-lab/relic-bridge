@@ -434,3 +434,22 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   overlap rule by design): follow-up P7-31.
 - **Needs:** owner's call on whether a 3% margin is enough, and on dropping the safe-integer `maximum` from the advertised
   schema (revert `withoutSafeIntegerMax` to restore about 1 100 characters of schema text).
+
+### P7-28 — Owner-only write scope, audit before the mutation
+- **Context:** an admin could widen a project or grant that already writes (accounts, default key, limits, quota), the
+  write audit row was written after the mutation in the background, and cached access kept a revoked write grant alive
+  for up to 30 s.
+- **Assumption made:** (1) one guard, `guardWriteScope`, over every admin route that writes a project, grant, token or
+  key, with the rules in `@relic-bridge/auth` `write-scope.ts`. "Write-enabled" = the row's own tool list names a write
+  tool (conservative). Owner-only for an admin session: more allowed accounts, another default account, another
+  default key, **any** limits change (compared as a whole, so tightening limits is owner-only too), re-enabling, lifting
+  or raising a quota, **issuing a token** on a write grant, **rotating a key** a writing project or grant uses (routine
+  rotations of those keys need an owner). Admins keep narrowing: remove write tools (then anything goes in the same
+  change), disable, fewer accounts, clear the default key, lower a quota, revoke, delete. (2) Config import and setup
+  links are owner-only routes, so not re-guarded; member self-service key switching (own key on own grant) and OAuth
+  consent are left as they are. (3) Audit: an awaited `write.intent` row before the mutation (not an awaited row
+  after), refusal with `RB_INTERNAL` and no mutation when it cannot be stored; the outcome row stays in the background.
+  (4) `createHttpApp` throws on `writeTools` without `hooks.onWriteIntent`. (5) Write calls skip the access cache; reads
+  keep it.
+- **Needs:** owner's call on whether admins should be allowed to tighten limits and rotate keys of write-enabled
+  projects (would need per-field narrowing rules), and on the user re-enable gap (P7-32).

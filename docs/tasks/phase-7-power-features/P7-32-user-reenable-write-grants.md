@@ -1,0 +1,35 @@
+---
+id: P7-32
+title: "Owner-only re-enable of users who hold write grants"
+phase: 7
+status: todo
+priority: low
+depends_on: [P7-28]
+adr: [ADR-0015]
+owner: ""
+---
+
+# P7-32 — Owner-only re-enable of users who hold write grants
+
+## Goal
+P7-28 made widening a write-enabled project or grant owner-only. An admin can still re-enable a user an owner disabled
+(`PATCH /users/{id}` with `disabled: false`), which brings back that user's write grants and their tokens.
+
+## Scope
+- Re-enabling a user whose grants name a write tool needs an owner (or the admin token), through `guardWriteScope` and
+  a rule in `packages/auth/src/access/write-scope.ts`.
+- Check any other user change that restores write access (none known today).
+
+## Acceptance criteria
+- [ ] Negative authz test: admin session re-enabling a user with a write grant gets 403; owner and admin token pass.
+- [ ] Re-enabling a user without write grants stays open to admins.
+- [ ] THREAT_MODEL T31 updated.
+
+## Security notes
+T31, T14.
+
+## Docs to update
+- `docs/THREAT_MODEL.md`, `docs/guide/admin-guide.md`, ADR-0015 P7-28 addendum (residual).
+
+## Out of scope
+- Per-field narrowing rules for limits and key rotation (pending decision P7-28).

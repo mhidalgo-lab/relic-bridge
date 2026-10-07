@@ -83,8 +83,10 @@ Rules the import follows:
   applied; fix the cause and run the same import again to resume. On the Workers Free plan one request may make at most
   50 D1 queries, so a large import can stop with `503 unavailable` part-way: run it again until it reports nothing left
   to create.
-- **Personal keys as defaults.** If a project's default key is someone's personal key, it becomes the project default
-  (shared with everyone on the project) and the plan warns about it. Check that is what you want before `--apply`.
+- **Personal keys as defaults.** A project whose default key is someone's personal key gets that default only when
+  that person runs the import from their own admin session (the same rule as the admin panel: nobody else may share a
+  colleague's key with a whole project). Otherwise the default is left unset, the plan says why, and grants that rely
+  on the default are skipped: set a shared key as the default, or let the key's owner pick it, then import again.
 
 After importing, create device tokens on the target (`relic-bridge token create --grant <id> --label <device>`), have
 people sign in once to bind their identity, and run `relic-bridge doctor --remote <url>`.

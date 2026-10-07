@@ -9,7 +9,8 @@
 //
 // Rules: natural keys (email, owner+label, slug, project+user) make a second run a no-op; nothing is deleted or
 // revoked; users are create-only and never become owners; existing grants and stored keys are never modified; a
-// personal key may become a project default only through this owner-only act, and the plan warns when it does.
+// personal key becomes a project default only when its owner runs the import (the same rule as the admin API's
+// `guardProjectDefault`, P4-18): otherwise the default is left unset and the plan says why.
 import { type Clock, isRbError, type Secret } from '@relic-bridge/core';
 import {
   type CredentialRecord,
@@ -279,6 +280,11 @@ export interface ImportOptions {
   readonly apply: boolean;
   /** Opens `bundle.secrets`. Without it the keys are treated as absent. */
   readonly wrapKey?: Uint8Array;
+  /**
+   * The user running the import (a session's user id); `null` or absent for the admin token, which is nobody. Only
+   * this user's own personal keys may become a project default (phase 7 review H1, P4-18).
+   */
+  readonly actorUserId?: string | null;
 }
 
 const PLANNED = 'planned:';
@@ -348,6 +354,7 @@ export async function importConfig(
   const projectIds = new Map<string, string>();
   const personalRefs = new Set(bundle.credentials.filter((c) => c.owner !== null).map((c) => c.ref));
   const ownerOfRef = new Map(bundle.credentials.map((c) => [c.ref, c.owner === null ? null : norm(c.owner)]));
+  const refusedDefaults = new Set<string>(); // project slugs whose personal-key default was refused
 
   const counts = { create: 0, update: 0, unchanged: 0, skip: 0 };
   const state: { failed: ImportFailure | null } = { failed: null };
@@ -463,12 +470,24 @@ export async function importConfig(
       const ref = p.defaultCredential;
       if (ref !== null) {
         if (credentialIds.has(ref)) {
-          defaultCredentialId = credentialIds.get(ref) as string;
-          if (personalRefs.has(ref) && defaultCredentialId !== existing?.defaultCredentialId) {
-            // The admin API lets only a key's owner make it a project default (`guardProjectDefault`). An import is an
-            // owner-only act that reproduces another deployment, so it may; the plan says so.
+          const candidate = credentialIds.get(ref) as string;
+          const keyOwner = ownerOfRef.get(ref) ?? null;
+          const keyOwnerId = keyOwner === null ? null : (userIds.get(keyOwner) ?? null);
+          if (!personalRefs.has(ref) || candidate === existing?.defaultCredentialId) {
+            defaultCredentialId = candidate;
+          } else if (keyOwnerId !== null && keyOwnerId === (options.actorUserId ?? null)) {
+            // The admin API lets only a key's owner make it a project default (`guardProjectDefault`, P4-18); so
+            // does the import: the person running it is the key's owner. The plan still says so.
+            defaultCredentialId = candidate;
             warnings.push(
-              `project "${p.slug}": a personal key becomes the project default (shared with everyone on it)`,
+              `project "${p.slug}": your personal key becomes the project default (shared with everyone on it)`,
+            );
+          } else {
+            // Anyone else (another owner, the admin token) would pull a colleague's key into a project, which the
+            // admin API refuses (phase 7 review H1). The default is left as it is; grants needing it are skipped.
+            refusedDefaults.add(p.slug);
+            warnings.push(
+              `project "${p.slug}": its default is a personal key of ${keyOwner ?? 'another user'}; only that user can make it a project default (default not set)`,
             );
           }
         } else {
@@ -570,6 +589,7 @@ export async function importConfig(
       const e = projectsBySlug.get(slug);
       const p = bundle.projects.find((x) => x.slug === slug);
       if (e !== undefined && e.defaultCredentialId !== null) return e.defaultCredentialId;
+      if (refusedDefaults.has(slug)) return null;
       if (p?.defaultCredential != null) {
         return credentialIds.get(p.defaultCredential) ?? null;
       }

@@ -1438,6 +1438,53 @@ describe('config export / import (P7-06)', () => {
     expect(JSON.stringify(rows)).not.toContain(wrapKey);
   });
 
+  it("an import cannot make another user's stored personal key a project default (phase 7 review H1, P4-18)", async () => {
+    // `main` is usr_a's personal key. The admin token is nobody, so the import must not pull it into a new project,
+    // like POST /projects refuses it; a grant riding on that default is skipped too.
+    const app = makeApp();
+    const bundle = {
+      format: 'relic-bridge-config',
+      version: 1,
+      exportedAt: '2026-01-01T00:00:00.000Z',
+      users: [{ email: 'a@example.com', displayName: null, role: 'owner' }],
+      credentials: [{ ref: 'c1', owner: 'a@example.com', label: 'main', region: 'US' }],
+      projects: [
+        {
+          slug: 'grab',
+          name: null,
+          defaultAccountId: 1,
+          allowedAccountIds: [1],
+          enabledTools: null,
+          limits: {},
+          defaultCredential: 'c1',
+          disabled: false,
+        },
+      ],
+      grants: [
+        {
+          project: 'grab',
+          user: null,
+          label: 'svc',
+          credential: null,
+          tools: null,
+          accountIds: null,
+          limits: {},
+          rateLimit: null,
+          expiresAt: null,
+        },
+      ],
+      settings: {},
+    };
+    const res = await admin(app, '/config/import', { method: 'POST', body: { bundle, apply: true } });
+    expect(res.status).toBe(200);
+    const project = await world.storage.projects.getBySlug('grab');
+    expect(project?.defaultCredentialId).toBeNull();
+    expect((await world.storage.grants.list()).some((g) => g.projectId === project?.id)).toBe(false);
+    expect(res.json?.['warnings'] ?? res.json?.['data'].warnings).toEqual(
+      expect.arrayContaining([expect.stringContaining('only that user can make it a project default')]),
+    );
+  });
+
   it('validates strictly: unknown fields, a bad wrap key, mismatched kdf and dangling references are 400', async () => {
     const app = makeApp();
     const bundle = (await admin(app, '/config/export', { method: 'POST', body: {} })).json?.['data'];

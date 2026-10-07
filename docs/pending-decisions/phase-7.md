@@ -108,6 +108,9 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Needs:** owner confirms PBKDF2 is acceptable (or asks for Argon2id in the CLI), whether personal-key defaults should
   be refused on import, and whether existing grants should be updatable. Also run one real Node-to-Worker move (export
   with `--with-credentials`, `import --apply --remote https://<worker>`) against a deployed Worker, which this run could not.
+- **Update (phase 7 review, H1):** personal-key defaults are now refused on import unless the person running it owns
+  the key (same rule as the admin API, P4-18): a crafted bundle could name a colleague's stored key by owner + label and
+  share it with a new project. The PBKDF2 and grant-update questions stay open.
 
 ### P7-07 — Claude Code plugin: publishing, versioning and packaging chosen without an owner
 - **Context:** The task asks for marketplace listing and publishing to the official MCP Registry. Publishing is an

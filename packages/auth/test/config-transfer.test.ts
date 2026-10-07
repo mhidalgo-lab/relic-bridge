@@ -369,7 +369,7 @@ describe('importConfig', () => {
     expect((await t.keyring.decryptCredentialKey(existing.id, stored?.key as never)).reveal()).toBe(KEY_B);
   });
 
-  it('warns when a personal key becomes a project default, and never creates owners', async () => {
+  it('makes a personal key a project default only when its owner imports, and never creates owners', async () => {
     const s = await source();
     const { bundle } = await exportConfig({ ...s, clock }, sealedOpts());
     const personalRef = bundle.credentials.find((c) => c.owner !== null)?.ref as string;
@@ -378,12 +378,80 @@ describe('importConfig', () => {
       projects: bundle.projects.map((p) => ({ ...p, defaultCredential: personalRef })),
       users: bundle.users.map((u) => ({ ...u, role: 'owner' as const })),
     };
+
+    // Another owner (or the admin token): the default is refused, like the admin API's guardProjectDefault (P4-18).
+    const other = await target();
+    const refused = await importConfig(other.deps, edited, { apply: true, wrapKey: wrap });
+    expect(refused.warnings.some((w) => w.includes('only that user can make it a project default'))).toBe(
+      true,
+    );
+    expect((await other.storage.projects.list())[0]?.defaultCredentialId).toBeNull();
+    expect((await other.storage.users.list()).every((u) => u.role !== 'owner')).toBe(true);
+
+    // The key's owner: allowed, and the plan says so.
     const t = await target();
-    const r = await importConfig(t.deps, edited, { apply: true, wrapKey: wrap });
-    expect(r.warnings.some((w) => w.includes('personal key becomes the project default'))).toBe(true);
+    const member = await t.storage.users.create({ id: 'usr_m2', email: 'm@example.com', role: 'member' });
+    const r = await importConfig(t.deps, edited, { apply: true, wrapKey: wrap, actorUserId: member.id });
+    expect(r.warnings.some((w) => w.includes('your personal key becomes the project default'))).toBe(true);
     const mine = (await t.storage.credentials.list()).find((c) => c.label === 'mine');
     expect((await t.storage.projects.list())[0]?.defaultCredentialId).toBe(mine?.id);
-    expect((await t.storage.users.list()).every((u) => u.role !== 'owner')).toBe(true);
+  });
+
+  it("cannot pull a colleague's stored personal key into a project as its default (phase 7 review H1)", async () => {
+    // Target: a member with a personal key stored here. An owner crafts a bundle that names that key (owner + label
+    // are visible metadata), a new project defaulting to it, and a grant for themselves riding on the default.
+    const t = await target();
+    const owner = await t.storage.users.create({ id: 'usr_o2', email: 'o@example.com', role: 'owner' });
+    const victim = await t.storage.users.create({ id: 'usr_v', email: 'v@example.com', role: 'member' });
+    const key = await createCredential(
+      { ...t.deps },
+      { label: 'victim-key', region: 'US', apiKey: new Secret(KEY_B), ownerUserId: victim.id },
+    );
+    const bundle: ConfigBundle = {
+      format: 'relic-bridge-config',
+      version: 1,
+      exportedAt: new Date(NOW).toISOString(),
+      users: [
+        { email: 'o@example.com', displayName: null, role: 'owner' },
+        { email: 'v@example.com', displayName: null, role: 'member' },
+      ],
+      credentials: [{ ref: 'c1', owner: 'v@example.com', label: 'victim-key', region: 'US' }],
+      projects: [
+        {
+          slug: 'grab',
+          name: null,
+          defaultAccountId: 1,
+          allowedAccountIds: [1],
+          enabledTools: null,
+          limits: {},
+          defaultCredential: 'c1',
+          disabled: false,
+        },
+      ],
+      grants: [
+        {
+          project: 'grab',
+          user: 'o@example.com',
+          label: null,
+          credential: null,
+          tools: null,
+          accountIds: null,
+          limits: {},
+          rateLimit: null,
+          expiresAt: null,
+        },
+      ],
+      settings: {},
+    } as unknown as ConfigBundle;
+    for (const actor of [owner.id, null]) {
+      const r = await importConfig(t.deps, bundle, { apply: true, actorUserId: actor });
+      expect(r.failed).toBeNull();
+      const project = (await t.storage.projects.list()).find((p) => p.slug === 'grab');
+      expect(project?.defaultCredentialId).not.toBe(key.id);
+      expect(project?.defaultCredentialId).toBeNull();
+      expect(r.entries.find((e) => e.kind === 'grant')).toMatchObject({ action: 'skip' });
+      expect((await t.storage.grants.list()).some((g) => g.projectId === project?.id)).toBe(false);
+    }
   });
 
   it('stops at the first failure with a code, applies nothing after it, and resumes on the next run', async () => {

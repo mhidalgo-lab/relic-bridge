@@ -559,7 +559,7 @@ describe('ungranted tools', () => {
       const rows = await h.world.storage.auditLog.list({ action: 'tool.not_granted', limit: 1000 });
       expect(rows.map((r) => (r.details as { tool: string }).tool).sort()).toEqual([...CATALOG].sort());
     });
-  });
+  }, 120_000); // one grant, token and client per catalog tool: about 18 s alone, more under load (L8)
 });
 
 describe('guard: every tool has an isolation case', () => {

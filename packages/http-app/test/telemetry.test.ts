@@ -403,6 +403,18 @@ describe('OTLP logs (P7-18)', () => {
     expect(n).toBe(TELEMETRY_LOG_BUFFER);
   });
 
+  it('exports route paths but never a filesystem path (L2)', async () => {
+    const t = createTelemetry({ endpoint: base, fetch: receiverFetch });
+    const log = t.wrapLogger(createLogger({ sink: (l) => logLines.push(l) }));
+    log.info('database created', { path: '/home/someone/relic-bridge/data.db' });
+    log.info('route seen', { path: '/p/prod/mcp' });
+    await t.flush();
+    const records = bodies('/v1/logs').flatMap((b) => b.resourceLogs[0].scopeLogs[0].logRecords);
+    const dump = JSON.stringify(records);
+    expect(dump).not.toContain('someone');
+    expect(dump).toContain('/p/prod/mcp');
+  });
+
   it('flushes with the next tool call, and a failing collector does not re-export its own warning', async () => {
     up = false;
     const t = createTelemetry({ endpoint: base, fetch: receiverFetch, logger: logger() });

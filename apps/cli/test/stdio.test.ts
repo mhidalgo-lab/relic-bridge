@@ -274,7 +274,8 @@ describe('prepareServer', () => {
 describe('setup mode (P7-14)', () => {
   it('starts only when nothing at all is configured', () => {
     expect(isUnconfigured({}, {})).toBe(true);
-    expect(isUnconfigured({ NEW_RELIC_API_KEY: '  ' }, {})).toBe(true);
+    expect(isUnconfigured({ NEW_RELIC_API_KEY: '' }, {})).toBe(true);
+    expect(isUnconfigured({ NEW_RELIC_API_KEY: '  ' }, {})).toBe(false); // a blank key is a mistake to report (L7)
     expect(isUnconfigured({ NEW_RELIC_API_KEY: FAKE_KEY }, {})).toBe(false);
     expect(isUnconfigured({ NEW_RELIC_ACCOUNT_ID: '1' }, {})).toBe(false);
     expect(isUnconfigured({ RB_CONFIG: '/x.yaml' }, {})).toBe(false);

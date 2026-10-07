@@ -324,7 +324,9 @@ export function isUnconfigured(
   env: Env,
   flags: { readonly config?: string; readonly project?: string },
 ): boolean {
-  const set = (name: string) => (env[name]?.trim() ?? '') !== '';
+  // An empty value is "not set" (clients pass '' for an unexpanded variable). Whitespace only is a configuration
+  // mistake: it counts as set, so startup reports it instead of entering setup mode (P7-30, L7).
+  const set = (name: string) => (env[name] ?? '') !== '';
   return (
     flags.config === undefined &&
     flags.project === undefined &&

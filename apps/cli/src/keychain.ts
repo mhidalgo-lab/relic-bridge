@@ -109,15 +109,24 @@ function toolMissing(tool: string, hint: string): KeychainError {
   return new KeychainError('unavailable', `${tool} was not found on this machine.`, hint);
 }
 
+/** Absolute paths: a bare name makes Windows look in the working directory first (a planted binary would get the secret). */
+const MAC_SECURITY = '/usr/bin/security';
+const WIN_POWERSHELL_SUFFIX = '\\System32\\WindowsPowerShell\\v1.0\\powershell.exe';
+
+function windowsPowerShell(env: Readonly<Record<string, string | undefined>>): string {
+  const root = env['SystemRoot'] ?? env['SYSTEMROOT'] ?? env['windir'] ?? 'C:\\Windows';
+  return `${root.replace(/[\\/]+$/, '')}${WIN_POWERSHELL_SUFFIX}`;
+}
+
 function macBackend(run: Runner): Backend {
   const NAME = 'macOS Keychain';
   const MISSING = 'The `security` tool is part of macOS; check that /usr/bin is on PATH.';
   return {
     name: NAME,
     probe: () =>
-      run('security', ['help'], undefined).missing ? 'the `security` tool was not found' : undefined,
+      run(MAC_SECURITY, ['help'], undefined).missing ? 'the `security` tool was not found' : undefined,
     read(name) {
-      const r = run('security', ['find-generic-password', '-s', KEYCHAIN_SERVICE, '-a', name, '-w']);
+      const r = run(MAC_SECURITY, ['find-generic-password', '-s', KEYCHAIN_SERVICE, '-a', name, '-w']);
       if (r.missing) throw toolMissing('security', MISSING);
       if (r.status === 44) return undefined; // errSecItemNotFound
       if (r.status !== 0)
@@ -137,7 +146,7 @@ function macBackend(run: Runner): Backend {
       if (r.status !== 0) throw new KeychainError('failed', 'The macOS Keychain refused the write.');
     },
     remove(name) {
-      const r = run('security', ['delete-generic-password', '-s', KEYCHAIN_SERVICE, '-a', name]);
+      const r = run(MAC_SECURITY, ['delete-generic-password', '-s', KEYCHAIN_SERVICE, '-a', name]);
       if (r.missing) throw toolMissing('security', MISSING);
       if (r.status === 44) return false;
       if (r.status !== 0) throw new KeychainError('failed', 'The macOS Keychain refused the delete.');
@@ -216,18 +225,19 @@ export function windowsScript(op: 'get' | 'set' | 'delete', name: string): strin
   return [...head, ...body[op]].join('\n');
 }
 
-function windowsBackend(run: Runner): Backend {
+function windowsBackend(run: Runner, env: Readonly<Record<string, string | undefined>>): Backend {
+  const POWERSHELL = windowsPowerShell(env);
   const HINT = 'Windows PowerShell (powershell.exe) is part of Windows; check that it is on PATH.';
   const ps = (op: 'get' | 'set' | 'delete', name: string, input?: string): RunResult => {
     const encoded = Buffer.from(windowsScript(op, name), 'utf16le').toString('base64');
-    const r = run('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', encoded], input);
+    const r = run(POWERSHELL, ['-NoProfile', '-NonInteractive', '-EncodedCommand', encoded], input);
     if (r.missing) throw toolMissing('powershell.exe', HINT);
     return r;
   };
   return {
     name: 'Windows Credential Manager (PasswordVault)',
     probe: () =>
-      run('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', 'exit 0']).missing
+      run(POWERSHELL, ['-NoProfile', '-NonInteractive', '-Command', 'exit 0']).missing
         ? 'powershell.exe was not found'
         : undefined,
     read(name) {
@@ -287,7 +297,7 @@ export function createKeychain(options: KeychainOptions): Keychain {
     options.platform === 'darwin'
       ? macBackend(run)
       : options.platform === 'win32'
-        ? windowsBackend(run)
+        ? windowsBackend(run, options.env ?? process.env)
         : options.platform === 'linux' || options.platform === 'freebsd' || options.platform === 'openbsd'
           ? libsecretBackend(run, wsl)
           : unsupportedBackend(options.platform);

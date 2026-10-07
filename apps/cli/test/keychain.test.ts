@@ -88,13 +88,13 @@ function fakeRunner(kind: 'mac' | 'linux' | 'win', store = new Map<string, strin
 const missingRunner: Runner = () => ({ status: null, stdout: '', missing: true });
 
 describe.each([
-  ['darwin', 'mac', 'security'],
+  ['darwin', 'mac', '/usr/bin/security'],
   ['linux', 'linux', 'secret-tool'],
-  ['win32', 'win', 'powershell.exe'],
+  ['win32', 'win', 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe'],
 ] as const)('%s backend', (platform, kind, tool) => {
   it('stores, reads, replaces and deletes; the secret is on stdin only', () => {
     const fake = fakeRunner(kind);
-    const kc = createKeychain({ platform, run: fake.run });
+    const kc = createKeychain({ platform, run: fake.run, env: { SystemRoot: 'C:\\Windows' } });
     expect(kc.get('nr-main')).toBeUndefined();
     kc.set('nr-main', FAKE_KEY);
     expect(kc.get('nr-main')).toBe(FAKE_KEY);

@@ -40,6 +40,11 @@ is an HMAC over:
 The account check and the query limits run **before** the cache is consulted, so a query the connection may not run is
 refused even if another connection cached it. No key, token or NRQL text appears in an entry id.
 
+## Quotas
+
+A cache hit makes no New Relic call, so it is not counted against a grant's [quota](admin-guide.md#quotas-per-grant),
+and a grant at its hard cap is still served what the cache already holds for it (30 s or 10 min at most).
+
 ## Where results live
 
 | Runtime | Store | Notes |

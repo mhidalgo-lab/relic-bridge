@@ -268,8 +268,9 @@ export function createAlertTools(deps: ToolDeps = {}): ToolDefinition[] {
       });
       const all = page.items;
       // Conditions carry no account id: the entity GUID is the only claim, and it must name the requested account (T3).
+      // A row with no GUID makes no claim at all, so it is dropped (a forged upstream cursor could add such rows, L5).
       const inScope = (c: (typeof all)[number]) =>
-        typeof c.id === 'string' && (typeof c.entityGuid !== 'string' || guidAgrees(c.entityGuid, account));
+        typeof c.id === 'string' && typeof c.entityGuid === 'string' && guidAgrees(c.entityGuid, account);
       const rows = all.filter(inScope).map((c) => toCondition(c, ctx.accounts.allowed));
       const hiddenOutsideScope = all.some((c) => !inScope(c));
       const nextCursor = page.nextCursor;

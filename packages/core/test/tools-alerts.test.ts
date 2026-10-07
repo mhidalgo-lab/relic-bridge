@@ -286,6 +286,17 @@ describe('list_alert_conditions', () => {
     expect(JSON.stringify(r)).not.toContain('LEAK');
   });
 
+  it('drops a condition that carries no entity GUID (no account claim)', async () => {
+    const { client } = await setup([
+      conditionsBody([condition(A, '1', 'mine'), condition(A, '2', 'LEAK-noguid', { entityGuid: null })]),
+    ]);
+    const r = await client.callTool({ name: 'list_alert_conditions', arguments: {} });
+    const s = r.structuredContent as { conditions: { name: string }[]; hiddenOutsideScope: boolean };
+    expect(s.conditions.map((c) => c.name)).toEqual(['mine']);
+    expect(s.hiddenOutsideScope).toBe(true);
+    expect(JSON.stringify(r)).not.toContain('LEAK');
+  });
+
   it('withholds the NRQL and data account of a condition that reads an account outside the connection', async () => {
     const { client } = await setup([
       conditionsBody([

@@ -248,7 +248,8 @@ const LOG_FIELDS: Readonly<Record<string, RegExp | 'count'>> = Object.freeze({
   errorCode: ERROR_CODE,
   status: /^[a-z0-9_]{1,32}$/,
   error: /^[A-Za-z][A-Za-z0-9_]{0,48}$/,
-  path: /^\/[a-z0-9/_.-]{0,48}$/,
+  // HTTP route paths only (the collector endpoints and `/p/<slug>/mcp`); a filesystem path never matches (P7-30, L2).
+  path: /^\/(?:v1\/(?:traces|metrics|logs)|p\/[a-z0-9-]{1,64}\/mcp|mcp|health|healthz|ready|readyz)$/,
   reason: REASON,
   ms: 'count',
   removed: 'count',

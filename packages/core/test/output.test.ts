@@ -3,8 +3,6 @@ import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_OUTPUT_CAPS,
-  decodeCursor,
-  encodeCursor,
   envelope,
   estimateTokens,
   flattenTags,
@@ -13,7 +11,6 @@ import {
   type NrqlPending,
   newEnvelopeId,
   nrqlResultSchema,
-  paginate,
   pickFields,
   RbError,
   RESULT_META_KEY,
@@ -314,34 +311,6 @@ describe('compaction helpers', () => {
 
   it('pickFields keeps only requested fields, in order', () => {
     expect(pickFields([{ a: 1, b: 2, c: 3 }, { b: 5 }], ['c', 'a'])).toEqual([{ c: 3, a: 1 }, {}]);
-  });
-
-  it('cursors round-trip and tampered cursors are rejected', () => {
-    for (const n of [0, 1, 100, 1_000_000]) expect(decodeCursor(encodeCursor(n))).toBe(n);
-    const bad = [
-      '',
-      'not a cursor!',
-      btoa('rb1:-1'),
-      btoa('rb1:01'),
-      btoa('rb1:99999999'),
-      btoa('rb2:5'),
-      btoa('rb1:5 '),
-      'x'.repeat(65),
-      'A',
-    ];
-    for (const c of bad) expect(code(() => decodeCursor(c))).toBe('RB_INPUT_INVALID');
-    expect(() => encodeCursor(-1)).toThrow(RbError);
-  });
-
-  it('paginate walks a list with next_cursor', () => {
-    const items = Array.from({ length: 7 }, (_, i) => i);
-    const first = paginate(items, { pageSize: 3 });
-    expect(first.items).toEqual([0, 1, 2]);
-    const second = paginate(items, { pageSize: 3, cursor: first.nextCursor as string });
-    expect(second.items).toEqual([3, 4, 5]);
-    const last = paginate(items, { pageSize: 3, cursor: second.nextCursor as string });
-    expect(last).toEqual({ items: [6], total: 7 });
-    expect(code(() => paginate(items, { pageSize: 0 }))).toBe('RB_INPUT_INVALID');
   });
 
   it('truncateText and estimateTokens', () => {

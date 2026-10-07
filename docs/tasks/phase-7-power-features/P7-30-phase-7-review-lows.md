@@ -2,7 +2,7 @@
 id: P7-30
 title: "Low-severity follow-ups from the Phase 7 review"
 phase: 7
-status: todo
+status: review
 priority: low
 depends_on: [P7-23]
 adr: []
@@ -37,8 +37,12 @@ Small items from `docs/reviews/phase-7-review.md` (L1 … L9) that were not fixe
   Phase 6 as current. Remove the unused `checkPeriods` import in `apps/worker/src/shared-limiter.ts`.
 
 ## Acceptance criteria
-- [ ] Each item fixed with a test where behaviour changes, or recorded as accepted in the THREAT_MODEL.
-- [ ] `pnpm lint && pnpm typecheck && pnpm test` pass.
+- [x] Each item fixed with a test where behaviour changes, or recorded as accepted in the THREAT_MODEL.
+- [x] `pnpm lint && pnpm typecheck && pnpm test` pass.
 
 ## Docs to update
 - `docs/THREAT_MODEL.md`, `docs/guide/quotas.md`, `docs/ROADMAP.md`, `README.md`.
+
+## Notes
+- The quota guide is the "Quotas per grant" section of `docs/guide/admin-guide.md` (there is no `quotas.md`); L3 is accepted and documented there and in `query-cache.md`, and recorded in the THREAT_MODEL.
+- L5: only `list_alert_conditions` changed; `list_alert_policies` keeps its rule for rows without a GUID (same shape, not in this task's scope).

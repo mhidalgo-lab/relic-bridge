@@ -239,6 +239,17 @@ stdio server and the pass-through endpoint have none. Denials are audited once p
 (`quota.denied`, plus the ordinary `tool_call` error rows), and every quota change is an admin audit row
 (`grant.quota_set`).
 
+Three soft spots to know about (all deliberate):
+
+- **Counter store down: fail open.** The call goes through and a warning is logged, so a quota can be exceeded during
+  an outage.
+- **Inspected events: overshoot.** The number is known only after a query finishes, so calls running in parallel when the
+  cap is reached can all finish and take the counter past it. The call cap has no overshoot.
+- **Cache hits are free, even at the cap.** A grant that has used up its call quota is still served rows that the
+  [query cache](query-cache.md) already holds for it: up to 30 seconds for moving windows and 10 minutes for windows that
+  ended a while ago (`cache: "bypass"` is refused at the cap like any other call). Those rows come from earlier calls
+  that were counted when they ran.
+
 ## 10. Settings added in Phase 4
 
 | Variable | Default | Meaning |

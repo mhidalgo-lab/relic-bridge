@@ -125,8 +125,34 @@ An admin adds one key without an owner and makes it the project's default; membe
 unset. Simpler, but everyone shares that key's New Relic permissions and concurrency, and New Relic sees one identity.
 Use grants to narrow tools and accounts per person.
 
+## Devices and access tokens
+
+Every device (laptop, desktop, work PC) gets its **own** token, bound to one grant and so to one project. Losing a
+device means revoking that one token; the others keep working. The phone and claude.ai need OAuth (Phase 5); the full
+multi-device walkthrough lands with the self-hosting docs (P2-13).
+
+A token looks like `rb_live_<43 random characters>_<6-character checksum>`:
+
+- **256 bits** of randomness from the platform's CSPRNG (WebCrypto).
+- The `rb_` prefix lets secret scanners (our gitleaks rule) and relic-bridge's own log
+  redaction spot a leaked token.
+- The checksum lets the server reject a typo or a made-up string **without touching the database**.
+- Only a SHA-256 hash and the first 12 characters (`rb_live_Ab3d`, for telling tokens apart in lists) are stored. The
+  token itself is shown **once**, when it is created, and can't be recovered: lose it and create a new one.
+- **Expiry**: 90 days by default; any other lifetime, or `never` (allowed, with a warning; prefer rotating). A token
+  never outlives its grant in practice: the grant's own expiry and revocation are checked on every request too.
+- **Revocation** is immediate in storage; a server that caches access for speed honours it within its cache TTL
+  (at most 60 s, P2-06).
+- **Last used** is recorded at most once every 5 minutes per token, so a busy client doesn't turn every call into a
+  database write.
+- Send it as `Authorization: Bearer rb_live_…`. A token for another project's URL is refused like a wrong token.
+
+Treat a token like a password: keep it in your MCP client's secret store or an environment variable, never in a
+committed config file.
+
 ## Managing it
 
 Today the domain services exist in `@relic-bridge/auth` (`createCredential`, `createProject`, `createGrant`,
-`listEffectivePermissions`, `revalidateCredentials`) and the CLI has `credential revalidate`. Tokens (P2-05), the
-admin API (P2-09) and the full management CLI (P2-10) build on them.
+`listEffectivePermissions`, `revalidateCredentials`, and for tokens `issueAccessToken`, `listAccessTokens`,
+`revokeAccessToken`, `verifyAccessToken`) and the CLI has `credential revalidate`. The HTTP server (P2-06), the admin
+API (P2-09) and the full management CLI with `token create|list|revoke` (P2-10) build on them.

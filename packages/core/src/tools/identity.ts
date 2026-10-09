@@ -6,7 +6,8 @@ import { envelope } from '../output/envelope.ts';
 import { shapeRows, truncateText } from '../output/format.ts';
 import { redact } from '../redact.ts';
 import { defineTool, type ToolDefinition } from '../tool.ts';
-import { type ToolDeps, toolClient, UNTRUSTED } from './shared.ts';
+import { bindingOf, listLimit, pageList } from './paging.ts';
+import { cursorInput, type ToolDeps, toolClient, UNTRUSTED } from './shared.ts';
 
 /** Account and user names are free text set in New Relic: bounded and single-line before they reach an agent (T6). */
 const MAX_NAME_CHARS = 200;
@@ -44,7 +45,11 @@ const whoamiOutput = z.object({
   }),
 });
 
-const listAccountsInput = z.strictObject({});
+const DEFAULT_ACCOUNTS = 100;
+const listAccountsInput = z.strictObject({
+  limit: listLimit('accounts', DEFAULT_ACCOUNTS, MAX_ACCOUNT_ROWS),
+  cursor: cursorInput,
+});
 
 const listAccountsOutput = z.object({
   accounts: z.array(accountSchema),
@@ -52,7 +57,8 @@ const listAccountsOutput = z.object({
   defaultAccountReachable: z.boolean(),
   /** Allowed accounts the key cannot read (ids only). */
   unreachableAccountIds: z.array(z.number().int()),
-  truncated: z.boolean(),
+  /** More accounts exist: pass this as cursor to read them. */
+  nextCursor: z.string().nullable(),
 });
 
 const WHOAMI_DESCRIPTION = `Show this connection's identity: the New Relic user, region, project, default account, how many accounts are usable and which tools are granted. Never returns key material.
@@ -183,11 +189,15 @@ export function createIdentityTools(deps: ToolDeps = {}): ToolDefinition[] {
     cost: 1,
     group: 'identity',
     phase: 1,
-    handler: async (_input, ctx) => {
+    handler: async (input, ctx) => {
       const reachable = await listReachableAccounts(client(ctx));
       const { accounts, unreachableAllowed, defaultReachable } = intersectAccounts(reachable, ctx.accounts);
-      const shown = accounts.slice(0, MAX_ACCOUNT_ROWS);
-      const truncated = shown.length < accounts.length;
+      const { items: shown, nextCursor } = pageList(
+        accounts,
+        await bindingOf('list_accounts', ctx.accounts.default),
+        input.cursor,
+        input.limit ?? DEFAULT_ACCOUNTS,
+      );
       const shaped = shapeRows(
         shown.map((a) => ({ id: a.id, name: a.name, default: a.default ? 'yes' : '' })),
         { format: 'table', source: 'New Relic accounts' },
@@ -204,8 +214,9 @@ export function createIdentityTools(deps: ToolDeps = {}): ToolDefinition[] {
             `(ids: ${unreachableAllowed.slice(0, 20).join(', ')}). Check the key's access and region.`,
         );
       }
-      if (truncated) lines.push(`Showing the first ${MAX_ACCOUNT_ROWS} accounts.`);
+      if (nextCursor) lines.push(`Showing ${shown.length} accounts: pass nextCursor as cursor for the rest.`);
       lines.push(shaped.text);
+      if (nextCursor) lines.push(`nextCursor: ${nextCursor}`);
       return {
         text: lines.join('\n'),
         structured: {
@@ -213,7 +224,7 @@ export function createIdentityTools(deps: ToolDeps = {}): ToolDefinition[] {
           defaultAccountId: ctx.accounts.default,
           defaultAccountReachable: defaultReachable,
           unreachableAccountIds: unreachableAllowed,
-          truncated,
+          nextCursor,
         },
       };
     },

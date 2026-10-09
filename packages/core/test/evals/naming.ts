@@ -190,7 +190,8 @@ function lintOutputs(owner: string, schema: Json): string[] {
 
 /** Every naming rule of docs/dev/tool-conventions.md; returns human-readable problems (empty = clean). */
 export function lintNaming(
-  tools: readonly Pick<ToolDefinition, 'name' | 'inputSchema' | 'outputSchema'>[],
+  tools: readonly (Pick<ToolDefinition, 'name' | 'inputSchema' | 'outputSchema'> &
+    Partial<Pick<ToolDefinition, 'description'>>)[],
   prompts: readonly Pick<PromptDefinition, 'name' | 'argsSchema'>[] = [],
 ): string[] {
   const problems: string[] = [];
@@ -204,6 +205,23 @@ export function lintNaming(
         problems.push(`${t.name}: takes "cursor" but its output has no "nextCursor"`);
       if ('nextCursor' in props(output) && !('cursor' in props(input)))
         problems.push(`${t.name}: returns "nextCursor" but takes no "cursor"`);
+      // Paging (P6-24): a paged list takes a page size, says "more" one way only, and a bounded list says why.
+      if ('cursor' in props(input) && !('limit' in props(input)))
+        problems.push(`${t.name}: pages with "cursor" but takes no "limit"`);
+      if ('nextCursor' in props(output) && 'truncated' in props(output))
+        problems.push(
+          `${t.name}: returns both "nextCursor" and "truncated": a paged list has one way to say more`,
+        );
+      if (
+        'limit' in props(input) &&
+        'truncated' in props(output) &&
+        !('cursor' in props(input)) &&
+        t.description !== undefined &&
+        !/\bnot paged\b/i.test(t.description)
+      )
+        problems.push(
+          `${t.name}: has "limit" and "truncated" but no cursor: say "Not paged" and why in the description`,
+        );
     }
   }
   for (const p of prompts) problems.push(...lintInputs(`prompt ${p.name}`, promptArgsJsonSchema(p), true));

@@ -6,6 +6,7 @@ import {
   ENTITY_SEARCH_QUERY,
   ENTITY_TYPES_QUERY,
   RELATED_ENTITIES_QUERY,
+  type RelatedEntitiesData,
   type RelatedEntitiesVariables,
 } from '../nerdgraph/entities.ts';
 import { decodeEntityGuid } from '../nerdgraph/entity-guid.ts';
@@ -45,7 +46,8 @@ export {
   toRow,
 };
 
-import { accountIdSchema as accountId, type ToolDeps, toolClient, UNTRUSTED } from './shared.ts';
+import { bindingOf, listLimit, pageList, pageUpstream } from './paging.ts';
+import { accountIdSchema as accountId, cursorInput, type ToolDeps, toolClient, UNTRUSTED } from './shared.ts';
 
 /** Most entities per search call: NerdGraph's page size (P0-09). */
 export const MAX_ENTITY_RESULTS = 200;
@@ -64,8 +66,6 @@ const guid = z.string().min(8).max(512).describe('Entity guid.');
 const domainField = z.string().regex(/^[A-Za-z][A-Za-z0-9_]{0,31}$/);
 const typeField = z.string().regex(/^[A-Za-z][A-Za-z0-9_]{0,63}$/);
 const TAG_KEY_RE = /^[A-Za-z_][A-Za-z0-9_.]{0,127}$/;
-/** NerdGraph cursors are opaque base64-like text. */
-const CURSOR_RE = /^[A-Za-z0-9+/=_.:-]{1,2048}$/;
 
 const accountInput = accountId.optional().describe('Only this account (one of list_accounts). Default: all.');
 
@@ -97,7 +97,7 @@ const searchInput = z.strictObject({
     .max(MAX_ENTITY_RESULTS)
     .optional()
     .describe(`Most entities to return (default ${DEFAULT_ENTITY_RESULTS}, max ${MAX_ENTITY_RESULTS}).`),
-  cursor: z.string().regex(CURSOR_RE).optional().describe('nextCursor of the previous call (same filters).'),
+  cursor: cursorInput,
 });
 
 const entityRow = z.object({
@@ -146,15 +146,8 @@ const relatedInput = refineEntityRef(
       .max(10)
       .optional()
       .describe('Only related entities of these kinds, e.g. [{"domain": "APM", "type": "APPLICATION"}].'),
-    limit: z
-      .number()
-      .int()
-      .min(1)
-      .max(MAX_RELATED_RESULTS)
-      .optional()
-      .describe(
-        `Most relationships to return (default ${DEFAULT_RELATED_RESULTS}, max ${MAX_RELATED_RESULTS}).`,
-      ),
+    limit: listLimit('relationships', DEFAULT_RELATED_RESULTS, MAX_RELATED_RESULTS),
+    cursor: cursorInput,
   }),
 );
 
@@ -168,11 +161,17 @@ const relatedOutput = z.object({
   ),
   /** Some relationships pointed to accounts this connection does not allow and were left out. */
   hiddenOutsideScope: z.boolean(),
-  /** More relationships exist than were returned: narrow with direction or types, or raise limit. */
-  truncated: z.boolean(),
+  /** More relationships exist: pass this as cursor (same filters) to read them. */
+  nextCursor: z.string().nullable(),
 });
 
-const listTypesInput = z.strictObject({ account: accountInput });
+const MAX_TYPES_LIMIT = 1000;
+const DEFAULT_TYPES_LIMIT = 200;
+const listTypesInput = z.strictObject({
+  account: accountInput,
+  limit: listLimit('entity kinds', DEFAULT_TYPES_LIMIT, MAX_TYPES_LIMIT),
+  cursor: cursorInput,
+});
 
 const listTypesOutput = z.object({
   types: z.array(
@@ -185,6 +184,8 @@ const listTypesOutput = z.object({
   ),
   accountIds: z.array(z.number().int()),
   cached: z.boolean(),
+  /** More kinds exist: pass this as cursor (same account) to read them. */
+  nextCursor: z.string().nullable(),
 });
 
 const decodeInput = z.strictObject({ entity_guid: guid });
@@ -207,7 +208,7 @@ For metric values use get_golden_metrics; for a full health check (metrics, issu
 
 const RELATED_DESCRIPTION = `List the entities directly related to one entity (guid or name), one hop: services it calls or is called by, hosts it runs on, containers, monitors...
 
-Use it to map dependencies. Each relationship has a direction (incoming/outgoing) and a type (CALLS, HOSTS, CONTAINS...). Relationships into accounts outside this connection are left out. To measure whether the neighbours are healthy use dependency_health. ${UNTRUSTED}`;
+Use it to map dependencies. Each relationship has a direction (incoming/outgoing) and a type (CALLS, HOSTS, CONTAINS...). Relationships into accounts outside this connection are left out. Page with cursor. To measure whether the neighbours are healthy use dependency_health. ${UNTRUSTED}`;
 
 const LIST_TYPES_DESCRIPTION = `List the entity domain/type pairs present in this connection's accounts, with how many entities of each.
 
@@ -251,14 +252,24 @@ export function createEntityTools(deps: ToolDeps = {}): ToolDefinition[] {
       }
       const query = entityQuery.and(parts);
       const limit = input.limit ?? DEFAULT_ENTITY_RESULTS;
-      const result = await client(ctx).query(ENTITY_SEARCH_QUERY, {
-        query: query.text,
-        cursor: input.cursor ?? null,
-        options: { limit },
+      let count: unknown;
+      const page = await pageUpstream({
+        binding: await bindingOf('search_entities', ctx.accounts.default, query.text),
+        cursor: input.cursor,
+        limit,
+        fetchPage: async (upstream) => {
+          const result = await client(ctx).query(ENTITY_SEARCH_QUERY, {
+            query: query.text,
+            cursor: upstream,
+            options: { limit },
+          });
+          const es = requireField(result.data.actor.entitySearch, result, ctx);
+          count = es.count;
+          return { items: (es.results?.entities ?? []).filter(isNonNull), next: es.results?.nextCursor };
+        },
       });
-      const es = requireField(result.data.actor.entitySearch, result, ctx);
+      const all = page.items;
       const scope = new Set(accounts);
-      const all = (es.results?.entities ?? []).filter(isNonNull);
       const inScope = (e: (typeof all)[number]) =>
         typeof e.accountId === 'number' &&
         scope.has(e.accountId) &&
@@ -271,10 +282,8 @@ export function createEntityTools(deps: ToolDeps = {}): ToolDefinition[] {
         .map((e) => toRow(e));
       // Only scope drops count: NerdGraph may legitimately return more than `limit` rows.
       const hidden = all.some((e) => !inScope(e));
-      // Echoed in the text outside the envelope: only an opaque cursor-shaped value is passed back.
-      const rawCursor = es.results?.nextCursor;
-      const nextCursor = typeof rawCursor === 'string' && CURSOR_RE.test(rawCursor) ? rawCursor : null;
-      const total = typeof es.count === 'number' ? es.count : null;
+      const nextCursor = page.nextCursor;
+      const total = typeof count === 'number' ? count : null;
 
       const shaped = shapeRows(
         entities.map((e) => ({
@@ -404,8 +413,27 @@ export function createEntityTools(deps: ToolDeps = {}): ToolDefinition[] {
             }
           : {}),
       };
-      const result = await client(ctx).query(RELATED_ENTITIES_QUERY, { guid: input.guid, filter, limit });
-      const entity = requireField(result.data.actor.entity, result, ctx);
+      let entity = undefined as NonNullable<RelatedEntitiesData['actor']['entity']> | undefined;
+      const page = await pageUpstream({
+        binding: await bindingOf('get_related_entities', decoded.accountId, input.guid, filter),
+        cursor: input.cursor,
+        limit,
+        fetchPage: async (upstream) => {
+          const result = await client(ctx).query(RELATED_ENTITIES_QUERY, {
+            guid: input.guid,
+            filter,
+            limit,
+            cursor: upstream,
+          });
+          const found = requireField(result.data.actor.entity, result, ctx);
+          entity = found;
+          return {
+            items: (found.relatedEntities?.results ?? []).filter(isNonNull),
+            next: found.relatedEntities?.nextCursor,
+          };
+        },
+      });
+      if (entity === undefined) throw new RbError(ErrorCode.NerdGraphError, 'NerdGraph returned no entity.');
       // No account, or a different one than the GUID's, means we can't vouch for the scope: refuse (T3).
       if (typeof entity.accountId !== 'number') {
         throw new RbError(ErrorCode.NerdGraphError, 'NerdGraph returned the entity without an account.', {
@@ -416,9 +444,8 @@ export function createEntityTools(deps: ToolDeps = {}): ToolDefinition[] {
         throw outOfScope(entity.accountId);
       }
       const self = entity.guid ?? input.guid;
-      const edges = (entity.relatedEntities?.results ?? []).filter(isNonNull);
+      const edges = page.items;
       let hiddenOutsideScope = false;
-      let cut = false;
       const rows: z.infer<typeof relatedOutput>['related'] = [];
       for (const edge of edges) {
         const outgoing = edge.source?.guid === self;
@@ -440,12 +467,8 @@ export function createEntityTools(deps: ToolDeps = {}): ToolDefinition[] {
           direction: outgoing ? 'outgoing' : 'incoming',
           relationship: label(edge.type),
         });
-        if (rows.length >= limit) {
-          cut = edges.indexOf(edge) < edges.length - 1;
-          break;
-        }
       }
-      const truncated = cut || Boolean(entity.relatedEntities?.nextCursor);
+      const nextCursor = page.nextCursor;
       const shaped = shapeRows(
         rows.map((r) => ({
           direction: r.direction,
@@ -462,15 +485,19 @@ export function createEntityTools(deps: ToolDeps = {}): ToolDefinition[] {
       if (hiddenOutsideScope) {
         lines.push('Note: relationships into accounts this connection does not allow were left out.');
       }
-      if (truncated) lines.push('More relationships exist: narrow with direction or types, or raise limit.');
+      if (nextCursor)
+        lines.push(
+          'More relationships exist: call again with the same filters and cursor set to the nextCursor below.',
+        );
       if (rows.length > 0) lines.push(shaped.text);
+      if (nextCursor) lines.push(`nextCursor: ${nextCursor}`);
       return {
         text: [...(ref.note ? [ref.note] : []), ...lines].join('\n'),
         structured: {
           entity: { guid: self, name: typeof entity.name === 'string' ? cleanName(entity.name) : null },
           related: rows,
           hiddenOutsideScope,
-          truncated,
+          nextCursor,
         },
       };
     },
@@ -514,17 +541,27 @@ export function createEntityTools(deps: ToolDeps = {}): ToolDefinition[] {
           typesCache.delete(oldest);
         }
       }
+      const paged = pageList(
+        entry.types,
+        await bindingOf('list_entity_types', ctx.accounts.default, accounts),
+        input.cursor,
+        input.limit ?? DEFAULT_TYPES_LIMIT,
+      );
       const shaped = shapeRows(
-        entry.types.map((t) => ({ domain: t.domain, type: t.type, count: t.count ?? '' })),
-        { format: 'table', source: 'New Relic entity types', maxRows: 1000 },
+        paged.items.map((t) => ({ domain: t.domain, type: t.type, count: t.count ?? '' })),
+        { format: 'table', source: 'New Relic entity types', maxRows: MAX_TYPES_LIMIT },
       );
       const lines = [
-        `${entry.types.length} entity kind${entry.types.length === 1 ? '' : 's'} in ` +
+        `${paged.items.length} of ${entry.types.length} entity kind${entry.types.length === 1 ? '' : 's'} in ` +
           `${accounts.length === 1 ? `account ${accounts[0]}` : `${accounts.length} accounts`}` +
           `${cached ? ' (cached)' : ''}. Pass domain and type to search_entities.`,
       ];
-      if (entry.types.length > 0) lines.push(shaped.text);
-      return { text: lines.join('\n'), structured: { types: entry.types, accountIds: accounts, cached } };
+      if (paged.items.length > 0) lines.push(shaped.text);
+      if (paged.nextCursor) lines.push(`nextCursor: ${paged.nextCursor}`);
+      return {
+        text: lines.join('\n'),
+        structured: { types: paged.items, accountIds: accounts, cached, nextCursor: paged.nextCursor },
+      };
     },
   });
 

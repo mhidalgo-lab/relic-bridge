@@ -10,12 +10,12 @@ import { parseTimeRange } from '../time/range.ts';
 import { defineTool, type ToolDefinition } from '../tool.ts';
 import { checkGuid, isNonNull, requireField } from './entities.ts';
 import { cleanName } from './identity.ts';
+import { bindingOf, listLimit, pageUpstream } from './paging.ts';
 import {
   accountInput,
   assertWindowWithinLimit,
   cursorInput,
   label,
-  nextCursorOf,
   num,
   singleAccount,
   type ToolDeps,
@@ -25,6 +25,8 @@ import {
 } from './shared.ts';
 
 const DEFAULT_WINDOW = 'last 24 hours';
+const DEFAULT_LIMIT = 25;
+const MAX_LIMIT = 200;
 const MAX_NAME_CHARS = 300;
 const MAX_MESSAGE_CHARS = 500;
 const MAX_QUERY_TEXT = 256;
@@ -64,6 +66,7 @@ const input = z.strictObject({
     .describe('Order, most first. Default: New Relic order. occurrences = count in the window.'),
   time_range: timeRangeInput(DEFAULT_WINDOW),
   account: accountInput,
+  limit: listLimit('error groups', DEFAULT_LIMIT, MAX_LIMIT),
   cursor: cursorInput,
   minimal_output: z.boolean().optional().describe('Only id, name, state, occurrences, last seen and entity.'),
 });
@@ -81,7 +84,7 @@ const output = z.object({
 
 const DESCRIPTION = `List the Errors Inbox error groups of one account (similar errors grouped into one item): name, message, state, occurrences in the window, first and last seen, whether it regressed, and the entity it comes from.
 
-Use it for "which errors hurt us?" (sort_by "occurrences") or "what new errors appeared?" (sort_by "first_seen"). Filter by entity (guid or name). To follow one group to its trace, spans and logs use trace_error; events_query is NRQL for run_nrql. Page with cursor. It cannot resolve, ignore or assign anything. ${UNTRUSTED}`;
+Use it for "which errors hurt us?" (sort_by "occurrences") or "what new errors appeared?" (sort_by "first_seen"). Filter by entity (guid or name). To follow one group to its trace, spans and logs use trace_error; events_query is NRQL for run_nrql. Page with cursor (keeps the first window). It cannot resolve, ignore or assign anything. ${UNTRUSTED}`;
 
 const iso = (ms: unknown): string | null => {
   const n = num(ms);
@@ -159,30 +162,45 @@ export function createErrorTools(deps: ToolDeps = {}): ToolDefinition[] {
       const range = parseTimeRange(args.time_range ?? DEFAULT_WINDOW, ctx.clock.now());
       assertWindowWithinLimit(range, ctx.limits);
 
-      const result = await client(ctx).query(ERROR_GROUPS_QUERY, {
-        cursor: args.cursor ?? null,
-        entityGuids: guid ? [guid] : null,
-        filter: {
-          accountIds: [account],
-          ...(args.states ? { states: args.states } : {}),
-          ...(args.assigned !== undefined ? { isAssigned: args.assigned } : {}),
+      const filter = {
+        accountIds: [account],
+        ...(args.states ? { states: args.states } : {}),
+        ...(args.assigned !== undefined ? { isAssigned: args.assigned } : {}),
+      };
+      let found = undefined as { totalCount?: number | null } | null | undefined;
+      const paged = await pageUpstream({
+        binding: await bindingOf('list_error_groups', account, guid, filter, args.contains, args.sort_by),
+        cursor: args.cursor,
+        limit: args.limit ?? DEFAULT_LIMIT,
+        window: range,
+        checkWindow: (w) => assertWindowWithinLimit({ windowMs: w.untilMs - w.sinceMs }, ctx.limits),
+        fetchPage: async (upstream, w) => {
+          const result = await client(ctx).query(ERROR_GROUPS_QUERY, {
+            cursor: upstream,
+            entityGuids: guid ? [guid] : null,
+            filter,
+            query: args.contains ?? null,
+            sortBy: args.sort_by ? [{ field: SORTS[args.sort_by], direction: 'DESC' }] : null,
+            timeWindow: { startTime: w?.sinceMs ?? range.sinceMs, endTime: w?.untilMs ?? range.untilMs },
+          });
+          const page = requireField(result.data.actor.errorsInbox, result, ctx).errorGroups;
+          found = page;
+          return { items: (page?.results ?? []).filter(isNonNull), next: page?.nextCursor };
         },
-        query: args.contains ?? null,
-        sortBy: args.sort_by ? [{ field: SORTS[args.sort_by], direction: 'DESC' }] : null,
-        timeWindow: { startTime: range.sinceMs, endTime: range.untilMs },
       });
-      const page = requireField(result.data.actor.errorsInbox, result, ctx).errorGroups;
-      const all = (page?.results ?? []).filter(isNonNull);
+      const all = paged.items;
+      const since = new Date(paged.window?.sinceMs ?? range.sinceMs).toISOString();
+      const until = new Date(paged.window?.untilMs ?? range.untilMs).toISOString();
       const rows = all.filter((g) => vouched(g, account, ctx)).map(toRow);
       const hiddenOutsideScope = all.length > rows.length;
-      const nextCursor = nextCursorOf(page?.nextCursor);
-      const total = num(page?.totalCount);
+      const nextCursor = paged.nextCursor;
+      const total = num(found?.totalCount);
       const errorGroups = args.minimal_output
         ? pickFields(rows, MINIMAL_FIELDS)
         : (rows as Record<string, unknown>[]);
 
       const lines = [
-        `${rows.length} error ${rows.length === 1 ? 'group' : 'groups'} in account ${account}${total !== null ? ` (${total} match in total)` : ''}, ${range.since} to ${range.until} (UTC).`,
+        `${rows.length} error ${rows.length === 1 ? 'group' : 'groups'} in account ${account}${total !== null ? ` (${total} match in total)` : ''}, ${since} to ${until} (UTC).`,
       ];
       if (hiddenOutsideScope) lines.push("Note: results outside this connection's accounts were left out.");
       if (nextCursor)
@@ -220,8 +238,8 @@ export function createErrorTools(deps: ToolDeps = {}): ToolDefinition[] {
         text: lines.join('\n'),
         structured: {
           accountId: account,
-          since: range.since,
-          until: range.until,
+          since,
+          until,
           total,
           errorGroups,
           nextCursor,

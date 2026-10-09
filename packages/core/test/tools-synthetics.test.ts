@@ -217,9 +217,11 @@ describe('list_synthetic_monitors', () => {
         : nrqlBody([]),
     );
     const client = await connect(fetch);
+    const first = await client.callTool({ name: 'list_synthetic_monitors', arguments: { status: 'MUTED' } });
+    const cursor = (first.structuredContent as { nextCursor: string }).nextCursor;
     const r = await client.callTool({
       name: 'list_synthetic_monitors',
-      arguments: { status: 'MUTED', cursor: 'CURSOR_1' },
+      arguments: { status: 'MUTED', cursor },
     });
     const s = r.structuredContent as {
       monitors: { name: string }[];
@@ -227,8 +229,8 @@ describe('list_synthetic_monitors', () => {
       notes: string[];
     };
     expect(s.monitors.map((x) => x.name)).toEqual(['a']);
-    expect(s.nextCursor).toBe('CURSOR_2');
-    expect(text(r)).toContain('nextCursor: CURSOR_2');
+    expect(s.nextCursor).toEqual(expect.any(String));
+    expect(text(r)).toContain(`nextCursor: ${s.nextCursor}`);
     expect(s.notes.join(' ')).toContain('did not match');
   });
 

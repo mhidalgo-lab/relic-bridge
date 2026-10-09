@@ -8,8 +8,12 @@ import { renderFields, renderToolsDoc, typeLabel } from '../gen-tool-docs.ts';
 const base = createBuiltinTools().find((t) => t.name === 'list_accounts');
 if (!base) throw new Error('list_accounts missing');
 const { outputSchema: _unused, ...rest } = base;
+// No arguments at all: the same schema with every field picked away (strictObject.pick).
+const realInput = base.inputSchema;
+const noFields = (realInput as unknown as { pick(mask: Record<string, never>): typeof realInput }).pick({});
 const demo = {
   ...rest,
+  inputSchema: noFields,
   name: 'demo_tool',
   title: 'Demo',
   description: 'A demo tool used only by the generator test.',

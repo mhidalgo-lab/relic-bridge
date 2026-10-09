@@ -23,8 +23,8 @@ Arguments are `snake_case`. Prompt arguments follow the same names (they are str
 | The time window | `time_range` | string | Every tool that reads a window, e.g. `"last 6 hours"`, `"2026-10-01 to 2026-10-02"`. Use `timeRangeInput()` from `tools/shared.ts`. |
 | A second, longer window | `lookback` (string) or `lookback_days` (integer) | | Only where a tool has two windows: where to find the issue or deployment, while `time_range` is what is measured. |
 | A duration as a number | `<thing>_seconds`, `_minutes`, `_hours`, `_days` | integer | `timeout_seconds`, `compare_minutes`, `before_minutes`, `change_lookback_hours`. Never `_s`, `_ms`, `_min`. |
-| Most rows to return | `limit` | integer | Rows of the tool's main list. A cap on something else is `max_<things>` (`max_metrics`, `max_rows`, `max_dependencies`). |
-| Next page | `cursor` | string | The `nextCursor` of the previous call with the same filters. A tool takes `cursor` only if it returns `nextCursor`, and the reverse. |
+| Most rows to return | `limit` | integer | Rows of the tool's main list. A cap on something else is `max_<things>` (`max_metrics`, `max_rows`, `max_dependencies`). Declared with `listLimit()` from `tools/paging.ts`. |
+| Next page | `cursor` | string | The `nextCursor` of the previous call with the same filters. A tool takes `cursor` only if it returns `nextCursor`, and the reverse; a tool that takes `cursor` also takes `limit`. Declared with `cursorInput` from `tools/shared.ts`. |
 | Fewer fields per row | `minimal_output` | boolean | |
 | Compare with the window before | `compare_previous` | boolean | |
 | An identifier | `<thing>_id` | string | `issue_id`, `policy_id`, `query_id`, `error_group_id`, `trace_id`. Numeric New Relic ids are passed as digit strings, the way the list tools return them. |
@@ -46,11 +46,40 @@ Output keys are `camelCase`, at every depth of the output schema. Rows that come
 | The entity a result is about | `entityGuid` | string | Top-level reference (`entity_health`, the APM and log tools). |
 | The window actually read | `since`, `until` | string (ISO 8601 UTC) | Always both, resolved bounds (not the expression the agent typed). A comparison nests them (`window`, `windows.before`). |
 | More pages | `nextCursor` | string \| null | Pass back as `cursor`. |
-| A list cut at `limit` or a cap, without paging | `truncated` | boolean | Never `hasMore` or `maybeMore`. The text says how to see the rest (raise `limit`, narrow `time_range`). |
+| A list cut at `limit` or a cap, without paging | `truncated` | boolean | Never `hasMore` or `maybeMore`, and never together with `nextCursor`. Only for a list that is bounded on purpose, and its description says "Not paged" and why. The text says how to see the rest (raise `limit`, narrow `time_range`). |
 | Matches New Relic reported | `total` | integer \| null | Never `totalCount`. Counts of something else are `total<Things>` (`totalMetrics`, `totalRows`). |
 | Rows dropped for being outside the connection's accounts | `hiddenOutsideScope` | boolean | On every list that filters rows by account after fetching them. |
 | Not everything ran | `partial` | boolean | With `notes: string[]` saying what is missing. |
 | A duration or a rate | ends in its unit | number | `durationMs`, `avgDurationSeconds`, `periodMinutes`, `retryAfterSeconds`, `bytesInPerSecond`. |
+
+## Paging
+
+Every list tool takes `limit`, and every list either pages or says why it is bounded (`lintNaming` checks both). A list
+pages in one of three ways, all through `packages/core/src/tools/paging.ts`; a new list picks the one that fits and
+does not write its own cursor.
+
+| The list is... | Helper | What the cursor holds |
+|---|---|---|
+| read from NerdGraph with its own cursor but no page size (alert policies and conditions, issues, incidents, error groups), or with one (entity search, dashboards, monitors, related entities) | `pageUpstream` | the upstream cursor of the page that was read, how many of its rows were shown, and for a list over a window the window of the first call |
+| newest first and read by time (`list_change_events`, `list_recent_logs`) | `pageByTime`, `timeFetchSize` | the instant of the oldest row shown, how many rows at that instant were shown, the window start |
+| held whole in memory or cache (`list_accounts`, `list_entity_types`, `list_event_types`) | `pageList` | an offset |
+
+A cursor is client input (THREAT_MODEL T3), so it is never trusted for scope:
+
+- It is `base64url(JSON)` and carries a **binding**, a hash of the tool name, the account and every filter of the list
+  (`bindingOf(tool, account, ...filters)`). It is checked again on use: a cursor of another tool, account or filter set,
+  a bare NerdGraph cursor and anything malformed is refused with `RB_INPUT_INVALID` before any request. The binding is
+  not a secret; the account, the entity and the filters always come from the call's own arguments, never from the
+  cursor, so a forged cursor can only choose where in the caller's own list to start.
+- What a cursor does carry is range-checked on use: offsets and counts are bounded, a window is checked against the
+  connection's `maxWindowDays` again.
+- `time_range` is ignored once a cursor is passed on a list over a window: the cursor keeps the first call's window, so a
+  relative window ("last 6 hours") does not slide between pages. The tool descriptions say so ("keeps the first window").
+- A bounded list (`list_top_transactions`: NRQL `FACET ... LIMIT`; `get_attributes`: one event type's attributes) has no
+  cursor, reports `truncated` and says "Not paged" with the way to see more (raise `limit`, filter).
+- Offsets count raw upstream rows before scope filtering, so hiding a row never moves a page boundary. A page can hold
+  fewer than `limit` rows when rows were hidden or filtered after fetching (`search_incidents` `contains`,
+  `list_synthetic_monitors` `monitor_type` / `status`); `nextCursor` is still returned, so keep paging until it is null.
 
 ## Text output
 

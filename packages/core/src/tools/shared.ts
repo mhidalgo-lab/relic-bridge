@@ -98,11 +98,13 @@ export function timeRangeInput(defaultWindow: string): z.ZodOptional<z.ZodString
     );
 }
 
+/** A cursor is checked on use (`paging.ts`), so the schema only bounds its size: every character counts in tools/list. */
 export const cursorInput: z.ZodOptional<z.ZodString> = z
   .string()
-  .regex(CURSOR_RE)
+  .min(1)
+  .max(4096)
   .optional()
-  .describe('nextCursor of the previous call (same filters).');
+  .describe('Previous nextCursor.');
 
 /** One account per call: NerdGraph's cursor belongs to one `account(id:)` search. */
 export function singleAccount(ctx: ToolContext, account: number | undefined): number {

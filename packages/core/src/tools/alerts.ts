@@ -11,11 +11,11 @@ import { shapeRows } from '../output/format.ts';
 import { defineTool, type ToolDefinition } from '../tool.ts';
 import { guidAgrees, isNonNull, requireField } from './entities.ts';
 import { cleanName } from './identity.ts';
+import { bindingOf, listLimit, pageUpstream } from './paging.ts';
 import {
   accountInput,
   cursorInput,
   label,
-  nextCursorOf,
   num,
   singleAccount,
   type ToolDeps,
@@ -27,6 +27,9 @@ const MAX_NAME_FILTER = 256;
 const MAX_QUERY_CHARS = 2000;
 const MAX_DESCRIPTION_CHARS = 500;
 const MAX_TERMS = 10;
+const DEFAULT_POLICIES = 50;
+const DEFAULT_CONDITIONS = 25;
+const MAX_LIMIT = 200;
 /** Policy ids are numeric strings (`AlertsPolicy.id: ID!`). */
 const POLICY_ID_RE = /^[0-9]{1,18}$/;
 
@@ -38,6 +41,7 @@ const policiesInput = z.strictObject({
     .optional()
     .describe('Part of the policy name (case-insensitive substring match).'),
   account: accountInput,
+  limit: listLimit('policies', DEFAULT_POLICIES, MAX_LIMIT),
   cursor: cursorInput,
   minimal_output: z.boolean().optional().describe('Only id, name and account of each policy.'),
 });
@@ -70,6 +74,7 @@ const conditionsInput = z.strictObject({
     .optional()
     .describe('Part of the condition NRQL query text, e.g. an event type or an app name.'),
   account: accountInput,
+  limit: listLimit('conditions', DEFAULT_CONDITIONS, MAX_LIMIT),
   cursor: cursorInput,
   minimal_output: z
     .boolean()
@@ -158,14 +163,24 @@ export function createAlertTools(deps: ToolDeps = {}): ToolDefinition[] {
     phase: 6,
     handler: async (input, ctx) => {
       const account = singleAccount(ctx, input.account);
-      const result = await client(ctx).query(ALERT_POLICIES_QUERY, {
-        accountId: account,
-        cursor: input.cursor ?? null,
-        criteria: input.name_contains ? { nameLike: input.name_contains } : {},
+      let search = undefined as { totalCount?: number | null } | null | undefined;
+      const page = await pageUpstream({
+        binding: await bindingOf('list_alert_policies', account, input.name_contains),
+        cursor: input.cursor,
+        limit: input.limit ?? DEFAULT_POLICIES,
+        fetchPage: async (upstream) => {
+          const result = await client(ctx).query(ALERT_POLICIES_QUERY, {
+            accountId: account,
+            cursor: upstream,
+            criteria: input.name_contains ? { nameLike: input.name_contains } : {},
+          });
+          const acct = requireField(result.data.actor.account, result, ctx);
+          const found = acct.alerts?.policiesSearch;
+          search = found;
+          return { items: (found?.policies ?? []).filter(isNonNull), next: found?.nextCursor };
+        },
       });
-      const acct = requireField(result.data.actor.account, result, ctx);
-      const search = acct.alerts?.policiesSearch;
-      const all = (search?.policies ?? []).filter(isNonNull);
+      const all = page.items;
       // Defence in depth (T3): a row must name the requested account, and its GUID must agree.
       const inScope = (p: (typeof all)[number]) =>
         p.accountId === account &&
@@ -178,7 +193,7 @@ export function createAlertTools(deps: ToolDeps = {}): ToolDefinition[] {
         incidentPreference: label(p.incidentPreference),
       }));
       const hiddenOutsideScope = all.some((p) => !inScope(p));
-      const nextCursor = nextCursorOf(search?.nextCursor);
+      const nextCursor = page.nextCursor;
       const total = num(search?.totalCount);
       const policies = input.minimal_output
         ? pickFields(rows, ['id', 'name', 'accountId'])
@@ -228,20 +243,36 @@ export function createAlertTools(deps: ToolDeps = {}): ToolDefinition[] {
       if (input.policy_id) criteria.policyId = input.policy_id;
       if (input.name_contains) criteria.nameLike = input.name_contains;
       if (input.query_contains) criteria.queryLike = input.query_contains;
-      const result = await client(ctx).query(ALERT_CONDITIONS_QUERY, {
-        accountId: account,
-        cursor: input.cursor ?? null,
-        criteria,
+      let search = undefined as { totalCount?: number | null } | null | undefined;
+      const page = await pageUpstream({
+        binding: await bindingOf(
+          'list_alert_conditions',
+          account,
+          input.policy_id,
+          input.name_contains,
+          input.query_contains,
+        ),
+        cursor: input.cursor,
+        limit: input.limit ?? DEFAULT_CONDITIONS,
+        fetchPage: async (upstream) => {
+          const result = await client(ctx).query(ALERT_CONDITIONS_QUERY, {
+            accountId: account,
+            cursor: upstream,
+            criteria,
+          });
+          const acct = requireField(result.data.actor.account, result, ctx);
+          const found = acct.alerts?.nrqlConditionsSearch;
+          search = found;
+          return { items: (found?.nrqlConditions ?? []).filter(isNonNull), next: found?.nextCursor };
+        },
       });
-      const acct = requireField(result.data.actor.account, result, ctx);
-      const search = acct.alerts?.nrqlConditionsSearch;
-      const all = (search?.nrqlConditions ?? []).filter(isNonNull);
+      const all = page.items;
       // Conditions carry no account id: the entity GUID is the only claim, and it must name the requested account (T3).
       const inScope = (c: (typeof all)[number]) =>
         typeof c.id === 'string' && (typeof c.entityGuid !== 'string' || guidAgrees(c.entityGuid, account));
       const rows = all.filter(inScope).map((c) => toCondition(c, ctx.accounts.allowed));
       const hiddenOutsideScope = all.some((c) => !inScope(c));
-      const nextCursor = nextCursorOf(search?.nextCursor);
+      const nextCursor = page.nextCursor;
       const total = num(search?.totalCount);
       const conditions = input.minimal_output
         ? pickFields(rows, MINIMAL_CONDITION_FIELDS)

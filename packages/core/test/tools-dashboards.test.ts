@@ -170,15 +170,18 @@ describe('list_dashboards', () => {
   it('paginates and supports minimal output', async () => {
     const { fetch, calls } = recording(() => searchBody([outline(A, G1, 'Ops')], 'abc123'));
     const client = await connect(fetch);
+    const first = await client.callTool({ name: 'list_dashboards', arguments: { limit: 1 } });
+    const c1 = (first.structuredContent as { nextCursor: string }).nextCursor;
     const r = await client.callTool({
       name: 'list_dashboards',
-      arguments: { limit: 1, cursor: 'zzz', minimal_output: true },
+      arguments: { limit: 1, cursor: c1, minimal_output: true },
     });
-    expect(calls[0]?.variables['cursor']).toBe('zzz');
+    // The upstream cursor of the first page is what the second request carries.
+    expect(calls[1]?.variables['cursor']).toBe('abc123');
     const s = r.structuredContent as { nextCursor: string; dashboards: Record<string, unknown>[] };
-    expect(s.nextCursor).toBe('abc123');
+    expect(s.nextCursor).toEqual(expect.any(String));
     expect(s.dashboards[0]).not.toHaveProperty('permalink');
-    expect(text(r)).toContain('nextCursor: abc123');
+    expect(text(r)).toContain(`nextCursor: ${s.nextCursor}`);
   });
 
   it('refuses a foreign account before any request', async () => {

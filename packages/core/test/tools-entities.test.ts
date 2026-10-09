@@ -220,14 +220,21 @@ describe('search_entities', () => {
   });
 
   it('works with the P0-09 capture and passes the cursor through', async () => {
-    const { client, calls } = await setup([fixtureResponse('entity_search_like_wildcard')], {
-      accounts: { allowed: [A], default: A },
+    const { client, calls } = await setup(
+      [searchBody([entity(A, 'first')], 'abc123=='), fixtureResponse('entity_search_like_wildcard')],
+      { accounts: { allowed: [A], default: A } },
+    );
+    const first = await client.callTool({
+      name: 'search_entities',
+      arguments: { name_contains: 'a', limit: 5 },
     });
+    const cursor = (first.structuredContent as { nextCursor: string | null }).nextCursor;
+    expect(cursor).toEqual(expect.any(String));
     const r = await client.callTool({
       name: 'search_entities',
-      arguments: { name_contains: 'a', limit: 5, cursor: 'abc123==' },
+      arguments: { name_contains: 'a', limit: 5, cursor: cursor as string },
     });
-    expect(calls[0]?.body.variables['cursor']).toBe('abc123==');
+    expect(calls[1]?.body.variables['cursor']).toBe('abc123==');
     const s = r.structuredContent as { entities: { domain: string }[]; total: number };
     expect(s.entities).toHaveLength(5);
     expect(s.total).toBe(32);
@@ -383,6 +390,7 @@ describe('get_related_entities', () => {
     expect(calls[0]?.body.variables).toEqual({
       guid: GUID_A,
       limit: 20,
+      cursor: null,
       filter: { direction: 'BOTH', entityDomainTypes: { include: [{ domain: 'APM', type: 'APPLICATION' }] } },
     });
     const s = r.structuredContent as { related: { name: string; direction: string; relationship: string }[] };

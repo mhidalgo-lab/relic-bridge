@@ -165,7 +165,10 @@ How it behaves:
 - **Failure policy:** if the object cannot be reached (an outage, or the Free plan's daily Durable Object limits),
   nothing is refused because of it: each rule falls back to the isolate bucket (a limit per isolate, the behaviour
   without the shared limiter, never "unlimited") and concurrency falls back to the isolate semaphore. A warning is
-  logged (at most once a minute per isolate). The write limit keeps failing closed only if the isolate bucket itself fails.
+  logged (at most once a minute per isolate). The exception is the write limit (`write:`, P7-24): with the object bound,
+  a write whose object cannot be reached is refused (429) instead of counted per isolate, because that would multiply
+  the 20-per-hour cap by the number of isolates; reads are unaffected. Without `RB_SHARED_LIMITER` the write limit is per
+  isolate and the Worker logs a startup warning when `RB_WRITE_TOOLS=on`; set `rules` (or `on`) when writes are enabled.
 - **Latency, not CPU:** each object request is a round trip to the data center that hosts the object (the first
   caller's), a few milliseconds nearby and more from far away; it costs wall time, not CPU, so `pnpm bench:cpu` does
   not change. With `on`, every NerdGraph call pays two round trips.

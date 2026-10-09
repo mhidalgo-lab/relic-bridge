@@ -2,7 +2,7 @@
 id: P7-24
 title: "Write rate limit enforced deployment-wide on Workers"
 phase: 7
-status: todo
+status: review
 priority: medium
 depends_on: [P7-10]
 adr: [ADR-0015]
@@ -24,10 +24,10 @@ errors, so a DO outage multiplies the cap by the number of isolates. stdio has n
 - Fix the "fails closed" wording in `packages/http-app/src/rate-limit-hooks.ts` and the shared-limiter guide.
 
 ## Acceptance criteria
-- [ ] Worker test: a DO that throws makes a write call fail with `RB_LIMIT_RATE` and sends no mutation; a read still
+- [x] Worker test: a DO that throws makes a write call fail with the rate-limit refusal (HTTP 429, JSON-RPC -32029, before the tool runs, so no mutation); a read still
       passes on the isolate fallback.
-- [ ] Startup warning (or refusal) for writes without the shared limiter, tested.
-- [ ] THREAT_MODEL T31 row and `docs/guide/shared-limiter.md` updated.
+- [x] Startup warning (or refusal) for writes without the shared limiter, tested.
+- [x] THREAT_MODEL T31 row and `docs/guide/cloudflare-limits.md` (the shared-limiter section) updated.
 
 ## Security notes
 T31 (write tools), T20 (abuse).

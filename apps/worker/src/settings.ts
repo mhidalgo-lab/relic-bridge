@@ -263,6 +263,11 @@ export function parseWorkerSettings(vars: WorkerVars): WorkerSettings {
   if (writeTools && !rateLimit) {
     warnings.push('RB_WRITE_TOOLS=on with RB_RATE_LIMIT=off: write tool calls are not rate limited.');
   }
+  if (writeTools && rateLimit && sharedLimiter === 'off') {
+    warnings.push(
+      'RB_WRITE_TOOLS=on without RB_SHARED_LIMITER: the write rate limit (20 per hour per grant) is counted per isolate, so the deployment allows a multiple of it. Set RB_SHARED_LIMITER=rules (or on).',
+    );
+  }
   if (writeTools) {
     warnings.push(
       'RB_WRITE_TOOLS=on: write tools can be enabled per project and grant (owners only). See docs/guide/security-basics.md.',

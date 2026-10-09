@@ -47,8 +47,9 @@ export interface RateLimitRules {
    */
   readonly oauth?: RateLimitRule | null;
   /**
-   * Write tool calls per grant (P7-09, ADR-0015), on top of `token` and `grant`: stricter, and it fails closed (a limiter
-   * outage refuses writes instead of allowing them). Dry runs count too. Optional for callers built before it; `null` =
+   * Write tool calls per grant (P7-09, ADR-0015), on top of `token` and `grant`: stricter. The hook fails closed: a limiter
+   * that throws refuses the write instead of allowing it. Whether the cap is deployment-wide depends on the limiter
+   * (the Workers one needs the shared limiter, and refuses a write when that store is unreachable). Dry runs count too. Optional for callers built before it; `null` =
    * off.
    */
   readonly write?: RateLimitRule | null;

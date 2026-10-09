@@ -12,8 +12,10 @@
 // and `write:` when configured, the binding for `ip:`, `token:`, `grant:`, `key:`. Without the object the former are
 // per isolate (best effort), as before P7-10: the abuse that matters on the OAuth endpoints (registrations,
 // metadata-document fetches) has its own shared storage counters (`kv.increment`) anyway.
-// An object that cannot be reached (outage, Free-plan daily limit) never fails the check: the isolate bucket's answer
-// stands, so the rule degrades to per isolate, never to "unlimited". Web-standard only.
+// An object that cannot be reached (outage, Free-plan daily limit) never fails a read-side check: the isolate bucket's
+// answer stands, so the rule degrades to per isolate, never to "unlimited". `write:` keys are the exception (P7-24):
+// writes are optional and rare, so when the object is bound and fails, the write is refused (fail closed) rather than
+// counted per isolate, which would multiply the cap by the number of isolates. Web-standard only.
 import type { RateLimit } from '@cloudflare/workers-types';
 import type { Logger } from '@relic-bridge/core';
 import {
@@ -37,6 +39,11 @@ export const DURABLE_KEY_PREFIXES: readonly string[] = Object.freeze([
   'oauth:',
   'write:',
 ]);
+
+/** Key namespaces that fail closed when the object is bound but unreachable (P7-24, ADR-0015). */
+export const FAIL_CLOSED_KEY_PREFIXES: readonly string[] = Object.freeze(['write:']);
+/** `Retry-After` for a refusal caused by an unreachable object. */
+const UNAVAILABLE_RETRY_MS = 60_000;
 
 export interface WorkersRateLimiterOptions {
   /** The Rate Limiting binding (`RATE_LIMITER`); `undefined` = isolate buckets only. */
@@ -78,7 +85,7 @@ export class WorkersRateLimiter implements RateLimiter {
     return this.#durable !== undefined && this.#durablePrefixes.some((p) => key.startsWith(p));
   }
 
-  /** Asks the key's object; on any failure, logs and answers with the isolate's result. */
+  /** Asks the key's object; on any failure, logs and answers with the isolate's result (`write:` keys: a refusal). */
   async #shared(
     key: string,
     ask: (ns: SharedLimiterNamespace) => Promise<RateLimitResult>,
@@ -93,6 +100,9 @@ export class WorkersRateLimiter implements RateLimiter {
           check: key.slice(0, key.indexOf(':') + 1),
           error: error instanceof Error ? error.name : typeof error,
         });
+      }
+      if (FAIL_CLOSED_KEY_PREFIXES.some((p) => key.startsWith(p))) {
+        return { allowed: false, retryAfterMs: UNAVAILABLE_RETRY_MS, remaining: 0 };
       }
       return fallback;
     }

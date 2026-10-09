@@ -394,3 +394,13 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Options:** P7-25 adds an owner switch requiring a human approval; P7-26 binds approvals to one attempt.
 - **Needs:** owner's call on whether `required` should become the default once real clients are checked, and whether
   Worker deployments with writes on should refuse to start without `RB_SHARED_LIMITER` (P7-24) or only warn.
+
+### P7-24 — Write rate limit deployment-wide on Workers: warn, and fail closed on a Durable Object error
+- **Context:** the 20-per-hour write cap was per isolate without `RB_SHARED_LIMITER`, and with it an object error fell
+  back to the isolate bucket.
+- **Assumption made:** (1) with the object bound, an unreachable object refuses the write (429, `Retry-After` 60 s):
+  writes are optional and rare, so availability matters less than the cap; reads keep the isolate fallback. (2)
+  `RB_WRITE_TOOLS=on` without `RB_SHARED_LIMITER` only **warns** at startup (refusing would break existing deployments
+  and the Free plan has tight object limits). The D1 conditional-update counter was not added: the object is the
+  existing seam.
+- **Needs:** owner's call whether `RB_WRITE_TOOLS=on` should refuse to start without `RB_SHARED_LIMITER`.

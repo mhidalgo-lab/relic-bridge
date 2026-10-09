@@ -8,7 +8,7 @@ import type { DurableObjectState } from '@cloudflare/workers-types';
 import type { Client } from '@modelcontextprotocol/client';
 import { setGrantQuota } from '@relic-bridge/auth';
 import type { FetchLike } from '@relic-bridge/core';
-import { MemoryRateLimiter } from '@relic-bridge/http-app';
+import { createRateLimitHooks, type McpRequestInfo, MemoryRateLimiter } from '@relic-bridge/http-app';
 import { createMemoryStorage, usagePeriods } from '@relic-bridge/storage';
 import { describe, expect, it } from 'vitest';
 import type { WorkerEnv } from '../src/env.ts';
@@ -204,6 +204,49 @@ describe('WorkersRateLimiter with the shared limiter', () => {
     expect((await rl.peek('fail:198.51.100.3', rule)).allowed).toBe(false);
     expect(lines[0]).toMatchObject({ msg: expect.stringContaining('per isolate'), check: 'fail:' });
     expect(JSON.stringify(lines)).not.toContain('198.51.100.3');
+  });
+});
+
+describe('write limit fails closed (P7-24)', () => {
+  const rule = { requests: 3, perSeconds: 300 };
+
+  it('refuses write: keys, take and peek, when the bound object is unreachable; reads keep the isolate fallback', async () => {
+    const rl = new WorkersRateLimiter({ durable: spyNamespace(true), local: new MemoryRateLimiter() });
+    expect(await rl.take('write:grt_1', rule)).toMatchObject({ allowed: false, retryAfterMs: 60_000 });
+    expect(await rl.peek('write:grt_1', rule)).toMatchObject({ allowed: false });
+    expect((await rl.take('fail:203.0.113.9', rule)).allowed).toBe(true);
+    expect((await rl.take('grant:grt_1', rule)).allowed).toBe(true);
+  });
+
+  it('without the object, write: stays on the isolate bucket (the startup warning says so)', async () => {
+    const rl = new WorkersRateLimiter({ local: new MemoryRateLimiter() });
+    expect((await rl.take('write:grt_2', rule)).allowed).toBe(true);
+  });
+
+  it('a write tool call gets 429 while a read still passes through the hooks', async () => {
+    const limiter = new WorkersRateLimiter({ durable: spyNamespace(true), local: new MemoryRateLimiter() });
+    const hooks = createRateLimitHooks({ limiter, getClientIp: () => '203.0.113.7' });
+    const info = (name: string): McpRequestInfo =>
+      ({
+        tokenId: 'tok_1',
+        grantId: 'grt_3',
+        listen: false,
+        mcpMethod: 'tools/call',
+        mcpName: name,
+        access: { tools: ['whoami', 'acknowledge_issue'], rateLimit: null },
+      }) as unknown as McpRequestInfo;
+    const c = { get: () => undefined } as never;
+    const write = await hooks.beforeMcp?.(c, info('acknowledge_issue'));
+    expect(write?.status).toBe(429);
+    expect(await hooks.beforeMcp?.(c, info('whoami'))).toBeUndefined();
+  });
+
+  it('RB_WRITE_TOOLS=on without the shared limiter warns', () => {
+    const base = { RB_WRITE_TOOLS: 'on' };
+    expect(parseWorkerSettings(base).warnings.join(' ')).toContain('without RB_SHARED_LIMITER');
+    expect(parseWorkerSettings({ ...base, RB_SHARED_LIMITER: 'rules' }).warnings.join(' ')).not.toContain(
+      'without RB_SHARED_LIMITER',
+    );
   });
 });
 

@@ -9,7 +9,7 @@
 # 10112 (Session Management Response Identified): informational; it just notes the session cookie. Its attributes are
 # checked by 10010, 10011, 10054, 10029 and 10035 style rules, which pass.
 10112	IGNORE	(Session Management Response Identified)
-# 10027 (Suspicious Comments): fires on the word "admin" in the first comment line of our own script
+# 10027 (Suspicious Comments): fires on the word "admin" in the second comment line of our own script (line 2 of `packages/admin-ui/assets/admin.js`)
 # (`// relic-bridge admin UI ...`). The build strips nothing secret into comments; the asset is public by design.
 10027	IGNORE	(Information Disclosure - Suspicious Comments)
 # 10024 (Sensitive Information in URL): the audit and grant filters are named `user`, `token` and `project`, and carry

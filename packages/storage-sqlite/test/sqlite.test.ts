@@ -93,11 +93,27 @@ describe('audit log at scale (P4-05)', () => {
       await s.close();
     }
 
-    // The plan for the unfiltered page is a primary-key seek: no scan with a sort.
+    // The plan for the unfiltered page is a primary-key seek: no scan with a sort. The statement is the one the
+    // adapter itself prepares (captured), not a copy of it.
+    const prepared: string[] = [];
+    const realPrepare = DatabaseSync.prototype.prepare;
+    DatabaseSync.prototype.prepare = function (this: DatabaseSync, sql: string) {
+      prepared.push(sql);
+      return realPrepare.call(this, sql);
+    };
+    const s2 = await openSqliteStorage({ path });
+    try {
+      await s2.auditLog.list({ beforeId: 50_000, limit: 1000 });
+    } finally {
+      DatabaseSync.prototype.prepare = realPrepare;
+      await s2.close();
+    }
+    const adapterSql = prepared.find((q) => q.startsWith('SELECT * FROM audit_log'));
+    expect(adapterSql).toBeDefined();
     const check = new DatabaseSync(path);
     try {
       const plan = check
-        .prepare('EXPLAIN QUERY PLAN SELECT * FROM audit_log WHERE id < ? ORDER BY id DESC LIMIT ?')
+        .prepare(`EXPLAIN QUERY PLAN ${adapterSql}`)
         .all(50_000, 1000)
         .map((r) => String((r as { detail: string }).detail))
         .join(' | ');

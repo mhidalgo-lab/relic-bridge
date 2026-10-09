@@ -57,6 +57,8 @@ import {
   listAll,
   listOne,
   loadFailed,
+  OwnerOnlyNote,
+  ownerLock,
   problemOf,
   StatusBadge,
   When,
@@ -149,7 +151,7 @@ function addPage(
           options={[
             { value: '', label: 'Shared' },
             ...users
-              .filter((u) => u.disabledAt === null)
+              .filter((u) => u.disabledAt === null && !ownerLock(viewer, users)(u.id))
               .map((u) => ({ value: u.id, label: `Personal: ${u.email}` })),
           ]}
         />
@@ -190,6 +192,8 @@ function detailPage(
   owner: string,
   usage: Usage | null,
   opts: {
+    /** An administrator looking at an owner's key: no controls (the API answers 403 owner). */
+    readonly locked?: boolean;
     readonly flash?: FlashMessage | null;
     readonly renameError?: string | undefined;
     readonly label?: string | undefined;
@@ -222,7 +226,9 @@ function detailPage(
             ['Added', <When at={cred.createdAt} />],
           ]}
         />
-        {stored ? (
+        {opts.locked === true ? (
+          <OwnerOnlyNote />
+        ) : stored ? (
           <div class="actions">
             <Form action={`${self}/revalidate`} csrf={viewer.csrf} label="Check again">
               <Button variant="secondary">Check again with New Relic</Button>
@@ -256,33 +262,37 @@ function detailPage(
         )}
       </section>
 
-      <section aria-labelledby="rename-heading">
-        <h2 id="rename-heading">Rename</h2>
-        <Form action={`${self}/rename`} csrf={viewer.csrf} label="Rename">
-          <TextField
-            name="label"
-            label="Name"
-            value={opts.label ?? cred.label}
-            required
-            maxlength={100}
-            error={opts.renameError}
-          />
-          <Button>Save name</Button>
-        </Form>
-      </section>
+      {opts.locked === true ? null : (
+        <section aria-labelledby="rename-heading">
+          <h2 id="rename-heading">Rename</h2>
+          <Form action={`${self}/rename`} csrf={viewer.csrf} label="Rename">
+            <TextField
+              name="label"
+              label="Name"
+              value={opts.label ?? cred.label}
+              required
+              maxlength={100}
+              error={opts.renameError}
+            />
+            <Button>Save name</Button>
+          </Form>
+        </section>
+      )}
 
-      <section aria-labelledby="delete-heading">
-        <h2 id="delete-heading">Delete</h2>
-        <p>Deleting removes the encrypted key. It is refused while a project or grant still uses it.</p>
-        <ConfirmAction
-          action={`${self}/delete`}
-          csrf={viewer.csrf}
-          summary="Delete this key…"
-          confirm={`Delete ${cred.label} for good`}
-        >
-          <p>Clients using it stop working at once. This cannot be undone.</p>
-        </ConfirmAction>
-      </section>
+      {opts.locked === true ? null : (
+        <section aria-labelledby="delete-heading">
+          <h2 id="delete-heading">Delete</h2>
+          <p>Deleting removes the encrypted key. It is refused while a project or grant still uses it.</p>
+          <ConfirmAction
+            action={`${self}/delete`}
+            csrf={viewer.csrf}
+            summary="Delete this key…"
+            confirm={`Delete ${cred.label} for good`}
+          >
+            <p>Clients using it stop working at once. This cannot be undone.</p>
+          </ConfirmAction>
+        </section>
+      )}
     </Layout>
   );
 }
@@ -369,7 +379,11 @@ export function registerCredentials(ui: Hono, kit: UiKit): void {
   ) => {
     const users = await usersById(kit, c, principal);
     const usage = await usageOf(c, principal, cred.id);
-    return htmlResponse(detailPage(principal, cred, ownerText(cred, users), usage, opts), status);
+    const locked = ownerLock(principal, [...users.values()])(cred.ownerUserId);
+    return htmlResponse(
+      detailPage(principal, cred, ownerText(cred, users), usage, { ...opts, locked }),
+      status,
+    );
   };
 
   ui.get(
@@ -489,7 +503,10 @@ export function registerCredentials(ui: Hono, kit: UiKit): void {
       const users = await usersById(kit, c, page.principal);
       const usage = await usageOf(c, page.principal, cred.id);
       return page.html(
-        detailPage(page.principal, cred, ownerText(cred, users), usage, { flash: page.flash }),
+        detailPage(page.principal, cred, ownerText(cred, users), usage, {
+          flash: page.flash,
+          locked: ownerLock(page.principal, [...users.values()])(cred.ownerUserId),
+        }),
       );
     }),
   );

@@ -165,7 +165,7 @@ Generated from task front matter (`pnpm tasks index` once P0-05 lands). Status l
 | P4-17 | [Cap live sessions per user and revoke them in bounded batches](tasks/phase-4-identity-admin/P4-17-session-cap-batched-revoke.md) | medium | P4-02 | review |
 | P4-18 | [Tighten member key switching and personal keys as project defaults](tasks/phase-4-identity-admin/P4-18-member-key-switch-rules.md) | low | P4-10 | review |
 | P4-19 | [Bound the storage writes signed-in users can cause](tasks/phase-4-identity-admin/P4-19-bound-self-service-writes.md) | low | P4-07, P4-10 | review |
-| P4-20 | [Phase 4 test, docs and UI hygiene from the consolidation review](tasks/phase-4-identity-admin/P4-20-phase-4-hygiene.md) | low | P4-08 | todo |
+| P4-20 | [Phase 4 test, docs and UI hygiene from the consolidation review](tasks/phase-4-identity-admin/P4-20-phase-4-hygiene.md) | low | P4-08 | review |
 
 ### Phase 5
 

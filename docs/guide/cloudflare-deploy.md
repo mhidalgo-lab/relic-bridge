@@ -299,7 +299,17 @@ lists only their names). Ids, the issuer and the public URL are not secret and a
 whose secret already exists keeps it when you leave the secret empty. Everything is asked before anything is sent, and
 `--dry-run` asks nothing.
 
-Cloudflare Access is not part of the prompts: set `RB_CF_ACCESS_TEAM` and `RB_CF_ACCESS_AUD` as variables in the dashboard.
+The script does **not** set these; add them as variables in the dashboard (Settings, Variables) when you need them, and they
+survive later runs because of `--keep-vars`:
+
+| Variable | What for |
+|---|---|
+| `RB_LOGIN_ALLOW_EMAILS`, `RB_LOGIN_ALLOW_DOMAINS`, `RB_LOGIN_ALLOW_GITHUB_ORGS` | Who may sign in without a pre-created user (comma-separated; deny by default). |
+| `RB_LOGIN_AUTO_PROVISION` | `off` (default), `member` or `admin`: the role of a user created at first sign-in. |
+| `RB_GOOGLE_HOSTED_DOMAIN` | Restrict Google sign-in to one Workspace domain. |
+| `RB_SESSION_IDLE_MINUTES`, `RB_SESSION_MAX_HOURS` | Session lifetime (5 to 1440 minutes idle, default 30; 1 to 168 hours, default 12). |
+| `RB_CF_ACCESS_TEAM`, `RB_CF_ACCESS_AUD` | Cloudflare Access as a sign-in provider. |
+
 When it finishes, the script prints the redirect URL to register with each provider
 (`<RB_PUBLIC_URL>/auth/callback/<provider>`) and the next step, the first owner's link:
 

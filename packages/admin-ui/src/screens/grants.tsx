@@ -60,6 +60,8 @@ import {
   listOne,
   loadFailed,
   Notes,
+  OwnerOnlyNote,
+  ownerLock,
   positiveInt,
   problemOf,
   RowAction,
@@ -147,7 +149,7 @@ function grantFormPage(props: GrantFormProps) {
           error={props.errors['userId']}
           options={[
             ...props.users
-              .filter((u) => u.disabledAt === null)
+              .filter((u) => u.disabledAt === null && !ownerLock(props.viewer, props.users)(u.id))
               .map((u) => ({
                 value: u.id,
                 label: u.displayName ? `${u.displayName} <${u.email}>` : u.email,
@@ -176,10 +178,12 @@ function grantFormPage(props: GrantFormProps) {
                 ? `Project default: ${credentialOption(def)}`
                 : 'Project default (the project has none)',
             },
-            ...props.credentials.map((c) => ({
-              value: c.id,
-              label: `${c.ownerUserId === null ? 'Shared' : `Personal (${emails.get(c.ownerUserId) ?? c.ownerUserId})`}: ${credentialOption(c)}`,
-            })),
+            ...props.credentials
+              .filter((c) => !ownerLock(props.viewer, props.users)(c.ownerUserId))
+              .map((c) => ({
+                value: c.id,
+                label: `${c.ownerUserId === null ? 'Shared' : `Personal (${emails.get(c.ownerUserId) ?? c.ownerUserId})`}: ${credentialOption(c)}`,
+              })),
           ]}
         />
         <ToolChecklist
@@ -551,6 +555,9 @@ export function registerGrants(ui: Hono, kit: UiKit): void {
       const t = now();
       const self = `${BASE}${adminPath`/${grant.id}`}`;
       const active = grant.revokedAt === null;
+      // An administrator gets `403 owner` on an owner's grant or on a grant using an owner's key: no controls then.
+      const credentialOwner = (credentials ?? []).find((k) => k.id === grant.credentialId)?.ownerUserId;
+      const locked = ownerLock(principal, users)(grant.userId, credentialOwner);
       return page.html(
         <Layout
           title={`Grant: ${grantFor(grant, emails)}`}
@@ -605,7 +612,7 @@ export function registerGrants(ui: Hono, kit: UiKit): void {
 
           <section aria-labelledby="tokens-heading">
             <h2 id="tokens-heading">Device tokens</h2>
-            {active ? (
+            {active && !locked ? (
               <div class="actions page-actions">
                 <LinkButton href={withQuery('/admin/tokens/new', { grant: grant.id })}>
                   New device token
@@ -615,14 +622,15 @@ export function registerGrants(ui: Hono, kit: UiKit): void {
             {tokens === null ? (
               <p class="muted">The tokens could not be loaded.</p>
             ) : (
-              <TokenTable tokens={tokens} viewer={principal} now={t} />
+              <TokenTable tokens={tokens} viewer={principal} now={t} locked={locked} />
             )}
           </section>
 
           <section aria-labelledby="danger-heading">
             <h2 id="danger-heading">Revoke or delete</h2>
             <p>The API cannot change a grant: to change it, create a new one and revoke this one.</p>
-            {active ? (
+            {locked ? <OwnerOnlyNote /> : null}
+            {active && !locked ? (
               <ConfirmAction
                 action={`${self}/revoke`}
                 csrf={principal.csrf}
@@ -634,14 +642,16 @@ export function registerGrants(ui: Hono, kit: UiKit): void {
                 </p>
               </ConfirmAction>
             ) : null}
-            <ConfirmAction
-              action={`${self}/delete`}
-              csrf={principal.csrf}
-              summary="Delete this grant…"
-              confirm="Delete the grant for good"
-            >
-              <p>The grant and its device tokens are deleted. This cannot be undone.</p>
-            </ConfirmAction>
+            {locked ? null : (
+              <ConfirmAction
+                action={`${self}/delete`}
+                csrf={principal.csrf}
+                summary="Delete this grant…"
+                confirm="Delete the grant for good"
+              >
+                <p>The grant and its device tokens are deleted. This cannot be undone.</p>
+              </ConfirmAction>
+            )}
           </section>
         </Layout>,
       );
@@ -691,6 +701,8 @@ export function TokenTable(props: {
   readonly tokens: readonly Token[];
   readonly viewer: UiPrincipal;
   readonly now: number;
+  /** The grant is an owner's and the viewer is an administrator: the API refuses a revoke (403 owner). */
+  readonly locked?: boolean;
 }): JSX.Element {
   return (
     <DataTable
@@ -706,7 +718,7 @@ export function TokenTable(props: {
         {
           header: 'Action',
           cell: (t) =>
-            t.revokedAt === null ? (
+            t.revokedAt === null && props.locked !== true ? (
               <RowAction
                 action={adminPath`/admin/tokens/${t.id}/revoke`}
                 csrf={props.viewer.csrf}

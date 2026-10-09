@@ -402,7 +402,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   their own key stays usable: admins still grant other users on it (the owner chose to share the key with the project).
 - **Options:** (a) keep; (b) also refuse admins any grant on a project whose default is an owner's personal key;
   (c) drop the rule and trust admins with everything but `/users` owners (the pre-review behaviour).
-- **Needs:** owner confirmation; the panel still shows the controls that now lead to the 403 page (P4-20).
+- **Needs:** owner confirmation; the panel now hides those controls from administrators (P4-20).
 
 ### Review — Members and pinned keys, personal keys as project defaults
 - **Context:** a member can reset an administrator-pinned key on their grant to the project default
@@ -474,3 +474,15 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   over, so a burst right at the cap may be refused entirely rather than admitting exactly the remainder.
 - **Options:** (a) keep; (b) raise the handle cap; (c) conditional-insert SQL for exact caps (needs a storage API change).
 - **Needs:** nothing unless the 10 is too low in practice.
+
+## P4-20 hygiene
+
+### P4-20 — No `audit.export` row for CSV exports; sign-in limit stays per isolate on Workers
+- **Context:** Review I2, M2. The task offered both as "consider".
+- **Assumption made:** neither built. The export has no audit hook in the panel kit and reads are not audited anywhere;
+  the Rate Limiting binding has a single 600/60 s rule, so sharing the `signin:` prefix would not enforce the 60 per
+  5 min sign-in rule (see the task's Outcome).
+- **Options:** (a) keep; (b) new task: audit hook in the panel kit and an `audit.export` row (kind `admin`, filter
+  recorded, row count); (c) a second binding with its own limit for `signin:` (changes `wrangler.jsonc`, a deploy
+  setting) or wait for the Durable Object limiter (P7-10).
+- **Needs:** owner choice only if either matters to you.

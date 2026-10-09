@@ -140,6 +140,11 @@ values and connect snippets are masked. Each picture has a light and a dark vers
 ![Keys list](images/keys-light.png#gh-light-mode-only)
 ![Keys list](images/keys-dark.png#gh-dark-mode-only)
 
+### Projects list
+
+![Projects list](images/projects-light.png#gh-light-mode-only)
+![Projects list](images/projects-dark.png#gh-dark-mode-only)
+
 ### New project
 
 ![New project](images/project-new-light.png#gh-light-mode-only)

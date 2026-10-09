@@ -12,6 +12,7 @@ Worker serve the same pages. This page is for people adding screens (P4-04 and l
 | `src/kit.ts` | `kit.page`, `kit.form`, `kit.callAdmin`, `kit.redirect`, `adminPath`, `pageFetchProblem`. |
 | `src/components.tsx` | `Layout`, `Nav` (`NAV_ITEMS`), `Flash`, `Form`, `QueryForm`, `TextField`, `SelectField`, `Checkbox`, `Button`, `LinkButton`, `ConfirmAction` (`CONFIRM_FIELD`), `SecretOnce`, `DataTable`, `Pager`, `Badge`, `Facts`, `Time`, `localHref`. |
 | `src/pages.tsx` | `htmlResponse`, `renderDocument`, `LoginPage`, `MessagePage`, `errorPage`. |
+| `src/snippets.ts`, `src/snippets.tsx` | `clientSnippets` / `endpointFor` (pure text of the client configuration snippets, endpoint from `RB_PUBLIC_URL`) and `SnippetList` (the shared Connect and one-time token list). |
 | `src/flash.ts` | The flash catalogue (`FLASH_MESSAGES`, `FlashCode`). |
 | `src/headers.ts` | `UI_CSP`, `PERMISSIONS_POLICY`, `UI_PAGE_HEADERS`. |
 | `src/screens/*.tsx` | One file per screen, exporting `register<Screen>(ui, kit)`. `overview.tsx` is the smallest; `tokens.tsx` shows lists, two-step forms, confirmations and the one-time secret page. |

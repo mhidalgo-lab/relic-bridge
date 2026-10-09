@@ -48,6 +48,9 @@ export interface WorkerVars {
   readonly RB_LOGIN_ALLOW_GITHUB_ORGS?: string;
   /** `off` (default), `member` or `admin`. */
   readonly RB_LOGIN_AUTO_PROVISION?: string;
+  /** Admin session timeouts: idle minutes (5-1440, default 30) and absolute hours (1-168, default 12). */
+  readonly RB_SESSION_IDLE_MINUTES?: string;
+  readonly RB_SESSION_MAX_HOURS?: string;
 }
 
 /** Secret bindings. Values are read once per isolate at boot and kept only inside the keyring / admin verifier. */

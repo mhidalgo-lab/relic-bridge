@@ -2,11 +2,11 @@
 id: P4-20
 title: "Phase 4 test, docs and UI hygiene from the consolidation review"
 phase: 4
-status: todo
+status: review
 priority: low
 depends_on: [P4-08]
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P4-20 — Phase 4 test, docs and UI hygiene from the consolidation review
@@ -37,8 +37,34 @@ task criteria claim and the guides match the code.
   export. Consider sharing the `signin:` rate-limit prefix through the Workers binding (`apps/worker/src/rate-limit.ts`).
 
 ## Acceptance criteria
-- [ ] Each bullet above done or explicitly dropped with a reason in this file.
-- [ ] `pnpm lint && pnpm typecheck && pnpm test && pnpm test:workers` green.
+- [x] Each bullet above done or explicitly dropped with a reason in this file.
+- [x] `pnpm lint && pnpm typecheck && pnpm test && pnpm test:workers` green.
+
+## Outcome
+Done:
+- Q1 CSP: `packages/admin-ui/test/app.test.ts` asserts the literal policy once and compares headers to it.
+- Q2 `EXPLAIN`: `sqlite.test.ts` captures the SQL the adapter prepares for `auditLog.list({ beforeId })` and explains that.
+- Q3 CPU benchmark: `admin.asset` and `admin.overview` scenarios in `apps/worker/bench/cpu.bench.ts`; baseline entries
+  were scaled from a run on a faster machine (calibration ratio), refresh with `pnpm bench:cpu --update` on a quiet one.
+- Q3 axe contrast: not covered in Playwright; instead stated in P4-03 (jsdom cannot compute it; the tokens are checked by
+  `contrast.test.ts` and the pages use only those tokens).
+- Q4 parity: `packages/http-app/test/authz/ui-role-parity.test.ts` (rank tables equal; every nav page is reachable
+  exactly by the roles the menu shows it to).
+- Q5: `member-self-service.test.ts` runs 401 / foreign origin / CSRF refusals over every `/me/*` route of the matrix.
+- L9: panel hides controls on an owner's keys, grants and tokens from administrators and no longer offers owners or
+  their keys in the add-key and new-grant pickers (`ui-owner-assets.test.ts`).
+- Q6-Q8, Q10: docs and `env.ts` as listed (`projects-{light,dark}.png` are now referenced from the admin panel guide;
+  the component file was not renamed).
+- Q9: login-transaction cookie named twice is no cookie (test in `identity.test.ts`).
+
+Dropped, with reasons:
+- **Sharing the `signin:` prefix through the Workers binding.** The binding has one fixed rule (600 per 60 s per
+  location, `wrangler.jsonc`); the sign-in rule is 60 per 5 min per IP. Adding the prefix would count sign-ins in that
+  600 and only trip far above the intended limit, so it would look like a shared limit while not being one. The real fix
+  is the Durable Object limiter (P7-10); the docs already say the sign-in limit is per isolate on Workers.
+- **`audit.export` row per CSV export.** The CSV is built by the panel through in-process admin API calls, each already
+  charged to the per-IP limit; a row needs an audit hook in the panel kit (it has none) or a new API route. Logged in
+  `docs/pending-decisions/phase-4.md` for the owner (reads are not audited anywhere today, I2).
 
 ## Security notes
 T13 (CSP, CSRF coverage), T20 (sign-in limit on Workers). No new attack surface.

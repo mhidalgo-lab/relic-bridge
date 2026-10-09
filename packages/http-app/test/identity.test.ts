@@ -306,6 +306,19 @@ describe('redirect login (generic OIDC)', () => {
     expect(idp.tokenRequests).toEqual([]); // the code was never exchanged
   });
 
+  it('a login cookie named twice is no cookie (cookie tossing), even when one copy is the real one', async () => {
+    await storage.users.create({ id: 'usr_1', email: 'owner@example.com', role: 'owner' });
+    const app = makeApp();
+    const start = await get(app, '/auth/login/oidc');
+    const callback = await idp.authorize(start.res.headers.get('location') as string);
+    const real = (start.res.headers.get('set-cookie') ?? '').split(';')[0] as string;
+    const forged = '__Host-rb_login=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+    const path = `${callback.pathname}${callback.search}`;
+    expect((await get(app, path, { cookie: `${real}; ${forged}` })).res.status).toBe(400);
+    expect((await get(app, path, { cookie: `${forged}; ${real}` })).res.status).toBe(400);
+    expect(idp.tokenRequests).toEqual([]);
+  });
+
   it('provider mix-up: a state started for one provider is refused at another callback', async () => {
     await storage.users.create({ id: 'usr_1', email: 'owner@example.com', role: 'owner' });
     const app = makeApp();

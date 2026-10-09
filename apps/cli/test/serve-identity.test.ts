@@ -84,8 +84,13 @@ describe('serve: sign-in over a localhost redirect', () => {
       const callback = atIdp.headers.get('location') as string;
       expect(callback.startsWith(`${base}/auth/callback/oidc?`)).toBe(true);
       const done = await fetch(callback, { redirect: 'manual', headers: { cookie } });
-      expect(done.status).toBe(200);
-      expect(await done.text()).toContain('Signed in as owner@example.com (owner)');
+      // Sign-in ends in an admin session (P4-02): cookie, then 303 to the admin.
+      expect(done.status).toBe(303);
+      expect(done.headers.get('location')).toBe('/admin');
+      const session = (done.headers.getSetCookie().find((c) => c.startsWith('rb_session=')) ?? '').split(
+        ';',
+      )[0] as string;
+      expect(session).toMatch(/^rb_session=usr_[0-9a-f]+\.[A-Za-z0-9_-]{43}$/);
 
       const users = await fetch(`${base}/api/admin/v1/users`, {
         headers: { authorization: `Bearer ${admin}` },
@@ -94,12 +99,37 @@ describe('serve: sign-in over a localhost redirect', () => {
       expect(body.data.map((u) => [u.email, u.role, u.idp])).toEqual([
         ['owner@example.com', 'owner', 'oidc:oidc'],
       ]);
+      // The session works on the admin API: who am I, a change with the CSRF token, refusal without it, logout.
+      const me = await fetch(`${base}/api/admin/v1/session`, { headers: { cookie: session } });
+      expect(me.status).toBe(200);
+      const csrf = ((await me.json()) as { data: { role: string; csrfToken: string } }).data;
+      expect(csrf.role).toBe('owner');
+      const change = (headers: Record<string, string>) =>
+        fetch(`${base}/api/admin/v1/users`, {
+          method: 'POST',
+          headers: { cookie: session, 'content-type': 'application/json', ...headers },
+          body: JSON.stringify({ email: 'second@example.com' }),
+        });
+      expect((await change({ origin: base })).status).toBe(403);
+      expect((await change({ origin: base, 'x-csrf-token': csrf.csrfToken })).status).toBe(201);
+      const logout = await fetch(`${base}/auth/logout`, {
+        method: 'POST',
+        redirect: 'manual',
+        headers: { cookie: session, origin: base, 'content-type': 'application/x-www-form-urlencoded' },
+        body: `_csrf=${csrf.csrfToken}`,
+      });
+      expect(logout.status).toBe(303);
+      expect((await fetch(`${base}/api/admin/v1/session`, { headers: { cookie: session } })).status).toBe(
+        401,
+      );
+
       // Discovery, token and JWKS went over real loopback HTTP.
       expect(idp.calls.some((c) => c.endsWith('/token'))).toBe(true);
       expect(idp.jwksFetches()).toBe(1);
       const out = lines.join('\n');
       expect(out).toContain('"signIn"');
       expect(out).not.toContain(MOCK_CLIENT_SECRET);
+      expect(out).not.toContain(session.split('=')[1] as string);
       expect(out).not.toContain(link.split('setup=')[1] as string);
     } finally {
       await server.close();

@@ -41,7 +41,7 @@ first deploy.
 | `RB_RATE_LIMIT` | `on` | `off` disables rate limiting (isolate buckets and the `RATE_LIMITER` binding). The binding's own limit (default 600 per 60 s per key) is set in `wrangler.jsonc`. |
 | `RB_PASSTHROUGH` | `off` | `on` enables `/passthrough/mcp`; it needs `RB_FINGERPRINT_SECRET` and the `RATE_LIMITER` binding, otherwise the boot fails (503). |
 | `RB_LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error`. Logs go to Workers Logs, redacted. |
-| `RB_PUBLIC_URL`, `RB_GOOGLE_CLIENT_ID`, `RB_GOOGLE_HOSTED_DOMAIN`, `RB_GITHUB_CLIENT_ID`, `RB_OIDC_*`, `RB_CF_ACCESS_TEAM`, `RB_CF_ACCESS_AUD`, `RB_LOGIN_*` | off | Admin sign-in (P4-01): see the [identity providers guide](../../docs/guide/identity-providers.md). A half-configured provider fails the boot. |
+| `RB_PUBLIC_URL`, `RB_GOOGLE_CLIENT_ID`, `RB_GOOGLE_HOSTED_DOMAIN`, `RB_GITHUB_CLIENT_ID`, `RB_OIDC_*`, `RB_CF_ACCESS_TEAM`, `RB_CF_ACCESS_AUD`, `RB_LOGIN_*`, `RB_SESSION_IDLE_MINUTES`, `RB_SESSION_MAX_HOURS` | off | Admin sign-in (P4-01) and admin sessions (P4-02, default 30 min idle / 12 h): see the [identity providers guide](../../docs/guide/identity-providers.md) and [admin access](../../docs/guide/admin-access.md). A half-configured provider fails the boot. |
 
 An invalid value (or a missing/wrong master key) fails closed: every request answers 503 and one log line names the
 problem, never a secret value. Failed boots back off (5 s, then 15 s, then 60 s between attempts; a success resets it)

@@ -479,9 +479,16 @@ export async function startServer(options: StartServerOptions): Promise<RunningS
     hsts: settings.hsts,
     ...(hooks === undefined ? {} : { hooks }),
     ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
-    ...(adminToken === undefined
+    // Admin API: the bootstrap token, admin sessions (sign-in configured, P4-02), or both.
+    ...(adminToken === undefined && settings.identity === null
       ? {}
-      : { admin: { token: new Secret(adminToken), storage, ...(audit === undefined ? {} : { audit }) } }),
+      : {
+          admin: {
+            ...(adminToken === undefined ? {} : { token: new Secret(adminToken) }),
+            storage,
+            ...(audit === undefined ? {} : { audit }),
+          },
+        }),
     ...(settings.passthrough === null
       ? {}
       : { passthrough: { identityTtlMs: settings.passthrough.identityTtlMs } }),
@@ -495,6 +502,8 @@ export async function startServer(options: StartServerOptions): Promise<RunningS
             }),
             policy: settings.identity.policy,
             storage,
+            // Sign-in ends in an admin session (cookie, CSRF token, roles): `createHttpApp`'s `onLogin`.
+            session: { timeouts: settings.identity.session },
             ...(audit === undefined ? {} : { audit }),
           },
         }),
@@ -544,7 +553,10 @@ export async function startServer(options: StartServerOptions): Promise<RunningS
     cors: settings.corsOrigins.length > 0,
     rateLimit: settings.rateLimits !== null,
     audit: settings.audit.enabled ? settings.audit.nrql : 'off',
-    adminApi: adminToken === undefined ? 'off' : `${url}/api/admin/v1`,
+    adminApi:
+      adminToken === undefined && settings.identity === null
+        ? 'off'
+        : `${url}/api/admin/v1 (${[adminToken === undefined ? null : 'token', settings.identity === null ? null : 'sessions'].filter((x) => x !== null).join(', ')})`,
     trustedProxyHops: settings.trustedProxyHops,
     passthrough: settings.passthrough === null ? 'off' : `${url}${PASSTHROUGH_PATH}`,
     signIn:

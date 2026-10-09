@@ -451,3 +451,26 @@ database.
   3-day `minimumReleaseAge`).
 - **RFC 9207** (`iss` in the authorization response) is advertised by `authorization_response_iss_parameter_supported`;
   when advertised it must be present, when present it must equal the issuer.
+
+## 17. Browser session cookies and CSRF signals (P4-02, from documentation 2026-10-03, not re-measured)
+
+- **`__Host-` prefix** (RFC 6265bis §4.1.3.2): the browser accepts the cookie only with `Secure`, `Path=/` and no
+  `Domain`, from a secure origin, so a sibling subdomain can neither set nor overwrite it (cookie tossing). Browsers
+  refuse it over plain http, hence `rb_session` on http loopback (`parsePublicUrl` allows http only for loopback).
+  Source: https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Set-Cookie#cookie_prefixes.
+- **SameSite**: `Lax` cookies are sent on top-level `GET` navigations from other sites and withheld on cross-site
+  subresources, `fetch`, and `POST` forms; `Strict` cookies are withheld on any request whose navigation chain started
+  on another site, including the redirect chain IdP → `/auth/callback` → `/admin`, so the first admin page after an
+  IdP sign-in would arrive without the session. Source: RFC 6265bis §5.2 ("same-site" requests and redirects),
+  https://web.dev/articles/samesite-cookies-explained.
+- **Fetch metadata**: `Sec-Fetch-Site` is `same-origin`, `same-site`, `cross-site` or `none` (user-initiated: typed
+  URL, bookmark), sent by Chromium, Firefox and Safari (16.4+) on every request. Source:
+  https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Sec-Fetch-Site and https://web.dev/articles/fetch-metadata.
+- **`Origin`** is sent on every `POST`/`PUT`/`PATCH`/`DELETE` by current browsers, same-origin ones included (Fetch
+  standard, "append a request `Origin` header"); `GET`/`HEAD` same-origin requests may omit it. OWASP's CSRF cheat
+  sheet recommends a synchronizer token plus Origin/fetch-metadata verification as defence in depth.
+  Source: https://fetch.spec.whatwg.org/#origin-header,
+  https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html.
+- Session guidance (idle 15-30 min, absolute 4-8 h for high-value apps; rotate the id at login; server-side
+  invalidation on logout): https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html. We default
+  to 30 min / 12 h (a personal admin used from a phone) and let `RB_SESSION_*` tighten it.

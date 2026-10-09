@@ -80,8 +80,33 @@ describe('sign-in on the Worker', () => {
     // Another isolate (another Worker instance) finishes the login: the transaction lives in D1.
     const b = worker();
     const done = await send(b, workerEnv, `${callback.pathname}${callback.search}`, { headers: { cookie } });
-    expect(done.res.status).toBe(200);
-    expect(done.text).toContain('Signed in as owner@example.com (owner)');
+    // Sign-in ends in an admin session in D1 (P4-02): any isolate accepts it, and a logout anywhere ends it.
+    expect(done.res.status).toBe(303);
+    expect(done.res.headers.get('location')).toBe('/admin');
+    const session = (
+      done.res.headers.getSetCookie().find((c) => c.startsWith('__Host-rb_session=')) ?? ''
+    ).split(';')[0] as string;
+    expect(done.res.headers.getSetCookie().join('\n')).toMatch(
+      /__Host-rb_session=usr_[0-9a-f]+\.[A-Za-z0-9_-]{43}; Path=\/; Max-Age=43200; HttpOnly; SameSite=Lax; Secure/,
+    );
+    const me = await send(a, workerEnv, '/api/admin/v1/session', { headers: { cookie: session } });
+    expect(me.res.status).toBe(200);
+    const csrf = (JSON.parse(me.text) as { data: { csrfToken: string; role: string } }).data;
+    expect(csrf.role).toBe('owner');
+    const logout = await send(b, workerEnv, '/auth/logout', {
+      method: 'POST',
+      headers: {
+        cookie: session,
+        origin: PUBLIC,
+        'sec-fetch-site': 'same-origin',
+        'content-type': 'application/x-www-form-urlencoded',
+      },
+      body: `_csrf=${csrf.csrfToken}`,
+    });
+    expect(logout.res.status).toBe(303);
+    expect(
+      (await send(a, workerEnv, '/api/admin/v1/session', { headers: { cookie: session } })).res.status,
+    ).toBe(401);
     // Replay on the first isolate: consumed.
     const replay = await send(a, workerEnv, `${callback.pathname}${callback.search}`, {
       headers: { cookie },
@@ -94,7 +119,13 @@ describe('sign-in on the Worker', () => {
     ]);
     const actions = (await storage.auditLog.list({ limit: 50 })).map((r) => `${r.action}:${r.status}`);
     expect(actions).toEqual(
-      expect.arrayContaining(['setup_link.create:ok', 'login.ok:ok', 'login.denied:denied']),
+      expect.arrayContaining([
+        'setup_link.create:ok',
+        'login.ok:ok',
+        'login.denied:denied',
+        'session.create:ok',
+        'session.revoke:ok',
+      ]),
     );
     const out = lines.join('\n');
     expect(out).not.toContain(MOCK_CLIENT_SECRET);
@@ -109,7 +140,7 @@ describe('sign-in on the Worker', () => {
     const ok = await send(w, workerEnv, '/auth/cf-access', {
       headers: { 'cf-access-jwt-assertion': await idp.accessAssertion() },
     });
-    expect(ok.res.status).toBe(200);
+    expect(ok.res.status).toBe(303);
     expect((await storage.users.get('usr_cf'))?.idp).toBe('cf-access');
     for (const claims of [{ aud: ['b'.repeat(64)] }, { exp: Math.floor(Date.now() / 1000) - 600 }]) {
       const res = await send(w, workerEnv, '/auth/cf-access', {

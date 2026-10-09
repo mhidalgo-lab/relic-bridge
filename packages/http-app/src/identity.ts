@@ -5,8 +5,10 @@
 //   GET /auth/login/:provider       starts a redirect login: transaction in storage + binding cookie → 302 to the IdP
 //   GET /auth/callback/:provider    finishes it: consume the transaction once, exchange the code, verify, map to a user
 //   GET /auth/cf-access             Cloudflare Access: verify the `Cf-Access-Jwt-Assertion` header, map to a user
+//   POST /auth/logout               ends the browser's session (P4-02; CSRF token + same-origin), `everywhere=1`: all
 //
-// The routes end at a verified, allowed user record and hand it to `onLogin`; turning that into a session is P4-02.
+// The routes end at a verified, allowed user record and hand it to `onLogin`; `createHttpApp` turns that into a
+// session (P4-02, `session.ts`).
 // Every outcome is audited (`auth` / `login.ok` | `login.denied`); the browser gets one generic failure page whose
 // only detail is the request id. Nothing here reads the `Authorization` header: bearer tokens confer nothing.
 import {
@@ -29,6 +31,9 @@ import {
 import type { Clock, Logger } from '@relic-bridge/core';
 import type { Storage, UserRecord } from '@relic-bridge/storage';
 import { type Context, Hono } from 'hono';
+import { bodyLimit } from 'hono/body-limit';
+import type { AdminAuditEvent } from './audit.ts';
+import { CSRF_FIELD, CSRF_HEADER, type SessionManager, type SessionOptions } from './session.ts';
 
 export const IDENTITY_BASE: '/auth' = '/auth';
 /** Where a login continues when no (valid) `next` was given. */
@@ -66,12 +71,17 @@ export interface IdentityOptions {
   readonly policy: LoginPolicy;
   readonly storage: StorageForIdentity;
   /**
-   * Called with the verified, allowed user; its Response is sent (P4-02: set the session cookie, redirect to
-   * `login.next`). Default: a page naming the signed-in user (no session yet).
+   * Called with the verified, allowed user; its Response is sent. Default (`createHttpApp`): create an admin session,
+   * set the session cookie and redirect to `login.next` (P4-02). Override only in tests.
    */
   readonly onLogin?: (c: Context, login: CompletedLogin) => Response | Promise<Response>;
-  /** Records sign-ins (`createAuditRecorder(...)`). */
-  readonly audit?: { login(c: Context, event: LoginAuditEvent): Promise<void> };
+  /** Admin session timeouts (P4-02). */
+  readonly session?: SessionOptions;
+  /** Records sign-ins (`createAuditRecorder(...)`), and session changes when `admin` is there. */
+  readonly audit?: {
+    login(c: Context, event: LoginAuditEvent): Promise<void>;
+    admin?(event: AdminAuditEvent): Promise<void>;
+  };
 }
 
 export interface IdentityRouteDeps {
@@ -82,7 +92,12 @@ export interface IdentityRouteDeps {
     requestId: string,
   ) => Promise<Response | undefined> | Response | undefined;
   readonly runInBackground: (c: Context, task: Promise<unknown>, what: string) => void;
+  /** Admin sessions (P4-02): the default `onLogin` and `POST /logout`. */
+  readonly sessions?: SessionManager;
 }
+
+/** Largest logout form body (it carries a CSRF token and a flag). */
+const MAX_LOGOUT_BODY = 2048;
 
 type Vars = { requestId: string; started: number; log: Record<string, unknown> };
 
@@ -225,12 +240,14 @@ export function createIdentityRoutes(
     };
     const res = options.onLogin
       ? await options.onLogin(c, login)
-      : page(
-          200,
-          'Signed in',
-          `<p>Signed in as ${escapeHtml(decision.user.email)} (${escapeHtml(decision.user.role)}).</p>` +
-            '<p>Admin sessions are not available on this version yet; use the admin token for the admin API.</p>',
-        );
+      : deps.sessions
+        ? await deps.sessions.login(c, login)
+        : page(
+            200,
+            'Signed in',
+            `<p>Signed in as ${escapeHtml(decision.user.email)} (${escapeHtml(decision.user.role)}).</p>` +
+              '<p>Admin sessions are not available on this version yet; use the admin token for the admin API.</p>',
+          );
     for (const [k, v] of Object.entries(extra)) res.headers.append(k, v);
     return res;
   };
@@ -360,6 +377,107 @@ export function createIdentityRoutes(
       return fail(c, provider.id, provider.idp, 'internal_error');
     }
   });
+
+  if (deps.sessions) {
+    const sessions = deps.sessions;
+    /** Back to the sign-in page; the cookie is cleared only when the request presented one. */
+    const toLogin = (clear: boolean) =>
+      new Response(null, {
+        status: 303,
+        headers: {
+          Location: `${IDENTITY_BASE}/login`,
+          ...(clear ? { 'Set-Cookie': sessions.clearCookie } : {}),
+        },
+      });
+    const sessionAudit = (c: Context, event: Omit<AdminAuditEvent, 'actor'>, userId: string | null) => {
+      const record = options.audit?.admin;
+      if (!record) return;
+      deps.runInBackground(
+        c,
+        record.call(options.audit, {
+          actor: { requestId: c.get('requestId') as string, userId },
+          ...event,
+        }),
+        'session_audit',
+      );
+    };
+
+    const capped = bodyLimit({
+      maxSize: MAX_LOGOUT_BODY,
+      onError: () => page(413, 'Sign-out refused', '<p>The request is too large.</p>'),
+    });
+
+    app.post('/logout', capped, async (c) => {
+      const auth = await sessions.authenticate(c);
+      // No live session: nothing to protect, just drop the cookie (an expired or revoked one). Without a cookie (a
+      // cross-site form: SameSite=Lax withholds it) nothing is cleared, so another site can't sign this browser out.
+      if (!auth.ok) {
+        const presented = sessions.readCookie(c) !== undefined;
+        if (presented) await sessions.revokeCurrent(c);
+        return toLogin(presented);
+      }
+      const principal = auth.principal;
+      const userId = principal.user.id;
+      let token = c.req.header(CSRF_HEADER);
+      let everywhere = false;
+      const type = c.req.header('content-type') ?? '';
+      // The body is capped while it is read (`bodyLimit` above), declared length or not.
+      if (/^application\/x-www-form-urlencoded\s*(;|$)/i.test(type)) {
+        const form = new URLSearchParams(await c.req.text());
+        token ??= form.get(CSRF_FIELD) ?? undefined;
+        everywhere = form.get('everywhere') === '1';
+      }
+      const problem =
+        sessions.checkFetchOrigin(c, true) ?? (sessions.csrfMatches(principal, token) ? null : 'csrf');
+      if (problem !== null) {
+        (c.get('log') as Record<string, unknown>)['deny'] = problem;
+        sessionAudit(
+          c,
+          {
+            action: 'admin.forbidden',
+            targetType: 'session',
+            targetId: principal.session.ref,
+            status: 'denied',
+            errorCode: 'forbidden',
+            refusal: true,
+            details: { reason: problem, route: 'POST /auth/logout' },
+          },
+          userId,
+        );
+        return page(
+          403,
+          'Sign-out refused',
+          '<p>This sign-out request did not come from this site. Use the sign-out button in the admin panel.</p>',
+        );
+      }
+      if (everywhere) {
+        const revoked = await sessions.revokeUser(userId);
+        sessionAudit(
+          c,
+          {
+            action: 'session.revoke_all',
+            targetType: 'user',
+            targetId: userId,
+            details: { reason: 'logout_everywhere', revoked },
+          },
+          userId,
+        );
+      } else {
+        await sessions.revokeCurrent(c);
+        sessionAudit(
+          c,
+          {
+            action: 'session.revoke',
+            targetType: 'session',
+            targetId: principal.session.ref,
+            details: { reason: 'logout' },
+          },
+          userId,
+        );
+      }
+      return toLogin(true);
+    });
+  }
 
   return app;
 }

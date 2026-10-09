@@ -183,15 +183,30 @@ Implemented by `createHttpApp` in `packages/http-app` (P2-06); `relic-bridge ser
 
 ### Admin API (P2-09)
 
-`/api/admin/v1/*` (`packages/http-app/src/admin`, `@hono/zod-openapi`) is mounted by `createHttpApp` only when an admin
-token is configured. Its own middleware runs after the shared request id, security headers and Host/Origin checks:
-declared body size → `beforeAuth` hooks (per-IP limits) → bootstrap admin token (digest compare; failures go to
-`onAuthFailure`, so they are throttled and audited like MCP failures) → JSON content type and streamed body cap →
+`/api/admin/v1/*` (`packages/http-app/src/admin`, `@hono/zod-openapi`) is mounted by `createHttpApp` when an admin
+token or sign-in is configured. Its own middleware runs after the shared request id, security headers and Host/Origin
+checks: declared body size → `beforeAuth` hooks (per-IP limits) → principal: with an `Authorization` header the
+bootstrap admin token only (digest compare; role `owner`; cookies ignored), otherwise the admin session cookie
+(P4-02) — failures of either go to `onAuthFailure`, so they are throttled and audited like MCP failures → for
+sessions: `Sec-Fetch-Site` / `Origin` = public URL / `X-CSRF-Token` on unsafe methods, then the route's least role
+(`requiredRole`), `403 forbidden` audited as `admin.forbidden` → JSON content type and streamed body cap →
 strict zod validation → handler. Handlers call the same domain services as the CLI (`createCredential`,
 `rotateCredentialKey`, `revalidateCredential`, `createProject`, `updateProject`, `createGrant`, `issueAccessToken`,
 `revokeAccessToken`), write one `admin` audit row per change (in the background) and clear the access cache. The
 OpenAPI 3.1 document is generated from the route schemas and served at `/api/admin/v1/openapi.json`;
-`docs/reference/admin-api.md` is generated from it. Phase 4 adds IdP sessions next to the bootstrap token (P4-02).
+`docs/reference/admin-api.md` is generated from it.
+
+### Admin sessions (P4-02)
+
+`packages/auth/src/identity/session.ts` keeps sessions in storage `kv`: `sess:<userId>:<sha256(secret)>` (user,
+provider, created/absolute expiry, CSRF token) and `sess-seen:<userId>:<hash>` (last activity, touched at most once a
+minute, so a touch racing a logout can only recreate a worthless row). The cookie (`__Host-rb_session`, `rb_session`
+on http loopback; HttpOnly, Secure, SameSite=Lax, Path=/) carries `<userId>.<secret>`; revoke-all lists the user's
+prefix. `packages/http-app/src/session.ts` (`createSessionManager`, built by `createHttpApp` when sign-in is on) is the
+default `onLogin` (end the browser's previous session, create one, 303 to `next`), authenticates cookie requests (session
+row + user record, ≤ 5 s per-isolate user cache cleared by admin changes; role read per request), and serves
+`POST /auth/logout`. Role changes and disables end the user's sessions (`session.revoke_all`). Guide:
+[admin access](guide/admin-access.md).
 
 ### Admin sign-in (P4-01)
 
@@ -208,7 +223,7 @@ IdP) → `GET /auth/callback/:provider` (transaction consumed once with `kv.take
 code exchanged; ID token verified) or `GET /auth/cf-access` → setup link consumed (if any) → `resolveLoginUser`
 (existing binding → bind an unbound user by verified email → allowlist + auto-provisioning; email never moves an
 account between identities; deny by default) → audit `login.ok` / `login.denied` → `onLogin(c, CompletedLogin)`, the
-seam P4-02 fills with the session. `POST /api/admin/v1/setup-links` (admin token) issues the single-use owner
+seam `createHttpApp` fills with the admin session (P4-02). `POST /api/admin/v1/setup-links` (admin token) issues the single-use owner
 bootstrap link. Guide: [identity providers](guide/identity-providers.md).
 
 ### Management CLI (P2-10)

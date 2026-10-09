@@ -1,0 +1,76 @@
+# Admin access: sessions, roles and CSRF
+
+The admin API (`/api/admin/v1`) accepts two kinds of callers:
+
+| Caller | How | Role |
+|---|---|---|
+| Automation, the CLI (`--remote`), scripts | `Authorization: Bearer <RB_ADMIN_TOKEN>` | `owner` (break-glass) |
+| A signed-in browser | the admin session cookie, plus a CSRF token on changes | the user's role |
+
+Sign-in itself (Google, GitHub, Cloudflare Access, OIDC, the first-owner setup link) is described in
+[identity providers](identity-providers.md). This page covers what happens after it.
+
+## Sessions
+
+- Signing in ends with a redirect (`303`) to the page you came from, carrying the cookie `__Host-rb_session` (on
+  `http://localhost` the cookie is called `rb_session`, because browsers accept `__Host-` only over https). It is
+  `HttpOnly`, `Secure`, `SameSite=Lax`, `Path=/`, with no `Domain`, so scripts and sibling subdomains can't read or
+  set it.
+- The session lives in the database (D1 on the Worker, SQLite on `serve`). The cookie holds a 256-bit random secret;
+  the database keeps only its SHA-256 hash. Every request looks the session up, so a sign-out on one device or
+  server instance takes effect everywhere at once.
+- **Timeouts**: a session ends after `RB_SESSION_IDLE_MINUTES` (default 30) without a request, and
+  `RB_SESSION_MAX_HOURS` (default 12) after sign-in, whatever the activity.
+- **Rotation**: each sign-in creates a new session and ends the one the browser had, so a cookie planted before
+  sign-in never becomes a signed-in session.
+- **Sign out**: `POST /auth/logout` with the CSRF token (form field `_csrf` or header `X-CSRF-Token`). Add
+  `everywhere=1` to end every session of your user (all devices). An admin can do the same for a user with
+  `POST /api/admin/v1/users/{id}/sessions/revoke`.
+- **Privilege changes end sessions**: changing a user's role or disabling them ends all their sessions at once. A
+  disabled user's session is also refused on every request (the user record is re-read at most every 5 seconds per
+  server instance).
+
+## Roles
+
+| Role | Can |
+|---|---|
+| `owner` | Everything, including master-key rotation (`POST /keys/rotate`), owner setup links (`POST /setup-links`) and managing other owners. |
+| `admin` | Manage users, credentials, projects, grants, tokens; read the audit log. Cannot create an owner, promote anyone to owner, or change or sign out an owner. |
+| `member` | `GET /session` and signing out their own sessions. Self-service on their own keys, grants and device tokens arrives in P4-10. |
+
+Nobody can change their own role or disable themselves through a session (ask another owner, or use the admin
+token). Refusals are `403` with `"code": "forbidden"` and a `detail` (`role`, `owner`, `self`), and are written to the
+audit log (`admin.forbidden`, or the refused change as `denied`).
+
+## CSRF and cross-origin rules (for API clients that use the cookie)
+
+The session cookie is for the admin pages served by this instance. A request that carries it is accepted only when:
+
+1. it has **no** `Authorization` header (a request with one is judged by the bearer token alone; its cookies are
+   ignored);
+2. `Sec-Fetch-Site` is absent, `same-origin`, or `none` (a typed URL) for reads;
+3. for `POST`, `PATCH`, `PUT` and `DELETE`: `Origin` equals `RB_PUBLIC_URL`'s origin exactly (scheme, host and port),
+   or, when a browser sends no `Origin`, `Sec-Fetch-Site: same-origin`; **and** `X-CSRF-Token` equals the session's
+   token.
+
+Get the token from `GET /api/admin/v1/session`:
+
+```js
+const me = await (await fetch('/api/admin/v1/session')).json();
+await fetch('/api/admin/v1/projects', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': me.data.csrfToken },
+  body: JSON.stringify({ slug: 'prod', defaultAccountId: 1, allowedAccountIds: [1] }),
+});
+```
+
+`GET /session` also returns the role, the user and both expiry times (`expiresAt`, `idleExpiresAt`). A failed CSRF or
+origin check is `403 forbidden` with `detail` `csrf`, `cross_site`, `origin_mismatch` or `origin_missing`.
+
+## What session cookies never do
+
+- They never authenticate MCP endpoints (`/p/<project>/mcp`) or `/passthrough/mcp`: those take device tokens and
+  New Relic keys only.
+- They never appear in logs, responses or the audit log. Audit rows name the user (`userId`) and a 16-character
+  reference to the session (a prefix of its hash), never the cookie.
+- An expired, revoked or unknown session gets the same `401` as a missing admin token.

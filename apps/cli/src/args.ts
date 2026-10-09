@@ -290,7 +290,8 @@ Audit log (serve):
 Admin API (serve):
   RB_ADMIN_TOKEN         Bootstrap admin token (32+ printable characters, e.g. from
                          "openssl rand -base64 32"; or RB_ADMIN_TOKEN_FILE, mode 0600).
-                         Enables /api/admin/v1; unset keeps it off.
+                         Enables /api/admin/v1 (acts as owner); with sign-in configured the
+                         admin API also takes admin sessions.
 
 Sign-in (serve; off until a provider is set; docs/guide/identity-providers.md):
   RB_PUBLIC_URL          Origin browsers use (https, or http://localhost); redirect URIs are
@@ -304,6 +305,8 @@ Sign-in (serve; off until a provider is set; docs/guide/identity-providers.md):
                          Who may sign in without a pre-created user (deny by default).
   RB_LOGIN_AUTO_PROVISION  off (default) | member | admin: create users for allowlisted
                          identities on first sign-in.
+  RB_SESSION_IDLE_MINUTES  Admin sessions end after this many idle minutes (5-1440, default 30).
+  RB_SESSION_MAX_HOURS   Admin sessions end this many hours after sign-in (1-168, default 12).
 
 Master key (serve / keys rotate / credential revalidate):
   RB_MASTER_KEY            Current master key, v<n>:<base64> (or RB_MASTER_KEY_FILE).

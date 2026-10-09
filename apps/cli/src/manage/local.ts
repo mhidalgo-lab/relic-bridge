@@ -98,6 +98,8 @@ export async function openLocalClient(options: LocalOptions): Promise<AdminClien
     clock: systemClock,
     logger,
     maxBodyBytes: 64 * 1024,
+    // Role changes and disables end the user's admin sessions here too (P4-02).
+    sessionKv: storage.kv,
     audit: (event) =>
       recorder.admin({ ...event, details: { ...(event.details ?? {}), via: 'cli', cliUser: user } }),
     runInBackground: (_c, task) => {

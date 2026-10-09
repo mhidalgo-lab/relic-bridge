@@ -291,14 +291,17 @@ async function boot(env: WorkerEnv, options: WorkerOptions): Promise<Runtime> {
             providers: identityProviders,
             policy: identity.policy,
             storage,
+            // Sign-in ends in an admin session (cookie, CSRF token, roles): `createHttpApp`'s `onLogin` (P4-02).
+            session: { timeouts: identity.session },
             ...(audit === undefined ? {} : { audit }),
           },
         }),
-    ...(adminRaw === ''
+    // Admin API: the bootstrap token, admin sessions (sign-in configured, P4-02), or both.
+    ...(adminRaw === '' && identityProviders === undefined
       ? {}
       : {
           admin: {
-            token: new Secret(adminRaw),
+            ...(adminRaw === '' ? {} : { token: new Secret(adminRaw) }),
             storage,
             ...(audit === undefined ? {} : { audit }),
             // Free allows 50 D1 queries per invocation; a rotation batch costs about its size plus 5 (P3-15).
@@ -311,7 +314,7 @@ async function boot(env: WorkerEnv, options: WorkerOptions): Promise<Runtime> {
   return {
     settings,
     log,
-    adminApi: adminRaw !== '',
+    adminApi: adminRaw !== '' || identityProviders !== undefined,
     identity: (identityProviders ?? []).map((p) => p.id),
     limiter,
     app,

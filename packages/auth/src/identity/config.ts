@@ -9,6 +9,7 @@ import { createGoogleProvider } from './google.ts';
 import { checkEndpoint, isLoopbackHostname } from './http.ts';
 import { createOidcProvider } from './oidc.ts';
 import type { AutoProvision, LoginPolicy } from './policy.ts';
+import { DEFAULT_SESSION_ABSOLUTE_MS, DEFAULT_SESSION_IDLE_MS, type SessionTimeouts } from './session.ts';
 import type { IdentityProvider } from './types.ts';
 
 export type IdentityEnv = Readonly<Record<string, string | undefined>>;
@@ -37,6 +38,8 @@ export interface IdentitySettings {
   readonly publicUrl: string;
   readonly providers: readonly ProviderSettings[];
   readonly policy: LoginPolicy;
+  /** Admin session timeouts (P4-02): `RB_SESSION_IDLE_MINUTES`, `RB_SESSION_MAX_HOURS`. */
+  readonly session: SessionTimeouts;
   /** Boot warnings (never values). */
   readonly warnings: readonly string[];
 }
@@ -222,6 +225,8 @@ export function identitySettingsFromEnv(env: IdentityEnv): IdentitySettings | nu
     return null;
   }
 
+  const session = sessionTimeouts(env);
+
   const publicRaw = get(env, 'RB_PUBLIC_URL');
   const publicUrl = publicRaw === undefined ? null : parsePublicUrl(publicRaw);
   if (publicUrl === null) {
@@ -254,8 +259,43 @@ export function identitySettingsFromEnv(env: IdentityEnv): IdentitySettings | nu
       githubOrgs: Object.freeze(githubOrgs),
       autoProvision,
     }),
+    session,
     warnings: Object.freeze(warnings),
   });
+}
+
+function wholeNumber(
+  env: IdentityEnv,
+  name: string,
+  min: number,
+  max: number,
+  unit: string,
+): number | undefined {
+  const raw = get(env, name);
+  if (raw === undefined) return undefined;
+  const n = /^\d{1,6}$/.test(raw) ? Number(raw) : Number.NaN;
+  if (!Number.isSafeInteger(n) || n < min || n > max) {
+    throw new IdentityConfigError(
+      name,
+      `${name} must be a whole number of ${unit} between ${min} and ${max}.`,
+    );
+  }
+  return n;
+}
+
+/** `RB_SESSION_IDLE_MINUTES` (5-1440, default 30) and `RB_SESSION_MAX_HOURS` (1-168, default 12). */
+function sessionTimeouts(env: IdentityEnv): SessionTimeouts {
+  const idleMin = wholeNumber(env, 'RB_SESSION_IDLE_MINUTES', 5, 1440, 'minutes');
+  const maxHours = wholeNumber(env, 'RB_SESSION_MAX_HOURS', 1, 168, 'hours');
+  const idleMs = idleMin === undefined ? DEFAULT_SESSION_IDLE_MS : idleMin * 60_000;
+  const absoluteMs = maxHours === undefined ? DEFAULT_SESSION_ABSOLUTE_MS : maxHours * 3_600_000;
+  if (idleMs > absoluteMs) {
+    throw new IdentityConfigError(
+      'RB_SESSION_IDLE_MINUTES',
+      'RB_SESSION_IDLE_MINUTES must not exceed RB_SESSION_MAX_HOURS.',
+    );
+  }
+  return Object.freeze({ idleMs, absoluteMs });
 }
 
 /** Build the providers of `settings`. `fetch` reaches the IdPs (tests inject a mock IdP). */

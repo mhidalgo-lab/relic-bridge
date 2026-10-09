@@ -78,7 +78,7 @@ export function Document(props: DocumentProps): JSX.Element {
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <meta name="robots" content="noindex, nofollow" />
-        <meta name="referrer" content="no-referrer" />
+        <meta name="referrer" content="same-origin" />
         <meta name="color-scheme" content="light dark" />
         <title>{`${props.title} · relic-bridge`}</title>
         <link rel="stylesheet" href={assetHref(ASSETS.css)} integrity={ASSETS.css.integrity} />

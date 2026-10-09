@@ -301,7 +301,7 @@ describe('P4-07 review: setup links', () => {
     const app = makeApp();
     const page = await get(app, `/auth/login?setup=rb_setup_${'0'.repeat(64)}&next=/admin`);
     expect(page.res.headers.get('cache-control')).toBe('no-store');
-    expect(page.text).toContain('no-referrer');
+    expect(page.text).toContain('same-origin');
     const start = await get(app, '/auth/login/oidc');
     expect(start.res.headers.get('location')).not.toContain('setup');
   });

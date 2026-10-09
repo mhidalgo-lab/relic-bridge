@@ -5,7 +5,7 @@ import {
   validateHostHeader,
   validateOriginHeader,
 } from '@modelcontextprotocol/server';
-import { ASSET_CACHE_CONTROL, UI_CSP } from '@relic-bridge/admin-ui';
+import { ASSET_CACHE_CONTROL, UI_CSP, UI_REFERRER_POLICY } from '@relic-bridge/admin-ui';
 
 /** One year, the usual HSTS preload minimum. */
 export const HSTS_VALUE = 'max-age=31536000; includeSubDomains';
@@ -34,6 +34,12 @@ export function applySecurityHeaders(headers: Headers, hsts: boolean): void {
   for (const [name, value] of Object.entries(SECURITY_HEADERS)) {
     if (name === 'Content-Security-Policy' && uiPage) continue;
     if (name === 'Cache-Control' && asset) continue;
+    // A browser sends `Origin: null` on a form POST under `no-referrer`, which the CSRF check must refuse: the admin
+    // pages use `same-origin` (a real Origin to ourselves, nothing to anyone else).
+    if (name === 'Referrer-Policy' && uiPage) {
+      headers.set(name, UI_REFERRER_POLICY);
+      continue;
+    }
     headers.set(name, value);
   }
   if (hsts) headers.set('Strict-Transport-Security', HSTS_VALUE);

@@ -44,7 +44,7 @@ export {
   flashCookieName,
   readFlash,
 } from './flash.ts';
-export { PERMISSIONS_POLICY, UI_CSP, UI_PAGE_HEADERS } from './headers.ts';
+export { PERMISSIONS_POLICY, UI_CSP, UI_PAGE_HEADERS, UI_REFERRER_POLICY } from './headers.ts';
 export {
   type AdminCall,
   type AdminCallResult,

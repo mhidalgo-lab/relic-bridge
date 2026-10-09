@@ -23,7 +23,7 @@ const get = (path: string, headers: Record<string, string> = {}) =>
   h.send(new Request(`${PUBLIC_ORIGIN}${path}`, { headers }));
 
 describe('framing and caching on every admin answer', () => {
-  it('pages, csv, 404, sign-in, redirects: XFO DENY, frame-ancestors none, no-store, nosniff, no-referrer', async () => {
+  it('pages, csv, 404, sign-in, redirects: XFO DENY, frame-ancestors none, no-store, nosniff, referrer policy', async () => {
     const s = await h.addSession({ role: 'owner' });
     const answers = [
       await get('/admin', nav(s.cookie)),
@@ -38,7 +38,9 @@ describe('framing and caching on every admin answer', () => {
     for (const [i, a] of answers.entries()) {
       expect(a.headers.get('x-frame-options'), `#${i}`).toBe('DENY');
       expect(a.headers.get('x-content-type-options'), `#${i}`).toBe('nosniff');
-      expect(a.headers.get('referrer-policy'), `#${i}`).toBe('no-referrer');
+      // HTML pages send a real Origin to us on form posts (not `Origin: null`, see UI_REFERRER_POLICY); the rest send nothing.
+      const html = a.headers.get('content-security-policy')?.includes('script-src');
+      expect(a.headers.get('referrer-policy'), `#${i}`).toBe(html ? 'same-origin' : 'no-referrer');
       expect(a.headers.get('cache-control'), `#${i}`).toContain('no-store');
       const csp = a.headers.get('content-security-policy') ?? '';
       expect(csp, `#${i}`).toMatch(/frame-ancestors 'none'|default-src 'none'/);

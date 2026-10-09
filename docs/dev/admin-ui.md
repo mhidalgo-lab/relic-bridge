@@ -137,3 +137,10 @@ that `admin.js` reveals.
 - `packages/http-app/test/authz/ui.test.ts`: the pages in the authorization matrix, on the HTTP app and in workerd.
   Every UI route must send strangers to sign-in and carry the full header set.
 - `apps/cli/test/serve-identity.test.ts`: the overview and an asset on a real `serve`.
+- `e2e/` (P4-11, `pnpm test:e2e`, Playwright + Chromium, outside `pnpm test`): the real built `serve` with a mock IdP and
+  a NerdGraph stand-in; one spec drives the whole panel at 1280 px and 320 px and fails on CSP / Trusted Types
+  violations (`securitypolicyviolation` plus console errors), uncaught errors, failed requests and horizontal overflow.
+  It also checks the copy button (clipboard). `pnpm e2e:screenshots` rewrites `docs/guide/images/` in light and dark;
+  secret-looking blocks (the token, client snippets) are masked in the pictures. Run it after changing page headers,
+  the CSP, forms or the layout. HTTP tests cannot see browser behaviour: it found that `Referrer-Policy: no-referrer`
+  made browsers send `Origin: null` on every form POST (see `UI_REFERRER_POLICY`).

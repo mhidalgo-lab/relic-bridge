@@ -2,5 +2,6 @@
 import { defineProject } from 'vitest/config';
 
 export default defineProject({
-  test: { name: 'admin-ui' },
+  // axe-core runs a whole browser-like rule engine per page; under a loaded full run (or slow CI) 5 s is not enough.
+  test: { name: 'admin-ui', testTimeout: 30_000 },
 });

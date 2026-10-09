@@ -150,6 +150,18 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Options:** (a) keep it and do P4-11 as a manual/local run; (b) P4-11 with a CI job; (c) drop the browser run.
 - **Needs:** owner choice for P4-11 (CI minutes vs. manual).
 
+### P4-11 — Browser E2E runs manually, not in CI; Referrer-Policy changed to fix form posts
+- **Context:** The P4-04 decision asked whether the Playwright run goes into CI. Actions is unavailable and minutes are scarce.
+  Separately, the first real-browser run showed that every admin form POST (even sign-out) was refused with
+  `forbidden_origin`: `Referrer-Policy: no-referrer` makes browsers send `Origin: null`. The HTTP-level tests could not see it.
+- **Assumption made:** (1) `pnpm test:e2e` locally plus a `workflow_dispatch`-only workflow (`e2e.yml`); not on PRs. The
+  workflow was never run. (2) HTML pages (the ones carrying the admin CSP) now send `Referrer-Policy: same-origin` (header
+  and meta); API responses and redirects keep `no-referrer`. The server's strict Origin check is unchanged. THREAT_MODEL updated.
+- **Options:** keep; add a CI job on release branches or a weekly schedule once billing works; or accept `Origin: null` with
+  `Sec-Fetch-Site: same-origin` plus CSRF token instead (weaker, not chosen).
+- **Needs:** owner: confirm the policy change, and choose when to run the browser job in CI. Screenshots show demo data
+  only; regenerate with `pnpm e2e:screenshots` after UI changes.
+
 ### P4-04 — Reloading the one-time token page issues another token
 - **Context:** A new token is rendered on the answer to the POST that created it (never in a redirect, URL or
   cookie). Reloading that page makes the browser re-send the form, which issues a second token (the first stays

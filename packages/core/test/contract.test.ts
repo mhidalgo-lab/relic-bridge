@@ -42,6 +42,9 @@ const SAMPLE_CALLS: Record<string, Record<string, unknown>> = {
   analyze_transactions: { entity_guid: MOCK_GUID },
   list_recent_logs: { level: 'error', contains: 'timeout' },
   analyze_entity_logs: { entity_guid: MOCK_GUID },
+  analyze_threads: { entity_guid: MOCK_GUID },
+  list_gc_metrics: { entity_guid: MOCK_GUID },
+  analyze_kafka_metrics: {},
 };
 
 const registry = new ToolRegistry();

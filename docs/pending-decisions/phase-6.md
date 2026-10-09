@@ -97,3 +97,18 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   `Log` deny.
 - **Needs:** a live run on an account with logs; owner's call on (c) to (f).
 
+## P6-07 — Runtime tools
+
+### P6-07 — JVM metric names and Kafka event types unverified; Kafka scoped by account, not entity
+- **Context:** No live sample exists. Metric timeslice names (`Threads/SummaryState/*`, `GC/*`, `Memory/Heap/*`, `CPU/*`) and the `nri-kafka`
+  event and attribute names are from documentation and memory (see RESEARCH). Kafka cluster entities are not reliably tied to a
+  GUID that appears on the samples.
+- **Assumption made:** `analyze_threads` (cost 2) and `list_gc_metrics` (cost 1) read `Metric` timeslices by `entity.guid` and report
+  average, peak, total and samples as reported (no unit conversion); `analyze_kafka_metrics` (cost 3) takes an account plus optional
+  `cluster_name`, `consumer_group`, `topic` and reads `KafkaOffsetSample`, `KafkaTopicSample`, `KafkaBrokerSample`. Missing data is a
+  normal answer naming what was looked for. Lag imbalance is worst partition over the mean partition lag.
+- **Options:** (a) keep as is; (b) live probe on a Java APM account and a Kafka account (`pnpm test:live`); (c) dimensional APM metrics
+  (`apm.service.*`) instead of timeslices; (d) OpenTelemetry Kafka metrics and MSK/Confluent integrations; (e) entity-GUID scoping for Kafka
+  (cluster entity); (f) thread dumps from the profiler (separate, heavier tool).
+- **Needs:** a live run on both account types; owner's call on (c) to (f).
+

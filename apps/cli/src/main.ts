@@ -26,7 +26,7 @@ import {
   serveSettings,
   startServer,
 } from './serve.ts';
-import { serveProjectOverStdio } from './stdio.ts';
+import { serveProjectOverStdio, stdioWriteTools } from './stdio.ts';
 import { nerdGraphFetch } from './test-hooks.ts';
 
 /** Everything `main` needs from the process, injected so it can be tested without spawning. */
@@ -219,6 +219,7 @@ export function main(rt: CliRuntime): MainResult {
       project,
       logger,
       queryCache: createProcessQueryCache(queryCacheSettings(rt.env)),
+      writeTools: stdioWriteTools(rt.env),
       ...(fetch === undefined ? {} : { fetch }),
     });
     logger.info('serving MCP over stdio', {

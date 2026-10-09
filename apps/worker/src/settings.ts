@@ -77,6 +77,8 @@ export interface WorkerSettings {
   readonly rateLimit: boolean;
   /** `RB_PASSTHROUGH=on`: `/passthrough/mcp` (needs `RB_FINGERPRINT_SECRET` and the rate-limit binding, checked at boot). */
   readonly passthrough: boolean;
+  /** `RB_WRITE_TOOLS=on` (P7-09, ADR-0015): offer the opt-in write tools. Off by default; needs `RB_AUDIT=on`. */
+  readonly writeTools: boolean;
   readonly logLevel: LogLevel;
   readonly warnings: readonly string[];
 }
@@ -230,6 +232,20 @@ export function parseWorkerSettings(vars: WorkerVars): WorkerSettings {
     throw new WorkerConfigError('RB_PASSTHROUGH', 'RB_PASSTHROUGH=on needs RB_RATE_LIMIT=on');
   }
 
+  // Write tools (P7-09): every write must be recorded, so they need the audit log.
+  const writeTools = onOff(vars, 'RB_WRITE_TOOLS', false);
+  if (writeTools && !auditEnabled) {
+    throw new WorkerConfigError('RB_WRITE_TOOLS', 'RB_WRITE_TOOLS=on needs RB_AUDIT=on');
+  }
+  if (writeTools && !rateLimit) {
+    warnings.push('RB_WRITE_TOOLS=on with RB_RATE_LIMIT=off: write tool calls are not rate limited.');
+  }
+  if (writeTools) {
+    warnings.push(
+      'RB_WRITE_TOOLS=on: write tools can be enabled per project and grant (owners only). See docs/guide/security-basics.md.',
+    );
+  }
+
   const level = (text(vars, 'RB_LOG_LEVEL')?.toLowerCase() ?? 'info') as LogLevel;
   if (!LOG_LEVELS.includes(level)) {
     throw new WorkerConfigError('RB_LOG_LEVEL', `RB_LOG_LEVEL must be one of ${LOG_LEVELS.join(', ')}`);
@@ -248,6 +264,7 @@ export function parseWorkerSettings(vars: WorkerVars): WorkerSettings {
     audit: { enabled: auditEnabled, nrql: nrql as AuditNrqlMode, clientIp: auditClientIp, retentionDays },
     rateLimit,
     passthrough,
+    writeTools,
     logLevel: level,
     warnings,
   };

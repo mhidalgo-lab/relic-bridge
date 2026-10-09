@@ -135,3 +135,25 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   users should be warned or capped, and a real check against New Relic's OTLP endpoint with a license key, which this run
   could not do.
 
+
+### P7-09 — Write tools: enabling writes at all is an owner decision
+- **Context:** The task adds tools that change New Relic. AGENTS.md says tools are read-only unless a task says
+  otherwise; this one does, but whether a deployment should ever offer writes is the owner's call, and none of the
+  mutations could be run against New Relic during the autonomous run.
+- **Assumption made:** Built and shipped **off** at every layer (ADR-0015): server flag `RB_WRITE_TOOLS=on`, explicit
+  names on the project **and** the grant (never through "all tools"), owner-only in the admin API, a shared or own key
+  only, OAuth `mcp:write` with a separate unticked consent box (never remembered, never silent), never pass-through.
+  Three tools: `create_change_event`, `acknowledge_issue`, `close_issue` (destructive). `create_dashboard` moved to
+  P7-19; elicitation-based confirmation to P7-20 (the model sets `confirm: true` today). Write rate limit 20 per hour
+  per grant, failing closed (per isolate on Workers until P7-10). `serve` and the Worker refuse writes with
+  `RB_AUDIT=off`. stdio logs each write to stderr instead of an audit row.
+- **Options:** keep writes unbuilt/unshipped until verified; drop `close_issue` (the only irreversible one); require a
+  separate project flag in addition to explicit names; allow writes on pass-through behind its own flag; different
+  rate-limit default; require the audit log on stdio too (a file).
+- **Also assumed:** the local `relic-bridge project/grant` commands cannot name write tools (read-only catalog; use the
+  admin API/panel as an owner); `mcp:write` is listed in the protected resource metadata when on, but the 401 challenge
+  keeps `scope="mcp:read"` (a client that asks for every advertised scope shows the write box each time and loses
+  "don't ask again"); writes with `RB_RATE_LIMIT=off` only warn.
+- **Needs:** (1) the owner's explicit decision to enable writes on any deployment (and ADR-0015 confirmation);
+  (2) a live check of each mutation (RESEARCH §26: field and argument names, category/type case for change events)
+  with `dry_run` first, then one real call on a test entity/issue in US and EU; (3) whether `close_issue` should ship.

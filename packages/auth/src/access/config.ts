@@ -2,7 +2,7 @@
 // Project and grant domain services (ADR-0008). They validate input the storage layer can't (tool names against the
 // catalog, accounts against the project, credential ownership) before writing. The resolver re-checks everything
 // at request time anyway, so a row changed behind these services still can't widen access.
-import { redact } from '@relic-bridge/core';
+import { redact, WRITE_TOOL_NAMES } from '@relic-bridge/core';
 import {
   type GrantRecord,
   limitsSchema,
@@ -289,6 +289,14 @@ export async function createGrant(
     const outside = tools.filter((t) => !project.enabledTools?.includes(t));
     if (outside.length > 0)
       warnings.push(`tools not enabled on the project (no effect): ${outside.join(', ')}`);
+  }
+  if (tools !== null && project.enabledTools === null) {
+    const writes = tools.filter((t) => WRITE_TOOL_NAMES.includes(t));
+    if (writes.length > 0) {
+      warnings.push(
+        `write tools take effect only when the project names them explicitly (no effect): ${writes.join(', ')}`,
+      );
+    }
   }
   const accountIds =
     input.accountIds === undefined || input.accountIds === null

@@ -4,6 +4,7 @@ import { InMemoryTransport } from '@modelcontextprotocol/server';
 import {
   createBuiltinTools,
   createLogger,
+  createWriteTools,
   DEFAULT_LIMITS,
   type FetchLike,
   QueryCache,
@@ -12,7 +13,7 @@ import {
 } from '@relic-bridge/core';
 import { afterEach, describe, expect, it } from 'vitest';
 import { ConfigError, type ResolvedProject } from '../src/config.ts';
-import { prepareServer, selectTools } from '../src/stdio.ts';
+import { prepareServer, selectTools, stdioWriteTools } from '../src/stdio.ts';
 import { FAKE_KEY, identityBody } from './helpers.ts';
 
 function project(overrides: Partial<ResolvedProject> = {}): ResolvedProject {
@@ -56,6 +57,62 @@ describe('selectTools', () => {
     expect(() =>
       selectTools(project({ tools: ['run_nrql'], limits: { ...DEFAULT_LIMITS, rawNrql: false } }), ALL),
     ).toThrow(ConfigError);
+  });
+});
+
+describe('write tools on stdio (P7-09)', () => {
+  const WITH_WRITES = [...ALL, ...createWriteTools()];
+  const withWrites = (p: ResolvedProject) => selectTools(p, WITH_WRITES).map((t) => t.name);
+
+  it('off (RB_WRITE_TOOLS unset): a write tool name is unknown, with a hint', () => {
+    expect(() => selectTools(project({ tools: ['whoami', 'close_issue'] }), ALL)).toThrow(
+      /Unknown tool name/,
+    );
+    try {
+      selectTools(project({ tools: ['close_issue'] }), ALL);
+    } catch (error) {
+      expect((error as ConfigError).hint).toContain('RB_WRITE_TOOLS=on');
+    }
+  });
+
+  it('on: still none without an explicit allowlist; only the named ones with it', () => {
+    const all = withWrites(project());
+    expect(all).toEqual(ALL.map((t) => t.name));
+    expect(withWrites(project({ tools: ['whoami', 'acknowledge_issue'] }))).toEqual([
+      'whoami',
+      'acknowledge_issue',
+    ]);
+  });
+
+  it('RB_WRITE_TOOLS parses on/off only', () => {
+    expect(stdioWriteTools({})).toBe(false);
+    expect(stdioWriteTools({ RB_WRITE_TOOLS: 'off' })).toBe(false);
+    expect(stdioWriteTools({ RB_WRITE_TOOLS: 'on' })).toBe(true);
+    expect(() => stdioWriteTools({ RB_WRITE_TOOLS: 'yes please' })).toThrow(ConfigError);
+  });
+
+  it('every write call is recorded on stderr (no audit database on stdio), never the key', async () => {
+    const lines: string[] = [];
+    const logger = createLogger({ level: 'info', sink: (l) => lines.push(l) });
+    const { factory, tools } = prepareServer({
+      project: project({ tools: ['close_issue'] }),
+      logger,
+      writeTools: true,
+      fetch: async () =>
+        Response.json({ data: { actor: { account: { aiIssues: { issues: { issues: [] } } } } } }),
+    });
+    expect(tools.map((t) => t.name)).toEqual(['close_issue']);
+    const [clientT, serverT] = InMemoryTransport.createLinkedPair();
+    await factory().connect(serverT);
+    const client = new Client({ name: 'test', version: '0.0.0' });
+    await client.connect(clientT);
+    const r = await client.callTool({ name: 'close_issue', arguments: { issue_id: 'i-1', dry_run: true } });
+    expect(r.isError).toBe(true); // no such issue in the window
+    await client.close();
+    const logged = lines.filter((l) => l.includes('write tool call'));
+    expect(logged.length).toBe(1);
+    expect(logged[0]).toContain('close_issue');
+    expect(lines.join('\n')).not.toContain(FAKE_KEY);
   });
 });
 

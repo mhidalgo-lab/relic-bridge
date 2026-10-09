@@ -381,6 +381,7 @@ async function boot(env: WorkerEnv, options: WorkerOptions): Promise<Runtime> {
     maxResponseBytes: settings.maxResponseBytes,
     concurrencyPerCredential: settings.concurrency,
     queryCache: createWorkerQueryCache(settings.queryCache, keyring.queryCacheKeys(), options.queryCacheApi),
+    writeTools: settings.writeTools,
     // Background work (audit rows) must outlive the response: the runtime cancels unawaited promises otherwise.
     waitUntil: (c, task) => c.executionCtx.waitUntil(task),
     ...(hooks === undefined ? {} : { hooks }),

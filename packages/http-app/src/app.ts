@@ -37,6 +37,7 @@ import {
   createBudget,
   createBuiltinTools,
   createSemaphoreLimiter,
+  createWriteTools,
   DEFAULT_CONCURRENCY,
   DEFAULT_LIMITS,
   type FetchLike,
@@ -302,6 +303,13 @@ export interface HttpAppOptions {
    * off (`RB_QUERY_CACHE=off`). Entries are scoped per grant and per pass-through key (THREAT_MODEL T16).
    */
   readonly queryCache?: QueryCache | null;
+  /**
+   * Opt-in write tools (P7-09, ADR-0015, `RB_WRITE_TOOLS=on`). Default false: the write tools are not in the catalog at
+   * all, so no project or grant can name them and OAuth never advertises `mcp:write`. On: a connection still gets one
+   * only when its project and grant name it explicitly (and, over OAuth, its token carries `mcp:write`). Pass-through
+   * connections never get write tools.
+   */
+  readonly writeTools?: boolean;
 }
 
 type Env = { Variables: { requestId: string; started: number; log: Record<string, unknown> } };
@@ -503,7 +511,9 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
       ? undefined
       : (options.queryCache ?? new QueryCache({ macKey: options.keyring.queryCacheKeys().id }));
   // One tool set per app: its caches are keyed by credential id, region and account (never shared across tenants).
-  const allTools = createBuiltinTools(options.fetch ? { fetch: options.fetch } : {});
+  const toolDeps = options.fetch ? { fetch: options.fetch } : {};
+  const writeTools = options.writeTools === true;
+  const allTools = [...createBuiltinTools(toolDeps), ...(writeTools ? createWriteTools(toolDeps) : [])];
   const catalog = allTools.map((t) => t.name);
   const hooks = options.hooks ?? {};
   // Scopes created by this app; the factory refuses anything else (defence in depth for `authInfo.extra`).
@@ -758,6 +768,7 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
           runInBackground,
           ...(consentScreen ? { defaultConsent: consentScreen.handler } : {}),
           ...(uiAudit ? { audit: uiAudit } : {}),
+          writeScope: writeTools,
         })
       : undefined;
 

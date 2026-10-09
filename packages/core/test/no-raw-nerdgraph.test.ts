@@ -1,6 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 import { describe, expect, it } from 'vitest';
-import { createBuiltinTools, DocumentError, defineDocument, inputJsonSchema } from '../src/index.ts';
+import {
+  ALLOWED_MUTATIONS,
+  createBuiltinTools,
+  DocumentError,
+  defineDocument,
+  inputJsonSchema,
+} from '../src/index.ts';
 
 /**
  * ADR-0014 / THREAT_MODEL T22: relic-bridge ships no raw NerdGraph (GraphQL passthrough) tool, and no built-in document is
@@ -56,10 +62,30 @@ describe('defineDocument refuses mutations and subscriptions by default (ADR-001
     expect(() => defineDocument(doc, { mutation: false })).toThrow(/mutation/);
   });
 
-  it('accepts a mutation only with { mutation: true } (reserved for P7-09 write tools)', () => {
-    expect(defineDocument('mutation RbW($id: ID!) { x(id: $id) { y } }', { mutation: true }).name).toBe(
-      'RbW',
+  it('accepts a mutation only with { mutation: true } and an allow-listed name (ADR-0015, P7-09)', () => {
+    expect(
+      defineDocument('mutation RbAckIssue($id: ID!) { x(id: $id) { y } }', { mutation: true }).name,
+    ).toBe('RbAckIssue');
+    expect(() => defineDocument('mutation RbW($id: ID!) { x(id: $id) { y } }', { mutation: true })).toThrow(
+      /allow-list/,
     );
+    expect(() => defineDocument('mutation RbAckIssue { x }')).toThrow(/mutation/);
+  });
+
+  it('{ mutation: true } on a query is refused (no blanket opt-in)', () => {
+    expect(() => defineDocument('query RbQ { actor { user { id } } }', { mutation: true })).toThrow(/query/);
+  });
+
+  it('every allow-listed mutation belongs to exactly one write tool document, and none to a read tool', async () => {
+    const mutations = await import('../src/nerdgraph/mutations.ts');
+    const defined = (Object.values(mutations) as unknown[])
+      .filter(
+        (v): v is { name: string; query: string } => typeof v === 'object' && v !== null && 'query' in v,
+      )
+      .filter((d) => d.query.trimStart().startsWith('mutation'))
+      .map((d) => d.name)
+      .sort();
+    expect(defined).toEqual([...ALLOWED_MUTATIONS].sort());
   });
 
   it('rejects subscriptions even with the opt-in', () => {

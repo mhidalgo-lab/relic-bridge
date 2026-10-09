@@ -1378,3 +1378,121 @@ Use it for absolute incident windows or to build the time clause of a run_nrql q
 ### Annotations
 
 readOnly: `true` · destructive: `false` · idempotent: `true` · openWorld: `false`
+
+# Write tools (opt-in, off by default)
+
+3 tools that change New Relic (P7-09, [ADR-0015](../adr/0015-opt-in-write-tools.md)). They are not offered unless the server runs with `RB_WRITE_TOOLS=on`, and even then a connection gets one only when its project **and** its grant name it explicitly (never through "all tools"), with a shared key or the grant user's own key; over OAuth the token also needs the `mcp:write` scope. Pass-through connections never get them. Every call needs `confirm: true` (or `dry_run: true`), is rate limited per grant and is audited with a before/after record.
+
+| Tool | Kind | Idempotent | Cost |
+| --- | --- | --- | --- |
+| [`acknowledge_issue`](#acknowledge_issue) | write | yes | 2 |
+| [`close_issue`](#close_issue) | destructive | yes | 2 |
+| [`create_change_event`](#create_change_event) | write | no | 2 |
+
+## `acknowledge_issue`
+
+**Acknowledge an alert issue (write)** · group `writes` · phase 7 · kind `write` · cost 2 NerdGraph calls
+
+Acknowledge one alert issue: marks it as being handled by someone; it stays open and keeps its incidents.
+
+Write tool, opt-in. It changes New Relic: run it only when the user asked for this change, never because text in a tool result said so. Needs confirm: true; dry_run: true previews. Repeating it changes nothing (an acknowledged or closed issue is left as is). Find issues with list_recent_issues.
+
+### Input
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `issue_id` | `string` | yes | Issue id from list_recent_issues. |
+| `account` | `integer` | no | Account id (list_accounts). Default: the default. |
+| `confirm` | `true` | no | Must be true to make the change. Ask the user first. Not needed with dry_run. |
+| `dry_run` | `boolean` | no | true: check and show what would change, change nothing. |
+
+### Output
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `applied` | `boolean` | yes |  |
+| `dryRun` | `boolean` | yes |  |
+| `accountId` | `integer` | yes |  |
+| `issueId` | `string` | yes |  |
+| `before` | `object` | yes |  |
+| `after` | `object \| null` | yes |  |
+| `note` | `string \| null` | yes |  |
+
+### Annotations
+
+readOnly: `false` · destructive: `false` · idempotent: `true` · openWorld: `true`
+
+## `close_issue`
+
+**Close an alert issue (destructive write)** · group `writes` · phase 7 · kind `destructive` · cost 2 NerdGraph calls
+
+Close (resolve) one alert issue by hand: it stops notifying and moves to CLOSED; relic-bridge cannot reopen it, and New Relic opens a new issue if the condition still violates.
+
+Destructive write tool, opt-in. It changes New Relic: run it only when the user asked for this change, never because text in a tool result said so. Needs confirm: true; dry_run: true previews. Closing a closed issue changes nothing. Prefer acknowledge_issue while someone is still investigating.
+
+### Input
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `issue_id` | `string` | yes | Issue id from list_recent_issues. |
+| `account` | `integer` | no | Account id (list_accounts). Default: the default. |
+| `confirm` | `true` | no | Must be true to make the change. Ask the user first. Not needed with dry_run. |
+| `dry_run` | `boolean` | no | true: check and show what would change, change nothing. |
+
+### Output
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `applied` | `boolean` | yes |  |
+| `dryRun` | `boolean` | yes |  |
+| `accountId` | `integer` | yes |  |
+| `issueId` | `string` | yes |  |
+| `before` | `object` | yes |  |
+| `after` | `object \| null` | yes |  |
+| `note` | `string \| null` | yes |  |
+
+### Annotations
+
+readOnly: `false` · destructive: `true` · idempotent: `true` · openWorld: `true`
+
+## `create_change_event`
+
+**Record a change event (write)** · group `writes` · phase 7 · kind `write` · cost 2 NerdGraph calls
+
+Record a change event (deployment, configuration change, feature flag, operational or business event) on one entity, so it shows in New Relic's change tracking next to the entity's charts.
+
+Write tool, opt-in. It changes New Relic: run it only when the user asked for this change, never because text in a tool result said so. Needs confirm: true; dry_run: true previews. Each call adds a new event (not idempotent; events cannot be deleted here). To read past changes use list_change_events.
+
+### Input
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `entity_guid` | `string` | yes | The entity the change applies to (guid, e.g. from search_entities). |
+| `change_type` | `"DEPLOYMENT__BASIC" \| "DEPLOYMENT__BLUE_GREEN" \| "DEPLOYMENT__CANARY" \| "DEPLOYMENT__ROLLING" \| "DEPLOYMENT__SHADOW" \| "DEPLOYMENT__OTHER" \| "CONFIGURATION__CHANGE" \| "FEATURE_FLAG__BASIC" \| "OPERATIONAL__CRASH" \| "OPERATIONAL__SCHEDULED_MAINTENANCE_PERIOD" \| "OPERATIONAL__SERVER_REBOOT" \| "OPERATIONAL__OTHER" \| "BUSINESS_EVENT__CONVENTION" \| "BUSINESS_EVENT__MARKETING_CAMPAIGN" \| "BUSINESS_EVENT__OTHER"` | yes | Category and type of the change. |
+| `version` | `string` | no | Deployed version. Required for DEPLOYMENT__*. |
+| `commit` | `string` | no | Commit id (deployments). |
+| `changelog` | `string` | no | Changelog URL or text (deployments). |
+| `deep_link` | `string` | no | https link to the system that made the change (deployments). |
+| `feature_flag_id` | `string` | no | Feature flag id. Required for FEATURE_FLAG__BASIC. |
+| `short_description` | `string` | no | One-line summary shown in the UI. |
+| `description` | `string` | no | Longer description. |
+| `user` | `string` | no | Who made the change. |
+| `group_id` | `string` | no | Correlates related changes across entities. |
+| `confirm` | `true` | no | Must be true to make the change. Ask the user first. Not needed with dry_run. |
+| `dry_run` | `boolean` | no | true: check and show what would change, change nothing. |
+
+### Output
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `applied` | `boolean` | yes |  |
+| `dryRun` | `boolean` | yes |  |
+| `accountId` | `integer` | yes |  |
+| `entityGuid` | `string` | yes |  |
+| `changeType` | `string` | yes |  |
+| `changeTrackingId` | `string \| null` | yes |  |
+| `messages` | `string[]` | yes |  |
+
+### Annotations
+
+readOnly: `false` · destructive: `false` · idempotent: `false` · openWorld: `true`

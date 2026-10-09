@@ -7,6 +7,7 @@ import {
   type QueryLimits,
   RAW_NRQL_TOOLS,
   type Region,
+  WRITE_TOOL_NAMES,
 } from '@relic-bridge/core';
 import {
   type CredentialRecord,
@@ -213,7 +214,9 @@ function freezeLimits(l: QueryLimits): QueryLimits {
  * Compute what a request may do (ARCHITECTURE §4):
  *
  * ```
- * tools    = catalog ∩ (project.enabledTools ?? catalog) ∩ (grant.tools ?? all), minus raw-NRQL tools if rawNrql is off
+ * tools    = catalog ∩ (project.enabledTools ?? catalog) ∩ (grant.tools ?? all), minus raw-NRQL tools if rawNrql is off;
+ *            a write tool (P7-09) only when the project AND the grant name it explicitly (never through `null`) and the
+ *            key is shared or the grant user's own (ADR-0015)
  * accounts = credential.reachableAccounts ∩ project.allowedAccounts ∩ (grant.accounts ?? all)
  * limits   = project limits tightened by grant limits
  * key      = grant.credential ?? project.defaultCredential
@@ -295,11 +298,16 @@ export function computeAccess(input: ComputeAccessInput): AccessDecision {
   // Tools
   const projectTools = project.enabledTools;
   const grantTools = grant.tools;
-  const tools = [...new Set(catalog)].filter(
-    (name) =>
-      (projectTools === null || projectTools.includes(name)) &&
-      (grantTools === null || grantTools.includes(name)) &&
-      (limits.rawNrql || !RAW_NRQL_TOOLS.includes(name)),
+  // Writes act in New Relic as the key's user: never with somebody else's personal key (e.g. an owner's key that is a
+  // project default), whoever administers the grant.
+  const writeKey = credential.ownerUserId === null || credential.ownerUserId === grant.userId;
+  const tools = [...new Set(catalog)].filter((name) =>
+    WRITE_TOOL_NAMES.includes(name)
+      ? // Explicit names only: `null` ("every tool") never implies a write tool.
+        writeKey && projectTools?.includes(name) === true && grantTools?.includes(name) === true
+      : (projectTools === null || projectTools.includes(name)) &&
+        (grantTools === null || grantTools.includes(name)) &&
+        (limits.rawNrql || !RAW_NRQL_TOOLS.includes(name)),
   );
   if (tools.length === 0) return deny('no_tools');
 

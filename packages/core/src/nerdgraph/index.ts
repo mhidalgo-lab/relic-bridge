@@ -35,6 +35,7 @@ export {
   type DashboardWidgetData,
 } from './dashboards.ts';
 export {
+  ALLOWED_MUTATIONS,
   type DefineDocumentOptions,
   type DocumentData,
   DocumentError,
@@ -82,6 +83,14 @@ export {
   LimiterPool,
   MAX_CONCURRENCY,
 } from './limiter.ts';
+export {
+  ACK_ISSUE_MUTATION,
+  type ChangeEventInputVariable,
+  CREATE_CHANGE_EVENT_MUTATION,
+  type CreateChangeEventData,
+  type IssueActionData,
+  RESOLVE_ISSUE_MUTATION,
+} from './mutations.ts';
 export {
   SYNTHETIC_MONITORS_QUERY,
   type SyntheticMonitorOutline,

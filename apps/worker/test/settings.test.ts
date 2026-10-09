@@ -88,6 +88,18 @@ describe('parseWorkerSettings', () => {
     fails({ RB_PLAN: { nested: true } }, 'RB_PLAN');
   });
 
+  it('parses RB_WRITE_TOOLS (P7-09): off by default, needs the audit log', () => {
+    expect(parseWorkerSettings({}).writeTools).toBe(false);
+    const on = parseWorkerSettings({ RB_WRITE_TOOLS: 'on' });
+    expect(on.writeTools).toBe(true);
+    expect(on.warnings.join(' ')).toContain('RB_WRITE_TOOLS=on');
+    fails({ RB_WRITE_TOOLS: 'on', RB_AUDIT: 'off' }, 'RB_WRITE_TOOLS');
+    expect(parseWorkerSettings({ RB_WRITE_TOOLS: 'on', RB_RATE_LIMIT: 'off' }).warnings.join(' ')).toContain(
+      'not rate limited',
+    );
+    fails({ RB_WRITE_TOOLS: 'sure' }, 'RB_WRITE_TOOLS');
+  });
+
   it('parses RB_PASSTHROUGH (secret and binding are checked at boot)', () => {
     expect(parseWorkerSettings({ RB_PASSTHROUGH: 'off' }).passthrough).toBe(false);
     expect(parseWorkerSettings({ RB_PASSTHROUGH: 'on' }).passthrough).toBe(true);

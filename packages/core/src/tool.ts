@@ -32,6 +32,11 @@ export interface ToolDefinition<I extends InputSchema = InputSchema, O = unknown
   readonly inputSchema: I;
   readonly outputSchema?: z.ZodType<O>;
   readonly kind: ToolKind;
+  /**
+   * For `write` / `destructive` tools only: repeating the same call has no further effect (MCP `idempotentHint`).
+   * Read tools are always idempotent.
+   */
+  readonly idempotent?: boolean;
   /** Whether the tool reaches an external system (New Relic). Pure helpers (e.g. time math) set false. */
   readonly openWorld: boolean;
   /** Expected subrequests per call, used for budget planning (ADR-0010). */
@@ -56,12 +61,14 @@ export function defineTool<I extends InputSchema, O = unknown>(
 }
 
 /** MCP annotations derived from the classification. Never hand-written per tool, so they can't drift. */
-export function annotationsFor(def: Pick<ToolDefinition, 'kind' | 'openWorld' | 'title'>): ToolAnnotations {
+export function annotationsFor(
+  def: Pick<ToolDefinition, 'kind' | 'openWorld' | 'title'> & { readonly idempotent?: boolean | undefined },
+): ToolAnnotations {
   return {
     title: def.title,
     readOnlyHint: def.kind === 'read',
     destructiveHint: def.kind === 'destructive',
-    idempotentHint: def.kind === 'read',
+    idempotentHint: def.kind === 'read' || def.idempotent === true,
     openWorldHint: def.openWorld,
   };
 }

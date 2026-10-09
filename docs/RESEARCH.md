@@ -772,3 +772,26 @@ Sources: github.com/modelcontextprotocol/ext-apps `specification/2026-01-26/apps
 - Not verified: which Claude surfaces render MCP Apps today, whether any host still needs the deprecated flat key, and
   whether a host injects anything into the page that the view's own `<meta>` CSP would block.
 
+
+## 26. NerdGraph mutations used by the write tools (P7-09, from documentation 2026-10-06, NOT run live)
+
+No mutation was sent to New Relic (the autonomous run may not change real accounts). The P0-09 introspection
+(`spikes/nerdgraph/results/raw/introspection.json`) holds the query type only, so the input and result **types** below
+are verified there, and the **root fields and argument names** come from New Relic's documentation:
+
+- `changeTrackingCreateEvent(changeTrackingEvent: ChangeTrackingCreateEventInput!, dataHandlingRules:
+  ChangeTrackingDataHandlingRules)` → `ChangeTrackingCreateEventResponse { changeTrackingEvent { … } messages }`
+  (docs.newrelic.com/docs/change-tracking/change-tracking-graphql, via Context7 `/websites/newrelic`). Input fields
+  (introspection): `categoryAndTypeData { kind { category, type } categoryFields { deployment { version! commit changelog
+  deepLink } featureFlag { featureFlagId! } } }`, `entitySearch { query! }` (one entity; docs example `id = '<guid>'`),
+  `description`, `shortDescription`, `user`, `groupId`, `timestamp`, `customAttributes` (not sent). "category and type
+  should match the prefix and suffix of the CategoryType enum" (`DEPLOYMENT__BASIC` → `DEPLOYMENT` / `BASIC`); the docs
+  example uses lower case (`deployment` / `basic`), so case sensitivity is unverified. `validationFlags:
+  [FAIL_ON_FIELD_LENGTH]` refuses over-long fields instead of truncating them.
+- `aiIssuesAckIssue(accountId: Int!, issueId: ID!)` and `aiIssuesResolveIssue(accountId: Int!, issueId: ID!)` →
+  `AiIssuesIssueUserActionResponse { result { accountId action issueId } error }` (result type and the
+  `AiIssuesIssueUserAction` enum `ACK`, `UNACK`, `RESOLVE`, … are in the introspection; the field and argument names
+  are from New Relic's alerts NerdGraph examples, not found in Context7). Sent with the `AiIssues` experimental opt-in
+  header like the reads.
+- To verify (owner, P7-09 pending decision): one `dry_run` and one real call of each tool on a test entity / issue, in
+  US and EU.

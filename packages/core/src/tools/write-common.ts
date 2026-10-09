@@ -221,6 +221,17 @@ export type Gate =
       readonly confirmation: 'declined' | 'cancelled' | 'unavailable';
     };
 
+/** A call the host did not charge to the write limit (it carried no answer) never sends a change (P7-35). */
+function questionRoundRefusal(): RbError {
+  return new RbError(
+    ErrorCode.InputInvalid,
+    'This call was handled as a question round (no inputResponses) and cannot send a change: nothing was changed.',
+    {
+      hint: 'Call again with the approval answer in inputResponses, or with confirm: true if this client cannot be asked.',
+    },
+  );
+}
+
 /**
  * Ask the person (not the model) to approve the exact change, when the client can be asked. It adds to `confirm: true`,
  * dry runs and the opt-ins, never replaces them: call it after every check and right before the mutation. Stateless
@@ -235,6 +246,8 @@ export async function humanGate(
   change: unknown,
 ): Promise<Gate> {
   if (ctx.elicitation === undefined) {
+    // P7-35: an uncharged question round on a connection that turns out not to be askable must not mutate.
+    if (ctx.writeQuestionOnly === true) throw questionRoundRefusal();
     // P7-25: with `RB_WRITE_APPROVAL=required` a client that cannot be asked cannot write: `confirm: true` is set by the
     // model and never counts as a person's approval.
     if (ctx.requireWriteApproval === true) return { state: 'unavailable', confirmation: 'unavailable' };
@@ -254,6 +267,7 @@ export async function humanGate(
   const answer =
     live !== 'missing' ? { key, value: live } : { key: stale, value: ctx.elicitation.answer(stale) };
   if (answer.value === 'accept') {
+    if (ctx.writeQuestionOnly === true) throw questionRoundRefusal();
     // One approval, one attempt: the first call that spends it goes on, a replay of the same answer (a client that
     // resends `inputResponses`, a retry after a lost reply) is refused instead of repeating a non-idempotent write.
     if (ctx.writeApprovals !== undefined && !(await ctx.writeApprovals.consume(answer.key))) {

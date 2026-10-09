@@ -86,7 +86,7 @@ They are **off at every layer** and each layer has to be opened on purpose:
 
 Each call needs `confirm: true` (or `dry_run: true` to preview), reads its target first and refuses anything outside the
 connection's accounts, sends its change once (never retried), is limited to 20 writes per hour per grant
-(`RB_RATE_LIMIT_WRITE`) and is written to the [audit log](audit-log.md) with its arguments and a before/after record.
+(`RB_RATE_LIMIT_WRITE`; the approval question and dry runs do not count, a confirmed write uses one) and is written to the [audit log](audit-log.md) with its arguments and a before/after record.
 The audit row of the attempt is stored before the change is sent: if the audit log cannot store it, nothing is sent.
 Write calls always check access in storage, so revoking a grant stops its next write at once.
 

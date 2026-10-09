@@ -587,32 +587,81 @@ describe('audit and rate limit', () => {
     });
   });
 
+  const rateApp = (requests: number) =>
+    h.makeApp({
+      writeTools: true,
+      requireWriteApproval: false,
+      hooks: mergeHooks(
+        createRateLimitHooks({
+          limiter: new MemoryRateLimiter({ clock: h.world.clock }),
+          rules: { ip: null, authFailures: null, write: { requests, perSeconds: 3600 } },
+          getClientIp: () => '203.0.113.7',
+        }),
+        h.recorderHooks,
+      ),
+    });
+  const mutationsFrom = (from: number) => h.nerdGraph.calls.slice(from).filter((c) => MUTATIONS.has(c.op));
+
   it.skipIf(authzHostKind() !== 'http-app')(
-    'write calls have their own, stricter bucket per grant',
+    'write calls have their own, stricter bucket per grant: confirm: true is charged, dry runs are not (P7-35)',
     async () => {
-      const app = h.makeApp({
-        writeTools: true,
-        hooks: mergeHooks(
-          createRateLimitHooks({
-            limiter: new MemoryRateLimiter({ clock: h.world.clock }),
-            rules: { ip: null, authFailures: null, write: { requests: 2, perSeconds: 3600 } },
-            getClientIp: () => '203.0.113.7',
-          }),
-          h.recorderHooks,
-        ),
-      });
+      const app = rateApp(2);
       const { token } = await setup('w-rate');
       const client = await open(app, 'w-rate', token.value);
       const dry = { issue_id: ISSUE, dry_run: true };
-      expect((await client.callTool({ name: 'acknowledge_issue', arguments: dry })).isError ?? false).toBe(
+      for (let i = 0; i < 6; i++) {
+        const r = await client.callTool({ name: 'acknowledge_issue', arguments: dry });
+        expect(r.isError ?? false).toBe(false);
+      }
+      const before = h.nerdGraph.calls.length;
+      const confirmed = GOOD['acknowledge_issue'] as Record<string, unknown>;
+      expect(
+        (await client.callTool({ name: 'acknowledge_issue', arguments: confirmed })).isError ?? false,
+      ).toBe(false);
+      expect((await client.callTool({ name: 'close_issue', arguments: confirmed })).isError ?? false).toBe(
         false,
       );
-      expect((await client.callTool({ name: 'close_issue', arguments: dry })).isError ?? false).toBe(false);
-      await expect(client.callTool({ name: 'acknowledge_issue', arguments: dry })).rejects.toThrow(
+      const sent = mutationsFrom(before).length;
+      await expect(client.callTool({ name: 'acknowledge_issue', arguments: confirmed })).rejects.toThrow(
         /Rate limit/,
       );
-      // Reads are not charged to the write bucket.
+      // The refused call sent nothing; reads are not charged to the write bucket.
+      expect(mutationsFrom(before).length).toBe(sent);
       expect((await client.callTool({ name: 'whoami', arguments: {} })).isError ?? false).toBe(false);
+    },
+  );
+
+  it.skipIf(authzHostKind() !== 'http-app')(
+    'a confirmed write through elicitation (question, then answer) costs one unit (P7-35)',
+    async () => {
+      const app = rateApp(2);
+      const { token } = await setup('w-rate-elicit');
+      const client = await connect(app, 'w-rate-elicit', token.value, 'modern', undefined, {
+        elicitation: { form: {} },
+      });
+      clients.push(client);
+      let asked = 0;
+      client.setRequestHandler('elicitation/create', () => {
+        asked++;
+        return { action: 'accept', content: { confirm: true } } as never;
+      });
+      const before = h.nerdGraph.calls.length;
+      // Two writes, four rounds: the bucket holds two units.
+      for (const tool of ['close_issue', 'acknowledge_issue']) {
+        const r = await client.callTool({ name: tool, arguments: GOOD[tool] as Record<string, unknown> });
+        expect(r.isError ?? false, JSON.stringify(r).slice(0, 300)).toBe(false);
+      }
+      expect(asked).toBe(2);
+      const sent = mutationsFrom(before).length;
+      expect(sent).toBeGreaterThan(0);
+      // The bucket is empty: the next write is refused at its mutation-carrying round.
+      await expect(
+        client.callTool({
+          name: 'create_change_event',
+          arguments: GOOD['create_change_event'] as Record<string, unknown>,
+        }),
+      ).rejects.toThrow(/Rate limit/);
+      expect(mutationsFrom(before).length).toBe(sent);
     },
   );
 });

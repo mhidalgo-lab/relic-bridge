@@ -145,7 +145,7 @@ that. The `SharedLimiter` Durable Object (P7-10) keeps exact counters that every
 | `RB_SHARED_LIMITER` | Counted by the object for the whole deployment | Object requests |
 |---|---|---|
 | `off` (default) | nothing (as before) | none |
-| `rules` | failed authentications per address (`fail:`), sign-in (`signin:`) and OAuth (`oauth:`) requests per address, write tool calls per grant (`write:`) | one per counted request (a failed authentication, a sign-in or OAuth request, a write call) |
+| `rules` | failed authentications per address (`fail:`), sign-in (`signin:`) and OAuth (`oauth:`) requests per address, write tool calls per grant that can change something (`write:`) | one per counted request (a failed authentication, a sign-in or OAuth request, a charged write call) |
 | `on` | the rules above, plus NerdGraph calls in flight per credential (`RB_CONCURRENCY`) | the above plus two per NerdGraph call (take and release a slot) |
 
 Turn it on with `pnpm cf:setup --shared-limiter rules` (or `on`), or set the variable in the dashboard. The
@@ -169,6 +169,10 @@ How it behaves:
   a write whose object cannot be reached is refused (429) instead of counted per isolate, because that would multiply
   the 20-per-hour cap by the number of isolates; reads are unaffected. Without `RB_SHARED_LIMITER` the write limit is per
   isolate and the Worker logs a startup warning when `RB_WRITE_TOOLS=on`; set `rules` (or `on`) when writes are enabled.
+- **What the write limit counts (P7-35):** a write call that can change something: one that carries the person's
+  answer (`inputResponses`) or `confirm: true` on a client that cannot be asked. The question-only first round of an
+  elicitation and dry runs are not counted, so a confirmed write costs one of the 20 per hour; they still count
+  against the per-token and per-grant limits, so form spam stays limited.
 - **Latency, not CPU:** each object request is a round trip to the data center that hosts the object (the first
   caller's), a few milliseconds nearby and more from far away; it costs wall time, not CPU, so `pnpm bench:cpu` does
   not change. With `on`, every NerdGraph call pays two round trips.

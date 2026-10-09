@@ -241,6 +241,49 @@ describe('write limit fails closed (P7-24)', () => {
     expect(await hooks.beforeMcp?.(c, info('whoami'))).toBeUndefined();
   });
 
+  it('charges one unit per confirmed elicitation write across isolates, on the Durable Object bucket (P7-35)', async () => {
+    const durable = spyNamespace();
+    const grantId = `grt_${crypto.randomUUID()}`;
+    const hooks = (limiter: WorkersRateLimiter) =>
+      createRateLimitHooks({
+        limiter,
+        rules: {
+          ip: null,
+          authFailures: null,
+          token: null,
+          grant: null,
+          write: { requests: 2, perSeconds: 3600 },
+        },
+        getClientIp: () => '203.0.113.7',
+      });
+    const [a, b] = [new WorkersRateLimiter({ durable }), new WorkersRateLimiter({ durable })].map(hooks);
+    const info = (writeRound: McpRequestInfo['writeRound']): McpRequestInfo =>
+      ({
+        tokenId: 'tok_1',
+        grantId,
+        listen: false,
+        mcpMethod: 'tools/call',
+        mcpName: 'close_issue',
+        writeRound,
+        access: { tools: ['close_issue'], rateLimit: null },
+      }) as unknown as McpRequestInfo;
+    const c = { get: () => undefined } as never;
+    // Two writes, each a question round and an answered round, spread over two isolates.
+    for (const hook of [a, b]) {
+      expect(await hook?.beforeMcp?.(c, info('question'))).toBeUndefined();
+      expect(await hook?.beforeMcp?.(c, info('answered'))).toBeUndefined();
+    }
+    // Question rounds and dry runs stay free; every shape that can mutate is refused, on either isolate.
+    for (const hook of [a, b]) {
+      expect(await hook?.beforeMcp?.(c, info('question'))).toBeUndefined();
+      expect(await hook?.beforeMcp?.(c, info('dry_run'))).toBeUndefined();
+      expect((await hook?.beforeMcp?.(c, info('answered')))?.status).toBe(429);
+      expect((await hook?.beforeMcp?.(c, info('confirm')))?.status).toBe(429);
+      expect((await hook?.beforeMcp?.(c, info(undefined)))?.status).toBe(429);
+    }
+    expect(durable.names.length).toBeGreaterThan(0);
+  });
+
   it('RB_WRITE_TOOLS=on without the shared limiter warns', () => {
     const base = { RB_WRITE_TOOLS: 'on' };
     expect(parseWorkerSettings(base).warnings.join(' ')).toContain('without RB_SHARED_LIMITER');

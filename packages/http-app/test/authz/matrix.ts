@@ -272,6 +272,12 @@ export const OAUTH_ROUTES: readonly RouteCase[] = [
     pattern: '/.well-known/oauth-authorization-server',
     path: '/.well-known/oauth-authorization-server',
   },
+  // RFC 9728 per-project metadata (P5-02): built from the path, so it answers alike for any slug.
+  {
+    method: 'GET',
+    pattern: '/.well-known/oauth-protected-resource/p/:slug/mcp',
+    path: '/.well-known/oauth-protected-resource/p/prod/mcp',
+  },
   { method: 'GET', pattern: '/oauth/authorize', path: '/oauth/authorize' },
   { method: 'POST', pattern: '/oauth/token', path: '/oauth/token', body: {} },
   { method: 'POST', pattern: '/oauth/register', path: '/oauth/register', body: {} },

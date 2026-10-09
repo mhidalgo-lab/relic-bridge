@@ -57,3 +57,21 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Assumption made:** every token carries `mcp:read` (plus `offline_access` when asked), as in the spike. Write tools
   (Phase 7) may add `mcp:write` with step-up.
 - **Needs:** owner confirmation before clients cache the scope (P5-02 publishes it in PRM).
+
+## P5-02 — Protected Resource Metadata and audience binding
+
+### P5-02 — `resource` required on refresh requests too
+- **Context:** MCP 2026-07-28 says clients MUST send `resource` in token requests; the provider would accept a refresh
+  without it (falls back to the grant's resource). Some clients may omit it on refresh only.
+- **Assumption made:** required on code **and** refresh grants (`invalid_target` otherwise). A client that omits it on
+  refresh must re-authorize when its access token expires.
+- **Options:** keep strict; or accept a missing `resource` on refresh only (the provider still pins the grant's
+  resource, so it can't retarget — the risk is compatibility, not audience).
+- **Needs:** revisit if P5-06 finds a client (claude.ai, mobile, Desktop) that refreshes without `resource`.
+
+### P5-02 — discovery details clients may care about
+- **Context:** PRM and the `401` challenge are built from the path only (known/unknown slugs indistinguishable, T19).
+- **Assumption made:** no root `/.well-known/oauth-protected-resource`, no OIDC discovery document, `scope="mcp:read"`
+  in every challenge, no `resource_name`, no CORS on `/.well-known/*` (same as `/oauth/*` in P5-01).
+- **Options:** add any of these if a real client needs it (P5-06 compatibility matrix).
+- **Needs:** nothing unless P5-06 finds a gap.

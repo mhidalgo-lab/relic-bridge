@@ -4,8 +4,8 @@ The OAuth server that lets MCP clients without static headers (claude.ai web, Cl
 connectors) reach `/p/{slug}/mcp`. Built on `@cloudflare/workers-oauth-provider` 1.2.1 (ADR-0009, spike P0-08), run
 unmodified on Node and Workers, with its state in the storage `kv` table on both (ADR-0011).
 
-Status: P5-01 (server and token check). Not yet: per-slug Protected Resource Metadata and the `401` discovery
-challenge (P5-02), CIMD and DCR hardening (P5-03), sign-in + consent screen and the host switch (P5-04), plan TTL
+Status: P5-01 (server and token check) and P5-02 (per-slug Protected Resource Metadata, the `401` discovery
+challenge, `resource` on token requests). Not yet: CIMD and DCR hardening (P5-03), sign-in + consent screen and the host switch (P5-04), plan TTL
 presets and refresh reuse detection (P5-05). Until P5-04 the server is a constructor option only
 (`createHttpApp({ oauth })`, `createWorker({ oauth })`): no deployment setting turns it on.
 
@@ -21,18 +21,47 @@ header. Each project is one protected resource, `{issuer}/p/{slug}/mcp`, and a t
 | `GET /oauth/authorize` | ours → provider → consent seam | see below |
 | `POST /oauth/token` | provider (after our code check) | code, refresh, RFC 7009 revocation |
 | `POST /oauth/register` | provider | RFC 7591 DCR, public clients; `registration: false` turns it off |
-| `/.well-known/oauth-protected-resource/p/{slug}/mcp` | — | P5-02 |
+| `GET /.well-known/oauth-protected-resource/p/{slug}/mcp` | ours | RFC 9728, see below |
 
-All four are unauthenticated: `beforeAuth` runs with scope `oauth` (per-IP `oauth` rule, default 60 per 5 minutes, on
+All five are unauthenticated: `beforeAuth` runs with scope `oauth` (per-IP `oauth` rule, default 60 per 5 minutes, on
 top of the per-IP flood limit), declared bodies above 16 KiB are a 413 and streamed bodies are cut at 16 KiB. On
 Workers the `oauth:` buckets are per isolate; the shared Rate Limiting binding still counts every request under `ip:`
 (600/min). A registration cap shared across isolates is P5-03's.
+
+## Discovery (MCP 2026-07-28, RFC 9728)
+
+A client that only knows `https://bridge.example.com/p/{slug}/mcp` finds everything from there:
+
+1. Its first request without a token gets the MCP route's `401`, with OAuth on:
+   `WWW-Authenticate: Bearer realm="relic-bridge", resource_metadata="{issuer}/.well-known/oauth-protected-resource/p/{slug}/mcp", scope="mcp:read"`.
+2. That URL (RFC 9728 path insertion, also the first URI the spec tells clients to try without a header) returns
+   `{"resource": "{issuer}/p/{slug}/mcp", "authorization_servers": ["{issuer}"], "scopes_supported": ["mcp:read"],
+   "bearer_methods_supported": ["header"]}`.
+3. `{issuer}/.well-known/oauth-authorization-server` (RFC 8414) gives the endpoints, `S256` and
+   `authorization_response_iss_parameter_supported: true`. No OpenID Connect discovery document: clients try RFC 8414
+   first.
+
+Both the metadata and the challenge are **built from the request path only**:
+
+- The project is never looked up. Known, unknown and disabled projects get the same metadata (with their own slug), and
+  every denial on one URL — no token, a bad or revoked device token, an OAuth token for another slug, a disabled
+  project — is the same byte-identical `401`. Two URLs' answers differ only in the slug the caller sent (T19).
+- No `error="invalid_token"` (RFC 6750 §3.1): it would tell a missing token from a refused one. No `resource_name`
+  (project names are not public). No `offline_access` in `scopes_supported` (spec: refresh tokens are not a resource
+  requirement; it stays in the AS metadata).
+- A slug that is not valid (`SLUG_RE`) has no metadata (404) and keeps the plain `Bearer realm="relic-bridge"`
+  challenge; so does every server without OAuth. There is no root `/.well-known/oauth-protected-resource`: no MCP
+  endpoint lives at the root.
+- URLs use the issuer (`RB_PUBLIC_URL`), never the `Host` header. A client that reaches the server under another name
+  (a `*.workers.dev` URL while `RB_PUBLIC_URL` is the custom domain) gets metadata whose `resource` does not match the
+  URL it used, and RFC 9728 §3.3 tells it to stop: configure clients with the public URL.
 
 ## Authorization endpoint
 
 1. Repeated parameters → 400 (RFC 6749 §3.1).
 2. `resource`: exactly one, and exactly `{issuer}/p/{slug}/mcp` with a valid slug, else 400 `invalid_target` — before
-   the client is known, so never a redirect. The project is **not** looked up here (no slug probing before sign-in).
+   the client is known, so never a redirect. Scheme and host compare case-insensitively (the MCP spec's "SHOULD accept
+   uppercase"); the path is exact (`/P/x/mcp`, `/p/X/mcp` are refused). The project is **not** looked up here (no slug probing before sign-in).
 3. The provider parses the request: client known, redirect URI registered (exact match; loopback ports are flexible
    per RFC 8252), response type. Errors with a validated redirect go back to the client with `state` and `iss`;
    others are a 400 JSON page.
@@ -50,6 +79,11 @@ Workers the `oauth:` buckets are per isolate; the shared Rate Limiting binding s
 ## Token endpoint
 
 - Body: `application/x-www-form-urlencoded` only (as the provider), repeated parameters refused.
+- `grant_type=authorization_code` and `refresh_token`: exactly one `resource`, one of ours (same rule as the
+  authorization endpoint), else 400 `invalid_target` (RFC 8707; MCP 2026-07-28 "MUST be included in both
+  authorization requests and token requests"). Checked before the code marker is consumed, so a client that left it
+  out can retry with the same code. The provider then requires it to be the grant's own resource (`invalid_target`
+  otherwise — a code for slug A exchanged for slug B, after the marker was consumed, burns the code).
 - `grant_type=authorization_code`: the marker `oauth-code:<sha256(code)>` is consumed with the atomic `kv.take`
   **before** the provider sees the code. No marker → `invalid_grant`; if the code really was issued for its grant
   (`authCodeId` matches), that grant and its tokens are revoked. Of concurrent redemptions at most one succeeds, and a
@@ -72,7 +106,7 @@ Workers the `oauth:` buckets are per isolate; the shared Rate Limiting binding s
   expiry), `beforeMcp` rate limits, per-request tool scope, audit.
 - anything else → `malformed` offline.
 
-Every refusal is the same generic 401 (T19). Deny reasons for logs and audit: `oauth_invalid` (unknown, expired,
+Every refusal is the same generic 401 (T19), with the discovery challenge above. Deny reasons for logs and audit: `oauth_invalid` (unknown, expired,
 revoked or other-audience token), `oauth_mismatch` (props don't match), then the resolver's reasons. Audit rows carry
 the OAuth `client_id`; `token_id` is `oauth_<provider grant id>` — stable per device authorization across refreshes,
 so per-token rate limits and the audit follow the device.
@@ -99,7 +133,10 @@ registrations, grant scopes and user ids are not encrypted (T25: user ids are ou
 - `packages/http-app/test/authz/oauth-suite.ts` — the integration suite (ported from `spikes/oauth/scripts/e2e.ts`):
   metadata, DCR → PKCE → code → token → tool call, cross-slug 401, refresh can't retarget, revocation, expiry, code
   replay and concurrent redemption, PKCE plain/missing, resource checks, redirect URI checks, approval re-checks,
-  per-request resolver checks (owner key, disabled user, revoked grant), off-switch, body limits.
+  per-request resolver checks (owner key, disabled user, revoked grant), off-switch, body limits; and (P5-02) PRM for
+  known / unknown / disabled / invalid slugs, the challenge on every MCP method and denial kind, `resource` on token
+  requests (missing, foreign, repeated, other slug; the code survives a missing one), case-folded scheme and host,
+  cross-slug reuse with a grant on both projects, a disabled project, an OAuth token on every admin route and the UI.
   Runs on the HTTP app with memory storage (`oauth.test.ts`, http-app project), on SQLite (`apps/cli/test/oauth-sqlite.test.ts`)
   and on the Worker with local D1 (`pnpm test:workers`, via the authz host swap).
 - `packages/http-app/test/oauth-kv.test.ts` — the KV adapter; `oauth-rate-limit.test.ts` — the `oauth` rule.

@@ -19,10 +19,15 @@ const TEMPLATE_RE = /([\w$.]*)\s*`((?:[^`\\]|\\.)*)`/g;
 /** Single- or double-quoted string literals. */
 const STRING_RE = /'((?:[^'\\\n]|\\.)*)'|"((?:[^"\\\n]|\\.)*)"/g;
 /**
- * Files allowed to handle NRQL text directly: the tag itself and the tokenizer. `packages/storage/src` and `packages/storage-sqlite/src` hold SQL for
+ * Files allowed to handle NRQL text directly: the tag itself, the tokenizer and the static reference text. `packages/storage/src` and `packages/storage-sqlite/src` hold SQL for
  * the local database (same SELECT/FROM keywords), never NRQL: storage does not talk to NerdGraph (P2-01).
  */
-const EXEMPT = [/packages\/core\/src\/nrql\/(template|tokenize)\.ts$/, /packages\/storage(-sqlite)?\/src\//];
+const EXEMPT = [
+  /packages\/core\/src\/nrql\/(template|tokenize)\.ts$/,
+  /packages\/storage(-sqlite)?\/src\//,
+  // P6-12: the static NRQL cheat sheet shown to agents. Documentation text only, never run or combined with input.
+  /packages\/core\/src\/nrql-reference\.ts$/,
+];
 
 export interface Violation {
   file: string;

@@ -3,7 +3,8 @@ import { type CallToolResult, McpServer, type StandardSchemaWithJSON } from '@mo
 import type { ToolContext } from './context.ts';
 import { ERROR_META_KEY, toToolErrorResult } from './errors.ts';
 import { type PromptDefinition, promptConfig, renderPrompt, selectPrompts } from './prompts.ts';
-import { annotationsFor, type ToolDefinition } from './tool.ts';
+import { type ResourceDefinition, registerResources, selectResources } from './resources.ts';
+import { annotationsFor, type ToolDefinition, type ToolOutput } from './tool.ts';
 import { VERSION } from './version.ts';
 
 /** What one finished tool call looks like to an observer (the audit log, P2-08). Holds no result rows. */
@@ -44,6 +45,11 @@ export interface BuildServerOptions {
    * registered, so `prompts/list` never mentions a tool the caller can't use.
    */
   prompts?: readonly PromptDefinition[];
+  /**
+   * Resource catalogue to offer (default: the built-in NRQL reference and schema snapshots). Only resources whose tool
+   * is in `tools` are registered.
+   */
+  resources?: readonly ResourceDefinition[];
   /** Called after every tool call, success or error. Must not throw; a throw or rejection is swallowed. */
   onToolCall?: (event: ToolCallEvent) => void;
 }
@@ -112,6 +118,7 @@ export function buildMcpServer({
   toolsListChanged = true,
   onToolCall,
   prompts,
+  resources,
 }: BuildServerOptions): McpServer {
   const server = new McpServer(
     { name: info.name, version: info.version },
@@ -119,6 +126,39 @@ export function buildMcpServer({
   );
   const allowedTools = new Set(tools.map((t) => t.name));
   const contextFor = typeof context === 'function' ? context : () => context;
+
+  /** Run a handler with logging and the `onToolCall` observer. Rethrows the handler's error after observing it. */
+  const invoke = async (def: ToolDefinition, input: unknown, ctx: ToolContext): Promise<ToolOutput> => {
+    const logger = ctx.logger.child({ requestId: ctx.requestId, tool: def.name });
+    const started = ctx.clock.now();
+    const observe = (status: 'ok' | 'error', errorCode: string | null, meta: ToolCallEvent['meta']): void => {
+      if (onToolCall === undefined) return;
+      try {
+        onToolCall({
+          tool: def.name,
+          status,
+          errorCode,
+          durationMs: Math.max(0, ctx.clock.now() - started),
+          input,
+          meta,
+        });
+      } catch {
+        // an observer never changes a tool result
+      }
+    };
+    try {
+      const out = await def.handler(input as never, ctx);
+      logger.debug('tool ok', { ms: ctx.clock.now() - started });
+      observe('ok', null, out.meta);
+      return out;
+    } catch (error) {
+      const result = toToolErrorResult(error, ctx.requestId);
+      const code = (result._meta?.[ERROR_META_KEY] as { code?: string } | undefined)?.code;
+      logger.warn('tool error', { ms: ctx.clock.now() - started, code, error });
+      observe('error', code ?? null, undefined);
+      throw error;
+    }
+  };
 
   for (const def of tools) {
     const config = {
@@ -130,31 +170,8 @@ export function buildMcpServer({
     };
     server.registerTool(def.name, config, async (input: unknown): Promise<CallToolResult> => {
       const ctx = contextFor();
-      const logger = ctx.logger.child({ requestId: ctx.requestId, tool: def.name });
-      const started = ctx.clock.now();
-      const observe = (
-        status: 'ok' | 'error',
-        errorCode: string | null,
-        meta: ToolCallEvent['meta'],
-      ): void => {
-        if (onToolCall === undefined) return;
-        try {
-          onToolCall({
-            tool: def.name,
-            status,
-            errorCode,
-            durationMs: Math.max(0, ctx.clock.now() - started),
-            input,
-            meta,
-          });
-        } catch {
-          // an observer never changes a tool result
-        }
-      };
       try {
-        const out = await def.handler(input as never, ctx);
-        logger.debug('tool ok', { ms: ctx.clock.now() - started });
-        observe('ok', null, out.meta);
+        const out = await invoke(def, input, ctx);
         return {
           content: [{ type: 'text', text: out.text }],
           ...(out.structured === undefined
@@ -163,11 +180,7 @@ export function buildMcpServer({
           ...(out.meta === undefined ? {} : { _meta: out.meta }),
         };
       } catch (error) {
-        const result = toToolErrorResult(error, ctx.requestId);
-        const code = (result._meta?.[ERROR_META_KEY] as { code?: string } | undefined)?.code;
-        logger.warn('tool error', { ms: ctx.clock.now() - started, code, error });
-        observe('error', code ?? null, undefined);
-        return result;
+        return toToolErrorResult(error, ctx.requestId);
       }
     });
   }
@@ -185,5 +198,11 @@ export function buildMcpServer({
       ],
     }));
   }
+  registerResources(server, {
+    defs: selectResources(allowedTools, resources),
+    tools,
+    contextFor,
+    invoke: (def, input) => invoke(def, input, contextFor()),
+  });
   return server;
 }

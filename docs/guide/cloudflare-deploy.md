@@ -157,7 +157,7 @@ is revoked alone.
 ## Settings and custom domain
 
 Settings are Worker variables (see the [worker README](../../apps/worker/README.md#settings-vars)): `RB_PLAN`,
-`RB_ALLOWED_HOSTS`, budget overrides. Pass them at deploy time with `wrangler deploy --var NAME:value`, or set them in the
+`RB_ALLOWED_HOSTS`, `RB_TASKS=off` (MCP Tasks kill switch), budget overrides. Pass them at deploy time with `wrangler deploy --var NAME:value`, or set them in the
 dashboard (Worker, Settings, Variables); `pnpm cf:setup` sets `RB_PLAN` from `--plan`.
 
 Write tools stay off unless you set `RB_WRITE_TOOLS=on` (needs `RB_AUDIT=on`). When on, `RB_WRITE_APPROVAL` defaults to

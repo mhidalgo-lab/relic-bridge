@@ -303,6 +303,11 @@ MCP Apps (stdio and serve; see docs/guide/charts.md):
   RB_MCP_APPS            on (default) or off: offer the chart view (_meta.ui on run_nrql and
                          get_query_result, and the ui:// resource) to clients that declare MCP Apps.
 
+MCP Tasks (stdio and serve):
+  RB_TASKS               on (default) or off: kill switch for the Tasks extension. off advertises no
+                         tasks capability, stores no task, and answers tasks/* as unknown methods;
+                         slow calls answer inline (run_nrql returns its query handle).
+
 Registry-friendly discovery (serve, off by default; see docs/guide/registry-listing.md):
   RB_PUBLIC_TOOL_CATALOG off (default) or on: answer initialize and tools/list without a token
                          (static read-only tool list, the same for every project URL) and serve

@@ -96,6 +96,8 @@ export interface StdioServerOptions {
   readonly requireWriteApproval?: boolean;
   /** Offer the MCP Apps chart view (P7-16, `RB_MCP_APPS`); default true. */
   readonly mcpApps?: boolean;
+  /** MCP Tasks (P7-34, `RB_TASKS`); default true. False: no tasks capability, no task record, `tasks/*` unknown. */
+  readonly tasks?: boolean;
   /**
    * Self-monitoring (P7-18, `RB_OTEL=on`): every tool call becomes metrics and a span, and the log is exported as OTLP
    * logs. The exporter only uses `fetch` and the stderr logger; it never touches stdout, the MCP channel.
@@ -187,7 +189,8 @@ export function prepareServer(options: StdioServerOptions): PreparedServer {
     options.queryCache == null ? undefined : Object.freeze({ cache: options.queryCache, scope: 'stdio' });
   // MCP Tasks (P7-22): one caller per process, so the records live in a bounded in-process store (sealed, never
   // written anywhere, gone with the process). Only a 2026-07-28 client that declares the extension gets a task.
-  const tasks = Object.freeze({ store: createMemoryTaskStore(), owner: 'stdio' });
+  const tasksOn = options.tasks !== false;
+  const tasks = tasksOn ? Object.freeze({ store: createMemoryTaskStore(), owner: 'stdio' }) : undefined;
   // Spent write approvals (P7-26): one approval answers one attempt, remembered in this process for the window.
   const writeApprovals = createMemoryApprovalLedger(options.clock ?? systemClock);
   // A fresh request id and budget per tool call (T21: nothing request-scoped is shared between calls).
@@ -201,7 +204,7 @@ export function prepareServer(options: StdioServerOptions): PreparedServer {
     connection,
     logger,
     clock,
-    tasks,
+    ...(tasks === undefined ? {} : { tasks }),
     writeApprovals,
     ...(queryCache === undefined ? {} : { queryCache }),
   });
@@ -226,19 +229,21 @@ export function prepareServer(options: StdioServerOptions): PreparedServer {
         onToolCall,
         mcpApps: options.mcpApps !== false,
         requireWriteApproval: options.requireWriteApproval === true,
-        offerTasks: true,
+        offerTasks: tasksOn,
       }),
     wrapTransport: (inner) =>
-      withTaskDispatcher(
-        inner,
-        (request) =>
-          answerTaskRpc(request, {
-            ctx: contextFor(),
-            resume: { tools, onToolCall },
-            log: {},
-          }).then((answer) => answer.body),
-        (error) => logger.warn('stdio task reply failed', { error: error.message }),
-      ),
+      !tasksOn
+        ? inner
+        : withTaskDispatcher(
+            inner,
+            (request) =>
+              answerTaskRpc(request, {
+                ctx: contextFor(),
+                resume: { tools, onToolCall },
+                log: {},
+              }).then((answer) => answer.body),
+            (error) => logger.warn('stdio task reply failed', { error: error.message }),
+          ),
   };
 }
 
@@ -286,6 +291,14 @@ export function stdioMcpApps(env: Readonly<Record<string, string | undefined>>):
   if (v === undefined || v === '' || v === 'on' || v === 'true' || v === '1') return true;
   if (v === 'off' || v === 'false' || v === '0') return false;
   throw new ConfigError('RB_MCP_APPS must be on or off.');
+}
+
+/** `RB_TASKS` for stdio (P7-34): on unless `off`; any other value fails startup. */
+export function stdioTasks(env: Readonly<Record<string, string | undefined>>): boolean {
+  const v = env['RB_TASKS']?.trim().toLowerCase();
+  if (v === undefined || v === '' || v === 'on' || v === 'true' || v === '1') return true;
+  if (v === 'off' || v === 'false' || v === '0') return false;
+  throw new ConfigError('RB_TASKS must be on or off.');
 }
 
 /** `RB_WRITE_APPROVAL` for stdio (P7-25, ADR-0016): `required` (default) or `client`; any other value fails startup. */

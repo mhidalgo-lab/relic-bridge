@@ -32,6 +32,7 @@ import {
   serveProjectOverStdio,
   serveSetupModeOverStdio,
   stdioMcpApps,
+  stdioTasks,
   stdioTelemetry,
   stdioWriteApproval,
   stdioWriteTools,
@@ -249,6 +250,7 @@ export function main(rt: CliRuntime): MainResult {
       writeTools,
       requireWriteApproval,
       mcpApps: stdioMcpApps(rt.env),
+      tasks: stdioTasks(rt.env),
       ...(fetch === undefined ? {} : { fetch }),
     });
     logger.info('serving MCP over stdio', {

@@ -41,6 +41,49 @@ describe('Worker MCP endpoint', () => {
     expect(rows.map((r) => r.action)).toEqual(['whoami']);
   });
 
+  it('RB_TASKS: the extension is advertised by default and off removes it, with no task record (P7-34)', async () => {
+    const TASKS = 'io.modelcontextprotocol/tasks';
+    const rpc = async (vars: Record<string, string>, method: string, params: Record<string, unknown>) => {
+      const { storage, token } = await seed(MASTER_KEY);
+      const worker = createWorker({
+        openStorage: () => storage,
+        fetch: mockNerdGraph().fetch,
+        logSink: () => {},
+      });
+      const res = await call(worker, { ...env, ...vars } as WorkerEnv, fakeCtx(), '/p/prod/mcp', {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${token}`,
+          'content-type': 'application/json',
+          accept: 'application/json, text/event-stream',
+          'mcp-method': method,
+          'mcp-protocol-version': '2026-07-28',
+          ...(typeof params['taskId'] === 'string' ? { 'mcp-name': params['taskId'] } : {}),
+        },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 1,
+          method,
+          params: {
+            ...params,
+            _meta: {
+              'io.modelcontextprotocol/protocolVersion': '2026-07-28',
+              'io.modelcontextprotocol/clientInfo': { name: 'worker-test', version: '0' },
+              'io.modelcontextprotocol/clientCapabilities': { extensions: { [TASKS]: {} } },
+            },
+          },
+        }),
+      });
+      return { text: await res.text(), storage };
+    };
+    expect((await rpc({}, 'server/discover', {})).text).toContain(TASKS);
+    const off = await rpc({ RB_TASKS: 'off' }, 'server/discover', {});
+    expect(off.text).not.toContain(TASKS);
+    const get = await rpc({ RB_TASKS: 'off' }, 'tasks/get', { taskId: 'x'.repeat(43) });
+    expect(get.text).toContain('-32601');
+    expect(await get.storage.kv.list({ prefix: 'task:' })).toMatchObject({ keys: [] });
+  });
+
   it('answers 401 for a wrong token and records the CF-Connecting-IP address through waitUntil', async () => {
     const { storage } = await seed(MASTER_KEY);
     const worker = createWorker({ openStorage: () => storage, logSink: () => {} });

@@ -95,6 +95,8 @@ export interface WorkerSettings {
   readonly publicToolCatalog: boolean;
   /** `RB_MCP_APPS` (P7-16): the MCP Apps chart view; on by default. */
   readonly mcpApps: boolean;
+  /** `RB_TASKS` (P7-34): kill switch for the MCP Tasks extension; on by default. */
+  readonly tasks: boolean;
   readonly logLevel: LogLevel;
   readonly warnings: readonly string[];
 }
@@ -321,6 +323,7 @@ export function parseWorkerSettings(vars: WorkerVars): WorkerSettings {
     requireWriteApproval,
     publicToolCatalog,
     mcpApps: onOff(vars, 'RB_MCP_APPS', true),
+    tasks: onOff(vars, 'RB_TASKS', true),
     logLevel: level,
     warnings,
   };

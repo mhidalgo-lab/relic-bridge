@@ -319,6 +319,8 @@ export interface ServeSettings {
   readonly publicToolCatalog: boolean;
   /** MCP Apps chart view (P7-16, `RB_MCP_APPS`); on by default. */
   readonly mcpApps: boolean;
+  /** MCP Tasks kill switch (P7-34, `RB_TASKS`); on by default. */
+  readonly tasks: boolean;
   readonly warnings: readonly string[];
 }
 
@@ -525,6 +527,7 @@ export function serveSettings(input: {
     requireWriteApproval: writeApprovalSetting(env, warnings),
     publicToolCatalog: publicToolCatalogSetting(env, warnings, rateLimits !== null),
     mcpApps: onOff(env, 'RB_MCP_APPS', true),
+    tasks: onOff(env, 'RB_TASKS', true),
     warnings,
   };
 }
@@ -690,6 +693,7 @@ export async function startServer(options: StartServerOptions): Promise<RunningS
     requireWriteApproval: settings.requireWriteApproval,
     publicToolCatalog: settings.publicToolCatalog,
     mcpApps: settings.mcpApps,
+    tasks: settings.tasks,
     // MCP Tasks (P7-13): sealed task records in the `kv` table, purged with the other expired rows.
     taskStore: storage.kv,
     approvalStore: storage.kv,

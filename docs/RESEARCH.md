@@ -175,6 +175,9 @@ Sources: <https://modelcontextprotocol.io/specification/2026-07-28/basic/authori
   (`notifications.taskIds`). Security: ids MUST be unguessable (they may act as bearer tokens) and every task request
   MUST be authorised. The `@modelcontextprotocol/ext-tasks` npm package (0.2.x) is client-side (requester sessions,
   2025-11-25 receiver), with no server runtime.
+- **Tasks and a server without the capability (P7-34)**: task creation is server-directed, so a client declaring the
+  extension on a request does not oblige the server to return a task; a server that does not advertise it answers
+  `tools/call` normally and `tasks/*` as unknown methods (`-32601`). `RB_TASKS=off` relies on exactly this.
 - **SDK 2.2.0 and Tasks (verified locally, P7-13)**: the 2026-07-28 registry has no `tasks/*` methods (`-32601`, HTTP
   404); `McpServer` accepts `capabilities.extensions` and advertises it in `server/discover`; a `tools/call` handler's
   `resultType` passes the encoder untouched (`tools/call` is an extended-result method), but the output-schema check

@@ -244,6 +244,21 @@ describe('fallback: clients without the extension keep the queryId handle', () =
     expect(get.error?.code).toBe(-32601);
   });
 
+  it('tasks: false (RB_TASKS=off) with a task store: no capability, inline answers, no record, tasks/* unknown (P7-34)', async () => {
+    const t = await tasksWorld({ tasks: false, pending: 99 });
+    const discover = await rpc(t.app, t.world.tokens.prod, 'server/discover', {});
+    expect(JSON.stringify(discover.result?.['capabilities'] ?? {})).not.toContain(TASKS);
+    // The client declares the extension (default of the helper); the server is not offering it, so no task.
+    const res = await rpc(t.app, t.world.tokens.prod, 'tools/call', RUN);
+    expect(res.result?.['resultType']).not.toBe('task');
+    expect(textOf(res.result)).toContain('get_query_result');
+    for (const method of ['tasks/get', 'tasks/update', 'tasks/cancel']) {
+      const out = await rpc(t.app, t.world.tokens.prod, method, { taskId: 'x'.repeat(43) });
+      expect(out.error?.code).toBe(-32601);
+    }
+    expect(await t.world.storage.kv.list({ prefix: 'task:' })).toMatchObject({ keys: [] });
+  });
+
   it('a store that fails at creation falls back to the handle', async () => {
     const t = await tasksWorld({
       taskStore: {

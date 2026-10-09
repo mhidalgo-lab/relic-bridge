@@ -89,9 +89,9 @@ const NAME_INPUT: Readonly<Record<string, EntityNameOptions>> = {
   list_change_events: { field: 'entity_guid', required: false },
   list_recent_issues: { field: 'entity_guid', required: false },
   search_incidents: { field: 'entity_guid', required: false },
-  get_dashboard: { field: 'guid', required: true, domain: 'VIZ', type: 'DASHBOARD' },
-  dependency_health: { field: 'guid', required: true },
-  entity_health: { field: 'guid', required: true },
+  get_dashboard: { field: 'entity_guid', required: true, domain: 'VIZ', type: 'DASHBOARD' },
+  dependency_health: { field: 'entity_guid', required: true },
+  entity_health: { field: 'entity_guid', required: true },
   generate_user_impact_report: { field: 'entity_guid', required: false, conflictsWith: 'issue_id' },
   trace_error: { field: 'entity_guid', required: false, requires: 'error_group_id' },
 };

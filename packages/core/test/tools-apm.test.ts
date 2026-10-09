@@ -135,16 +135,16 @@ describe('list_top_transactions', () => {
     expect(nrql).toContain(`name LIKE '%o\\'brien%'`);
     expect(nrql).toContain('LIMIT 10');
     const s = r.structuredContent as {
-      transactions: { name: string; p95Duration: number; throughputPerMinute: number }[];
-      maybeMore: boolean;
+      transactions: { name: string; p95DurationSeconds: number; throughputPerMinute: number }[];
+      truncated: boolean;
       sortBy: string;
     };
     expect(s.sortBy).toBe('slowest');
     expect(s.transactions).toHaveLength(2);
     expect(s.transactions[0]?.name).not.toContain('\n');
-    expect(s.transactions[0]?.p95Duration).toBe(2.5);
+    expect(s.transactions[0]?.p95DurationSeconds).toBe(2.5);
     expect(s.transactions[0]?.throughputPerMinute).toBe(10); // 600 requests over the default hour
-    expect(s.maybeMore).toBe(false);
+    expect(s.truncated).toBe(false);
     expect(text(r)).toContain('untrusted');
   });
 
@@ -156,15 +156,15 @@ describe('list_top_transactions', () => {
       name: 'list_top_transactions',
       arguments: { entity_guid: guidOf(A), sort_by: 'throughput', limit: 2, minimal_output: true },
     });
-    const s = t.structuredContent as { transactions: Record<string, unknown>[]; maybeMore: boolean };
+    const s = t.structuredContent as { transactions: Record<string, unknown>[]; truncated: boolean };
     expect(s.transactions.map((x) => x['name'])).toEqual(['b', 'a']);
     expect(Object.keys(s.transactions[0] ?? {}).sort()).toEqual([
       'errorRate',
       'name',
-      'p95Duration',
+      'p95DurationSeconds',
       'requests',
     ]);
-    expect(s.maybeMore).toBe(true);
+    expect(s.truncated).toBe(true);
     const e = await client.callTool({
       name: 'list_top_transactions',
       arguments: { entity_guid: guidOf(A), sort_by: 'errors' },
@@ -209,11 +209,11 @@ describe('analyze_transactions', () => {
     expect(String(calls[0]?.variables['nrql'])).toContain(`name = 'Checkout\\'; DROP'`);
     const s = r.structuredContent as {
       partial: boolean;
-      current: { requests: number; throughputPerMinute: number; p99Duration: number };
+      current: { requests: number; throughputPerMinute: number; p99DurationSeconds: number };
       comparison: { overall: string };
     };
     expect(s.partial).toBe(false);
-    expect(s.current).toMatchObject({ requests: 3000, throughputPerMinute: 50, p99Duration: 1.8 });
+    expect(s.current).toMatchObject({ requests: 3000, throughputPerMinute: 50, p99DurationSeconds: 1.8 });
     expect(s.comparison.overall).toBe('regression_suspected');
   });
 

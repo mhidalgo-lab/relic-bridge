@@ -29,7 +29,7 @@ const whoamiOutput = z.object({
   user: z.object({ id: z.number().int(), name: z.string(), email: z.string() }),
   region: z.enum(['US', 'EU', 'JP']),
   project: z.string().nullable(),
-  defaultAccount: z.number().int(),
+  defaultAccountId: z.number().int(),
   defaultAccountReachable: z.boolean(),
   accountCount: z.number().int(),
   allowedTools: z.array(z.string()).nullable(),
@@ -48,10 +48,10 @@ const listAccountsInput = z.strictObject({});
 
 const listAccountsOutput = z.object({
   accounts: z.array(accountSchema),
-  defaultAccount: z.number().int(),
+  defaultAccountId: z.number().int(),
   defaultAccountReachable: z.boolean(),
   /** Allowed accounts the key cannot read (ids only). */
-  unreachableAllowed: z.array(z.number().int()),
+  unreachableAccountIds: z.array(z.number().int()),
   truncated: z.boolean(),
 });
 
@@ -140,7 +140,7 @@ export function createIdentityTools(deps: ToolDeps = {}): ToolDefinition[] {
         user,
         region: ctx.credential.region,
         project,
-        defaultAccount: ctx.accounts.default,
+        defaultAccountId: ctx.accounts.default,
         defaultAccountReachable: defaultReachable,
         accountCount: accounts.length,
         allowedTools,
@@ -155,7 +155,7 @@ export function createIdentityTools(deps: ToolDeps = {}): ToolDefinition[] {
       };
       const lines = [
         `Connected to New Relic in the ${structured.region} region. Project: ${project ?? 'unknown'}.`,
-        `Default account: ${structured.defaultAccount}${defaultReachable ? '' : ' (WARNING: the key cannot read it)'}. ` +
+        `Default account: ${structured.defaultAccountId}${defaultReachable ? '' : ' (WARNING: the key cannot read it)'}. ` +
           `Usable accounts: ${accounts.length} (see list_accounts).`,
         `Query limits: up to ${ctx.limits.maxLimit} rows, ${ctx.limits.maxWindowDays} day window, ` +
           `raw NRQL ${ctx.limits.rawNrql ? 'allowed' : 'disabled'}.`,
@@ -210,9 +210,9 @@ export function createIdentityTools(deps: ToolDeps = {}): ToolDefinition[] {
         text: lines.join('\n'),
         structured: {
           accounts: shown,
-          defaultAccount: ctx.accounts.default,
+          defaultAccountId: ctx.accounts.default,
           defaultAccountReachable: defaultReachable,
-          unreachableAllowed,
+          unreachableAccountIds: unreachableAllowed,
           truncated,
         },
       };

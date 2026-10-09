@@ -317,7 +317,7 @@ describe('dependency_health', () => {
     const client = await connect(ng.fetch);
     const ok = await client.callTool({
       name: 'dependency_health',
-      arguments: { guid: MOCK_GUID, max_dependencies: 2 },
+      arguments: { entity_guid: MOCK_GUID, max_dependencies: 2 },
     });
     expect(ok.isError, resultText(ok)).toBeFalsy();
     const s = ok.structuredContent as {
@@ -345,7 +345,7 @@ describe('dependency_health', () => {
     const client = await connect(ng.fetch, { budget: createBudget(1 + 4) });
     const r = await client.callTool({
       name: 'dependency_health',
-      arguments: { guid: MOCK_GUID, max_dependencies: 2, max_metrics: 3 },
+      arguments: { entity_guid: MOCK_GUID, max_dependencies: 2, max_metrics: 3 },
     });
     expect(r.isError, resultText(r)).toBeFalsy();
     const s = r.structuredContent as {
@@ -361,7 +361,7 @@ describe('dependency_health', () => {
   it('refuses a foreign guid offline', async () => {
     const ng = nerdGraph({ related });
     const client = await connect(ng.fetch);
-    const r = await client.callTool({ name: 'dependency_health', arguments: { guid: FOREIGN } });
+    const r = await client.callTool({ name: 'dependency_health', arguments: { entity_guid: FOREIGN } });
     expect(errorCode(r)).toBe(ErrorCode.AuthForbidden);
     expect(ng.calls).toEqual([]);
   });
@@ -371,7 +371,7 @@ describe('entity_health', () => {
   it('summarises entity, golden metrics, issues, error groups and deployments in order', async () => {
     const ng = nerdGraph();
     const client = await connect(ng.fetch);
-    const r = await client.callTool({ name: 'entity_health', arguments: { guid: MOCK_GUID } });
+    const r = await client.callTool({ name: 'entity_health', arguments: { entity_guid: MOCK_GUID } });
     expect(r.isError, resultText(r)).toBeFalsy();
     const s = r.structuredContent as { sections: { name: string; status: string }[]; partial: boolean };
     expect(s.sections.map((x) => x.name)).toEqual([
@@ -393,7 +393,7 @@ describe('entity_health', () => {
   it('skips what the budget cannot pay for, in priority order', async () => {
     const ng = nerdGraph();
     const client = await connect(ng.fetch, { budget: createBudget(4) });
-    const r = await client.callTool({ name: 'entity_health', arguments: { guid: MOCK_GUID } });
+    const r = await client.callTool({ name: 'entity_health', arguments: { entity_guid: MOCK_GUID } });
     const s = r.structuredContent as {
       sections: { name: string; status: string }[];
       partial: boolean;
@@ -413,7 +413,7 @@ describe('entity_health', () => {
   it('caps the lookback to the connection window limit and refuses foreign guids offline', async () => {
     const ng = nerdGraph();
     const client = await connect(ng.fetch);
-    const foreign = await client.callTool({ name: 'entity_health', arguments: { guid: FOREIGN } });
+    const foreign = await client.callTool({ name: 'entity_health', arguments: { entity_guid: FOREIGN } });
     expect(errorCode(foreign)).toBe(ErrorCode.AuthForbidden);
     expect(ng.calls).toEqual([]);
   });

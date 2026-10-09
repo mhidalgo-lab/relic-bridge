@@ -94,12 +94,12 @@ describe('list_error_groups', () => {
     const s = r.structuredContent as {
       errorGroups: { id: string; occurrences: number; state: string }[];
       nextCursor: string;
-      totalCount: number;
+      total: number;
     };
     expect(s.errorGroups[0]).toMatchObject({ id: 'g1', occurrences: 12, state: 'UNRESOLVED' });
     expect(s.nextCursor).toBe('CUR_2');
-    expect(s.totalCount).toBe(40);
-    expect(text(r)).toContain('next_cursor: CUR_2');
+    expect(s.total).toBe(40);
+    expect(text(r)).toContain('nextCursor: CUR_2');
   });
 
   it('entity_guid filters and implies its account; a conflicting account is refused', async () => {

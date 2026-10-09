@@ -250,9 +250,9 @@ export function readLag(rows: readonly Record<string, unknown>[]): LagGroup[] {
 
 export interface Throughput {
   readonly name: string;
-  readonly bytesInPerSec: number | null;
-  readonly bytesOutPerSec: number | null;
-  readonly messagesInPerSec: number | null;
+  readonly bytesInPerSecond: number | null;
+  readonly bytesOutPerSecond: number | null;
+  readonly messagesInPerSecond: number | null;
 }
 
 /** Throughput rows by topic or broker; rows with no numbers are dropped. Pure. */
@@ -263,14 +263,17 @@ export function readThroughput(rows: readonly Record<string, unknown>[], key: st
     if (name === null) continue;
     const t = {
       name,
-      bytesInPerSec: round(num(r['bytesIn'])),
-      bytesOutPerSec: round(num(r['bytesOut'])),
-      messagesInPerSec: round(num(r['messagesIn'])),
+      bytesInPerSecond: round(num(r['bytesIn'])),
+      bytesOutPerSecond: round(num(r['bytesOut'])),
+      messagesInPerSecond: round(num(r['messagesIn'])),
     };
-    if (t.bytesInPerSec === null && t.bytesOutPerSec === null && t.messagesInPerSec === null) continue;
+    if (t.bytesInPerSecond === null && t.bytesOutPerSecond === null && t.messagesInPerSecond === null)
+      continue;
     out.push(t);
   }
-  return out.sort((a, b) => (b.bytesInPerSec ?? 0) - (a.bytesInPerSec ?? 0) || a.name.localeCompare(b.name));
+  return out.sort(
+    (a, b) => (b.bytesInPerSecond ?? 0) - (a.bytesInPerSecond ?? 0) || a.name.localeCompare(b.name),
+  );
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -286,7 +289,7 @@ const threadsInput = z.strictObject({
   minimal_output: MINIMAL_FIELD,
 });
 const threadsOutput = z.object({
-  account: z.number().int(),
+  accountId: z.number().int(),
   entityGuid: z.string(),
   since: z.string(),
   until: z.string(),
@@ -307,7 +310,7 @@ Runs 2 requests; a stopped one leaves the other (partial). Says so, instead of f
 
 const gcInput = threadsInput;
 const gcOutput = z.object({
-  account: z.number().int(),
+  accountId: z.number().int(),
   entityGuid: z.string(),
   since: z.string(),
   until: z.string(),
@@ -330,7 +333,7 @@ const kafkaInput = z.strictObject({
   minimal_output: MINIMAL_FIELD,
 });
 const kafkaOutput = z.object({
-  account: z.number().int(),
+  accountId: z.number().int(),
   since: z.string(),
   until: z.string(),
   lag: z.array(
@@ -347,17 +350,17 @@ const kafkaOutput = z.object({
   topics: z.array(
     z.object({
       name: z.string(),
-      bytesInPerSec: z.number().nullable(),
-      bytesOutPerSec: z.number().nullable(),
-      messagesInPerSec: z.number().nullable(),
+      bytesInPerSecond: z.number().nullable(),
+      bytesOutPerSecond: z.number().nullable(),
+      messagesInPerSecond: z.number().nullable(),
     }),
   ),
   brokers: z.array(
     z.object({
       name: z.string(),
-      bytesInPerSec: z.number().nullable(),
-      bytesOutPerSec: z.number().nullable(),
-      messagesInPerSec: z.number().nullable(),
+      bytesInPerSecond: z.number().nullable(),
+      bytesOutPerSecond: z.number().nullable(),
+      messagesInPerSecond: z.number().nullable(),
     }),
   ),
   /** Event types the account has no matching data for in the window. */
@@ -479,7 +482,7 @@ export function createRuntimeTools(deps: ToolDeps = {}): ToolDefinition[] {
       return {
         text: out.join('\n'),
         structured: {
-          account,
+          accountId: account,
           entityGuid: args.entity_guid,
           since: range.since,
           until: range.until,
@@ -539,7 +542,7 @@ export function createRuntimeTools(deps: ToolDeps = {}): ToolDefinition[] {
       return {
         text: out.join('\n'),
         structured: {
-          account,
+          accountId: account,
           entityGuid: args.entity_guid,
           since: range.since,
           until: range.until,
@@ -651,12 +654,12 @@ export function createRuntimeTools(deps: ToolDeps = {}): ToolDefinition[] {
         shapeRows(
           rows.map((t) =>
             minimal
-              ? { [first]: t.name, bytes_in_per_sec: t.bytesInPerSec ?? '' }
+              ? { [first]: t.name, bytes_in_per_sec: t.bytesInPerSecond ?? '' }
               : {
                   [first]: t.name,
-                  bytes_in_per_sec: t.bytesInPerSec ?? '',
-                  bytes_out_per_sec: t.bytesOutPerSec ?? '',
-                  messages_in_per_sec: t.messagesInPerSec ?? '',
+                  bytes_in_per_sec: t.bytesInPerSecond ?? '',
+                  bytes_out_per_sec: t.bytesOutPerSecond ?? '',
+                  messages_in_per_sec: t.messagesInPerSecond ?? '',
                 },
           ),
           { format: 'table', source: 'New Relic Kafka data', maxRows: MAX_TOPIC_ROWS },
@@ -667,7 +670,7 @@ export function createRuntimeTools(deps: ToolDeps = {}): ToolDefinition[] {
       return {
         text: out.join('\n'),
         structured: {
-          account,
+          accountId: account,
           since: range.since,
           until: range.until,
           lag: shownLag,

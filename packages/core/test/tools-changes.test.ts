@@ -112,12 +112,12 @@ describe('list_change_events', () => {
     });
     const s = r.structuredContent as {
       events: { id: string; user: string; version: string }[];
-      maybeMore: boolean;
+      truncated: boolean;
     };
     expect(s.events.map((e) => e.id)).toEqual(['c2', 'c1']);
     expect(s.events[0]?.user).toBe('j***@example.com');
     expect(s.events[0]?.version).toBe('v1.2.3');
-    expect(s.maybeMore).toBe(false);
+    expect(s.truncated).toBe(false);
     expect(text(r)).not.toContain('jane.doe');
   });
 
@@ -128,8 +128,8 @@ describe('list_change_events', () => {
       name: 'list_change_events',
       arguments: { limit: 2, minimal_output: true },
     });
-    const s = r.structuredContent as { events: Record<string, unknown>[]; maybeMore: boolean };
-    expect(s.maybeMore).toBe(true);
+    const s = r.structuredContent as { events: Record<string, unknown>[]; truncated: boolean };
+    expect(s.truncated).toBe(true);
     expect(Object.keys(s.events[0] ?? {})).toEqual([
       'id',
       'time',
@@ -196,12 +196,12 @@ describe('list_change_events', () => {
       filter: { limit: 25, timeWindow: { startTime: NOW - 86_400_000, endTime: NOW } },
     });
     const s = r.structuredContent as {
-      account: number;
+      accountId: number;
       scope: string;
       events: { id: string; version: string }[];
       hiddenOutsideScope: boolean;
     };
-    expect(s).toMatchObject({ account: B, scope: 'entity_deployments', hiddenOutsideScope: true });
+    expect(s).toMatchObject({ accountId: B, scope: 'entity_deployments', hiddenOutsideScope: true });
     expect(s.events.map((e) => e.id)).toEqual(['d1']);
     const bad = await client.callTool({
       name: 'list_change_events',

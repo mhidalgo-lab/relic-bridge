@@ -109,7 +109,7 @@ describe('pass-through route', () => {
       const who = await client.callTool({ name: 'whoami', arguments: {} });
       expect(who.isError ?? false).toBe(false);
       // Accounts = what the key reaches (sorted, default the lowest).
-      expect(who.structuredContent).toMatchObject({ defaultAccount: 1 });
+      expect(who.structuredContent).toMatchObject({ defaultAccountId: 1 });
       const q = await client.callTool({
         name: 'run_nrql',
         arguments: { nrql: 'SELECT count(*) FROM Transaction SINCE 1 hour ago', accounts: [3] },

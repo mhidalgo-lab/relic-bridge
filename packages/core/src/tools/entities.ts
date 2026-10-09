@@ -70,7 +70,7 @@ const CURSOR_RE = /^[A-Za-z0-9+/=_.:-]{1,2048}$/;
 const accountInput = accountId.optional().describe('Only this account (one of list_accounts). Default: all.');
 
 const searchInput = z.strictObject({
-  name: z
+  name_contains: z
     .string()
     .min(1)
     .max(256)
@@ -97,7 +97,7 @@ const searchInput = z.strictObject({
     .max(MAX_ENTITY_RESULTS)
     .optional()
     .describe(`Most entities to return (default ${DEFAULT_ENTITY_RESULTS}, max ${MAX_ENTITY_RESULTS}).`),
-  cursor: z.string().regex(CURSOR_RE).optional().describe('next_cursor of the previous call (same filters).'),
+  cursor: z.string().regex(CURSOR_RE).optional().describe('nextCursor of the previous call (same filters).'),
 });
 
 const entityRow = z.object({
@@ -115,6 +115,8 @@ const searchOutput = z.object({
   /** Matches NerdGraph reported for the filter (before account filtering). */
   total: z.number().int().nullable(),
   nextCursor: z.string().nullable(),
+  /** Rows NerdGraph returned outside this connection's accounts were left out. */
+  hiddenOutsideScope: z.boolean(),
   /** The entity-search filter that was sent. */
   query: z.string(),
 });
@@ -166,7 +168,8 @@ const relatedOutput = z.object({
   ),
   /** Some relationships pointed to accounts this connection does not allow and were left out. */
   hiddenOutsideScope: z.boolean(),
-  hasMore: z.boolean(),
+  /** More relationships exist than were returned: narrow with direction or types, or raise limit. */
+  truncated: z.boolean(),
 });
 
 const listTypesInput = z.strictObject({ account: accountInput });
@@ -180,11 +183,11 @@ const listTypesOutput = z.object({
       count: z.number().int().nullable(),
     }),
   ),
-  accounts: z.array(z.number().int()),
+  accountIds: z.array(z.number().int()),
   cached: z.boolean(),
 });
 
-const decodeInput = z.strictObject({ guid });
+const decodeInput = z.strictObject({ entity_guid: guid });
 
 const decodeOutput = z.object({
   accountId: z.number().int(),
@@ -196,7 +199,7 @@ const decodeOutput = z.object({
 
 const SEARCH_DESCRIPTION = `Find New Relic entities (services, hosts, browser and mobile apps, monitors, dashboards...) by name substring, domain, type and tags: a paged list.
 
-Use it to browse or filter, e.g. every APM service tagged env:prod. To turn one known name into one guid use resolve_entity (most entity tools also take the name directly). Filters combine with AND: name is a case-insensitive substring, domain and type are exact (see list_entity_types), tags are exact key/value matches. If next_cursor is returned, call again with the same filters and that cursor. ${UNTRUSTED}`;
+Use it to browse or filter, e.g. every APM service tagged env:prod. To turn one known name into one guid use resolve_entity (most entity tools also take the name directly). Filters combine with AND: name_contains is a case-insensitive substring, domain and type are exact (see list_entity_types), tags are exact key/value matches. If nextCursor is returned, pass it as cursor with the same filters. ${UNTRUSTED}`;
 
 const GET_ENTITY_DESCRIPTION = `Get one entity's details (guid or name): name, account, domain/type, alert severity, whether it is reporting, tags, a link and its golden metric titles. No metric values.
 
@@ -242,7 +245,7 @@ export function createEntityTools(deps: ToolDeps = {}): ToolDefinition[] {
       const parts: EntitySearchQuery[] = [accountFilter(accounts)];
       if (input.domain) parts.push(entityQuery`domain = ${input.domain.toUpperCase()}`);
       if (input.type) parts.push(entityQuery`type = ${input.type.toUpperCase()}`);
-      if (input.name) parts.push(entityQuery`name LIKE ${`%${input.name}%`}`);
+      if (input.name_contains) parts.push(entityQuery`name LIKE ${`%${input.name_contains}%`}`);
       for (const [key, value] of Object.entries(input.tags ?? {})) {
         parts.push(entityQuery`${entityQuery.tag(key)} = ${value}`);
       }
@@ -290,12 +293,13 @@ export function createEntityTools(deps: ToolDeps = {}): ToolDefinition[] {
           `in ${accounts.length === 1 ? `account ${accounts[0]}` : `${accounts.length} accounts`}.`,
       ];
       if (hidden) lines.push("Note: results outside this connection's accounts were left out.");
-      if (nextCursor) lines.push('More results: call again with the same filters and the next_cursor below.');
+      if (nextCursor)
+        lines.push('More results: call again with the same filters and cursor set to the nextCursor below.');
       if (entities.length > 0) lines.push(shaped.text);
-      if (nextCursor) lines.push(`next_cursor: ${nextCursor}`);
+      if (nextCursor) lines.push(`nextCursor: ${nextCursor}`);
       return {
         text: lines.join('\n'),
-        structured: { entities, total, nextCursor, query: query.text },
+        structured: { entities, total, nextCursor, hiddenOutsideScope: hidden, query: query.text },
       };
     },
   });
@@ -441,7 +445,7 @@ export function createEntityTools(deps: ToolDeps = {}): ToolDefinition[] {
           break;
         }
       }
-      const hasMore = cut || Boolean(entity.relatedEntities?.nextCursor);
+      const truncated = cut || Boolean(entity.relatedEntities?.nextCursor);
       const shaped = shapeRows(
         rows.map((r) => ({
           direction: r.direction,
@@ -458,7 +462,7 @@ export function createEntityTools(deps: ToolDeps = {}): ToolDefinition[] {
       if (hiddenOutsideScope) {
         lines.push('Note: relationships into accounts this connection does not allow were left out.');
       }
-      if (hasMore) lines.push('More relationships exist: narrow with direction or types.');
+      if (truncated) lines.push('More relationships exist: narrow with direction or types, or raise limit.');
       if (rows.length > 0) lines.push(shaped.text);
       return {
         text: [...(ref.note ? [ref.note] : []), ...lines].join('\n'),
@@ -466,7 +470,7 @@ export function createEntityTools(deps: ToolDeps = {}): ToolDefinition[] {
           entity: { guid: self, name: typeof entity.name === 'string' ? cleanName(entity.name) : null },
           related: rows,
           hiddenOutsideScope,
-          hasMore,
+          truncated,
         },
       };
     },
@@ -520,7 +524,7 @@ export function createEntityTools(deps: ToolDeps = {}): ToolDefinition[] {
           `${cached ? ' (cached)' : ''}. Pass domain and type to search_entities.`,
       ];
       if (entry.types.length > 0) lines.push(shaped.text);
-      return { text: lines.join('\n'), structured: { types: entry.types, accounts, cached } };
+      return { text: lines.join('\n'), structured: { types: entry.types, accountIds: accounts, cached } };
     },
   });
 
@@ -536,7 +540,7 @@ export function createEntityTools(deps: ToolDeps = {}): ToolDefinition[] {
     group: 'entities',
     phase: 1,
     handler: async (input, ctx) => {
-      const d = decodeEntityGuid(input.guid);
+      const d = decodeEntityGuid(input.entity_guid);
       const allowed = ctx.accounts.allowed.includes(d.accountId);
       // The domain id is free text from the guid, and a guid can come from telemetry: keep it in the envelope (T6).
       return {

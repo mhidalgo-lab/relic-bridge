@@ -2,9 +2,18 @@
 // P6-13: tool descriptions are the only interface the model sees, so they are tested like code. Offline and deterministic;
 // the model-in-the-loop eval is `pnpm eval:tools` (docs/dev/evals.md).
 import { describe, expect, it } from 'vitest';
-import { createBuiltinTools, envelope, UNTRUSTED_NOTICE } from '../src/index.ts';
+import { z } from 'zod';
+import {
+  createBuiltinTools,
+  defineTool,
+  envelope,
+  PROMPTS,
+  type ToolDefinition,
+  UNTRUSTED_NOTICE,
+} from '../src/index.ts';
 import { EVAL_CASES, type EvalCase } from './evals/cases.ts';
 import { gradeChoice, gradeInjection } from './evals/grade.ts';
+import { lintNaming } from './evals/naming.ts';
 import {
   CONFUSABLE_PAIRS,
   catalogueSize,
@@ -16,7 +25,8 @@ import {
   takesEntityName,
 } from './evals/quality.ts';
 
-const tools = listed(createBuiltinTools({ fetch: async () => new Response('{}') }));
+const definitions = createBuiltinTools({ fetch: async () => new Response('{}') });
+const tools = listed(definitions);
 const names = new Set(tools.map((t) => t.name));
 
 /**
@@ -61,6 +71,65 @@ describe('tool descriptions follow the style guide (docs/dev/evals.md)', () => {
   it('every tool that accepts an entity name is detected as such', () => {
     // Guards the lint itself: if the name field's wording changes, the "or name" rule must not silently stop applying.
     expect(tools.filter(takesEntityName).length).toBeGreaterThanOrEqual(19);
+  });
+});
+
+describe('tool arguments and outputs follow the naming convention (docs/dev/tool-conventions.md, P6-22)', () => {
+  it('every tool and prompt passes', () => {
+    expect(lintNaming(definitions, PROMPTS)).toEqual([]);
+  });
+
+  it('the naming lint catches what it claims to (mutated tool)', () => {
+    const bad = defineTool({
+      name: 'list_widgets',
+      title: 'List widgets',
+      description: 'List widgets for the naming lint test.',
+      inputSchema: z.strictObject({
+        guid: z.string().describe('x'),
+        since: z.string().describe('x'),
+        timeout_s: z.number().int().describe('x'),
+        policy_id: z.number().int().describe('x'),
+        name: z.string().describe('x'),
+        pageSize: z.number().int().describe('x'),
+        cursor: z.string().describe('x'),
+      }),
+      outputSchema: z.object({
+        account: z.number().int(),
+        totalCount: z.number().int(),
+        hasMore: z.boolean(),
+        defaultAccount: z.number().int(),
+        avgDuration: z.number(),
+        retryAfterS: z.number(),
+        since: z.string(),
+        rows: z.array(z.object({ entity_name: z.string() })),
+      }),
+      kind: 'read',
+      openWorld: false,
+      cost: 0,
+      group: 'test',
+      phase: 6,
+      handler: async () => ({ text: '' }),
+    }) as unknown as ToolDefinition;
+    const problems = lintNaming([bad]).join('\n');
+    for (const expected of [
+      'input "guid": use "entity_guid"',
+      'input "since": use "time_range"',
+      'input "timeout_s": spell the unit out',
+      'input "policy_id" is an id and must be a string',
+      'input "name" means an entity name',
+      'input "pageSize" is not snake_case',
+      'output "account": use accountId',
+      'output "totalCount": use total',
+      'output "hasMore": use truncated',
+      'output "defaultAccount" holds account ids',
+      'output "avgDuration" is a duration without its unit',
+      'output "retryAfterS": spell the unit out',
+      'output has "since" without "until"',
+      'output "entity_name" is not camelCase',
+      'takes "cursor" but its output has no "nextCursor"',
+    ]) {
+      expect(problems).toContain(expected);
+    }
   });
 });
 

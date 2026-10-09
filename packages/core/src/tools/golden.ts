@@ -18,6 +18,7 @@ import {
   NRQL_COST,
   startableNrql,
   type ToolDeps,
+  timeRangeInput,
   toolClient,
   UNTRUSTED,
 } from './shared.ts';
@@ -50,14 +51,7 @@ export type Trend = 'up' | 'down' | 'flat' | 'unknown';
 const input = refineEntityRef(
   z.strictObject({
     ...entityRefFields('Entity guid.'),
-    since: z
-      .string()
-      .min(1)
-      .max(200)
-      .optional()
-      .describe(
-        `Time window as in time_range, e.g. "last 6 hours". Default "last 30 minutes". A metric query with its own SINCE keeps it.`,
-      ),
+    time_range: timeRangeInput(DEFAULT_GOLDEN_SINCE),
     timeseries: z
       .boolean()
       .optional()
@@ -97,6 +91,7 @@ const output = z.object({
     type: z.string().nullable(),
   }),
   since: z.string(),
+  until: z.string(),
   metrics: z.array(metricRow),
   /** Some metrics were not evaluated (budget) or have no value (errors, still running). */
   partial: z.boolean(),
@@ -105,7 +100,7 @@ const output = z.object({
 
 const DESCRIPTION = `Golden metrics of one entity (guid or name): the key signals New Relic defines for its kind (throughput, response time and error rate for a service; CPU and memory for a host...), each with its latest value, a trend (up, down, flat) and the NRQL that produced it.
 
-Use it for current metric values, and refine any metric with run_nrql. For metrics plus issues, errors and deployments in one call use entity_health.. Runs one entity lookup, then one query per metric (up to max_metrics); metrics stopped by budget or query limits are marked skipped or error. ${UNTRUSTED}`;
+Use it for current metric values, and refine any metric with run_nrql. For metrics plus issues, errors and deployments in one call use entity_health. Runs one entity lookup, then one query per metric (up to max_metrics); metrics stopped by budget or query limits are marked skipped or error. ${UNTRUSTED}`;
 
 const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 
@@ -322,8 +317,7 @@ export function createGoldenMetricTools(deps: ToolDeps = {}): ToolDefinition[] {
       const ref = await resolveEntityRef(resolver, ctx, rawArgs);
       const args = { ...rawArgs, guid: ref.guid };
       const decoded = checkGuid(ctx, args.guid);
-      const sinceText = args.since ?? DEFAULT_GOLDEN_SINCE;
-      const range = parseTimeRange(sinceText, ctx.clock.now());
+      const range = parseTimeRange(args.time_range ?? DEFAULT_GOLDEN_SINCE, ctx.clock.now());
       assertWindowWithinLimit(range, ctx.limits);
       const wantSeries = args.timeseries ?? true;
 
@@ -399,7 +393,14 @@ export function createGoldenMetricTools(deps: ToolDeps = {}): ToolDefinition[] {
       }
       return {
         text: [...(ref.note ? [ref.note] : []), ...lines].join('\n'),
-        structured: { entity, since: sinceText, metrics, partial, totalMetrics: defs.length },
+        structured: {
+          entity,
+          since: range.since,
+          until: range.until,
+          metrics,
+          partial,
+          totalMetrics: defs.length,
+        },
       };
     },
   });

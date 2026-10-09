@@ -69,10 +69,11 @@ const input = z.strictObject({
 });
 
 const output = z.object({
-  account: z.number().int(),
+  accountId: z.number().int(),
   since: z.string(),
   until: z.string(),
-  totalCount: z.number().int().nullable(),
+  /** Matches New Relic reported for the filter. */
+  total: z.number().int().nullable(),
   errorGroups: z.array(z.record(z.string(), z.unknown())),
   nextCursor: z.string().nullable(),
   hiddenOutsideScope: z.boolean(),
@@ -80,7 +81,7 @@ const output = z.object({
 
 const DESCRIPTION = `List the Errors Inbox error groups of one account (similar errors grouped into one item): name, message, state, occurrences in the window, first and last seen, whether it regressed, and the entity it comes from.
 
-Use it for "which errors hurt us?" (sort_by "occurrences") or "what new errors appeared?" (sort_by "first_seen"). Filter by entity (guid or name). To follow one group to its trace, spans and logs use trace_error; events_query is NRQL for run_nrql. Page with next_cursor. It cannot resolve, ignore or assign anything. ${UNTRUSTED}`;
+Use it for "which errors hurt us?" (sort_by "occurrences") or "what new errors appeared?" (sort_by "first_seen"). Filter by entity (guid or name). To follow one group to its trace, spans and logs use trace_error; events_query is NRQL for run_nrql. Page with cursor. It cannot resolve, ignore or assign anything. ${UNTRUSTED}`;
 
 const iso = (ms: unknown): string | null => {
   const n = num(ms);
@@ -175,16 +176,17 @@ export function createErrorTools(deps: ToolDeps = {}): ToolDefinition[] {
       const rows = all.filter((g) => vouched(g, account, ctx)).map(toRow);
       const hiddenOutsideScope = all.length > rows.length;
       const nextCursor = nextCursorOf(page?.nextCursor);
-      const totalCount = num(page?.totalCount);
+      const total = num(page?.totalCount);
       const errorGroups = args.minimal_output
         ? pickFields(rows, MINIMAL_FIELDS)
         : (rows as Record<string, unknown>[]);
 
       const lines = [
-        `${rows.length} error ${rows.length === 1 ? 'group' : 'groups'} in account ${account}${totalCount !== null ? ` (${totalCount} match in total)` : ''}, ${range.since} to ${range.until} (UTC).`,
+        `${rows.length} error ${rows.length === 1 ? 'group' : 'groups'} in account ${account}${total !== null ? ` (${total} match in total)` : ''}, ${range.since} to ${range.until} (UTC).`,
       ];
       if (hiddenOutsideScope) lines.push("Note: results outside this connection's accounts were left out.");
-      if (nextCursor) lines.push('More results: call again with the same filters and the next_cursor below.');
+      if (nextCursor)
+        lines.push('More results: call again with the same filters and cursor set to the nextCursor below.');
       if (rows.length > 0) {
         lines.push(
           shapeRows(
@@ -213,14 +215,14 @@ export function createErrorTools(deps: ToolDeps = {}): ToolDefinition[] {
           ).text,
         );
       }
-      if (nextCursor) lines.push(`next_cursor: ${nextCursor}`);
+      if (nextCursor) lines.push(`nextCursor: ${nextCursor}`);
       return {
         text: lines.join('\n'),
         structured: {
-          account,
+          accountId: account,
           since: range.since,
           until: range.until,
-          totalCount,
+          total,
           errorGroups,
           nextCursor,
           hiddenOutsideScope,

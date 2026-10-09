@@ -65,7 +65,7 @@ const GUID_CASES: Readonly<Record<string, readonly ToolCall[]>> = {
     { args: { account: FOREIGN }, expect: 'refused', offline: true },
     { args: { account: 3 }, expect: 'refused', offline: true }, // reachable by the key, not allowed
     { args: {}, expect: 'ok' },
-    { args: { account: 2, name: 'x' }, expect: 'ok' },
+    { args: { account: 2, name_contains: 'x' }, expect: 'ok' },
   ],
   list_alert_conditions: [
     { args: { account: FOREIGN }, expect: 'refused', offline: true },
@@ -149,16 +149,16 @@ const GUID_CASES: Readonly<Record<string, readonly ToolCall[]>> = {
   list_synthetic_monitors: [
     { args: { account: FOREIGN }, expect: 'refused', offline: true },
     { args: { account: 3 }, expect: 'refused', offline: true },
-    { args: { account: 1, name: "a'b" }, expect: 'ok' },
+    { args: { account: 1, name_contains: "a'b" }, expect: 'ok' },
   ],
   list_dashboards: [
     { args: { account: FOREIGN }, expect: 'refused', offline: true },
     { args: { account: 3 }, expect: 'refused', offline: true },
-    { args: { account: 1, name: "a'b" }, expect: 'ok' },
+    { args: { account: 1, name_contains: "a'b" }, expect: 'ok' },
   ],
   get_dashboard: [
-    { args: { guid: guidOf(FOREIGN) }, expect: 'refused', offline: true },
-    { args: { guid: guidOf(1) }, expect: 'refused' },
+    { args: { entity_guid: guidOf(FOREIGN) }, expect: 'refused', offline: true },
+    { args: { entity_guid: guidOf(1) }, expect: 'refused' },
   ],
   generate_alert_insights_report: [
     { args: { issue_id: 'issue-alpha-issue', account: FOREIGN }, expect: 'refused', offline: true },
@@ -186,20 +186,20 @@ const GUID_CASES: Readonly<Record<string, readonly ToolCall[]>> = {
     { args: { trace_id: 'abcdef0123456789', account: 1 }, expect: 'ok' },
   ],
   dependency_health: [
-    { args: { guid: guidOf(FOREIGN) }, expect: 'refused', offline: true },
-    { args: { guid: guidOf(3) }, expect: 'refused', offline: true },
+    { args: { entity_guid: guidOf(FOREIGN) }, expect: 'refused', offline: true },
+    { args: { entity_guid: guidOf(3) }, expect: 'refused', offline: true },
     // NerdGraph answers the entity's own golden metrics with an entity in the foreign account: fails closed.
-    { args: { guid: guidOf(1) }, expect: 'refused' },
+    { args: { entity_guid: guidOf(1) }, expect: 'refused' },
   ],
   entity_health: [
-    { args: { guid: guidOf(FOREIGN) }, expect: 'refused', offline: true },
-    { args: { guid: guidOf(3) }, expect: 'refused', offline: true },
-    { args: { guid: guidOf(1) }, expect: 'refused' },
+    { args: { entity_guid: guidOf(FOREIGN) }, expect: 'refused', offline: true },
+    { args: { entity_guid: guidOf(3) }, expect: 'refused', offline: true },
+    { args: { entity_guid: guidOf(1) }, expect: 'refused' },
   ],
   get_entity: [
-    { args: { guid: guidOf(FOREIGN) }, expect: 'refused', offline: true },
+    { args: { entity_guid: guidOf(FOREIGN) }, expect: 'refused', offline: true },
     // NerdGraph answers with an entity in the foreign account behind an allowed account's GUID.
-    { args: { guid: guidOf(1) }, expect: 'refused' },
+    { args: { entity_guid: guidOf(1) }, expect: 'refused' },
     // Name path (P6-17): an unavailable account is refused offline; the resolver never picks among several matches,
     // never resolves into an account outside the grant, and what it resolves is still checked against NerdGraph.
     { args: { name: 'entity', account: FOREIGN }, expect: 'refused', offline: true },
@@ -207,12 +207,12 @@ const GUID_CASES: Readonly<Record<string, readonly ToolCall[]>> = {
     { args: { name: 'entity' }, expect: 'invalid' }, // matches accounts 1 and 2: ambiguous
     { args: { name: 'entity-3' }, expect: 'invalid' }, // only in account 3 (not allowed): not found
     { args: { name: 'entity-1' }, expect: 'refused' },
-    { args: { name: 'entity-1', guid: guidOf(1) }, expect: 'invalid' },
+    { args: { name: 'entity-1', entity_guid: guidOf(1) }, expect: 'invalid' },
     { args: {}, expect: 'invalid' },
   ],
   get_related_entities: [
-    { args: { guid: guidOf(FOREIGN) }, expect: 'refused', offline: true },
-    { args: { guid: guidOf(1) }, expect: 'ok' },
+    { args: { entity_guid: guidOf(FOREIGN) }, expect: 'refused', offline: true },
+    { args: { entity_guid: guidOf(1) }, expect: 'ok' },
     // Name path (P6-17): an unavailable account is refused offline; the resolver never picks among several matches,
     // never resolves into an account outside the grant, and what it resolves is still checked against NerdGraph.
     { args: { name: 'entity', account: FOREIGN }, expect: 'refused', offline: true },
@@ -220,12 +220,12 @@ const GUID_CASES: Readonly<Record<string, readonly ToolCall[]>> = {
     { args: { name: 'entity' }, expect: 'invalid' }, // matches accounts 1 and 2: ambiguous
     { args: { name: 'entity-3' }, expect: 'invalid' }, // only in account 3 (not allowed): not found
     { args: { name: 'entity-1' }, expect: 'ok' },
-    { args: { name: 'entity-1', guid: guidOf(1) }, expect: 'invalid' },
+    { args: { name: 'entity-1', entity_guid: guidOf(1) }, expect: 'invalid' },
     { args: {}, expect: 'invalid' },
   ],
   get_golden_metrics: [
-    { args: { guid: guidOf(FOREIGN) }, expect: 'refused', offline: true },
-    { args: { guid: guidOf(1) }, expect: 'refused' },
+    { args: { entity_guid: guidOf(FOREIGN) }, expect: 'refused', offline: true },
+    { args: { entity_guid: guidOf(1) }, expect: 'refused' },
     // Name path (P6-17): an unavailable account is refused offline; the resolver never picks among several matches,
     // never resolves into an account outside the grant, and what it resolves is still checked against NerdGraph.
     { args: { name: 'entity', account: FOREIGN }, expect: 'refused', offline: true },
@@ -233,11 +233,11 @@ const GUID_CASES: Readonly<Record<string, readonly ToolCall[]>> = {
     { args: { name: 'entity' }, expect: 'invalid' }, // matches accounts 1 and 2: ambiguous
     { args: { name: 'entity-3' }, expect: 'invalid' }, // only in account 3 (not allowed): not found
     { args: { name: 'entity-1' }, expect: 'refused' },
-    { args: { name: 'entity-1', guid: guidOf(1) }, expect: 'invalid' },
+    { args: { name: 'entity-1', entity_guid: guidOf(1) }, expect: 'invalid' },
     { args: {}, expect: 'invalid' },
   ],
   // Offline decoding of the caller's own input: says the account is not available, fetches nothing.
-  decode_entity_guid: [{ args: { guid: guidOf(FOREIGN) }, expect: 'ok', offline: true }],
+  decode_entity_guid: [{ args: { entity_guid: guidOf(FOREIGN) }, expect: 'ok', offline: true }],
 };
 
 /**
@@ -259,9 +259,9 @@ const NAME_TOOLS: Readonly<
   list_change_events: { field: 'entity_guid', resolved: 'refused', optional: true },
   list_recent_issues: { field: 'entity_guid', resolved: 'ok', optional: true },
   search_incidents: { field: 'entity_guid', resolved: 'ok', optional: true },
-  get_dashboard: { field: 'guid', resolved: 'refused' },
-  dependency_health: { field: 'guid', resolved: 'refused' },
-  entity_health: { field: 'guid', resolved: 'refused' },
+  get_dashboard: { field: 'entity_guid', resolved: 'refused' },
+  dependency_health: { field: 'entity_guid', resolved: 'refused' },
+  entity_health: { field: 'entity_guid', resolved: 'refused' },
   generate_user_impact_report: { field: 'entity_guid', resolved: 'ok', optional: true },
 };
 
@@ -401,7 +401,10 @@ describe('tool isolation against a hostile NerdGraph', () => {
     const rows = (search.structuredContent as { entities: { accountId: number; name: string }[] }).entities;
     expect(rows.map((r) => r.name)).toEqual(['alpha-entity-1', 'alpha-entity-2']);
     expect(JSON.stringify(search.content)).toContain('left out');
-    const related = await client.callTool({ name: 'get_related_entities', arguments: { guid: guidOf(1) } });
+    const related = await client.callTool({
+      name: 'get_related_entities',
+      arguments: { entity_guid: guidOf(1) },
+    });
     const rel = related.structuredContent as { related: { name: string }[]; hiddenOutsideScope: boolean };
     expect(rel.related.map((r) => r.name)).toEqual(['alpha-rel']);
     expect(rel.hiddenOutsideScope).toBe(true);

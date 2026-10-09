@@ -111,7 +111,12 @@ export function readWidget(
 
 const listInput = z.strictObject({
   account: accountInput,
-  name: z.string().min(1).max(200).optional().describe('Only dashboards whose name contains this text.'),
+  name_contains: z
+    .string()
+    .min(1)
+    .max(200)
+    .optional()
+    .describe('Only dashboards whose name contains this text.'),
   limit: z
     .number()
     .int()
@@ -124,7 +129,7 @@ const listInput = z.strictObject({
 });
 
 const listOutput = z.object({
-  account: z.number().int(),
+  accountId: z.number().int(),
   dashboards: z.array(
     z.object({
       guid: z.string(),
@@ -135,11 +140,12 @@ const listOutput = z.object({
   ),
   total: z.number().int().nullable(),
   nextCursor: z.string().nullable(),
+  hiddenOutsideScope: z.boolean(),
   notes: z.array(z.string()),
 });
 
 const getInput = z.strictObject({
-  guid: z.string().min(1).max(200).describe('Entity guid of the dashboard (from list_dashboards).'),
+  entity_guid: z.string().min(1).max(200).describe('Entity guid of the dashboard (from list_dashboards).'),
   minimal_output: z
     .boolean()
     .optional()
@@ -150,7 +156,7 @@ const widgetSchema = z.object({
   id: z.string().nullable(),
   title: z.string(),
   visualization: z.string().nullable(),
-  queries: z.array(z.object({ accountId: z.number().nullable(), nrql: z.string() })),
+  queries: z.array(z.object({ accountId: z.number().int().nullable(), nrql: z.string() })),
   markdown: z.string().nullable(),
   withheld: z.boolean(),
 });
@@ -158,7 +164,7 @@ const widgetSchema = z.object({
 const getOutput = z.object({
   guid: z.string(),
   name: z.string(),
-  account: z.number().int(),
+  accountId: z.number().int(),
   description: z.string().nullable(),
   permissions: z.string().nullable(),
   permalink: z.string().nullable(),
@@ -176,7 +182,7 @@ const getOutput = z.object({
 
 const LIST_DESCRIPTION = `List the dashboards of one account (name, guid, permissions, link), optionally filtered by name substring.
 
-Use it to find a dashboard for get_dashboard. Page with next_cursor. ${UNTRUSTED}`;
+Use it to find a dashboard for get_dashboard. Page with cursor. ${UNTRUSTED}`;
 
 const GET_DESCRIPTION = `Get one dashboard (guid or name): its pages and widgets, with each widget's title, visualization and NRQL queries (and markdown text), so you can reuse the queries.
 
@@ -205,7 +211,7 @@ export function createDashboardTools(deps: ToolDeps = {}): ToolDefinition[] {
         entityQuery`domain = 'VIZ'`,
         entityQuery`type = 'DASHBOARD'`,
       ];
-      if (args.name) parts.push(entityQuery`name LIKE ${`%${args.name}%`}`);
+      if (args.name_contains) parts.push(entityQuery`name LIKE ${`%${args.name_contains}%`}`);
       const query = entityQuery.and(parts);
       const result = await client(ctx).query(DASHBOARDS_QUERY, {
         query: query.text,
@@ -218,8 +224,8 @@ export function createDashboardTools(deps: ToolDeps = {}): ToolDefinition[] {
         e.accountId === account && typeof e.guid === 'string' && guidAgrees(e.guid, account);
       const scoped = all.filter(inScope).slice(0, limit);
       const notes: string[] = [];
-      if (all.some((e) => !inScope(e)))
-        notes.push("Results outside this connection's accounts were left out.");
+      const hiddenOutsideScope = all.some((e) => !inScope(e));
+      if (hiddenOutsideScope) notes.push("Results outside this connection's accounts were left out.");
       const nextCursor = nextCursorOf(es.results?.nextCursor);
       const total = num(es.count);
       const minimal = args.minimal_output === true;
@@ -239,7 +245,9 @@ export function createDashboardTools(deps: ToolDeps = {}): ToolDefinition[] {
       ];
       for (const n of notes) lines.push(`Note: ${n}`);
       if (nextCursor)
-        lines.push('More dashboards: call again with the same filters and the next_cursor below.');
+        lines.push(
+          'More dashboards: call again with the same filters and cursor set to the nextCursor below.',
+        );
       if (dashboards.length > 0) {
         lines.push(
           shapeRows(
@@ -252,8 +260,11 @@ export function createDashboardTools(deps: ToolDeps = {}): ToolDefinition[] {
           ).text,
         );
       }
-      if (nextCursor) lines.push(`next_cursor: ${nextCursor}`);
-      return { text: lines.join('\n'), structured: { account, dashboards, total, nextCursor, notes } };
+      if (nextCursor) lines.push(`nextCursor: ${nextCursor}`);
+      return {
+        text: lines.join('\n'),
+        structured: { accountId: account, dashboards, total, nextCursor, hiddenOutsideScope, notes },
+      };
     },
   });
 
@@ -269,8 +280,8 @@ export function createDashboardTools(deps: ToolDeps = {}): ToolDefinition[] {
     group: 'entities',
     phase: 6,
     handler: async (args, ctx) => {
-      const decoded = checkGuid(ctx, args.guid);
-      const result = await client(ctx).query(DASHBOARD_QUERY, { guid: args.guid });
+      const decoded = checkGuid(ctx, args.entity_guid);
+      const result = await client(ctx).query(DASHBOARD_QUERY, { guid: args.entity_guid });
       const e = requireField(result.data.actor.entity, result, ctx);
       const account = e.accountId ?? decoded.accountId;
       // The GUID's own account was checked offline; NerdGraph must agree (T3).
@@ -312,9 +323,9 @@ export function createDashboardTools(deps: ToolDeps = {}): ToolDefinition[] {
       notes.push('Widgets are not executed; pass a widget NRQL to run_nrql to run it.');
 
       const structured = {
-        guid: args.guid,
+        guid: args.entity_guid,
         name: cleanName(e.name ?? ''),
-        account,
+        accountId: account,
         description:
           typeof e.description === 'string' && e.description !== ''
             ? cleanName(e.description, MAX_DESCRIPTION_CHARS)

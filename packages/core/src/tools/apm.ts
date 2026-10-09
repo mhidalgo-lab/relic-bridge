@@ -146,21 +146,21 @@ const listInput = z.strictObject({
 });
 
 const listOutput = z.object({
-  account: z.number().int(),
+  accountId: z.number().int(),
   entityGuid: z.string(),
   since: z.string(),
   until: z.string(),
   sortBy: z.enum(['slowest', 'errors', 'throughput']),
   transactions: z.array(z.record(z.string(), z.unknown())),
   /** The page is full: more transactions may exist. Raise limit or filter. */
-  maybeMore: z.boolean(),
+  truncated: z.boolean(),
 });
 
 const LIST_DESCRIPTION = `Rank the transactions of an APM application (guid or name) by p95 latency (default), errors or throughput, with throughput, error count and rate, and average, p50, p95 and p99 duration in seconds.
 
 Use it to find which endpoints to look at. Rows with few requests have noisy percentiles: check the requests column. For the application as a whole, or a before/after view, use analyze_transactions. ${UNTRUSTED}`;
 
-const LIST_MINIMAL = ['name', 'requests', 'errorRate', 'p95Duration'] as const;
+const LIST_MINIMAL = ['name', 'requests', 'errorRate', 'p95DurationSeconds'] as const;
 
 // ---------------------------------------------------------------------------------------------------------------------
 // analyze_transactions
@@ -187,14 +187,14 @@ const statsOut = z.object({
   throughputPerMinute: z.number().nullable(),
   errors: z.number().nullable(),
   errorRate: z.number().nullable(),
-  avgDuration: z.number().nullable(),
-  p50Duration: z.number().nullable(),
-  p95Duration: z.number().nullable(),
-  p99Duration: z.number().nullable(),
+  avgDurationSeconds: z.number().nullable(),
+  p50DurationSeconds: z.number().nullable(),
+  p95DurationSeconds: z.number().nullable(),
+  p99DurationSeconds: z.number().nullable(),
 });
 
 const analyzeOutput = z.object({
-  account: z.number().int(),
+  accountId: z.number().int(),
   entityGuid: z.string(),
   transaction: z.string().nullable(),
   window: z.object({ since: z.string(), until: z.string(), minutes: z.number() }),
@@ -237,10 +237,10 @@ function statsOutput(s: TxStats, minutes: number) {
     throughputPerMinute: perMinute(s.requests, minutes),
     errors: s.errors,
     errorRate: rounded(s.errorRate),
-    avgDuration: rounded(s.avgDuration),
-    p50Duration: rounded(s.p50Duration),
-    p95Duration: rounded(s.p95Duration),
-    p99Duration: rounded(s.p99Duration),
+    avgDurationSeconds: rounded(s.avgDuration),
+    p50DurationSeconds: rounded(s.p50Duration),
+    p95DurationSeconds: rounded(s.p95Duration),
+    p99DurationSeconds: rounded(s.p99Duration),
   };
 }
 
@@ -310,18 +310,18 @@ export function createApmTools(deps: ToolDeps = {}): ToolDefinition[] {
         ];
       });
       const sortKey = (r: (typeof rows)[number]): number =>
-        (sortBy === 'errors' ? r.errors : sortBy === 'throughput' ? r.requests : r.p95Duration) ?? -1;
+        (sortBy === 'errors' ? r.errors : sortBy === 'throughput' ? r.requests : r.p95DurationSeconds) ?? -1;
       rows.sort((a, b) => sortKey(b) - sortKey(a));
       const shown = rows.slice(0, limit);
       const transactions = args.minimal_output
         ? pickFields(shown, LIST_MINIMAL)
         : (shown as Record<string, unknown>[]);
-      const maybeMore = done.results.length >= limit;
+      const truncated = done.results.length >= limit;
 
       const lines = [
         `${shown.length} transaction${shown.length === 1 ? '' : 's'} of the application in account ${account}, ${range.since} to ${range.until} (UTC), sorted by ${sortBy}. Durations are seconds.`,
       ];
-      if (maybeMore)
+      if (truncated)
         lines.push('The list is full: more transactions may exist. Raise limit or filter by name.');
       if (shown.length === 0)
         lines.push('No transactions found. Check the guid is an APM application and the window.');
@@ -334,10 +334,10 @@ export function createApmTools(deps: ToolDeps = {}): ToolDefinition[] {
               per_min: fmt(r.throughputPerMinute),
               errors: fmt(r.errors),
               error_pct: fmt(r.errorRate),
-              avg: fmt(r.avgDuration),
-              p50: fmt(r.p50Duration),
-              p95: fmt(r.p95Duration),
-              p99: fmt(r.p99Duration),
+              avg: fmt(r.avgDurationSeconds),
+              p50: fmt(r.p50DurationSeconds),
+              p95: fmt(r.p95DurationSeconds),
+              p99: fmt(r.p99DurationSeconds),
             })),
             { format: 'csv', source: 'New Relic Transaction data', maxRows: MAX_LIMIT },
           ).text,
@@ -346,13 +346,13 @@ export function createApmTools(deps: ToolDeps = {}): ToolDefinition[] {
       return {
         text: lines.join('\n'),
         structured: {
-          account,
+          accountId: account,
           entityGuid: args.entity_guid,
           since: range.since,
           until: range.until,
           sortBy,
           transactions,
-          maybeMore,
+          truncated,
         },
       };
     },
@@ -486,7 +486,7 @@ export function createApmTools(deps: ToolDeps = {}): ToolDefinition[] {
       return {
         text: lines.join('\n'),
         structured: {
-          account,
+          accountId: account,
           entityGuid: args.entity_guid,
           transaction: label,
           window: { since: range.since, until: range.until, minutes: Math.round(minutes * 100) / 100 },
@@ -511,9 +511,9 @@ function asCells(s: ReturnType<typeof statsOutput>) {
     requests: fmt(s.requests),
     per_min: fmt(s.throughputPerMinute),
     error_pct: fmt(s.errorRate),
-    avg: fmt(s.avgDuration),
-    p50: fmt(s.p50Duration),
-    p95: fmt(s.p95Duration),
-    p99: fmt(s.p99Duration),
+    avg: fmt(s.avgDurationSeconds),
+    p50: fmt(s.p50DurationSeconds),
+    p95: fmt(s.p95DurationSeconds),
+    p99: fmt(s.p99DurationSeconds),
   };
 }

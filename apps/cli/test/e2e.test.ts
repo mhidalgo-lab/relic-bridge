@@ -154,7 +154,7 @@ describe('relic-bridge stdio (built CLI)', () => {
       structuredContent: Record<string, unknown>;
     };
     expect(call.isError).toBeFalsy();
-    expect(call.structuredContent).toMatchObject({ region: 'US', defaultAccount: 1000001, project: null });
+    expect(call.structuredContent).toMatchObject({ region: 'US', defaultAccountId: 1000001, project: null });
     expect(requests.slice(before)).toEqual([expect.objectContaining({ apiKey: FAKE_KEY })]);
 
     s.child.stdin.end();

@@ -103,5 +103,5 @@ List tools (entities, dashboards, …) use the same helpers:
 
 - **Tags** are flattened to `key:value` strings (`["env:prod", "team:core"]`) instead of nested objects.
 - **`minimal_output`** keeps only the essential fields per item.
-- **Pagination**: a page of results plus `next_cursor` when there are more. Pass it back unchanged to get the next
-  page. Cursors are opaque; a cursor that wasn't returned by the server is rejected (`RB_INPUT_INVALID`).
+- **Pagination**: a page of results plus `nextCursor` when there are more. Pass it back unchanged as the `cursor`
+  argument to get the next page. A list that cannot page says `truncated: true` when it was cut at `limit`. Cursors are opaque; a cursor that wasn't returned by the server is rejected (`RB_INPUT_INVALID`).

@@ -102,7 +102,7 @@ export const cursorInput: z.ZodOptional<z.ZodString> = z
   .string()
   .regex(CURSOR_RE)
   .optional()
-  .describe('next_cursor of the previous call (same filters).');
+  .describe('nextCursor of the previous call (same filters).');
 
 /** One account per call: NerdGraph's cursor belongs to one `account(id:)` search. */
 export function singleAccount(ctx: ToolContext, account: number | undefined): number {

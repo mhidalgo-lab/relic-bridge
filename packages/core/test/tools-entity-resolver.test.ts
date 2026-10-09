@@ -336,7 +336,7 @@ describe('name input on entity tools (P6-17)', () => {
     const { fetch, calls } = fakeNerdGraph([]);
     const client = await connectBuiltin(fetch);
     for (const name of ['get_entity', 'get_related_entities', 'get_golden_metrics']) {
-      for (const args of [{}, { guid: guidOf(A, 'x'), name: 'x' }]) {
+      for (const args of [{}, { entity_guid: guidOf(A, 'x'), name: 'x' }]) {
         const r = await client.callTool({ name, arguments: args });
         expect(r.isError, name).toBe(true);
         expect((r.content as { text: string }[]).map((c) => c.text).join(' ')).toMatch(/exactly one of/i);

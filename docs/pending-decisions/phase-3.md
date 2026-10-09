@@ -182,3 +182,16 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   run; the purge writes an `audit.purge` admin row only when it removed something. Purge runs even with `RB_AUDIT=off`.
 - **Options:** daily trigger (fewer invocations), larger batches on the paid plan, a `RB_AUDIT_PURGE_*` setting.
 - **Needs:** owner's call only if the hourly trigger conflicts with the Free plan's cron-trigger count in their account.
+
+### P3-09 — one-call access resolution: optional capability, batch of six reads, touch kept separate
+- **Context:** the task allowed one joined statement or one `batch()`; `loadAccessRecords` could be a required
+  `Storage` member or optional.
+- **Assumption made:** optional `Storage.loadAccessRecords` implemented by the SQL adapters (D1: one `batch()` of six
+  `SELECT`s, one round trip; SQLite: same SQL in one read transaction); `memory` and `yaml` keep the repository path, so
+  existing in-memory test doubles and the yaml/stdio mode are untouched. A batch rather than one joined statement:
+  D1 returns rows as objects, so a join would need per-column aliases for six tables, and the batch reuses the
+  adapters' row mappers. The throttled `last_used_at` write stays a separate background write (folding it into the
+  batch would make every miss a write transaction on the D1 primary).
+- **Options:** make it required (add an in-memory implementation); a single joined statement; drop `last_used_at`
+  writes on Workers entirely, or make them monotonic (`max(stored, now)`).
+- **Needs:** nothing unless the owner prefers one of the options.

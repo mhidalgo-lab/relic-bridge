@@ -196,7 +196,7 @@ export async function issueAccessToken(
 }
 
 /** A bad clock must fail loudly: `NaN >= expiresAt` is false, which would make every token immortal. */
-function checkNow(now: number): void {
+export function checkNow(now: number): void {
   if (!Number.isSafeInteger(now) || now < 0) throw new TypeError('now must be a timestamp in milliseconds');
 }
 
@@ -219,23 +219,58 @@ export async function verifyAccessToken(
   const problem = checkTokenFormat(token);
   if (problem !== null) return deny(problem);
   const hash = await hashToken(token as string);
-  const record = await storage.accessTokens.getByHash(hash);
-  if (record === null || !timingSafeEqual(utf8(record.tokenHash), utf8(hash))) return deny('unknown');
-  if (record.revokedAt !== null) return deny('revoked');
-  if (record.expiresAt !== null && now >= record.expiresAt) return deny('expired');
+  const checked = checkTokenRecord(await storage.accessTokens.getByHash(hash), hash, now);
+  if (!checked.ok) return checked;
+  const { record } = checked;
+  return {
+    ok: true,
+    tokenId: record.id,
+    grantId: record.grantId,
+    expiresAt: record.expiresAt,
+    touch: touchToken(storage, record, now, options.onTouchError),
+  };
+}
+
+/**
+ * The checks on a stored token row, shared by `verifyAccessToken` and `authenticateAccess` (P3-09): constant-time
+ * comparison of the stored hash (an adapter's lookup is not trusted to compare exactly), then revocation and expiry.
+ * Pure; `now` must already be checked.
+ */
+export function checkTokenRecord(
+  record: AccessTokenRecord | null,
+  hash: string,
+  now: number,
+):
+  | { readonly ok: true; readonly record: AccessTokenRecord }
+  | { readonly ok: false; readonly reason: TokenDenyReason } {
+  if (record === null || !timingSafeEqual(utf8(record.tokenHash), utf8(hash)))
+    return { ok: false, reason: 'unknown' };
+  if (record.revokedAt !== null) return { ok: false, reason: 'revoked' };
+  if (record.expiresAt !== null && now >= record.expiresAt) return { ok: false, reason: 'expired' };
+  return { ok: true, record };
+}
+
+/**
+ * The throttled `last_used_at` write for an accepted token, or `null` when none is due (at most one per
+ * {@link LAST_USED_WRITE_INTERVAL_MS}, from the stored value). Never rejects.
+ */
+export function touchToken(
+  storage: TokenStore,
+  record: AccessTokenRecord,
+  now: number,
+  onTouchError?: (error: unknown) => void,
+): Promise<void> | null {
   const due = record.lastUsedAt === null || now - record.lastUsedAt >= LAST_USED_WRITE_INTERVAL_MS;
-  const touch = due
-    ? Promise.resolve()
-        .then(() => storage.accessTokens.markUsed(record.id, now))
-        .catch((error: unknown) => {
-          try {
-            options.onTouchError?.(error);
-          } catch {
-            // A failing log hook must not turn into an unhandled rejection.
-          }
-        })
-    : null;
-  return { ok: true, tokenId: record.id, grantId: record.grantId, expiresAt: record.expiresAt, touch };
+  if (!due) return null;
+  return Promise.resolve()
+    .then(() => storage.accessTokens.markUsed(record.id, now))
+    .catch((error: unknown) => {
+      try {
+        onTouchError?.(error);
+      } catch {
+        // A failing log hook must not turn into an unhandled rejection.
+      }
+    });
 }
 
 /** Revokes a token. Revoking twice keeps the first time. Unknown ids are `not_found`. */

@@ -13,8 +13,8 @@ in `vars`; each plan is a preset you can override one number at a time. Sources 
 | NerdGraph calls in flight per credential | 5 | 5 | `RB_CONCURRENCY` | Workers allows 6 simultaneous outgoing connections per request; the value is limited to 6. |
 
 D1 and KV calls (token lookup, access resolution, audit rows) do **not** use the 50: Cloudflare counts them against a
-separate allowance of 1,000 per request on Free. An access-cache miss costs about 5 D1 reads and 1 write in total
-(P3-09 will reduce the round trips); a hit costs none.
+separate allowance of 1,000 per request on Free. An access-cache miss costs one D1 call (a batch of reads) plus at
+most one background `last_used_at` write per token every 5 minutes; a hit costs none.
 
 A project's own `maxResponseBytes` still applies; the smaller of the two wins. Overrides that are malformed or out of
 range stop the Worker booting (it answers `503` and logs which variable is wrong). A Free deployment configured past

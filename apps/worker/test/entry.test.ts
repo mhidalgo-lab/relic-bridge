@@ -4,6 +4,7 @@
 
 import { env, exports } from 'cloudflare:workers';
 import type { D1Database } from '@cloudflare/workers-types';
+import { generateTokenString } from '@relic-bridge/auth';
 import { createD1Storage, type D1DatabaseLike, type D1PreparedStatementLike } from '@relic-bridge/storage/d1';
 import { describe, expect, it } from 'vitest';
 import type { WorkerEnv } from '../src/env.ts';
@@ -100,15 +101,48 @@ describe('Worker entry (wrangler.jsonc) on local D1', () => {
     const client = await connect(worker, workerEnv, ctx, token); // initialize: cache miss
     await ctx.settle();
     const miss = counted.calls.slice(mark);
-    // Token by hash; project + grant; user + credential (the owner is the grant's user), plus the throttled
-    // last_used_at write. P3-09 brings the reads down to one.
-    expect(miss.filter((q) => /^SELECT/i.test(q))).toHaveLength(5);
-    expect(miss.filter((q) => /^UPDATE access_tokens SET last_used_at/i.test(q))).toHaveLength(1);
+    // P3-09: token, project, grant, user and credential in ONE batch round trip, plus the throttled last_used_at
+    // write (in the background). Before: five reads in three round trips.
+    const touch = (q: string): boolean => /^UPDATE access_tokens SET last_used_at/i.test(q);
+    expect(miss.filter((q) => !touch(q))).toEqual(['batch']);
+    expect(miss.filter(touch)).toHaveLength(1);
 
     mark = counted.calls.length;
     await client.listTools(); // cache hit
     await ctx.settle();
     expect(counted.calls.slice(mark)).toEqual([]);
     await client.close();
+  });
+
+  it('costs one D1 call for an unknown token and for a known token denied on another slug', async () => {
+    await wipeD1(env.DB as D1Database);
+    const counted = countingD1(env.DB as D1Database);
+    const storage = await createD1Storage(counted.db);
+    const { token } = await seed(MASTER_KEY, storage);
+    const worker = createWorker({ openStorage: () => storage, logSink: () => {} });
+    const workerEnv: WorkerEnv = { ...env, RB_AUDIT: 'off' };
+    const ctx = fakeCtx();
+    expect((await call(worker, workerEnv, ctx, '/health')).status).toBe(200);
+    const garbage = `${token.slice(0, 8)}${'Z'.repeat(token.length - 8)}`;
+    const attempt = async (bearer: string, slug: string): Promise<string[]> => {
+      const mark = counted.calls.length;
+      const res = await call(worker, workerEnv, ctx, `/p/${slug}/mcp`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${bearer}`,
+          'Content-Type': 'application/json',
+          Accept: 'application/json, text/event-stream',
+        },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
+      });
+      expect(res.status).toBe(401);
+      await ctx.settle();
+      return counted.calls.slice(mark).filter((q) => !/^UPDATE access_tokens SET last_used_at/i.test(q));
+    };
+    // A garbage token (bad checksum) is refused offline; an unknown token and a known one denied on another slug
+    // cost the same single call (before P3-09: one read vs. three round trips).
+    expect(await attempt(garbage, 'prod')).toEqual([]);
+    expect(await attempt(generateTokenString(), 'prod')).toEqual(['batch']);
+    expect(await attempt(token, 'other')).toEqual(['batch']);
   });
 });

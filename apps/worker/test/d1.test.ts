@@ -13,6 +13,7 @@ import {
 } from '@relic-bridge/storage/d1';
 import { fakeEncryptedKey, runStorageContract } from '@relic-bridge/storage/testing';
 import { beforeEach, describe, expect, it } from 'vitest';
+import { runAccessEquivalence } from '../../../packages/auth/test/access-equivalence.ts';
 import { wipeD1 } from './helpers.ts';
 
 const db = env.DB as D1Database;
@@ -20,10 +21,25 @@ const wipe = (): Promise<void> => wipeD1(db);
 
 runStorageContract({
   name: 'd1 (workerd, local D1)',
+  accessRecords: true,
   create: async (clock) => {
     await wipe();
     return createD1Storage(db, { now: clock.now });
   },
+});
+
+describe('access resolution equivalence (d1)', () => {
+  // P3-09: the one-batch path decides exactly like the repository path, on the real D1 engine. Fewer runs than on
+  // Node: every run writes a fresh world through the local D1 simulator.
+  runAccessEquivalence({
+    name: 'd1',
+    open: async () => {
+      await wipe();
+      return createD1Storage(db);
+    },
+    runs: 30,
+    timeout: 120_000,
+  });
 });
 
 describe('d1 adapter', () => {

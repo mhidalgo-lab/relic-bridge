@@ -28,3 +28,15 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   allowed accounts with a composite cursor (only worth it if agents ask for it).
 - **Needs:** a live run with a User key to confirm shapes and page size (`pnpm test:live`).
 
+## P6-02 — Issue and incident tools
+
+### P6-02 — aiIssues is experimental and only introspected; cross-account issues hidden; no NRQL fallback
+- **Context:** `aiIssues` needs an opt-in header and is unstable. The only live sample (P0-09) returned empty lists, so row
+  shapes (notably the scalar-typed incident `accountIds`/`entityGuids`, and what `timeWindow` filters on) are from
+  introspection. The incident filter has no text search.
+- **Assumption made:** one account per call; a row is dropped whole when any account id or entity GUID it carries is not
+  allowed (so an issue spanning an allowed and a foreign account is invisible); `search_incidents.contains` filters the fetched
+  page client-side; no `NrAiIssue`/`NrAiIncident` NRQL fallback (the API has every field in scope; `run_nrql` can still query them).
+- **Options:** (a) keep as is; (b) a live probe with real issues to confirm shapes (`pnpm test:live`); (c) show cross-account
+  issues with the foreign parts removed; (d) add the NRQL fallback if a field turns out missing.
+- **Needs:** a live run on an account with issues; owner's call on (c).

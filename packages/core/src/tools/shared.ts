@@ -4,6 +4,7 @@ import { z } from 'zod';
 import type { ToolContext } from '../context.ts';
 import { ErrorCode, RbError } from '../errors.ts';
 import { type FetchLike, type NerdGraphClient, nerdGraphFor } from '../nerdgraph/client.ts';
+import { resolveAccounts } from '../nrql/engine.ts';
 import type { TimeRange } from '../time/index.ts';
 
 /**
@@ -43,4 +44,37 @@ export function assertWindowWithinLimit(
       { hint: `Use a shorter window, e.g. "last ${limits.maxWindowDays} days".` },
     );
   }
+}
+
+/** New Relic enums and codes are shown outside the envelope only with a safe charset; anything else becomes null. */
+const CODE_RE = /^[A-Za-z0-9_]{1,64}$/;
+/** NerdGraph cursors are opaque base64-like text. */
+const CURSOR_RE = /^[A-Za-z0-9+/=_.:-]{1,2048}$/;
+
+export const label = (v: string | null | undefined): string | null =>
+  typeof v === 'string' && CODE_RE.test(v) ? v : null;
+
+export const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+
+export function nextCursorOf(raw: unknown): string | null {
+  return typeof raw === 'string' && CURSOR_RE.test(raw) ? raw : null;
+}
+
+export const accountInput: z.ZodOptional<z.ZodNumber> = accountIdSchema
+  .optional()
+  .describe(
+    'Account to read (must be one of list_accounts). Default: the default account of this connection.',
+  );
+
+export const cursorInput: z.ZodOptional<z.ZodString> = z
+  .string()
+  .regex(CURSOR_RE)
+  .optional()
+  .describe('next_cursor from a previous call with the same filters, for the next page.');
+
+/** One account per call: NerdGraph's cursor belongs to one `account(id:)` search. */
+export function singleAccount(ctx: ToolContext, account: number | undefined): number {
+  const [first] = resolveAccounts(ctx, account === undefined ? undefined : [account]);
+  if (first === undefined) throw new RbError(ErrorCode.AuthForbidden, 'This connection has no accounts.');
+  return first;
 }

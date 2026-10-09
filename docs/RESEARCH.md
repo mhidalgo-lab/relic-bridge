@@ -279,6 +279,16 @@ Sources: <https://github.com/cloudflare/workers-oauth-provider>, issues #264, #3
   `nrql { query dataAccountId }`, `terms { priority operator threshold thresholdDuration thresholdOccurrences }`, `signal`,
   `violationTimeLimitSeconds`). **Introspected only, not yet live-verified:** `nrqlConditionsSearch` results, `queryLike`
   semantics, and the page size of both searches (no `limit` argument exists; NerdGraph chooses).
+- AI issues (P6-02, P0-09 introspection + the `ai_issues_experimental_header` probe, which returned empty lists):
+  `account.aiIssues.issues(cursor, filter: AiIssuesFilterIssues { states, priority, entityGuids, policyIds, isAcknowledged,
+  contains, ... }, timeWindow: TimeWindowInput { startTime, endTime } epoch ms)` → `{ nextCursor issues { issueId title[]
+  state priority createdAt ... accountIds[] entityGuids[] entityNames[] policyName[] ... } }`; `incidents(...)` with
+  `AiIssuesFilterIncidents { states, priority, entityGuids, entityTypes, ids }` (no text filter). Issue states: CREATED,
+  ACTIVATED, DEACTIVATED, CLOSED; incident states: CREATED, CLOSED; priority: CRITICAL, HIGH, MEDIUM, LOW. `AiIssuesIssue`
+  lists (`title`, `entityGuids`, ...) are arrays; on `AiIssuesIIncident` introspection shows `accountIds`, `entityGuids`,
+  `entityNames`, `entityTypes` as plain scalars, so the tool accepts both a list and a comma-separated string.
+  **Not live-verified with rows:** the real shape of those incident fields, the meaning of `timeWindow` (creation vs update
+  time), and the page size (no `limit` argument).
 
 ## 6b. npm publishing (P1-15)
 

@@ -33,6 +33,8 @@ const SAMPLE_CALLS: Record<string, Record<string, unknown>> = {
   get_attributes: { event_type: 'Transaction' },
   list_alert_policies: {},
   list_alert_conditions: { policy_id: '8000026' },
+  list_recent_issues: {},
+  search_incidents: { states: ['CREATED'] },
 };
 
 const registry = new ToolRegistry();

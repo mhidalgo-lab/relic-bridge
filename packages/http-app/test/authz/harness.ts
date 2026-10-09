@@ -124,6 +124,33 @@ const alertCondition = (account: number, name: string) => ({
   ],
 });
 
+const aiIssue = (accountIds: number[], title: string, guid: string) => ({
+  issueId: `issue-${title}`,
+  title: [title],
+  description: [],
+  state: 'ACTIVATED',
+  priority: 'HIGH',
+  createdAt: 1790338648000,
+  updatedAt: 1790338700000,
+  accountIds,
+  entityGuids: [guid],
+  entityNames: [title],
+});
+
+const aiIncident = (accountIds: number[], title: string, guid: string) => ({
+  incidentId: `inc-${title}`,
+  title,
+  description: [],
+  state: 'CREATED',
+  priority: 'HIGH',
+  createdAt: 1790338648000,
+  updatedAt: 1790338700000,
+  timestamp: 1790338648000,
+  accountIds: accountIds.join(','),
+  entityGuids: guid,
+  entityNames: title,
+});
+
 /** `tenants`: API key → label shown in that tenant's replies. Unknown keys get an authentication error. */
 export function hostileNerdGraph(tenants: Readonly<Record<string, string>>): HostileNerdGraph {
   const calls: NerdGraphCall[] = [];
@@ -249,6 +276,47 @@ export function hostileNerdGraph(tenants: Readonly<Record<string, string>>): Hos
                         ...alertPolicy(account, `${LEAK}-policy-forged`),
                         entityGuid: guidOf(FOREIGN, 'p', 'AIOPS', 'POLICY'),
                       },
+                    ],
+                  },
+                },
+              },
+            },
+          });
+        }
+        case 'RbAiIssues': {
+          const account = Number(variables['accountId']);
+          return ok({
+            actor: {
+              account: {
+                aiIssues: {
+                  issues: {
+                    nextCursor: null,
+                    issues: [
+                      aiIssue([account], `${label}-issue`, guidOf(account)),
+                      aiIssue([FOREIGN], `${LEAK}-issue`, guidOf(FOREIGN)),
+                      // Names the requested account too, but also a foreign one.
+                      aiIssue([account, FOREIGN], `${LEAK}-issue-shared`, guidOf(account)),
+                      // Reported in the requested account, but the entity GUID names the foreign one.
+                      aiIssue([account], `${LEAK}-issue-forged`, guidOf(FOREIGN)),
+                    ],
+                  },
+                },
+              },
+            },
+          });
+        }
+        case 'RbAiIncidents': {
+          const account = Number(variables['accountId']);
+          return ok({
+            actor: {
+              account: {
+                aiIssues: {
+                  incidents: {
+                    nextCursor: null,
+                    incidents: [
+                      aiIncident([account], `${label}-incident`, guidOf(account)),
+                      aiIncident([FOREIGN], `${LEAK}-incident`, guidOf(FOREIGN)),
+                      aiIncident([account, FOREIGN], `${LEAK}-incident-shared`, guidOf(account)),
                     ],
                   },
                 },

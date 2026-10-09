@@ -136,6 +136,80 @@ export function mockNerdGraph(): { fetch: FetchLike; calls: RecordedCall[] } {
         },
       });
     }
+    if (has('RbAiIssues')) {
+      return json({
+        data: {
+          actor: {
+            account: {
+              aiIssues: {
+                issues: {
+                  nextCursor: null,
+                  issues: [
+                    {
+                      issueId: 'issue-1',
+                      title: ['High error rate'],
+                      description: ['checkout errors above 5'],
+                      state: 'ACTIVATED',
+                      priority: 'CRITICAL',
+                      createdAt: 1790338648000,
+                      activatedAt: 1790338650000,
+                      closedAt: null,
+                      updatedAt: 1790338700000,
+                      acknowledgedAt: null,
+                      accountIds: [MOCK_ACCOUNT],
+                      entityGuids: [btoa(`${MOCK_ACCOUNT}|APM|APPLICATION|42`).replace(/=+$/, '')],
+                      entityNames: ['checkout'],
+                      entityTypes: ['APPLICATION'],
+                      policyIds: [8000026],
+                      policyName: ['checkout policy'],
+                      conditionName: ['High error rate'],
+                      sources: ['newrelic'],
+                      mutingState: 'NOT_MUTED',
+                      isCorrelated: false,
+                      isIdle: false,
+                      totalIncidents: 1,
+                      deepLinkUrl: ['https://one.newrelic.com/alerts-ai/issues/issue-1'],
+                    },
+                  ],
+                },
+              },
+            },
+          },
+        },
+      });
+    }
+    if (has('RbAiIncidents')) {
+      return json({
+        data: {
+          actor: {
+            account: {
+              aiIssues: {
+                incidents: {
+                  nextCursor: null,
+                  incidents: [
+                    {
+                      incidentId: 'inc-1',
+                      title: 'High error rate',
+                      description: ['checkout errors above 5'],
+                      state: 'CREATED',
+                      priority: 'CRITICAL',
+                      createdAt: 1790338648000,
+                      closedAt: null,
+                      updatedAt: 1790338700000,
+                      timestamp: 1790338648000,
+                      accountIds: String(MOCK_ACCOUNT),
+                      entityGuids: btoa(`${MOCK_ACCOUNT}|APM|APPLICATION|42`).replace(/=+$/, ''),
+                      entityNames: 'checkout',
+                      entityTypes: 'APPLICATION',
+                    },
+                  ],
+                },
+              },
+            },
+          },
+        },
+      });
+    }
     if (has('RbEntitySearch')) {
       return json({
         data: { actor: { entitySearch: { count: 1, results: { nextCursor: null, entities: [entity] } } } },

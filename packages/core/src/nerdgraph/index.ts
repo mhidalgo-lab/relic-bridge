@@ -58,6 +58,7 @@ export {
   listReachableAccounts,
   validateKey,
 } from './identity.ts';
+export { AI_INCIDENTS_QUERY, AI_ISSUES_QUERY, type AiIncidentData, type AiIssueData } from './issues.ts';
 export {
   createSemaphoreLimiter,
   DEFAULT_CONCURRENCY,

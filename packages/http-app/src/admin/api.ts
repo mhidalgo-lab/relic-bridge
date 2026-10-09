@@ -2130,6 +2130,8 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
     const body = c.req.valid('json');
     const apply = body.apply === true;
     const wrapKey = body.wrapKey === undefined ? undefined : parseWrapKey(body.wrapKey);
+    const principal = c.get('principal') as AdminPrincipal | undefined;
+    const actorUserId = principal?.kind === 'session' ? principal.user.id : null;
     try {
       const report = await change(
         c,
@@ -2138,7 +2140,7 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
           importConfig(
             { storage, keyring: deps.keyring, validate: deps.validateKey, catalog, clock },
             body.bundle as ConfigBundle,
-            { apply, ...(wrapKey === undefined ? {} : { wrapKey }) },
+            { apply, actorUserId, ...(wrapKey === undefined ? {} : { wrapKey }) },
           ),
         (r) => ({
           details: {

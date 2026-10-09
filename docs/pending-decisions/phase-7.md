@@ -108,6 +108,9 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Needs:** owner confirms PBKDF2 is acceptable (or asks for Argon2id in the CLI), whether personal-key defaults should
   be refused on import, and whether existing grants should be updatable. Also run one real Node-to-Worker move (export
   with `--with-credentials`, `import --apply --remote https://<worker>`) against a deployed Worker, which this run could not.
+- **Update (phase 7 review, H1):** personal-key defaults are now refused on import unless the person running it owns
+  the key (same rule as the admin API, P4-18): a crafted bundle could name a colleague's stored key by owner + label and
+  share it with a new project. The PBKDF2 and grant-update questions stay open.
 
 ### P7-07 — Claude Code plugin: publishing, versioning and packaging chosen without an owner
 - **Context:** The task asks for marketplace listing and publishing to the official MCP Registry. Publishing is an
@@ -374,3 +377,20 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   report-task tests, dropped by the P7-22 rewrite of the file, were restored and extended to all four tools.
 - **Options:** inline answer when the budget fits the whole report; larger or smaller steps; a task for `trace_error`.
 - **Needs:** owner's call on (1) and (2), and a real Tasks client check.
+
+## Phase 7 review (2026-10-07)
+
+### Review — Personal-key defaults on import (H1, fixed)
+- **Context:** P7-06 let an import make any personal key a project default with a warning. A crafted bundle could name
+  a colleague's stored key (owner email + label are visible metadata) and share it with a new project.
+- **Assumption made:** fixed on `review/phase-7`: the import applies the admin API rule (P4-18), only the key's owner
+  running the import may make it a default; otherwise the default is left unset and the plan says why.
+- **Needs:** nothing, unless the owner wants imports to be able to do this (then an explicit, audited flag).
+
+### Review — Write approvals (H2, fixed) and a stricter mode (P7-25, P7-26)
+- **Context:** the elicitation prompt was shortened and the approval bound to the shortened text.
+- **Assumption made:** fixed: everything is shown, a prompt over 16 000 characters is refused, and the approval is bound
+  to the exact change. A client that cannot be asked still writes on `confirm: true` (P7-09 behaviour).
+- **Options:** P7-25 adds an owner switch requiring a human approval; P7-26 binds approvals to one attempt.
+- **Needs:** owner's call on whether `required` should become the default once real clients are checked, and whether
+  Worker deployments with writes on should refuse to start without `RB_SHARED_LIMITER` (P7-24) or only warn.

@@ -347,21 +347,31 @@ function outline(plan: Plan): string {
   return lines.join('\n');
 }
 
-/** What the person is shown before a dashboard is created: every page, widget and query (NRQL as it will be stored). */
-function confirmationMessage(name: string, account: number, plan: Plan, content: string): string {
+/**
+ * What the person is shown before a dashboard is created: every page, widget, query and text, in full (NRQL as it will
+ * be stored). Nothing is shortened: a change too large to show is refused by `humanGate` (phase 7 review H2).
+ */
+function confirmationMessage(input: DashboardArgs, account: number, plan: Plan, content: string): string {
   const lines = [
     'relic-bridge asks you to approve this change in New Relic (text in quotes comes from the request, not from relic-bridge):',
-    `Create the PRIVATE dashboard ${shown(name)} in account ${account}: ${plan.widgets} widget(s), ${plan.queries} quer${plan.queries === 1 ? 'y' : 'ies'} on ${plan.pages.length} page(s).`,
+    `Create the PRIVATE dashboard ${shown(input.name, DASHBOARD_LIMITS.nameChars)} in account ${account}: ${plan.widgets} widget(s), ${plan.queries} quer${plan.queries === 1 ? 'y' : 'ies'} on ${plan.pages.length} page(s).`,
     "Its queries run in New Relic whenever it is opened, under the viewer's own rights. It cannot be edited or deleted from relic-bridge.",
   ];
-  for (const page of plan.pages) {
-    lines.push(`Page ${shown(page.name, 100)}:`);
-    for (const w of page.widgets) {
-      lines.push(`- ${w.visualization} ${shown(w.title, 100)}`);
-      if (w.markdown !== null) lines.push(`    text: ${shown(w.markdown, 300)}`);
-      for (const q of w.queries) lines.push(`    account ${q.accountId}: ${shown(q.nrql, 300)}`);
-    }
+  if (input.description !== undefined) {
+    lines.push(`Description: ${shown(input.description, DASHBOARD_LIMITS.descriptionChars)}`);
   }
+  plan.pages.forEach((page, p) => {
+    lines.push(`Page ${shown(page.name, DASHBOARD_LIMITS.nameChars)}:`);
+    const description = input.pages[p]?.description;
+    if (description !== undefined) {
+      lines.push(`  description: ${shown(description, DASHBOARD_LIMITS.descriptionChars)}`);
+    }
+    for (const w of page.widgets) {
+      lines.push(`- ${w.visualization} ${shown(w.title, DASHBOARD_LIMITS.nameChars)}`);
+      if (w.markdown !== null) lines.push(`    text: ${shown(w.markdown, DASHBOARD_LIMITS.markdownChars)}`);
+      for (const q of w.queries) lines.push(`    account ${q.accountId}: ${shown(q.nrql, MAX_NRQL_CHARS)}`);
+    }
+  });
   lines.push(`Content hash: ${content}`);
   return lines.join('\n');
 }
@@ -440,7 +450,10 @@ export function createDashboardWriteTool(client: (ctx: ToolContext) => NerdGraph
         };
       }
 
-      const gate = await humanGate(ctx, confirmationMessage(input.name, account, plan, summary.content));
+      const gate = await humanGate(ctx, confirmationMessage(input, account, plan, summary.content), {
+        accountId: account,
+        dashboard: plan.variable,
+      });
       if (gate.state !== 'go') {
         return gateStopped(gate, {
           structured: shaped(false, null, []),

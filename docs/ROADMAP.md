@@ -240,6 +240,13 @@ Generated from task front matter (`pnpm tasks index` once P0-05 lands). Status l
 | P7-21 | [MCP Tasks for composite reports and multi-query tools](tasks/phase-7-power-features/P7-21-tasks-composite-reports.md) | low | P7-13 | review |
 | P7-22 | [MCP Tasks: status notifications, stdio and pass-through](tasks/phase-7-power-features/P7-22-tasks-notifications-stdio.md) | low | P7-13 | review |
 | P7-23 | [MCP Tasks for the other composite reports and multi-query tools](tasks/phase-7-power-features/P7-23-tasks-other-composites.md) | low | P7-21 | review |
+| P7-24 | [Write rate limit enforced deployment-wide on Workers](tasks/phase-7-power-features/P7-24-write-rate-limit-deployment-wide.md) | medium | P7-10 | todo |
+| P7-25 | [Owner switch to require human approval (elicitation) for write tools](tasks/phase-7-power-features/P7-25-require-human-approval-for-writes.md) | medium | P7-20 | todo |
+| P7-26 | [Bind write approvals to one attempt (no replay of non-idempotent writes)](tasks/phase-7-power-features/P7-26-write-approval-replay.md) | low | P7-20 | todo |
+| P7-27 | [tools/list size budget with write tools enabled, and headroom](tasks/phase-7-power-features/P7-27-tools-list-budget-with-writes.md) | medium | P7-19 | todo |
+| P7-28 | [Owner-only edits of write-enabled projects/grants, and audit before the mutation](tasks/phase-7-power-features/P7-28-write-project-edits-and-audit.md) | medium | P7-09 | todo |
+| P7-29 | [Compare-and-swap on MCP task records](tasks/phase-7-power-features/P7-29-task-record-cas.md) | low | P7-23 | todo |
+| P7-30 | [Low-severity follow-ups from the Phase 7 review](tasks/phase-7-power-features/P7-30-phase-7-review-lows.md) | low | P7-23 | todo |
 
 ### Phase 8
 

@@ -132,19 +132,24 @@ export const writeOutput: { applied: z.ZodBoolean; dryRun: z.ZodBoolean; account
 // Human confirmation through MCP elicitation (P7-20, ADR-0015 addendum, THREAT_MODEL T31)
 // ---------------------------------------------------------------------------------------------------------------------
 
-/** Longest message shown in the elicitation; New Relic text and arguments inside it are shortened to fit. */
-export const MAX_CONFIRM_MESSAGE_CHARS = 6000;
+/**
+ * Longest message shown in the elicitation. A change whose full description does not fit is refused instead of shown
+ * shortened: the person approves exactly what is sent, never a summary with a hidden tail (phase 7 review H2).
+ */
+export const MAX_CONFIRM_MESSAGE_CHARS = 16_000;
 
 /** A value for the confirmation text: untrusted (New Relic or model text), so one quoted, escaped, bounded line. */
 export function shown(value: string, max = 200): string {
   return JSON.stringify(cleanName(value, max));
 }
 
-/** Cut a finished message to the limit, saying so. */
+/** Refuse a confirmation message that does not fit; never cut it (the person must see the whole change). */
 export function boundMessage(message: string): string {
-  return message.length <= MAX_CONFIRM_MESSAGE_CHARS
-    ? message
-    : `${message.slice(0, MAX_CONFIRM_MESSAGE_CHARS - 40)}\n[...shortened: not all details are shown]`;
+  if (message.length <= MAX_CONFIRM_MESSAGE_CHARS) return message;
+  throw new RbError(
+    ErrorCode.InputInvalid,
+    `This change is too large to show in one approval prompt (${message.length} of at most ${MAX_CONFIRM_MESSAGE_CHARS} characters): make it smaller (fewer widgets or shorter queries and text). Nothing was changed.`,
+  );
 }
 
 async function sha256Hex(value: string): Promise<string> {
@@ -166,13 +171,15 @@ export type Gate =
  * Ask the person (not the model) to approve the exact change, when the client can be asked. It adds to `confirm: true`,
  * dry runs and the opt-ins, never replaces them: call it after every check and right before the mutation. Stateless
  * (ADR-0005): the first round returns `ask`; the client shows the message and calls again with its answer, found in
- * `ctx.elicitation`. The answer is bound to this exact message (the key is its hash), so a retry whose arguments
- * changed asks again instead of reusing an approval. Without `ctx.elicitation` nothing is asked.
+ * `ctx.elicitation`. The answer is bound to this exact message and change (the key is their hash), so a retry whose
+ * arguments changed asks again instead of reusing an approval. Without `ctx.elicitation` nothing is asked.
  */
-export async function humanGate(ctx: ToolContext, message: string): Promise<Gate> {
+export async function humanGate(ctx: ToolContext, message: string, change: unknown): Promise<Gate> {
   if (ctx.elicitation === undefined) return { state: 'go', confirmation: undefined };
   const bounded = boundMessage(message);
-  const key = `confirm_${(await sha256Hex(bounded)).slice(0, 24)}`;
+  // The key binds the message and the exact change sent (`change`: the mutation's variables or the parsed arguments),
+  // so an approval never covers a change that differs in a detail the message shows in a normalized form.
+  const key = `confirm_${(await sha256Hex(`${bounded}\u0000${JSON.stringify(change) ?? ''}`)).slice(0, 24)}`;
   const answer = ctx.elicitation.answer(key);
   if (answer === 'accept') return { state: 'go', confirmation: 'accepted' };
   if (answer === 'decline') return { state: 'declined', confirmation: 'declined' };

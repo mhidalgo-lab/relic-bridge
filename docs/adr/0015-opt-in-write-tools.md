@@ -163,3 +163,19 @@ A write tool also asks the person, not the model, to approve the exact change, w
 - **Limits of the guarantee:** the answer is as trustworthy as the client. A client that auto-accepts forms, or a model
   that can drive it, defeats it; this removes the model from the loop only where the client really shows the form to
   a person. The per-grant write rate limit counts each HTTP round, so a confirmed write uses two of the 20 per hour.
+
+## Addendum: phase 7 review (2026-10-07)
+
+The P7-20 message rules above are tightened (`docs/reviews/phase-7-review.md`, H2). Approving a summary with a hidden
+tail is not approving the change:
+
+- **Nothing is shortened.** Every field that will be sent is shown in full (dashboard: name, descriptions, every
+  widget title, markdown text and NRQL; change event: every field). A message longer than 16 000 characters is
+  refused (`RB_INPUT_INVALID`, nothing asked, nothing sent) instead of being cut with a note.
+- **The answer binds the change, not only the text.** The question key is a hash of the message **and** the exact
+  change (the dashboard mutation's variables, the parsed change-event arguments, the issue id and account), so two
+  changes that read the same once the prompt collapses whitespace or redacts a secret-like string cannot share one
+  approval.
+- An identical retry still finds its approval; for the non-idempotent tools (`create_change_event`,
+  `create_dashboard`) a replayed approval repeats the write. Binding approvals to a nonce or a time bucket is tracked
+  in P7-26.

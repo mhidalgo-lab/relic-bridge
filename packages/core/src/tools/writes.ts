@@ -272,9 +272,10 @@ export function createWriteTools(deps: ToolDeps = {}): ToolDefinition[] {
             ] as const
           )
             .filter(([, v]) => v !== undefined)
-            .map(([k, v]) => `${k}: ${shown(v as string, 300)}`),
+            .map(([k, v]) => `${k}: ${shown(v as string, 2000)}`),
           'It cannot be deleted from relic-bridge.',
         ].join('\n'),
+        input,
       );
       if (gate.state !== 'go') {
         return gateStopped(gate, {
@@ -433,6 +434,7 @@ export function createWriteTools(deps: ToolDeps = {}): ToolDefinition[] {
               ? 'It stops notifying and cannot be reopened from relic-bridge.'
               : 'It stays open; it is marked as being handled.',
           ].join('\n'),
+          { tool: spec.name, account, issueId: input.issue_id },
         );
         if (gate.state !== 'go') {
           return gateStopped(gate, {

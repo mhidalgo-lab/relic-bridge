@@ -963,3 +963,84 @@ describe('write confirmation through elicitation (2025-era connection, as on std
     expect(mutationsOf(ng.calls)).toEqual([]);
   });
 });
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Phase 7 review H2: the person approves the whole change, and the approval is bound to exactly what is sent
+// ---------------------------------------------------------------------------------------------------------------------
+
+describe('approval shows and binds the whole change (phase 7 review H2)', () => {
+  const longQuery = (i: number) =>
+    `SELECT count(*) FROM Transaction WHERE appName = 'checkout-service-${i}' AND name LIKE '%WebTransaction/Controller/orders/${'x'.repeat(220)}%' FACET host SINCE 1 hour ago`;
+
+  it('shows every widget and query in full: a large dashboard is never approved from a shortened prompt', async () => {
+    const ng = nerdGraph();
+    const { client, asked } = await connectAsking(ng.fetch, 'legacy', yes);
+    const widgets = (from: number, n: number) =>
+      Array.from({ length: n }, (_, i) => ({
+        title: `W${from + i}`,
+        visualization: 'table',
+        queries: [{ nrql: longQuery(from + i) }],
+      }));
+    const args = {
+      name: 'Big',
+      pages: [
+        { name: 'One', widgets: widgets(1, 19) },
+        { name: 'Two', description: 'second page', widgets: widgets(20, 2) },
+      ],
+      confirm: true,
+    };
+    const r = await client.callTool({ name: 'create_dashboard', arguments: args });
+    expect(r.isError ?? false).toBe(false);
+    expect(asked.length).toBe(1);
+    const message = asked[0] ?? '';
+    expect(message).not.toContain('shortened');
+    for (let i = 1; i <= 21; i++) expect(message).toContain(`"W${i}"`);
+    expect(message).toContain(JSON.stringify(longQuery(21)));
+    expect(message).toContain('"second page"');
+    expect(mutationsOf(ng.calls).length).toBe(1);
+  });
+
+  it('refuses a change too large to show in one prompt: nothing is asked and nothing is sent', async () => {
+    const ng = nerdGraph();
+    const { client, asked } = await connectAsking(ng.fetch, 'legacy', yes);
+    const nrql = `SELECT count(*) FROM Transaction WHERE name = '${'y'.repeat(1500)}' SINCE 1 hour ago`;
+    const args = {
+      name: 'Huge',
+      pages: [
+        {
+          name: 'One',
+          widgets: Array.from({ length: 12 }, (_, i) => ({
+            title: `W${i}`,
+            visualization: 'table',
+            queries: [{ nrql }],
+          })),
+        },
+      ],
+      confirm: true,
+    };
+    const r = await client.callTool({ name: 'create_dashboard', arguments: args });
+    expect(code(r)).toBe(ErrorCode.InputInvalid);
+    expect(text(r)).toContain('too large to show');
+    expect(asked).toEqual([]);
+    expect(mutationsOf(ng.calls)).toEqual([]);
+  });
+
+  it('an approval does not carry over to a change that differs only where the prompt normalizes', async () => {
+    const { humanGate } = await import('../src/tools/write-common.ts');
+    const approved = new Set<string>();
+    const ctx = testContext({ clock: { now: () => NOW } });
+    const asking = {
+      ...ctx,
+      elicitation: { answer: (k: string) => (approved.has(k) ? 'accept' : 'missing') },
+    } as ToolContext;
+    const message = 'Create the PRIVATE dashboard "x": SELECT count(*) FROM Transaction';
+    const first = await humanGate(asking, message, { nrql: 'SELECT count(*) FROM Transaction' });
+    expect(first.state).toBe('ask');
+    approved.add((first as { ask: { key: string } }).ask.key);
+    expect((await humanGate(asking, message, { nrql: 'SELECT count(*) FROM Transaction' })).state).toBe('go');
+    // Same text shown (whitespace is collapsed in the prompt), different query sent: asked again.
+    expect((await humanGate(asking, message, { nrql: 'SELECT  count(*)  FROM Transaction' })).state).toBe(
+      'ask',
+    );
+  });
+});

@@ -14,6 +14,7 @@
 //   POST /admin/users/:id/signout      end every session (needs confirm=yes)
 //   GET  /admin/users/:id/unbind       owner only: confirmation page (takeover warning, asks for the email again)
 //   POST /admin/users/:id/unbind       owner only: clear the provider identity (needs confirm=yes and the email)
+//   POST /admin/users/:id/apps/:device/revoke  disconnect one of the user's OAuth apps (needs confirm=yes, P5-05)
 import type { Context, Hono } from 'hono';
 import {
   Button,
@@ -37,6 +38,7 @@ import {
   one,
   parseCredential,
   parseGrant,
+  parseOAuthDevice,
   parseProject,
   parseUser,
   ROLES,
@@ -44,6 +46,7 @@ import {
   type User,
   validCursor,
 } from './data.ts';
+import { appName, OAuthDevicesTable } from './oauth-devices.tsx';
 import {
   confirmed,
   confirmPage,
@@ -192,10 +195,11 @@ export function registerUsers(ui: Hono, kit: UiKit): void {
       readonly displayName?: string;
     } = {},
   ) => {
-    const [keys, grants, projects] = await Promise.all([
+    const [keys, grants, projects, apps] = await Promise.all([
       listAll(kit, c, viewer, '/credentials', parseCredential, { ownerUserId: user.id }),
       listAll(kit, c, viewer, '/grants', parseGrant, { userId: user.id }),
       listAll(kit, c, viewer, '/projects', parseProject),
+      listAll(kit, c, viewer, adminPath`/users/${user.id}/oauth-devices`, parseOAuthDevice),
     ]);
     const slugs = new Map((projects ?? []).map((p) => [p.id, p.slug]));
     const self = `${BASE}${adminPath`/${user.id}`}`;
@@ -301,6 +305,22 @@ export function registerUsers(ui: Hono, kit: UiKit): void {
             />
           )}
         </section>
+
+        {apps !== null && apps.length > 0 ? (
+          <section aria-labelledby="apps-heading">
+            <h2 id="apps-heading">Apps connected with OAuth</h2>
+            <p>
+              Apps this user approved (claude.ai, phones, Claude Code…). Disconnecting one ends its access at
+              once. Revoking a grant or disabling the user disconnects the apps that use it.
+            </p>
+            <OAuthDevicesTable
+              caption={`Apps of ${user.email}`}
+              rows={apps}
+              csrf={viewer.csrf}
+              revokeAction={(d) => (ownerOnly ? null : `${self}${adminPath`/apps/${d.id}/revoke`}`)}
+            />
+          </section>
+        ) : null}
 
         {viewer.role === 'owner' && !isSelf && user.idp !== null ? (
           <section aria-labelledby="move-heading">
@@ -531,6 +551,41 @@ export function registerUsers(ui: Hono, kit: UiKit): void {
   ui.post(`${ROUTE}/:id/disable`, action('disable'));
   ui.post(`${ROUTE}/:id/enable`, action('enable'));
   ui.post(`${ROUTE}/:id/signout`, action('signout'));
+
+  ui.post(
+    `${ROUTE}/:id/apps/:device/revoke`,
+    kit.form('admin', async (c, principal, form) => {
+      const id = c.req.param('id') ?? '';
+      const device = c.req.param('device') ?? '';
+      if (!isId(id) || !isId(device)) return kit.redirect(BASE, 'not_found');
+      const self = `${BASE}${adminPath`/${id}`}`;
+      const apps = await listAll(kit, c, principal, adminPath`/users/${id}/oauth-devices`, parseOAuthDevice);
+      const app = (apps ?? []).find((d) => d.id === device);
+      if (app === undefined) return kit.redirect(apps === null ? BASE : self, 'not_found');
+      if (!confirmed(form)) {
+        return confirmPage({
+          viewer: principal,
+          current: BASE,
+          title: `Disconnect ${appName(app)}?`,
+          paragraphs: [
+            'The app loses access at once: every token it holds stops working, and it has to ask the user again.',
+          ],
+          action: `${self}${adminPath`/apps/${device}/revoke`}`,
+          confirm: 'Disconnect',
+          cancel: self,
+        });
+      }
+      const res = await kit.callAdmin(
+        c,
+        principal,
+        { method: 'POST', path: adminPath`/users/${id}/oauth-devices/${device}/revoke` },
+        form,
+      );
+      if (isOk(res)) return kit.redirect(self, 'revoked');
+      const problem = problemOf(res);
+      return kit.redirect(problem.status === 404 ? BASE : self, flashFor(problem));
+    }),
+  );
 
   // Owner only; the admin API decides again (not yourself, has an identity, the email repeated).
   ui.get(

@@ -743,6 +743,7 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
           logger,
           runInBackground,
           ...(consentScreen ? { defaultConsent: consentScreen.handler } : {}),
+          ...(uiAudit ? { audit: uiAudit } : {}),
         })
       : undefined;
 
@@ -895,6 +896,7 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
             reason: rejectReason(c.get('log')),
           }),
         runInBackground,
+        ...(oauth ? { oauthDevices: oauth.devices } : {}),
         // A revoked token, grant or key stops at once on this process (other processes: within the cache TTL); a
         // changed role or disabled user is re-read by the next session request here (elsewhere: within 5 s).
         onChange: () => {

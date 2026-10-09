@@ -316,6 +316,9 @@ OAuth for MCP clients (serve; off by default; needs sign-in; docs/guide/oauth.md
   RB_OAUTH_DCR_LIMIT     Dynamic registrations per hour for the whole server (default 30), or off.
   RB_OAUTH_DCR_REDIRECT_HOSTS
                          Comma-separated https redirect hosts dynamic clients may use.
+  RB_OAUTH_ACCESS_TTL    Access-token lifetime (default 1h; 60s-24h; seconds or 90m, 12h, 30d).
+  RB_OAUTH_REFRESH_TTL   Absolute lifetime of an app authorization (default 30d; 1h-365d); refreshing
+                         does not extend it.
 
 Master key (serve / keys rotate / credential revalidate):
   RB_MASTER_KEY            Current master key, v<n>:<base64> (or RB_MASTER_KEY_FILE).

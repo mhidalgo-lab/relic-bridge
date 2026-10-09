@@ -57,10 +57,14 @@ export const workerHost: AuthzHost = {
   async prepare() {
     const db = env.DB as D1Database;
     await wipeD1(db);
+    // The clock first: it fakes `Date`. The suite's own storage reads the time through it, like the Worker does; a
+    // storage made before (or holding the original `Date.now`) would stamp `kv` expiries in real time, and rows the
+    // suite writes would look expired (or alive) to the Worker depending on today's date.
+    const clock = new SystemClock();
     return {
-      storage: await createD1Storage(db),
+      storage: await createD1Storage(db, { now: () => Date.now() }),
       keyring: await Keyring.create({ current: env.RB_MASTER_KEY as string }),
-      clock: new SystemClock(),
+      clock,
     };
   },
   create({ nerdGraph, log, idpFetch }) {

@@ -144,6 +144,41 @@ Request body (`UnbindUser`):
 | 413 | `Error` | Body too large (`payload_too_large`) |
 | 415 | `Error` | Body is not JSON (`unsupported_media_type`) |
 
+### GET /users/{id}/oauth-devices
+
+List a user's OAuth apps
+
+Admins and owners. Empty when OAuth is off.
+
+| Parameter | In | Type | Required | Description |
+| --- | --- | --- | --- | --- |
+| `id` | path | `string` | yes |  |
+| `limit` | query | `integer` | no | Page size, 1-200 (default 50). |
+| `cursor` | query | `string` | no | `nextCursor` from the previous page. |
+
+| Status | Body | Description |
+| --- | --- | --- |
+| 200 | `OAuthDevicePage` | The OAuth devices |
+| 403 | `Error` | Session refused: role too low, missing/invalid CSRF token or cross-origin request (`forbidden`) |
+| 404 | `Error` | No such resource (`not_found`) |
+
+### POST /users/{id}/oauth-devices/{deviceId}/revoke
+
+Disconnect a user's OAuth app
+
+Admins (an owner's apps: owners only). Revokes every token of that authorization and forgets the user's remembered approval for the app on that project.
+
+| Parameter | In | Type | Required | Description |
+| --- | --- | --- | --- | --- |
+| `id` | path | `string` | yes |  |
+| `deviceId` | path | `string` | yes |  |
+
+| Status | Body | Description |
+| --- | --- | --- |
+| 200 | `OAuthDeviceResponse` | Revoked |
+| 403 | `Error` | Session refused: role too low, missing/invalid CSRF token or cross-origin request (`forbidden`) |
+| 404 | `Error` | No such resource (`not_found`) |
+
 ## Sessions
 
 ### POST /users/{id}/sessions/revoke
@@ -833,6 +868,38 @@ Revoke one of my device tokens
 | 403 | `Error` | Session refused: role too low, missing/invalid CSRF token or cross-origin request (`forbidden`) |
 | 404 | `Error` | No such resource (`not_found`) |
 
+### GET /me/oauth-devices
+
+List the apps I connected with OAuth
+
+One row per app authorization (claude.ai, Claude Code, …): client, device name, project and grant. Empty when OAuth is off. Tokens are never returned.
+
+| Parameter | In | Type | Required | Description |
+| --- | --- | --- | --- | --- |
+| `limit` | query | `integer` | no | Page size, 1-200 (default 50). |
+| `cursor` | query | `string` | no | `nextCursor` from the previous page. |
+
+| Status | Body | Description |
+| --- | --- | --- |
+| 200 | `OAuthDevicePage` | Your OAuth devices |
+| 403 | `Error` | Session refused: role too low, missing/invalid CSRF token or cross-origin request (`forbidden`) |
+
+### POST /me/oauth-devices/{id}/revoke
+
+Disconnect one of my OAuth apps
+
+Revokes every access and refresh token of that authorization at once and forgets the remembered approval for the app on that project, so it has to ask again.
+
+| Parameter | In | Type | Required | Description |
+| --- | --- | --- | --- | --- |
+| `id` | path | `string` | yes |  |
+
+| Status | Body | Description |
+| --- | --- | --- |
+| 200 | `OAuthDeviceResponse` | Revoked |
+| 403 | `Error` | Session refused: role too low, missing/invalid CSRF token or cross-origin request (`forbidden`) |
+| 404 | `Error` | No such resource (`not_found`) |
+
 ## Audit
 
 ### GET /audit
@@ -1166,6 +1233,38 @@ _No fields._
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `data` | `MyGrant` | yes | A grant assigned to the caller, with the project it is for. |
+| `warnings` | `string[]` | no | Non-fatal notes about the change (e.g. parts of a grant the project does not allow). |
+
+### OAuthDevice
+
+An app connected with OAuth (P5-05). Tokens are never returned.
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `id` | `string` | yes | `oauth_…`: also the `tokenId` of its audit rows. |
+| `userId` | `string` | yes |  |
+| `clientId` | `string` | yes | The OAuth client (a metadata document URL or a registered id). |
+| `clientName` | `string \| null` | yes | Name from the client registration or metadata document: not verified. |
+| `clientKind` | `"metadata_document" \| "dynamic"` | yes |  |
+| `clientHost` | `string \| null` | yes | Metadata-document clients: the host of the client id. Null for dynamic ones. |
+| `label` | `string \| null` | yes | Device name typed on the consent page. |
+| `projectSlug` | `string \| null` | yes |  |
+| `grantId` | `string \| null` | yes | The grant the app was approved with (revoking it revokes the device). |
+| `createdAt` | `integer` | yes | Authorized (epoch ms) |
+| `expiresAt` | `integer \| null` | yes | End of the refresh lifetime: the app must ask again after it (epoch ms, null = none) |
+
+### OAuthDevicePage
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `data` | `OAuthDevice[]` | yes |  |
+| `nextCursor` | `string \| null` | yes | Pass as `cursor` for the next page; null at the end. |
+
+### OAuthDeviceResponse
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `data` | `OAuthDevice` | yes | An app connected with OAuth (P5-05). Tokens are never returned. |
 | `warnings` | `string[]` | no | Non-fatal notes about the change (e.g. parts of a grant the project does not allow). |
 
 ### Project

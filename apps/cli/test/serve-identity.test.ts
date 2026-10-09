@@ -210,7 +210,21 @@ describe('serve: sign-in over a localhost redirect', () => {
         perSeconds: 3600,
       },
     );
+    // Token lifetimes (P5-05): seconds or s/m/h/d, bounded; the refresh lifetime is never shorter than an access token.
+    expect(
+      settings({ ...signIn, RB_OAUTH: 'on', RB_OAUTH_ACCESS_TTL: '90m', RB_OAUTH_REFRESH_TTL: '7d' }).oauth,
+    ).toMatchObject({ accessTokenTtlSeconds: 5400, refreshTokenTtlSeconds: 604_800 });
+    expect(settings({ ...signIn, RB_OAUTH: 'on', RB_OAUTH_ACCESS_TTL: '600' }).oauth).toMatchObject({
+      accessTokenTtlSeconds: 600,
+    });
     for (const bad of [
+      { RB_OAUTH_ACCESS_TTL: '59' },
+      { RB_OAUTH_ACCESS_TTL: '25h' },
+      { RB_OAUTH_ACCESS_TTL: '1w' },
+      { RB_OAUTH_ACCESS_TTL: '-60' },
+      { RB_OAUTH_REFRESH_TTL: '30m' },
+      { RB_OAUTH_REFRESH_TTL: '366d' },
+      { RB_OAUTH_ACCESS_TTL: '12h', RB_OAUTH_REFRESH_TTL: '2h' },
       { RB_OAUTH_DCR_LIMIT: '0' },
       { RB_OAUTH_DCR_LIMIT: '-1' },
       { RB_OAUTH_DCR_LIMIT: 'lots' },

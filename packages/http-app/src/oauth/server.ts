@@ -14,6 +14,10 @@
 //   and unknown slugs answer alike (T19); the MCP route's 401 points at it (`resource_metadata`).
 // - An OAuth access token on `/p/{slug}/mcp` is validated for that slug's resource only (RFC 8707 audience), its
 //   props are cross-checked, and its grant goes through `resolveAccess` like a device token's (deny by default).
+// - Token lifecycle (P5-05): every token issuance (code exchange, refresh) re-runs `resolveAccess` (a refusal revokes
+//   the device), access tokens never outlive their grant, refresh tokens are single-use under concurrency (a marker
+//   consumed with `kv.take`) and a reused one revokes its whole family. A device is one provider grant
+//   (`oauth_<grantId>`); `devices` lists and revokes them for the admin API (P5-05).
 // The provider module is imported lazily: stdio and token-only deployments never load it.
 import type {
   AuthorizationErrorCode,
@@ -22,11 +26,14 @@ import type {
   OAuthAuthorizationServer,
   OAuthHelpers,
   AuthorizationError as ProviderAuthorizationError,
+  TokenExchangeCallbackOptions,
+  TokenExchangeCallbackResult,
 } from '@cloudflare/workers-oauth-provider';
 import { type DenyReason, type EffectiveAccess, resolveAccess } from '@relic-bridge/auth';
 import type { Clock, Logger } from '@relic-bridge/core';
 import { type CredentialRecord, type KvRepository, SLUG_RE, type Storage } from '@relic-bridge/storage';
 import type { Context } from 'hono';
+import type { AdminAuditEvent } from '../audit.ts';
 import {
   ClientMetadataError,
   type ClientMetadataFetch,
@@ -38,6 +45,7 @@ import {
   safeClientName,
 } from './clients.ts';
 import { type OAuthKvNamespace, oauthKvNamespace } from './kv-namespace.ts';
+import { forgetApprovals, type StoredApproval } from './remembered.ts';
 
 export const OAUTH_AUTHORIZE_PATH = '/oauth/authorize';
 export const OAUTH_TOKEN_PATH = '/oauth/token';
@@ -139,9 +147,12 @@ export interface OAuthOptions {
    * `consent.ts`). Tests may inject a stand-in.
    */
   readonly consent?: OAuthConsentHandler;
-  /** Access-token lifetime in seconds, 60-86400. Default 3600 (plan presets: P5-05). */
+  /** Access-token lifetime in seconds, 60-86400. Default 3600 on every plan (P5-05). Capped at the grant's expiry. */
   readonly accessTokenTtlSeconds?: number;
-  /** Refresh-token lifetime in seconds, 0 (no refresh tokens) or 60-31536000. Default 30 days. */
+  /**
+   * Absolute refresh lifetime of a device authorization in seconds, 0 (no refresh tokens) or 60-31536000. Default 30
+   * days, counted from the code exchange; refreshing never extends it (P5-05). Capped at the grant's expiry.
+   */
   readonly refreshTokenTtlSeconds?: number;
   /** RFC 7591 dynamic client registration at `/oauth/register`. Default on. */
   readonly registration?: boolean;
@@ -177,12 +188,33 @@ export type OAuthAuthentication =
 type ProviderModule = typeof import('@cloudflare/workers-oauth-provider');
 interface ProviderEnv {
   readonly OAUTH_KV: OAuthKvNamespace;
+  /** The request being served (audit rows); absent for calls outside a request. */
+  readonly RB_REQUEST_ID?: string;
 }
 
 /** `userId:grantId:secret` as the provider issues them (user ids are ours: `usr_` + 32 hex). */
 const PROVIDER_TOKEN_RE = /^([A-Za-z0-9_-]{1,128}):([A-Za-z0-9_-]{16}):([A-Za-z0-9_-]{32})$/;
 const MAX_CACHED_SERVERS = 64;
 const CODE_MARKER_PREFIX = 'oauth-code:';
+/**
+ * Refresh-token markers (P5-05), `oauth-refresh:<sha256(token)>`: `live` for the one usable refresh token of a device,
+ * `used` once it has been rotated. Taken with `kv.take` before the provider sees the token.
+ */
+const REFRESH_MARKER_PREFIX = 'oauth-refresh:';
+const REFRESH_LIVE = 'live';
+/**
+ * Revoked device tombstones, `oauth-revoked:<userId>:<grantId>`: written before a device is revoked, so a token
+ * request the provider was answering at that moment (it reads the grant, then writes it back) can't bring the device
+ * back: the token endpoint looks for the tombstone after the provider answered and revokes again.
+ */
+const TOMBSTONE_PREFIX = 'oauth-revoked:';
+const REFRESH_USED = 'used';
+/** An OAuth device's public id: `oauth_` + the provider grant id (also the audit `tokenId`). */
+const DEVICE_ID_RE = /^oauth_([A-Za-z0-9_-]{16})$/;
+/** Access grant ids as stored in grant metadata (the admin API's id shape). */
+const ACCESS_GRANT_ID_RE = /^[A-Za-z0-9_.:-]{1,64}$/;
+/** Devices read per user (listing and revoke-all). */
+export const MAX_OAUTH_DEVICES_PER_USER = 100;
 /** Shared registration counter windows (`kv`, outside the provider's `oauth:` namespace). */
 const REGISTRATION_COUNTER_PREFIX = 'oauth-dcr-count:';
 
@@ -253,10 +285,50 @@ export interface OAuthRuntimeDeps {
   readonly runInBackground: (c: Context, task: Promise<unknown>, what: string) => void;
   /** Used when `options.consent` is not given (the built-in screen). */
   readonly defaultConsent?: OAuthConsentHandler;
+  /** `admin` audit rows (refresh reuse, refused issuance); never rejects. */
+  readonly audit?: (event: AdminAuditEvent) => Promise<void>;
 }
 
 /** Longest device label kept as grant metadata (P5-04). */
 export const MAX_DEVICE_LABEL_CHARS = 60;
+
+/** One OAuth device authorization (a provider grant) as the admin API shows it (P5-05). No token material. */
+export interface OAuthDevice {
+  /** `oauth_` + the provider grant id: the audit `tokenId` of its requests. */
+  readonly id: string;
+  readonly userId: string;
+  readonly clientId: string;
+  /** From the client's registration or metadata document (untrusted text, checked when stored); null if unknown now. */
+  readonly clientName: string | null;
+  readonly clientKind: 'metadata_document' | 'dynamic';
+  /** CIMD: the client id's host; null for dynamic clients. */
+  readonly clientHost: string | null;
+  /** The device name typed on the consent page. */
+  readonly label: string | null;
+  /** The project of the token's resource. */
+  readonly projectSlug: string | null;
+  /** The access grant the device was approved with (null for authorizations made before P5-05). */
+  readonly grantId: string | null;
+  /** Epoch ms. */
+  readonly createdAt: number;
+  /** End of the refresh lifetime (epoch ms); null when it has none. */
+  readonly expiresAt: number | null;
+}
+
+/** OAuth devices of a user: list and revoke (admin API, P5-05). Revoking also forgets remembered approvals. */
+export interface OAuthDevices {
+  list(userId: string): Promise<readonly OAuthDevice[]>;
+  /** Revoke one device (its whole token family); null when the user has no such device. */
+  revoke(userId: string, deviceId: string): Promise<OAuthDevice | null>;
+  /**
+   * Revoke every device of the user, or only those approved with one access grant / for one project (revoke-all when a
+   * grant is revoked, a user disabled or a project deleted). Resolves with the number revoked.
+   */
+  revokeAll(
+    userId: string,
+    filter?: { readonly grantId?: string; readonly projectSlug?: string },
+  ): Promise<number>;
+}
 
 /** One app's OAuth server: the route handlers and the MCP-route token check. Holds configuration and caches only. */
 export interface OAuthRuntime {
@@ -281,6 +353,8 @@ export interface OAuthRuntime {
   register(c: Context): Promise<Response>;
   /** Validate an OAuth bearer for `/p/{slug}/mcp` and resolve its access. Storage errors propagate (fail closed). */
   authenticate(token: string, slug: string): Promise<OAuthAuthentication>;
+  /** Users' OAuth devices (P5-05). */
+  readonly devices: OAuthDevices;
 }
 
 export function createOAuthRuntime(deps: OAuthRuntimeDeps): OAuthRuntime {
@@ -354,6 +428,8 @@ export function createOAuthRuntime(deps: OAuthRuntimeDeps): OAuthRuntime {
       clientIdMetadataDocumentEnabled: false,
       clientRegistrationTTL: registrationTtl,
       allowTokenExchangeGrant: false,
+      // P5-05: access is decided again on every issuance (code exchange and refresh).
+      tokenExchangeCallback: (o) => checkIssuance(mod, o),
       // Stable server-side reasons only: never the description's echoed input or the error detail.
       onError: ({ code, status, internal }) => {
         logger.debug('oauth error response', { code, status, reason: internal?.reason ?? null });
@@ -363,6 +439,73 @@ export function createOAuthRuntime(deps: OAuthRuntimeDeps): OAuthRuntime {
     servers.set(key, built);
     return built;
   };
+  /**
+   * Every token issuance (code exchange, refresh) re-runs the access decision for the grant the device was approved
+   * with. A refusal is `invalid_grant`, on which the provider revokes the device's grant (its whole token family). On
+   * success the access token (and, at the code exchange, the refresh lifetime) is capped at the grant's own expiry.
+   */
+  const checkIssuance = async (
+    mod: ProviderModule,
+    o: TokenExchangeCallbackOptions<ProviderEnv>,
+  ): Promise<TokenExchangeCallbackResult | undefined> => {
+    const code = o.grantType === mod.GrantType.AUTHORIZATION_CODE;
+    if (!code && o.grantType !== mod.GrantType.REFRESH_TOKEN) {
+      throw new mod.OAuthError('unsupported_grant_type', { description: 'Grant type not supported' });
+    }
+    const refuse = async (reason: string): Promise<never> => {
+      logger.info('oauth token refused; device revoked', {
+        reason,
+        oauthGrant: o.grantId,
+        grantType: o.grantType,
+      });
+      await deps.audit?.({
+        actor: {
+          requestId: o.env.RB_REQUEST_ID ?? null,
+          userId: o.userId,
+          clientId: o.clientId.slice(0, 200),
+          tokenId: `oauth_${o.grantId}`,
+        },
+        action: 'oauth.token.refused',
+        targetType: 'oauth_device',
+        targetId: `oauth_${o.grantId}`,
+        status: 'denied',
+        errorCode: reason,
+        details: { grantType: o.grantType, revoked: true },
+      });
+      throw new mod.OAuthError('invalid_grant', { description: 'The authorization is no longer valid.' });
+    };
+    const props = o.props as Partial<OAuthGrantProps> | null;
+    const slug = typeof o.resource === 'string' ? slugOf(o.resource) : null;
+    if (
+      props === null ||
+      typeof props !== 'object' ||
+      typeof props.grantId !== 'string' ||
+      props.userId !== o.userId ||
+      props.clientId !== o.clientId ||
+      slug === null ||
+      props.projectSlug !== slug
+    ) {
+      return refuse('oauth_mismatch');
+    }
+    const decision = await resolveAccess({
+      storage: deps.storage,
+      projectSlug: slug,
+      principal: { grantId: props.grantId, userId: o.userId },
+      catalog: deps.catalog,
+      now: clock.now(),
+    });
+    if (!decision.ok) return refuse(decision.reason);
+    if (decision.access.userId !== o.userId) return refuse('principal_mismatch');
+    const grantEnd = decision.access.expiresAt;
+    if (grantEnd === null) return undefined;
+    const remaining = Math.floor((grantEnd - clock.now()) / 1000);
+    if (remaining < 60) return refuse('grant_expired');
+    return {
+      accessTokenTTL: Math.min(accessTtl, remaining),
+      ...(code && refreshTtl !== 0 ? { refreshTokenTTL: Math.min(refreshTtl, remaining) } : {}),
+    };
+  };
+
   const allProjects = async (): Promise<OAuthAuthorizationServer<ProviderEnv>> =>
     server((await deps.storage.projects.list()).map((p) => resourceUrl(p.slug)));
 
@@ -377,6 +520,11 @@ export function createOAuthRuntime(deps: OAuthRuntimeDeps): OAuthRuntime {
       ...(body === undefined ? {} : { body }),
     });
   };
+  /** The provider's env for one request (the request id reaches the issuance check's audit rows). */
+  const requestEnv = (c: Context): ProviderEnv => {
+    const requestId = c.get('requestId') as unknown;
+    return typeof requestId === 'string' ? { ...env, RB_REQUEST_ID: requestId } : env;
+  };
   const executionContext = (c: Context) => ({
     waitUntil: (task: Promise<unknown>) => deps.runInBackground(c, task, 'oauth'),
     passThroughOnException: () => undefined,
@@ -388,7 +536,11 @@ export function createOAuthRuntime(deps: OAuthRuntimeDeps): OAuthRuntime {
     body?: string,
   ): Promise<Response> =>
     // The provider's fetch takes the Workers `ExecutionContext`; it only calls `waitUntil` on it.
-    as.fetch(atIssuer(c, body), env, executionContext(c) as unknown as Parameters<typeof as.fetch>[2]);
+    as.fetch(
+      atIssuer(c, body),
+      requestEnv(c),
+      executionContext(c) as unknown as Parameters<typeof as.fetch>[2],
+    );
 
   /**
    * A slug when `resource` is exactly one of our per-project resource URLs. Scheme and host compare
@@ -448,6 +600,28 @@ export function createOAuthRuntime(deps: OAuthRuntimeDeps): OAuthRuntime {
 
   const codeMarker = async (code: string): Promise<string> => `${CODE_MARKER_PREFIX}${await sha256Hex(code)}`;
 
+  const tombstone = (userId: string, grantId: string): string => `${TOMBSTONE_PREFIX}${userId}:${grantId}`;
+  /** Revoke a device's provider grant and every token of it, leaving a tombstone first (see {@link TOMBSTONE_PREFIX}). */
+  const revokeFamily = async (userId: string, grantId: string, helpers: OAuthHelpers): Promise<void> => {
+    await deps.kv.put(tombstone(userId, grantId), '1', {
+      expirationTtl: Math.max(refreshTtl, accessTtl, 60),
+    });
+    await helpers.revokeGrant(grantId, userId);
+  };
+  /**
+   * After the provider issued tokens for the token in `presented`: if its device was revoked meanwhile (a concurrent
+   * reuse, an administrator), revoke again (the provider may have written the grant back) and refuse.
+   */
+  const revokedMeanwhile = async (presented: string, helpers: OAuthHelpers): Promise<boolean> => {
+    const m = PROVIDER_TOKEN_RE.exec(presented);
+    if (m === null) return false;
+    const [, userId, grantId] = m as unknown as [string, string, string];
+    if ((await deps.kv.get(tombstone(userId, grantId))) === null) return false;
+    await helpers.revokeGrant(grantId, userId);
+    logger.warn('oauth tokens issued for a revoked device; revoked again', { oauthGrant: grantId });
+    return true;
+  };
+
   /** A replayed (or raced) code: when it really was issued for its grant, revoke the grant and its tokens. */
   const revokeReplayed = async (code: string, helpers: OAuthHelpers): Promise<void> => {
     const m = PROVIDER_TOKEN_RE.exec(code);
@@ -457,9 +631,232 @@ export function createOAuthRuntime(deps: OAuthRuntimeDeps): OAuthRuntime {
       readonly authCodeId?: unknown;
     } | null;
     if (grant === null || grant.authCodeId !== (await sha256Hex(code))) return;
-    await helpers.revokeGrant(grantId, userId);
+    await revokeFamily(userId, grantId, helpers);
     logger.warn('oauth authorization code replayed; grant revoked', { oauthGrant: grantId });
   };
+
+  const refreshMarker = async (token: string): Promise<string> =>
+    `${REFRESH_MARKER_PREFIX}${await sha256Hex(token)}`;
+  /** A marker outlives every refresh token it can describe (the absolute refresh lifetime). */
+  const markerTtl = Math.max(refreshTtl, 60);
+  /** Mark the refresh token of a successful token response as the device's one live refresh token. */
+  const markIssued = async (response: Response): Promise<void> => {
+    if (!response.ok) return;
+    const issued = ((await response.clone().json()) as { readonly refresh_token?: unknown }).refresh_token;
+    if (typeof issued === 'string' && looksLikeOAuthToken(issued)) {
+      await deps.kv.put(await refreshMarker(issued), REFRESH_LIVE, { expirationTtl: markerTtl });
+    }
+  };
+
+  /**
+   * A refresh token without a live marker. `used`: it was rotated already. Otherwise it may be one that a concurrent
+   * request is rotating right now (it is still the grant's current or previous token): both are reuse, and revoke the
+   * device's whole token family (RFC 9700 §4.14.2). A token the grant never had (a forged secret with a known grant id)
+   * revokes nothing.
+   */
+  const refreshReused = async (
+    c: Context,
+    token: string,
+    used: boolean,
+    helpers: OAuthHelpers,
+  ): Promise<void> => {
+    const m = PROVIDER_TOKEN_RE.exec(token);
+    if (m === null) return;
+    const [, userId, grantId] = m as unknown as [string, string, string];
+    const grant = (await env.OAUTH_KV.get(`grant:${userId}:${grantId}`, { type: 'json' })) as {
+      readonly refreshTokenId?: unknown;
+      readonly previousRefreshTokenId?: unknown;
+      readonly clientId?: unknown;
+    } | null;
+    if (grant === null) return;
+    const hash = await sha256Hex(token);
+    if (!used && grant.refreshTokenId !== hash && grant.previousRefreshTokenId !== hash) return;
+    await revokeFamily(userId, grantId, helpers);
+    logger.warn('oauth refresh token reused; device revoked', { oauthGrant: grantId });
+    const requestId = c.get('requestId') as unknown;
+    await deps.audit?.({
+      actor: {
+        requestId: typeof requestId === 'string' ? requestId : null,
+        userId,
+        clientId: typeof grant.clientId === 'string' ? grant.clientId.slice(0, 200) : null,
+        tokenId: `oauth_${grantId}`,
+      },
+      action: 'oauth.token.reuse',
+      targetType: 'oauth_device',
+      targetId: `oauth_${grantId}`,
+      status: 'denied',
+      errorCode: 'refresh_token_reuse',
+      details: { revoked: true, concurrent: !used },
+    });
+  };
+
+  /**
+   * After the provider answered a refresh whose marker we took: on success the presented token becomes `used` and the
+   * new one `live`; otherwise the presented token is `live` again only if the provider did not rotate it (a refused
+   * request: wrong client, scope or resource), else `used`.
+   */
+  const settleRefresh = async (token: string, marker: string, response: Response | undefined) => {
+    if (response?.ok) {
+      await deps.kv.put(marker, REFRESH_USED, { expirationTtl: markerTtl });
+      await markIssued(response);
+      return;
+    }
+    const m = PROVIDER_TOKEN_RE.exec(token) as RegExpExecArray;
+    const grant = (await env.OAUTH_KV.get(`grant:${m[1]}:${m[2]}`, { type: 'json' })) as {
+      readonly refreshTokenId?: unknown;
+    } | null;
+    const unchanged = grant !== null && grant.refreshTokenId === (await sha256Hex(token));
+    await deps.kv.put(marker, unchanged ? REFRESH_LIVE : REFRESH_USED, { expirationTtl: markerTtl });
+  };
+
+  // ------------------------------------------------------------------------------------------------ devices (P5-05)
+
+  interface StoredGrant {
+    readonly id?: unknown;
+    readonly clientId?: unknown;
+    readonly metadata?: unknown;
+    readonly createdAt?: unknown;
+    readonly expiresAt?: unknown;
+    readonly resource?: unknown;
+    readonly authCodeWrappedKey?: unknown;
+  }
+  /** A user's provider grants (pending code exchanges included), at most {@link MAX_OAUTH_DEVICES_PER_USER}. */
+  const userGrants = async (userId: string): Promise<{ id: string; grant: StoredGrant }[]> => {
+    const prefix = `grant:${userId}:`;
+    const out: { id: string; grant: StoredGrant }[] = [];
+    let cursor: string | undefined;
+    do {
+      const page = await env.OAUTH_KV.list({ prefix, ...(cursor === undefined ? {} : { cursor }) });
+      for (const k of page.keys) {
+        const id = k.name.slice(prefix.length);
+        if (!/^[A-Za-z0-9_-]{16}$/.test(id)) continue;
+        const grant = (await env.OAUTH_KV.get(k.name, { type: 'json' })) as StoredGrant | null;
+        if (grant !== null) out.push({ id, grant });
+        if (out.length >= MAX_OAUTH_DEVICES_PER_USER) return out;
+      }
+      cursor = page.list_complete ? undefined : page.cursor;
+    } while (cursor !== undefined);
+    return out;
+  };
+  const toDevice = async (userId: string, id: string, g: StoredGrant): Promise<OAuthDevice> => {
+    const clientId = typeof g.clientId === 'string' ? g.clientId : '';
+    const metadataDocument = looksLikeClientIdUrl(clientId);
+    const record =
+      clientId === ''
+        ? null
+        : ((await env.OAUTH_KV.get(`client:${clientId}`, { type: 'json' })) as {
+            readonly clientName?: unknown;
+          } | null);
+    const meta = (typeof g.metadata === 'object' && g.metadata !== null ? g.metadata : {}) as Record<
+      string,
+      unknown
+    >;
+    const resource = Array.isArray(g.resource) ? g.resource[0] : g.resource;
+    const accessGrant = meta['grant'];
+    let clientHost: string | null = null;
+    if (metadataDocument) {
+      try {
+        clientHost = new URL(clientId).hostname;
+      } catch {
+        clientHost = null;
+      }
+    }
+    return {
+      id: `oauth_${id}`,
+      userId,
+      clientId,
+      clientName:
+        record !== null && typeof record.clientName === 'string' ? safeClientName(record.clientName) : null,
+      clientKind: metadataDocument ? 'metadata_document' : 'dynamic',
+      clientHost,
+      label: deviceLabel(meta['label']),
+      projectSlug: typeof resource === 'string' ? slugOf(resource) : null,
+      grantId: typeof accessGrant === 'string' && ACCESS_GRANT_ID_RE.test(accessGrant) ? accessGrant : null,
+      createdAt: typeof g.createdAt === 'number' ? g.createdAt * 1000 : 0,
+      expiresAt: typeof g.expiresAt === 'number' ? g.expiresAt * 1000 : null,
+    };
+  };
+  /** Revoke one provider grant (every token of it) and forget the user's remembered approval for that client. */
+  /** Whether a remembered approval is for this client on this project (the device's "don't ask again"). */
+  const approvalOf =
+    (clientId: string, projectSlug: string | null) =>
+    (stored: { readonly clientId?: string; readonly projectSlug: string } | null): boolean =>
+      stored !== null &&
+      clientId !== '' &&
+      stored.clientId === clientId &&
+      (projectSlug === null || stored.projectSlug === projectSlug);
+  const revokeDevice = async (device: OAuthDevice): Promise<void> => {
+    const providerGrant = (DEVICE_ID_RE.exec(device.id) as RegExpExecArray)[1] as string;
+    await revokeFamily(device.userId, providerGrant, (await server([])).getOAuthApi(env));
+    await forgetApprovals(deps.kv, device.userId, approvalOf(device.clientId, device.projectSlug));
+  };
+  /** The parts of a stored grant revoke-all filters on (no client lookup: cheap per grant). */
+  const grantFacts = (g: StoredGrant) => {
+    const meta = (typeof g.metadata === 'object' && g.metadata !== null ? g.metadata : {}) as Record<
+      string,
+      unknown
+    >;
+    const resource = Array.isArray(g.resource) ? g.resource[0] : g.resource;
+    return {
+      clientId: typeof g.clientId === 'string' ? g.clientId : '',
+      grantId: typeof meta['grant'] === 'string' ? meta['grant'] : null,
+      projectSlug: typeof resource === 'string' ? slugOf(resource) : null,
+    };
+  };
+  const devices: OAuthDevices = Object.freeze({
+    async list(userId: string) {
+      const nowS = clock.now() / 1000;
+      const out: OAuthDevice[] = [];
+      for (const { id, grant } of await userGrants(userId)) {
+        // A pending code exchange is not a device yet (its code expires within minutes); nor is an expired grant.
+        if (typeof grant.authCodeWrappedKey === 'string') continue;
+        if (typeof grant.expiresAt === 'number' && grant.expiresAt <= nowS) continue;
+        out.push(await toDevice(userId, id, grant));
+      }
+      return out.sort((a, b) => b.createdAt - a.createdAt);
+    },
+    async revoke(userId: string, deviceId: string) {
+      const m = DEVICE_ID_RE.exec(deviceId);
+      if (m === null) return null;
+      const grant = (await env.OAUTH_KV.get(`grant:${userId}:${m[1]}`, {
+        type: 'json',
+      })) as StoredGrant | null;
+      if (grant === null) return null;
+      const device = await toDevice(userId, m[1] as string, grant);
+      await revokeDevice(device);
+      logger.info('oauth device revoked', { oauthGrant: m[1] });
+      return device;
+    },
+    async revokeAll(
+      userId: string,
+      filter: { readonly grantId?: string; readonly projectSlug?: string } = {},
+    ) {
+      const helpers = (await server([])).getOAuthApi(env);
+      const all = filter.grantId === undefined && filter.projectSlug === undefined;
+      const gone: ((stored: StoredApproval | null) => boolean)[] = [];
+      let revoked = 0;
+      for (const { id, grant } of await userGrants(userId)) {
+        const facts = grantFacts(grant);
+        if (filter.grantId !== undefined && facts.grantId !== filter.grantId) continue;
+        if (filter.projectSlug !== undefined && facts.projectSlug !== filter.projectSlug) continue;
+        await revokeFamily(userId, id, helpers);
+        gone.push(approvalOf(facts.clientId, facts.projectSlug));
+        revoked += 1;
+      }
+      // One pass over the user's remembered approvals: those of the revoked devices, those naming the access grant
+      // (never usable again) and, for a disabled user, all of them.
+      await forgetApprovals(
+        deps.kv,
+        userId,
+        (stored) =>
+          all ||
+          gone.some((m) => m(stored)) ||
+          (filter.grantId !== undefined && stored?.grantId === filter.grantId),
+      );
+      if (revoked > 0) logger.info('oauth devices revoked', { revoked });
+      return revoked;
+    },
+  });
 
   const runtime: OAuthRuntime = {
     issuer,
@@ -595,9 +992,51 @@ export function createOAuthRuntime(deps: OAuthRuntimeDeps): OAuthRuntime {
           return jsonError(400, 'invalid_grant', 'Invalid authorization code');
         }
       }
+      if (grantType === 'refresh_token') {
+        // Single use under concurrency (P5-05): of concurrent refreshes with one token at most one finds it `live`;
+        // anything else is reuse and revokes the device's token family.
+        const presented = form?.get('refresh_token') ?? '';
+        if (!looksLikeOAuthToken(presented)) return jsonError(400, 'invalid_grant', 'Invalid refresh token');
+        const marker = await refreshMarker(presented);
+        const state = await deps.kv.take(marker);
+        if (state !== REFRESH_LIVE) {
+          if (state !== null) await deps.kv.put(marker, REFRESH_USED, { expirationTtl: markerTtl });
+          await refreshReused(c, presented, state !== null, as.getOAuthApi(env));
+          return jsonError(400, 'invalid_grant', 'Invalid refresh token');
+        }
+        let refreshed: Response | undefined;
+        try {
+          refreshed = await fetchProvider(as, c, body);
+        } finally {
+          await settleRefresh(presented, marker, refreshed);
+        }
+        if (refreshed.ok && (await revokedMeanwhile(presented, as.getOAuthApi(env)))) {
+          return jsonError(400, 'invalid_grant', 'Invalid refresh token');
+        }
+        return refreshed;
+      }
+      // RFC 7009 revocation shares this endpoint (no grant_type).
+      const revocation = form !== null && grantType === null && form.has('token');
+      const revoked = revocation ? PROVIDER_TOKEN_RE.exec(form?.get('token') ?? '') : null;
+      const grantKey = revoked === null ? null : `grant:${revoked[1]}:${revoked[2]}`;
+      const existed = grantKey !== null && (await env.OAUTH_KV.get(grantKey)) !== null;
       const response = await fetchProvider(as, c, body);
-      // RFC 7009 revocation shares this endpoint (no grant_type): drop cached decisions here at once.
-      if (form !== null && grantType === null && form.has('token') && response.ok) onRevocation();
+      if (grantType === 'authorization_code' && response.ok) {
+        if (await revokedMeanwhile(form?.get('code') ?? '', as.getOAuthApi(env))) {
+          return jsonError(400, 'invalid_grant', 'Invalid authorization code');
+        }
+        await markIssued(response);
+      }
+      // RFC 7009 revocation shares this endpoint (no grant_type): drop cached decisions here at once, and when the
+      // device is gone (a refresh token was revoked) leave a tombstone so a refresh in flight can't bring it back.
+      if (revocation && response.ok) {
+        onRevocation();
+        if (existed && grantKey !== null && revoked !== null && (await env.OAUTH_KV.get(grantKey)) === null) {
+          await deps.kv.put(tombstone(revoked[1] as string, revoked[2] as string), '1', {
+            expirationTtl: Math.max(refreshTtl, accessTtl, 60),
+          });
+        }
+      }
       return response;
     },
 
@@ -711,9 +1150,9 @@ export function createOAuthRuntime(deps: OAuthRuntimeDeps): OAuthRuntime {
           const { redirectTo } = await helpers.completeAuthorization({
             request: authRequest,
             userId,
-            // T25: grant metadata is stored unencrypted: only the device label the user typed (checked text), never an
-            // email or other personal data.
-            metadata: storedLabel === null ? {} : { label: storedLabel },
+            // T25: grant metadata is stored unencrypted: only the device label the user typed (checked text) and the
+            // access grant id (P5-05: revoking that grant revokes this device too), never an email or other personal data.
+            metadata: storedLabel === null ? { grant: grantId } : { label: storedLabel, grant: grantId },
             scope,
             props,
           });
@@ -768,6 +1207,8 @@ export function createOAuthRuntime(deps: OAuthRuntimeDeps): OAuthRuntime {
         credential: decision.credential,
       };
     },
+
+    devices,
   };
   return runtime;
 }

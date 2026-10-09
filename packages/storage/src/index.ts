@@ -14,6 +14,7 @@ export {
   AUDIT_STATS_DEFAULT_GROUPS,
   AUDIT_STATS_MAX_GROUPS,
   AUDIT_STATS_MAX_WINDOW_MS,
+  AUDIT_WRITE_INTENT_ACTION,
   auditOrder,
   auditStatsRowOf,
   auditStatsSql,

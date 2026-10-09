@@ -76,7 +76,8 @@ They are **off at every layer** and each layer has to be opened on purpose:
 1. The server: `RB_WRITE_TOOLS=on` (stdio, `serve`, Worker). Without it the tools don't exist. `serve` and the Worker
    also need the audit log on.
 2. The project must name the tool in its tool list, and so must the grant. "All tools" never includes a write tool.
-   Only an **owner** can add one (an admin gets `403`). On stdio, name it in `RB_TOOLS` / the YAML `tools` list.
+   Only an **owner** can add one (an admin gets `403`), and only an owner can then widen that project or grant (more
+   accounts, another default key, limits, quota, a new token, rotating its key). On stdio, name it in `RB_TOOLS` / the YAML `tools` list.
 3. The key: writes run only with a shared key or the grant user's own key, never with somebody else's personal key.
 4. OAuth apps need the `mcp:write` scope: the app must ask for it, and the consent screen shows the changes in a separate
    box that you tick yourself. It is never remembered ("don't ask again" is hidden) and never granted silently. An app
@@ -86,6 +87,8 @@ They are **off at every layer** and each layer has to be opened on purpose:
 Each call needs `confirm: true` (or `dry_run: true` to preview), reads its target first and refuses anything outside the
 connection's accounts, sends its change once (never retried), is limited to 20 writes per hour per grant
 (`RB_RATE_LIMIT_WRITE`) and is written to the [audit log](audit-log.md) with its arguments and a before/after record.
+The audit row of the attempt is stored before the change is sent: if the audit log cannot store it, nothing is sent.
+Write calls always check access in storage, so revoking a grant stops its next write at once.
 
 `create_dashboard` has extra rules, because its widgets carry NRQL that New Relic runs whenever someone opens the
 dashboard: the dashboard is always **private** (there is no argument to share it); every widget query is checked like

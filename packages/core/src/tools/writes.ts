@@ -31,6 +31,7 @@ import {
   humanGate,
   multiline,
   mutationFailed,
+  recordWriteIntent,
   rejectSecrets,
   SIDE_EFFECT_NOTICE,
   shown,
@@ -297,6 +298,16 @@ export function createWriteTools(deps: ToolDeps = {}): ToolDefinition[] {
         });
       }
 
+      await recordWriteIntent(ctx, 'create_change_event', input, {
+        action: 'change_event.create',
+        accountId: account,
+        target: { type: 'entity', id: input.entity_guid },
+        dryRun: false,
+        applied: false,
+        before: null,
+        after: planned,
+        ...(gate.confirmation === undefined ? {} : { confirmation: gate.confirmation }),
+      });
       const result = await nr.query(CREATE_CHANGE_EVENT_MUTATION, {
         event,
         rules: { validationFlags: ['FAIL_ON_FIELD_LENGTH'] },
@@ -441,6 +452,10 @@ export function createWriteTools(deps: ToolDeps = {}): ToolDefinition[] {
           });
         }
 
+        await recordWriteIntent(ctx, spec.name, input, {
+          ...record(false, plannedAfter),
+          ...(gate.confirmation === undefined ? {} : { confirmation: gate.confirmation }),
+        });
         const vars = { accountId: account, issueId: input.issue_id };
         const result = closing
           ? await nr.query(RESOLVE_ISSUE_MUTATION, vars)

@@ -141,6 +141,24 @@ export interface ToolContext {
    * attempt. Absent: only the time bucket bounds a replay (hosts without shared storage).
    */
   readonly writeApprovals?: WriteApprovals;
+  /**
+   * Where a write is recorded before its mutation is sent (P7-28): `intent` resolves once the audit row is stored and
+   * rejects when it could not be, and the write is then refused with nothing sent. Absent: no audit log (stdio).
+   */
+  readonly writeAudit?: WriteAudit;
+}
+
+/** The audit log as a write tool sees it: one awaited row per write, before the mutation (P7-28). */
+export interface WriteAudit {
+  intent(event: WriteIntent): Promise<void>;
+}
+
+/** A write about to be sent: the tool, its parsed arguments and the tool's record of the change (`applied: false`). */
+export interface WriteIntent {
+  readonly tool: string;
+  readonly input: unknown;
+  /** The tool's `WriteRecord` (see `write-common.ts`): action, account, target, planned after. */
+  readonly record: Readonly<Record<string, unknown>>;
 }
 
 /** Single-use marks for approvals. `consume` resolves true for the first use of `key` and false for any later one. */

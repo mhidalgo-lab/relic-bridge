@@ -29,6 +29,8 @@ export {
   type ToolContext,
   unboundedLimiter,
   type WriteApprovals,
+  type WriteAudit,
+  type WriteIntent,
 } from './context.ts';
 export {
   ERROR_META_KEY,

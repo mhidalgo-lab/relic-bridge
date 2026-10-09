@@ -3,10 +3,12 @@
 //   tool calls     one row per `tools/call` (tool, project, accounts, outcome, error code, duration, NRQL as configured)
 //   refusals       kind `auth`: failed authentication, rate limits, a tool the grant doesn't include
 //   admin actions  `recorder.admin(...)`, the API the admin REST API (P2-09) and CLI (P2-10) call
+//   write intents  `write.intent`, stored before a write tool's mutation (P7-28)
 // Never stored: access tokens, New Relic keys, result rows, request bodies. Every write runs in the background and a
-// failed write is logged, never surfaced to the caller (an audit outage must not become a service outage).
+// failed write is logged, never surfaced to the caller (an audit outage must not become a service outage), except the
+// write intent: it is awaited, and a failure refuses the write (fail closed for writes).
 
-import type { ToolCallEvent } from '@relic-bridge/core';
+import type { ToolCallEvent, WriteIntent } from '@relic-bridge/core';
 import {
   type Clock,
   type Logger,
@@ -17,7 +19,13 @@ import {
   WRITE_META_KEY,
   WRITE_TOOL_NAMES,
 } from '@relic-bridge/core';
-import type { AuditEntry, AuditKind, AuditLogRepository, AuditStatus } from '@relic-bridge/storage';
+import {
+  AUDIT_WRITE_INTENT_ACTION,
+  type AuditEntry,
+  type AuditKind,
+  type AuditLogRepository,
+  type AuditStatus,
+} from '@relic-bridge/storage';
 import type { Context } from 'hono';
 import type { AuthFailureInfo, HttpAppHooks, McpRequestInfo, RejectInfo } from './app.ts';
 import type { LoginAuditEvent } from './identity.ts';
@@ -394,6 +402,33 @@ export function createAuditRecorder(options: AuditRecorderOptions): AuditRecorde
 
     async onToolCall(_c: Context, info: McpRequestInfo, event) {
       await writeToolCall(identity(info), { project: info.projectSlug }, event);
+    },
+
+    // A write about to be sent (P7-28): stored before the mutation and awaited, and a failed append rejects (the write
+    // is then refused with nothing sent). The outcome is the ordinary `tool_call` row written after the call.
+    async onWriteIntent(_c: Context, info: McpRequestInfo, intent: WriteIntent) {
+      const input = capWriteArg(asRecord(intent.input) ?? {}, '', mode, 0);
+      const write = { phase: 'intent', tool: intent.tool, input, record: intent.record };
+      const record = asRecord(intent.record);
+      const accountId = record?.['accountId'];
+      const details =
+        (() => {
+          const full = sanitizeDetails({ project: info.projectSlug, write });
+          if (full !== null && !('note' in full)) return full;
+          const { input: _input, ...recordOnly } = write;
+          return sanitizeDetails({ project: info.projectSlug, write: { ...recordOnly, inputOmitted: true } });
+        })() ?? null;
+      await repo.append({
+        ts: clock.now(),
+        kind: 'tool_call',
+        action: AUDIT_WRITE_INTENT_ACTION,
+        status: 'ok',
+        ...identity(info),
+        accountIds: typeof accountId === 'number' && Number.isSafeInteger(accountId) ? [accountId] : null,
+        targetType: 'tool',
+        targetId: intent.tool,
+        details,
+      });
     },
 
     // Pass-through calls (P2-16): the actor is the key's fingerprint id (`pt_...`), never the key. No grant, token or

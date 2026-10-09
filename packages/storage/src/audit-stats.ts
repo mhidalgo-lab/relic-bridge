@@ -6,6 +6,11 @@ import { InvalidInputError } from './errors.ts';
 import type { AuditStatsGroup, AuditStatsQuery, AuditStatsRow } from './types.ts';
 
 export const AUDIT_STATS_DEFAULT_GROUPS = 50;
+/**
+ * The `tool_call` row a write tool stores before its mutation (P7-28). Not a call of its own: usage statistics leave it
+ * out, and the call is counted by its outcome row.
+ */
+export const AUDIT_WRITE_INTENT_ACTION = 'write.intent';
 export const AUDIT_STATS_MAX_GROUPS = 100;
 /** The longest window an aggregate may cover: the default audit retention. */
 export const AUDIT_STATS_MAX_WINDOW_MS = 90 * 86_400_000;
@@ -33,8 +38,8 @@ export function auditStatsSql(query: AuditStatsQuery): { sql: string; params: (s
     Math.max(1, Math.trunc(query.limit ?? AUDIT_STATS_DEFAULT_GROUPS)),
     AUDIT_STATS_MAX_GROUPS,
   );
-  const where = ["kind = 'tool_call'", 'ts >= ?', 'ts < ?'];
-  const params: (string | number)[] = [since, until];
+  const where = ["kind = 'tool_call'", 'action <> ?', 'ts >= ?', 'ts < ?'];
+  const params: (string | number)[] = [AUDIT_WRITE_INTENT_ACTION, since, until];
   const add = (clause: string, value: string | undefined): void => {
     if (value === undefined) return;
     where.push(clause);

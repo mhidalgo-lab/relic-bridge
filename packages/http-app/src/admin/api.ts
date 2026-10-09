@@ -21,23 +21,28 @@ import {
   createGrant,
   createProject,
   createSetupLink,
+  credentialWriteScope,
   exportConfig,
+  grantWriteScope,
   importConfig,
   issueAccessToken,
   type Keyring,
   type KeyValidator,
   parseWrapKey,
+  projectWriteScope,
   revalidateCredential,
   revokeAccessToken,
   revokeUserSessions,
   rotateCredentialKey,
   rotateCredentialKeysBatch,
   setGrantQuota,
+  tokenWriteScope,
   type toTokenSummary,
   type UpdateProjectInput,
   updateProject,
+  type WriteScopeChange,
 } from '@relic-bridge/auth';
-import { type Clock, type Logger, redact, Secret, WRITE_TOOL_NAMES } from '@relic-bridge/core';
+import { type Clock, type Logger, redact, Secret } from '@relic-bridge/core';
 import {
   type AccessTokenRecord,
   type AuditQuery,
@@ -1384,17 +1389,23 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
     );
   };
   /**
-   * Write tools (P7-09, ADR-0015) act in New Relic: only an owner (or the admin token) may put one on a project or a
-   * grant. `current` is what is already enabled: keeping or removing write tools is not adding them.
+   * The one owner guard for write scope (P7-09, P7-28, ADR-0015, THREAT_MODEL T31). Write tools act in New Relic: only
+   * an owner (or the admin token) may add one to a project or grant, or widen what a project or grant that writes can
+   * reach (accounts, default account or key, limits, re-enabling, quota, a new token, rotating its key). What counts as
+   * widening lives in `@relic-bridge/auth` (`projectWriteScope`, `grantWriteScope`, `tokenWriteScope`,
+   * `credentialWriteScope`); every route that writes a project, grant, token or key runs its change through here.
+   * Narrowing (removing write tools, disabling, revoking, deleting, fewer accounts, a lower quota) stays open to admins.
    */
-  const guardWriteTools = (
-    c: Context,
-    names: readonly string[] | null | undefined,
-    current: readonly string[] | null = null,
-  ) => {
-    const added = (names ?? []).filter((n) => WRITE_TOOL_NAMES.includes(n) && !(current ?? []).includes(n));
-    if (added.length === 0 || actsAsOwner(c)) return;
-    throw new AdminApiError('forbidden', 'only an owner can enable write tools', { detail: 'write_tools' });
+  const guardWriteScope = (c: Context, scope: WriteScopeChange) => {
+    if ((!scope.addsWriteTools && scope.widened.length === 0) || actsAsOwner(c)) return;
+    if (scope.addsWriteTools) {
+      throw new AdminApiError('forbidden', 'only an owner can enable write tools', { detail: 'write_tools' });
+    }
+    throw new AdminApiError(
+      'forbidden',
+      `only an owner can change ${scope.widened.join(', ')} of a project or grant with write tools`,
+      { detail: 'write_scope', ...(scope.widened[0] === undefined ? {} : { field: scope.widened[0] }) },
+    );
   };
   /**
    * A grant acts for its user and for the owner of the personal key it names. A project default stays out: an owner
@@ -1697,6 +1708,7 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
       async () => {
         const existing = await must('credential', id, (x) => storage.credentials.get(x));
         await guardOwnerAssets(c, [existing.ownerUserId]);
+        guardWriteScope(c, await credentialWriteScope(storage, existing.id));
         return rotateCredentialKey(credentialDeps, id, new Secret(body.apiKey));
       },
       (r) => ({ details: { warnings: [...r.warnings] } }),
@@ -1748,7 +1760,7 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
       async () => {
         await guardOwnerAssets(c, [await credentialOwnerId(body.defaultCredentialId)]);
         await guardProjectDefault(c, body.defaultCredentialId);
-        guardWriteTools(c, body.enabledTools);
+        guardWriteScope(c, projectWriteScope(null, compact(body) as CreateProjectInput));
         return createProject(storage, compact(body) as CreateProjectInput, catalog);
       },
       (p) => ({ targetId: p.id, projectId: p.id }),
@@ -1777,7 +1789,7 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
         await guardOwnerAssets(c, [await credentialOwnerId(body.defaultCredentialId)]);
         const current = await storage.projects.get(id);
         await guardProjectDefault(c, body.defaultCredentialId, current?.defaultCredentialId);
-        guardWriteTools(c, body.enabledTools, current?.enabledTools ?? null);
+        guardWriteScope(c, projectWriteScope(current, compact(body) as UpdateProjectInput));
         return updateProject(storage, id, compact(body) as UpdateProjectInput, catalog, clock.now());
       },
     );
@@ -1833,7 +1845,7 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
           c,
           await grantUsers({ userId: body.userId ?? null, credentialId: body.credentialId ?? null }),
         );
-        guardWriteTools(c, body.tools);
+        guardWriteScope(c, grantWriteScope(null, compact(body) as CreateGrantInput));
         return createGrant(storage, compact(body) as CreateGrantInput, catalog, clock.now());
       },
       (r) => ({ targetId: r.grant.id, projectId: r.grant.projectId }),
@@ -1855,6 +1867,7 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
       async () => {
         const existing = await must('grant', id, (x) => storage.grants.get(x));
         await guardOwnerAssets(c, await grantUsers(existing));
+        guardWriteScope(c, grantWriteScope(existing, { quota: (quota ?? null) as StoredQuota | null }));
         // Validated by the schema, and again by the service (`checkQuota`).
         return setGrantQuota(storage, existing.id, quota as StoredQuota | null);
       },
@@ -1979,6 +1992,7 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
       async () => {
         const target = await storage.grants.get(body.grantId);
         if (target) await guardOwnerAssets(c, await grantUsers(target));
+        guardWriteScope(c, tokenWriteScope(target));
         const result = await issueAccessToken(
           storage,
           { grantId: body.grantId, label: body.label, ...(ttl === undefined ? {} : { ttl }) },

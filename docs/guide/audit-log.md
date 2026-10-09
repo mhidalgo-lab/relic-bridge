@@ -142,6 +142,11 @@ off entirely (warned at start).
   fails, the server logs `audit write failed` (kind, action, request id and error name only) and carries on. During a
   database outage the audit rows for that period are lost, and the server also answers `503` for requests that need the
   database to authenticate.
+- **Except for writes (P7-28).** Before a write tool sends its change to New Relic it stores a `tool_call` row with
+  action `write.intent` (target: the tool; details: the arguments and the planned change) and waits for it. If that row
+  cannot be stored, the write is refused (`RB_INTERNAL`, "nothing was changed") and nothing is sent. The usual
+  `tool_call` row for the call follows afterwards; usage statistics count only that one. An intent row with no
+  matching call row means the call ended before reporting: check the target in New Relic.
 - **Floods can't fill the table.** Refusal rows are capped at 120 per minute; beyond that they are counted into one
   `auth.suppressed` row for the minute.
 - A tool call that the grant doesn't include is recorded as `tool.not_granted`, from both 2025- and 2026-era clients

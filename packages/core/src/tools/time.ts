@@ -2,8 +2,7 @@
 import { z } from 'zod';
 import { parseTimeRange } from '../time/range.ts';
 import { defineTool, type ToolDefinition } from '../tool.ts';
-
-const DAY_MS = 86_400_000;
+import { DAY_MS } from './shared.ts';
 
 const timeRangeInput = z.strictObject({
   expression: z

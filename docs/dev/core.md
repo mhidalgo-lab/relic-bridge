@@ -75,6 +75,15 @@ Codes live in `ErrorCode` (`src/errors.ts`). They are a public contract, so add 
 Everything request-specific comes from `ctx`: credential, accounts, budget, limiter, limits, logger, clock. Module-level
 values must be immutable (definitions, constants). Tests assert two concurrent servers never see each other's context.
 
+### Conventions shared by the built-in tools
+
+- Tool inputs use `snake_case` (`query_id`, `max_rows`); `structuredContent` uses `camelCase` (`queryId`, `totalRows`).
+- Shared helpers live in `packages/core/src/tools/shared.ts`: `toolClient(deps)` (per-request NerdGraph client),
+  `accountIdSchema`, `assertWindowWithinLimit(range, limits)` and `DAY_MS`. Use them instead of local copies.
+- Any value New Relic supplies that reaches the text result (including NRDB messages, field warnings and query
+  handles) is enveloped, validated against a strict charset, or both. A returned entity's account must match the
+  account decoded from the GUID.
+
 ## Calling NerdGraph
 
 All New Relic traffic goes through `NerdGraphClient` (`src/nerdgraph/`). Build one per request with `nerdGraphFor(ctx)`.

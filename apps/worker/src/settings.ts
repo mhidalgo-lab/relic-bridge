@@ -63,6 +63,8 @@ export interface WorkerSettings {
   readonly accessCacheTtlMs?: number;
   readonly audit: { readonly enabled: boolean; readonly nrql: AuditNrqlMode; readonly clientIp: boolean };
   readonly rateLimit: boolean;
+  /** `RB_PASSTHROUGH=on`: `/passthrough/mcp` (needs `RB_FINGERPRINT_SECRET` and the rate-limit binding, checked at boot). */
+  readonly passthrough: boolean;
   readonly logLevel: LogLevel;
   readonly warnings: readonly string[];
 }
@@ -187,10 +189,11 @@ export function parseWorkerSettings(vars: WorkerVars): WorkerSettings {
     warnings.push('RB_RATE_LIMIT=off disables all rate limiting (brute-force and abuse protection).');
   }
 
-  // Pass-through on Workers needs a fingerprint secret shared by every isolate and a shared limiter (P3-04). Saying
-  // "on" and silently getting "off" would be worse than refusing.
-  if (onOff(vars, 'RB_PASSTHROUGH', false)) {
-    throw new WorkerConfigError('RB_PASSTHROUGH', 'RB_PASSTHROUGH is not available on Workers yet (P3-04)');
+  // Pass-through on Workers needs a fingerprint secret shared by every isolate and the shared limiter (P3-04); both
+  // are checked at boot (`worker.ts`), where the bindings are visible.
+  const passthrough = onOff(vars, 'RB_PASSTHROUGH', false);
+  if (passthrough && !rateLimit) {
+    throw new WorkerConfigError('RB_PASSTHROUGH', 'RB_PASSTHROUGH=on needs RB_RATE_LIMIT=on');
   }
 
   const level = (text(vars, 'RB_LOG_LEVEL')?.toLowerCase() ?? 'info') as LogLevel;
@@ -209,6 +212,7 @@ export function parseWorkerSettings(vars: WorkerVars): WorkerSettings {
     ...(accessCacheTtlMs === undefined ? {} : { accessCacheTtlMs }),
     audit: { enabled: auditEnabled, nrql: nrql as AuditNrqlMode, clientIp: auditClientIp },
     rateLimit,
+    passthrough,
     logLevel: level,
     warnings,
   };

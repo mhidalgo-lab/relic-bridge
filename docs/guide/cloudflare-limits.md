@@ -50,3 +50,49 @@ during the spike, but that is not a guarantee, so the Free preset keeps calls ne
 
 Move to Workers Paid for large result sets, shared teams or heavy use; it also lifts the 100,000 requests per day
 and 10 ms CPU limits.
+
+## Rate limiting on Workers
+
+relic-bridge applies the same rate limits as on Node (per IP 600/min, failed authentications per IP 10 per 5 min, per
+token 120/min, per grant 300/min unless the grant sets its own, per pass-through key 120/min), in two layers:
+
+| Layer | What it does | Weakness |
+|---|---|---|
+| Per-isolate token bucket | Enforces the exact rule (including a grant's own `rateLimit`) with no I/O; provides the "peek" the auth-failure throttle needs. | Each isolate counts alone, so the effective limit is up to (isolates x limit). |
+| Workers Rate Limiting binding `RATE_LIMITER` (`ratelimits` in `wrangler.jsonc`, default 600 per 60 s per key) | Shared backstop for the `ip:`, `token:`, `grant:` and `key:` buckets; a refusal answers `429` with `Retry-After: 60`. | One fixed limit and period (10 or 60 s) per binding; counted per Cloudflare location and eventually consistent, so it is permissive by design; cannot be peeked. |
+
+- **Auth-failure throttle** is per isolate only: the binding cannot report a count without consuming, so failed
+  authentications are not shared across isolates or locations. An attacker spread over many isolates gets more guesses
+  than on Node, but tokens carry 256 bits of entropy and every 401 stays identical. The Durable Object limiter (P7-10)
+  closes this gap. Known side effect, unchanged from Node: a shared IP that fails 10 times is refused even with a valid
+  token (Phase 2 review M6, still open).
+- **Client address** is `CF-Connecting-IP`, which Cloudflare sets and clients cannot override. Requests without it
+  share one `unknown` bucket.
+- **Fail open:** if the binding throws, the request is allowed and an error is logged; authentication still applies.
+- To tighten the shared backstop, change `limit`/`period` of the `RATE_LIMITER` entry in `wrangler.jsonc`.
+  `RB_RATE_LIMIT=off` turns all of it off (not recommended).
+- Without the binding the Worker still starts (isolate buckets only) and logs a warning.
+
+### Optional: a WAF rate-limiting rule in front
+
+Cloudflare's own rate limiting runs before the Worker is invoked, so refused requests cost no Worker request. It needs a
+zone (a custom domain), not a `workers.dev` name. In the dashboard: *Security > WAF > Rate limiting rules > Create rule*.
+
+| Field | Suggested value |
+|---|---|
+| If incoming requests match | URI Path starts with `/p/` or equals `/passthrough/mcp` or starts with `/oauth` |
+| Characteristic | IP |
+| Requests / period | 100 per 10 seconds |
+| Action | Block for 1 minute (or Managed Challenge is not suitable: clients are not browsers) |
+
+The rule is an addition, not a replacement: it cannot see tokens or grants.
+
+### Pass-through on Workers
+
+`RB_PASSTHROUGH=on` enables `/passthrough/mcp` on Workers. Because per-key limits must be shared, boot fails (503, the
+log names the variable) unless:
+
+1. `RB_FINGERPRINT_SECRET` is set: `openssl rand -base64 32 | wrangler secret put RB_FINGERPRINT_SECRET`. Every isolate
+   hashes a New Relic key with this secret, so one key maps to one limiter bucket everywhere. Without a shared
+   secret each isolate would have its own random one. Keep it like the master key: changing it only resets counters.
+2. The `RATE_LIMITER` binding is present, and `RB_RATE_LIMIT` is not `off`.

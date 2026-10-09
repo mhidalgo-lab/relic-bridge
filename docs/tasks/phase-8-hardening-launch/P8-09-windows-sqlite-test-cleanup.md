@@ -2,11 +2,11 @@
 id: P8-09
 title: Fix EPERM temp-dir cleanup in the SQLite tests on Windows
 phase: 8
-status: todo
+status: in-progress
 priority: medium
 depends_on: []
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P8-09 — Fix EPERM temp-dir cleanup in the SQLite tests on Windows

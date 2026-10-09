@@ -300,9 +300,9 @@ describe('compare-and-swap on task records (P7-29)', () => {
     ]);
     expect(ran).toBe(1);
     expect(results.map((r) => r.status)).toEqual(['working', 'working']);
-    // The loser answers with what is stored (the claim), and neither poll charged a second step.
-    expect(results[0]?.statusMessage).toBe('step 1');
-    expect(results[1]?.statusMessage).toBeUndefined();
+    // The loser answers with what is stored (the claim), and neither poll charged a second step. Which poll wins is
+    // not fixed: record sealing is async WebCrypto, so under load either one can claim first.
+    expect(results.map((r) => r.statusMessage).sort()).toEqual(['step 1', undefined]);
     w.advance(1000);
     expect((await getTask(w.ctx(), taskId, { tools: [tool] })).statusMessage).toBe('step 2');
     expect(ran).toBe(2);

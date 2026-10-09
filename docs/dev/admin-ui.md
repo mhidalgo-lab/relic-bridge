@@ -144,3 +144,5 @@ that `admin.js` reveals.
   secret-looking blocks (the token, client snippets) are masked in the pictures. Run it after changing page headers,
   the CSP, forms or the layout. HTTP tests cannot see browser behaviour: it found that `Referrer-Policy: no-referrer`
   made browsers send `Origin: null` on every form POST (see `UI_REFERRER_POLICY`).
+
+P4-12: `pnpm scan:zap` runs an OWASP ZAP baseline against a local instance (see CONTRIBUTING.md); accepted alerts are in `.zap/rules.tsv`.

@@ -142,6 +142,22 @@ Severity is the impact if exploited, weighed by likelihood. Status is one of:
   the same request. Hostile ids never produce an off-site or header-splitting `Location`.
 - **Leak scan:** no secret appeared in any response, log line or audit row after the probes.
 
+## ZAP baseline (P4-12)
+
+The passive scan that P4-07 deferred ran locally with `pnpm scan:zap` (OWASP ZAP stable, pinned by digest, Docker) against
+a throwaway server on localhost: `/auth/login` signed out, `/admin` as the owner (session cookie, spidered through the
+panel), and `/api/admin/v1` through its OpenAPI document with the admin token (passive, safe mode).
+
+- **Medium / High:** none.
+- **Low, fixed:** `Permissions-Policy` missing on the script asset (rule 10063) and `Cross-Origin-Embedder-Policy` missing
+  on HTML pages (90004). Both headers are now set (`packages/http-app/src/security.ts`, `packages/admin-ui/src/headers.ts`)
+  with regression tests in `packages/http-app/test/authz/ui.test.ts`.
+- **Informational, accepted** (`.zap/rules.tsv`, each with a reason): 10049 cache notes, 10112 session cookie noted, 10027
+  the word "admin" in our script's first comment, 10024 filter parameter names `user`/`token` (they carry ids, never
+  secrets), 10031 filter values echoed into escaped attributes, 100000 expected 4xx from generated API requests.
+- **Limits:** passive only (no active scan, by scope); the scan is manual, so rerun it after changing headers, cookies or
+  sign-in. Reports are kept out of git and checked not to contain the cookie, admin token or test key.
+
 ## What the next tasks must know
 
 1. **Every new redirect target derived from input goes through `isLocalPath` / `localHref` *after* URL parsing**,

@@ -48,5 +48,7 @@ export const UI_PAGE_HEADERS: Readonly<Record<string, string>> = Object.freeze({
   'Referrer-Policy': UI_REFERRER_POLICY,
   'Content-Security-Policy': UI_CSP,
   'Cross-Origin-Opener-Policy': 'same-origin',
+  // Every subresource is same-origin (P4-12: ZAP 90004), so the strictest embedder policy costs nothing.
+  'Cross-Origin-Embedder-Policy': 'require-corp',
   'Permissions-Policy': PERMISSIONS_POLICY,
 });

@@ -355,3 +355,20 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Context:** The task keeps "members creating their own grants" out of scope, and P4-10 left a member session list
   unbuilt. The "My access" page therefore has no "new grant" and no "my sessions" section.
 - **Needs:** owner choice on the P4-10 pending decision about self-service grants.
+
+## P4-12 — ZAP baseline scan
+
+### P4-12 — Scan is manual, not on every pull request
+- **Context:** GitHub Actions was unavailable (billing) and the ZAP image is about 3.7 GB; a run takes several minutes.
+- **Assumption made:** `.github/workflows/zap.yml` is `workflow_dispatch` only. It has not run on GitHub; the same command
+  ran locally via Docker Desktop (WSL), with a relay container because the VM's localhost is not the host's.
+- **Needs:** owner choice: keep manual, or add a weekly `schedule` (like `bench.yml`) once minutes allow.
+
+### P4-12 — Only Medium/High alerts fail the run
+- **Assumption made:** Low and Informational alerts are printed; the Informational ones seen are ignored with reasons.
+- **Needs:** nothing unless a stricter gate (also Low) is wanted.
+
+### P4-12 — API scan mutates a throwaway database
+- **Context:** the OpenAPI scan sends generated requests to every operation (passive rules only, but the requests are real).
+- **Assumption made:** fine on a temporary database with fake keys and a mock NerdGraph; never point it at a real instance.
+

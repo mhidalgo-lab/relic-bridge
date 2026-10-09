@@ -26,6 +26,8 @@ export const MEMBER_EMAIL = 'member@example.com';
 export interface TestServer {
   readonly base: string;
   readonly idp: MockIdp;
+  /** The bootstrap admin token of this throwaway server (random per start; test use only). */
+  readonly adminToken: string;
   /** One-use link that makes the first sign-in the owner. */
   setupLink(): Promise<string>;
   stop(): Promise<void>;
@@ -139,6 +141,7 @@ export async function startServer(): Promise<TestServer> {
   return {
     base,
     idp,
+    adminToken: admin,
     async setupLink() {
       const res = await fetch(`${base}/api/admin/v1/setup-links`, {
         method: 'POST',

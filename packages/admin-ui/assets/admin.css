@@ -498,6 +498,18 @@ dd > .badge:first-child {
   color: var(--muted);
 }
 
+.page-actions + .table-wrap,
+.page-actions + section {
+  margin-top: 0.5rem;
+}
+
+meter {
+  width: 6rem;
+  height: 0.75rem;
+  vertical-align: middle;
+  accent-color: var(--accent);
+}
+
 .query-form {
   display: flex;
   flex-wrap: wrap;

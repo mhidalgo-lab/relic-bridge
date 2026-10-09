@@ -225,11 +225,14 @@ describe('admin screens: personal setup through the forms (P4-04)', () => {
 
 describe('admin screens: who may use them (P4-04)', () => {
   const screens = UI_ROUTES.filter((r) => r.pattern !== '/admin' && r.pattern !== '/admin/*');
+  /** The audit viewer is for every role (the admin API limits a member to their own rows). */
+  const MEMBER_PAGES = new Set(['/admin/audit', '/admin/audit.csv']);
+  const adminOnly = screens.filter((r) => !MEMBER_PAGES.has(r.pattern));
 
   it('members get the 403 page on every screen route, GET and POST, and nothing changes', async () => {
     const member = await h.addSession({ role: 'member' });
     const before = JSON.stringify(await h.world.storage.users.list());
-    for (const route of screens) {
+    for (const route of adminOnly) {
       const res =
         route.method === 'GET'
           ? await open(member, route.path)
@@ -239,8 +242,46 @@ describe('admin screens: who may use them (P4-04)', () => {
     }
     expect(JSON.stringify(await h.world.storage.users.list())).toBe(before);
     const forbidden = (await h.auditRows()).filter((r) => r.action === 'admin.forbidden');
-    expect(forbidden.length).toBe(screens.length);
+    expect(forbidden.length).toBe(adminOnly.length);
     expect(forbidden.every((r) => r.status === 'denied')).toBe(true);
+  });
+
+  it('audit viewer: a member sees their own rows only (also in the CSV), never usage, admins see all', async () => {
+    const member = await h.addSession({ role: 'member' });
+    const other = await h.addSession({ role: 'member' });
+    const admin = await h.addSession({ role: 'admin' });
+    const hostile = '<b>=cmd|calc</b>';
+    for (const [userId, action] of [
+      [member.userId, 'whoami'],
+      [other.userId, hostile],
+    ] as const) {
+      await h.world.storage.auditLog.append({
+        ts: 1,
+        kind: 'tool_call',
+        action,
+        status: 'ok',
+        userId,
+        durationMs: 5,
+      });
+    }
+    for (const path of ['/admin/audit', '/admin/audit.csv']) {
+      const mine = await open(member, `${path}?range=all`);
+      expect(mine.status, path).toBe(200);
+      expect(mine.text, path).toContain('whoami');
+      expect(mine.text, path).not.toContain('cmd|calc');
+      // Query parameters cannot widen a member's view.
+      const sneaky = await open(member, `${path}?range=all&user=${other.userId}&kind=tool_call`);
+      expect(sneaky.text, path).not.toContain('cmd|calc');
+    }
+    const all = await open(admin, '/admin/audit?range=all');
+    expect(all.text).toContain('whoami');
+    expect(all.text).toContain('&lt;b&gt;=cmd|calc&lt;/b&gt;');
+    const csv = await open(admin, '/admin/audit.csv?range=all');
+    expect(csv.headers.get('content-type')).toBe('text/csv; charset=utf-8');
+    expect(csv.text).toContain('"<b>=cmd|calc</b>"');
+    expect((await open(member, '/admin/usage')).status).toBe(403);
+    const usage = await open(admin, '/admin/usage');
+    expect(usage.status).toBe(200);
   });
 
   it('admins and owners open every list and form page; unknown ids are the 404 page', async () => {

@@ -452,10 +452,73 @@ export const AuditQuerySchema = z.strictObject({
     }),
   since: timeQuery('Inclusive lower bound'),
   until: timeQuery('Exclusive upper bound'),
+  order: z
+    .enum(['newest', 'slowest'])
+    .optional()
+    .openapi({
+      description:
+        '`newest` (default) pages with `cursor`. `slowest`: rows that recorded a duration, longest first; one page of ' +
+        '`limit` rows, no cursor.',
+    }),
   limit: limitQuery,
   cursor: cursorQuery,
 });
 export const AuditPage = page(AuditSchema, 'AuditPage');
+
+/** Longest window `GET /audit/stats` aggregates (days): one bounded SQL aggregate over `tool_call` rows. */
+export const AUDIT_STATS_MAX_DAYS = 90;
+
+export const AuditStatsQuerySchema = z.strictObject({
+  groupBy: z.enum(['action', 'project', 'grant', 'token', 'day']).optional().openapi({
+    description: 'Group tool calls by tool (`action`, default), project, grant, device token or UTC day.',
+  }),
+  since: timeQuery(
+    `Inclusive lower bound (default: 7 days before \`until\`; at most ${AUDIT_STATS_MAX_DAYS} days)`,
+  ),
+  until: timeQuery('Exclusive upper bound (default: now)'),
+  action: z
+    .string()
+    .regex(/^[A-Za-z0-9_.:-]{1,64}$/)
+    .optional()
+    .openapi({ description: 'Only this tool.' }),
+  projectId: idRef('Only this project.').optional(),
+  userId: idRef('Only this user.').optional(),
+  grantId: idRef('Only this grant.').optional(),
+  tokenId: idRef('Only this access token.').optional(),
+  limit: z.coerce.number().int().min(1).max(100).optional().openapi({
+    description: 'Groups returned, 1-100 (default 50): most calls first; `day`: newest first.',
+    type: 'integer',
+  }),
+});
+
+export const AuditStatsRowSchema = z
+  .object({
+    key: z
+      .string()
+      .nullable()
+      .openapi({ description: 'The group value (null: calls without one, e.g. no project).' }),
+    calls: z.number().int(),
+    errors: z.number().int().openapi({ description: 'Calls with status `error`.' }),
+    denied: z.number().int().openapi({ description: 'Calls with status `denied`.' }),
+    durationSumMs: z
+      .number()
+      .int()
+      .openapi({ description: 'Sum of recorded durations; mean = sum / durationCount.' }),
+    durationCount: z.number().int().openapi({ description: 'Calls that recorded a duration.' }),
+    maxDurationMs: z.number().int().nullable(),
+    inspectedCount: z
+      .number()
+      .int()
+      .openapi({ description: 'Events New Relic reported inspecting, summed.' }),
+  })
+  .openapi('AuditStatsRow');
+
+export const AuditStatsResponse = z
+  .object({
+    data: z.array(AuditStatsRowSchema),
+    window: z.object({ since: timestamp('Window start'), until: timestamp('Window end') }),
+  })
+  .openapi('AuditStats');
 
 // ---------------------------------------------------------------------------------------------------------------
 // Master key (P3-11)

@@ -66,7 +66,7 @@ If the query text is itself sensitive, use `hash` or `off`. Stored text is trunc
 
 ## Reading it
 
-Through the [admin API](../reference/admin-api.md#audit): `GET /api/admin/v1/audit`, newest first, filtered by `kind`,
+Through the [admin API](../reference/admin-api.md#audit) (or the panel, below): `GET /api/admin/v1/audit`, newest first, filtered by `kind`,
 `action`, `status`, `projectId`, `userId`, `grantId`, `tokenId`, `keyId` (a `pt_…` id, or `any` for every pass-through row), `since` / `until` (epoch ms or ISO 8601), paged with
 `limit` and `cursor`:
 
@@ -77,6 +77,24 @@ curl -s -H "Authorization: Bearer $RB_ADMIN_TOKEN" \
 
 A change request the API refuses as invalid (schema or malformed JSON) is recorded too (`status` `error`, `error_code` `invalid_request`, no submitted values); these rows are capped per minute like `auth` rows, with an `admin.suppressed` summary. Admin changes made through the API carry `details.via = "admin_token"` (no user identity until Phase 4 sign-in);
 failed attempts are recorded too, with `status` `error` (or `denied`) and the API error code.
+
+### In the admin panel
+
+Signed-in admins and owners read the log at **Audit** (`/admin/audit`) and see usage numbers at **Usage**
+(`/admin/usage`); see [the admin panel](admin-panel.md). Members see only their own rows (the admin API forces
+`userId` to theirs: asking for someone else's is `403 forbidden` and an `admin.forbidden` row). Audit text can contain
+what a caller sent (a tool name, an error message), so the panel shows it as plain text and the CSV export quotes every
+text cell and prefixes `'` to any that starts with `=`, `+`, `-`, `@`, a tab or a carriage return.
+
+### Usage statistics
+
+`GET /api/admin/v1/audit/stats` (admins and owners) aggregates `tool_call` rows in one SQL statement per request:
+calls, errors, denied, summed and longest duration, inspected events, grouped by `groupBy` = `action` (the tool,
+default), `project`, `grant`, `token` or `day` (UTC), optionally narrowed by `action`, `projectId`, `userId`,
+`grantId`, `tokenId`. The window is `[since, until)`, at most 90 days (default the last 7); at most 100 groups come
+back (`limit`, default 50). `GET /audit?order=slowest` lists the rows with the longest durations. Cost: the aggregate
+reads every `tool_call` row in the window, using the timestamp index. That is cheap on SQLite; on D1 each row read
+counts against the plan's row-read allowance, so keep dashboards on short windows if you record very many calls.
 
 ## Retention
 

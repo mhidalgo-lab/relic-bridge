@@ -227,6 +227,8 @@ export const UI_ROUTES: readonly RouteCase[] = [
   ui('POST', '/admin/users/:id/disable', '/admin/users/usr_none/disable'),
   ui('POST', '/admin/users/:id/enable', '/admin/users/usr_none/enable'),
   ui('POST', '/admin/users/:id/signout', '/admin/users/usr_none/signout'),
+  ui('GET', '/admin/users/:id/unbind', '/admin/users/usr_none/unbind'),
+  ui('POST', '/admin/users/:id/unbind', '/admin/users/usr_none/unbind'),
   // P4-05: the audit viewer and CSV (any role; members see their own rows) and usage statistics (admin and owner).
   ui('GET', '/admin/audit'),
   ui('GET', '/admin/audit.csv'),

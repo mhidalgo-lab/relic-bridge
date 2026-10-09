@@ -12,9 +12,12 @@
 //   POST /admin/users/:id/disable      disable (needs confirm=yes): sessions end, grants and personal keys stop
 //   POST /admin/users/:id/enable
 //   POST /admin/users/:id/signout      end every session (needs confirm=yes)
+//   GET  /admin/users/:id/unbind       owner only: confirmation page (takeover warning, asks for the email again)
+//   POST /admin/users/:id/unbind       owner only: clear the provider identity (needs confirm=yes and the email)
 import type { Context, Hono } from 'hono';
 import {
   Button,
+  CONFIRM_FIELD,
   ConfirmAction,
   DataTable,
   Facts,
@@ -134,6 +137,43 @@ function addPage(
   );
 }
 
+function unbindPage(viewer: UiPrincipal, user: User, error?: string, flash: FlashMessage | null = null) {
+  const self = `${BASE}${adminPath`/${user.id}`}`;
+  return (
+    <Layout title={`Move ${user.email} to another provider`} viewer={viewer} current={BASE} flash={flash}>
+      <div class="flash flash-error" role="alert">
+        <strong>Account takeover window.</strong> After this, the next verified sign-in whose email is{' '}
+        {user.email} binds the account again, to whichever configured provider it comes from. Anyone who
+        controls that email at any configured provider can take the account, with its role, grants and keys.
+        Confirm the move with {user.email} first, and ask them to sign in right away.
+      </div>
+      <p>
+        This clears the provider {user.idp ?? 'identity'} this user is bound to and signs them out on every
+        device. Their keys, grants and device tokens stay as they are.
+      </p>
+      <Form action={`${self}/unbind`} csrf={viewer.csrf} label="Move to another provider">
+        <input type="hidden" name={CONFIRM_FIELD} value="yes" />
+        <TextField
+          name="email"
+          label="Type the user's email address to confirm"
+          type="email"
+          autocomplete="off"
+          spellcheck={false}
+          required
+          maxlength={320}
+          error={error}
+        />
+        <div class="actions">
+          <Button variant="danger">Clear sign-in identity</Button>
+          <LinkButton href={self} variant="secondary">
+            Cancel
+          </LinkButton>
+        </div>
+      </Form>
+    </Layout>
+  );
+}
+
 export function registerUsers(ui: Hono, kit: UiKit): void {
   const now = () => (kit.deps.now ?? Date.now)();
   const load = async (c: Context, principal: UiPrincipal, id: string) => {
@@ -171,7 +211,7 @@ export function registerUsers(ui: Hono, kit: UiKit): void {
               ['Email', user.email],
               ['Name', user.displayName ?? '—'],
               ['Role', user.role],
-              ['Signs in with', user.idp ?? 'not signed in yet'],
+              ['Signs in with', user.idp ?? 'not bound to a provider'],
               ['Status', statusOf(user)],
               ['Added', <When at={user.createdAt} />],
             ]}
@@ -261,6 +301,19 @@ export function registerUsers(ui: Hono, kit: UiKit): void {
             />
           )}
         </section>
+
+        {viewer.role === 'owner' && !isSelf && user.idp !== null ? (
+          <section aria-labelledby="move-heading">
+            <h2 id="move-heading">Move to another provider</h2>
+            <p>
+              Clears the provider this user signs in with, so they can sign in with another one. They are
+              signed out everywhere.
+            </p>
+            <LinkButton href={`${self}/unbind`} variant="secondary">
+              Move to another provider…
+            </LinkButton>
+          </section>
+        ) : null}
 
         {isSelf || ownerOnly ? null : (
           <section aria-labelledby="danger-heading">
@@ -478,4 +531,51 @@ export function registerUsers(ui: Hono, kit: UiKit): void {
   ui.post(`${ROUTE}/:id/disable`, action('disable'));
   ui.post(`${ROUTE}/:id/enable`, action('enable'));
   ui.post(`${ROUTE}/:id/signout`, action('signout'));
+
+  // Owner only; the admin API decides again (not yourself, has an identity, the email repeated).
+  ui.get(
+    `${ROUTE}/:id/unbind`,
+    kit.page('owner', async (c, page) => {
+      const id = c.req.param('id');
+      if (!isId(id)) return loadFailed(c, { status: 404, body: null }, page.principal);
+      const { res, user } = await load(c, page.principal, id);
+      if (user === null) return loadFailed(c, res, page.principal);
+      if (user.id === page.principal.userId || user.idp === null) {
+        return kit.redirect(`${BASE}${adminPath`/${id}`}`, 'failed');
+      }
+      return page.html(unbindPage(page.principal, user, undefined, page.flash));
+    }),
+  );
+
+  ui.post(
+    `${ROUTE}/:id/unbind`,
+    kit.form('owner', async (c, principal, form) => {
+      const id = c.req.param('id') ?? '';
+      if (!isId(id)) return kit.redirect(BASE, 'not_found');
+      const self = `${BASE}${adminPath`/${id}`}`;
+      const { res: got, user } = await load(c, principal, id);
+      if (user === null) return kit.redirect(BASE, flashFor(problemOf(got)));
+      const email = field(form, 'email');
+      if (!confirmed(form) || email === null) {
+        return htmlResponse(
+          unbindPage(principal, user, email === null ? 'Type the email address to confirm.' : undefined),
+          confirmed(form) ? 422 : 200,
+        );
+      }
+      const res = await kit.callAdmin(
+        c,
+        principal,
+        { method: 'POST', path: adminPath`/users/${id}/unbind`, body: { confirm: email } },
+        form,
+      );
+      if (isOk(res)) return kit.redirect(self, 'identity_cleared');
+      const problem = problemOf(res);
+      // Never echo what was typed: a fixed line, whatever the API said about the field.
+      if (problem.status === 400 && problem.field === 'confirm') {
+        return htmlResponse(unbindPage(principal, user, 'That is not this user’s email address.'), 422);
+      }
+      if (problem.status === 409) return kit.redirect(self, 'identity_none');
+      return kit.redirect(problem.status === 404 ? BASE : self, flashFor(problem));
+    }),
+  );
 }

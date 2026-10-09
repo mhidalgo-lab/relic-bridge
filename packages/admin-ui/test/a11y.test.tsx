@@ -198,16 +198,21 @@ describe('axe-core', () => {
     };
     const page = async (a: ReturnType<typeof app>, path: string, role = 'admin') =>
       (await a.request(`${ORIGIN}${path}`, { headers: same(role) })).text();
-    const post = async (a: ReturnType<typeof app>, path: string, fields: Record<string, string>) =>
+    const post = async (
+      a: ReturnType<typeof app>,
+      path: string,
+      fields: Record<string, string>,
+      role: 'admin' | 'owner' = 'admin',
+    ) =>
       (
         await a.request(`${ORIGIN}${path}`, {
           method: 'POST',
           headers: {
-            ...same('admin', { origin: ORIGIN }),
+            ...same(role, { origin: ORIGIN }),
             'content-type': 'application/x-www-form-urlencoded',
           },
           body: new URLSearchParams({
-            _csrf: principalFor('admin').csrf,
+            _csrf: principalFor(role).csrf,
             _once: ONCE_HANDLE,
             ...fields,
           }).toString(),
@@ -256,6 +261,23 @@ describe('axe-core', () => {
 
     it('users/new as an owner', async () => {
       await expectAccessible('users/new as owner', await page(app(), '/admin/users/new', 'owner'));
+    });
+
+    it('users/:id/unbind as an owner, and with a wrong email', async () => {
+      await expectAccessible('unbind', await page(app(), '/admin/users/usr_m/unbind', 'owner'));
+      const wrong = (call: { method: string; path: string }) =>
+        call.method === 'POST'
+          ? { status: 400, body: { error: { code: 'invalid_request', message: 'x', field: 'confirm' } } }
+          : undefined;
+      await expectAccessible(
+        'unbind wrong email',
+        await post(
+          app(wrong),
+          '/admin/users/usr_m/unbind',
+          { confirm: 'yes', email: 'x@example.com' },
+          'owner',
+        ),
+      );
     });
 
     it('empty lists and empty pickers', { timeout: 60_000 }, async () => {

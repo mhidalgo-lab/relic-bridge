@@ -103,7 +103,8 @@ whenever sign-in is configured, and uses the same session:
 - Sign out (this browser) and sign out everywhere are at the bottom of every page.
 
 Admins and owners manage New Relic keys, projects, grants, device tokens and users there: see the
-[admin panel guide](admin-panel.md). Members see the overview only (self-service is planned, P4-10). Conventions for
+[admin panel guide](admin-panel.md). Moving a user to another sign-in provider (clearing the binding) is an owner-only
+button on the user page, with a confirmation that states the takeover risk. Members see the overview only (self-service is planned, P4-10). Conventions for
 contributors: [`docs/dev/admin-ui.md`](../dev/admin-ui.md).
 
 ## What session cookies never do

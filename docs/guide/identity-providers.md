@@ -89,6 +89,10 @@ relic-bridge user unbind usr_abc123 --confirm ana@example.com --remote https://b
 # or: POST /api/admin/v1/users/{id}/unbind  {"confirm": "ana@example.com"}
 ```
 
+In the admin panel (owners only): open the user, then **Move to another provider**. The confirmation page states the
+takeover risk below and asks you to type the user's email again; a wrong email changes nothing and is not echoed back.
+The button appears only for a user who is bound, and never on your own page. The panel never shows the subject.
+
 What happens: the user's provider and subject are cleared and every session of the user ends. The user's role, keys,
 grants and tokens are untouched. The **next verified sign-in whose email matches binds the account**, at whichever
 configured provider it comes from. That is the account-takeover risk: anyone who controls that email address at a

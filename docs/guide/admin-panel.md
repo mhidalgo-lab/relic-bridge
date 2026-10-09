@@ -80,6 +80,9 @@ sign-in provider, personal keys and grants. From there:
   can change their own role or disable themselves.
 - *Sign out everywhere* ends all their panel sessions. Their device tokens keep working.
 - *Disable* signs them out and stops their grants and personal keys until you enable them again.
+- *Move to another provider* (owners only, bound users only) clears the provider they sign in with so they can use another
+  one. The confirmation page warns that, until they sign in again, anyone controlling that email at a configured provider can
+  take the account, and asks you to type the user's email.
 
 **Audit** (`/admin/audit`). Everything the server recorded, newest first: tool calls, refused requests and
 administrative changes. Filter by time (last hour up to 90 days, or everything kept), kind, status, tool or action

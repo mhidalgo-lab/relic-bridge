@@ -2,11 +2,11 @@
 id: P4-14
 title: "Move a user to another provider from the admin panel"
 phase: 4
-status: todo
+status: review
 priority: low
 depends_on: [P4-09, P4-04]
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P4-14 — Move a user to another provider from the admin panel
@@ -23,9 +23,9 @@ with the same safeguards.
   "not bound" afterwards.
 
 ## Acceptance criteria
-- [ ] Owners can unbind from the user page; admins and members get no control and a `403` page on a forged POST.
-- [ ] Wrong confirmation changes nothing and re-renders the form without echoing the typed value.
-- [ ] P2-12 UI matrix rows (HTTP app and Worker) and axe-core pass on the new page and states.
+- [x] Owners can unbind from the user page; admins and members get no control and a `403` page on a forged POST.
+- [x] Wrong confirmation changes nothing and re-renders the form without echoing the typed value.
+- [x] P2-12 UI matrix rows (HTTP app and Worker) and axe-core pass on the new page and states.
 
 ## Security notes
 T13, T14: same rules as the API (owner only, not yourself, confirmation, CSRF); the page never reveals the subject.

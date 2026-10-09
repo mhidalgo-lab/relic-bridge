@@ -295,7 +295,13 @@ describe('admin screens: who may use them (P4-04)', () => {
       const s = await h.addSession({ role });
       for (const route of screens.filter((r) => r.method === 'GET')) {
         const res = await open(s, route.path);
-        const expected = route.pattern.includes(':id') ? 404 : 200;
+        // The unbind page is owner only: an admin gets the 403 page before any lookup.
+        const expected =
+          role === 'admin' && route.pattern.endsWith('/unbind')
+            ? 403
+            : route.pattern.includes(':id')
+              ? 404
+              : 200;
         expect(res.status, `${role} ${route.path}`).toBe(expected);
         expect(res.headers.get('content-security-policy')).toMatch(/^default-src 'none'; script-src 'self'/);
       }
@@ -453,5 +459,60 @@ describe('admin screens: errors from the admin API (P4-04)', () => {
     const self = await open(admin, `/admin/users/${admin.userId}`);
     expect(self.text).toContain('You cannot change your own role');
     expect(self.text).not.toContain('Disable this user');
+  });
+
+  it('unbind (P4-14): owners only; the email is asked again; the subject is never shown; sessions end', async () => {
+    const owner = await h.addSession({ role: 'owner' });
+    const admin = await h.addSession({ role: 'admin' });
+    const id = await h.addUser('ana@example.com', 'member');
+    await h.world.storage.users.update(id, { idp: 'google', idpSubject: 'g-secret-subject-1' });
+    const anaSession = await h.addSession({ userId: id });
+
+    // Admins get no control and a 403 page, on the page and on a forged post.
+    expect((await open(admin, `/admin/users/${id}`)).text).not.toContain('/unbind');
+    expect((await open(admin, `/admin/users/${id}/unbind`)).status).toBe(403);
+    expect(
+      (await submit(admin, `/admin/users/${id}/unbind`, { confirm: 'yes', email: 'ana@example.com' })).status,
+    ).toBe(403);
+    expect((await h.world.storage.users.get(id))?.idp).toBe('google');
+
+    const detail = await open(owner, `/admin/users/${id}`);
+    expect(detail.text).toContain(`/admin/users/${id}/unbind`);
+    const ask = await open(owner, `/admin/users/${id}/unbind`);
+    expect(ask.status).toBe(200);
+    expect(ask.text).toContain('Account takeover window');
+    expect(ask.text).not.toContain('g-secret-subject-1');
+
+    // Wrong email: nothing changes, the typed value is not echoed.
+    const wrong = await submit(owner, `/admin/users/${id}/unbind`, {
+      confirm: 'yes',
+      email: 'nobody-typed@example.com',
+    });
+    expect(wrong.status).toBe(422);
+    expect(wrong.text).not.toContain('nobody-typed');
+    expect((await h.world.storage.users.get(id))?.idp).toBe('google');
+    // No confirm=yes: just the form again.
+    expect((await submit(owner, `/admin/users/${id}/unbind`, { email: 'ana@example.com' })).status).toBe(200);
+    expect((await h.world.storage.users.get(id))?.idp).toBe('google');
+
+    const done = await submit(owner, `/admin/users/${id}/unbind`, {
+      confirm: 'yes',
+      email: 'ana@example.com',
+    });
+    const back = redirectedTo(done, 'unbind');
+    expect(back).toBe(`/admin/users/${id}`);
+    const after = await open(owner, back, done);
+    expect(after.text).toContain('Sign-in identity cleared');
+    expect(after.text).toContain('not bound to a provider');
+    expect(after.text).not.toContain('g-secret-subject-1');
+    expect(await h.world.storage.users.get(id)).toMatchObject({ idp: null, idpSubject: null });
+    expect((await open(anaSession, '/admin')).status).toBe(303);
+    // The control is gone once nothing is bound; a repeated page load goes back to the user.
+    expect((await open(owner, `/admin/users/${id}`)).text).not.toContain('/unbind');
+    expect(redirectedTo(await open(owner, `/admin/users/${id}/unbind`), 'second load')).toBe(
+      `/admin/users/${id}`,
+    );
+    // Nobody unbinds themselves from here.
+    expect((await open(owner, `/admin/users/${owner.userId}`)).text).not.toContain('/unbind');
   });
 });

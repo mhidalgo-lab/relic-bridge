@@ -2,11 +2,11 @@
 id: P7-34
 title: RB_TASKS=off switch for MCP Tasks
 phase: 7
-status: todo
+status: in-progress
 priority: low
 depends_on: [P7-13, P7-29]
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P7-34 — RB_TASKS=off switch for MCP Tasks

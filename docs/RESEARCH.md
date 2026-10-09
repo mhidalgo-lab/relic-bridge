@@ -277,3 +277,22 @@ and known issues before Phase 1.
 - With `isolatedDeclarations` (tsdown's fast DTS path) every exported value needs an explicit type, so the zod schemas
   are not re-exported from the package entry; only constants and functions with declared types are.
 - Sources: package README and type definitions in `node_modules/@hono/zod-openapi`; Hono docs (validation, `route()`).
+
+## Docker image facts (P2-11, verified 2026-10-03)
+
+- `gcr.io/distroless/nodejs24-debian13:nonroot` (uid 65532) ships Node 24 at `/nodejs/bin/node` with `node:sqlite`; no shell,
+  so the `HEALTHCHECK` is a Node one-liner. `node:24-trixie-slim` provides corepack for the pnpm version in `packageManager`.
+- The production dependencies of `relic-bridge` are pure JavaScript, so the build stage runs on the builder's
+  architecture (`FROM --platform=$BUILDPLATFORM`) and the arm64 image needs no QEMU.
+- `pnpm deploy --legacy` (no `inject-workspace-packages`) produces the production tree; the workspace packages are bundled
+  into `dist/index.mjs`, so only 6 third-party packages are copied into the image.
+- Events created with `GITHUB_TOKEN` (the GitHub Release made by `release.yml`) do not start other workflows, so the
+  image workflow listens to `workflow_run` of `Release` and re-checks that `v<version>` is a published release at that
+  commit.
+- Ubuntu runners include Skopeo 1.13 and Docker Buildx; `skopeo copy --all --preserve-digests` pushes a multi-arch OCI
+  archive without changing its digest, which lets the build job (no credentials) and the publish job (no project code)
+  be separate.
+- Docker/Compose bind-mounted and file-based secrets keep the host owner and mode (`uid`/`mode` are Swarm-only);
+  Kubernetes secret volumes are root-owned and become group-readable with `fsGroup`.
+- A loopback `Host` is refused by the server unless listed in `RB_ALLOWED_HOSTS`, so the health check treats a
+  `403 forbidden_host` answer as alive.

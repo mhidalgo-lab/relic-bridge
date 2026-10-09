@@ -1,0 +1,11 @@
+# TLS reverse proxy for relic-bridge (P2-11). Caddy obtains and renews the certificate automatically; the hostname must
+# resolve to this machine and ports 80/443 must be reachable.
+{$MCP_HOSTNAME} {
+	encode zstd gzip
+
+	reverse_proxy relic-bridge:8787 {
+		# Streamable HTTP can answer with an event stream: do not buffer it.
+		flush_interval -1
+		# Caddy sets X-Forwarded-For (one hop): matches RB_TRUSTED_PROXY_HOPS=1 on the server.
+	}
+}

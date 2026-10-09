@@ -313,11 +313,24 @@ export interface ServeSettings {
   readonly telemetry: TelemetrySettings | null;
   /** Opt-in write tools (P7-09, `RB_WRITE_TOOLS=on`); off by default. Needs the audit log on. */
   readonly writeTools: boolean;
+  /** `RB_WRITE_APPROVAL=required` (P7-25): writes need a person's approval through elicitation. Default `client`. */
+  readonly requireWriteApproval: boolean;
   /** Registry-friendly discovery (P7-14, `RB_PUBLIC_TOOL_CATALOG=on`); off by default. */
   readonly publicToolCatalog: boolean;
   /** MCP Apps chart view (P7-16, `RB_MCP_APPS`); on by default. */
   readonly mcpApps: boolean;
   readonly warnings: readonly string[];
+}
+
+/** `RB_WRITE_APPROVAL` (P7-25): `client` (default) or `required`. Without write tools it has no effect and says so. */
+export function writeApprovalSetting(env: Env, warnings: string[]): boolean {
+  const v = env['RB_WRITE_APPROVAL']?.trim().toLowerCase();
+  if (v === undefined || v === '' || v === 'client') return false;
+  if (v !== 'required') throw new ConfigError('RB_WRITE_APPROVAL must be client or required.');
+  if (!onOff(env, 'RB_WRITE_TOOLS', false)) {
+    warnings.push('RB_WRITE_APPROVAL=required has no effect without RB_WRITE_TOOLS=on.');
+  }
+  return true;
 }
 
 /** `RB_WRITE_TOOLS` (P7-09, ADR-0015): off by default; refused without the audit log (every write must be recorded). */
@@ -496,6 +509,7 @@ export function serveSettings(input: {
     queryCache: queryCacheSettings(env),
     telemetry: telemetrySettings(env),
     writeTools: writeToolsSetting(env, audit, warnings, rateLimits?.write ?? null),
+    requireWriteApproval: writeApprovalSetting(env, warnings),
     publicToolCatalog: publicToolCatalogSetting(env, warnings, rateLimits !== null),
     mcpApps: onOff(env, 'RB_MCP_APPS', true),
     warnings,
@@ -660,6 +674,7 @@ export async function startServer(options: StartServerOptions): Promise<RunningS
     hsts: settings.hsts,
     queryCache: createProcessQueryCache(settings.queryCache, keyring.queryCacheKeys().id),
     writeTools: settings.writeTools,
+    requireWriteApproval: settings.requireWriteApproval,
     publicToolCatalog: settings.publicToolCatalog,
     mcpApps: settings.mcpApps,
     // MCP Tasks (P7-13): sealed task records in the `kv` table, purged with the other expired rows.

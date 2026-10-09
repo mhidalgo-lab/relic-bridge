@@ -91,6 +91,8 @@ export interface StdioServerOptions {
   readonly queryCache?: QueryCache | null;
   /** Offer the write tools (P7-09, `RB_WRITE_TOOLS=on`); each still needs its name in the tool allowlist. */
   readonly writeTools?: boolean;
+  /** `RB_WRITE_APPROVAL=required` (P7-25): writes need a person's approval through elicitation. */
+  readonly requireWriteApproval?: boolean;
   /** Offer the MCP Apps chart view (P7-16, `RB_MCP_APPS`); default true. */
   readonly mcpApps?: boolean;
   /**
@@ -219,6 +221,7 @@ export function prepareServer(options: StdioServerOptions): PreparedServer {
         ctx: contextFor,
         onToolCall,
         mcpApps: options.mcpApps !== false,
+        requireWriteApproval: options.requireWriteApproval === true,
         offerTasks: true,
       }),
     wrapTransport: (inner) =>
@@ -279,6 +282,14 @@ export function stdioMcpApps(env: Readonly<Record<string, string | undefined>>):
   if (v === undefined || v === '' || v === 'on' || v === 'true' || v === '1') return true;
   if (v === 'off' || v === 'false' || v === '0') return false;
   throw new ConfigError('RB_MCP_APPS must be on or off.');
+}
+
+/** `RB_WRITE_APPROVAL` for stdio (P7-25): `client` (default) or `required`; any other value fails startup. */
+export function stdioWriteApproval(env: Readonly<Record<string, string | undefined>>): boolean {
+  const v = env['RB_WRITE_APPROVAL']?.trim().toLowerCase();
+  if (v === undefined || v === '' || v === 'client') return false;
+  if (v === 'required') return true;
+  throw new ConfigError('RB_WRITE_APPROVAL must be client or required.');
 }
 
 /** `RB_WRITE_TOOLS` for stdio (P7-09): off unless `on`; any other value fails startup. */

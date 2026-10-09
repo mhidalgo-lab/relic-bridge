@@ -956,3 +956,86 @@ describe('confirmation through elicitation (P7-20): stateless HTTP', () => {
     expect(mutations(before).length).toBe(1);
   });
 });
+
+describe('owner switch: a person must approve every write (P7-25, RB_WRITE_APPROVAL=required)', () => {
+  const FORM = { elicitation: { form: {} } };
+  const mutations = (from: number) => h.nerdGraph.calls.slice(from).filter((c) => MUTATIONS.has(c.op));
+  const confirmations = async (tool: string) =>
+    (await h.auditRows())
+      .filter((x) => x.kind === 'tool_call' && x.action === tool)
+      .map(
+        (x) => (x.details as { write?: { record?: { confirmation?: string } } }).write?.record?.confirmation,
+      );
+
+  for (const tool of WRITES) {
+    const slug = tool.replaceAll('_', '-');
+    it(`${tool}: a client that declares no elicitation is refused, nothing is sent, audited as unavailable`, async () => {
+      const app = h.makeApp({ writeTools: true, requireWriteApproval: true });
+      const { token } = await setup(`req-none-${slug}`);
+      const client = await open(app, `req-none-${slug}`, token.value);
+      const before = h.nerdGraph.calls.length;
+      const r = await client.callTool({ name: tool, arguments: GOOD[tool] as Record<string, unknown> });
+      expect(r.isError ?? false).toBe(false);
+      expect(r.structuredContent).toMatchObject({ applied: false });
+      expect(JSON.stringify(r.content)).toContain('RB_WRITE_APPROVAL=required');
+      expect(mutations(before)).toEqual([]);
+      await vi.waitFor(async () => expect(await confirmations(tool)).toContain('unavailable'));
+    });
+
+    it(`${tool}: a 2025-era stateless client cannot be asked and is refused`, async () => {
+      const app = h.makeApp({ writeTools: true, requireWriteApproval: true });
+      const { token } = await setup(`req-legacy-${slug}`);
+      const client = await connect(app, `req-legacy-${slug}`, token.value, 'legacy', undefined, FORM);
+      clients.push(client);
+      const asked: string[] = [];
+      client.setRequestHandler('elicitation/create', (request) => {
+        asked.push((request.params as { message: string }).message);
+        return { action: 'accept', content: { confirm: true } } as never;
+      });
+      const before = h.nerdGraph.calls.length;
+      const r = await client.callTool({ name: tool, arguments: GOOD[tool] as Record<string, unknown> });
+      expect(r.structuredContent).toMatchObject({ applied: false });
+      expect(asked).toEqual([]);
+      expect(mutations(before)).toEqual([]);
+    });
+
+    it(`${tool}: a 2026-07-28 client is asked, and an approval sends one mutation`, async () => {
+      const app = h.makeApp({ writeTools: true, requireWriteApproval: true });
+      const { token } = await setup(`req-ok-${slug}`);
+      const client = await connect(app, `req-ok-${slug}`, token.value, 'modern', undefined, FORM);
+      clients.push(client);
+      const asked: string[] = [];
+      client.setRequestHandler('elicitation/create', (request) => {
+        asked.push((request.params as { message: string }).message);
+        return { action: 'accept', content: { confirm: true } } as never;
+      });
+      const before = h.nerdGraph.calls.length;
+      const r = await client.callTool({ name: tool, arguments: GOOD[tool] as Record<string, unknown> });
+      expect(r.isError ?? false, JSON.stringify(r).slice(0, 300)).toBe(false);
+      expect(asked.length).toBe(1);
+      expect(mutations(before).length).toBe(1);
+    });
+  }
+
+  it('a dry run is still allowed without elicitation (nothing is changed)', async () => {
+    const app = h.makeApp({ writeTools: true, requireWriteApproval: true });
+    const { token } = await setup('req-dry');
+    const client = await open(app, 'req-dry', token.value);
+    const before = h.nerdGraph.calls.length;
+    const r = await client.callTool({
+      name: 'close_issue',
+      arguments: { ...(GOOD['close_issue'] as Record<string, unknown>), confirm: undefined, dry_run: true },
+    });
+    expect(r.isError ?? false).toBe(false);
+    expect(mutations(before)).toEqual([]);
+  });
+
+  it('read tools are unaffected', async () => {
+    const app = h.makeApp({ writeTools: true, requireWriteApproval: true });
+    const { token } = await setup('req-read');
+    const client = await open(app, 'req-read', token.value);
+    const tools = (await client.listTools()).tools.map((t) => t.name);
+    for (const w of WRITES) expect(tools).toContain(w);
+    expect(tools).toContain('run_nrql');
+  });
+});

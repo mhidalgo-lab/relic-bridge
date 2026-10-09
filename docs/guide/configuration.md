@@ -45,6 +45,7 @@ with what to configure. Setting only one of the two is a configuration error (ex
 | `NEW_RELIC_REGION` | no | `US` | `US`, `EU` or `JP` (case-insensitive). Must match the account's data center. |
 | `RB_ACCOUNTS` | no | | Extra account ids this connection may query, comma-separated. The default account is always allowed. |
 | `RB_TOOLS` | no | all | Tool allowlist, comma-separated (e.g. `whoami,list_accounts,run_nrql`). Unknown names stop startup. Write tools must be listed here by name. |
+| `RB_WRITE_APPROVAL` | no | `client` | `required`: a write needs a person's approval through MCP elicitation; a client that cannot be asked is refused (stdio, `serve`, Worker). |
 | `RB_WRITE_TOOLS` | no | `off` | `on` offers the opt-in [write tools](security-basics.md#write-tools-opt-in) (`create_change_event`, `acknowledge_issue`, `close_issue`, `create_dashboard`); each still needs its name in `RB_TOOLS` / `tools`. Each write is logged on stderr. |
 | `RB_LIMITS_MAX_LIMIT` | no | `1000` | Highest NRQL `LIMIT` (1–5000). |
 | `RB_LIMITS_MAX_WINDOW_DAYS` | no | `7` | Longest time window a query may cover, in days (1–3660). |

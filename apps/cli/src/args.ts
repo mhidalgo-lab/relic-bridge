@@ -294,6 +294,9 @@ Write tools (stdio and serve, off by default; see docs/adr/0015-opt-in-write-too
                          acknowledge_issue, close_issue, create_dashboard). Even then a tool works
                          only when it is named explicitly (stdio: RB_TOOLS or the YAML tools list;
                          serve: the project and the grant). serve needs RB_AUDIT=on.
+  RB_WRITE_APPROVAL      client (default) or required: with required a write is refused unless the
+                         client supports MCP elicitation and the person approves the exact change
+                         (a client that cannot be asked gets a refusal, nothing is changed).
 
 MCP Apps (stdio and serve; see docs/guide/charts.md):
   RB_MCP_APPS            on (default) or off: offer the chart view (_meta.ui on run_nrql and

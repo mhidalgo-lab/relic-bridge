@@ -75,6 +75,12 @@ export interface BuildServerOptions {
    */
   elicitWrites?: boolean;
   /**
+   * Require a person's approval for every write (P7-25, `RB_WRITE_APPROVAL=required`; default false): a write from a
+   * connection that cannot be asked (no elicitation capability, or a stateless 2025-era HTTP client) is refused and
+   * audited as `confirmation: unavailable`. Write tools stay listed.
+   */
+  requireWriteApproval?: boolean;
+  /**
    * Advertise the Tasks extension although `ctx` is a per-call factory (stdio, P7-22). The factory's contexts must
    * carry a task binding; the host answers `tasks/*` itself (`answerTaskRpc`): the SDK does not dispatch them.
    */
@@ -218,6 +224,7 @@ export function buildMcpServer({
   resources,
   mcpApps = true,
   elicitWrites = true,
+  requireWriteApproval = false,
   offerTasks = false,
 }: BuildServerOptions): McpServer {
   // Tasks (P7-13) are offered only where the host bound a task store to the request (HTTP project routes).
@@ -302,10 +309,14 @@ export function buildMcpServer({
             ? Object.freeze({ ...base, tasks: Object.freeze({ ...base.tasks, accepted: true }) })
             : base;
         // Write tools may ask the person only when this request's client can be asked (P7-20, T21: per request).
-        const ctx =
+        const asked =
           elicitWrites && def.kind !== 'read' && clientCanElicitForm(server.server.getClientCapabilities())
             ? Object.freeze({ ...withTasks, elicitation: Object.freeze(elicitationFrom(extra)) })
             : withTasks;
+        const ctx =
+          requireWriteApproval && def.kind !== 'read'
+            ? Object.freeze({ ...asked, requireWriteApproval: true })
+            : asked;
         try {
           let out = await invoke(def, input, ctx);
           if (out.inputRequired !== undefined && ctx.elicitation !== undefined) {

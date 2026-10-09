@@ -404,3 +404,13 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   and the Free plan has tight object limits). The D1 conditional-update counter was not added: the object is the
   existing seam.
 - **Needs:** owner's call whether `RB_WRITE_TOOLS=on` should refuse to start without `RB_SHARED_LIMITER`.
+
+### P7-25 — Owner switch requiring a human approval for writes
+- **Context:** with writes on, a client that cannot be asked (no elicitation, stateless 2025-era HTTP) writes on the
+  model's `confirm: true` alone.
+- **Assumption made:** `RB_WRITE_APPROVAL=client|required`, server-level only (default `client`, today's behaviour; works
+  on `serve`, the Worker and stdio). `required` refuses such writes with no mutation and an audit row
+  `confirmation: unavailable`. Write tools stay listed (the refusal explains itself). No per-project or per-grant flag:
+  it needs a storage migration and an owner-only admin path.
+- **Needs:** owner's call on a per-project/grant flag (a follow-up task if wanted) and on making `required` the default
+  once real clients are checked (already raised under the phase 7 review).

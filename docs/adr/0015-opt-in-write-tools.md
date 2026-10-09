@@ -179,3 +179,24 @@ tail is not approving the change:
 - An identical retry still finds its approval; for the non-idempotent tools (`create_change_event`,
   `create_dashboard`) a replayed approval repeats the write. Binding approvals to a nonce or a time bucket is tracked
   in P7-26.
+
+## Addendum: require a human approval (P7-25, 2026-10-07)
+
+Phase 7 review M2: with writes on, a client that cannot be asked lets the model approve its own change with
+`confirm: true`. An owner can now refuse that:
+
+- **Setting:** `RB_WRITE_APPROVAL=client|required` (`serve`, Worker, stdio; default `client` = the behaviour above).
+  It is a **server-level** setting, like `RB_WRITE_TOOLS`: only whoever runs the server (environment or Worker `vars`)
+  can change it, no admin API, project or grant field can lower it, and it is not an MCP tool. A per-project or
+  per-grant flag was left out: it would add a storage migration and an owner-only admin path for a posture that is
+  normally the same for a whole deployment (see the phase 7 pending decisions).
+- **`required`:** a write call (not a dry run, not a no-op) from a connection that cannot be asked is refused after
+  every other check and right before the mutation: no mutation, a normal result (`applied: false`) whose text says why
+  and not to retry with `confirm: true`, and an audit row with `details.write.record.confirmation: unavailable`.
+  "Cannot be asked" means no elicitation capability on this request, `elicitWrites: false`, or a stateless 2025-era
+  HTTP client (and Workers). A client that can be asked is asked exactly as before, and the approval stays bound to the
+  full change text and arguments (phase 7 review H2). `confirm: true` and every opt-in still apply.
+- **Listing:** write tools stay listed for connections that cannot be asked (hiding them would need the client's
+  capabilities at `tools/list` time, which a 2025-era stateless client does not send reliably, and a visible refusal is
+  clearer than a missing tool). The tool call explains the refusal.
+- **Residual:** the answer is still only as good as the client (an auto-accepting client defeats it).

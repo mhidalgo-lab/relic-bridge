@@ -784,7 +784,7 @@ async function connectAsking(
   fetch: FetchLike,
   era: 'legacy' | 'modern',
   answer: (message: string) => Answer,
-  options: { declare?: boolean; elicitWrites?: boolean } = {},
+  options: { declare?: boolean; elicitWrites?: boolean; requireWriteApproval?: boolean } = {},
 ) {
   const events: ToolCallEvent[] = [];
   const asked: string[] = [];
@@ -798,6 +798,9 @@ async function connectAsking(
     ctx,
     onToolCall: (e) => events.push(e),
     ...(options.elicitWrites === undefined ? {} : { elicitWrites: options.elicitWrites }),
+    ...(options.requireWriteApproval === undefined
+      ? {}
+      : { requireWriteApproval: options.requireWriteApproval }),
   });
   const [clientT, serverT] = InMemoryTransport.createLinkedPair();
   await server.connect(serverT);
@@ -932,6 +935,37 @@ describe('write confirmation through elicitation (2025-era connection, as on std
     expect(mutationsOf(ng.calls).length).toBe(1);
     expect(events.length).toBe(1);
     expect(r._meta?.[WRITE_META_KEY]).not.toHaveProperty('confirmation');
+  });
+
+  it('requireWriteApproval: a client that cannot be asked is refused with no mutation', async () => {
+    const ng = nerdGraph();
+    const { client, events } = await connectAsking(ng.fetch, era, yes, {
+      declare: false,
+      requireWriteApproval: true,
+    });
+    for (const [name, args] of [
+      ['create_change_event', DEPLOY],
+      ['create_dashboard', ELICIT_DASH],
+    ] as const) {
+      const r = await client.callTool({ name, arguments: args });
+      expect(r.isError ?? false).toBe(false);
+      expect(r.structuredContent).toMatchObject({ applied: false });
+      expect(r._meta?.[WRITE_META_KEY]).toMatchObject({ applied: false, confirmation: 'unavailable' });
+    }
+    expect(mutationsOf(ng.calls)).toEqual([]);
+    expect(events.length).toBe(2);
+  });
+
+  it('requireWriteApproval: elicitWrites false refuses too, and a declaring client is still asked', async () => {
+    const ng = nerdGraph();
+    const off = await connectAsking(ng.fetch, era, yes, { elicitWrites: false, requireWriteApproval: true });
+    const r = await off.client.callTool({ name: 'create_change_event', arguments: DEPLOY });
+    expect(r._meta?.[WRITE_META_KEY]).toMatchObject({ confirmation: 'unavailable' });
+    expect(mutationsOf(ng.calls)).toEqual([]);
+    const on = await connectAsking(ng.fetch, era, yes, { requireWriteApproval: true });
+    const ok = await on.client.callTool({ name: 'create_change_event', arguments: DEPLOY });
+    expect(ok._meta?.[WRITE_META_KEY]).toMatchObject({ applied: true, confirmation: 'accepted' });
+    expect(mutationsOf(ng.calls).length).toBe(1);
   });
 
   it('elicitWrites: false never asks', async () => {

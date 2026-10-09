@@ -408,6 +408,7 @@ async function boot(env: WorkerEnv, options: WorkerOptions): Promise<Runtime> {
       : {}),
     queryCache: createWorkerQueryCache(settings.queryCache, keyring.queryCacheKeys(), options.queryCacheApi),
     writeTools: settings.writeTools,
+    requireWriteApproval: settings.requireWriteApproval,
     publicToolCatalog: settings.publicToolCatalog,
     mcpApps: settings.mcpApps,
     // MCP Tasks (P7-13): sealed task records in D1 `kv`, purged by the hourly cron with the other expired rows.

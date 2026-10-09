@@ -131,6 +131,11 @@ export interface ToolContext {
    * to approve the change. Absent: they cannot ask and rely on `confirm: true` alone.
    */
   readonly elicitation?: ElicitationBinding;
+  /**
+   * Set per `tools/call` for write tools when the owner requires a human approval (P7-25, `RB_WRITE_APPROVAL=required`):
+   * without `elicitation` the write is refused instead of relying on the model's `confirm: true`.
+   */
+  readonly requireWriteApproval?: boolean;
 }
 
 /** The answers a retried `tools/call` carries to the questions an earlier round asked (never trusted beyond that). */

@@ -90,6 +90,8 @@ export interface AdminUiDeps {
 export interface OnceStore {
   put(key: string, ttlSeconds: number): Promise<void>;
   take(key: string): Promise<boolean>;
+  /** Up to `limit` stored keys that start with `prefix` (live ones only). */
+  list(prefix: string, limit: number): Promise<readonly string[]>;
 }
 
 /** A form body that passed the origin and CSRF checks, for this principal only. */
@@ -138,8 +140,11 @@ export interface UiKit {
 export const ONCE_FIELD = '_once';
 /** A handle lives as long as a form page may reasonably stay open. */
 export const ONCE_TTL_SECONDS: number = 2 * 60 * 60;
+/** Outstanding handles per user: past this, a page reuses one of them instead of writing a row (P4-19). */
+export const ONCE_MAX_OUTSTANDING = 10;
 const ONCE_RE = /^[A-Za-z0-9_-]{22}$/;
-const onceKey = (userId: string, handle: string) => `ui-once:${userId}:${handle}`;
+const oncePrefix = (userId: string) => `ui-once:${userId}:`;
+const onceKey = (userId: string, handle: string) => `${oncePrefix(userId)}${handle}`;
 
 function randomHandle(): string {
   const bytes = crypto.getRandomValues(new Uint8Array(16));
@@ -225,6 +230,8 @@ export function createUiKit(deps: AdminUiDeps): UiKit {
   }
   // Forms verified by this kit. A WeakSet, not module state: entries die with their request.
   const verified = new WeakSet<VerifiedForm>();
+  // Principals of requests answered as HEAD: their pages are rendered and discarded, so no handle is stored (P4-19).
+  const headRequests = new WeakSet<UiPrincipal>();
 
   const toLogin = (c: Context, presented: boolean): Response => {
     const target =
@@ -271,16 +278,22 @@ export function createUiKit(deps: AdminUiDeps): UiKit {
       const principal = entered;
       if (!allowed(principal, minRole)) return forbidden(c, principal, 'role');
       const flash = readFlash(c.req.header('cookie'), deps.secureCookies);
-      return handler(c, {
-        principal,
-        flash: flash.message,
-        html: (node, status = 200) =>
-          htmlResponse(
-            node,
-            status,
-            flash.present ? [['Set-Cookie', clearFlashCookie(deps.secureCookies)]] : [],
-          ),
-      });
+      const isHead = c.req.method === 'HEAD';
+      if (isHead) headRequests.add(principal);
+      try {
+        return await handler(c, {
+          principal,
+          flash: flash.message,
+          html: (node, status = 200) =>
+            htmlResponse(
+              node,
+              status,
+              flash.present ? [['Set-Cookie', clearFlashCookie(deps.secureCookies)]] : [],
+            ),
+        });
+      } finally {
+        if (isHead) headRequests.delete(principal);
+      }
     },
 
     form: (minRole, handler) => async (c) => {
@@ -320,6 +333,16 @@ export function createUiKit(deps: AdminUiDeps): UiKit {
 
     async issueOnce(principal) {
       const handle = randomHandle();
+      // HEAD and its body-less answer need no stored handle (nobody can submit the form).
+      if (headRequests.has(principal)) return handle;
+      // Bounded writes: at the cap, hand out one of the user's open handles (a second tab then loses the race at
+      // submit time and sees the normal "already used" answer) instead of spending another row.
+      const prefix = oncePrefix(principal.userId);
+      const open = await deps.onceStore.list(prefix, ONCE_MAX_OUTSTANDING);
+      if (open.length >= ONCE_MAX_OUTSTANDING) {
+        const reuse = open[Math.floor(Math.random() * open.length)]?.slice(prefix.length) ?? '';
+        if (ONCE_RE.test(reuse)) return reuse;
+      }
       await deps.onceStore.put(onceKey(principal.userId, handle), ONCE_TTL_SECONDS);
       return handle;
     },

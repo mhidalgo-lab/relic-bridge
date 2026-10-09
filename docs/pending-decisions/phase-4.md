@@ -464,3 +464,13 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   cache fails on the next request (`authz/session-revocation.test.ts`, Node and workerd). Only a role change or a
   database-only disable can lag by up to 5 s on other instances.
 - **Needs:** nothing.
+
+## P4-19 bounded self-service writes
+
+### P4-19 — At the handle cap a form page reuses an open handle; racing creations may all be refused
+- **Context:** Review L6/L7. Handles are random, so the oldest cannot be evicted; refusing the page would be worse.
+- **Assumption made:** cap 10 `ui-once:` rows per user, past it the page hands out one already open (a second tab
+  loses at submit with the usual "already used"). Caps on keys/tokens re-count after insert and undo the new row when
+  over, so a burst right at the cap may be refused entirely rather than admitting exactly the remainder.
+- **Options:** (a) keep; (b) raise the handle cap; (c) conditional-insert SQL for exact caps (needs a storage API change).
+- **Needs:** nothing unless the 10 is too low in practice.

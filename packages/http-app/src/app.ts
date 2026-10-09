@@ -1215,7 +1215,7 @@ interface AdminUiWiring {
   readonly tools: readonly UiTool[];
   readonly now: () => number;
   /** Single-use UI form handles (P4-07). */
-  readonly kv: Pick<KvRepository, 'put' | 'take'>;
+  readonly kv: Pick<KvRepository, 'put' | 'take' | 'list'>;
   /** The whole app, for in-process admin API calls. */
   readonly fetchApp: (request: Request, c: Context) => Response | Promise<Response>;
 }
@@ -1260,6 +1260,7 @@ function adminUiDeps(w: AdminUiWiring): AdminUiDeps {
     onceStore: {
       put: (key, ttlSeconds) => w.kv.put(key, '1', { expirationTtl: ttlSeconds }),
       take: async (key) => (await w.kv.take(key)) !== null,
+      list: async (prefix, limit) => (await w.kv.list({ prefix, limit })).keys.map((k) => k.name),
     },
     async beforeAuth(c) {
       const stop = await hooks.beforeAuth?.(c, requestId(c), 'admin_session');

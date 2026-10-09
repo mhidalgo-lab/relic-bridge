@@ -91,6 +91,9 @@ export function fakeDeps(over: Partial<AdminUiDeps> = {}): Fake {
         async take(key) {
           return fake.once.delete(key);
         },
+        async list(prefix, limit) {
+          return [...fake.once].filter((k) => k.startsWith(prefix)).slice(0, limit);
+        },
       },
       async callAdmin(_c, _p, call) {
         fake.calls.push(call);

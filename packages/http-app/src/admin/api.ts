@@ -1884,12 +1884,23 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
             `you can keep at most ${MAX_OWN_CREDENTIALS} keys: delete one you no longer use first`,
           );
         }
-        return createCredential(credentialDeps, {
+        const created = await createCredential(credentialDeps, {
           label: body.label,
           region: body.region,
           apiKey: new Secret(body.apiKey),
           ownerUserId: self.id,
         });
+        // Parallel requests all passed the check above. Count again now that this row exists and undo it when over
+        // the cap: the last request to insert among any set that stays sees every one of them, so no more than the
+        // cap survive (a burst at the cap may refuse more than it needs to, never fewer) (P4-19).
+        if ((await storage.credentials.list({ ownerUserId: self.id })).length > MAX_OWN_CREDENTIALS) {
+          await storage.credentials.delete(created.id).catch(() => undefined);
+          throw new AdminApiError(
+            'conflict',
+            `you can keep at most ${MAX_OWN_CREDENTIALS} keys: delete one you no longer use first`,
+          );
+        }
+        return created;
       },
       (r) => ({ targetId: r.id }),
     );
@@ -2097,6 +2108,19 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
           { grantId: grant.id, label: body.label, ...(ttl === undefined ? {} : { ttl }) },
           now,
         );
+        // Parallel requests all passed the check above: count again with this token stored and revoke it (before
+        // its secret is returned) when over the cap. Same argument as for keys (P4-19).
+        const liveNow = (await storage.accessTokens.list({ grantId: grant.id })).filter(
+          (t) => t.revokedAt === null && (t.expiresAt === null || t.expiresAt > now),
+        );
+        if (liveNow.length > MAX_LIVE_TOKENS_PER_GRANT) {
+          await storage.accessTokens.revoke(result.record.id, clock.now()).catch(() => undefined);
+          throw new AdminApiError(
+            'conflict',
+            `a grant can have at most ${MAX_LIVE_TOKENS_PER_GRANT} live tokens: revoke one you no longer use`,
+            { field: 'grantId' },
+          );
+        }
         return { result, projectId: grant.projectId };
       },
       (r) => ({

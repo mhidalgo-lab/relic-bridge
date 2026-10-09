@@ -2,11 +2,11 @@
 id: P4-24
 title: Weekly schedule for the ZAP scan and browser E2E workflows
 phase: 4
-status: todo
+status: review
 priority: low
 depends_on: [P4-11, P4-12]
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P4-24 — Weekly schedule for the ZAP scan and browser E2E workflows
@@ -20,7 +20,7 @@ weekly as a regression net. Start only after GitHub Actions billing is fixed.
   `workflow_dispatch`); scheduled runs use `main` only.
 
 ## Acceptance criteria
-- [ ] Both workflows have a weekly cron; workflow tests (if any) updated; `actionlint` passes.
+- [x] Both workflows have a weekly cron; workflow tests (if any) updated; `actionlint` passes.
 
 ## Security notes
 No secrets added; scheduled runs use the same throwaway database as manual runs.

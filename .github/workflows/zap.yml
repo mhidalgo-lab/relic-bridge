@@ -1,11 +1,14 @@
-# OWASP ZAP baseline (passive) scan of the admin panel (P4-12). Manual only: the ZAP image is large and the run takes
-# minutes, so it is never triggered by pull requests or pushes. Run it before a release or after changing admin-ui,
+# OWASP ZAP baseline (passive) scan of the admin panel (P4-12). Weekly (Monday 04:17 UTC, default branch only) and on
+# demand: the ZAP image is large and the run takes minutes, so it is never triggered by pull requests or pushes. Run it
+# on demand before a release or after changing admin-ui,
 # headers, cookies or sign-in, or run `pnpm scan:zap` locally. It scans only a throwaway server started on the runner's
 # loopback (mock identity provider, fake keys); no secrets, no deploy, no external host.
 name: Admin ZAP baseline
 
 on:
   workflow_dispatch:
+  schedule:
+    - cron: '17 4 * * 1'
 
 permissions:
   contents: read
@@ -13,7 +16,9 @@ permissions:
 jobs:
   zap:
     name: ZAP baseline (loopback)
-    runs-on: ${{ fromJSON(vars.CI_RUNS_ON || '["self-hosted","linux","x64"]') }}
+    # Hosted runner: the scan runs ZAP in Docker on the host network with a bind-mounted report directory, which needs
+    # the Docker daemon on the same machine as the job (see docs/dev/testing.md).
+    runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1

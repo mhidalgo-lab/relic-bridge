@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest';
 import {
   generateSecrets,
   LOCAL_CONFIG,
+  localConfigFor,
+  localConfigName,
   parseArgs,
   runSetup,
   type SetupDeps,
@@ -25,7 +27,14 @@ interface Call {
   input: string | undefined;
 }
 
-function harness(replies: (args: readonly string[]) => Partial<WranglerResult>, existingConfig = false) {
+const COMMITTED =
+  '{ "name": "relic-bridge", "d1_databases": [{ "binding": "DB", "database_name": "relic-bridge" }] }';
+
+function harness(
+  replies: (args: readonly string[]) => Partial<WranglerResult>,
+  existingConfig = false,
+  existing: readonly string[] = [],
+) {
   const calls: Call[] = [];
   const logs: string[] = [];
   const revealed: string[] = [];
@@ -42,11 +51,15 @@ function harness(replies: (args: readonly string[]) => Partial<WranglerResult>, 
     reveal: (l) => revealed.push(l),
     workerDir: '/w',
     fs: {
-      exists: () => existingConfig,
-      copy: (a, b) => copies.push([a, b]),
+      exists: (p) => (p.endsWith('.jsonc') ? existingConfig : existing.includes(p) || files.has(p)),
+      read: (p) => {
+        if (p !== '/w/wrangler.jsonc') throw new Error(`unexpected read ${p}`);
+        return COMMITTED;
+      },
       writeNew: (p, content, mode) => {
-        if (files.has(p)) throw new Error('exists');
-        files.set(p, { content, mode });
+        if (files.has(p) || existing.includes(p)) throw new Error('EEXIST');
+        if (p.endsWith('.jsonc')) copies.push([p, content]);
+        else files.set(p, { content, mode });
       },
     },
   };
@@ -101,7 +114,7 @@ describe('runSetup', () => {
     const h = harness(ok);
     const r = await runSetup({ ...OPTS, plan: 'paid' }, h.deps);
     expect(r.url).toBe('https://relic-bridge.acme.workers.dev');
-    expect(h.copies).toEqual([['/w/wrangler.jsonc', `/w/${LOCAL_CONFIG}`]]);
+    expect(h.copies).toEqual([[`/w/${LOCAL_CONFIG}`, COMMITTED]]);
     const bulk = h.calls.find((c) => c.args[1] === 'bulk');
     expect(Object.keys(JSON.parse(bulk?.input ?? '{}'))).toEqual(['RB_MASTER_KEY', 'RB_ADMIN_TOKEN']);
     const values = Object.values(JSON.parse(bulk?.input ?? '{}') as Record<string, string>);
@@ -114,6 +127,8 @@ describe('runSetup', () => {
     expect(deploy?.args).toEqual(
       expect.arrayContaining(['-c', `/w/${LOCAL_CONFIG}`, '--var', 'RB_PLAN:paid']),
     );
+    // Dashboard variables (RB_ALLOWED_HOSTS, RB_AUDIT_*, …) survive a re-run (phase-3 review).
+    expect(deploy?.args).toContain('--keep-vars');
     // order: secrets before deploy (secrets.required is validated at deploy)
     expect(h.calls.findIndex((c) => c.args[1] === 'bulk')).toBeLessThan(
       h.calls.findIndex((c) => c.args[0] === 'deploy'),
@@ -183,5 +198,37 @@ describe('runSetup', () => {
     const h = harness(ok, true);
     await runSetup(OPTS, h.deps);
     expect(h.copies).toEqual([]);
+  });
+
+  it('gives another Worker name its own local config and D1 database (no binding to the first one)', async () => {
+    expect(localConfigName('relic-bridge')).toBe(LOCAL_CONFIG);
+    expect(localConfigName('rb-staging')).toBe('wrangler.rb-staging.local.jsonc');
+    expect(localConfigFor(COMMITTED, 'rb-staging')).toContain('"database_name": "rb-staging"');
+    const h = harness(ok);
+    await runSetup({ ...OPTS, name: 'rb-staging' }, h.deps);
+    expect(h.copies).toEqual([
+      ['/w/wrangler.rb-staging.local.jsonc', localConfigFor(COMMITTED, 'rb-staging')],
+    ]);
+    for (const c of h.calls.filter((x) => x.args[0] !== 'whoami')) {
+      expect(c.args).toEqual(expect.arrayContaining(['-c', '/w/wrangler.rb-staging.local.jsonc']));
+    }
+  });
+
+  it('refuses an existing backup file before generating anything', async () => {
+    const h = harness(ok, false, ['/tmp/rb.env']);
+    await expect(runSetup({ ...OPTS, backupFile: '/tmp/rb.env' }, h.deps)).rejects.toThrow(/already exists/);
+    expect(h.calls.some((c) => c.args[1] === 'bulk')).toBe(false);
+  });
+
+  it('still reveals and deploys when the backup write fails after the secrets are set', async () => {
+    const h = harness(ok);
+    h.deps.fs.writeNew = (p, content, mode) => {
+      if (!p.endsWith('.jsonc')) throw new Error('EACCES');
+      h.copies.push([p, content, String(mode)]);
+    };
+    await runSetup({ ...OPTS, backupFile: '/ro/rb.env' }, h.deps);
+    expect(h.revealed.join('\n')).toMatch(/RB_MASTER_KEY=v1:/);
+    expect(h.logs.join('\n')).toMatch(/could not write/);
+    expect(h.calls.some((c) => c.args[0] === 'deploy')).toBe(true);
   });
 });

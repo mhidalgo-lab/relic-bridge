@@ -12,7 +12,7 @@
 // New Relic key undecryptable).
 import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { copyFileSync, existsSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -47,7 +47,8 @@ export interface SetupDeps {
   workerDir: string;
   fs: {
     exists: (path: string) => boolean;
-    copy: (from: string, to: string) => void;
+    read: (path: string) => string;
+    /** Writes a new file; throws when it exists. */
     writeNew: (path: string, content: string, mode: number) => void;
   };
 }
@@ -56,11 +57,29 @@ export class SetupError extends Error {}
 
 const SECRET_NAMES = ['RB_MASTER_KEY', 'RB_ADMIN_TOKEN', 'RB_FINGERPRINT_SECRET'] as const;
 export const LOCAL_CONFIG = 'wrangler.local.jsonc';
+const DEFAULT_NAME = 'relic-bridge';
+
+/**
+ * The git-ignored config a Worker deploys with. One per Worker name: Wrangler writes the provisioned D1/KV ids into
+ * it, so a second Worker (staging) sharing the default copy would bind to the first one's database.
+ */
+export function localConfigName(name: string): string {
+  return name === DEFAULT_NAME ? LOCAL_CONFIG : `wrangler.${name}.local.jsonc`;
+}
+
+/** The committed config for Worker `name`: its own D1 database name, so provisioning never reuses another's. */
+export function localConfigFor(committed: string, name: string): string {
+  if (name === DEFAULT_NAME) return committed;
+  const re = /"database_name":\s*"relic-bridge"/;
+  if (!re.test(committed))
+    throw new SetupError('wrangler.jsonc has no relic-bridge D1 database_name to rename');
+  return committed.replace(re, `"database_name": "${name}"`);
+}
 const WORKER_NAME_RE = /^[a-z0-9][a-z0-9-]{0,62}$/;
 
 export function parseArgs(argv: readonly string[]): SetupOptions | 'help' {
   const o: SetupOptions = {
-    name: 'relic-bridge',
+    name: DEFAULT_NAME,
     plan: 'free',
     passthrough: false,
     dryRun: false,
@@ -161,27 +180,35 @@ const WORKERS_DEV_RE = /https:\/\/[a-z0-9.-]+\.workers\.dev/i;
 
 export async function runSetup(opts: SetupOptions, deps: SetupDeps): Promise<{ url: string | undefined }> {
   const { log } = deps;
-  const localConfig = join(deps.workerDir, LOCAL_CONFIG);
+  const localName = localConfigName(opts.name);
+  const localConfig = join(deps.workerDir, localName);
+  const backupPath = opts.backupFile === undefined ? undefined : resolve(opts.backupFile);
   const cfg = ['-c', localConfig, '--name', opts.name] as const;
   const wanted = secretsToSet(opts);
 
   if (opts.dryRun) {
     log('Dry run: nothing is generated, sent or deployed.');
-    log(`  1. copy wrangler.jsonc to ${LOCAL_CONFIG} (git-ignored; Wrangler writes the D1/KV ids there)`);
+    log(`  1. copy wrangler.jsonc to ${localName} (git-ignored; Wrangler writes the D1/KV ids there)`);
     log(
       `  2. generate ${wanted.join(', ')} for Worker "${opts.name}" and send them to \`wrangler secret bulk\` on stdin,`,
     );
     log('     skipping any that already exist');
     log(
-      `  3. wrangler deploy (Wrangler provisions the D1 and KV resources; RB_PLAN=${opts.plan}${opts.passthrough ? ', RB_PASSTHROUGH=on' : ''})`,
+      `  3. wrangler deploy --keep-vars (Wrangler provisions the D1 and KV resources; RB_PLAN=${opts.plan}${opts.passthrough ? ', RB_PASSTHROUGH=on' : ''})`,
     );
     log('  4. print next steps (the Worker applies its D1 migrations when it first boots)');
     return { url: undefined };
   }
 
+  // Before anything is generated: a backup file that can't be created must not cost the only copy of the secrets.
+  if (backupPath !== undefined && deps.fs.exists(backupPath)) {
+    throw new SetupError(`${opts.backupFile} already exists; choose a new --backup-file path`);
+  }
+
   if (!deps.fs.exists(localConfig)) {
-    deps.fs.copy(join(deps.workerDir, 'wrangler.jsonc'), localConfig);
-    log(`Created ${LOCAL_CONFIG} (git-ignored).`);
+    const committed = deps.fs.read(join(deps.workerDir, 'wrangler.jsonc'));
+    deps.fs.writeNew(localConfig, localConfigFor(committed, opts.name), 0o644);
+    log(`Created ${localName} (git-ignored).`);
   }
 
   const who = await deps.wrangler(['whoami']);
@@ -207,22 +234,31 @@ export async function runSetup(opts: SetupOptions, deps: SetupDeps): Promise<{ u
 
   // Reveal right after the secrets are set: if the deploy fails, a re-run keeps them and could not show them again.
   if (missing.length > 0) {
-    if (opts.backupFile !== undefined) {
-      const text = `${missing.map((n) => `${n}=${generated[n]}`).join('\n')}\n`;
-      deps.fs.writeNew(resolve(opts.backupFile), text, 0o600);
-      log(
-        `Wrote the new secrets to ${opts.backupFile} (mode 0600). Move it to a password manager, then delete it.`,
-      );
-    }
     deps.reveal('');
     deps.reveal('Shown ONCE. Save them in a password manager now; they are not stored anywhere else:');
     for (const n of missing) deps.reveal(`  ${n}=${generated[n]}`);
     if (missing.includes('RB_MASTER_KEY')) {
       deps.reveal('Losing RB_MASTER_KEY makes every stored New Relic key undecryptable.');
     }
+    // After the reveal, so a failing write never loses the secrets; a failure is reported, not fatal.
+    if (backupPath !== undefined) {
+      const text = `${missing.map((n) => `${n}=${generated[n]}`).join('\n')}\n`;
+      try {
+        deps.fs.writeNew(backupPath, text, 0o600);
+        log(
+          `Wrote the new secrets to ${opts.backupFile} (mode 0600). Move it to a password manager, then delete it.`,
+        );
+      } catch (e) {
+        log(
+          `WARNING: could not write ${opts.backupFile} (${e instanceof Error ? e.message : String(e)}); copy the secrets shown above.`,
+        );
+      }
+    }
   }
 
-  const deployArgs = ['deploy', ...cfg, '--var', `RB_PLAN:${opts.plan}`];
+  // --keep-vars: without it Wrangler deletes every variable set in the dashboard (RB_ALLOWED_HOSTS, RB_AUDIT_*, …),
+  // silently resetting an operator's security settings on each re-run.
+  const deployArgs = ['deploy', ...cfg, '--keep-vars', '--var', `RB_PLAN:${opts.plan}`];
   if (opts.passthrough) deployArgs.push('--var', 'RB_PASSTHROUGH:on');
   const dep = await deps.wrangler(deployArgs);
   if (dep.code !== 0)
@@ -290,7 +326,7 @@ async function main(): Promise<number> {
       workerDir,
       fs: {
         exists: existsSync,
-        copy: copyFileSync,
+        read: (p) => readFileSync(p, 'utf8'),
         writeNew: (p, c, mode) => writeFileSync(p, c, { flag: 'wx', mode }),
       },
     });

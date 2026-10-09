@@ -234,3 +234,21 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   but silent); a `--wait` that polls until old isolates drained.
 - **Needs (owner):** confirm on a real account that `wrangler secret bulk` with both keys deploys a single version
   (the runbook depends on it; not exercised in this run), then follow `cloudflare-deploy.md#rotate-the-master-key` once.
+
+## Phase 3 consolidation review
+
+### Review — M6 lock-out semantics and admin token strength (P3-13)
+- **Context:** the auth-failure throttle answers 429 to every request from an IP after 10 failures, valid admin and MCP
+  tokens included (probed on the Worker); on Workers it is per isolate. `RB_ADMIN_TOKEN` is checked for length only.
+- **Assumption made:** nothing changed; task P3-13 created.
+- **Options:** (a) let a verified token bypass `fail:<ip>`; (b) shared D1 failure counter; (c) both; plus a minimum
+  entropy rule for the admin token.
+- **Needs:** owner's choice before P3-13 starts.
+
+### Review — real-account checks added by the review fixes
+- **Context:** `cf:setup` now deploys with `--keep-vars` and gives a non-default `--name` its own
+  `wrangler.<name>.local.jsonc` and D1 `database_name`. Both rely on Wrangler behaviour checked only in `--help` and docs.
+- **Needs (owner, during the P3-05 real-account run):** (a) set `RB_ALLOWED_HOSTS` in the dashboard, re-run
+  `pnpm cf:setup`, confirm it is still set; (b) `pnpm cf:setup --name relic-bridge-staging` creates a second D1
+  database `relic-bridge-staging` (not the production one).
+

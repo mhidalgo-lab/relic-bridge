@@ -19,3 +19,4 @@ spikes/**/results/
 spikes/**/wrangler.deploy*.jsonc
 # P3-05: local copy of apps/worker/wrangler.jsonc that Wrangler writes provisioned resource ids into
 apps/worker/wrangler.local.jsonc
+apps/worker/wrangler.*.local.jsonc

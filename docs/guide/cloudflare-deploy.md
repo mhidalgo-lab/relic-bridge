@@ -24,12 +24,16 @@ The script:
    machine's secure random generator, and passes them to Wrangler **on stdin**: never as command-line arguments
    (visible in the process list), never written to a repo file;
 2. deploys using `apps/worker/wrangler.local.jsonc`, a git-ignored copy of `wrangler.jsonc`, so Wrangler creates the D1
-   and KV resources and records their ids in the copy, not in a committed file;
+   and KV resources and records their ids in the copy, not in a committed file. Another `--name` gets its own copy
+   (`wrangler.<name>.local.jsonc`) and its own D1 database named after the Worker, so a staging Worker never binds to
+   the production database;
 3. prints the Worker URL and the next steps.
 
 The two secrets are **shown once**, right after they are set (before the deploy, so a failed deploy doesn't lose them). Save them in a password manager. If you lose `RB_MASTER_KEY`, stored New
 Relic keys can't be decrypted and you must re-add them. `--backup-file <path>` also writes them to a new file with mode
-0600 (never overwrites); it is off by default, and you should move it to your password manager and delete it.
+0600 (never overwrites: an existing path is refused before anything is generated, and a failed write is reported
+after the secrets were shown); it is off by default, and you should move it to your password manager and delete it.
+Pick a path outside the repository (only `.env` files are git-ignored), and note that Windows ignores the mode.
 
 Other options: `--name <worker>` (default `relic-bridge`), `--passthrough` (also generates `RB_FINGERPRINT_SECRET` and
 sets `RB_PASSTHROUGH=on`), `--assume-new` (see below).
@@ -146,7 +150,11 @@ pnpm cf:setup --plan free          # same plan as before; existing secrets and r
 - **Rolling back code** (`wrangler rollback`, or deploying an older commit) is safe only while the database schema is the
   same: once a newer version migrated D1, an older build refuses to start (503). Take an export first
   ([backups](#backups-and-the-master-key)) before upgrading across a release that adds migrations (see the changelog).
-- Settings and secrets set in the dashboard survive redeploys; `pnpm cf:setup` only overwrites `RB_PLAN`.
+- Settings and secrets set in the dashboard survive redeploys: `pnpm cf:setup` deploys with `--keep-vars` and only
+  overwrites `RB_PLAN` (and `RB_PASSTHROUGH` with `--passthrough`). A plain `wrangler deploy` without `--keep-vars`
+  **deletes** dashboard variables such as `RB_ALLOWED_HOSTS`.
+- `wrangler.local.jsonc` is copied from `wrangler.jsonc` once and never refreshed: after a `git pull` that changes
+  `wrangler.jsonc` (new binding, cron or compatibility date), carry the change over by hand (keep the provisioned ids).
 - With the button flow, a push to your copy of the repository redeploys through Workers Builds.
 
 ## Backups and the master key
@@ -184,7 +192,8 @@ through the Admin API (`POST /api/admin/v1/keys/rotate`, admin token required), 
    2026-10-03). Keep the JSON out of shell history and off disk, for example:
    ```sh
    read -rs OLD_KEY; read -rs NEW_KEY   # paste v1, then v2 (not echoed)
-   printf '{"RB_MASTER_KEY_PREVIOUS":"%s","RB_MASTER_KEY":"%s"}' "$OLD_KEY" "$NEW_KEY" | wrangler secret bulk
+   printf '{"RB_MASTER_KEY_PREVIOUS":"%s","RB_MASTER_KEY":"%s"}' "$OLD_KEY" "$NEW_KEY" |
+     pnpm --filter @relic-bridge/worker exec wrangler secret bulk -c wrangler.local.jsonc
    unset OLD_KEY NEW_KEY
    ```
    Two separate `wrangler secret put` calls would deploy a version in between that either refuses to boot
@@ -204,8 +213,10 @@ through the Admin API (`POST /api/admin/v1/keys/rotate`, admin token required), 
 5. Remove the previous key, and confirm the Worker still serves (an MCP call that reaches New Relic, or
    `relic-bridge credential list --remote "$RB_REMOTE"`):
    ```sh
-   wrangler secret delete RB_MASTER_KEY_PREVIOUS
+   pnpm --filter @relic-bridge/worker exec wrangler secret delete RB_MASTER_KEY_PREVIOUS -c wrangler.local.jsonc
    ```
+   Only after step 4 reported `0 not on version 2`: rows still on v1 become unreadable without the previous key.
+   (With another `--name`, use `-c wrangler.<name>.local.jsonc` in these commands.)
 6. Destroy the old key and any `wrangler d1 export` taken before the rotation if the old key may have leaked (those
    files are encrypted with it). D1 Time Travel can restore a pre-rotation state; that state needs the old key again.
 
@@ -248,3 +259,7 @@ checked 2026-10-03). Use it only where a **person with a browser** is the client
   a value. A database newer than the deployed code also fails closed.
 - **`wrangler deploy` says required secrets are missing:** run `pnpm cf:setup` (it sets them first) or `wrangler secret put`.
 - **Start over locally:** delete `apps/worker/wrangler.local.jsonc` (only forgets resource ids; resources stay linked by name).
+- **503 `key_version_retired` / `key_version_unknown` after a mistyped new key:** booting once with a wrong `RB_MASTER_KEY`
+  of a new version registers that key's check value (`crypto.key_check.v<N>` in the `settings` table). Put the old key
+  back as `RB_MASTER_KEY`, then delete that row (`wrangler d1 execute <database_name> --remote --command "DELETE FROM
+  settings WHERE key = 'crypto.key_check.v<N>'"`) and start the rotation again.

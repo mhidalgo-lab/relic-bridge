@@ -179,7 +179,7 @@ Generated from task front matter (`pnpm tasks index` once P0-05 lands). Status l
 | P5-06 | [Client compatibility matrix (incl. Claude mobile)](tasks/phase-5-oauth/P5-06-client-compat-matrix.md) | high | P5-05 | review |
 | P5-07 | [Docs — connecting from phone and claude.ai; release v0.5](tasks/phase-5-oauth/P5-07-docs-oauth.md) | high | P5-06 | todo |
 | P5-08 | [Admin: OAuth client list, revoke and DCR switch](tasks/phase-5-oauth/P5-08-admin-oauth-clients.md) | medium | P5-03 | todo |
-| P5-09 | [Decide and handle concurrent refreshes from real clients](tasks/phase-5-oauth/P5-09-refresh-concurrency.md) | medium | P5-06 | todo |
+| P5-09 | [Decide and handle concurrent refreshes from real clients](tasks/phase-5-oauth/P5-09-refresh-concurrency.md) | medium | P5-06 | review |
 
 ### Phase 6
 

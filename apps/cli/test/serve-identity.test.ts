@@ -217,6 +217,19 @@ describe('serve: sign-in over a localhost redirect', () => {
     expect(settings({ ...signIn, RB_OAUTH: 'on', RB_OAUTH_ACCESS_TTL: '600' }).oauth).toMatchObject({
       accessTokenTtlSeconds: 600,
     });
+    // Refresh reuse interval (P5-09): unset keeps the runtime default (30 s); 0 or off is strict single use.
+    expect(settings({ ...signIn, RB_OAUTH: 'on' }).oauth?.refreshReuseWindowSeconds).toBeUndefined();
+    for (const [value, seconds] of [
+      ['0', 0],
+      ['off', 0],
+      ['45', 45],
+      ['2m', 120],
+    ] as const) {
+      expect(
+        settings({ ...signIn, RB_OAUTH: 'on', RB_OAUTH_REFRESH_REUSE_WINDOW: value }).oauth
+          ?.refreshReuseWindowSeconds,
+      ).toBe(seconds);
+    }
     for (const bad of [
       { RB_OAUTH_ACCESS_TTL: '59' },
       { RB_OAUTH_ACCESS_TTL: '25h' },
@@ -231,6 +244,9 @@ describe('serve: sign-in over a localhost redirect', () => {
       { RB_OAUTH_DCR_REDIRECT_HOSTS: 'https://claude.ai' },
       { RB_OAUTH_DCR_REDIRECT_HOSTS: 'localhost' },
       { RB_OAUTH_DCR: 'sometimes' },
+      { RB_OAUTH_REFRESH_REUSE_WINDOW: '121' },
+      { RB_OAUTH_REFRESH_REUSE_WINDOW: '1h' },
+      { RB_OAUTH_REFRESH_REUSE_WINDOW: 'on' },
     ]) {
       expect(() => settings({ ...signIn, RB_OAUTH: 'on', ...bad }), JSON.stringify(bad)).toThrow(ConfigError);
     }

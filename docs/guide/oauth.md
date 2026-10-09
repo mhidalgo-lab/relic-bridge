@@ -23,6 +23,7 @@ themselves.
 | `RB_OAUTH_DCR_REDIRECT_HOSTS` | any | Comma-separated https hosts dynamically registered clients may send codes to (for example `claude.ai`). Loopback addresses are always allowed. |
 | `RB_OAUTH_ACCESS_TTL` | `1h` | How long one access token lives (60 s to 24 h; seconds, or `90m`, `12h`). Apps renew it on their own. |
 | `RB_OAUTH_REFRESH_TTL` | `30d` | How long an approval lasts in total (1 h to 365 days). Renewing does not extend it: after it the app asks you again. |
+| `RB_OAUTH_REFRESH_REUSE_WINDOW` | `30` | Seconds during which an app that renews twice at once with the same refresh token gets the same new tokens instead of being disconnected (0 to 120; `0` or `off` = strict). See [Lifetimes and renewal](#lifetimes-and-renewal). |
 
 - **Node** (`relic-bridge serve`): set the variables and restart. Metadata documents (claude.ai's way of identifying
   itself) are fetched through a guard that refuses private and loopback addresses.
@@ -74,10 +75,14 @@ Apps are also disconnected automatically when:
 ### Lifetimes and renewal
 
 An app gets a short-lived access token (1 hour by default, never longer than the grant it was approved with) and a
-refresh token to renew it. Each refresh token works **once**: renewing returns a new pair and the old refresh token is
-dead. If an old refresh token is ever presented again — a copy stolen from the app, or two copies of the app renewing
-at the same moment — relic-bridge assumes theft and disconnects the app entirely (audit `oauth.token.reuse`); approve
-it again to continue. Renewals never push the end of the approval back: after `RB_OAUTH_REFRESH_TTL` (30 days by
+refresh token to renew it. Each refresh token renews **once**: renewing returns a new pair and the old refresh token is
+dead. Apps often renew several times at the same moment (several requests find the access token expired at once):
+for `RB_OAUTH_REFRESH_REUSE_WINDOW` seconds (30 by default) after a renewal, the same app presenting the same old
+refresh token gets the **same** new pair again (audit `oauth.token.replay`) rather than being disconnected. Outside
+that window, or from another app, or when the app has renewed again since, an old refresh token presented again is
+treated as theft: relic-bridge disconnects the app entirely (audit `oauth.token.reuse`); approve it again to continue.
+Set `RB_OAUTH_REFRESH_REUSE_WINDOW=0` for the strictest behaviour (any second use disconnects the app, which some apps
+trigger in normal use). Renewals never push the end of the approval back: after `RB_OAUTH_REFRESH_TTL` (30 days by
 default) the app asks you again.
 
 Apps can also give their tokens back (RFC 7009 revocation, as when you sign out in the app): giving back a refresh token
@@ -105,5 +110,5 @@ itself when its grant stops working (revoked, expired, key removed): you are ask
   issuer (`iss`). Codes are single use.
 - Approvals and denials are in the audit log (`oauth.consent.approve`, `oauth.consent.deny`, `oauth.consent.forget`),
   as are disconnects (`oauth_device.revoke`), refused renewals (`oauth.token.refused`) and reused refresh tokens
-  (`oauth.token.reuse`). Each row's token id is `oauth_…`, the same for every request of that connected app.
+  (`oauth.token.reuse`), and renewals answered again inside the reuse window (`oauth.token.replay`). Each row's token id is `oauth_…`, the same for every request of that connected app.
 - Developers: [docs/dev/oauth.md](../dev/oauth.md).

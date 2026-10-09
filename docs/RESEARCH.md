@@ -591,3 +591,18 @@ Source: <https://docs.github.com/en/rest/apps/oauth-applications#delete-an-app-t
   was chosen) and can't be revoked server-side; relic-bridge keeps the request in the URL (re-validated each step) and
   remembered approvals in its own `kv` rows instead. Source: `node_modules/@cloudflare/workers-oauth-provider/dist/oauth-provider.js`
   (`src/oauth-consent.ts` region).
+
+## 21. Refresh token reuse intervals (P5-09, checked 2026-10-05)
+
+- **Okta** "grace period for token rotation": after a refresh token is rotated, the previous one stays valid for the
+  configured time so clients can still get the new token; default **30 s**, settable 0-60 s.
+  <https://developer.okta.com/docs/guides/refresh-tokens/main/>
+- **Auth0** "refresh token reuse interval": accounts for network lag; up to 2,592,000 s (30 days). During the window
+  breach detection does not apply and a **new** rotating refresh token is issued; only the previous token may be reused,
+  exchanging the second-to-last one triggers breach detection.
+  <https://auth0.com/docs/secure/tokens/refresh-tokens/configure-refresh-token-rotation>,
+  <https://support.auth0.com/center/s/article/Refresh-token-leeway>
+- Same symptom in another MCP server: FastMCP's OAuth proxy rotated refresh tokens with no grace period and lost
+  sessions under concurrent `/token` requests (<https://github.com/PrefectHQ/fastmcp/issues/4901>).
+- relic-bridge (ADR-0013) is narrower than both: the replay returns the **same** successor pair (no new token per
+  reuse), only while that successor is still current, only for the same client, ≤ 120 s.

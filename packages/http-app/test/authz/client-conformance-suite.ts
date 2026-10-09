@@ -196,15 +196,20 @@ export function clientConformanceSuite(): void {
       if (p.cimd !== null)
         docs.docs.set(p.cimd.id, jsonDoc(p.cimd.doc(), { 'cache-control': 'max-age=3600' }));
     }
-    app = h.makeApp({
+    app = build();
+    consent.next = { userId: 'usr_a', grantId: h.world.grantIds.prod };
+  });
+
+  /** The app under test; `reuseWindow` 0 is strict single use (P5-05), unset the default reuse interval (P5-09). */
+  const build = (reuseWindow?: number): AuthzApp =>
+    h.makeApp({
       oauth: {
         consent: consent.handler,
         accessTokenTtlSeconds: 600,
         clientMetadataDocuments: { fetch: docs.fetch },
+        ...(reuseWindow === undefined ? {} : { refreshReuseWindowSeconds: reuseWindow }),
       },
     });
-    consent.next = { userId: 'usr_a', grantId: h.world.grantIds.prod };
-  });
 
   afterEach(async () => {
     await h.scan();
@@ -373,7 +378,7 @@ export function clientConformanceSuite(): void {
         expect(a.tokens.access_token).toBeTruthy();
       });
 
-      it('refreshes by itself after the access token expires: `resource` sent, tokens rotated, the old refresh token refused', async () => {
+      it('refreshes by itself after the access token expires: `resource` sent, tokens rotated, the old refresh token replayed inside the reuse window and refused after it', async () => {
         const a = new App(profile);
         const client = await a.connect();
         const first = { ...a.tokens };
@@ -392,19 +397,26 @@ export function clientConformanceSuite(): void {
         expect(second.refresh_token).toBeTruthy();
         expect(second.refresh_token).not.toBe(first.refresh_token);
 
-        // Rotation: the previous refresh token is dead (and presenting it revokes the device, see below).
-        const replay = await app.fetch(
-          new Request(`${ISSUER}/oauth/token`, {
-            method: 'POST',
-            headers: { 'content-type': 'application/x-www-form-urlencoded' },
-            body: new URLSearchParams({
-              grant_type: 'refresh_token',
-              refresh_token: first.refresh_token as string,
-              client_id: profile.cimd?.id ?? (a.provider.info?.client_id as string),
-              resource: resourceOf('prod'),
-            }).toString(),
-          }),
-        );
+        // Rotation: inside the reuse interval (P5-09, default 30 s) the previous refresh token gets the same pair again;
+        // after it the token is dead (and presenting it revokes the device, see below).
+        const presentOld = () =>
+          app.fetch(
+            new Request(`${ISSUER}/oauth/token`, {
+              method: 'POST',
+              headers: { 'content-type': 'application/x-www-form-urlencoded' },
+              body: new URLSearchParams({
+                grant_type: 'refresh_token',
+                refresh_token: first.refresh_token as string,
+                client_id: profile.cimd?.id ?? (a.provider.info?.client_id as string),
+                resource: resourceOf('prod'),
+              }).toString(),
+            }),
+          );
+        const inside = await presentOld();
+        expect(inside.status).toBe(200);
+        expect(((await inside.json()) as { refresh_token: string }).refresh_token).toBe(second.refresh_token);
+        advance(31_000);
+        const replay = await presentOld();
         expect(replay.status).toBe(400);
         expect(((await replay.json()) as { error: string }).error).toBe('invalid_grant');
         // Reuse revoked the whole device: even the newest token is gone.
@@ -437,7 +449,32 @@ export function clientConformanceSuite(): void {
         await client.close();
       });
 
-      it('parallel requests over an expired token: the SDK does not coalesce refreshes, so strict rotation revokes the device', async () => {
+      it('parallel requests over an expired token: the SDK does not coalesce refreshes; the reuse interval keeps the device', async () => {
+        const a = new App(profile);
+        const client = await a.connect();
+        advance(601_000);
+        const calls = await Promise.allSettled([whoami(client), whoami(client), whoami(client)]);
+        expect(calls.map((r) => r.status)).toEqual(['fulfilled', 'fulfilled', 'fulfilled']);
+        const refreshes = a
+          .requests('POST', '/oauth/token')
+          .filter((s) => s.params.get('grant_type') === 'refresh_token');
+        // SDK 2.2.0 still sends one refresh per failed request: if a future SDK serialises refreshes this stops applying.
+        expect({ coalesced: refreshes.length === 1 }).toEqual({ coalesced: false });
+        // Every refresh answered, all with one token pair: one rotation, no parallel families (P5-09, ADR-0013).
+        expect(refreshes.every((r) => r.status === 200)).toBe(true);
+        expect(new Set(refreshes.map((r) => r.params.get('refresh_token'))).size).toBe(1);
+        const rows = await h.auditRows();
+        expect(rows.some((r) => r.action === 'oauth.token.reuse')).toBe(false);
+        expect(rows.some((r) => r.action === 'oauth.token.replay')).toBe(true);
+        // The device keeps working, through the next expiry too.
+        await whoami(client);
+        advance(601_000);
+        await whoami(client);
+        await client.close();
+      });
+
+      it('strict mode (reuse window 0): the same parallel requests revoke the device (P5-05 behaviour)', async () => {
+        app = build(0);
         const a = new App(profile);
         const client = await a.connect();
         advance(601_000);
@@ -445,14 +482,12 @@ export function clientConformanceSuite(): void {
         const refreshes = a
           .requests('POST', '/oauth/token')
           .filter((s) => s.params.get('grant_type') === 'refresh_token');
-        // Whatever the SDK does, one refresh token never yields two token pairs.
+        // One refresh token never yields two token pairs.
         expect(refreshes.filter((r) => r.status === 200).length).toBeLessThanOrEqual(1);
-        // SDK 2.2.0 sends one refresh per failed request (and retries each once): more than one means reuse (P5-05),
-        // and the whole device is revoked. If a future SDK serialises refreshes this branch stops applying.
-        if (refreshes.length > 1) {
-          await expect(whoami(client)).rejects.toThrow();
-        }
-        expect({ coalesced: refreshes.length === 1 }).toEqual({ coalesced: false });
+        expect(refreshes.length).toBeGreaterThan(1);
+        // More than one refresh means reuse (P5-05): the whole device is revoked.
+        await expect(whoami(client)).rejects.toThrow();
+        expect((await h.auditRows()).some((r) => r.action === 'oauth.token.reuse')).toBe(true);
         await client.close();
       });
 

@@ -312,6 +312,7 @@ survive later runs because of `--keep-vars`:
 | `RB_OAUTH` | `on`: MCP clients such as claude.ai and Claude on your phone connect with OAuth (sign-in + a consent page). Needs sign-in. See [OAuth](oauth.md). |
 | `RB_OAUTH_DCR`, `RB_OAUTH_DCR_LIMIT`, `RB_OAUTH_DCR_REDIRECT_HOSTS` | Dynamic client registration: `on`/`off`, registrations per hour (default 30) or `off`, allowed https redirect hosts. |
 | `RB_OAUTH_ACCESS_TTL`, `RB_OAUTH_REFRESH_TTL` | OAuth token lifetimes: access token (default `1h`, 60 s to 24 h) and the absolute lifetime of an app's authorization (default `30d`, 1 h to 365 days), on every plan. |
+| `RB_OAUTH_REFRESH_REUSE_WINDOW` | Refresh token reuse interval (default `30` seconds, up to 120; `0` or `off` = strict): an app that renews twice at once gets the same tokens instead of being disconnected. Costs one extra D1 row write per renewal. |
 
 When it finishes, the script prints the redirect URL to register with each provider
 (`<RB_PUBLIC_URL>/auth/callback/<provider>`) and the next step, the first owner's link:

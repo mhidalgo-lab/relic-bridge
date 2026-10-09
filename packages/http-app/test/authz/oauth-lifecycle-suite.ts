@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // OAuth token lifecycle (P5-05): lifetimes, refresh rotation with reuse detection (single use under concurrency),
 // access re-checked at every issuance, revoke-all, RFC 7009 revocation per client, and the OAuth device list and revoke
-// in the admin API with its negative authorization cases. Runs on every authz host: memory (`oauth-lifecycle.test.ts`),
+// in the admin API with its negative authorization cases, and the refresh token reuse interval (P5-09, ADR-0013). Runs on every authz host: memory (`oauth-lifecycle.test.ts`),
 // SQLite (`apps/cli/test/oauth-lifecycle-sqlite.test.ts`) and the Worker on local D1 (`pnpm test:workers`).
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ADMIN_TOKEN, type AuthzApp, type Captured, createHarness, type Harness } from './harness.ts';
@@ -38,7 +38,9 @@ export function oauthLifecycleSuite(): void {
   let secrets: string[];
 
   /** The app under test; access tokens live 10 minutes unless `access` says otherwise (`null`: the default). */
-  const build = (over: { access?: number | null; refreshTokenTtlSeconds?: number } = {}) => {
+  const build = (
+    over: { access?: number | null; refreshTokenTtlSeconds?: number; reuseWindow?: number } = {},
+  ) => {
     const access = over.access === undefined ? 600 : over.access;
     app = h.makeApp({
       oauth: {
@@ -47,6 +49,7 @@ export function oauthLifecycleSuite(): void {
         ...(over.refreshTokenTtlSeconds === undefined
           ? {}
           : { refreshTokenTtlSeconds: over.refreshTokenTtlSeconds }),
+        ...(over.reuseWindow === undefined ? {} : { refreshReuseWindowSeconds: over.reuseWindow }),
       },
     });
     client = new Client(h, app, secrets);
@@ -200,7 +203,8 @@ export function oauthLifecycleSuite(): void {
       expect(ok.status, ok.text).toBe(200);
     });
 
-    it('concurrent refreshes with one token: at most one succeeds and the family is revoked', async () => {
+    it('strict mode (reuse window 0): concurrent refreshes with one token: at most one succeeds and the family is revoked', async () => {
+      build({ reuseWindow: 0 });
       await client.register();
       const t = await client.tokens('prod');
       const results = await Promise.all(Array.from({ length: 6 }, () => refresh(t.refresh_token)));
@@ -222,6 +226,136 @@ export function oauthLifecycleSuite(): void {
       const forged = `${userId}:${grantId}:${secret.slice(0, -1)}${secret.endsWith('A') ? 'B' : 'A'}`;
       expectInvalidGrant(await refresh(forged));
       expect((await client.mcp('prod', t.access_token)).status).toBe(200);
+      expect((await refresh(t.refresh_token)).status).toBe(200);
+    });
+  });
+
+  describe('refresh token reuse interval (P5-09, ADR-0013)', () => {
+    const grantRow = async (t: Tokens) =>
+      JSON.parse((await h.world.storage.kv.get(`oauth:grant:usr_a:${providerGrantOf(t)}`)) ?? 'null') as {
+        refreshTokenId: string;
+      } | null;
+    const sha256 = async (text: string): Promise<string> =>
+      Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text))), (b) =>
+        b.toString(16).padStart(2, '0'),
+      ).join('');
+    const reuseRow = async () =>
+      (await adminRow('oauth.token.reuse')) as { details?: Record<string, unknown> };
+
+    it('many concurrent refreshes with one token: one rotation, every caller gets the same pair, the device stays', async () => {
+      await client.register();
+      const t = await client.tokens('prod');
+      const results = await Promise.all(Array.from({ length: 12 }, () => refresh(t.refresh_token)));
+      expect(results.map((r) => r.status)).toEqual(Array(12).fill(200));
+      const pairs = new Set(results.map((r) => `${tokensOf(r).access_token} ${tokensOf(r).refresh_token}`));
+      expect(pairs.size).toBe(1);
+      const next = tokensOf(results[0] as Captured);
+      // Exactly one rotation: the grant's current refresh token is the one everybody got.
+      expect((await grantRow(t))?.refreshTokenId).toBe(await sha256(next.refresh_token));
+      expect((await client.mcp('prod', next.access_token)).status).toBe(200);
+      expect(await h.world.storage.kv.get(`oauth:grant:usr_a:${providerGrantOf(t)}`)).not.toBeNull();
+      expect((await h.auditRows()).some((r) => r.action === 'oauth.token.reuse')).toBe(false);
+      expect(await adminRow('oauth.token.replay')).toMatchObject({
+        status: 'ok',
+        targetId: `oauth_${providerGrantOf(t)}`,
+        userId: 'usr_a',
+        clientId: client.clientId,
+      });
+      // The successor rotates normally afterwards (once).
+      const after = await refresh(next.refresh_token);
+      expect(after.status, after.text).toBe(200);
+      expect((await client.mcp('prod', tokensOf(after).access_token)).status).toBe(200);
+    });
+
+    it('a retry inside the window gets the same pair with a shorter expires_in; nothing is stored in plain text', async () => {
+      await client.register();
+      const t = await client.tokens('prod');
+      const first = await refresh(t.refresh_token);
+      expect(first.status, first.text).toBe(200);
+      advance(10_000);
+      const again = await refresh(t.refresh_token);
+      expect(again.status, again.text).toBe(200);
+      expect(tokensOf(again).access_token).toBe(tokensOf(first).access_token);
+      expect(tokensOf(again).refresh_token).toBe(tokensOf(first).refresh_token);
+      expect(tokensOf(again).expires_in).toBe(tokensOf(first).expires_in - 10);
+      const rows = await h.world.storage.kv.list({ prefix: 'oauth-refresh-replay:' });
+      expect(rows.keys).toHaveLength(1);
+      const stored = JSON.stringify(
+        await Promise.all(rows.keys.map(async (k) => [k.name, await h.world.storage.kv.get(k.name)])),
+      );
+      for (const token of [t.refresh_token, tokensOf(first).access_token, tokensOf(first).refresh_token]) {
+        expect(stored.includes(token.split(':')[2] as string), 'a token secret stored in plain text').toBe(
+          false,
+        );
+      }
+      // The row lives as long as the window (the server also checks the rotation time itself).
+      const expiration = rows.keys[0]?.expiration as number;
+      expect(expiration).toBeGreaterThan(0);
+    });
+
+    it('outside the window the rotated token is reuse again: the device is revoked and audited', async () => {
+      await client.register();
+      const t = await client.tokens('prod');
+      const r1 = await refresh(t.refresh_token);
+      expect(r1.status).toBe(200);
+      advance(31_000);
+      expectInvalidGrant(await refresh(t.refresh_token));
+      await expectDenied(tokensOf(r1).access_token);
+      expectInvalidGrant(await refresh(tokensOf(r1).refresh_token));
+      expect((await reuseRow()).details).toMatchObject({ revoked: true });
+    });
+
+    it('an older generation inside the window revokes (the successor was rotated since)', async () => {
+      await client.register();
+      const t = await client.tokens('prod');
+      const r1 = await refresh(t.refresh_token);
+      const r2 = await refresh(tokensOf(r1).refresh_token);
+      expect([r1.status, r2.status]).toEqual([200, 200]);
+      expectInvalidGrant(await refresh(t.refresh_token));
+      await expectDenied(tokensOf(r2).access_token);
+      expect((await reuseRow()).details).toMatchObject({ replayRefused: 'older_generation' });
+    });
+
+    it('another client presenting the rotated token inside the window gets nothing and revokes the device', async () => {
+      await client.register();
+      const t = await client.tokens('prod');
+      const r1 = await refresh(t.refresh_token);
+      expect(r1.status).toBe(200);
+      const other = new Client(h, app, secrets);
+      await other.register();
+      expectInvalidGrant(await refresh(t.refresh_token, other));
+      await expectDenied(tokensOf(r1).access_token);
+      expect((await reuseRow()).details).toMatchObject({ replayRefused: 'other_client' });
+    });
+
+    it('another resource inside the window revokes; a revoked device is never replayed', async () => {
+      await client.register();
+      const t = await client.tokens('prod');
+      const r1 = await refresh(t.refresh_token);
+      expect(r1.status).toBe(200);
+      expectInvalidGrant(await refresh(t.refresh_token, client, 'eu'));
+      await expectDenied(tokensOf(r1).access_token);
+
+      consent.next = { userId: 'usr_a', grantId: h.world.grantIds.prod };
+      const u = await client.tokens('prod');
+      const s1 = await refresh(u.refresh_token);
+      expect(s1.status).toBe(200);
+      const revoked = await client.form('/oauth/token', {
+        token: tokensOf(s1).refresh_token,
+        client_id: client.clientId,
+      });
+      expect(revoked.status).toBe(200);
+      expectInvalidGrant(await refresh(u.refresh_token));
+    });
+
+    it('a refresh token the grant never had waits for nothing and revokes nothing', async () => {
+      await client.register();
+      const t = await client.tokens('prod');
+      const [userId, grantId, secret] = t.refresh_token.split(':') as [string, string, string];
+      const forged = `${userId}:${grantId}:${secret.slice(0, -1)}${secret.endsWith('A') ? 'B' : 'A'}`;
+      const started = performance.now();
+      expectInvalidGrant(await refresh(forged));
+      expect(performance.now() - started).toBeLessThan(1000);
       expect((await refresh(t.refresh_token)).status).toBe(200);
     });
   });

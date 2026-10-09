@@ -7,6 +7,10 @@
   "main": "src/index.ts",
   // Latest date the pinned workerd supports. No `nodejs_compat`: every package is web-standard (ADR-0004).
   "compatibility_date": "2026-09-26",
+  // Part of the SSRF guard for OAuth client metadata documents (P5-03, ADR-0012): `fetch` routes as on the public
+  // internet (our own zone through Cloudflare's front door, never straight to the origin). Every other outbound call
+  // (NerdGraph, sign-in providers) goes to the public internet anyway.
+  "compatibility_flags": ["global_fetch_strictly_public"],
   "workers_dev": true,
   "send_metrics": false,
   "observability": { "enabled": true },

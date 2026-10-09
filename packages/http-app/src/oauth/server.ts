@@ -27,6 +27,15 @@ import { type DenyReason, type EffectiveAccess, resolveAccess } from '@relic-bri
 import type { Clock, Logger } from '@relic-bridge/core';
 import { type CredentialRecord, type KvRepository, SLUG_RE, type Storage } from '@relic-bridge/storage';
 import type { Context } from 'hono';
+import {
+  ClientMetadataError,
+  type ClientMetadataFetch,
+  checkRegistration,
+  clientIdUrlProblem,
+  fetchMetadataDocument,
+  looksLikeClientIdUrl,
+  readBoundedBytes,
+} from './clients.ts';
 import { type OAuthKvNamespace, oauthKvNamespace } from './kv-namespace.ts';
 
 export const OAUTH_AUTHORIZE_PATH = '/oauth/authorize';
@@ -49,6 +58,13 @@ export const DEFAULT_OAUTH_REFRESH_TTL_S: number = 30 * 86_400;
 export const OAUTH_CODE_TTL_S = 600;
 /** Largest token or registration request body read. */
 export const OAUTH_MAX_BODY_BYTES: number = 16 * 1024;
+/** Dynamic registrations per window, across every isolate and process (shared `kv` counter, P5-03). */
+export const DEFAULT_OAUTH_REGISTRATION_LIMIT: { readonly requests: number; readonly perSeconds: number } =
+  Object.freeze({ requests: 30, perSeconds: 3600 });
+/** A dynamic registration that never exchanges a code is gone after this (the first exchange renews it). */
+export const OAUTH_UNUSED_REGISTRATION_TTL_S = 86_400;
+/** Least lifetime of a used dynamic registration (renewed by the provider at half-life on every token request). */
+export const OAUTH_MIN_REGISTRATION_TTL_S: number = 90 * 86_400;
 
 /** Stable reasons an OAuth bearer is refused on an MCP route (logs and audit only; the client gets the same 401). */
 export type OAuthDenyReason = 'oauth_invalid' | 'oauth_mismatch';
@@ -68,6 +84,13 @@ export interface OAuthGrantProps {
 /** The authorization request as the consent step sees it (validated: client, redirect URI, PKCE S256, resource). */
 export interface OAuthAuthorizationRequest {
   readonly clientId: string;
+  /**
+   * `metadata_document`: the client id is the https URL of a document we fetched (CIMD); show {@link clientHost}.
+   * `dynamic`: registered through `/oauth/register` by anyone (DCR): nothing about it is verified.
+   */
+  readonly clientKind: 'metadata_document' | 'dynamic';
+  /** CIMD: the host of the client id (the draft says to show it); null for dynamic clients. */
+  readonly clientHost: string | null;
   /** From the client's registration or metadata document: untrusted text, escape before display. */
   readonly clientName: string | null;
   readonly redirectUri: string;
@@ -82,7 +105,8 @@ export interface OAuthAuthorizationRequest {
 
 export type OAuthApproval =
   | { readonly ok: true; readonly redirectTo: string }
-  | { readonly ok: false; readonly reason: DenyReason };
+  /** `client_refused`: a metadata-document client whose document can no longer be fetched or validated. */
+  | { readonly ok: false; readonly reason: DenyReason | 'client_refused' };
 
 /** What the consent handler can do with the request. */
 export interface OAuthConsentApi {
@@ -109,8 +133,21 @@ export interface OAuthOptions {
   readonly accessTokenTtlSeconds?: number;
   /** Refresh-token lifetime in seconds, 0 (no refresh tokens) or 60-31536000. Default 30 days. */
   readonly refreshTokenTtlSeconds?: number;
-  /** RFC 7591 dynamic client registration at `/oauth/register`. Default on (hardening: P5-03). */
+  /** RFC 7591 dynamic client registration at `/oauth/register`. Default on. */
   readonly registration?: boolean;
+  /**
+   * Dynamic registrations allowed per window, shared by every isolate and process (a `kv` counter). Default 30 per
+   * hour; `null` turns the cap off (the per-IP `oauth` rate limit still applies).
+   */
+  readonly registrationLimit?: { readonly requests: number; readonly perSeconds: number } | null;
+  /** When set, dynamically registered https redirect URIs must be on one of these hosts (loopback is always allowed). */
+  readonly registrationRedirectHosts?: readonly string[];
+  /**
+   * Client ID Metadata Documents (CIMD, P5-03): off unless the host gives a fetcher that refuses non-public
+   * destinations and does not follow redirects (Node: `apps/cli` connect-time guard; Workers: the
+   * `global_fetch_strictly_public` flag). Then https client ids are resolved by fetching their document.
+   */
+  readonly clientMetadataDocuments?: { readonly fetch: ClientMetadataFetch };
 }
 
 export type OAuthAuthentication =
@@ -136,6 +173,8 @@ interface ProviderEnv {
 const PROVIDER_TOKEN_RE = /^([A-Za-z0-9_-]{1,128}):([A-Za-z0-9_-]{16}):([A-Za-z0-9_-]{32})$/;
 const MAX_CACHED_SERVERS = 64;
 const CODE_MARKER_PREFIX = 'oauth-code:';
+/** Shared registration counter windows (`kv`, outside the provider's `oauth:` namespace). */
+const REGISTRATION_COUNTER_PREFIX = 'oauth-dcr-count:';
 
 /** Longest provider-issued token accepted (`userId` ≤ 128 characters, ours are 36). */
 export const MAX_OAUTH_TOKEN_CHARS = 200;
@@ -178,40 +217,17 @@ function redirect(location: string): Response {
   return new Response(null, { status: 302, headers: { Location: location, 'Cache-Control': 'no-store' } });
 }
 
-/**
- * The request body as text, at most `max` bytes (declared or streamed); `null` when it is larger. The caller has
- * already refused a declared length above the limit.
- */
+/** The request body as text, at most `max` bytes (declared or streamed); `null` when it is larger. */
 async function readBounded(request: Request, max: number): Promise<string | null> {
-  const body = request.body;
-  if (body === null) return '';
-  const reader = body.getReader();
-  const chunks: Uint8Array[] = [];
-  let size = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    size += value.byteLength;
-    if (size > max) {
-      await reader.cancel().catch(() => undefined);
-      return null;
-    }
-    chunks.push(value);
-  }
-  const all = new Uint8Array(size);
-  let at = 0;
-  for (const chunk of chunks) {
-    all.set(chunk, at);
-    at += chunk.byteLength;
-  }
-  return new TextDecoder().decode(all);
+  const bytes = await readBoundedBytes(request.body, max);
+  return bytes === null ? null : new TextDecoder().decode(bytes);
 }
 
 export interface OAuthRuntimeDeps {
   readonly options: OAuthOptions;
   /** Issuer origin (`https://bridge.example.com`), from the configured public URL. */
   readonly issuer: string;
-  readonly kv: Pick<KvRepository, 'get' | 'put' | 'delete' | 'list' | 'take'>;
+  readonly kv: Pick<KvRepository, 'get' | 'put' | 'delete' | 'list' | 'take' | 'increment'>;
   readonly storage: Pick<Storage, 'projects' | 'grants' | 'users' | 'credentials'>;
   readonly catalog: readonly string[];
   readonly clock: Clock;
@@ -256,7 +272,28 @@ export function createOAuthRuntime(deps: OAuthRuntimeDeps): OAuthRuntime {
     true,
   );
   const registration = options.registration ?? true;
+  const registrationLimit =
+    options.registrationLimit === undefined ? DEFAULT_OAUTH_REGISTRATION_LIMIT : options.registrationLimit;
+  if (registrationLimit !== null) {
+    checkInt('oauth.registrationLimit.requests', registrationLimit.requests, 1, 100_000);
+    checkInt('oauth.registrationLimit.perSeconds', registrationLimit.perSeconds, 60, 86_400);
+  }
+  const redirectHosts = options.registrationRedirectHosts?.map((h) => {
+    const host = h.trim().toLowerCase();
+    if (!/^[a-z0-9.-]{1,253}$/.test(host) || !host.includes('.')) {
+      throw new TypeError('oauth.registrationRedirectHosts must be host names');
+    }
+    return host;
+  });
+  const cimd = options.clientMetadataDocuments;
+  if (cimd !== undefined && typeof cimd.fetch !== 'function') {
+    throw new TypeError('oauth.clientMetadataDocuments.fetch must be a function');
+  }
+  // A used registration must outlive every refresh token issued to it: the provider renews it at half-life on each
+  // token request, so twice the refresh lifetime is enough.
+  const registrationTtl = Math.max(OAUTH_MIN_REGISTRATION_TTL_S, 2 * refreshTtl, 2 * accessTtl);
   const env: ProviderEnv = Object.freeze({ OAUTH_KV: oauthKvNamespace(deps.kv) });
+  const issuerHost = new URL(issuer).hostname;
   const resourceUrl = (slug: string): string => `${issuer}/p/${slug}/mcp`;
   /** Declared for routes that need no project (metadata, registration): never a valid slug, so never a token's. */
   const placeholderResource = `${issuer}/p/-/mcp`;
@@ -283,8 +320,9 @@ export function createOAuthRuntime(deps: OAuthRuntimeDeps): OAuthRuntime {
       ...(registration ? { clientRegistrationEndpoint: OAUTH_REGISTER_PATH } : {}),
       accessTokenTTL: accessTtl,
       refreshTokenTTL: refreshTtl,
-      // CIMD needs the SSRF guard (Workers flag / Node connect-time check): P5-03.
+      // CIMD is resolved by us (`resolveClient`, ADR-0012) and handed to the provider as a stored client record.
       clientIdMetadataDocumentEnabled: false,
+      clientRegistrationTTL: registrationTtl,
       allowTokenExchangeGrant: false,
       // Stable server-side reasons only: never the description's echoed input or the error detail.
       onError: ({ code, status, internal }) => {
@@ -343,6 +381,41 @@ export function createOAuthRuntime(deps: OAuthRuntimeDeps): OAuthRuntime {
   const resourceMetadataUrl = (slug: string): string =>
     `${issuer}${OAUTH_PROTECTED_RESOURCE_PREFIX}/p/${slug}/mcp`;
 
+  /**
+   * CIMD (P5-03): makes sure an https client id has a live client record, fetching and validating its document when
+   * none is cached. Resolves null when the request may go on (not a URL client id, or resolved), else a stable reason.
+   * Errors are never cached; a validated document is stored for its (bounded) HTTP cache lifetime.
+   */
+  const resolveClient = async (clientId: string | null | undefined): Promise<string | null> => {
+    if (clientId === null || clientId === undefined || !looksLikeClientIdUrl(clientId)) return null;
+    if (cimd === undefined) return 'cimd_disabled';
+    const problem = clientIdUrlProblem(clientId, issuerHost);
+    if (problem !== null) return problem;
+    if ((await env.OAUTH_KV.get(`client:${clientId}`)) !== null) return null;
+    try {
+      const { client, ttlSeconds } = await fetchMetadataDocument(
+        clientId,
+        cimd.fetch,
+        Math.floor(clock.now() / 1000),
+      );
+      await env.OAUTH_KV.put(`client:${clientId}`, JSON.stringify(client), { expirationTtl: ttlSeconds });
+      return null;
+    } catch (error) {
+      return error instanceof ClientMetadataError ? error.reason : 'fetch_failed';
+    }
+  };
+  const refusedClient = (clientId: string, reason: string): Response => {
+    // The client id is public (a URL or a random id); log its host only, never the document.
+    let host: string | null = null;
+    try {
+      host = new URL(clientId).hostname;
+    } catch {
+      // not a URL
+    }
+    logger.info('oauth client refused', { reason, clientHost: host });
+    return jsonError(400, 'invalid_client', 'The client metadata document could not be used.');
+  };
+
   const codeMarker = async (code: string): Promise<string> => `${CODE_MARKER_PREFIX}${await sha256Hex(code)}`;
 
   /** A replayed (or raced) code: when it really was issued for its grant, revoke the grant and its tokens. */
@@ -398,6 +471,8 @@ export function createOAuthRuntime(deps: OAuthRuntimeDeps): OAuthRuntime {
       // a placeholder here: clients find a project's resource through its own metadata (P5-02).
       const meta = (await response.json()) as Record<string, unknown>;
       delete meta['protected_resources'];
+      // CIMD is ours (the provider's own stays off): advertise it only when a guarded fetcher was given.
+      meta['client_id_metadata_document_supported'] = cimd !== undefined;
       const headers = new Headers(response.headers);
       headers.delete('content-length');
       return new Response(JSON.stringify(meta), { status: response.status, headers });
@@ -407,7 +482,52 @@ export function createOAuthRuntime(deps: OAuthRuntimeDeps): OAuthRuntime {
       if (!registration) return jsonError(404, 'not_found', 'Client registration is disabled.');
       const body = await readBounded(c.req.raw, OAUTH_MAX_BODY_BYTES);
       if (body === null) return jsonError(413, 'invalid_request', 'Request body too large.');
-      return fetchProvider(await server([]), c, body);
+      const mediaType = (c.req.header('content-type') ?? '').split(';')[0]?.trim().toLowerCase();
+      if (mediaType !== 'application/json') {
+        return jsonError(400, 'invalid_client_metadata', 'Send the client metadata as application/json.');
+      }
+      // Our policy first (redirect URIs, display name, host allow-list): nothing is stored for a refused request.
+      const verdict = checkRegistration(body, redirectHosts);
+      if (!verdict.ok) {
+        logger.info('oauth registration refused', { reason: verdict.reason });
+        return jsonError(400, verdict.error, 'The client metadata is not acceptable.');
+      }
+      // One cap for the whole deployment (T10): an atomic counter in storage, so isolates and processes share it.
+      if (registrationLimit !== null) {
+        const nowS = Math.floor(clock.now() / 1000);
+        const window = Math.floor(nowS / registrationLimit.perSeconds);
+        const count = await deps.kv.increment(`${REGISTRATION_COUNTER_PREFIX}${window}`, {
+          expirationTtl: registrationLimit.perSeconds,
+        });
+        if (count > registrationLimit.requests) {
+          logger.warn('oauth registration cap reached', { limit: registrationLimit.requests });
+          const response = jsonError(
+            429,
+            'temporarily_unavailable',
+            'Too many client registrations; retry later.',
+          );
+          response.headers.set('Retry-After', String((window + 1) * registrationLimit.perSeconds - nowS));
+          return response;
+        }
+      }
+      const response = await fetchProvider(await server([]), c, body);
+      if (response.status !== 201) return response;
+      // Unused registrations die young: until its first token exchange (which renews it, the provider's half-life rule)
+      // a registration lives a day, so a flood of registrations nobody uses doesn't stay in storage for months.
+      const created = (await response.clone().json()) as { readonly client_id?: unknown };
+      if (typeof created.client_id === 'string') {
+        const key = `client:${created.client_id}`;
+        const record = (await env.OAUTH_KV.get(key, { type: 'json' })) as Record<string, unknown> | null;
+        if (record !== null) {
+          const nowS = Math.floor(clock.now() / 1000);
+          await env.OAUTH_KV.put(
+            key,
+            JSON.stringify({ ...record, registrationExpiresAt: nowS + OAUTH_UNUSED_REGISTRATION_TTL_S }),
+            { expirationTtl: OAUTH_UNUSED_REGISTRATION_TTL_S },
+          );
+        }
+      }
+      return response;
     },
 
     async token(c, onRevocation) {
@@ -421,6 +541,11 @@ export function createOAuthRuntime(deps: OAuthRuntimeDeps): OAuthRuntime {
         return jsonError(400, 'invalid_request', 'Parameters must not be repeated.');
       }
       const grantType = form?.get('grant_type') ?? null;
+      // CIMD: a URL client id needs its (cached or fetched) document before the provider looks it up. Before the code
+      // is consumed, so a fetch failure doesn't burn it.
+      const clientId = form?.get('client_id') ?? null;
+      const clientProblem = await resolveClient(clientId);
+      if (clientProblem !== null) return refusedClient(clientId as string, clientProblem);
       // RFC 8707 / MCP 2026-07-28: the token request names its resource too. Checked before the code is consumed, so
       // a client that left it out can retry; the provider then requires it to be the grant's own resource.
       if (
@@ -458,6 +583,11 @@ export function createOAuthRuntime(deps: OAuthRuntimeDeps): OAuthRuntime {
         return jsonError(400, 'invalid_target', 'resource must name one MCP endpoint of this server.');
       }
       const resource = resourceUrl(slug);
+      // CIMD: fetch (or find cached) the client's document before the provider looks the client up. A failure is a
+      // 400 page, never a redirect: no redirect URI has been validated yet.
+      const requestedClient = url.searchParams.get('client_id');
+      const clientProblem = await resolveClient(requestedClient);
+      if (clientProblem !== null) return refusedClient(requestedClient as string, clientProblem);
       const mod = await provider();
       const as = await server([resource]);
       const helpers = as.getOAuthApi(env);
@@ -491,8 +621,11 @@ export function createOAuthRuntime(deps: OAuthRuntimeDeps): OAuthRuntime {
       if (client === null) return jsonError(400, 'invalid_client', 'Unknown client.');
       const requested = authRequest.scope;
       const scope = [MCP_SCOPE, ...(requested.includes('offline_access') ? ['offline_access'] : [])];
+      const metadataDocument = looksLikeClientIdUrl(authRequest.clientId);
       const request: OAuthAuthorizationRequest = Object.freeze({
         clientId: authRequest.clientId,
+        clientKind: metadataDocument ? 'metadata_document' : 'dynamic',
+        clientHost: metadataDocument ? new URL(authRequest.clientId).hostname : null,
         clientName: client.clientName ?? null,
         redirectUri: authRequest.redirectUri,
         redirectHost: new URL(authRequest.redirectUri).host,
@@ -510,6 +643,9 @@ export function createOAuthRuntime(deps: OAuthRuntimeDeps): OAuthRuntime {
         approve: async ({ userId, grantId }: { readonly userId: string; readonly grantId: string }) => {
           if (used) throw new Error('an authorization request is approved at most once');
           used = true;
+          // The consent step may take a while (sign-in): a CIMD client's cached document may have expired since.
+          const clientProblem = await resolveClient(authRequest.clientId);
+          if (clientProblem !== null) return { ok: false, reason: 'client_refused' } as const;
           // The same deny-by-default decision a request with the resulting token will get (owner boundary included).
           const decision = await resolveAccess({
             storage: deps.storage,

@@ -65,6 +65,8 @@ import {
   checkRole,
   checkTokenHash,
   checkTokenPrefix,
+  KV_INCREMENT_SQL,
+  kvCounterExpiry,
   kvExpiry,
   normalizeEmail,
 } from './validate.ts';
@@ -933,6 +935,13 @@ export async function createD1Storage(
         if (r === null) return null;
         const exp = numOrNull(r['expires_at']);
         return exp !== null && exp <= now() ? null : str(r['value']);
+      }),
+    // One upsert with RETURNING: concurrent increments are serialised by SQLite, each sees its own count.
+    increment: (key, opts) =>
+      call(async () => {
+        const t = now();
+        const r = await one(KV_INCREMENT_SQL, [key, kvCounterExpiry(opts.expirationTtl, t), t, t]);
+        return Number(str(r?.['value'] ?? '0'));
       }),
     purgeExpired: (limit) =>
       call(async () => {

@@ -482,6 +482,12 @@ export interface KvRepository {
    */
   take(key: string): Promise<string | null>;
   /**
+   * Atomic fixed-window counter (P5-03): adds one to the live integer under `key` and resolves the new count. A missing
+   * or expired key starts again at 1 and expires `expirationTtl` seconds from now; a live key keeps its expiry (the
+   * window does not slide). Of concurrent calls each sees a distinct count (shared registration caps across isolates).
+   */
+  increment(key: string, options: { readonly expirationTtl: number }): Promise<number>;
+  /**
    * Housekeeping (P4-09): deletes up to `limit` rows (default and max 1000) whose expiry has passed (abandoned login
    * transactions, unused setup links, ended sessions) and resolves how many it removed. Expired rows are already
    * invisible to every other method, so this only reclaims space. Callers loop while the count equals `limit`.

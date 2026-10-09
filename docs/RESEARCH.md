@@ -109,6 +109,13 @@ Sources: <https://claude.com/docs/connectors/building/authentication>,
   **OAuth 2.0 with DCR** and **OAuth 2.0 with Client ID Metadata Documents (CIMD)**. Static request headers are
   only in beta for some organisations.
 - Claude Code (CLI) supports `--header "Authorization: Bearer …"` and OAuth.
+- Cloudflare `global_fetch_strictly_public` (compatibility flag): the global `fetch` routes "as if made on the public
+  Internet": requests to the Worker's own zone go through Cloudflare's front door (security settings, Workers routes)
+  instead of straight to the zone's origin server. A Worker's `fetch` has no route into private networks (no
+  VPC/Tunnel binding is configured) and a Worker cannot resolve DNS itself, so on Workers the CIMD SSRF guard is this
+  flag + the platform's egress + our client-id checks (no IP literals, internal names or ports) + no redirects (P5-03).
+  The docs say nothing explicit about hostnames that resolve to private addresses; not verified on a deployment.
+  Source: <https://developers.cloudflare.com/workers/configuration/compatibility-flags/#global-fetch-strictly-public>.
 - **Conclusion: static bearer tokens cover the MacBook, PC and W365 machine (Claude Code / IDEs) from
   Phase 2. The phone needs OAuth 2.1 (Phase 5).** Both DCR (still used by many clients) and CIMD (the
   spec's preferred method) must be supported.
@@ -138,6 +145,19 @@ Sources: <https://modelcontextprotocol.io/specification/2026-07-28/basic/authori
   must try both, RFC 8414 first). `403 insufficient_scope` with `scope` + `resource_metadata` for step-up.
   Sources: <https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization>,
   <https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization/authorization-server-discovery>.
+- **Read in the 2026-07-28 client registration and security pages (P5-03, 2026-10-05):** clients use pre-registration,
+  then CIMD when the AS metadata has `client_id_metadata_document_supported`, then DCR (`registration_endpoint`),
+  then ask the user. CIMD documents MUST contain `client_id`, `client_name`, `redirect_uris`; the AS MUST check
+  `client_id` equals the URL exactly, MUST validate redirect URIs against the document, SHOULD cache respecting HTTP
+  cache headers, SHOULD consider SSRF; SHOULD warn for localhost-only redirect URIs and MUST display the redirect URI
+  host. DCR is deprecated (kept for compatibility); clients MUST send `application_type` (`native` for loopback). Draft
+  (`draft-ietf-oauth-client-id-metadata-document-00`): client id URL https with a path, no dot segments, fragment or
+  userinfo (ports allowed, query discouraged); no `client_secret*` and no shared-secret auth methods; recommended max
+  5 KB; MUST NOT cache errors or invalid documents; the AS MAY bound cache lifetimes, MAY restrict redirect URIs relative
+  to the client id, SHOULD avoid private/loopback addresses, SHOULD show the client id host.
+  Sources: <https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization/client-registration>,
+  <https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization/security-considerations>,
+  <https://www.ietf.org/archive/id/draft-ietf-oauth-client-id-metadata-document-00.html>.
 - Extensions framework: **MCP Apps** (interactive HTML UIs) and **Tasks** (long-running operations) ship as
   extensions. Logging and sampling were removed from core.
 - Tool input schemas support full JSON Schema 2020-12.
@@ -202,6 +222,15 @@ Sources: <https://github.com/cloudflare/workers-oauth-provider>, issues #264, #3
   - Token endpoint `resource` is optional in the provider: omitted → the grant's resource; given → it must match the
     grant's (`invalid_target`). The provider folds scheme/host case when matching resources and returns the configured
     (canonical) resource from `parseAuthRequest`. relic-bridge requires `resource` on code and refresh grants (P5-02).
+  - (P5-03) CIMD in the provider: enabled only with `Cloudflare.compatibilityFlags.global_fetch_strictly_public`;
+    fetches with the global `fetch` without `redirect` (redirects followed), 10 s, 5 KiB, caches in the Cache API
+    (`caches`, skipped on Node) for the document's `max-age` capped at 7 days; with CIMD off it reads a URL client id
+    from KV like any stored client (`client:<url>`), which relic-bridge uses to hand it validated documents (ADR-0012).
+    Grant replacement for URL client ids is keyed by redirect URI as well (any flag). DCR: `client_id` is 16 random
+    characters; listed redirect URIs may use private-use schemes as long as one is https or loopback http;
+    `clientRegistrationTTL` (default 90 days) expires registrations, renewed at half-life after a successful token
+    response; `clientRegistrationCallback` can refuse a registration. Confidential DCR clients are accepted
+    (`client_secret_basic` / `_post`).
   - The provider's own PRM handler and `OAuthResourceServer` challenge (`resource_metadata`, `insufficient_scope`)
     exist but are bound to declared resources; relic-bridge builds PRM and the challenge itself from the path, so no
     project list is needed per request and unknown slugs answer like known ones.

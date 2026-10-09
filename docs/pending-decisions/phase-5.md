@@ -75,3 +75,54 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   in every challenge, no `resource_name`, no CORS on `/.well-known/*` (same as `/oauth/*` in P5-01).
 - **Options:** add any of these if a real client needs it (P5-06 compatibility matrix).
 - **Needs:** nothing unless P5-06 finds a gap.
+
+## P5-03 — Client registration: CIMD and DCR
+
+### P5-03 — CIMD resolved by relic-bridge instead of the provider (ADR-0012)
+- **Context:** the provider's CIMD needs the Workers flag, uses the global `fetch` (no guard on Node) and follows
+  redirects; ADR-0009 wanted CIMD on both runtimes with a connect-time guard on Node.
+- **Assumption made:** ADR-0012 — our own resolver and policy, per-runtime fetcher (`node:https` + guarded `lookup` on
+  Node, `global_fetch_strictly_public` + `redirect: 'manual'` on Workers), documents cached as provider client records.
+- **Needs:** owner confirmation of ADR-0012.
+
+### P5-03 — CIMD redirect URIs only on the client id's own host
+- **Context:** the draft lets the AS restrict `redirect_uris` relative to the `client_id`. Claude (claude.ai,
+  `https://claude.ai/api/mcp/auth_callback`) and Claude Code (loopback) fit.
+- **Assumption made:** https redirect URIs on another host than the document's are dropped; loopback http always kept.
+  This makes the client host shown on the consent screen the host that receives the code.
+- **Options:** keep; relax to the same registrable domain; allow any https host (show both hosts on consent).
+- **Needs:** revisit if P5-06 finds a client whose callback is on another host than its metadata document.
+
+### P5-03 — CIMD details: port 443 only, JSON media type required, 5 min floor on the cache
+- **Context:** the draft allows ports and other content types (`application/<x>+json`), and says to respect
+  `no-store`.
+- **Assumption made:** client ids with an explicit port are refused (defence in depth against port probing);
+  `application/json` or `application/*+json` only; documents are cached at least 5 minutes (even with `no-store`) so a
+  record survives one authorization; at most 24 h.
+- **Needs:** revisit if a real client's document is refused for one of these (P5-06 logs the reason).
+
+### P5-03 — DCR stays open to any redirect host by default, capped at 30 registrations per hour per deployment
+- **Context:** DCR is anonymous by nature. An allow-list of redirect hosts (`registrationRedirectHosts`, e.g.
+  `claude.ai`) exists but would break other DCR clients (Cursor, VS Code, Inspector) unless listed.
+- **Assumption made:** no allow-list by default; one deployment-wide cap (30/hour, shared storage counter:
+  `kv.increment` on the existing `kv` table, one D1 write per registration); unused registrations expire after 24 h.
+  An attacker can exhaust the cap and delay new DCR clients for up to an hour (CIMD clients and existing registrations
+  are unaffected).
+- **Options:** default allow-list `claude.ai` + loopback; a lower/higher cap; DCR off by default once P5-06 shows every
+  client the owner uses supports CIMD.
+- **Needs:** owner choice when the `RB_OAUTH` switch lands (P5-04 exposes `registration`, `registrationLimit`,
+  `registrationRedirectHosts` as settings).
+
+### P5-03 — no global cap on CIMD fetches
+- **Context:** every authorize/token request with a new https `client_id` triggers one outbound fetch (cache misses
+  only), bounded by the per-IP `oauth` rule (60 per 5 min, per isolate on Workers) — a low-rate reflector to public
+  https URLs.
+- **Assumption made:** no deployment-wide fetch cap (it would let one caller block CIMD for new clients).
+- **Options:** a `kv.increment` cap on fetch misses (e.g. 120/hour); a second Rate Limiting binding for `/oauth/*`.
+- **Needs:** owner decision.
+
+### P5-03 — admin client list, revoke and runtime DCR switch split to P5-08
+- **Context:** P5-03's scope listed "client list in admin with revoke"; it needs admin API routes, a UI screen, OpenAPI
+  and negative authz tests.
+- **Assumption made:** new task P5-08 (depends on P5-03). Until then DCR is turned off by configuration only.
+- **Needs:** owner to order P5-08 relative to P5-04/P5-05.

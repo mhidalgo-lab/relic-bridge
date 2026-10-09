@@ -5,7 +5,13 @@
 // Runs on every authz host: the HTTP app on memory storage (Node), the CLI's SQLite storage (Node), and the Worker
 // on local D1 (workerd). Web-standard only. The consent step is a test stand-in (the real one is P5-04).
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { OAuthApproval, OAuthAuthorizationRequest, OAuthConsentHandler } from '../../src/index.ts';
+import type {
+  ClientMetadataFetch,
+  OAuthApproval,
+  OAuthAuthorizationRequest,
+  OAuthConsentHandler,
+  OAuthOptions,
+} from '../../src/index.ts';
 import {
   ADMIN_TOKEN,
   type AuthzApp,
@@ -22,6 +28,63 @@ const resourceOf = (slug: string): string => `${ISSUER}/p/${slug}/mcp`;
 const metadataOf = (slug: string): string => `${ISSUER}/.well-known/oauth-protected-resource/p/${slug}/mcp`;
 const challengeOf = (slug: string): string =>
   `Bearer realm="relic-bridge", resource_metadata="${metadataOf(slug)}", scope="mcp:read"`;
+
+/** Claude Code's metadata document URL (P0-08 spike) and the shape of its document (loopback redirects, any port). */
+const CLAUDE_CODE_ID = 'https://claude.ai/oauth/claude-code-client-metadata';
+/** A claude.ai-hosted document (web, Desktop and mobile share one client); the callback is the documented one. */
+const CLAUDE_AI_ID = 'https://claude.ai/oauth/mcp-oauth-client-metadata';
+const CLAUDE_AI_CALLBACK = 'https://claude.ai/api/mcp/auth_callback';
+
+/** A stand-in for the internet: client metadata documents by URL, and every URL asked for. Never a real fetch. */
+interface DocServer {
+  readonly calls: string[];
+  readonly docs: Map<string, () => Response | Promise<Response>>;
+  readonly fetch: ClientMetadataFetch;
+}
+
+function docServer(): DocServer {
+  const calls: string[] = [];
+  const docs = new Map<string, () => Response | Promise<Response>>();
+  return {
+    calls,
+    docs,
+    fetch: async (url) => {
+      calls.push(url);
+      const make = docs.get(url);
+      return make ? make() : new Response('not found', { status: 404 });
+    },
+  };
+}
+
+const jsonDoc =
+  (body: unknown, headers: Record<string, string> = {}) =>
+  (): Response =>
+    new Response(JSON.stringify(body), {
+      status: 200,
+      headers: { 'content-type': 'application/json', ...headers },
+    });
+
+const claudeCodeDoc = (over: Record<string, unknown> = {}): Record<string, unknown> => ({
+  client_id: CLAUDE_CODE_ID,
+  client_name: 'Claude Code',
+  client_uri: 'https://claude.ai',
+  redirect_uris: ['http://localhost/callback', 'http://127.0.0.1/callback'],
+  grant_types: ['authorization_code', 'refresh_token'],
+  response_types: ['code'],
+  token_endpoint_auth_method: 'none',
+  ...over,
+});
+
+const claudeAiDoc = (over: Record<string, unknown> = {}): Record<string, unknown> => ({
+  client_id: CLAUDE_AI_ID,
+  client_name: 'Claude',
+  client_uri: 'https://claude.ai',
+  redirect_uris: [CLAUDE_AI_CALLBACK],
+  grant_types: ['authorization_code', 'refresh_token'],
+  response_types: ['code'],
+  token_endpoint_auth_method: 'none',
+  ...over,
+});
 
 const b64u = (bytes: Uint8Array): string =>
   btoa(String.fromCharCode(...bytes))
@@ -74,6 +137,8 @@ interface Tokens {
 /** OAuth client steps against one app. */
 class Client {
   clientId = '';
+  /** The redirect URI this client authorizes and exchanges with. */
+  redirectUri = REDIRECT;
   constructor(
     private readonly h: Harness,
     private readonly app: AuthzApp,
@@ -94,20 +159,25 @@ class Client {
     );
   }
 
-  async register(redirectUris: readonly string[] = [REDIRECT]): Promise<string> {
-    const res = await this.send(
+  /** RFC 7591 registration request (any metadata); the raw answer. */
+  registerRaw(metadata: Record<string, unknown>): Promise<Captured> {
+    return this.send(
       new Request(`${ISSUER}/oauth/register`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          client_name: 'authz test client',
-          redirect_uris: redirectUris,
-          token_endpoint_auth_method: 'none',
-          grant_types: ['authorization_code', 'refresh_token'],
-          response_types: ['code'],
-        }),
+        body: JSON.stringify(metadata),
       }),
     );
+  }
+
+  async register(redirectUris: readonly string[] = [REDIRECT]): Promise<string> {
+    const res = await this.registerRaw({
+      client_name: 'authz test client',
+      redirect_uris: redirectUris,
+      token_endpoint_auth_method: 'none',
+      grant_types: ['authorization_code', 'refresh_token'],
+      response_types: ['code'],
+    });
     expect(res.status, res.text).toBe(201);
     this.clientId = (JSON.parse(res.text) as { client_id: string }).client_id;
     return this.clientId;
@@ -118,7 +188,7 @@ class Client {
     for (const [k, v] of Object.entries({
       response_type: 'code',
       client_id: this.clientId,
-      redirect_uri: REDIRECT,
+      redirect_uri: this.redirectUri,
       state: 'st-123',
       scope: 'mcp:read offline_access',
       ...params,
@@ -152,7 +222,7 @@ class Client {
     const res = await this.form('/oauth/token', {
       grant_type: 'authorization_code',
       code,
-      redirect_uri: REDIRECT,
+      redirect_uri: this.redirectUri,
       client_id: this.clientId,
       code_verifier: verifier,
       resource,
@@ -824,6 +894,415 @@ export function oauthSuite(): void {
       const anon = await h.send(new Request(`${ISSUER}/admin`), app);
       expect(ui.status).toBe(anon.status);
       expect(ui.headers.get('location')).toBe(anon.headers.get('location'));
+    });
+  });
+
+  describe('Client registration: CIMD and DCR (P5-03)', () => {
+    let docs: DocServer;
+    let cimdApp: AuthzApp;
+    let cimd: Client;
+    const oauthWith = (
+      over: Partial<OAuthOptions> = {},
+    ): Partial<OAuthOptions> & { consent: OAuthConsentHandler } => ({
+      consent: consent.handler,
+      accessTokenTtlSeconds: 600,
+      clientMetadataDocuments: { fetch: docs.fetch },
+      ...over,
+    });
+
+    beforeEach(() => {
+      docs = docServer();
+      docs.docs.set(CLAUDE_CODE_ID, jsonDoc(claudeCodeDoc(), { 'cache-control': 'max-age=600' }));
+      docs.docs.set(CLAUDE_AI_ID, jsonDoc(claudeAiDoc()));
+      cimdApp = h.makeApp({ oauth: oauthWith() });
+      cimd = new Client(h, cimdApp, secrets);
+    });
+
+    /**
+     * The expiry (epoch s) the app's storage gives a row written now with this TTL. Each host's app storage has its own
+     * clock in tests (memory: frozen, SQLite: real time, Worker: the faked `Date`), so read it from a row the app wrote:
+     * the registration counter of this window (written by a registration just now, 3600 s TTL by default).
+     */
+    const appExpiry = async (ttlSeconds: number): Promise<number> => {
+      const counter = (await h.world.storage.kv.list({ prefix: 'oauth-dcr-count:' })).keys;
+      expect(counter.length).toBe(1);
+      return (counter[0]?.expiration ?? 0) - 3600 + ttlSeconds;
+    };
+
+    const logged = (reason: string): boolean => h.logLines.some((l) => l.includes(`"reason":"${reason}"`));
+
+    it('advertises CIMD only with a guarded fetcher (and keeps DCR and the none auth method)', async () => {
+      const on = JSON.parse(
+        (await cimd.send(new Request(`${ISSUER}/.well-known/oauth-authorization-server`))).text,
+      );
+      expect(on).toMatchObject({
+        client_id_metadata_document_supported: true,
+        registration_endpoint: `${ISSUER}/oauth/register`,
+      });
+      expect(on.token_endpoint_auth_methods_supported).toContain('none');
+      const off = JSON.parse(
+        (await client.send(new Request(`${ISSUER}/.well-known/oauth-authorization-server`))).text,
+      );
+      expect(off.client_id_metadata_document_supported).toBe(false);
+    });
+
+    it('Claude Code (CIMD, loopback on any port, localhost and 127.0.0.1) completes authorize → token → MCP', async () => {
+      cimd.clientId = CLAUDE_CODE_ID;
+      for (const redirect of ['http://127.0.0.1:49152/callback', 'http://localhost:53999/callback']) {
+        cimd.redirectUri = redirect;
+        const t = await cimd.tokens('prod');
+        expect((await cimd.mcp('prod', t.access_token)).status).toBe(200);
+      }
+      expect(consent.seen[0]).toMatchObject({
+        clientId: CLAUDE_CODE_ID,
+        clientKind: 'metadata_document',
+        clientHost: 'claude.ai',
+        clientName: 'Claude Code',
+        redirectHost: '127.0.0.1:49152',
+      });
+      // Fetched once, then served from the stored record until its cache lifetime ends.
+      expect(docs.calls).toEqual([CLAUDE_CODE_ID]);
+    });
+
+    it('claude.ai (CIMD) completes the flow; refresh after the cache lifetime fetches the document again', async () => {
+      await new Client(h, cimdApp, secrets).register(); // a clock reference (appExpiry)
+      cimd.clientId = CLAUDE_AI_ID;
+      cimd.redirectUri = CLAUDE_AI_CALLBACK;
+      const t = await cimd.tokens('prod');
+      expect((await cimd.mcp('prod', t.access_token)).status).toBe(200);
+      expect(docs.calls).toEqual([CLAUDE_AI_ID]);
+      // No Cache-Control: cached for one hour. (Memory storage has a frozen clock: the end of the lifetime is the
+      // row's expiry, then the row going away.)
+      const cached = async () =>
+        (await h.world.storage.kv.list({ prefix: `oauth:client:${CLAUDE_AI_ID}` })).keys;
+      expect(Math.abs(((await cached())[0]?.expiration ?? 0) - (await appExpiry(3600)))).toBeLessThanOrEqual(
+        2,
+      );
+      const expire = async () => {
+        advance(3_601_000);
+        await h.world.storage.kv.delete(`oauth:client:${CLAUDE_AI_ID}`);
+      };
+      await expire();
+      const refreshed = await cimd.form('/oauth/token', {
+        grant_type: 'refresh_token',
+        refresh_token: t.refresh_token,
+        client_id: CLAUDE_AI_ID,
+        resource: resourceOf('prod'),
+      });
+      expect(refreshed.status, refreshed.text).toBe(200);
+      const r = JSON.parse(refreshed.text) as Tokens;
+      secrets.push(r.access_token, r.refresh_token);
+      expect(docs.calls).toEqual([CLAUDE_AI_ID, CLAUDE_AI_ID]);
+      // The document changed: its client can't refresh any more (and the code that failed burns nothing).
+      docs.docs.set(CLAUDE_AI_ID, jsonDoc(claudeAiDoc({ client_id: 'https://claude.ai/other' })));
+      await expire();
+      const refused = await cimd.form('/oauth/token', {
+        grant_type: 'refresh_token',
+        refresh_token: r.refresh_token,
+        client_id: CLAUDE_AI_ID,
+        resource: resourceOf('prod'),
+      });
+      expect(refused.status).toBe(400);
+      expect(JSON.parse(refused.text)).toMatchObject({ error: 'invalid_client' });
+    });
+
+    it('claude.ai (DCR request shape) registers and completes the flow', async () => {
+      const res = await cimd.registerRaw({
+        client_name: 'Claude',
+        redirect_uris: [CLAUDE_AI_CALLBACK],
+        grant_types: ['authorization_code', 'refresh_token'],
+        response_types: ['code'],
+        token_endpoint_auth_method: 'none',
+      });
+      expect(res.status, res.text).toBe(201);
+      cimd.clientId = (JSON.parse(res.text) as { client_id: string }).client_id;
+      cimd.redirectUri = CLAUDE_AI_CALLBACK;
+      const t = await cimd.tokens('prod');
+      expect((await cimd.mcp('prod', t.access_token)).status).toBe(200);
+      expect(consent.seen[0]).toMatchObject({
+        clientKind: 'dynamic',
+        clientHost: null,
+        clientName: 'Claude',
+      });
+      expect(docs.calls).toEqual([]);
+    });
+
+    it('malicious or broken metadata documents are a 400 page: no redirect, no consent, nothing cached', async () => {
+      const id = 'https://evil.example.com/client.json';
+      const big = 'x'.repeat(6000);
+      const cases: Record<string, () => Response | Promise<Response>> = {
+        no_usable_redirect_uri: jsonDoc({
+          ...claudeAiDoc(),
+          client_id: id,
+          redirect_uris: ['com.example.app:/callback'],
+        }),
+        redirect_uri_ip_literal: jsonDoc({
+          ...claudeAiDoc(),
+          client_id: id,
+          redirect_uris: ['https://10.0.0.1/cb'],
+        }),
+        redirect_uri_fragment: jsonDoc({
+          ...claudeAiDoc(),
+          client_id: id,
+          redirect_uris: [`https://evil.example.com/cb#x`],
+        }),
+        redirect_uri_wildcard: jsonDoc({
+          ...claudeAiDoc(),
+          client_id: id,
+          redirect_uris: ['https://*.evil.example.com/cb'],
+        }),
+        foreign_host_only: jsonDoc({ ...claudeAiDoc(), client_id: id, redirect_uris: [CLAUDE_AI_CALLBACK] }),
+        client_id_mismatch: jsonDoc({ ...claudeAiDoc() }),
+        client_secret: jsonDoc({
+          ...claudeAiDoc(),
+          client_id: id,
+          redirect_uris: ['https://evil.example.com/cb'],
+          client_secret: 's',
+        }),
+        token_endpoint_auth_method: jsonDoc({
+          ...claudeAiDoc(),
+          client_id: id,
+          redirect_uris: ['https://evil.example.com/cb'],
+          token_endpoint_auth_method: 'private_key_jwt',
+        }),
+        client_name: jsonDoc({
+          ...claudeAiDoc(),
+          client_id: id,
+          redirect_uris: ['https://evil.example.com/cb'],
+          client_name: 'Claude‮',
+        }),
+        too_large_declared: () =>
+          new Response(big, {
+            status: 200,
+            headers: { 'content-type': 'application/json', 'content-length': '6000' },
+          }),
+        too_large_streamed: () =>
+          new Response(
+            new ReadableStream({
+              start(controller) {
+                for (let i = 0; i < 4; i++) controller.enqueue(new TextEncoder().encode('x'.repeat(2000)));
+                controller.close();
+              },
+            }),
+            { status: 200, headers: { 'content-type': 'application/json' } },
+          ),
+        content_type: () =>
+          new Response(JSON.stringify(claudeAiDoc({ client_id: id })), {
+            status: 200,
+            headers: { 'content-type': 'text/html' },
+          }),
+        redirect: () =>
+          new Response(null, {
+            status: 302,
+            headers: { location: 'http://169.254.169.254/latest/meta-data' },
+          }),
+        http_status: () => new Response('nope', { status: 500 }),
+        not_json: () => new Response('{', { status: 200, headers: { 'content-type': 'application/json' } }),
+        fetch_failed: () => {
+          throw new TypeError('connect refused');
+        },
+      };
+      cimd.clientId = id;
+      cimd.redirectUri = 'https://evil.example.com/cb';
+      for (const [reason, make] of Object.entries(cases)) {
+        docs.docs.set(id, make);
+        const before = docs.calls.length;
+        const { res } = await cimd.authorize('prod');
+        expect(res.status, reason).toBe(400);
+        expect(res.headers.get('location'), reason).toBeNull();
+        expect(JSON.parse(res.text), reason).toMatchObject({ error: 'invalid_client' });
+        expect(docs.calls.length, reason).toBe(before + 1);
+        const expected = reason.startsWith('too_large')
+          ? 'too_large'
+          : reason === 'foreign_host_only'
+            ? 'no_usable_redirect_uri'
+            : reason;
+        expect(logged(expected), reason).toBe(true);
+      }
+      expect(consent.seen).toEqual([]);
+      // Errors are never cached: a fixed document works at once.
+      docs.docs.set(
+        id,
+        jsonDoc({ ...claudeAiDoc(), client_id: id, redirect_uris: ['https://evil.example.com/cb'] }),
+      );
+      const fixed = await cimd.authorize('prod');
+      expect(fixed.code).not.toBeNull();
+    });
+
+    it('a redirect URI the document does not hold (or holds on another host) is refused before any redirect', async () => {
+      docs.docs.set(
+        CLAUDE_AI_ID,
+        jsonDoc(claudeAiDoc({ redirect_uris: [CLAUDE_AI_CALLBACK, 'https://evil.example/cb'] })),
+      );
+      cimd.clientId = CLAUDE_AI_ID;
+      for (const redirect of [
+        'https://evil.example/cb',
+        'https://claude.ai/api/mcp/other',
+        'http://127.0.0.1:5000/cb',
+      ]) {
+        cimd.redirectUri = redirect;
+        const { res } = await cimd.authorize('prod');
+        expect(res.status, redirect).toBe(400);
+        expect(res.headers.get('location'), redirect).toBeNull();
+      }
+      expect(consent.seen).toEqual([]);
+    });
+
+    it('client ids that must not be fetched are refused without a fetch (SSRF, T11)', async () => {
+      const refused = [
+        'https://127.0.0.1/client.json',
+        'https://10.0.0.1/client.json',
+        'https://169.254.169.254/latest/meta-data',
+        'https://[::1]/client.json',
+        'https://[fd00::1]/client.json',
+        'https://localhost/client.json',
+        'https://metadata.google.internal/computeMetadata/v1',
+        'https://printer.local/client.json',
+        'https://intranet/client.json',
+        'https://claude.ai:8443/client.json',
+        'https://claude.ai:443/client.json',
+        'https://CLAUDE.ai/oauth/client.json',
+        'https://claude.ai/oauth/../client.json',
+        'https://claude.ai',
+        'https://claude.ai/',
+        'https://user:pw@claude.ai/client.json',
+        'https://claude.ai/client.json#frag',
+        'https://0x7f.1/client.json',
+        `${ISSUER}/client.json`,
+        `https://claude.ai/${'a'.repeat(600)}`,
+      ];
+      for (const id of refused) {
+        cimd.clientId = id;
+        const { res } = await cimd.authorize('prod');
+        expect(res.status, id).toBe(400);
+        expect(res.headers.get('location'), id).toBeNull();
+      }
+      expect(docs.calls).toEqual([]);
+      expect(consent.seen).toEqual([]);
+      // At the token endpoint too.
+      const tok = await cimd.form('/oauth/token', {
+        grant_type: 'refresh_token',
+        refresh_token: `usr_a:${'g'.repeat(16)}:${'s'.repeat(32)}`,
+        client_id: 'https://169.254.169.254/latest/meta-data',
+        resource: resourceOf('prod'),
+      });
+      expect(tok.status).toBe(400);
+      expect(docs.calls).toEqual([]);
+    });
+
+    it('without a fetcher, URL client ids are refused at authorize and token and nothing is fetched', async () => {
+      client.clientId = CLAUDE_CODE_ID;
+      const { res } = await client.authorize('prod');
+      expect(res.status).toBe(400);
+      expect(res.headers.get('location')).toBeNull();
+      expect(logged('cimd_disabled')).toBe(true);
+      const tok = await client.form('/oauth/token', {
+        grant_type: 'authorization_code',
+        code: `usr_a:${'g'.repeat(16)}:${'s'.repeat(32)}`,
+        redirect_uri: REDIRECT,
+        client_id: CLAUDE_CODE_ID,
+        code_verifier: 'v'.repeat(43),
+        resource: resourceOf('prod'),
+      });
+      expect(tok.status).toBe(400);
+      expect(JSON.parse(tok.text)).toMatchObject({ error: 'invalid_client' });
+      expect(docs.calls).toEqual([]);
+    });
+
+    it('DCR: redirect URIs and names are checked before anything is stored', async () => {
+      const base = { client_name: 'x', token_endpoint_auth_method: 'none' };
+      const bad: [string, Record<string, unknown>][] = [
+        ['http on a public host', { ...base, redirect_uris: ['http://evil.example/cb'] }],
+        ['fragment', { ...base, redirect_uris: ['https://app.example/cb#x'] }],
+        ['wildcard', { ...base, redirect_uris: ['https://*.example/cb'] }],
+        ['private IP', { ...base, redirect_uris: ['https://192.168.1.10/cb'] }],
+        ['metadata IP', { ...base, redirect_uris: ['https://169.254.169.254/cb'] }],
+        ['userinfo', { ...base, redirect_uris: ['https://u:p@app.example/cb'] }],
+        ['none', { ...base, redirect_uris: [] }],
+        ['missing', { ...base }],
+        [
+          'too many',
+          { ...base, redirect_uris: Array.from({ length: 11 }, (_, i) => `https://app.example/cb${i}`) },
+        ],
+        ['only private-use', { ...base, redirect_uris: ['cursor://anysphere.cursor-mcp/oauth/callback'] }],
+        ['javascript', { ...base, redirect_uris: ['javascript:alert(1)'] }],
+        ['bidi name', { ...base, client_name: 'Cl‮aude', redirect_uris: [REDIRECT] }],
+        ['zero-width name', { ...base, client_name: 'Cla​ude', redirect_uris: [REDIRECT] }],
+        ['long name', { ...base, client_name: 'x'.repeat(101), redirect_uris: [REDIRECT] }],
+      ];
+      for (const [what, meta] of bad) {
+        const res = await client.registerRaw(meta);
+        expect(res.status, what).toBe(400);
+        expect(['invalid_redirect_uri', 'invalid_client_metadata'], what).toContain(
+          JSON.parse(res.text).error,
+        );
+      }
+      // A private-use scheme may be listed next to a usable callback (Cursor does).
+      const ok = await client.registerRaw({
+        ...base,
+        redirect_uris: ['cursor://anysphere.cursor-mcp/oauth/callback', 'https://cursor.example/cb'],
+      });
+      expect(ok.status, ok.text).toBe(201);
+      const notJson = await client.send(
+        new Request(`${ISSUER}/oauth/register`, {
+          method: 'POST',
+          headers: { 'content-type': 'text/plain' },
+          body: JSON.stringify({ ...base, redirect_uris: [REDIRECT] }),
+        }),
+      );
+      expect(notJson.status).toBe(400);
+      expect((await h.world.storage.kv.list({ prefix: 'oauth:client:' })).keys.length).toBe(1);
+    });
+
+    it('DCR: an allow-list of redirect hosts, loopback always allowed', async () => {
+      const listed = h.makeApp({ oauth: oauthWith({ registrationRedirectHosts: ['claude.ai'] }) });
+      const c = new Client(h, listed, secrets);
+      expect((await c.registerRaw({ redirect_uris: [CLAUDE_AI_CALLBACK] })).status).toBe(201);
+      expect((await c.registerRaw({ redirect_uris: [REDIRECT] })).status).toBe(201);
+      const other = await c.registerRaw({ redirect_uris: ['https://evil.example/cb'] });
+      expect(other.status).toBe(400);
+      expect(JSON.parse(other.text).error).toBe('invalid_redirect_uri');
+    });
+
+    it('DCR: one registration cap for every instance (shared storage counter), 429 with Retry-After', async () => {
+      const limit = { requests: 3, perSeconds: 3600 };
+      const one = new Client(h, h.makeApp({ oauth: oauthWith({ registrationLimit: limit }) }), secrets);
+      const two = new Client(h, h.makeApp({ oauth: oauthWith({ registrationLimit: limit }) }), secrets);
+      const meta = { redirect_uris: [REDIRECT] };
+      expect((await one.registerRaw(meta)).status).toBe(201);
+      expect((await two.registerRaw(meta)).status).toBe(201);
+      expect((await one.registerRaw(meta)).status).toBe(201);
+      for (const c of [one, two]) {
+        const res = await c.registerRaw(meta);
+        expect(res.status).toBe(429);
+        expect(Number(res.headers.get('retry-after'))).toBeGreaterThan(0);
+        expect(Number(res.headers.get('retry-after'))).toBeLessThanOrEqual(3600);
+      }
+      // Refused requests are not counted against the policy (a bad request still uses up a slot: it was checked).
+      expect((await h.world.storage.kv.list({ prefix: 'oauth:client:' })).keys.length).toBe(3);
+      advance(3_600_000);
+      expect((await two.registerRaw(meta)).status).toBe(201);
+    });
+
+    it('DCR: a registration nobody uses expires after a day; the first exchange renews it', async () => {
+      const used = await cimd.register();
+      const unusedClient = new Client(h, cimdApp, secrets);
+      const unused = await unusedClient.register();
+      const ttl = async (id: string) =>
+        (await h.world.storage.kv.list({ prefix: `oauth:client:${id}` })).keys[0]?.expiration ?? null;
+      const day = await appExpiry(86_400);
+      expect(Math.abs(((await ttl(unused)) ?? 0) - day)).toBeLessThanOrEqual(2);
+      expect(Math.abs(((await ttl(used)) ?? 0) - day)).toBeLessThanOrEqual(2);
+      await cimd.tokens('prod');
+      expect((await ttl(used)) ?? 0).toBeGreaterThan(day + 80 * 86_400);
+      advance(86_401_000);
+      // (Memory storage has a frozen clock: the expired row is removed by hand there.)
+      await h.world.storage.kv.delete(`oauth:client:${unused}`);
+      expect(await ttl(unused)).toBeNull();
+      const gone = await unusedClient.authorize('prod');
+      expect(gone.res.status).toBe(400);
+      expect(gone.res.headers.get('location')).toBeNull();
+      expect((await cimd.authorize('prod')).code).not.toBeNull();
     });
   });
 }

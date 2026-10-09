@@ -242,6 +242,7 @@ export function runStorageContract(options: StorageContractOptions): void {
             s.kv.put('k', 'v'),
             s.kv.delete('k'),
             s.kv.take('k'),
+            s.kv.increment('k', { expirationTtl: 60 }),
             s.kv.purgeExpired(),
             s.kv.deletePrefix('k'),
           ];
@@ -1150,6 +1151,32 @@ export function runStorageContract(options: StorageContractOptions): void {
         await s.kv.delete('a');
         await s.kv.delete('a');
         expect(await s.kv.get('a')).toBeNull();
+        await s.close();
+      });
+
+      it('increment counts atomically in a fixed window that restarts after expiry (P5-03 shared caps)', async () => {
+        const { s, clock } = await fresh();
+        expect(await s.kv.increment('cap:w1', { expirationTtl: 60 })).toBe(1);
+        expect(await s.kv.increment('cap:w1', { expirationTtl: 600 })).toBe(2);
+        // A live key keeps its first expiry: the window does not slide with later calls.
+        const listed = (await s.kv.list({ prefix: 'cap:' })).keys[0];
+        expect(listed?.expiration).toBe(Math.floor(clock.t / 1000) + 60);
+        // Concurrent increments: every caller sees a distinct count.
+        const counts = await Promise.all(
+          [1, 2, 3, 4, 5].map(() => s.kv.increment('cap:w1', { expirationTtl: 60 })),
+        );
+        expect([...counts].sort((a, b) => a - b)).toEqual([3, 4, 5, 6, 7]);
+        expect(await s.kv.get('cap:w1')).toBe('7');
+        clock.advance(61_000);
+        expect(await s.kv.get('cap:w1')).toBeNull();
+        expect(await s.kv.increment('cap:w1', { expirationTtl: 60 })).toBe(1);
+        // A non-numeric value counts from zero; a missing or non-positive TTL is refused (a counter never lives forever).
+        await s.kv.put('cap:odd', 'x', { expirationTtl: 60 });
+        expect(await s.kv.increment('cap:odd', { expirationTtl: 60 })).toBe(1);
+        for (const bad of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
+          await rejects(s.kv.increment('cap:bad', { expirationTtl: bad }), InvalidInputError);
+        }
+        expect(await s.kv.get('cap:bad')).toBeNull();
         await s.close();
       });
 

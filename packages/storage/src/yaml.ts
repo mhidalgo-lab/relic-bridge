@@ -263,6 +263,7 @@ export function createYamlStorage(
       put: readOnly,
       delete: readOnly,
       take: readOnly,
+      increment: readOnly,
       purgeExpired: readOnly,
       deletePrefix: readOnly,
       list: async () => Object.freeze({ keys: Object.freeze([]), complete: true }),

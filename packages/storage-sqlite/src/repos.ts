@@ -34,10 +34,12 @@ import {
   type GrantsRepository,
   InvalidInputError,
   type JsonValue,
+  KV_INCREMENT_SQL,
   type KvListResult,
   type KvPutOptions,
   type KvRepository,
   keyChangedError,
+  kvCounterExpiry,
   kvExpiry,
   lastOwnerError,
   lastOwnerGuardSql,
@@ -742,6 +744,13 @@ export function createRepositories(
         if (r === null) return null;
         const exp = numOrNull(r['expires_at']);
         return exp !== null && exp <= now() ? null : str(r['value']);
+      }),
+    // One upsert with RETURNING: atomic, each concurrent caller sees its own count.
+    increment: (key, opts) =>
+      call(() => {
+        const t = now();
+        const r = one(KV_INCREMENT_SQL, [key, kvCounterExpiry(opts.expirationTtl, t), t, t]);
+        return Number(str(r?.['value'] ?? '0'));
       }),
     purgeExpired: (limit) =>
       call(() => {

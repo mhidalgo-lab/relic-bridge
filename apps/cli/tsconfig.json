@@ -5,7 +5,10 @@
     // Bin-only package (no published types), so declaration-level checks don't apply.
     "declaration": false,
     "isolatedDeclarations": false,
-    "paths": { "@relic-bridge/core": ["../../packages/core/src/index.ts"] }
+    "paths": {
+      "@relic-bridge/core": ["../../packages/core/src/index.ts"],
+      "@relic-bridge/storage": ["../../packages/storage/src/index.ts"]
+    }
   },
   "include": ["src", "test"]
 }

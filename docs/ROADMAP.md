@@ -101,7 +101,7 @@ Generated from task front matter (`pnpm tasks index` once P0-05 lands). Status l
 
 | ID | Task | Priority | Depends on | Status |
 |---|---|---|---|---|
-| P2-01 | [Storage interface, Drizzle schema and migrations](tasks/phase-2-access-http/P2-01-storage-interface-schema.md) | high | P1-15 | todo |
+| P2-01 | [Storage interface, Drizzle schema and migrations](tasks/phase-2-access-http/P2-01-storage-interface-schema.md) | high | P1-15 | review |
 | P2-02 | [SQLite adapter for Node](tasks/phase-2-access-http/P2-02-sqlite-adapter.md) | high | P2-01 | todo |
 | P2-03 | [Secrets encryption and master-key rotation](tasks/phase-2-access-http/P2-03-secrets-encryption.md) | high | P2-01 | todo |
 | P2-04 | [Access model and effective-permission resolver](tasks/phase-2-access-http/P2-04-access-model.md) | high | P2-01, P2-03 | todo |

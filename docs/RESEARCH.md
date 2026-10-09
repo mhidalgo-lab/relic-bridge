@@ -217,3 +217,16 @@ These are all single-user, local, one key from an environment variable. relic-br
 and credentials, a hosted Worker *or* local deployment, an access model with per-tool grants, OAuth for mobile/web
 clients, an admin panel, an audit log, and security as a documented feature. Task **P0-11** reviews their tool designs
 and known issues before Phase 1.
+
+## 8. Drizzle ORM and drizzle-kit (P2-01, checked 2026-10-03)
+
+- npm `latest`: `drizzle-orm` 0.45.3 and `drizzle-kit` 0.31.11 (both 2026-09-21). The 1.0 line is still a release
+  candidate (`rc` tag 1.0.0-rc.4, nightly `rc5` builds); 1.0 adds a `node:sqlite` driver and changes the migration
+  folder layout (no `_journal.json`). We pin the stable 0.x line.
+- `sqliteTable(name, columns, (t) => [index(), uniqueIndex(), check()])` is the current extra-config form; `check()`
+  renders as table-qualified `CHECK("table"."col" …)`, which SQLite accepts (verified with `node:sqlite`).
+- `drizzle-kit generate` writes `migrations/NNNN_tag.sql` with `--> statement-breakpoint` separators plus
+  `meta/_journal.json` and snapshots. D1 runs the same SQL.
+- `drizzle-kit` 0.31 still depends on the deprecated `@esbuild-kit/*` loader, which pulls esbuild 0.18
+  (GHSA-67mh-4wv8-2f99, dev-server only). Overridden to esbuild 0.25.12 in `pnpm-workspace.yaml`; generation works.
+- Sources: npm registry metadata; orm.drizzle.team docs (SQLite column types, indexes & constraints).

@@ -23,6 +23,26 @@ export {
 } from './document.ts';
 export { endpointFor, NERDGRAPH_ENDPOINTS, REGIONS } from './endpoints.ts';
 export {
+  ENTITY_QUERY,
+  ENTITY_SEARCH_QUERY,
+  ENTITY_TYPES_QUERY,
+  type EntityAlertSeverity,
+  type EntityOutlineData,
+  RELATED_ENTITIES_QUERY,
+  type RelationshipDirection,
+} from './entities.ts';
+export { type DecodedEntityGuid, decodeEntityGuid } from './entity-guid.ts';
+export {
+  type EntityQueryTag,
+  type EntityQueryValue,
+  type EntitySearchQuery,
+  entityQuery,
+  isEntitySearchQuery,
+  MAX_ENTITY_QUERY_LIST,
+  MAX_ENTITY_QUERY_VALUE_CHARS,
+  quoteEntityString,
+} from './entity-query.ts';
+export {
   ACCOUNT_SCOPE,
   ACCOUNTS_QUERY,
   IDENTITY_QUERY,

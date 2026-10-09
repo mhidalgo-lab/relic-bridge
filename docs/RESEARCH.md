@@ -165,6 +165,12 @@ Sources: <https://github.com/cloudflare/workers-oauth-provider>, issues #264, #3
 - Errors Inbox (`errorsInbox.errorGroups`) has no public NerdGraph tutorial, so its shape comes from introspection (P0-09 probe).
 - Entity search: single-quoted strings, max 200 per page with `nextCursor`. **Measured (P0-09): `\'` escapes a quote**
   (`name = 'it\'s'` is valid; `''` and unbalanced quotes → `INVALID_INPUT`). Rule: backslash-escape `\` and `'`.
+- Entity schema (introspected, P0-09): `Entity.relatedEntities(cursor, filter: EntityRelationshipEdgeFilter { direction:
+  INBOUND|OUTBOUND|BOTH, entityDomainTypes { include, exclude: [DomainTypeInput { domain, type }] }, relationshipTypes },
+  limit)` → `results: [EntityRelationshipEdge { type, source/target: EntityRelationshipVertex { guid accountId entity } }]`;
+  `EntitySearch.types { domain type entityType count }`; `EntitySearchOptions { limit, tagFilter, caseSensitiveTagMatching }`.
+  GUIDs are base64 of `accountId|DOMAIN|TYPE|domainId`. Not yet verified live: `accountId IN (…)` in a search filter,
+  `options.limit` semantics (P1-08 pending decision).
 - `aiIssues` worked **with and without** the opt-in header (P0-09). Send it anyway, as documented.
 - `Actor.accounts(scope: RegionScope)`: account listing takes a region scope. Pass it explicitly when validating keys.
 - `embeddedChartUrl` creates a **shareable public chart URL**, and **selecting `staticChartUrl` generates a token-signed public

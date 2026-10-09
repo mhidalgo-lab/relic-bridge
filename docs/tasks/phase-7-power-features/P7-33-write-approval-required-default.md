@@ -2,11 +2,11 @@
 id: P7-33
 title: Default RB_WRITE_APPROVAL to required
 phase: 7
-status: todo
+status: in-progress
 priority: high
 depends_on: [P7-25]
 adr: ["0015", "0016"]
-owner: ""
+owner: claude-agent
 ---
 
 # P7-33 — Default RB_WRITE_APPROVAL to required

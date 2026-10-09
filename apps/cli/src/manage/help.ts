@@ -23,7 +23,7 @@ Usage:
                     [--no-config]
   relic-bridge token list [--grant <id>] | token revoke <id>
   relic-bridge audit tail [--limit <n>] [--follow] [--kind --action --status --project
-                    --user --grant --token-id --since --until]
+                    --user --grant --token-id --key-id (pt_… or any) --since --until]
 
 Options for every command:
   --remote <url>   Manage the instance at <url> (or RB_REMOTE). https is required; plain http

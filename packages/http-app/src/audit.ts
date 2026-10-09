@@ -5,10 +5,13 @@
 //   admin actions  `recorder.admin(...)`, the API the admin REST API (P2-09) and CLI (P2-10) call
 // Never stored: access tokens, New Relic keys, result rows, request bodies. Every write runs in the background and a
 // failed write is logged, never surfaced to the caller (an audit outage must not become a service outage).
+
+import type { ToolCallEvent } from '@relic-bridge/core';
 import { type Clock, type Logger, redact, redactValue, silentLogger, systemClock } from '@relic-bridge/core';
 import type { AuditEntry, AuditKind, AuditLogRepository, AuditStatus } from '@relic-bridge/storage';
 import type { Context } from 'hono';
 import type { AuthFailureInfo, HttpAppHooks, McpRequestInfo, RejectInfo } from './app.ts';
+import type { PassthroughRequestInfo } from './passthrough.ts';
 
 /** How NRQL text is stored. `mask` is the default: enough to see what was asked, without the values. */
 export type AuditNrqlMode = 'mask' | 'hash' | 'full' | 'off';
@@ -220,6 +223,36 @@ export function createAuditRecorder(options: AuditRecorderOptions): AuditRecorde
     projectId: info.projectId,
   });
 
+  const writeToolCall = async (
+    who: Pick<AuditEntry, 'requestId' | 'userId' | 'grantId' | 'tokenId' | 'projectId' | 'keyId'>,
+    details: Record<string, unknown>,
+    event: ToolCallEvent,
+  ): Promise<void> => {
+    const input = asRecord(event.input);
+    const result = asRecord(event.meta?.['relic-bridge/result']);
+    const rawNrql =
+      typeof result?.['nrql'] === 'string'
+        ? (result['nrql'] as string)
+        : typeof input?.['nrql'] === 'string'
+          ? (input['nrql'] as string)
+          : null;
+    const inspected = result?.['inspectedCount'];
+    await write({
+      ts: clock.now(),
+      kind: 'tool_call',
+      action: event.tool,
+      status: event.status,
+      ...who,
+      accountIds: asNumberList(result?.['accounts']) ?? asNumberList(input?.['accounts']),
+      nrql: rawNrql === null ? null : await nrqlForAudit(rawNrql, mode),
+      durationMs: Math.round(event.durationMs),
+      inspectedCount:
+        typeof inspected === 'number' && Number.isFinite(inspected) ? Math.trunc(inspected) : null,
+      errorCode: event.errorCode,
+      details,
+    });
+  };
+
   const hooks: HttpAppHooks = {
     // Only the failure itself is recorded; the reason is the stable deny code, never the token or what was guessed.
     onAuthFailure(c: Context, info: AuthFailureInfo) {
@@ -253,35 +286,24 @@ export function createAuditRecorder(options: AuditRecorderOptions): AuditRecorde
         ...(req
           ? { userId: req.userId, grantId: req.grantId, tokenId: req.tokenId, projectId: req.projectId }
           : {}),
+        ...(info.passthrough ? { keyId: info.passthrough.keyId } : {}),
         errorCode: info.reason ?? `http_${info.status}`,
-        details: { status: info.status, ...(req ? {} : ipDetails(c)) },
+        details: { status: info.status, ...(req || info.passthrough ? {} : ipDetails(c)) },
       });
     },
 
     async onToolCall(_c: Context, info: McpRequestInfo, event) {
-      const input = asRecord(event.input);
-      const result = asRecord(event.meta?.['relic-bridge/result']);
-      const rawNrql =
-        typeof result?.['nrql'] === 'string'
-          ? (result['nrql'] as string)
-          : typeof input?.['nrql'] === 'string'
-            ? (input['nrql'] as string)
-            : null;
-      const inspected = result?.['inspectedCount'];
-      await write({
-        ts: clock.now(),
-        kind: 'tool_call',
-        action: event.tool,
-        status: event.status,
-        ...identity(info),
-        accountIds: asNumberList(result?.['accounts']) ?? asNumberList(input?.['accounts']),
-        nrql: rawNrql === null ? null : await nrqlForAudit(rawNrql, mode),
-        durationMs: Math.round(event.durationMs),
-        inspectedCount:
-          typeof inspected === 'number' && Number.isFinite(inspected) ? Math.trunc(inspected) : null,
-        errorCode: event.errorCode,
-        details: { project: info.projectSlug },
-      });
+      await writeToolCall(identity(info), { project: info.projectSlug }, event);
+    },
+
+    // Pass-through calls (P2-16): the actor is the key's fingerprint id (`pt_...`), never the key. No grant, token or
+    // project exists; `details.mode` marks the row as pass-through.
+    async onPassthroughToolCall(_c: Context, info: PassthroughRequestInfo, event) {
+      await writeToolCall(
+        { requestId: info.requestId, keyId: info.keyId },
+        { mode: 'passthrough', region: info.region },
+        event,
+      );
     },
 
     // A `tools/call` for a tool this grant doesn't include is answered by the MCP layer as "unknown tool", so the

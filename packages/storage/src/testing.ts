@@ -679,6 +679,7 @@ export function runStorageContract(options: StorageContractOptions): void {
           grantId: null,
           tokenId: null,
           clientId: null,
+          keyId: null,
           errorCode: null,
           inspectedCount: null,
           requestId: null,
@@ -714,8 +715,27 @@ export function runStorageContract(options: StorageContractOptions): void {
         expect((await s.auditLog.list({ grantId: 'g1' })).map((r) => r.ts)).toEqual([650]);
         expect((await s.auditLog.list({ tokenId: 't1', kind: 'tool_call' })).map((r) => r.ts)).toEqual([650]);
         expect(await s.auditLog.list({ grantId: 'g2' })).toEqual([]);
+        // pass-through rows (P2-16): a key fingerprint id instead of a grant and token
+        await s.auditLog.append({
+          ts: 660,
+          kind: 'tool_call',
+          action: 'run_nrql',
+          status: 'ok',
+          keyId: 'pt_aaaaaaaaaaaa',
+        });
+        await s.auditLog.append({
+          ts: 670,
+          kind: 'tool_call',
+          action: 'whoami',
+          status: 'ok',
+          keyId: 'pt_bbbbbbbbbbbb',
+        });
+        expect((await s.auditLog.list({ keyId: 'pt_aaaaaaaaaaaa' })).map((r) => r.ts)).toEqual([660]);
+        expect((await s.auditLog.list({ passthrough: true })).map((r) => r.ts)).toEqual([670, 660]);
+        expect(await s.auditLog.list({ keyId: 'pt_cccccccccccc' })).toEqual([]);
+        expect((await s.auditLog.list({ keyId: 'pt_aaaaaaaaaaaa' }))[0]?.grantId).toBeNull();
         expect(await s.auditLog.purgeBefore(300)).toBe(2);
-        expect((await s.auditLog.list()).map((r) => r.ts)).toEqual([650, 600, 500, 400, 300]);
+        expect((await s.auditLog.list()).map((r) => r.ts)).toEqual([670, 660, 650, 600, 500, 400, 300]);
         await s.close();
       });
     });

@@ -408,6 +408,10 @@ export const AuditSchema = z
     grantId: z.string().nullable(),
     tokenId: z.string().nullable(),
     clientId: z.string().nullable(),
+    keyId: z
+      .string()
+      .nullable()
+      .openapi({ description: 'Pass-through key fingerprint id (`pt_…`); never the key.' }),
     projectId: z.string().nullable(),
     accountIds: z.array(z.number().int()).nullable(),
     nrql: z.string().nullable().openapi({ description: 'Masked, hashed or full NRQL (RB_AUDIT_NRQL).' }),
@@ -439,6 +443,13 @@ export const AuditQuerySchema = z.strictObject({
   userId: idRef('Only this user.').optional(),
   grantId: idRef('Only this grant.').optional(),
   tokenId: idRef('Only this access token.').optional(),
+  keyId: z
+    .string()
+    .regex(/^(pt_[0-9a-f]{12}|any)$/)
+    .optional()
+    .openapi({
+      description: 'Pass-through rows: one key fingerprint id (`pt_…`), or `any` for all pass-through rows.',
+    }),
   since: timeQuery('Inclusive lower bound'),
   until: timeQuery('Exclusive upper bound'),
   limit: limitQuery,

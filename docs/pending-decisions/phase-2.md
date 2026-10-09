@@ -428,3 +428,15 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Assumption made:** refusals are audited (existing hooks), tool calls are not; new task P2-16.
 - **Options:** as assumed; record them now under `details.keyId` with the existing schema.
 - **Needs:** owner priority for P2-16.
+
+### P2-16 — Audit actor for pass-through calls, and the key id's lifetime
+- **Context:** pass-through calls have no user, grant or token; the audit row needs an actor that is not the key.
+- **Assumption made:** a new nullable `audit_log.key_id` column (forward-only migration `0002_audit_key_id`, indexed with
+  `ts`) holds the existing rate-limit fingerprint id `pt_` + 12 hex. It is an HMAC-SHA-256 under a secret (verified:
+  not a plain hash, so it can't be brute-forced from the table without the secret). `serve` keeps the per-process
+  random secret, so the id changes at every restart. Filters: `keyId=pt_…` or `keyId=any` (admin API) and
+  `audit tail --key-id`. Only tool calls and rate-limit refusals carry it; `auth.denied` rows on this route do not.
+- **Options:** as assumed; an `RB_PASSTHROUGH_FINGERPRINT_SECRET` env (stable ids across restarts and replicas, at the
+  cost of a long-lived secret whose leak lets someone confirm a guessed key against the table); put the id in
+  `details.keyId` with no migration; also record the id on `auth.denied` rows for refused keys.
+- **Needs:** owner OK; say if stable ids across restarts are wanted.

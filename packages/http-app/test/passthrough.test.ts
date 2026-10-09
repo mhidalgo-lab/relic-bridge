@@ -8,6 +8,7 @@ import {
   createRateLimitHooks,
   type HttpAppOptions,
   MemoryRateLimiter,
+  mergeHooks,
   PASSTHROUGH_PATH,
 } from '../src/index.ts';
 import {
@@ -17,7 +18,7 @@ import {
   reachableAccounts,
   readPassthroughHeaders,
 } from '../src/passthrough.ts';
-import { createHarness, type Harness, NR_KEY_B } from './authz/harness.ts';
+import { ADMIN_TOKEN, createHarness, type Harness, NR_KEY_B } from './authz/harness.ts';
 import { type Era, NR_KEY } from './fixtures.ts';
 
 const READ_TOOLS = createBuiltinTools()
@@ -312,6 +313,97 @@ describe('rate limits', () => {
     await vi.waitFor(async () => {
       expect((await h.send(post(key(NR_KEY)), app)).status).toBe(429);
     });
+  });
+});
+
+describe('audit (P2-16)', () => {
+  const tools = async (app: App, k: string): Promise<void> => {
+    const client = await connectPt(app, k, 'modern');
+    await client.callTool({ name: 'whoami', arguments: {} });
+    await client.callTool({
+      name: 'run_nrql',
+      arguments: { nrql: "SELECT count(*) FROM Transaction WHERE name = 'secret-value' SINCE 1 hour ago" },
+    });
+    await client.close();
+  };
+  const toolRows = async () => {
+    let rows = (await h.auditRows()).filter((r) => r.kind === 'tool_call');
+    await vi.waitFor(async () => {
+      rows = (await h.auditRows()).filter((r) => r.kind === 'tool_call');
+      if (rows.length < 2) throw new Error('rows not written yet');
+    });
+    return rows;
+  };
+
+  it('writes one tool_call row per call with the key fingerprint id as the actor, never the key', async () => {
+    await tools(ptApp(), NR_KEY);
+    const rows = await toolRows();
+    expect(rows.map((r) => r.action).sort()).toEqual(['run_nrql', 'whoami']);
+    for (const r of rows) {
+      expect(r.keyId).toMatch(/^pt_[0-9a-f]{12}$/);
+      expect(r).toMatchObject({ status: 'ok', grantId: null, tokenId: null, userId: null, projectId: null });
+      expect(r.details).toMatchObject({ mode: 'passthrough', region: 'US' });
+      expect(r.durationMs).not.toBeNull();
+    }
+    expect(new Set(rows.map((r) => r.keyId)).size).toBe(1);
+    const q = rows.find((r) => r.action === 'run_nrql');
+    expect(q?.accountIds).not.toBeNull();
+    // afterEach: the leak scan covers the rows.
+  });
+
+  it('distinguishes keys', async () => {
+    const app = ptApp();
+    await tools(app, NR_KEY);
+    await tools(app, NR_KEY_B);
+    await vi.waitFor(async () => {
+      if ((await h.auditRows()).filter((r) => r.kind === 'tool_call').length < 4) throw new Error('wait');
+    });
+    const rows = (await h.auditRows()).filter((r) => r.kind === 'tool_call');
+    expect(new Set(rows.map((r) => r.keyId)).size).toBe(2);
+  });
+
+  it('audits a rate-limited pass-through request with the key id', async () => {
+    const limits = createRateLimitHooks({
+      limiter: new MemoryRateLimiter({ clock: h.world.clock }),
+      preAuthLimiter: new MemoryRateLimiter({ clock: h.world.clock }),
+      rules: { ip: null, passthroughKey: { requests: 1, perSeconds: 60 } },
+      getClientIp: () => '203.0.113.9',
+    });
+    const app = h.makeApp({ passthrough: {}, hooks: mergeHooks(limits, h.recorderHooks) });
+    expect((await h.send(post(key(NR_KEY)), app)).status).toBe(200);
+    expect((await h.send(post(key(NR_KEY)), app)).status).toBe(429);
+    await vi.waitFor(async () => {
+      const row = (await h.auditRows()).find((r) => r.action === 'request.rejected');
+      expect(row?.keyId).toMatch(/^pt_[0-9a-f]{12}$/);
+      expect(row?.errorCode).toBe('rate_limit_passthrough_key');
+    });
+  });
+
+  it('can be filtered through the admin audit API', async () => {
+    const app = ptApp();
+    await tools(app, NR_KEY);
+    const rows = await toolRows();
+    const keyId = rows[0]?.keyId as string;
+    const get = async (qs: string) => {
+      const res = await h.send(
+        new Request(`http://localhost/api/admin/v1/audit?${qs}`, {
+          headers: { authorization: `Bearer ${ADMIN_TOKEN}` },
+        }),
+        app,
+      );
+      expect(res.status).toBe(200);
+      return (JSON.parse(res.text) as { data: { keyId: string | null }[] }).data;
+    };
+    expect((await get(`keyId=${keyId}`)).length).toBe(2);
+    expect((await get('keyId=any')).every((r) => r.keyId !== null)).toBe(true);
+    expect((await get('keyId=pt_000000000000')).length).toBe(0);
+    const bad = await h.send(
+      new Request('http://localhost/api/admin/v1/audit?keyId=NRAK-nope', {
+        headers: { authorization: `Bearer ${ADMIN_TOKEN}` },
+      }),
+      app,
+    );
+    expect(bad.status).toBe(400);
   });
 });
 

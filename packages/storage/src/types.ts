@@ -326,6 +326,8 @@ export interface AuditEntry {
   readonly tokenId?: string | null;
   /** OAuth client id (Phase 5). */
   readonly clientId?: string | null;
+  /** Pass-through key fingerprint id (`pt_` + 12 hex, P2-16): who, without the key. Null on grant-based rows. */
+  readonly keyId?: string | null;
   readonly projectId?: string | null;
   readonly accountIds?: readonly number[] | null;
   /** Masked/hashed NRQL (P2-08). */
@@ -350,6 +352,10 @@ export interface AuditQuery {
   readonly userId?: string;
   readonly grantId?: string;
   readonly tokenId?: string;
+  /** Exact pass-through key id. */
+  readonly keyId?: string;
+  /** `true`: only pass-through rows (any key id). */
+  readonly passthrough?: boolean;
   readonly kind?: AuditKind;
   /** Exact action (`run_nrql`, `token.create`, `auth.denied`). */
   readonly action?: string;

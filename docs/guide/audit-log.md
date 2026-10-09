@@ -16,6 +16,7 @@ One row per event, with these fields (empty when they don't apply):
 | `status` | `ok`, `error` (the tool failed) or `denied`. |
 | `request_id` | Matches the `requestId` in the server log. |
 | `user_id`, `grant_id`, `token_id`, `project_id` | Who, by id. Labels and names live on those records; the project's slug is also kept in `details` so the row stays readable after a deletion. |
+| `key_id` | Pass-through calls only (see below): `pt_` + 12 hex characters of the key's fingerprint, instead of a user, grant and token. Never the key. |
 | `account_ids` | The New Relic accounts the query ran against. |
 | `nrql` | The query, **as configured below** (default: literal values masked). |
 | `duration_ms`, `inspected_count` | How long it took and how many events New Relic inspected. |
@@ -28,6 +29,24 @@ audit rows for secrets.
 
 Failed authentication and rate-limit rows (`kind = auth`) also carry the client address in `details.ip`, because there
 is nothing else to identify a stranger by. Turn that off with `RB_AUDIT_CLIENT_IP=off`.
+
+## Pass-through calls
+
+When [pass-through mode](self-hosting.md#pass-through-mode) is on, each `tools/call` on `/passthrough/mcp` writes one
+`tool_call` row like any other (tool, accounts, outcome, error code, duration, NRQL as configured below). There is no
+user, grant, token or project, so the actor is `key_id`, and `details` holds `{"mode": "passthrough", "region": "US"}`.
+Refusals on that route (`request.rejected` for a rate limit) carry `key_id` too.
+
+`key_id` comes from a keyed HMAC-SHA-256 of the region and the key, so it can't be reversed or checked against a guessed
+key without the server's secret, and the key itself is never stored. By default that secret is random per process, so
+the same key gets a **new** `key_id` after every restart; rows from before and after a restart can't be linked. (The
+library option `passthrough.fingerprintSecret` pins it; `serve` doesn't expose it.) Use it to see "this key did this",
+not as a durable identity.
+
+```sh
+relic-bridge audit tail --key-id any            # every pass-through row
+relic-bridge audit tail --key-id pt_0123456789ab
+```
 
 ## NRQL privacy: `RB_AUDIT_NRQL`
 
@@ -45,7 +64,7 @@ If the query text is itself sensitive, use `hash` or `off`. Stored text is trunc
 ## Reading it
 
 Through the [admin API](../reference/admin-api.md#audit): `GET /api/admin/v1/audit`, newest first, filtered by `kind`,
-`action`, `status`, `projectId`, `userId`, `grantId`, `tokenId`, `since` / `until` (epoch ms or ISO 8601), paged with
+`action`, `status`, `projectId`, `userId`, `grantId`, `tokenId`, `keyId` (a `pt_…` id, or `any` for every pass-through row), `since` / `until` (epoch ms or ISO 8601), paged with
 `limit` and `cursor`:
 
 ```sh

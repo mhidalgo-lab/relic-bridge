@@ -53,7 +53,7 @@ relic-bridge grant list [--project <slug|id>] [--user <id>] | grant revoke <id>
 relic-bridge token create --grant <id> --label <device> [--ttl-days <n> | --never] [--url <https://host>]
                   [--client claude-code|claude-desktop|cursor|vscode|all] [--no-config]
 relic-bridge token list [--grant <id>] | token revoke <id>
-relic-bridge audit tail [--limit <n>] [--follow] [--kind --action --status --project --user --grant --token-id --since --until]
+relic-bridge audit tail [--limit <n>] [--follow] [--kind --action --status --project --user --grant --token-id --key-id --since --until]
 ```
 
 The earlier maintenance commands are unchanged: `serve`, `db backup`, `keys generate|rotate`,

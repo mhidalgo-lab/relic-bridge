@@ -202,6 +202,9 @@ export function mergeHooks(...sets: readonly (HttpAppHooks | undefined)[]): Http
     async onToolCall(c, info, event) {
       await Promise.allSettled(hooks.map((h) => h.onToolCall?.(c, info, event)));
     },
+    async onPassthroughToolCall(c, info, event) {
+      await Promise.allSettled(hooks.map((h) => h.onPassthroughToolCall?.(c, info, event)));
+    },
     async afterMcp(c, info, outcome) {
       await Promise.allSettled(hooks.map((h) => h.afterMcp?.(c, info, outcome)));
     },

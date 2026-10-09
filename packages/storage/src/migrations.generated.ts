@@ -47,5 +47,14 @@ export const MIGRATIONS: readonly Migration[] = Object.freeze([
       "CREATE INDEX `audit_log_project_ts_idx` ON `audit_log` (`project_id`,`ts`);",
       "CREATE INDEX `audit_log_user_ts_idx` ON `audit_log` (`user_id`,`ts`);"
     ]
+  },
+  {
+    "version": 3,
+    "name": "0002_audit_key_id",
+    "checksum": "19988265361a74f89a1e700b9773a693ad8ad5c8477d749aa5d86417f664c5f0",
+    "statements": [
+      "ALTER TABLE `audit_log` ADD `key_id` text;",
+      "CREATE INDEX `audit_log_key_ts_idx` ON `audit_log` (`key_id`,`ts`);"
+    ]
   }
 ]);

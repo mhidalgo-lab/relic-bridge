@@ -506,6 +506,7 @@ Query the audit log (newest first)
 | `userId` | query | `string` | no | Only this user. |
 | `grantId` | query | `string` | no | Only this grant. |
 | `tokenId` | query | `string` | no | Only this access token. |
+| `keyId` | query | `string` | no | Pass-through rows: one key fingerprint id (`pt_…`), or `any` for all pass-through rows. |
 | `since` | query | `string` | no | Inclusive lower bound: epoch ms or an ISO 8601 date-time. |
 | `until` | query | `string` | no | Exclusive upper bound: epoch ms or an ISO 8601 date-time. |
 | `limit` | query | `integer` | no | Page size, 1-200 (default 50). |
@@ -568,6 +569,7 @@ Token metadata. The token hash is never returned.
 | `grantId` | `string \| null` | yes |  |
 | `tokenId` | `string \| null` | yes |  |
 | `clientId` | `string \| null` | yes |  |
+| `keyId` | `string \| null` | yes | Pass-through key fingerprint id (`pt_…`); never the key. |
 | `projectId` | `string \| null` | yes |  |
 | `accountIds` | `integer[] \| null` | yes |  |
 | `nrql` | `string \| null` | yes | Masked, hashed or full NRQL (RB_AUDIT_NRQL). |

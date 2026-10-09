@@ -118,6 +118,8 @@ export interface RejectInfo {
   readonly reason: string | null;
   /** Set once the caller is authenticated (a `beforeMcp` refusal); absent for pre-authentication refusals. */
   readonly request?: McpRequestInfo;
+  /** Set for a `beforePassthrough` refusal (P2-16): the key's fingerprint id, never the key. */
+  readonly passthrough?: PassthroughRequestInfo;
 }
 
 export interface AuthFailureInfo {
@@ -153,6 +155,15 @@ export interface HttpAppHooks {
   /** After each tool call finished, success or error (audit). Runs in the background; must not throw. */
   onToolCall?(c: Context, info: McpRequestInfo, event: ToolCallEvent): Promise<void> | void;
   /** After the MCP handler answered (audit). Runs in the background (`waitUntil`); errors are logged. */
+  /**
+   * After each tool call on the pass-through route finished, success or error (audit, P2-16). Runs in the background;
+   * must not throw. The info carries the key's fingerprint id, never the key.
+   */
+  onPassthroughToolCall?(
+    c: Context,
+    info: PassthroughRequestInfo,
+    event: ToolCallEvent,
+  ): Promise<void> | void;
   afterMcp?(
     c: Context,
     info: McpRequestInfo,
@@ -930,7 +941,7 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
       if (hooks.beforePassthrough) {
         const stop = await hooks.beforePassthrough(c, info);
         if (stop) {
-          notifyRejected(c, { requestId, status: stop.status, reason: rejectReason(log) });
+          notifyRejected(c, { requestId, status: stop.status, reason: rejectReason(log), passthrough: info });
           return stop;
         }
       }
@@ -950,6 +961,19 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
           logger: logger.child({ requestId, keyId }),
           clock,
         }),
+        ...(hooks.onPassthroughToolCall
+          ? {
+              onToolCall: (event: ToolCallEvent) => {
+                const hook = hooks.onPassthroughToolCall;
+                if (hook)
+                  runInBackground(
+                    c,
+                    Promise.resolve().then(() => hook(c, info, event)),
+                    'on_passthrough_tool_call',
+                  );
+              },
+            }
+          : {}),
       });
       scopes.add(scope);
       const authInfo: AuthInfo = {

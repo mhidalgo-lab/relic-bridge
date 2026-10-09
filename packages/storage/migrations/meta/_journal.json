@@ -15,6 +15,13 @@
       "when": 1791021819579,
       "tag": "0001_audit_auth_kind",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1791029123405,
+      "tag": "0002_audit_key_id",
+      "breakpoints": true
     }
   ]
 }

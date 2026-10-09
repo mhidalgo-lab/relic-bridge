@@ -456,6 +456,7 @@ export function createMemoryStorage(options: MemoryStorageOptions = {}): Storage
           grantId: entry.grantId ?? null,
           tokenId: entry.tokenId ?? null,
           clientId: entry.clientId ?? null,
+          keyId: entry.keyId ?? null,
           projectId: entry.projectId ?? null,
           accountIds: entry.accountIds ?? null,
           nrql: entry.nrql ?? null,
@@ -477,6 +478,8 @@ export function createMemoryStorage(options: MemoryStorageOptions = {}): Storage
         if (query.userId !== undefined && r.userId !== query.userId) continue;
         if (query.grantId !== undefined && r.grantId !== query.grantId) continue;
         if (query.tokenId !== undefined && r.tokenId !== query.tokenId) continue;
+        if (query.keyId !== undefined && r.keyId !== query.keyId) continue;
+        if (query.passthrough === true && r.keyId === null) continue;
         if (query.kind !== undefined && r.kind !== query.kind) continue;
         if (query.action !== undefined && r.action !== query.action) continue;
         if (query.status !== undefined && r.status !== query.status) continue;

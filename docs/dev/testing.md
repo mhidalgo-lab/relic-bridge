@@ -91,3 +91,33 @@ the key and checks result text for it.
 In GitHub, the manual **Live** workflow (`.github/workflows/live.yml`, `workflow_dispatch` only) runs the same command
 from the protected `live` environment, which holds the `RB_LIVE_API_KEY` and `RB_LIVE_ACCOUNT_ID` secrets and the
 `RB_LIVE_REGION` variable. It never runs on pull requests, so fork PRs cannot reach the secrets.
+
+## CI runners
+
+Pull-request CI (`ci.yml` except the macOS/Windows SQLite matrix, `security.yml`, `bench.yml`, `e2e.yml`, `zap.yml`, and the
+pull-request path of the `docker.yml` `build` job) runs on the organization's self-hosted Linux runners by default:
+
+```yaml
+runs-on: ${{ fromJSON(vars.CI_RUNS_ON || '["self-hosted","linux","x64"]') }}
+```
+
+If those runners are offline, set the repository (or organization) **variable** `CI_RUNS_ON` to `["ubuntu-latest"]`
+(Settings, Secrets and variables, Actions, Variables) and re-run: the same jobs go back to GitHub-hosted runners. Delete
+the variable to return to the default. Jobs must not assume preinstalled tools or a recent system userland: they set up
+Node (before pnpm: `pnpm/action-setup` runs on the `node` on `PATH`) and pnpm through actions and install anything else
+(actionlint, gitleaks) with checksum verification. `harden-runner` only runs on GitHub-hosted runners. `workerd` needs
+glibc 2.35+, so the Workers runtime tests and the CPU benchmark run through `scripts/ci-container.sh`, which runs the
+pnpm script in a `node:24-bookworm` container (repository copied in with `docker cp`; no bind mounts). The Docker
+smoke test (`scripts/docker-smoke.sh`) likewise uses no bind mounts or published ports.
+
+The manual **Admin browser E2E** and **Admin ZAP baseline** workflows also use the switch but have not been run on
+self-hosted runners (they are `workflow_dispatch` only). ZAP mounts a directory and uses the host network, which needs a
+Docker daemon on the same machine: if it fails there, set `CI_RUNS_ON` to `["ubuntu-latest"]` for that run.
+
+Stay on GitHub-hosted runners, always: `release.yml` (provenance, OIDC), `docker.yml` `plan` / `publish` and release
+builds, `scorecard.yml`, `live.yml`, `staging-smoke.yml` (secrets) and the macOS/Windows matrix. `scripts/test/ci-runners.test.ts`
+enforces this.
+
+**Public repository warning:** self-hosted runners must only serve a private repository, because a fork pull request
+runs its code on them. Before making the repository public, set `CI_RUNS_ON` to hosted runners or restrict fork
+pull-request workflows (THREAT_MODEL T18).

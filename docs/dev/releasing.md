@@ -31,7 +31,7 @@ runs the image hardened (read-only root, no capabilities, non-root) next to a lo
 `api.newrelic.com` (`scripts/docker-smoke/fake-nerdgraph.mjs`, trusted through `NODE_EXTRA_CA_CERTS`), then, using
 only the image: checks `/health`, refuses a foreign `Host`, runs `db backup`, creates a credential, project, grant and
 device token with the CLI, and lists tools over MCP with that token (and gets `401` without it). Run it locally with
-`docker build -t relic-bridge:dev . && scripts/docker-smoke.sh relic-bridge:dev` (needs docker, curl, jq, openssl).
+`docker build -t relic-bridge:dev . && scripts/docker-smoke.sh relic-bridge:dev` (needs docker, jq, openssl; it needs no bind mounts or published ports, so it also works against a remote Docker daemon).
 
 The compose example was also run once with a local Caddy (internal CA) in front of the image (P2-19): `/health`
 answered over TLS and Caddy waited for the server's health check. That is a manual check; repeat it when

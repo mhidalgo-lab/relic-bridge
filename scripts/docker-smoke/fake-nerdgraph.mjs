@@ -14,7 +14,7 @@ const body = JSON.stringify({
   },
 });
 
-createServer({ key: readFileSync('/certs/key.pem'), cert: readFileSync('/certs/cert.pem') }, (req, res) => {
+createServer({ key: readFileSync('/tmp/key.pem'), cert: readFileSync('/tmp/cert.pem') }, (req, res) => {
   req.resume();
   res.writeHead(200, { 'content-type': 'application/json' }).end(body);
 }).listen(443, '0.0.0.0');

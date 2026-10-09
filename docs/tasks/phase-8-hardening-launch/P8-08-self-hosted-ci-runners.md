@@ -2,11 +2,11 @@
 id: P8-08
 title: Run CI on the organization's self-hosted runners, with a hosted fallback
 phase: 8
-status: todo
+status: review
 priority: high
 depends_on: []
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P8-08 — Run CI on the organization's self-hosted runners, with a hosted fallback
@@ -30,9 +30,10 @@ default, switchable back to GitHub-hosted runners with one variable when the run
   use self-hosted runners.
 
 ## Acceptance criteria
-- [ ] A PR on this branch runs CI, Security and (if triggered) Docker/bench on self-hosted runners and passes.
-- [ ] Setting `CI_RUNS_ON` to `["ubuntu-latest"]` routes the same jobs back to hosted runners (documented).
-- [ ] Tests fail if `release.yml`, docker `publish`, `scorecard.yml`, `live.yml` or `staging-smoke.yml` ever use
+- [x] A PR on this branch runs CI, Security and (if triggered) Docker/bench on self-hosted runners and passes
+      (only the unrelated `pnpm audit` advisory on `sharp` and the Windows job of P8-09 fail).
+- [x] Setting `CI_RUNS_ON` to `["ubuntu-latest"]` routes the same jobs back to hosted runners (documented).
+- [x] Tests fail if `release.yml`, docker `publish`, `scorecard.yml`, `live.yml` or `staging-smoke.yml` ever use
       `self-hosted` or `vars.CI_RUNS_ON`.
 
 ## Security notes

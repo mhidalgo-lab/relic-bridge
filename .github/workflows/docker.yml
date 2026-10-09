@@ -110,7 +110,8 @@ jobs:
     name: Build, scan and smoke-test the image
     needs: plan
     if: ${{ !cancelled() && (github.event_name == 'pull_request' || needs.plan.outputs.release == 'true') }}
-    runs-on: ubuntu-latest
+    # Pull requests: the organization's self-hosted runners (CI_RUNS_ON overrides). Release builds stay GitHub-hosted.
+    runs-on: ${{ github.event_name == 'pull_request' && fromJSON(vars.CI_RUNS_ON || '["self-hosted","linux","x64"]') || 'ubuntu-latest' }}
     timeout-minutes: 30
     permissions:
       contents: read
@@ -123,6 +124,7 @@ jobs:
       REVISION: ${{ needs.plan.outputs.sha || github.sha }}
     steps:
       - uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
+        if: ${{ runner.environment == 'github-hosted' }}
         with:
           egress-policy: audit
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

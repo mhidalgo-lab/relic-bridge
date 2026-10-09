@@ -14,6 +14,8 @@ drift, open a task.
 ## 1. Release v0.1 (Phase 1)
 - [ ] P1-16 merged before `RB_RELEASE_ENABLED=true`; implement P1-18 (npm staged publish) before the first publish.
 - [ ] Make the repository public (attestations, npm provenance; also unblocks the README Deploy button, P3-14).
+- [ ] **Before** making it public: set the repository variable `CI_RUNS_ON` to `["ubuntu-latest"]` (or restrict fork
+      pull-request workflows); self-hosted runners must only serve a private repository (P8-08, THREAT_MODEL T18).
 - [ ] npm trusted publisher for `relic-bridge` (workflow `release.yml`, env `release`, staged publishing allowed);
       publishing access "Require 2FA and disallow tokens".
 - [ ] GitHub: `release` environment (required reviewer, `main` only), allow Actions to create PRs, tag ruleset `v*`,

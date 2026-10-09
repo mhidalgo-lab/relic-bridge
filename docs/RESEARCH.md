@@ -378,3 +378,20 @@ database.
   limiter. Not verified here: whether calls count as subrequests (assumed not).
 - Local: the workers vitest pool and `wrangler dev` simulate the binding; unit tests use a fake with the same shape.
 
+## 14. Deploy button and provisioning (P3-05, checked 2026-10-03)
+
+- **Deploy to Cloudflare button:** `https://deploy.workers.cloudflare.com/?url=<repo URL>` (a `/tree/<branch>/<dir>` URL
+  selects a subdirectory). Cloudflare clones into the user's GitHub/GitLab, provisions KV/D1/R2/etc. bindings declared
+  without ids, prompts for secrets named in `.dev.vars.example` / `.env.example`, and builds with Workers Builds.
+  Not verified here: monorepo behaviour (our config aliases `../../packages/*`, so the build needs the whole clone) and
+  the default build command; no account was used.
+- **Automatic provisioning** (Wrangler >= 4.45, now in the config reference): bindings without ids are created on
+  `wrangler deploy` with the Worker name as prefix, and ids are written back **into the config file used**. The setup
+  script therefore deploys a git-ignored copy. Dashboard/Git deploys keep ids only in the dashboard.
+- **`secrets.required`** (2026-03-24): `wrangler deploy` and `versions upload` fail if a required secret isn't set on the
+  Worker, so the setup script sets secrets before the first deploy. `wrangler secret bulk` (stdin JSON when no file is
+  given) sets several at once without argv exposure. Whether `secret bulk` creates a not-yet-deployed Worker is not
+  verified (pending decision).
+- `wrangler deploy --var NAME:value` overrides a `vars` entry at deploy time; `wrangler secret list --format json` lists
+  secret names only. A missing Worker is assumed to answer with API code 10007 (not verified).
+

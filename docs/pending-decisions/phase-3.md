@@ -129,3 +129,38 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   generate it.
 - **Needs:** nothing, unless the secret should be generated automatically.
 
+## P3-05 — Deploy button and setup script
+
+### P3-05 — setup is `pnpm cf:setup`, not a `relic-bridge cloudflare setup` command
+- **Context:** the task named a CLI subcommand; the published CLI is a Node host that shouldn't depend on Wrangler.
+- **Assumption made:** a Node script in the monorepo (`scripts/cloudflare-setup.ts`), so it needs a clone; the Deploy
+  button covers the no-clone case. Wrangler is the version pinned in `apps/worker`.
+- **Options:** ship the script in the npm package and spawn `npx wrangler` (cross-platform shell issues, unpinned Wrangler).
+- **Needs:** nothing unless clone-free setup from npm is wanted.
+
+### P3-05 — real-account verification is outstanding (nothing here deployed)
+- **Context:** this run could not log in or deploy. The script is tested with a fake Wrangler runner only.
+- **Needs (owner, ~15 min):**
+  1. `pnpm install && pnpm --filter @relic-bridge/worker exec wrangler login`, then `pnpm cf:setup --dry-run`, then
+     `pnpm cf:setup`. Check: (a) `wrangler secret bulk` accepts the JSON on stdin and creates the not-yet-deployed Worker
+     (if it refuses, the order must become deploy-then-secrets, which `secrets.required` blocks: fallback is
+     `wrangler deploy --secrets-file` or temporarily removing `secrets.required`); (b) the first deploy auto-provisions D1
+     and KV and `wrangler.local.jsonc` receives the ids while `wrangler.jsonc` stays unchanged; (c) a failed
+     `secret list` for a missing Worker matches the not-found pattern (`10007`) so the first run doesn't need `--assume-new`;
+     (d) `curl <url>/health` answers and the first request creates the schema (migrations incl. any `PRAGMA foreign_keys`
+     statements accepted by real D1: RESEARCH §12 says the D1 driver skips them, confirm no boot error);
+     (e) re-run `pnpm cf:setup`: it keeps the secrets and redeploys.
+  2. Deploy button: open `https://deploy.workers.cloudflare.com/?url=https://github.com/matiashidalgo/relic-bridge/tree/main/apps/worker`
+     (needs the repo public; use a fork before). Check that the build can reach `../../packages/*` (monorepo; the
+     alias in `wrangler.jsonc`) and that the root `pnpm install` runs. If not, the subdirectory build needs a build command
+     such as `pnpm install --frozen-lockfile && npx wrangler deploy` in the setup page, or the button should be dropped.
+  3. RESEARCH §13 Rate Limiting binding: confirm the binding is created from `ratelimits` on deploy and `limit()` calls don't
+     count as subrequests (assumed not).
+  4. Time the whole flow to two working devices against the < 10 minute criterion and tick it in the task file.
+
+### P3-05 — secrets are revealed once on stdout
+- **Context:** the owner needs the admin token to continue, and the master key to back up; the task allowed a backup file.
+- **Assumption made:** print once (stdout; progress goes to stderr) and offer `--backup-file` (0600, no overwrite).
+- **Options:** never print and always require `--backup-file`; integrate with a password manager CLI.
+- **Needs:** owner's call whether a printed secret is acceptable (scrollback), or the backup file should be mandatory.
+

@@ -229,7 +229,7 @@ describe('trace_error', () => {
 
   it('plans against the budget: spans, then errors, then logs; the rest is partial', async () => {
     const ng = nerdGraph();
-    const client = await connect(ng.fetch, { budget: createBudget(2) });
+    const client = await connect(ng.fetch, { budget: createBudget(4) });
     const r = await client.callTool({ name: 'trace_error', arguments: { trace_id: TRACE } });
     expect(r.isError, resultText(r)).toBeFalsy();
     const s = r.structuredContent as {
@@ -392,7 +392,7 @@ describe('entity_health', () => {
 
   it('skips what the budget cannot pay for, in priority order', async () => {
     const ng = nerdGraph();
-    const client = await connect(ng.fetch, { budget: createBudget(3) });
+    const client = await connect(ng.fetch, { budget: createBudget(4) });
     const r = await client.callTool({ name: 'entity_health', arguments: { guid: MOCK_GUID } });
     const s = r.structuredContent as {
       sections: { name: string; status: string }[];

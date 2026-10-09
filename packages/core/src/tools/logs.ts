@@ -19,8 +19,10 @@ import {
   accountInput,
   assertWindowWithinLimit,
   label,
+  NRQL_COST,
   num,
   singleAccount,
+  startableNrql,
   type ToolDeps,
   timeRangeInput,
   toolClient,
@@ -342,7 +344,8 @@ export function createLogTools(deps: ToolDeps = {}): ToolDefinition[] {
     outputSchema: listOutput,
     kind: 'read',
     openWorld: true,
-    cost: 1,
+    // One NRQL.
+    cost: NRQL_COST,
     group: 'performance',
     phase: 6,
     handler: async (args, ctx) => {
@@ -445,8 +448,8 @@ export function createLogTools(deps: ToolDeps = {}): ToolDefinition[] {
     outputSchema: analyzeOutput,
     kind: 'read',
     openWorld: true,
-    // Level counts, a message sample and a time series.
-    cost: 3,
+    // Level counts, a message sample and a time series (one NRQL each).
+    cost: 3 * NRQL_COST,
     group: 'performance',
     phase: 6,
     handler: async (args, ctx) => {
@@ -458,7 +461,7 @@ export function createLogTools(deps: ToolDeps = {}): ToolDefinition[] {
       const guid = args.entity_guid;
 
       // Budget-aware, most useful first: level counts, then patterns, then bursts.
-      const startable = Math.min(3, ctx.budget.remaining);
+      const startable = startableNrql(3, ctx.budget.remaining);
       const jobs: Array<() => Promise<unknown>> = [
         () =>
           part(ctx, account, levelCountQuery(guid, range.sinceMs, range.untilMs), (rows) => {

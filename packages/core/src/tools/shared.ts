@@ -25,6 +25,18 @@ export interface ToolDeps {
 export const DAY_MS = 86_400_000;
 
 /**
+ * Requests one NRQL can send (P6-20): tools run NRQL with `maxPolls: 1`, so a query is the async submit plus one poll, or
+ * the async attempt plus the sync fallback. Declared costs and composite grants count every NRQL as this many requests.
+ * Retries are not counted: they only follow a failure, and the per-request budget caps them (one unit per attempt).
+ */
+export const NRQL_COST = 2;
+
+/** How many of `wanted` parallel NRQL queries the remaining budget can pay for in full. */
+export function startableNrql(wanted: number, remaining: number): number {
+  return Math.max(0, Math.min(wanted, Math.floor(remaining / NRQL_COST)));
+}
+
+/**
  * Last sentence of every tool description that returns New Relic text (P6-13 style guide). Short on purpose: the result
  * itself repeats the notice in front of every untrusted-data block (T6), and every word here costs context per tool.
  */

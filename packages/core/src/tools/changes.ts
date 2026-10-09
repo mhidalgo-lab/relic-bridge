@@ -21,8 +21,10 @@ import {
   accountInput,
   assertWindowWithinLimit,
   label,
+  NRQL_COST,
   num,
   singleAccount,
+  startableNrql,
   type ToolDeps,
   timeRangeInput,
   toolClient,
@@ -602,8 +604,8 @@ export function createChangeTools(deps: ToolDeps = {}): ToolDefinition[] {
     outputSchema: analyzeOutput,
     kind: 'read',
     openWorld: true,
-    // One entity and deployments lookup plus one NRQL query for each of the two windows.
-    cost: 3,
+    // One deployments lookup plus one NRQL for each of the two windows.
+    cost: 1 + 2 * NRQL_COST,
     group: 'incident-response',
     phase: 6,
     handler: async (args, ctx) => {
@@ -712,7 +714,7 @@ export function createChangeTools(deps: ToolDeps = {}): ToolDefinition[] {
         { name: 'after', win: afterWin },
         { name: 'before', win: beforeWin },
       ] as const;
-      const startable = Math.min(order.length, ctx.budget.remaining);
+      const startable = startableNrql(order.length, ctx.budget.remaining);
       const ran = await Promise.all(
         order
           .slice(0, startable)

@@ -215,7 +215,7 @@ describe('analyze_threads', () => {
 
   it('supports minimal_output and returns partial when the budget stops', async () => {
     const { fetch, calls } = recording(respond);
-    const client = await connect(fetch, { budget: createBudget(1) });
+    const client = await connect(fetch, { budget: createBudget(2) });
     const r = await client.callTool({
       name: 'analyze_threads',
       arguments: { entity_guid: guidOf(A), minimal_output: true },
@@ -361,7 +361,7 @@ describe('analyze_kafka_metrics', () => {
 
   it('is partial when the budget stops later parts or a part fails', async () => {
     const one = recording(respond);
-    const client = await connect(one.fetch, { budget: createBudget(1) });
+    const client = await connect(one.fetch, { budget: createBudget(2) });
     const r = await client.callTool({ name: 'analyze_kafka_metrics', arguments: {} });
     const s = r.structuredContent as { partial: boolean; lag: unknown[]; notes: string[] };
     expect(one.calls).toHaveLength(1);

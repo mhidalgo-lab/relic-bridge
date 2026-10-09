@@ -16,7 +16,7 @@ import { defineTool, type ToolDefinition, type ToolOutput } from '../tool.ts';
 import { createChangeTools, FATAL_CODES } from './changes.ts';
 import { checkGuid, createEntityTools } from './entities.ts';
 import { createErrorTools } from './errors.ts';
-import { createGoldenMetricTools } from './golden.ts';
+import { createGoldenMetricTools, goldenCost, goldenMetricsFor } from './golden.ts';
 import { cleanName } from './identity.ts';
 import { ISSUE_ID_RE, type IssueRow, lookupIssue } from './issues.ts';
 import { createLogTools } from './logs.ts';
@@ -25,6 +25,7 @@ import {
   assertWindowWithinLimit,
   DAY_MS,
   grantedSibling,
+  NRQL_COST,
   num,
   singleAccount,
   type ToolDeps,
@@ -312,7 +313,8 @@ const insightsOutput = z.object({
   notes: z.array(z.string()),
 });
 
-const INSIGHTS_COST = 14;
+/** Issue lookup, entity, golden metrics, error groups, logs (3 NRQL), changes and related entities. */
+const INSIGHTS_COST = 1 + 1 + goldenCost(DEFAULT_REPORT_METRICS) + 1 + 3 * NRQL_COST + 1 + 1;
 
 const INSIGHTS_DESCRIPTION = `Investigation report for one alert issue (issue_id from list_recent_issues): the issue, then for its first entity the details, golden metrics, Errors Inbox groups and a log summary over the issue window (${DEFAULT_BEFORE_MINUTES} minutes before it opened until it closed, or now), the changes in the ${DEFAULT_CHANGE_LOOKBACK_HOURS} hours before, and the related entities.
 
@@ -508,11 +510,17 @@ const impactOutput = z.object({
   notes: z.array(z.string()),
 });
 
-const IMPACT_COST = 9;
+/**
+ * Queries the impact report runs at most: browser, mobile and synthetic for the window, then browser and mobile for the
+ * comparison. Front ends in more accounts add groups; the extra ones are not run (P6-20), so the cost stays a bound.
+ */
+const IMPACT_MAX_QUERIES = 5;
+/** Issue lookup, related lookups (at most MAX_RELATED_LOOKUPS) and the queries. */
+const IMPACT_COST = 1 + MAX_RELATED_LOOKUPS + IMPACT_MAX_QUERIES * NRQL_COST;
 
 const IMPACT_DESCRIPTION = `Measure what end users saw while something was wrong: for an alert issue (issue_id) or an affected entity (entity_guid or name), find the front ends involved (browser apps, mobile apps, synthetic monitors) and report page views, load time, sessions and JavaScript errors; mobile sessions, users and crashes; synthetic checks, failures and failing locations.
 
-By default it also measures the equal window before and flags clear changes (js_errors_up, slower_page_loads, fewer_page_views, crashes_up, fewer_sessions, failing_checks). Runs about ${IMPACT_COST} requests (more when the front ends span several accounts); what does not fit is marked not_run (partial: true). Only front ends in this connection's accounts are measured. ${UNTRUSTED}`;
+By default it also measures the equal window before and flags clear changes (js_errors_up, slower_page_loads, fewer_page_views, crashes_up, fewer_sessions, failing_checks). Runs up to ${IMPACT_COST} requests (${IMPACT_MAX_QUERIES} queries at most); what does not fit is marked not_run (partial: true). Only front ends in this connection's accounts are measured. ${UNTRUSTED}`;
 
 interface FrontEnd {
   guid: string;
@@ -549,7 +557,6 @@ export function createReportTools(deps: ToolDeps = {}): ToolDefinition[] {
     outputSchema: insightsOutput,
     kind: 'read',
     openWorld: true,
-    // Issue lookup, entity, golden metrics (1 + 5), error groups, logs (3), changes, related.
     cost: INSIGHTS_COST,
     group: 'incident-response',
     phase: 6,
@@ -591,9 +598,9 @@ export function createReportTools(deps: ToolDeps = {}): ToolDefinition[] {
         const metrics = args.max_metrics ?? DEFAULT_REPORT_METRICS;
         const items: PlanItem<InsightSection>[] = [
           { name: 'entity' as const, cost: 1 },
-          { name: 'golden_metrics' as const, cost: 1 + metrics, minCost: 2 },
+          { name: 'golden_metrics' as const, cost: goldenCost(metrics), minCost: goldenCost(1) },
           { name: 'errors' as const, cost: 1 },
-          { name: 'logs' as const, cost: 3 },
+          { name: 'logs' as const, cost: 3 * NRQL_COST },
           { name: 'changes' as const, cost: 1 },
           { name: 'related' as const, cost: 1 },
         ].filter((i) => wanted.has(i.name));
@@ -603,7 +610,7 @@ export function createReportTools(deps: ToolDeps = {}): ToolDefinition[] {
             case 'entity':
               return ['get_entity', { guid }];
             case 'golden_metrics':
-              return ['get_golden_metrics', { guid, since: window, max_metrics: Math.max(1, granted - 1) }];
+              return ['get_golden_metrics', { guid, since: window, max_metrics: goldenMetricsFor(granted) }];
             case 'errors':
               return [
                 'list_error_groups',
@@ -632,8 +639,10 @@ export function createReportTools(deps: ToolDeps = {}): ToolDefinition[] {
           }),
         );
         const golden = plan.run.find((r) => r.name === 'golden_metrics');
-        if (golden && golden.granted - 1 < metrics)
-          notes.push(`Golden metrics reduced to ${golden.granted - 1} to fit the request budget.`);
+        if (golden && goldenMetricsFor(golden.granted) < metrics)
+          notes.push(
+            `Golden metrics reduced to ${goldenMetricsFor(golden.granted)} to fit the request budget.`,
+          );
         for (const name of INSIGHT_SECTIONS) {
           if (!wanted.has(name)) continue;
           sections.push(ran.find((s) => s.name === name) ?? notRun(name, 'skipped', BUDGET_NOTE));
@@ -703,7 +712,6 @@ export function createReportTools(deps: ToolDeps = {}): ToolDefinition[] {
     outputSchema: impactOutput,
     kind: 'read',
     openWorld: true,
-    // Issue lookup, up to 3 related lookups, then browser and mobile (current + previous) and synthetics.
     cost: IMPACT_COST,
     group: 'incident-response',
     phase: 6,
@@ -846,14 +854,21 @@ export function createReportTools(deps: ToolDeps = {}): ToolDefinition[] {
       }
       const ORDER: Record<FrontEndKind, number> = { synthetic: 0, browser: 1, mobile: 2 };
       const ordered = [...groups.entries()].sort((a, b) => ORDER[a[1].kind] - ORDER[b[1].kind]);
-      const jobs: PlanItem<string>[] = [
-        ...ordered.map(([key]) => ({ name: `cur|${key}`, cost: 1 })),
+      const wantedJobs: PlanItem<string>[] = [
+        ...ordered.map(([key]) => ({ name: `cur|${key}`, cost: NRQL_COST })),
         ...(compare
           ? ordered
               .filter(([, g]) => g.kind !== 'synthetic')
-              .map(([key]) => ({ name: `prev|${key}`, cost: 1 }))
+              .map(([key]) => ({ name: `prev|${key}`, cost: NRQL_COST }))
           : []),
       ];
+      const jobs = wantedJobs.slice(0, IMPACT_MAX_QUERIES);
+      if (wantedJobs.length > jobs.length) {
+        partial = true;
+        notes.push(
+          `${wantedJobs.length - jobs.length} query(ies) not run: the report sends at most ${IMPACT_MAX_QUERIES} (narrow with max_entities or an entity in one account).`,
+        );
+      }
       const queryPlan = planBudget(jobs, ctx.budget.remaining);
       const results = new Map<string, QueryOutcome>();
       await Promise.all(

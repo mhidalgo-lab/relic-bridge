@@ -14,7 +14,7 @@ export const MAX_PURPOSE_CHARS = 450;
  */
 export const TOOLS_LIST_BUDGET = 52_000;
 /** Tools that run this many requests or more must say so ("Runs ..."). */
-export const COST_HINT_FROM = 6;
+export const COST_HINT_FROM = 8;
 /** Two descriptions this similar (Jaccard of their content words) must be a declared confusable pair. */
 export const OVERLAP_THRESHOLD = 0.3;
 

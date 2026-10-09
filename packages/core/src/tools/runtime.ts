@@ -17,8 +17,10 @@ import { cleanName } from './identity.ts';
 import {
   accountInput,
   assertWindowWithinLimit,
+  NRQL_COST,
   num,
   singleAccount,
+  startableNrql,
   type ToolDeps,
   toolClient,
   UNTRUSTED,
@@ -414,12 +416,13 @@ export function createRuntimeTools(deps: ToolDeps = {}): ToolDefinition[] {
     outputSchema: threadsOutput,
     kind: 'read',
     openWorld: true,
-    cost: 2,
+    // Two NRQL queries.
+    cost: 2 * NRQL_COST,
     group: 'performance',
     phase: 6,
     handler: async (args, ctx) => {
       const { account, range } = entityScope(ctx, args.entity_guid, args.time_range);
-      const startable = Math.min(2, ctx.budget.remaining);
+      const startable = startableNrql(2, ctx.budget.remaining);
       const jobs = [
         () =>
           part(
@@ -499,7 +502,8 @@ export function createRuntimeTools(deps: ToolDeps = {}): ToolDefinition[] {
     outputSchema: gcOutput,
     kind: 'read',
     openWorld: true,
-    cost: 1,
+    // One NRQL.
+    cost: NRQL_COST,
     group: 'performance',
     phase: 6,
     handler: async (args, ctx) => {
@@ -556,8 +560,8 @@ export function createRuntimeTools(deps: ToolDeps = {}): ToolDefinition[] {
     outputSchema: kafkaOutput,
     kind: 'read',
     openWorld: true,
-    // Consumer lag, topic throughput and broker throughput.
-    cost: 3,
+    // Consumer lag, topic throughput and broker throughput (one NRQL each).
+    cost: 3 * NRQL_COST,
     group: 'performance',
     phase: 6,
     handler: async (args, ctx) => {
@@ -571,7 +575,7 @@ export function createRuntimeTools(deps: ToolDeps = {}): ToolDefinition[] {
       };
 
       let lagRows = 0;
-      const startable = Math.min(3, ctx.budget.remaining);
+      const startable = startableNrql(3, ctx.budget.remaining);
       const jobs: Array<() => Promise<unknown>> = [
         () =>
           part(ctx, account, lagQuery(filters, range.sinceMs, range.untilMs), (rows) => {

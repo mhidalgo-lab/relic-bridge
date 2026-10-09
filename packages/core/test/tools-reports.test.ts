@@ -326,7 +326,7 @@ describe('generate_alert_insights_report', () => {
 
   it('plans against the remaining budget: reduces golden metrics, skips the rest and says so', async () => {
     const ng = nerdGraph();
-    const client = await connect(ng.fetch, { budget: createBudget(5) });
+    const client = await connect(ng.fetch, { budget: createBudget(7) });
     const r = await client.callTool({
       name: 'generate_alert_insights_report',
       arguments: { issue_id: 'issue-1' },
@@ -348,7 +348,7 @@ describe('generate_alert_insights_report', () => {
     });
     expect(s.notes.join(' ')).toContain('Golden metrics reduced to 2');
     expect(resultText(r)).toContain('Partial report');
-    expect(ng.calls.length).toBeLessThanOrEqual(5);
+    expect(ng.calls.length).toBeLessThanOrEqual(7);
   });
 
   it('runs only the requested sections', async () => {
@@ -550,7 +550,7 @@ describe('generate_user_impact_report', () => {
 
   it('marks queries that do not fit the budget as not run', async () => {
     const ng = nerdGraph({ related, nrql: answers });
-    const client = await connect(ng.fetch, { budget: createBudget(3) });
+    const client = await connect(ng.fetch, { budget: createBudget(5) });
     const r = await client.callTool({
       name: 'generate_user_impact_report',
       arguments: { entity_guid: MOCK_GUID },
@@ -562,9 +562,10 @@ describe('generate_user_impact_report', () => {
     };
     expect(s.partial).toBe(true);
     const status = Object.fromEntries(s.frontEnds.map((f) => [f.kind, f.status]));
-    // related (1), synthetics (1), browser current (1); mobile and the comparisons do not fit.
+    // related (1), synthetics (2), browser current (2); mobile and the comparisons do not fit.
     expect(status).toEqual({ synthetic: 'ok', browser: 'ok', mobile: 'not_run' });
     expect(s.notes.join(' ')).toContain('not run: request budget exhausted');
+    // The mock answers synchronously, so each NRQL really takes one request.
     expect(ng.calls).toHaveLength(3);
   });
 

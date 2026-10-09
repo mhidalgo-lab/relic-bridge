@@ -207,7 +207,7 @@ Generated from task front matter (`pnpm tasks index` once P0-05 lands). Status l
 | P6-17 | [Accept an entity name in guid-taking tools via the shared resolver](tasks/phase-6-tool-parity/P6-17-name-input-on-entity-tools.md) | low | P6-14 | review |
 | P6-18 | [Accept an entity name in the report, investigation and signal tools](tasks/phase-6-tool-parity/P6-18-name-input-on-report-and-signal-tools.md) | low | P6-17 | review |
 | P6-19 | [Trim tool input schema text (tools/list size)](tasks/phase-6-tool-parity/P6-19-trim-input-schema-text.md) | low | P6-13 | review |
-| P6-20 | [Honest tool costs and budget planning (polls, retries, resolution)](tasks/phase-6-tool-parity/P6-20-tool-cost-accounting.md) | medium | P6-18 | todo |
+| P6-20 | [Honest tool costs and budget planning (polls, retries, resolution)](tasks/phase-6-tool-parity/P6-20-tool-cost-accounting.md) | medium | P6-18 | review |
 | P6-21 | [Untrusted-text and scope hardening follow-ups from the Phase 6 review](tasks/phase-6-tool-parity/P6-21-untrusted-text-hardening.md) | medium | P6-19 | todo |
 | P6-22 | [Consistent tool argument and output naming before 1.0](tasks/phase-6-tool-parity/P6-22-tool-argument-consistency.md) | medium | P6-19 | todo |
 | P6-23 | [Phase 6 review nits: lint gaps, test gaps, small correctness issues](tasks/phase-6-tool-parity/P6-23-phase-6-review-nits.md) | low | P6-19 | todo |

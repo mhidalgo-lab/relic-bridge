@@ -2,11 +2,11 @@
 id: P4-22
 title: Warn at startup when an allowlist is set but auto-provisioning is off
 phase: 4
-status: todo
+status: in-progress
 priority: low
 depends_on: [P4-08]
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P4-22 — Warn at startup when an allowlist is set but auto-provisioning is off

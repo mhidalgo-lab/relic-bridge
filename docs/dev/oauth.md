@@ -208,6 +208,9 @@ step (`runtime.prepare(c, params)`), so what the page showed is what gets approv
 
 1. `GET /oauth/authorize?…` (validated) → fetch metadata: only same-origin requests and cross-site top-level document
    navigations (the client opening the page); frames, `fetch` and subresources are a `403` page.
+   **`prompt=none`** (OIDC Core §3.1.2.6, P5-12) never shows a page: no session → `login_required`; no matching remembered
+   approval → `consent_required`; mixed with another value → `invalid_request` (all `303` to the registered redirect URI
+   with `state` and `iss`). A remembered approval still answers silently with a code.
 2. No session → `303 /auth/login?next=/oauth/authorize?…` (the sign-in `next` cap is 2048 characters; a longer
    authorize URL is a `400` page). A broken session cookie is cleared and charged like on the admin pages.
 3. Signed in and a **remembered approval** matches (same user, client id, redirect URI and resource; requested scopes a
@@ -216,7 +219,12 @@ step (`runtime.prepare(c, params)`), so what the page showed is what gets approv
 4. Otherwise the **consent page** (`ConsentPage`), with the admin UI headers plus `form-action 'self' <redirect origin>`:
    browsers apply `form-action` to the redirect that answers the form post, so without it Chromium blocks the trip
    back to the client (found by the P5-04 browser test). An IPv6 loopback redirect (`http://[::1]:…`) can't be written
-   as a CSP host source and gets the `http:` scheme source. `security.ts` keeps exactly these variants (`isUiCsp`).
+   as a CSP host source and **no scheme-wide source is added** (P5-12: `http:` would let an injected form post to any
+   http site); the consent post answers that one target with a same-origin page carrying `Refresh: 0; url=…` and a
+   Continue link (neither is governed by `form-action`). `security.ts` keeps exactly the host variants (`isUiCsp`).
+   **`redirect_uri` at the token endpoint** stays optional (checked when sent; PKCE binds the code, OAuth 2.1 dropped it;
+   decision P5-12, so no client that omits it breaks). **Client names** that spell a word with Latin plus Cyrillic or
+   Greek letters are refused like control characters (look-alikes of "Claude"); wholly non-Latin names stay.
 5. `POST /oauth/consent?…` (the same query) → session (none: back to sign-in, nothing approved), `Origin` / fetch
    metadata (`checkFetchOrigin`), `application/x-www-form-urlencoded` ≤ 16 KiB, exactly one `_csrf` equal to the
    session's, then `prepare()` again (a tampered query is validated like a new request: unregistered redirect URI → 400,

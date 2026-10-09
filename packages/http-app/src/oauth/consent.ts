@@ -325,6 +325,26 @@ export function createConsentScreen(deps: ConsentScreenDeps): ConsentScreen {
   const redirectTo = (location: string): Response =>
     new Response(null, { status: 303, headers: { Location: location, 'Cache-Control': 'no-store' } });
 
+  /**
+   * The answer to a consent post (P5-12). A redirect after a form post is subject to `form-action`, and no CSP source
+   * can name `http://[::1]`; widening to `http:` would let any injected form post to any http site. So that one target
+   * gets a same-origin page that navigates (`Refresh` plus a link: neither is governed by `form-action`).
+   */
+  const leaveTo = (c: Context, location: string): Response => {
+    const target = new URL(location);
+    if (target.protocol !== 'http:' || !target.hostname.startsWith('[')) return redirectTo(location);
+    const response = htmlResponse(
+      MessagePage({
+        title: 'Return to the app',
+        paragraphs: ['You are done here. Continue to the app on this computer.'],
+        continueHref: target.href,
+        requestId: requestIdOf(c),
+      }),
+    );
+    response.headers.set('Refresh', `0; url=${target.href}`);
+    return response;
+  };
+
   /** A remembered approval for this request, still in date and covering the requested scopes. */
   const remembered = async (
     userId: string,
@@ -377,12 +397,20 @@ export function createConsentScreen(deps: ConsentScreenDeps): ConsentScreen {
       }
       const auth = await sessions.authenticate(c);
       const url = new URL(c.req.url);
-      if (!auth.ok) return toLogin(c, auth, `${OAUTH_AUTHORIZE_PATH}${url.search}`);
+      // `prompt=none` (OIDC Core §3.1.2.6): never a page. Alone it may be answered silently; mixed with another value
+      // it is invalid. Neither a sign-in nor a consent screen is shown.
+      const prompt = (url.searchParams.get('prompt') ?? '').split(' ');
+      const silent = prompt.includes('none');
+      if (silent && prompt.length > 1) return redirectTo(api.refuseSilently('invalid_request'));
+      if (!auth.ok) {
+        return silent
+          ? redirectTo(api.refuseSilently('login_required'))
+          : toLogin(c, auth, `${OAUTH_AUTHORIZE_PATH}${url.search}`);
+      }
       const principal = auth.principal;
       // A remembered approval answers at once (never for HEAD: nothing is issued for a request whose answer is
       // discarded; never when the client asks for the page with `prompt=consent` / `login`). It goes through
       // `approve()` like a click on Allow; if that fails the row is dropped and the page is shown.
-      const prompt = (url.searchParams.get('prompt') ?? '').split(' ');
       if (c.req.method === 'GET' && !prompt.includes('consent') && !prompt.includes('login')) {
         const id = await approvalId(api);
         const stored = await remembered(principal.userId, id, api);
@@ -409,6 +437,7 @@ export function createConsentScreen(deps: ConsentScreenDeps): ConsentScreen {
           if (result.reason === 'client_refused') return clientRefusedPage(c, principal, api);
         }
       }
+      if (silent) return redirectTo(api.refuseSilently('consent_required'));
       return renderPage(c, principal, api);
     },
 
@@ -437,7 +466,7 @@ export function createConsentScreen(deps: ConsentScreenDeps): ConsentScreen {
       if (decision === 'deny') {
         await kv.delete(rememberKey(principal.userId, await approvalId(api)));
         consentAudit(c, 'oauth.consent.deny', principal, api, {});
-        return redirectTo(api.deny());
+        return leaveTo(c, api.deny());
       }
       if (decision !== 'approve') {
         return renderPage(c, principal, api, 422, { error: 'Choose Allow or Deny.' });
@@ -496,7 +525,7 @@ export function createConsentScreen(deps: ConsentScreenDeps): ConsentScreen {
         projectId,
         remembered: saved ? 'saved' : false,
       });
-      return redirectTo(result.redirectTo);
+      return leaveTo(c, result.redirectTo);
     },
 
     async approvals(c) {

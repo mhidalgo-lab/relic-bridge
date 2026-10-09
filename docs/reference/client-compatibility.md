@@ -99,6 +99,13 @@ the client did refresh concurrently.
 2. Re-read the vendor pages below and update any "D" that changed.
 3. Walk the manual checklist with a real phone and claude.ai; change **M** to a dated result.
 
+## Protocol behaviours clients can rely on (P5-12)
+
+- `prompt=none`: answered without a page (`login_required`, `consent_required`, or a code for a remembered approval).
+- `redirect_uri` on the token request: optional, checked when sent. Clients that send it (RFC 6749 §4.1.3) are fine.
+- Redirect `http://[::1]:port/…` works, but the browser lands on a short "Return to the app" page first (it navigates by
+  `Refresh` and a link); prefer `http://127.0.0.1:port/…` or `localhost`.
+
 ## Sources (read 2026-10-05)
 
 - Claude connectors authentication: <https://claude.com/docs/connectors/building/authentication> (callback URL, CIMD

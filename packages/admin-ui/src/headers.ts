@@ -22,8 +22,9 @@ export const UI_CSP: string = [
 /**
  * A `form-action` source for an OAuth redirect URI (P5-04), or null when the URI can't be one. Browsers apply
  * `form-action` to the redirects that follow a form post, so the consent form (posted to us, answered with a redirect to
- * the client) must also allow the client's origin. CSP host sources can't spell an IPv6 literal: `http://[::1]`
- * redirects get the `http:` scheme source instead.
+ * the client) must also allow the client's origin. CSP host sources can't spell an IPv6 literal, and a scheme-wide
+ * `http:` source would let any injected form post anywhere over plain http (P5-12): `http://[::1]` redirects get no
+ * source at all, and the consent post answers them with a same-origin page that navigates instead (`consent.ts`).
  */
 export function formActionSource(redirectUri: string): string | null {
   let u: URL;
@@ -33,14 +34,13 @@ export function formActionSource(redirectUri: string): string | null {
     return null;
   }
   if (u.username !== '' || u.password !== '') return null;
-  if (u.protocol === 'http:' && u.hostname.startsWith('[')) return 'http:';
   if (u.protocol !== 'https:' && u.protocol !== 'http:') return null;
   if (!/^[a-z0-9.-]{1,253}$/.test(u.hostname)) return null;
   return u.origin;
 }
 
-/** A source `formActionSource` can return: an http(s) origin with a plain host name or IPv4 address, or `http:`. */
-const FORM_ACTION_SOURCE_RE = /^(?:http:|https?:\/\/[a-z0-9.-]{1,253}(?::\d{1,5})?)$/;
+/** A source `formActionSource` can return: an http(s) origin with a plain host name or IPv4 address. */
+const FORM_ACTION_SOURCE_RE = /^(?:https?:\/\/[a-z0-9.-]{1,253}(?::\d{1,5})?)$/;
 const FORM_ACTION_SELF = "form-action 'self'";
 
 /** The UI policy with `form-action` widened to `'self'` and one more source (the consent page, P5-04). */

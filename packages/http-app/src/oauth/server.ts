@@ -162,6 +162,8 @@ export interface OAuthConsentApi {
   }): Promise<OAuthApproval>;
   /** The `access_denied` redirect (with `state` and `iss`). */
   deny(description?: string): string;
+  /** The redirect for a `prompt=none` request that can't be answered silently (OIDC Core §3.1.2.6; P5-12). */
+  refuseSilently(code: 'consent_required' | 'login_required' | 'invalid_request'): string;
 }
 
 /** The interactive step of `/oauth/authorize` (P5-04: sign-in, grant choice, consent). */
@@ -1780,6 +1782,13 @@ export function createOAuthRuntime(deps: OAuthRuntimeDeps): OAuthRuntime {
         helpers,
         deny: (description = 'The user denied the request.') =>
           mod.authorizationErrorRedirect(authRequest, 'access_denied', description),
+        // OIDC Core §3.1.2.6 codes (`prompt=none`) the provider's error type doesn't list: its redirect with `error`
+        // swapped, so `state` and `iss` stay.
+        refuseSilently: (code: 'consent_required' | 'login_required' | 'invalid_request') => {
+          const target = new URL(mod.authorizationErrorRedirect(authRequest, 'access_denied'));
+          target.searchParams.set('error', code);
+          return target.href;
+        },
         approve: async ({
           userId,
           grantId,

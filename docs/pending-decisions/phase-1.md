@@ -154,3 +154,11 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Options:** auto-discover a config file; refuse plaintext keys; publish `@relic-bridge/core` as a library; keychain
   support (macOS Keychain / libsecret) as a later task.
 - **Needs:** owner's confirmation; one live `claude mcp add` run with a real key.
+
+### P1-12 — Test harness: injected fetch instead of msw; live suite and `live` environment
+- **Context:** the task named msw and a protected live environment; the core is web-standard and already tests via an injected `fetch` (P1-02).
+- **Assumption made:**
+  - No msw dependency; `scriptedFetch` / `mockNerdGraph()` replay sanitized fixtures. Coverage gate on `packages/core/src`: 85% lines/statements/functions, 75% branches (actual ~97/90), enforced by `pnpm test:coverage` in CI (adds `@vitest/coverage-v8`).
+  - Live suite in `packages/core/test/live/*.live.ts` (excluded from `pnpm test`), env `RB_LIVE_API_KEY`, `RB_LIVE_ACCOUNT_ID`, `RB_LIVE_REGION`; manual-only `.github/workflows/live.yml` using a GitHub environment named `live`.
+- **Options:** adopt msw later for the HTTP app (Phase 2); raise thresholds; run live nightly.
+- **Needs:** owner to create the `live` environment (required reviewers) with the secrets, and **one manual `pnpm test:live` run with a real key**: the live suite has never been executed.

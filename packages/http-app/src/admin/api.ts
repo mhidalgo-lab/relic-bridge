@@ -405,7 +405,8 @@ const routes = {
     tags: ['users'],
     summary: 'Create a user',
     description:
-      'Users own personal credentials and receive user grants. Login identities arrive in Phase 4.',
+      'Users own personal credentials and receive user grants. Login identities arrive in Phase 4. Creating an admin or ' +
+      'an owner is owner-only (`403 forbidden`, `detail: owner`, P4-21).',
     request: BODY(S.CreateUserBody),
     responses: { 201: json(S.UserOne, 'Created'), ...errors(409, 413, 415) },
   }),
@@ -423,6 +424,8 @@ const routes = {
     tags: ['users'],
     summary: 'Update or disable a user',
     description:
+      'Only an owner (or the admin token) promotes a user to admin or changes, demotes, disables or enables another ' +
+      'admin: an admin session gets `403 forbidden`, `detail: owner` (P4-21). ' +
       'Demoting or disabling the last enabled owner is refused with `409 conflict`, `detail: last_owner` (P4-16). ' +
       'Re-enabling a user who holds a live grant naming a write tool is owner-only: `403 forbidden`, ' +
       '`detail: write_scope` (P7-32).',
@@ -515,7 +518,7 @@ const routes = {
     summary: 'Sign a user out everywhere',
     description:
       'Ends every admin session of the user at once (all devices). Members may do this for themselves only; admins ' +
-      'for anyone but an owner. A role change or disabling a user does this automatically.',
+      'for members and themselves (another admin or an owner: owners only). A role change or disabling a user does this automatically.',
     request: { params: S.IdParam },
     responses: { 200: json(S.SessionsRevokedOne, 'Sessions ended'), ...errors(404) },
   }),
@@ -1055,7 +1058,7 @@ const FORBIDDEN_MESSAGES: Readonly<Record<string, string>> = {
   self: 'you cannot change your own role or disable yourself; ask another owner',
   no_user: 'this route is for signed-in users: the admin token has no keys, grants or tokens of its own',
   owner:
-    "only an owner can create, change or sign out an owner, or act on an owner's keys, grants and tokens",
+    "only an owner can create, change or sign out an owner or an administrator, or act on an owner's keys, grants and tokens",
 };
 
 /** Build the admin sub-app (mounted at {@link ADMIN_API_BASE}). */
@@ -1474,7 +1477,7 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
       c,
       { action: 'user.create', targetType: 'user', details: { role: body.role ?? 'member' } },
       async () => {
-        if (body.role === 'owner' && !actsAsOwner(c)) throw denied('owner');
+        if ((body.role === 'owner' || body.role === 'admin') && !actsAsOwner(c)) throw denied('owner');
         return storage.users.create({
           id: newId('usr'),
           email: normalizeEmail(body.email),
@@ -1508,6 +1511,12 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
         if (principal?.kind === 'session' && principal.user.id === existing.id && privileged)
           throw denied('self');
         if ((existing.role === 'owner' || body.role === 'owner') && !actsAsOwner(c)) throw denied('owner');
+        // Administrators are not peers (P4-21): only an owner promotes, demotes, disables or edits another admin.
+        // An admin may still change their own display name (a role or disabled change is refused above).
+        const selfEdit = principal?.kind === 'session' && principal.user.id === existing.id;
+        if ((existing.role === 'admin' && !selfEdit) || body.role === 'admin') {
+          if (!actsAsOwner(c)) throw denied('owner');
+        }
         // Re-enabling brings back the user's grants and tokens: owner-only when one of them writes (P7-32, T31).
         guardWriteScope(
           c,
@@ -1589,7 +1598,8 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
         }
         const target = await must('user', id, (x) => storage.users.get(x));
         const self = principal?.kind === 'session' && principal.user.id === target.id;
-        if (target.role === 'owner' && !self && !actsAsOwner(c)) throw denied('owner');
+        if ((target.role === 'owner' || target.role === 'admin') && !self && !actsAsOwner(c))
+          throw denied('owner');
         return revokeAll(target.id);
       },
       (n) => ({ details: { revoked: n } }),

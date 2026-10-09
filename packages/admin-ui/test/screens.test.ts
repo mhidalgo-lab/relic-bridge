@@ -726,7 +726,7 @@ describe('users', () => {
     const { app, fake } = setup((call) =>
       call.method === 'PATCH' ? { status: 200, body: { data: {} } } : undefined,
     );
-    await post(app, '/admin/users/usr_m', { displayName: '', role: 'admin' });
+    await post(app, '/admin/users/usr_m', { displayName: '', role: 'admin' }, 'owner');
     expect(changes(fake)).toEqual([{ method: 'PATCH', path: '/users/usr_m', body: { role: 'admin' } }]);
     const self = await get(setup().app, '/admin/users/usr_admin', 'admin');
     expect(self.html).toContain('You cannot change your own role');
@@ -734,6 +734,27 @@ describe('users', () => {
     expect(self.html).not.toContain('Disable this user');
     const ownerByAdmin = await get(setup().app, '/admin/users/usr_owner', 'admin');
     expect(ownerByAdmin.html).toContain('Only an owner can change an owner.');
+  });
+
+  it('administrators are an owner’s to manage: an admin viewer gets no controls for another admin (P4-21)', async () => {
+    const asAdmin = await get(setup().app, '/admin/users/usr_admin2', 'admin');
+    expect(asAdmin.html).toContain('Only an owner can change an administrator.');
+    expect(asAdmin.html).not.toContain('name="role"');
+    expect(asAdmin.html).not.toContain('name="displayName"');
+    expect(asAdmin.html).not.toContain('/admin/users/usr_admin2/signout');
+    expect(asAdmin.html).not.toContain('/admin/users/usr_admin2/disable');
+    expect(asAdmin.html).not.toContain('/admin/users/usr_admin2/unbind');
+    // An admin viewer is offered member only, in the add form and on a member's page.
+    const add = await get(setup().app, '/admin/users/new', 'admin');
+    expect(add.html).not.toContain('value="admin"');
+    const member = await get(setup().app, '/admin/users/usr_m', 'admin');
+    expect(member.html).not.toContain('value="admin"');
+    // An owner viewer keeps every control.
+    const asOwner = await get(setup().app, '/admin/users/usr_admin2', 'owner');
+    expect(asOwner.html).toContain('name="role"');
+    expect(asOwner.html).toContain('value="admin"');
+    expect(asOwner.html).toContain('/admin/users/usr_admin2/signout');
+    expect(asOwner.html).toContain('/admin/users/usr_admin2/unbind');
   });
 
   it('disable and sign-out ask first; enable does not', async () => {

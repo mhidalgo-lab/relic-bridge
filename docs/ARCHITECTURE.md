@@ -178,6 +178,18 @@ Implemented by `createHttpApp` in `packages/http-app` (P2-06); `relic-bridge ser
    tool call (`onToolCall`, fed by `buildMcpServer`'s observer), per refusal (`onAuthFailure`, `onRejected`) and per
    ungranted tool (`afterMcp`); admin actions call `recorder.admin(...)`. A failed write is logged, never surfaced.
 
+### Admin API (P2-09)
+
+`/api/admin/v1/*` (`packages/http-app/src/admin`, `@hono/zod-openapi`) is mounted by `createHttpApp` only when an admin
+token is configured. Its own middleware runs after the shared request id, security headers and Host/Origin checks:
+declared body size → `beforeAuth` hooks (per-IP limits) → bootstrap admin token (digest compare; failures go to
+`onAuthFailure`, so they are throttled and audited like MCP failures) → JSON content type and streamed body cap →
+strict zod validation → handler. Handlers call the same domain services as the CLI (`createCredential`,
+`rotateCredentialKey`, `revalidateCredential`, `createProject`, `updateProject`, `createGrant`, `issueAccessToken`,
+`revokeAccessToken`), write one `admin` audit row per change (in the background) and clear the access cache. The
+OpenAPI 3.1 document is generated from the route schemas and served at `/api/admin/v1/openapi.json`;
+`docs/reference/admin-api.md` is generated from it. Phase 4 adds IdP sessions next to the bootstrap token.
+
 ## 6. Cross-cutting concerns
 
 - **Budget**: per-invocation counter of subrequests (D1/KV/fetch), configured by `RB_PLAN` (`free` = 50, `paid` = 1000)

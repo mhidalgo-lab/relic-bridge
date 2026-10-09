@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import { createAdaptorServer } from '@hono/node-server';
 import { getConnInfo } from '@hono/node-server/conninfo';
 import { CryptoError, loadKeyringFromEnv, verifyKeyChecks } from '@relic-bridge/auth';
-import { type FetchLike, type Logger, VERSION } from '@relic-bridge/core';
+import { type FetchLike, type Logger, Secret, VERSION } from '@relic-bridge/core';
 import {
   AUDIT_NRQL_MODES,
   type AuditNrqlMode,
@@ -30,7 +30,7 @@ import { openSqliteStorage } from '@relic-bridge/storage-sqlite';
 import type { Context } from 'hono';
 import { parseRetentionDays } from './audit.ts';
 import { ConfigError, type ConfigFs, type Env } from './config.ts';
-import { resolveMasterKeyEnv } from './keys.ts';
+import { resolveAdminToken, resolveMasterKeyEnv } from './keys.ts';
 
 export const DEFAULT_PORT = 8787;
 export const DEFAULT_HOST = '127.0.0.1';
@@ -294,6 +294,8 @@ export interface StartServerOptions {
 export async function startServer(options: StartServerOptions): Promise<RunningServer> {
   const { settings, logger } = options;
   const keyring = await loadKeyringFromEnv(resolveMasterKeyEnv(options.env, options.fs, options.platform));
+  // Admin API (P2-09): on only with a bootstrap admin token; checked before the database is touched.
+  const adminToken = resolveAdminToken(options.env, options.fs, options.platform);
   const created = !existsSync(settings.dbPath);
   const storage = await openSqliteStorage({ path: settings.dbPath });
   try {
@@ -379,6 +381,9 @@ export async function startServer(options: StartServerOptions): Promise<RunningS
     hsts: settings.hsts,
     ...(hooks === undefined ? {} : { hooks }),
     ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
+    ...(adminToken === undefined
+      ? {}
+      : { admin: { token: new Secret(adminToken), storage, ...(audit === undefined ? {} : { audit }) } }),
   });
 
   const server = createAdaptorServer({
@@ -425,6 +430,7 @@ export async function startServer(options: StartServerOptions): Promise<RunningS
     cors: settings.corsOrigins.length > 0,
     rateLimit: settings.rateLimits !== null,
     audit: settings.audit.enabled ? settings.audit.nrql : 'off',
+    adminApi: adminToken === undefined ? 'off' : `${url}/api/admin/v1`,
     trustedProxyHops: settings.trustedProxyHops,
   });
 

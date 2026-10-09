@@ -584,7 +584,11 @@ export function createRepositories(
         };
         add('project_id = ?', q.projectId);
         add('user_id = ?', q.userId);
+        add('grant_id = ?', q.grantId);
+        add('token_id = ?', q.tokenId);
         add('kind = ?', q.kind);
+        add('action = ?', q.action);
+        add('status = ?', q.status);
         add('ts >= ?', q.since);
         add('ts < ?', q.until);
         add('id < ?', q.beforeId);

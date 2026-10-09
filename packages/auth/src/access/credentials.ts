@@ -143,6 +143,65 @@ export async function createCredential(
   return storage.credentials.update(id, { validation: validationFrom(identity, now), ifKey: key });
 }
 
+export interface RotateCredentialKeyResult {
+  readonly credential: CredentialRecord;
+  /** `nr_user_changed`: the new key belongs to another New Relic user than the old one (allowed, but worth a look). */
+  readonly warnings: readonly 'nr_user_changed'[];
+}
+
+/**
+ * Replace a credential's NR key (the user rotated it in New Relic): validate the new key against New Relic first (a
+ * refused key changes nothing), encrypt it under the current master key with the same credential id, and swap it in
+ * only if the stored key is still the one read here (compare-and-swap). The region stays; reachable accounts are
+ * refreshed from the new key.
+ */
+export async function rotateCredentialKey(
+  deps: CredentialServiceDeps,
+  id: string,
+  apiKey: Secret,
+): Promise<RotateCredentialKeyResult> {
+  const { storage, keyring } = deps;
+  const record = await storage.credentials.get(id);
+  if (record === null || record.revokedAt !== null) {
+    throw new AccessError('not_found', `credential ${String(id).slice(0, 64)} not found`, 'id');
+  }
+  const old = record.key;
+  if (old.kind !== 'encrypted') {
+    throw new AccessError('invalid_input', 'only stored (encrypted) credentials can be rotated', 'id');
+  }
+  assertUserKey(apiKey);
+  const plaintext = apiKey.reveal().trim();
+  const identity = await deps.validate(
+    Object.freeze({ id, region: record.region, apiKey: new Secret(plaintext) }),
+  );
+  const now = (deps.clock ?? systemClock).now();
+  const key = await keyring.encryptCredentialKey(id, plaintext);
+  const validation = validationFrom(identity, now);
+  let credential: CredentialRecord;
+  try {
+    credential = await storage.credentials.update(id, {
+      key,
+      ifKey: old,
+      keyHint: plaintext.slice(-4),
+      validation,
+    });
+  } catch (error) {
+    if (error instanceof ConflictError) {
+      throw new AccessError(
+        'conflict',
+        'the credential changed while its key was being replaced; retry',
+        'id',
+      );
+    }
+    throw error;
+  }
+  const warnings: 'nr_user_changed'[] = [];
+  if (record.nrUserId !== null && validation.nrUserId !== null && record.nrUserId !== validation.nrUserId) {
+    warnings.push('nr_user_changed');
+  }
+  return Object.freeze({ credential, warnings: Object.freeze(warnings) });
+}
+
 export type RevalidationOutcome =
   /** New Relic accepted the key; reachable accounts refreshed. */
   | 'valid'

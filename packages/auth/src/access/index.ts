@@ -9,6 +9,9 @@ export {
   MAX_ACCOUNTS,
   MAX_NAME_CHARS,
   MAX_TOOLS,
+  type UpdateProjectInput,
+  type UpdateProjectResult,
+  updateProject,
 } from './config.ts';
 export {
   type CreateCredentialInput,
@@ -20,8 +23,10 @@ export {
   nerdGraphKeyValidator,
   type RevalidationOutcome,
   type RevalidationResult,
+  type RotateCredentialKeyResult,
   revalidateCredential,
   revalidateCredentials,
+  rotateCredentialKey,
 } from './credentials.ts';
 export { AccessError, type AccessErrorCode, isAccessError } from './errors.ts';
 export {

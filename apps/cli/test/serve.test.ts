@@ -199,6 +199,85 @@ describe('startServer (in process)', () => {
     await expect(startServer({ ...common, env: {} })).rejects.toMatchObject({ code: 'master_key_missing' });
   });
 
+  it('serves the admin API only with an admin token, and refuses an unusable one at boot', async () => {
+    const lines: string[] = [];
+    const logger = createLogger({ sink: (l) => lines.push(l) });
+    const key = generateMasterKey(1);
+    const admin = 'A'.repeat(20) + 'b'.repeat(20);
+    const settings = serveSettings({ port: '0', db: join(tmp, 'rb.db'), env: {}, platform: 'linux' });
+    const common = { settings, platform: 'linux', logger };
+    const on = await startServer({
+      ...common,
+      fs: memoryFs({}),
+      env: { RB_MASTER_KEY: key, RB_ADMIN_TOKEN: admin },
+    });
+    try {
+      expect((await fetch(`${on.url}/api/admin/v1/projects`)).status).toBe(401);
+      const ok = await fetch(`${on.url}/api/admin/v1/projects`, {
+        headers: { authorization: `Bearer ${admin}` },
+      });
+      expect(ok.status).toBe(200);
+      expect(await ok.json()).toEqual({ data: [], nextCursor: null });
+      const user = await fetch(`${on.url}/api/admin/v1/users`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${admin}`, 'content-type': 'application/json' },
+        body: JSON.stringify({ email: 'me@example.com' }),
+      });
+      expect(user.status).toBe(201);
+      const audit = await fetch(`${on.url}/api/admin/v1/audit?kind=admin`, {
+        headers: { authorization: `Bearer ${admin}` },
+      });
+      expect(((await audit.json()) as { data: { action: string }[] }).data.map((r) => r.action)).toEqual([
+        'user.create',
+      ]);
+    } finally {
+      await on.close();
+    }
+    expect(lines.join('\n')).toContain('/api/admin/v1');
+    expect(lines.join('\n')).not.toContain(admin);
+
+    const off = await startServer({ ...common, fs: memoryFs({}), env: { RB_MASTER_KEY: key } });
+    try {
+      const res = await fetch(`${off.url}/api/admin/v1/projects`, {
+        headers: { authorization: `Bearer ${admin}` },
+      });
+      expect(res.status).toBe(404);
+    } finally {
+      await off.close();
+    }
+
+    await expect(
+      startServer({ ...common, fs: memoryFs({}), env: { RB_MASTER_KEY: key, RB_ADMIN_TOKEN: 'short' } }),
+    ).rejects.toThrow(/RB_ADMIN_TOKEN is too short/);
+    await expect(
+      startServer({
+        ...common,
+        fs: memoryFs({ '/s/admin': { text: admin, mode: 0o100644 } }),
+        env: { RB_MASTER_KEY: key, RB_ADMIN_TOKEN_FILE: '/s/admin' },
+      }),
+    ).rejects.toThrow(/readable by other users/);
+    await expect(
+      startServer({
+        ...common,
+        fs: memoryFs({}),
+        env: { RB_MASTER_KEY: key, RB_ADMIN_TOKEN: admin, RB_ADMIN_TOKEN_FILE: '/s/admin' },
+      }),
+    ).rejects.toThrow(/Both RB_ADMIN_TOKEN/);
+    const fromFile = await startServer({
+      ...common,
+      fs: memoryFs({ '/s/admin': { text: `${admin}\n`, mode: 0o100600 } }),
+      env: { RB_MASTER_KEY: key, RB_ADMIN_TOKEN_FILE: '/s/admin' },
+    });
+    try {
+      const res = await fetch(`${fromFile.url}/api/admin/v1/users`, {
+        headers: { authorization: `Bearer ${admin}` },
+      });
+      expect(res.status).toBe(200);
+    } finally {
+      await fromFile.close();
+    }
+  });
+
   it('main reports boot errors as exit code 1', async () => {
     const lines: string[] = [];
     const r = main({

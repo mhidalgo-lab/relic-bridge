@@ -8,6 +8,24 @@ export {
   MAX_ACCESS_CACHE_TTL_MS,
 } from './access-cache.ts';
 export {
+  ADMIN_API_BASE,
+  ADMIN_TOKEN_ACTOR,
+  adminOpenApiDocument,
+  createAdminApi,
+  DEFAULT_ADMIN_MAX_BODY_BYTES,
+  paginate,
+  type StorageForAdmin,
+} from './admin/api.ts';
+export { ADMIN_ERROR_CODES, AdminApiError, type AdminErrorCode } from './admin/errors.ts';
+export {
+  type AdminTokenProblem,
+  adminBearer,
+  checkAdminToken,
+  MAX_ADMIN_TOKEN_CHARS,
+  MIN_ADMIN_TOKEN_CHARS,
+} from './admin/token.ts';
+export {
+  type AdminApiOptions,
   type AuthFailureInfo,
   createHttpApp,
   DEFAULT_CALL_BUDGET,

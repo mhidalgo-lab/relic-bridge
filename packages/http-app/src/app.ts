@@ -14,6 +14,8 @@ import {
   type EffectiveAccess,
   hashToken,
   type Keyring,
+  type KeyValidator,
+  nerdGraphKeyValidator,
   openCredential,
   resolveAccess,
   verifyAccessToken,
@@ -27,6 +29,7 @@ import {
   LimiterPool,
   type Logger,
   newRequestId,
+  type Secret,
   silentLogger,
   systemClock,
   type ToolCallEvent,
@@ -43,6 +46,14 @@ import {
   DEFAULT_ACCESS_CACHE_ENTRIES,
   DEFAULT_ACCESS_CACHE_TTL_MS,
 } from './access-cache.ts';
+import {
+  ADMIN_API_BASE,
+  createAdminApi,
+  DEFAULT_ADMIN_MAX_BODY_BYTES,
+  type StorageForAdmin,
+} from './admin/api.ts';
+import { createAdminTokenVerifier } from './admin/token.ts';
+import type { AdminAuditEvent } from './audit.ts';
 import {
   applySecurityHeaders,
   checkHost,
@@ -117,6 +128,20 @@ export interface HttpAppHooks {
   ): Promise<void> | void;
 }
 
+/** The admin REST API (P2-09). Without it, `/api/admin/*` answers 404. */
+export interface AdminApiOptions {
+  /** The bootstrap admin token (`RB_ADMIN_TOKEN`): 32-512 printable characters. Only its digest is kept. */
+  readonly token: Secret;
+  /** Needs the audit log too (the audit query endpoint). */
+  readonly storage: StorageForAdmin;
+  /** Records every admin change (`createAuditRecorder(...)`); omit only when auditing is off. */
+  readonly audit?: { admin(event: AdminAuditEvent): Promise<void> };
+  /** Checks New Relic keys before they are stored. Default: NerdGraph `actor` query (using `fetch`). */
+  readonly validateKey?: KeyValidator;
+  /** Largest admin request body. Default 64 KiB. */
+  readonly maxBodyBytes?: number;
+}
+
 export interface HttpAppOptions {
   readonly storage: StorageForHttp;
   /** Decrypts stored New Relic keys (`loadKeyringFromEnv` + `verifyKeyChecks` at boot). */
@@ -144,6 +169,8 @@ export interface HttpAppOptions {
   /** Runs background work (Workers: `executionCtx.waitUntil`). Default: try `executionCtx`, else fire-and-forget. */
   readonly waitUntil?: (c: Context, task: Promise<unknown>) => void;
   readonly hooks?: HttpAppHooks;
+  /** Enables `/api/admin/v1` (P2-09). */
+  readonly admin?: AdminApiOptions;
 }
 
 type Env = { Variables: { requestId: string; started: number; log: Record<string, unknown> } };
@@ -294,6 +321,8 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
   const hooks = options.hooks ?? {};
   // Scopes created by this app; the factory refuses anything else (defence in depth for `authInfo.extra`).
   const scopes = new WeakSet<RequestScope>();
+  // Fails at construction (boot) for an unusable admin token, never per request.
+  const adminVerifier = options.admin ? createAdminTokenVerifier(options.admin.token) : undefined;
 
   const runInBackground = (c: Context, task: Promise<unknown>, what: string): void => {
     const guarded = task.catch((error: unknown) =>
@@ -426,6 +455,45 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
 
   app.get('/health', (c) => c.json({ status: 'ok' }));
   app.get('/version', (c) => c.json({ name: 'relic-bridge', version: VERSION }));
+
+  if (options.admin && adminVerifier) {
+    const admin = options.admin;
+    app.route(
+      ADMIN_API_BASE,
+      createAdminApi({
+        storage: admin.storage,
+        keyring: options.keyring,
+        verifier: adminVerifier,
+        validateKey:
+          admin.validateKey ??
+          nerdGraphKeyValidator({ logger, clock, ...(options.fetch ? { fetch: options.fetch } : {}) }),
+        catalog,
+        clock,
+        logger,
+        maxBodyBytes: checkRange(
+          'admin.maxBodyBytes',
+          admin.maxBodyBytes ?? DEFAULT_ADMIN_MAX_BODY_BYTES,
+          1024,
+          DEFAULT_MAX_REQUEST_BODY_SIZE,
+        ),
+        ...(admin.audit
+          ? { audit: (event: AdminAuditEvent) => admin.audit?.admin(event) ?? Promise.resolve() }
+          : {}),
+        ...(hooks.beforeAuth ? { beforeAuth: hooks.beforeAuth } : {}),
+        onAuthFailure: (c, reason) =>
+          hooks.onAuthFailure?.(c, { requestId: c.get('requestId') as string, reason }),
+        onRejected: (c, status) =>
+          notifyRejected(c, {
+            requestId: c.get('requestId') as string,
+            status,
+            reason: rejectReason(c.get('log')),
+          }),
+        runInBackground,
+        // A revoked token, grant or key stops at once on this process (other processes: within the cache TTL).
+        onChange: () => cache.clear(),
+      }),
+    );
+  }
 
   app.on(['GET', 'POST', 'DELETE'], '/p/:slug/mcp', async (c) => {
     const requestId = c.get('requestId');

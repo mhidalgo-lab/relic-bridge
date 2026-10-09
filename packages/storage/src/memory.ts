@@ -475,7 +475,11 @@ export function createMemoryStorage(options: MemoryStorageOptions = {}): Storage
         const r = audit[i] as AuditRecord;
         if (query.projectId !== undefined && r.projectId !== query.projectId) continue;
         if (query.userId !== undefined && r.userId !== query.userId) continue;
+        if (query.grantId !== undefined && r.grantId !== query.grantId) continue;
+        if (query.tokenId !== undefined && r.tokenId !== query.tokenId) continue;
         if (query.kind !== undefined && r.kind !== query.kind) continue;
+        if (query.action !== undefined && r.action !== query.action) continue;
+        if (query.status !== undefined && r.status !== query.status) continue;
         if (query.since !== undefined && r.ts < query.since) continue;
         if (query.until !== undefined && r.ts >= query.until) continue;
         if (query.beforeId !== undefined && r.id >= query.beforeId) continue;

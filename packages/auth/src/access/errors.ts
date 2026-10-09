@@ -7,7 +7,9 @@ export type AccessErrorCode =
   /** A referenced row does not exist (or is revoked/disabled, which counts as gone). */
   | 'not_found'
   /** The grant would use a credential it may not use (someone else's personal key). */
-  | 'not_permitted';
+  | 'not_permitted'
+  /** The row changed underneath the operation (compare-and-swap lost); retrying is safe. */
+  | 'conflict';
 
 export class AccessError extends Error {
   readonly code: AccessErrorCode;

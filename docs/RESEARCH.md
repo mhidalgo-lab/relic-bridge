@@ -261,3 +261,19 @@ and known issues before Phase 1.
 - Known answers: NIST GCM test cases 13, 14, 16 (McGrew & Viega, *The Galois/Counter Mode of Operation*); our own
   format vectors were cross-checked with OpenSSL through `node:crypto` (`hkdfSync`, `aes-256-gcm`).
 - Sources: W3C Web Cryptography API; MDN SubtleCrypto (encrypt, deriveKey, deriveBits); NIST SP 800-38D; RFC 5869.
+
+## 10. `@hono/zod-openapi` (P2-09, checked 2026-10-03)
+
+- `@hono/zod-openapi` 1.6.3 (npm `latest`, 2026-09-04) peers on `zod ^4` and `hono >=4.10`; it wraps
+  `@hono/zod-validator` 0.9 and `@asteasolutions/zod-to-openapi` 9.1 (all MIT). `import { z } from '@hono/zod-openapi'`
+  adds `.openapi()` to zod 4 schemas; `getOpenAPI31Document()` emits OpenAPI 3.1 (`type: ['string', 'null']` for
+  nullable fields). Web-standard: runs on Node and Workers.
+- Validation failures go to the app's `defaultHook` (or a per-route hook); throwing from it reaches `onError`. Malformed
+  JSON is Hono's own `HTTPException(400)`; a JSON body whose `Content-Type` isn't JSON is not validated as JSON, so the
+  admin API checks the content type itself (`415`).
+- Query parameters reach the validator as strings (arrays when repeated); `z.coerce.number()` turns `limit=` into `0`.
+- A sub-app's `onError` applies to its routes when mounted with `app.route()`; the parent's `notFound` applies to
+  unmatched paths, so the admin API ends with its own catch-all for its error shape.
+- With `isolatedDeclarations` (tsdown's fast DTS path) every exported value needs an explicit type, so the zod schemas
+  are not re-exported from the package entry; only constants and functions with declared types are.
+- Sources: package README and type definitions in `node_modules/@hono/zod-openapi`; Hono docs (validation, `route()`).

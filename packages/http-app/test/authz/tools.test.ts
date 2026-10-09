@@ -23,7 +23,7 @@ interface ToolCall {
 const NRQL = 'SELECT count(*) FROM Transaction SINCE 1 hour ago';
 const ALLOWED = [1, 2] as const;
 
-export const TOOL_CASES: Readonly<Record<string, readonly ToolCall[]>> = {
+const GUID_CASES: Readonly<Record<string, readonly ToolCall[]>> = {
   whoami: [{ args: {}, expect: 'ok' }],
   list_accounts: [{ args: {}, expect: 'ok' }],
   time_range: [{ args: { expression: 'last 2 hours' }, expect: 'ok', offline: true }],
@@ -238,6 +238,57 @@ export const TOOL_CASES: Readonly<Record<string, readonly ToolCall[]>> = {
   ],
   // Offline decoding of the caller's own input: says the account is not available, fetches nothing.
   decode_entity_guid: [{ args: { guid: guidOf(FOREIGN) }, expect: 'ok', offline: true }],
+};
+
+/**
+ * Name path (P6-17, P6-18), the same for every tool that takes an entity: an unavailable account is refused offline;
+ * the resolver never picks among several matches, never resolves into an account outside the grant, and what it
+ * resolves is still checked like the guid. `resolved` is what `entity-1` (account 1) ends in for that tool.
+ */
+const NAME_TOOLS: Readonly<
+  Record<string, { field: string; resolved: ToolCall['expect']; optional?: boolean }>
+> = {
+  list_top_transactions: { field: 'entity_guid', resolved: 'ok' },
+  analyze_transactions: { field: 'entity_guid', resolved: 'ok' },
+  analyze_threads: { field: 'entity_guid', resolved: 'ok' },
+  list_gc_metrics: { field: 'entity_guid', resolved: 'ok' },
+  analyze_deployment_impact: { field: 'entity_guid', resolved: 'refused' },
+  analyze_entity_logs: { field: 'entity_guid', resolved: 'ok' },
+  list_recent_logs: { field: 'entity_guid', resolved: 'ok', optional: true },
+  list_error_groups: { field: 'entity_guid', resolved: 'ok', optional: true },
+  list_change_events: { field: 'entity_guid', resolved: 'refused', optional: true },
+  list_recent_issues: { field: 'entity_guid', resolved: 'ok', optional: true },
+  search_incidents: { field: 'entity_guid', resolved: 'ok', optional: true },
+  get_dashboard: { field: 'guid', resolved: 'refused' },
+  dependency_health: { field: 'guid', resolved: 'refused' },
+  entity_health: { field: 'guid', resolved: 'refused' },
+  generate_user_impact_report: { field: 'entity_guid', resolved: 'ok', optional: true },
+};
+
+function nameCases(tool: string, o: { field: string; resolved: ToolCall['expect']; optional?: boolean }) {
+  const cases: ToolCall[] = [
+    { args: { name: 'entity', account: FOREIGN }, expect: 'refused', offline: true },
+    { args: { name: 'entity', account: 3 }, expect: 'refused', offline: true },
+    { args: { name: 'entity' }, expect: 'invalid' }, // matches accounts 1 and 2: ambiguous
+    { args: { name: 'entity-3' }, expect: 'invalid' }, // only in account 3 (not allowed): not found
+    { args: { name: 'entity-1' }, expect: o.resolved },
+    { args: { name: 'entity-1', [o.field]: guidOf(1) }, expect: 'invalid' },
+  ];
+  if (!o.optional) cases.push({ args: {}, expect: 'invalid' });
+  return [...(GUID_CASES[tool] ?? []), ...cases];
+}
+
+export const TOOL_CASES: Readonly<Record<string, readonly ToolCall[]>> = {
+  ...GUID_CASES,
+  ...Object.fromEntries(Object.entries(NAME_TOOLS).map(([t, o]) => [t, nameCases(t, o)])),
+  trace_error: [
+    ...(GUID_CASES['trace_error'] ?? []),
+    // A name needs an error group to scope: refused before any lookup.
+    { args: { name: 'entity-1' }, expect: 'invalid' },
+    { args: { name: 'entity', error_group_id: 'eg-1' }, expect: 'invalid' },
+    { args: { name: 'entity-3', error_group_id: 'eg-1' }, expect: 'invalid' },
+    { args: { name: 'entity-1', entity_guid: guidOf(1), error_group_id: 'eg-1' }, expect: 'invalid' },
+  ],
 };
 
 let h: Harness;

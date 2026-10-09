@@ -69,6 +69,17 @@ export function inputJsonSchema(def: Pick<ToolDefinition, 'inputSchema'>): Recor
   return z.toJSONSchema(def.inputSchema, { target: 'draft-2020-12' }) as Record<string, unknown>;
 }
 
+/** The JSON Schema for a tool's structured output, or undefined for text-only tools. */
+export function outputJsonSchema(
+  def: Pick<ToolDefinition, 'outputSchema'>,
+): Record<string, unknown> | undefined {
+  if (!def.outputSchema) return undefined;
+  return z.toJSONSchema(def.outputSchema, { target: 'draft-2020-12', io: 'output' }) as Record<
+    string,
+    unknown
+  >;
+}
+
 /**
  * The catalogue of tool definitions. Immutable after setup: it holds definitions only, never request data.
  * Per-request filtering happens with `select()`; the MCP server is then built with just those tools.

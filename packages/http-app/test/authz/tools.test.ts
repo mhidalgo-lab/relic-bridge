@@ -55,6 +55,18 @@ export const TOOL_CASES: Readonly<Record<string, readonly ToolCall[]>> = {
     { args: { account: FOREIGN }, expect: 'refused', offline: true },
     { args: {}, expect: 'ok' },
   ],
+  list_alert_policies: [
+    { args: { account: FOREIGN }, expect: 'refused', offline: true },
+    { args: { account: 3 }, expect: 'refused', offline: true }, // reachable by the key, not allowed
+    { args: {}, expect: 'ok' },
+    { args: { account: 2, name: 'x' }, expect: 'ok' },
+  ],
+  list_alert_conditions: [
+    { args: { account: FOREIGN }, expect: 'refused', offline: true },
+    { args: { account: 3, policy_id: '1' }, expect: 'refused', offline: true },
+    { args: {}, expect: 'ok' },
+    { args: { account: 2, policy_id: '8000026' }, expect: 'ok' },
+  ],
   get_entity: [
     { args: { guid: guidOf(FOREIGN) }, expect: 'refused', offline: true },
     // NerdGraph answers with an entity in the foreign account behind an allowed account's GUID.
@@ -123,6 +135,19 @@ describe('tool isolation against a hostile NerdGraph', () => {
       }
     });
   }
+
+  it('alert tools drop rows of other accounts and say so', async () => {
+    const client = await isoClient();
+    const policies = await client.callTool({ name: 'list_alert_policies', arguments: {} });
+    const p = policies.structuredContent as { policies: { name: string }[]; hiddenOutsideScope: boolean };
+    expect(p.policies.map((x) => x.name)).toEqual(['alpha-policy']);
+    expect(p.hiddenOutsideScope).toBe(true);
+    const conditions = await client.callTool({ name: 'list_alert_conditions', arguments: {} });
+    const c = conditions.structuredContent as { conditions: { name: string }[]; hiddenOutsideScope: boolean };
+    expect(c.conditions.map((x) => x.name)).toEqual(['alpha-condition']);
+    expect(c.hiddenOutsideScope).toBe(true);
+    expect(JSON.stringify([policies, conditions])).not.toContain(LEAK);
+  });
 
   it('list tools return only allowed accounts and entities, and say what was left out', async () => {
     const client = await isoClient();

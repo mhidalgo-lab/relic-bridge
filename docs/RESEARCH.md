@@ -271,6 +271,14 @@ Sources: <https://github.com/cloudflare/workers-oauth-provider>, issues #264, #3
   - `actor.entitySearch(query: "…")`, `actor.entity(guid)`, `relatedEntities`
   - `entity.goldenMetrics { metrics { title query } }`: returns NRQL to run
   - `account.aiIssues`, `account.alerts.policiesSearch` / `nrqlConditionsSearch`, `actor.errorsInbox`
+- Alerts (P6-01, from the P0-09 introspection): `AlertsAccountStitchedFields.policiesSearch(cursor, searchCriteria:
+  AlertsPoliciesSearchCriteriaInput { ids, name, nameLike })` → `{ nextCursor totalCount policies { id name accountId
+  incidentPreference entityGuid } }` (live-verified, sanitized fixture `alerts_policies.json`). `nrqlConditionsSearch(cursor,
+  searchCriteria { name, nameLike, policyId: ID, query, queryLike, termsOperator })` → `nrqlConditions` of the interface
+  `AlertsNrqlCondition` (id, name, policyId, entityGuid, enabled, type STATIC|BASELINE|OUTLIER, description, runbookUrl,
+  `nrql { query dataAccountId }`, `terms { priority operator threshold thresholdDuration thresholdOccurrences }`, `signal`,
+  `violationTimeLimitSeconds`). **Introspected only, not yet live-verified:** `nrqlConditionsSearch` results, `queryLike`
+  semantics, and the page size of both searches (no `limit` argument exists; NerdGraph chooses).
 
 ## 6b. npm publishing (P1-15)
 

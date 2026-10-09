@@ -241,7 +241,7 @@ export function checkGuid(ctx: ToolContext, value: string): DecodedEntityGuid {
  * mismatch is inconsistent data and the row can't be vouched for (T3). GUIDs that don't decode are judged by the
  * reported account alone.
  */
-function guidAgrees(guid: string, account: number): boolean {
+export function guidAgrees(guid: string, account: number): boolean {
   try {
     return decodeEntityGuid(guid).accountId === account;
   } catch {

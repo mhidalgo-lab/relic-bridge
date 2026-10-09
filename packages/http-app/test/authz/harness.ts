@@ -97,6 +97,33 @@ const vertex = (account: number, name: string, guid = guidOf(account, name)) => 
   entity: { name, domain: 'APM', type: 'APPLICATION', alertSeverity: 'WARNING', reporting: true },
 });
 
+const alertPolicy = (account: number, name: string) => ({
+  id: '8000026',
+  name,
+  accountId: account,
+  incidentPreference: 'PER_CONDITION',
+  entityGuid: guidOf(account, '8000026', 'AIOPS', 'POLICY'),
+});
+
+const alertCondition = (account: number, name: string) => ({
+  id: '9000001',
+  name,
+  policyId: '8000026',
+  entityGuid: guidOf(account, '9000001', 'AIOPS', 'CONDITION'),
+  enabled: true,
+  type: 'STATIC',
+  nrql: { query: 'FROM TransactionError SELECT count(*)', dataAccountId: account },
+  terms: [
+    {
+      priority: 'CRITICAL',
+      operator: 'ABOVE',
+      threshold: 5,
+      thresholdDuration: 300,
+      thresholdOccurrences: 'ALL',
+    },
+  ],
+});
+
 /** `tenants`: API key → label shown in that tenant's replies. Unknown keys get an authentication error. */
 export function hostileNerdGraph(tenants: Readonly<Record<string, string>>): HostileNerdGraph {
   const calls: NerdGraphCall[] = [];
@@ -200,6 +227,49 @@ export function hostileNerdGraph(tenants: Readonly<Record<string, string>>): Hos
                       target: vertex(1, `${LEAK}-rel-forged`, guidOf(FOREIGN, 'forged')),
                     },
                   ],
+                },
+              },
+            },
+          });
+        }
+        case 'RbAlertPolicies': {
+          const account = Number(variables['accountId']);
+          return ok({
+            actor: {
+              account: {
+                alerts: {
+                  policiesSearch: {
+                    nextCursor: null,
+                    totalCount: 3,
+                    policies: [
+                      alertPolicy(account, `${label}-policy`),
+                      alertPolicy(FOREIGN, `${LEAK}-policy`),
+                      // Reported in the requested account, but the GUID names the foreign one.
+                      {
+                        ...alertPolicy(account, `${LEAK}-policy-forged`),
+                        entityGuid: guidOf(FOREIGN, 'p', 'AIOPS', 'POLICY'),
+                      },
+                    ],
+                  },
+                },
+              },
+            },
+          });
+        }
+        case 'RbAlertConditions': {
+          const account = Number(variables['accountId']);
+          return ok({
+            actor: {
+              account: {
+                alerts: {
+                  nrqlConditionsSearch: {
+                    nextCursor: null,
+                    totalCount: 2,
+                    nrqlConditions: [
+                      alertCondition(account, `${label}-condition`),
+                      alertCondition(FOREIGN, `${LEAK}-condition`),
+                    ],
+                  },
                 },
               },
             },

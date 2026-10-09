@@ -425,6 +425,14 @@ and known issues before Phase 1.
   `meta/_journal.json` and snapshots. D1 runs the same SQL.
 - `drizzle-kit` 0.31 still depends on the deprecated `@esbuild-kit/*` loader, which pulls esbuild 0.18
   (GHSA-67mh-4wv8-2f99, dev-server only). Overridden to esbuild 0.25.12 in `pnpm-workspace.yaml`; generation works.
+- Dev-tooling audit advisories (P8-10, 2026-10-09): `miniflare` (via `wrangler` and `@cloudflare/vitest-plugin`) pins `sharp`
+  exactly, and no miniflare release that was past `minimumReleaseAge` pinned the patched `sharp` 0.35.5
+  (GHSA-wq5f-xc86-pv6w, librsvg), so `pnpm-workspace.yaml` overrides `sharp` to 0.35.5 (wrangler stays on 4.144.0; drop the
+  override once a released miniflare pins >= 0.35.5). `shell-quote` (via `@changesets/cli`) and `source-map-js` (via
+  vite/postcss/jsdom) are overridden the same way. `pnpm audit` has no ignore list in this repo. Reachability: `sharp`
+  is a dependency of `miniflare` only; `pnpm --filter relic-bridge --prod deploy` contains no `sharp`, and the Worker
+  bundle (`wrangler deploy --dry-run`) and CLI bundle contain neither `sharp` nor `miniflare`, so it exists only in dev
+  and CI installs.
 - Sources: npm registry metadata; orm.drizzle.team docs (SQLite column types, indexes & constraints).
 
 ## 9. WebCrypto AES-GCM and HKDF (P2-03, checked 2026-10-03)

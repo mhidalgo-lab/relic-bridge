@@ -15,6 +15,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Options:** merge the stack bottom-up (retarget each PR to `main` after its parent merges), or squash-merge the
   tip into `main` in one go.
 - **Needs:** owner's merge strategy; then mark merged tasks `done` and run `pnpm tasks index`.
+- **Decision (2026-10-09):** merge one phase at a time, bottom-up into `main` (see phase-1.md, same entry).
 
 ## Tools
 
@@ -29,6 +30,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Options:** keep as is; make `summary` the default for raw events too; add a cache-backed paging handle in P7-02.
 - **Needs:** owner's call on the thresholds, and whether P7-02 should add result paging by handle. The 50% token
   target is verified on synthetic large results only, not on the live LLM eval (no live calls allowed).
+- **Decision (2026-10-09):** confirmed as assumed.
 
 ### P7-02 — query cache defaults
 - **Context:** The query cache is on by default everywhere (moving windows reused for 30 s, settled fixed windows for
@@ -43,6 +45,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   per grant (more hits, same New Relic answers, but a grant edit could briefly be outlived by cached results of the
   old grant's limits; the limits fingerprint already prevents that); add `cache` to every NRQL tool.
 - **Needs:** owner's call on the defaults and the scope.
+- **Decision (2026-10-09):** keep: cache on by default, scoped per grant, HMAC-keyed.
 
 ### P7-02 — result paging by handle (follow-up from P7-01)
 - **Context:** P7-01 asked whether P7-02 should add a cache-backed paging handle for full results.
@@ -51,6 +54,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Options:** add `result_handle` + `page` to `run_nrql` backed by the cache entry id (needs a handle bound to the
   caller's scope so it can't be replayed by another grant).
 - **Needs:** owner's call; a new task if wanted.
+- **Decision (2026-10-09):** confirmed as assumed.
 
 ### P7-03 — UI link formats are unverified
 - **Context:** The autonomous run had no browser or New Relic login, so only the entity permalink is a known format.
@@ -61,6 +65,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Options:** verify and fix the two formats (one-line change in `packages/core/src/links.ts`); add `link` fields to
   `get_entity` / `list_recent_issues` / `get_dashboard`; drop the unverified kinds.
 - **Needs:** owner opens one link of each kind in US and EU and reports; then drop the "unverified" wording.
+- **Decision (2026-10-09):** assumption accepted; owner action tracked in `docs/pending-decisions/owner-checklist.md`.
 
 ### P7-04 — MCP Apps charts: always advertised, unverified in a real client
 - **Context:** No MCP Apps host was available in the autonomous run, so "renders in at least one Claude surface" is
@@ -77,6 +82,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Needs:** owner connects a deployed server to claude.ai or Claude Desktop, runs `SELECT count(*) FROM Transaction
   FACET appName TIMESERIES SINCE 1 hour ago`, and reports whether the chart shows (and in which theme); then tick the
   last P7-04 criterion and update `docs/reference/client-compatibility.md`.
+- **Decision (2026-10-09):** assumption accepted; owner action tracked in `docs/pending-decisions/owner-checklist.md`.
 
 ### P7-05 — doctor: scope trimmed, probes chosen without an owner
 - **Context:** The task listed client-config-file checks and remote token validity. Both need per-client file parsing
@@ -89,6 +95,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   keep `doctor` to a single NerdGraph request.
 - **Needs:** owner confirms the exit-code policy and whether the unauthenticated probe is acceptable against servers
   with WAF/rate limits.
+- **Decision (2026-10-09):** confirmed as assumed.
 
 ### P7-06 — Config import/export: KDF, personal-key defaults and scope chosen without an owner
 - **Context:** The task said "age/scrypt". WebCrypto has neither scrypt nor Argon2, and `packages/auth` must stay
@@ -111,6 +118,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Update (phase 7 review, H1):** personal-key defaults are now refused on import unless the person running it owns
   the key (same rule as the admin API, P4-18): a crafted bundle could name a colleague's stored key by owner + label and
   share it with a new project. The PBKDF2 and grant-update questions stay open.
+- **Decision (2026-10-09):** keep PBKDF2 (600 000 iterations, CLI-only) and additive-only import. Owner action: one real Node→Worker move.
 
 ### P7-07 — Claude Code plugin: publishing, versioning and packaging chosen without an owner
 - **Context:** The task asks for marketplace listing and publishing to the official MCP Registry. Publishing is an
@@ -124,6 +132,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Needs:** owner decides whether/where to publish (after the v0.1 npm release), the GitHub owner/repo name in
   `plugin.json` (`homepage` assumes `matiashidalgo/relic-bridge`), and whether to sync the plugin version in releases.
   Also a real `/plugin install` smoke test with a live key, which this run could not do.
+- **Decision (2026-10-09):** assumption accepted; owner action tracked in `docs/pending-decisions/owner-checklist.md`.
 
 ### P7-08 — Self-monitoring: exporter design and Free-plan cost chosen without an owner
 - **Context:** The task asks for OTLP export of traces, metrics and logs, including budget usage, on Workers and Node.
@@ -137,6 +146,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Needs:** owner confirms the attribute set (project slug) is acceptable to send to a third party, whether Free-plan
   users should be warned or capped, and a real check against New Relic's OTLP endpoint with a license key, which this run
   could not do.
+- **Decision (2026-10-09):** keep the `project` slug attribute (off by default, owner's own account). Owner action: check against a real OTLP endpoint.
 
 
 ### P7-09 — Write tools: enabling writes at all is an owner decision
@@ -161,6 +171,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   (2) a live check of each mutation (RESEARCH §26: field and argument names, category/type case for change events)
   with `dry_run` first, then one real call on a test entity/issue in US and EU; (3) whether `close_issue` should ship.
 - **Update (P7-10):** P7-10 addresses this: with `RB_SHARED_LIMITER=rules` or `on` the 20-per-hour write limit is counted per grant for the whole deployment; an unreachable object falls back to the isolate bucket (still a limit). See docs/guide/cloudflare-limits.md#shared-limiter-durable-object-optional.
+- **Decision (2026-10-09):** ADR-0015 confirmed; `close_issue` ships; writes stay off at every layer by default. Owner keeps writes off on their deployment until a live `dry_run` of each mutation passes.
 
 ### P7-10 — Durable Object limiter: opt-in, defaults and failure policy chosen without an owner
 - **Context:** The task asks for an optional Durable Object semaphore per credential; the owner also asked to consider
@@ -179,6 +190,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   (exact limits, one more round trip per request); persist leases (two row writes per NerdGraph call); tune lease/wait.
 - **Needs:** owner's call on the default and the failure policy; on a deployment, measure the added latency per call
   and confirm 429s disappear under a real 20-client load on one key (acceptance criterion left open).
+- **Decision (2026-10-09):** keep: `RB_SHARED_LIMITER` off by default with per-isolate fallback (writes fail closed). Owner sets `rules` on their own deployment when writes are on.
 
 ### P7-11 — OS keychain: shell-out backends, no native module; macOS and Windows unverified
 - **Context:** The task asked for a maintained library. `keytar` is archived and `@napi-rs/keyring` is a native addon
@@ -195,6 +207,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   gnome-keyring (this machine's WSL2 has no Secret Service, so only the "unavailable" path was exercised live). Confirm
   `security -i` returns a failing status on a refused add (the code also reads back, so a silent failure is caught), and
   that macOS prompts acceptably when the keychain entry is read by a node process started by an MCP client.
+- **Decision (2026-10-09):** assumption accepted; owner action tracked in `docs/pending-decisions/owner-checklist.md`.
 
 ### P7-12 — Per-grant quotas: counting rules, failure policy and calendar periods chosen without an owner
 - **Context:** The task asks for daily query quotas and inspected-events budgets per grant, with soft warn and hard deny,
@@ -217,6 +230,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Needs:** owner's call on fail-open vs fail-closed; whether D1 write cost per call is acceptable (one or two writes per
   New Relic call for a grant with a quota; the shared limiter avoids it) or whether quotas should be Durable Object-only
   on Workers; on a deployment, measure the added latency per call and confirm a cap holds across isolates under load.
+- **Decision (2026-10-09):** keep: per-grant quotas fail open (cost control, not access control).
 
 ### P7-13 — MCP Tasks: hand-rolled on SDK 2.2.0, `run_nrql` only, HTTP project routes only, no real client verified
 - **Context:** The MCP TypeScript SDK 2.2.0 has no Tasks runtime for protocol 2026-07-28 (`tasks/*` answer `-32601`);
@@ -241,6 +255,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Needs:** on a deployment, run one Tasks-capable client (e.g. an `ext-tasks` client session, or a host that lists
   Tasks support) against `/p/<slug>/mcp` with a slow query, and tick the client criterion in the task file; owner's call
   on (4) and on an off switch.
+- **Decision (2026-10-09):** keep per-device visibility and **add** an `RB_TASKS=off` kill switch: P7-34. Owner action: real Tasks client run.
 
 ### P7-14 — Lazy auth: stdio setup mode on by default, remote public catalog opt-in, registry not published
 - **Context:** The task wants registries and OAuth-first clients to list tools before authenticating, without a project
@@ -264,6 +279,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   and `mcp-publisher publish` (and decide whether the release workflow should do it with GitHub OIDC). Verify with
   a real registry/inspector (e.g. MCP Inspector against a deployment with the catalog on) that discovery works and that
   OAuth-first clients still sign in at the first tool call.
+- **Decision (2026-10-09):** keep both: stdio setup mode lists tools; remote public catalog opt-in. Registry publishing after the npm release (owner).
 
 ### P7-16 — MCP Apps: unknown capabilities still get the view; per-request getters on SDK objects
 - **Context:** The view should go to clients that declare `io.modelcontextprotocol/ui`. On 2026-07-28 the declaration is
@@ -278,6 +294,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Options:** treat unknown as "no" (strictest, drops charts for 2025-era stateless clients); use only the switch and
   skip per-client gating; ask the SDK for a per-request list hook and drop the getters.
 - **Needs:** owner's call on (1); verify in a real MCP Apps host (Claude web or Desktop) that charts still render.
+- **Decision (2026-10-09):** keep: unknown capabilities still get the MCP Apps view.
 
 ### P7-17 — doctor: refused token is one outcome; client files are read from fixed paths
 - **Context:** The task asks for valid / expired / revoked. The server deliberately returns the same 401 for every
@@ -290,6 +307,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Options:** let the server reveal "revoked" vs "expired" to a presenter of the token itself (weakens the uniform
   401); also test the token found in a client entry; search more locations (workspace folders, profiles).
 - **Needs:** owner's call on (1) and (2) if the uniform 401 should be relaxed.
+- **Decision (2026-10-09):** confirmed as assumed.
 
 ### P7-18 — OTLP follow-ups: traceparent is opt-in and not forwarded; logs flush with calls on Workers
 - **Context:** A client-supplied `traceparent` lets spans join the caller's trace, but the ids are caller-chosen and a
@@ -303,6 +321,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Options:** default traceparent on; propagate to NerdGraph (it does not use it today); flush logs from a Worker cron or
   per-request `waitUntil` with a dedicated log hook in `createHttpApp`; export `debug`.
 - **Needs:** owner's call on (1) and (3); verify against a real OTLP endpoint (New Relic) that `/v1/logs` is accepted.
+- **Decision (2026-10-09):** confirmed as assumed.
 
 ### P7-19 — create_dashboard: PRIVATE only, raw-NRQL gated, summary audit, unverified live
 - **Context:** A dashboard is the first write other people can see, and its widgets hold NRQL that New Relic runs
@@ -322,6 +341,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   dashboards relic-bridge created.
 - **Needs:** owner's call on (1)–(5); a live check (RESEARCH §26): `viz.*` ids, typed `configuration` without
   `rawConfiguration`, that an API-key-created PRIVATE dashboard is private to the key's user; `dry_run` first.
+- **Decision (2026-10-09):** keep everything as is (PRIVATE only, raw-NRQL gated, typed config, size limits). Owner action: live `dry_run` check.
 
 ### P7-20 — Write confirmation through elicitation: automatic when declared, per-round rate limit
 - **Context:** A model-set `confirm: true` is not a human approval. MCP elicitation asks the person. The SDK supports it
@@ -341,6 +361,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   phones.
 - **Needs:** owner's call on (1), (3) and (6); a check of how Claude Code, Claude Desktop, VS Code and the phone apps
   show the form and whether any auto-accepts it.
+- **Decision (2026-10-09):** keep auto elicitation when declared; **change** charging so only the answered round counts against the write bucket: P7-35.
 
 ### P7-21 — Composite report tasks: insights only, a task whenever the client takes one, 3 sections per poll
 - **Context:** Report sections run to completion inside a call; nothing is pending at New Relic. A task helps only by
@@ -354,6 +375,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   beforehand); run all sections in the creating request and use the task only for what is left; more or fewer sections
   per poll.
 - **Needs:** owner's call on (2) and (3); a real Tasks client to see how it handles a short multi-poll task.
+- **Decision (2026-10-09):** confirmed as assumed.
 
 
 ### P7-22 — Tasks on stdio and pass-through; no status notifications
@@ -367,6 +389,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   Workers without a host store; requiring `fingerprintSecret` for pass-through tasks so they survive a restart.
 - **Needs:** owner's call on (3) once a real client wants pushes; a check on a real stdio client (Claude Code,
   Desktop) that it declares the extension at all.
+- **Decision (2026-10-09):** confirmed as assumed.
 
 ### P7-23 — Other composite reports as tasks: same pattern, trace_error left alone
 - **Context:** Follow-up of P7-21. Nothing ran against a real Tasks client.
@@ -377,6 +400,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   report-task tests, dropped by the P7-22 rewrite of the file, were restored and extended to all four tools.
 - **Options:** inline answer when the budget fits the whole report; larger or smaller steps; a task for `trace_error`.
 - **Needs:** owner's call on (1) and (2), and a real Tasks client check.
+- **Decision (2026-10-09):** confirmed as assumed.
 
 ## Phase 7 review (2026-10-07)
 
@@ -386,6 +410,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Assumption made:** fixed on `review/phase-7`: the import applies the admin API rule (P4-18), only the key's owner
   running the import may make it a default; otherwise the default is left unset and the plan says why.
 - **Needs:** nothing, unless the owner wants imports to be able to do this (then an explicit, audited flag).
+- **Decision (2026-10-09):** resolved: import applies the P4-18 personal-key rule (T29).
 
 ### Review — Write approvals (H2, fixed) and a stricter mode (P7-25, P7-26)
 - **Context:** the elicitation prompt was shortened and the approval bound to the shortened text.
@@ -394,6 +419,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Options:** P7-25 adds an owner switch requiring a human approval; P7-26 binds approvals to one attempt.
 - **Needs:** owner's call on whether `required` should become the default once real clients are checked, and whether
   Worker deployments with writes on should refuse to start without `RB_SHARED_LIMITER` (P7-24) or only warn.
+- **Decision (2026-10-09):** **change:** `RB_WRITE_APPROVAL` defaults to `required` whenever writes are on (ADR-0016, task P7-33); the Worker keeps warn-only without the shared limiter.
 
 ### P7-24 — Write rate limit deployment-wide on Workers: warn, and fail closed on a Durable Object error
 - **Context:** the 20-per-hour write cap was per isolate without `RB_SHARED_LIMITER`, and with it an object error fell
@@ -404,6 +430,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   and the Free plan has tight object limits). The D1 conditional-update counter was not added: the object is the
   existing seam.
 - **Needs:** owner's call whether `RB_WRITE_TOOLS=on` should refuse to start without `RB_SHARED_LIMITER`.
+- **Decision (2026-10-09):** keep warn-only when writes are on without `RB_SHARED_LIMITER`.
 
 ### P7-25 — Owner switch requiring a human approval for writes
 - **Context:** with writes on, a client that cannot be asked (no elicitation, stateless 2025-era HTTP) writes on the
@@ -414,6 +441,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   it needs a storage migration and an owner-only admin path.
 - **Needs:** owner's call on a per-project/grant flag (a follow-up task if wanted) and on making `required` the default
   once real clients are checked (already raised under the phase 7 review).
+- **Decision (2026-10-09):** keep server-level only; default now `required` (ADR-0016 / P7-33).
 
 ### P7-26 — Write approvals bound to one attempt
 - **Context:** a replayed elicitation answer repeated non-idempotent writes.
@@ -423,6 +451,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   rate-bound per change.
 - **Needs:** owner's call on whether to also refuse identical repeated writes in the `confirm: true` flow (it would
   block legitimate repeats), and on the 10-minute window.
+- **Decision (2026-10-09):** confirmed as assumed.
 
 ### P7-27 — tools/list budget with write tools, and headroom
 - **Context:** built-ins sat 33 characters under the 54 400 budget; write tools (about 8 100 characters) were unguarded.
@@ -434,6 +463,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   overlap rule by design): follow-up P7-31.
 - **Needs:** owner's call on whether a 3% margin is enough, and on dropping the safe-integer `maximum` from the advertised
   schema (revert `withoutSafeIntegerMax` to restore about 1 100 characters of schema text).
+- **Decision (2026-10-09):** confirmed as assumed.
 
 ### P7-28 — Owner-only write scope, audit before the mutation
 - **Context:** an admin could widen a project or grant that already writes (accounts, default key, limits, quota), the
@@ -453,6 +483,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   keep it.
 - **Needs:** owner's call on whether admins should be allowed to tighten limits and rotate keys of write-enabled
   projects (would need per-field narrowing rules), and on the user re-enable gap (P7-32).
+- **Decision (2026-10-09):** keep: any limits change or key rotation on write-enabled projects is owner-only.
 
 ### P7-29 — Compare-and-swap on MCP task records
 - **Context:** concurrent `tasks/get` polls could both run a step and a poll in flight could overwrite a cancel.
@@ -462,6 +493,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   stored state, a cancel retries up to 4 times. A step whose outcome loses to a cancel is discarded (its NerdGraph call
   and budget are spent). The claim adds one uncharged storage write per step.
 - **Needs:** nothing; confirm the extra write per step is acceptable on D1.
+- **Decision (2026-10-09):** confirmed as assumed.
 
 ### P7-32 — Owner-only re-enable of users who hold write grants
 - **Context:** an admin could re-enable a user an owner disabled, bringing back that user's write grants and tokens.
@@ -472,3 +504,4 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   renaming and re-enabling users without such a grant stay open to admins. No other user change was found that restores
   write access.
 - **Needs:** nothing; confirm that counting expired (not revoked) grants is the wanted conservative choice.
+- **Decision (2026-10-09):** confirmed as assumed.

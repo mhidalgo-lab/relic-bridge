@@ -1,6 +1,6 @@
 # 0015 — Opt-in write tools
 
-- Status: accepted (P7-09, 2026-10-06; **owner confirmation pending**, see `docs/pending-decisions/phase-7.md`)
+- Status: accepted (P7-09, 2026-10-06; owner confirmed 2026-10-09; the `RB_WRITE_APPROVAL` default is superseded by ADR-0016)
 - Date: 2026-10-06
 - Related: THREAT_MODEL T3, T4, T6, T17, T22, T31; ADR-0005 (stateless MCP), ADR-0008 (access model), ADR-0009
   (authentication), ADR-0014 (no raw NerdGraph tool; this ADR narrows its `{ mutation: true }` escape hatch)
@@ -184,7 +184,7 @@ tail is not approving the change:
 Phase 7 review M2: with writes on, a client that cannot be asked lets the model approve its own change with
 `confirm: true`. An owner can now refuse that:
 
-- **Setting:** `RB_WRITE_APPROVAL=client|required` (`serve`, Worker, stdio; default `client` = the behaviour above).
+- **Setting:** `RB_WRITE_APPROVAL=client|required` (`serve`, Worker, stdio; default `client` = the behaviour above; **superseded by ADR-0016: default `required`**).
   It is a **server-level** setting, like `RB_WRITE_TOOLS`: only whoever runs the server (environment or Worker `vars`)
   can change it, no admin API, project or grant field can lower it, and it is not an MCP tool. A per-project or
   per-grant flag was left out: it would add a storage migration and an owner-only admin path for a posture that is

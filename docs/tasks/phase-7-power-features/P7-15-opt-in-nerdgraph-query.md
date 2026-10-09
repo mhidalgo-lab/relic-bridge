@@ -16,6 +16,8 @@ ADR-0014 decided **not** to ship a raw NerdGraph tool. Start this task only if t
 `docs/pending-decisions/phase-6.md` (P6-15) **and** names a concrete NerdGraph read that a typed tool cannot reasonably
 cover. Adopting it needs a new ADR that supersedes ADR-0014.
 
+Owner decision 2026-10-09: ADR-0014 confirmed; this task stays `blocked` (not dropped) until a concrete need appears.
+
 ## Goal
 If ever built, the safest possible `nerdgraph_query` tool: off by default, separately granted, query-only, account-scoped,
 key-safe and budgeted. The bar is "no weaker than a typed tool", not "better than community servers".

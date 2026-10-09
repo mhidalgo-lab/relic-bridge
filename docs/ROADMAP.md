@@ -97,6 +97,7 @@ Generated from task front matter (`pnpm tasks index` once P0-05 lands). Status l
 | P1-15 | [Release pipeline and v0.1.0](tasks/phase-1-core-stdio/P1-15-release-v0-1.md) | high | P1-11, P1-12, P1-14 | review |
 | P1-16 | [Isolate the OIDC publish step and make release reruns idempotent](tasks/phase-1-core-stdio/P1-16-release-publish-isolation.md) | high | P1-15 | review |
 | P1-17 | [CLI warnings and docs accuracy follow-ups from the Phase 1 review](tasks/phase-1-core-stdio/P1-17-cli-docs-polish.md) | low | P1-11, P1-14 | review |
+| P1-18 | [Require npm staged-publish approval on top of the release environment](tasks/phase-1-core-stdio/P1-18-npm-staged-publish.md) | high | P1-16 | todo |
 
 ### Phase 2
 
@@ -166,6 +167,10 @@ Generated from task front matter (`pnpm tasks index` once P0-05 lands). Status l
 | P4-18 | [Tighten member key switching and personal keys as project defaults](tasks/phase-4-identity-admin/P4-18-member-key-switch-rules.md) | low | P4-10 | review |
 | P4-19 | [Bound the storage writes signed-in users can cause](tasks/phase-4-identity-admin/P4-19-bound-self-service-writes.md) | low | P4-07, P4-10 | review |
 | P4-20 | [Phase 4 test, docs and UI hygiene from the consolidation review](tasks/phase-4-identity-admin/P4-20-phase-4-hygiene.md) | low | P4-08 | review |
+| P4-21 | [Only owners create, demote, disable or unbind administrators](tasks/phase-4-identity-admin/P4-21-owner-only-admin-management.md) | medium | P4-16 | todo |
+| P4-22 | [Warn at startup when an allowlist is set but auto-provisioning is off](tasks/phase-4-identity-admin/P4-22-allowlist-without-autoprovision-warning.md) | low | P4-08 | todo |
+| P4-23 | [Limit fields on the admin panel grant form](tasks/phase-4-identity-admin/P4-23-grant-form-limits.md) | low | P4-04 | todo |
+| P4-24 | [Weekly schedule for the ZAP scan and browser E2E workflows](tasks/phase-4-identity-admin/P4-24-scheduled-zap-e2e.md) | low | P4-11, P4-12 | todo |
 
 ### Phase 5
 
@@ -183,6 +188,7 @@ Generated from task front matter (`pnpm tasks index` once P0-05 lands). Status l
 | P5-10 | [Bound what anonymous callers can do to registration and CIMD](tasks/phase-5-oauth/P5-10-oauth-unauthenticated-abuse.md) | medium | P5-03, P5-08 | review |
 | P5-11 | [Device replacement policy and complete per-user device bounds](tasks/phase-5-oauth/P5-11-oauth-device-bounds.md) | medium | P5-05, P5-08 | review |
 | P5-12 | [OAuth protocol nits from the Phase 5 review](tasks/phase-5-oauth/P5-12-oauth-spec-nits.md) | low | P5-04 | review |
+| P5-13 | [Remove the unused OAUTH_KV Worker binding](tasks/phase-5-oauth/P5-13-remove-oauth-kv-binding.md) | low | P5-01 | todo |
 
 ### Phase 6
 
@@ -212,6 +218,7 @@ Generated from task front matter (`pnpm tasks index` once P0-05 lands). Status l
 | P6-22 | [Consistent tool argument and output naming before 1.0](tasks/phase-6-tool-parity/P6-22-tool-argument-consistency.md) | medium | P6-19 | review |
 | P6-23 | [Phase 6 review nits: lint gaps, test gaps, small correctness issues](tasks/phase-6-tool-parity/P6-23-phase-6-review-nits.md) | low | P6-19 | review |
 | P6-24 | [Paging and limit parity across list tools](tasks/phase-6-tool-parity/P6-24-paging-and-limit-parity.md) | low | P6-22 | review |
+| P6-25 | [Warn in the grant editor when a composite tool lacks its sibling tools](tasks/phase-6-tool-parity/P6-25-composite-grant-warning.md) | low | P6-21, P4-23 | todo |
 
 ### Phase 7
 
@@ -249,6 +256,9 @@ Generated from task front matter (`pnpm tasks index` once P0-05 lands). Status l
 | P7-30 | [Low-severity follow-ups from the Phase 7 review](tasks/phase-7-power-features/P7-30-phase-7-review-lows.md) | low | P7-23 | review |
 | P7-31 | [Description lint for write tools](tasks/phase-7-power-features/P7-31-lint-write-tool-descriptions.md) | low | P7-27 | review |
 | P7-32 | [Owner-only re-enable of users who hold write grants](tasks/phase-7-power-features/P7-32-user-reenable-write-grants.md) | low | P7-28 | review |
+| P7-33 | [Default RB_WRITE_APPROVAL to required](tasks/phase-7-power-features/P7-33-write-approval-required-default.md) | high | P7-25 | todo |
+| P7-34 | [RB_TASKS=off switch for MCP Tasks](tasks/phase-7-power-features/P7-34-tasks-kill-switch.md) | low | P7-13, P7-29 | todo |
+| P7-35 | [Charge the write rate limit only for the answered elicitation round](tasks/phase-7-power-features/P7-35-elicitation-charge-answered-round.md) | low | P7-20, P7-24 | todo |
 
 ### Phase 8
 
@@ -261,4 +271,6 @@ Generated from task front matter (`pnpm tasks index` once P0-05 lands). Status l
 | P8-05 | [Versioning, support and deprecation policy](tasks/phase-8-hardening-launch/P8-05-support-policy.md) | medium | P7-04, P7-09 | todo |
 | P8-06 | [1.0 launch](tasks/phase-8-hardening-launch/P8-06-launch.md) | high | P8-02, P8-03, P8-04, P8-05 | todo |
 | P8-07 | [CI supply-chain hardening follow-ups](tasks/phase-8-hardening-launch/P8-07-ci-supply-chain-hardening.md) | medium | P1-16 | todo |
+| P8-08 | [Run CI on the organization's self-hosted runners, with a hosted fallback](tasks/phase-8-hardening-launch/P8-08-self-hosted-ci-runners.md) | high | — | todo |
+| P8-09 | [Fix EPERM temp-dir cleanup in the SQLite tests on Windows](tasks/phase-8-hardening-launch/P8-09-windows-sqlite-test-cleanup.md) | medium | — | todo |
 <!-- tasks:end -->

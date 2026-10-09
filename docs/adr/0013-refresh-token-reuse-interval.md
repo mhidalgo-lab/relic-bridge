@@ -1,6 +1,6 @@
 # 0013 — Refresh token reuse interval for concurrent refreshes
 
-- Status: accepted (P5-09, 2026-10-05; **owner confirmation pending**, see `docs/pending-decisions/phase-5.md`);
+- Status: accepted (P5-09, 2026-10-05; owner confirmed 2026-10-09, 30 s default, re-check after the P5-06 checklist step 5);
   supersedes the "strict single use, no grace" part of the P5-05 token lifecycle design (ADR-0009/0011 unchanged)
 - Date: 2026-10-05
 

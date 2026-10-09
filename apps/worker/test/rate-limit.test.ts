@@ -134,6 +134,35 @@ describe('Worker rate limiting', () => {
     expect(binding.keys.every((k) => !k.startsWith('fail:'))).toBe(true);
   });
 
+  it('serves the valid MCP and admin tokens from an IP that sprayed bad ones (P3-13, review M6)', async () => {
+    const { storage, token } = await seed(MASTER_KEY);
+    const e: WorkerEnv = { ...env, RATE_LIMITER: fakeBinding() };
+    const worker = createWorker({ openStorage: () => storage, logSink: () => {} });
+    const ip = '198.51.100.7';
+    const mcp = (bearer: string) =>
+      call(worker, e, fakeCtx(), '/p/prod/mcp', {
+        method: 'POST',
+        ip,
+        headers: { ...headers, Authorization: `Bearer ${bearer}` },
+        body: initialize,
+      });
+    const admin = (bearer: string) =>
+      call(worker, e, fakeCtx(), '/api/admin/v1/projects', {
+        ip,
+        headers: { Authorization: `Bearer ${bearer}` },
+      });
+    for (let i = 0; i < 6; i++) await mcp(`rb_${'z'.repeat(40)}`);
+    for (let i = 0; i < 6; i++) await admin(`not-the-admin-token-${i}-${'q'.repeat(24)}`);
+    // Locked for failures, on both routes.
+    expect((await mcp(`rb_${'z'.repeat(40)}`)).status).toBe(429);
+    expect((await admin(`not-the-admin-token-x-${'q'.repeat(24)}`)).status).toBe(429);
+    // The valid tokens are served.
+    expect((await mcp(token)).status).toBe(200);
+    expect((await admin(env.RB_ADMIN_TOKEN as string)).status).toBe(200);
+    // And the lock still holds for failures.
+    expect((await mcp(`rb_${'z'.repeat(40)}`)).status).toBe(429);
+  });
+
   it('boots without the binding (isolate buckets) and warns', async () => {
     const { storage } = await seed(MASTER_KEY);
     const lines: string[] = [];

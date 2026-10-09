@@ -254,6 +254,8 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Options:** as assumed; fail closed on limiter errors (503); let valid tokens through a locked IP (leaks validity,
   rejected); a global per-credential limit now (P7-10).
 - **Needs:** owner OK of the figures, once real clients (P5-06, Claude mobile) show their request patterns.
+- **Update (P3-13):** the "refuse every request from a locked IP" rule was replaced: valid tokens now go through a
+  locked IP (see the review entry "Auth-failure throttle also refuses valid tokens" below).
 
 
 ### P2-08 — Audit log defaults and shape
@@ -478,6 +480,15 @@ Questions raised by `docs/reviews/phase-2-review.md`. Nothing here blocks Phase 
 - **Options:** keep; let a request whose token *verifies* through the throttle (tokens are 256-bit, so "valid vs
   invalid" is not a useful oracle) and keep refusing only failures; per-IP + per-token-prefix buckets.
 - **Needs:** owner choice before Phase 3 (P3-04 implements the same hooks on Workers).
+- **Implemented (P3-13, autonomous run, owner not consulted):** the second option, on Node and Workers alike. The
+  failure throttle is checked and charged on failure (`refuseAuthFailure` hook): past 10 failures per 5 min a further
+  failure gets `429` instead of `401`, and a request whose MCP access token or admin token verifies is served from that
+  IP. In exchange a locked IP learns token validity at the per-IP request rate (600/min) instead of 10 per 5 min:
+  harmless for 256-bit access tokens, and admin tokens are now refused at boot when predictable (P3-13 strength check).
+  The pass-through route keeps the strict rule (a locked IP is refused before its New Relic key is sent to NerdGraph).
+  Reasoning in `THREAT_MODEL.md` (P3-13 row). **Reversible:** restoring the `peek` of `fail:<ip>` in `beforeAuth` for
+  every scope (`packages/http-app/src/rate-limit-hooks.ts`, a few lines) brings back the old rule; the tests that pin
+  the new behaviour say "P3-13". Owner: confirm, or ask for the revert (see `phase-3.md`, "P3-13").
 
 ### REVIEW — Pass-through key ids change on every restart
 - **Context:** `/passthrough/mcp` fingerprints keys with an HMAC secret drawn at random per process, so `pt_…` ids in

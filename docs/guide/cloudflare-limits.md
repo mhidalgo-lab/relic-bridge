@@ -122,9 +122,11 @@ token 120/min, per grant 300/min unless the grant sets its own, per pass-through
 
 - **Auth-failure throttle** is per isolate only: the binding cannot report a count without consuming, so failed
   authentications are not shared across isolates or locations. An attacker spread over many isolates gets more guesses
-  than on Node, but tokens carry 256 bits of entropy and every 401 stays identical. The Durable Object limiter (P7-10)
-  closes this gap. Known side effect, unchanged from Node: a shared IP that fails 10 times is refused even with a valid
-  token (Phase 2 review M6, still open).
+  than on Node, but access tokens carry 256 bits of entropy and the admin token is refused at boot when predictable
+  (P3-13). The Durable Object limiter (P7-10) closes this gap; until then, a WAF rate-limiting rule on `/api/admin/*`
+  is a cheap shared backstop ([deploy guide](cloudflare-deploy.md#harden-the-admin-api)). As on Node, the throttle
+  refuses further *failures* only: a valid MCP or admin token is served from an address that sprayed bad ones (P3-13,
+  Phase 2 review M6).
 - **Client address** is `CF-Connecting-IP`, which Cloudflare sets and clients cannot override. Requests without it
   share one `unknown` bucket.
 - **Fail open:** if the binding throws, the request is allowed and an error is logged; authentication still applies.

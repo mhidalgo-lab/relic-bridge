@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+import { randomBytes } from 'node:crypto';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -241,7 +242,7 @@ describe('startServer (in process)', () => {
     const lines: string[] = [];
     const logger = createLogger({ sink: (l) => lines.push(l) });
     const key = generateMasterKey(1);
-    const admin = 'A'.repeat(20) + 'b'.repeat(20);
+    const admin = randomBytes(32).toString('base64url');
     const settings = serveSettings({ port: '0', db: join(tmp, 'rb.db'), env: {}, platform: 'linux' });
     const common = { settings, platform: 'linux', logger };
     const on = await startServer({
@@ -268,6 +269,20 @@ describe('startServer (in process)', () => {
       expect(((await audit.json()) as { data: { action: string }[] }).data.map((r) => r.action)).toEqual([
         'user.create',
       ]);
+      // P3-13 (review M6): failures from this address get throttled (default 10 per 5 min), the valid token doesn't.
+      const statuses: number[] = [];
+      for (let i = 0; i < 12; i++) {
+        const bad = await fetch(`${on.url}/api/admin/v1/projects`, {
+          headers: { authorization: `Bearer wrong-${i}-${randomBytes(24).toString('base64url')}` },
+        });
+        statuses.push(bad.status);
+      }
+      expect(statuses.slice(0, 9).every((s) => s === 401)).toBe(true);
+      expect(statuses.at(-1)).toBe(429);
+      const stillOk = await fetch(`${on.url}/api/admin/v1/projects`, {
+        headers: { authorization: `Bearer ${admin}` },
+      });
+      expect(stillOk.status).toBe(200);
     } finally {
       await on.close();
     }
@@ -287,6 +302,31 @@ describe('startServer (in process)', () => {
     await expect(
       startServer({ ...common, fs: memoryFs({}), env: { RB_MASTER_KEY: key, RB_ADMIN_TOKEN: 'short' } }),
     ).rejects.toThrow(/RB_ADMIN_TOKEN is too short/);
+    // P3-13: predictable and placeholder tokens are refused, and the error never repeats them.
+    for (const weak of ['a'.repeat(40), 'abcdefghijklmnopqrstuvwxyz0123456789', `changeme-${admin}`]) {
+      const error = await startServer({
+        ...common,
+        fs: memoryFs({}),
+        env: { RB_MASTER_KEY: key, RB_ADMIN_TOKEN: weak },
+      }).then(
+        () => undefined,
+        (e: unknown) => e as Error & { hint?: string },
+      );
+      expect(error?.message, weak).toMatch(/RB_ADMIN_TOKEN is (too predictable|a placeholder)/);
+      expect(`${error?.message} ${error?.hint ?? ''}`).not.toContain(weak.slice(0, 12));
+      expect(error?.hint ?? '').toContain('openssl rand -base64 32');
+    }
+    // A hand-made token boots with a warning (and is never logged).
+    const handMade = 'kitchen-window-garden-sofa-lamp-river';
+    lines.length = 0;
+    const warned = await startServer({
+      ...common,
+      fs: memoryFs({}),
+      env: { RB_MASTER_KEY: key, RB_ADMIN_TOKEN: handMade },
+    });
+    await warned.close();
+    expect(lines.join('\n')).toContain('does not look randomly generated');
+    expect(lines.join('\n')).not.toContain(handMade);
     await expect(
       startServer({
         ...common,

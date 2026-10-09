@@ -7,11 +7,14 @@ import type { ExecutionContext, ScheduledController } from '@cloudflare/workers-
 import { CryptoError, loadKeyringFromEnv, verifyKeyChecks } from '@relic-bridge/auth';
 import { createLogger, type FetchLike, type Logger, type LogSink, Secret, VERSION } from '@relic-bridge/core';
 import {
+  ADMIN_TOKEN_ADVICE,
+  adminTokenLooksWeak,
   checkAdminToken,
   createAuditRecorder,
   createHttpApp,
   createRateLimitHooks,
   DEFAULT_RATE_LIMITS,
+  describeAdminTokenProblem,
   mergeHooks,
   normalizeClientIp,
   SECURITY_HEADERS,
@@ -150,7 +153,17 @@ async function boot(env: WorkerEnv, options: WorkerOptions): Promise<Runtime> {
   if (adminRaw !== '') {
     const problem = checkAdminToken(adminRaw);
     if (problem !== null) {
-      throw new WorkerConfigError('RB_ADMIN_TOKEN', `RB_ADMIN_TOKEN is ${problem.replace('_', ' ')}`);
+      throw new WorkerConfigError(
+        'RB_ADMIN_TOKEN',
+        `RB_ADMIN_TOKEN is ${describeAdminTokenProblem(problem)}. ${ADMIN_TOKEN_ADVICE}`,
+      );
+    }
+    // Once per isolate boot; the token itself is never logged.
+    if (adminTokenLooksWeak(adminRaw)) {
+      log.warn(
+        'RB_ADMIN_TOKEN does not look randomly generated; the admin API is reachable from the internet. ' +
+          ADMIN_TOKEN_ADVICE,
+      );
     }
   }
 

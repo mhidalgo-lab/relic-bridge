@@ -55,8 +55,11 @@ node -e "console.log('v1:'+require('crypto').randomBytes(32).toString('base64'))
 node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"      # RB_ADMIN_TOKEN
 ```
 
-Paste them into the setup page and into a password manager; do not reuse one value for both. Set `RB_PLAN=paid` in the
-Worker's variables if you are on Workers Paid.
+Paste them into the setup page and into a password manager; do not reuse one value for both. Do not type a token by
+hand: the Worker refuses a predictable `RB_ADMIN_TOKEN` (fewer than 8 distinct characters, a repeated block, runs such
+as `abcdef…`, or a placeholder such as `changeme…`) and answers `503` until it is replaced (`worker boot failed` with
+`variable: RB_ADMIN_TOKEN` in the logs, never the value); a hand-made one that passes boots with a warning. Set
+`RB_PLAN=paid` in the Worker's variables if you are on Workers Paid.
 
 > The button flow is documented by Cloudflare but has not been exercised against this repository yet (see the pending
 > decisions); prefer Path A until it is.
@@ -235,6 +238,24 @@ curl -s -o /dev/null -w '%{http_code}\n' -X POST "$RB_REMOTE/p/prod/mcp"        
 The repository ships the same check as a nightly workflow, `.github/workflows/staging-smoke.yml`, for a **separate
 staging Worker**: it needs the `staging` environment with the variable `STAGING_URL` and the secret `STAGING_ADMIN_TOKEN`,
 and skips cleanly when they are unset ([testing](../dev/testing.md#staging-smoke-optional-nightly)).
+
+## Harden the admin API
+
+The admin API (`/api/admin/v1`) is reachable from the internet and protected by `RB_ADMIN_TOKEN` alone until Phase 4
+sign-in. What protects it:
+
+- **Token strength.** `cf:setup` and `admin-token generate` make 256-bit tokens; the Worker refuses predictable ones at
+  boot.
+- **Failure throttle.** 10 failed authentications per 5 minutes per client address, then further failures get `429`.
+  It is counted per isolate (Cloudflare runs many), so a distributed guesser gets more attempts; your valid token is
+  never refused by it, even from an address that sent bad ones (a shared office or mobile network).
+- **Optional shared backstop:** a WAF rate-limiting rule (dashboard: your zone > **Security** > **Security rules** >
+  **Create rule** > **Rate limiting rules**) matching `http.host eq "<your custom domain>" and
+  starts_with(http.request.uri.path, "/api/admin/")`, counted per IP, for example 30 requests per 10 seconds, action
+  *Block*. It counts at Cloudflare's edge, across isolates. Rules belong to a zone, so this needs the
+  [custom domain](#custom-domain) (not `workers.dev`). The Free plan allows one rule, a 10 s period and a 10 s block.
+  It counts every request, not only failures (failure-only counting is Business and up), so keep the threshold above
+  what `--remote` CLI commands send in a burst.
 
 ## Optional: Cloudflare Access
 

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Management commands (P2-10) in-process: local mode against a temp SQLite database and remote mode against an
 // in-process `serve`, both with a fake NerdGraph. Secrets must never appear in argv-derived output.
+import { randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -20,7 +21,7 @@ import { memoryFs } from './helpers.ts';
 const US_KEY = 'NRAK-FAKEUSKEYABCDEFGHIJKLMNOPQRST1';
 const EU_KEY = 'NRAK-FAKEEUKEYABCDEFGHIJKLMNOPQRST2';
 const BAD_KEY = 'NRAK-FAKEBADKEYABCDEFGHIJKLMNOPQRS3';
-const ADMIN = 'adm_'.padEnd(40, 'x');
+const ADMIN = `adm_${randomBytes(32).toString('base64url')}`;
 
 /** NerdGraph stand-in: the account list depends on which key is presented; BAD_KEY is refused. */
 const nerdGraph: FetchLike = (_url, init) => {

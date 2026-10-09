@@ -70,7 +70,7 @@ names the reason for every refusal (`"deny":"…"`); the client only ever sees a
 | `403 tls_required` | Pass-through route only: reach it over https. |
 | `404` on `/passthrough/mcp` | Pass-through is off: `RB_PASSTHROUGH=on`. |
 | `413`, `400` | Body over 1 MiB, or a JSON-RPC batch (one message per request). |
-| `429` | A rate limit (`Retry-After` says when). Behind a proxy set `RB_TRUSTED_PROXY_HOPS`, or every client shares the proxy's address. Failed authentications are limited per address and block valid tokens from it too until the bucket refills. |
+| `429` | A rate limit (`Retry-After` says when). Behind a proxy set `RB_TRUSTED_PROXY_HOPS`, or every client shares the proxy's address. Failed authentications are limited per address: past the budget further failures get `429` (valid tokens are still served) until the bucket refills. |
 | `503` | Storage error (fail closed), or New Relic unreachable on pass-through. See the server log. |
 | `504` (`{"error":"timeout"}`) | The request did not finish within the server's deadline (3 minutes): the body was not delivered in time, or the tool call ran too long. Narrow the query; for a slow client or proxy, check the network between them. |
 | TLS or certificate errors | The reverse proxy, not relic-bridge: check DNS and ports 80/443. |

@@ -11,7 +11,8 @@ Guide: [self-hosting](../guide/self-hosting.md#admin-api).
 ## Conventions
 
 - **Authentication**: `Authorization: Bearer <RB_ADMIN_TOKEN>` on every request. Cookies and query-string
-  credentials are never accepted; every failure is the same `401` (and counts toward the per-IP failure throttle).
+  credentials are never accepted; every failure is the same `401` and counts toward the per-IP failure throttle
+  (past it, further failures get `429 rate_limited`; the valid token is still served).
 - **Bodies**: `application/json` only (`415` otherwise; body-less actions such as `…/revoke` need no `Content-Type`), at most 64 KiB (`413`). Unknown fields are refused (`400`).
 - **Errors**: `{ "error": { "code", "message", "field"?, "detail"? } }`. Messages name fields and ids only: a 404 or an unknown-field message echoes the id or field name, redacted and truncated (64 and 100 characters), never a submitted value.
 - **Lists**: `?limit=` (1-200, default 50) and `?cursor=`; responses are `{ "data": [...], "nextCursor" }`.

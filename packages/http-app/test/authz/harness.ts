@@ -13,10 +13,10 @@ import {
   type HttpAppHooks,
   type HttpAppOptions,
 } from '../../src/index.ts';
-import { type ManualClock, NR_KEY, seedWorld, T0, type World } from '../fixtures.ts';
+import { type ManualClock, NR_KEY, randomAdminToken, seedWorld, T0, type World } from '../fixtures.ts';
 
 /** Bootstrap admin token of the app under test (≥ 32 printable characters). */
-export const ADMIN_TOKEN = `adm-${'m'.repeat(20)}-${'x'.repeat(20)}`;
+export const ADMIN_TOKEN: string = randomAdminToken();
 /** An account every test key can reach at New Relic but no project allows. */
 export const FOREIGN = 999;
 /** Marks every piece of foreign data the hostile NerdGraph returns; must never reach a client. */

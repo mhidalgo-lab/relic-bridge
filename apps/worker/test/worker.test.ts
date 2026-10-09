@@ -237,6 +237,37 @@ describe('Worker boot', () => {
     }
   });
 
+  it('refuses a predictable or placeholder admin token at boot without logging it (P3-13)', async () => {
+    const { storage } = await seed(MASTER_KEY);
+    for (const value of ['a'.repeat(40), 'Xy7#kP2q'.repeat(5), `changeme-${ADMIN_TOKEN}`]) {
+      const log = logs();
+      const worker = createWorker({ openStorage: () => storage, logSink: log.sink });
+      const res = await call(worker, { ...env, RB_ADMIN_TOKEN: value }, fakeCtx(), '/health');
+      expect(res.status, value).toBe(503);
+      const failure = log.lines.find((l) => l['msg'] === 'worker boot failed');
+      expect(failure, value).toMatchObject({ error: 'WorkerConfigError', variable: 'RB_ADMIN_TOKEN' });
+      expect(String(failure?.['detail'])).toMatch(/too predictable|placeholder/);
+      expect(JSON.stringify(log.lines)).not.toContain(value.slice(0, 16));
+    }
+  });
+
+  it('boots with a hand-made admin token but warns, without logging it (P3-13)', async () => {
+    const { storage } = await seed(MASTER_KEY);
+    const value = 'kitchen-window-garden-sofa-lamp-river';
+    const log = logs();
+    const worker = createWorker({ openStorage: () => storage, logSink: log.sink });
+    expect((await call(worker, { ...env, RB_ADMIN_TOKEN: value }, fakeCtx(), '/health')).status).toBe(200);
+    expect(log.lines.some((l) => String(l['msg']).includes('does not look randomly generated'))).toBe(true);
+    expect(JSON.stringify(log.lines)).not.toContain(value);
+    // The generated test token does not warn.
+    const quiet = logs();
+    const ok = createWorker({ openStorage: () => storage, logSink: quiet.sink });
+    expect((await call(ok, env, fakeCtx(), '/health')).status).toBe(200);
+    expect(quiet.lines.some((l) => String(l['msg']).includes('does not look randomly generated'))).toBe(
+      false,
+    );
+  });
+
   it('answers 503 while the storage cannot be opened (missing binding, failed migration)', async () => {
     const log = logs();
     const noDb = createWorker({ logSink: log.sink });

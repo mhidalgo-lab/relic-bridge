@@ -89,6 +89,11 @@ export interface AdminApiDeps {
     requestId: string,
   ) => Promise<Response | undefined> | Response | undefined;
   readonly onAuthFailure?: (c: Context, reason: string) => void;
+  /** After a failed admin authentication: a returned Response (429) replaces the 401 (P3-13). */
+  readonly refuseAuthFailure?: (
+    c: Context,
+    reason: string,
+  ) => Promise<Response | undefined> | Response | undefined;
   readonly onRejected?: (c: Context, status: number) => void;
   /** Background work (`waitUntil` on Workers). */
   readonly runInBackground: (c: Context, task: Promise<unknown>, what: string) => void;
@@ -599,6 +604,16 @@ function validationError(error: z.ZodError): AdminApiError {
   return new AdminApiError('invalid_request', message, path === '' ? {} : { field: path });
 }
 
+/** A hook's refusal in the admin API's error shape: a 429 becomes `rate_limited` with its `Retry-After`. */
+function asAdminRefusal(stop: Response): Response {
+  if (stop.status !== 429) return stop;
+  const retry = stop.headers.get('retry-after');
+  return adminErrorResponse(
+    new AdminApiError('rate_limited', 'too many requests; retry later'),
+    retry === null ? {} : { 'Retry-After': retry },
+  );
+}
+
 /** Build the admin sub-app (mounted at {@link ADMIN_API_BASE}). */
 export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
   const { storage, clock, logger, catalog } = deps;
@@ -660,12 +675,7 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
       const stop = await deps.beforeAuth(c, requestId);
       if (stop) {
         deps.onRejected?.(c, stop.status);
-        if (stop.status !== 429) return stop;
-        const retry = stop.headers.get('retry-after');
-        return adminErrorResponse(
-          new AdminApiError('rate_limited', 'too many requests; retry later'),
-          retry === null ? {} : { 'Retry-After': retry },
-        );
+        return asAdminRefusal(stop);
       }
     }
     const header = c.req.header('authorization');
@@ -683,6 +693,14 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
         deps.onAuthFailure?.(c, reason);
       } catch {
         // a failing hook never changes the answer
+      }
+      // The failure throttle (P3-13) answers 429 for an address over its failure budget. Only failures get here:
+      // the valid admin token is never refused by it.
+      try {
+        const instead = await deps.refuseAuthFailure?.(c, reason);
+        if (instead) return asAdminRefusal(instead);
+      } catch {
+        // as above
       }
       return adminErrorResponse(new AdminApiError('unauthorized', 'admin authentication required'), {
         'WWW-Authenticate': ADMIN_REALM,

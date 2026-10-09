@@ -301,7 +301,7 @@ describe('relic-bridge serve (built CLI)', () => {
     }
   }, 60_000);
 
-  it('throttles repeated authentication failures per client IP, ignoring a spoofed X-Forwarded-For', async () => {
+  it('throttles repeated authentication failures per client IP (never the valid token), ignoring a spoofed X-Forwarded-For', async () => {
     const server = new ServeProcess(
       ['--port', '0', '--db', dbPath],
       env({ RB_RATE_LIMIT_AUTH_FAIL: '3/300' }),
@@ -316,13 +316,14 @@ describe('relic-bridge serve (built CLI)', () => {
         });
       for (let i = 0; i < 3; i++)
         expect((await call('rb_live_nope', { 'x-forwarded-for': `9.9.9.${i}` })).status).toBe(401);
-      await new Promise((r) => setTimeout(r, 50)); // the charge runs after the response
-      // The valid token is refused too (one answer, no oracle), and the forged header changes nothing.
-      const blocked = await call(tokens.prod, { 'x-forwarded-for': '8.8.8.8' });
+      // A further failure is refused, and the forged header changes nothing.
+      const blocked = await call('rb_live_nope', { 'x-forwarded-for': '8.8.8.8' });
       expect(blocked.status).toBe(429);
       expect(Number(blocked.headers.get('retry-after'))).toBeGreaterThanOrEqual(1);
       expect(await blocked.text()).toContain('Slow down');
       expect(server.stderr).toContain('rate_limit_auth_failures');
+      // The valid token is still served from the same address (P3-13, review M6).
+      expect([401, 429]).not.toContain((await call(tokens.prod, { 'x-forwarded-for': '8.8.8.8' })).status);
     } finally {
       server.child.kill('SIGTERM');
       expect(await server.exit()).toBe(0);

@@ -6,7 +6,7 @@ import type { FetchLike } from '@relic-bridge/core';
 import { MigrationError } from '@relic-bridge/storage';
 import { describe, expect, it } from 'vitest';
 import type { WorkerEnv } from '../src/env.ts';
-import { BOOT_RETRY_MS, createWorker, type OpenStorage } from '../src/worker.ts';
+import { BOOT_BACKOFF_MS, BOOT_RETRY_MS, createWorker, type OpenStorage } from '../src/worker.ts';
 import { call, connect, fakeCtx, mockNerdGraph, NR_KEY, seed } from './helpers.ts';
 
 const MASTER_KEY = env.RB_MASTER_KEY as string;
@@ -98,7 +98,7 @@ describe('Worker MCP endpoint', () => {
 });
 
 describe('Worker boot', () => {
-  it('keeps one runtime per isolate (keyring, caches, app); concurrent cold requests boot on their own', async () => {
+  it('keeps one runtime per isolate (keyring, caches, app); concurrent cold requests share one boot', async () => {
     const { storage } = await seed(MASTER_KEY);
     let opened = 0;
     const openStorage: OpenStorage = () => {
@@ -107,14 +107,15 @@ describe('Worker boot', () => {
     };
     const log = logs();
     const worker = createWorker({ openStorage, logSink: log.sink });
-    // No request awaits another request's boot (workerd ties I/O to the request that started it).
-    const responses = await Promise.all([1, 2, 3].map(() => call(worker, env, fakeCtx(), '/health')));
-    expect(responses.map((r) => r.status)).toEqual([200, 200, 200]);
-    expect(opened).toBe(3);
+    const responses = await Promise.all(
+      Array.from({ length: 50 }, () => call(worker, env, fakeCtx(), '/health')),
+    );
+    expect(new Set(responses.map((r) => r.status))).toEqual(new Set([200]));
+    expect(opened).toBe(1);
     // Later requests reuse the runtime that was kept.
     expect((await call(worker, env, fakeCtx(), '/version')).status).toBe(200);
     expect((await call(worker, env, fakeCtx(), '/health')).status).toBe(200);
-    expect(opened).toBe(3);
+    expect(opened).toBe(1);
     expect(log.lines.filter((l) => l['msg'] === 'worker runtime ready')).toHaveLength(1);
     expect(log.lines.find((l) => l['msg'] === 'worker runtime ready')).toMatchObject({
       plan: 'free',
@@ -122,7 +123,7 @@ describe('Worker boot', () => {
     });
   });
 
-  it('fails closed without the master key, then retries after the backoff window', async () => {
+  it('fails closed without the master key, backs off exponentially, and recovers with a fixed environment', async () => {
     const { storage } = await seed(MASTER_KEY);
     let t = 1_000_000;
     let opened = 0;
@@ -136,25 +137,70 @@ describe('Worker boot', () => {
       now: () => t,
     });
     const broken: WorkerEnv = { ...env, RB_MASTER_KEY: undefined };
+    const failures = () => log.lines.filter((l) => l['msg'] === 'worker boot failed').length;
     const first = await call(worker, broken, fakeCtx(), '/health');
     expect(first.status).toBe(503);
     expect(first.headers.get('Retry-After')).toBe('5');
-    expect(await first.text()).toBe('{"error":"unavailable"}');
+    const body = await first.text();
+    expect(body).toBe('{"error":"unavailable"}');
     expect(log.lines.find((l) => l['msg'] === 'worker boot failed')).toMatchObject({
       error: 'CryptoError',
       code: 'master_key_missing',
     });
-    // Within the window: no new boot attempt.
-    t += BOOT_RETRY_MS - 1;
+    // Within the window: no new boot attempt, a shrinking Retry-After.
+    t += BOOT_RETRY_MS - 1000;
+    const waiting = await call(worker, broken, fakeCtx(), '/health');
+    expect(waiting.status).toBe(503);
+    expect(waiting.headers.get('Retry-After')).toBe('1');
+    expect(failures()).toBe(1);
+    // Each later failure waits longer, up to the ceiling.
+    for (let i = 0; i < BOOT_BACKOFF_MS.length; i++) {
+      const step = BOOT_BACKOFF_MS[Math.min(i + 1, BOOT_BACKOFF_MS.length - 1)] as number;
+      t += i === 0 ? 1000 : (BOOT_BACKOFF_MS[Math.min(i, BOOT_BACKOFF_MS.length - 1)] as number);
+      const res = await call(worker, broken, fakeCtx(), '/health');
+      expect(res.status).toBe(503);
+      expect(failures()).toBe(i + 2);
+      expect(res.headers.get('Retry-After')).toBe(String(step / 1000));
+      expect(await res.text()).toBe(body);
+    }
+    const ceiling = BOOT_BACKOFF_MS[BOOT_BACKOFF_MS.length - 1] as number;
+    t += ceiling - 1;
     expect((await call(worker, broken, fakeCtx(), '/health')).status).toBe(503);
-    expect(log.lines.filter((l) => l['msg'] === 'worker boot failed')).toHaveLength(1);
-    // After it: the boot runs again (and the storage was never opened without a key).
-    t += 2;
+    expect(failures()).toBe(BOOT_BACKOFF_MS.length + 1);
+    t += 1;
     expect((await call(worker, broken, fakeCtx(), '/health')).status).toBe(503);
-    expect(log.lines.filter((l) => l['msg'] === 'worker boot failed')).toHaveLength(2);
+    expect(failures()).toBe(BOOT_BACKOFF_MS.length + 2);
     expect(opened).toBe(0);
-    // A fixed environment (a new deployment hands the isolate a new env) boots at once.
+    // A fixed environment recovers within the ceiling (here at once: a new env), and the backoff is reset.
     expect((await call(worker, env, fakeCtx(), '/health')).status).toBe(200);
+  });
+
+  it('logs one failure for many concurrent requests on a failing boot', async () => {
+    const log = logs();
+    const worker = createWorker({ logSink: log.sink });
+    const broken: WorkerEnv = { ...env, RB_MASTER_KEY: undefined };
+    const responses = await Promise.all(
+      Array.from({ length: 20 }, () => call(worker, broken, fakeCtx(), '/health')),
+    );
+    expect(new Set(responses.map((r) => r.status))).toEqual(new Set([503]));
+    expect(log.lines.filter((l) => l['msg'] === 'worker boot failed')).toHaveLength(1);
+  });
+
+  it('does not hang waiters when the boot owner never settles (cancelled request)', async () => {
+    const { storage } = await seed(MASTER_KEY);
+    let opened = 0;
+    const openStorage: OpenStorage = () => {
+      opened++;
+      // The first boot's I/O never completes, as if its request had been cancelled.
+      return opened === 1 ? new Promise<never>(() => {}) : storage;
+    };
+    const worker = createWorker({ openStorage, logSink: () => {}, bootWaitMs: 30 });
+    const stuck = call(worker, env, fakeCtx(), '/health');
+    const waiters = await Promise.all([1, 2, 3].map(() => call(worker, env, fakeCtx(), '/health')));
+    expect(waiters.map((r) => r.status)).toEqual([200, 200, 200]);
+    // The waiters timed out together: one replacement boot, not one each.
+    expect(opened).toBe(2);
+    void stuck;
   });
 
   it('refuses a master key that does not match the stored key checks', async () => {

@@ -2,11 +2,11 @@
 id: P3-12
 title: Single-flight Worker boot with failure backoff
 phase: 3
-status: todo
+status: review
 priority: medium
 depends_on: [P3-01]
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P3-12 — Single-flight Worker boot with failure backoff
@@ -25,11 +25,11 @@ arriving when the window expires (phase-3 review M3, L3).
 - One log line per failed boot, not per waiting request.
 
 ## Acceptance criteria
-- [ ] N concurrent cold requests cause one storage open (test with a counting `openStorage`).
-- [ ] A cancelled boot owner does not hang its waiters (test).
-- [ ] Repeated failures back off; a fixed configuration recovers within the backoff ceiling (test with the injected
+- [x] N concurrent cold requests cause one storage open (test with a counting `openStorage`).
+- [x] A cancelled boot owner does not hang its waiters (test).
+- [x] Repeated failures back off; a fixed configuration recovers within the backoff ceiling (test with the injected
       clock).
-- [ ] `pnpm test:workers` green.
+- [x] `pnpm test:workers` green.
 
 ## Security notes
 T20 (resource exhaustion): unauthenticated requests must not multiply D1 work before the rate limiter runs.

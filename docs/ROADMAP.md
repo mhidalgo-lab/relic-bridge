@@ -137,7 +137,7 @@ Generated from task front matter (`pnpm tasks index` once P0-05 lands). Status l
 | P3-09 | [Resolve access in one D1 round trip](tasks/phase-3-cloudflare/P3-09-d1-single-query-access.md) | medium | P3-02 | review |
 | P3-10 | [CPU benchmark per tool to catch regressions](tasks/phase-3-cloudflare/P3-10-cpu-benchmark.md) | low | P3-03 | review |
 | P3-11 | [Master-key rotation for a D1 database](tasks/phase-3-cloudflare/P3-11-d1-master-key-rotation.md) | medium | P3-02, P3-05 | review |
-| P3-12 | [Single-flight Worker boot with failure backoff](tasks/phase-3-cloudflare/P3-12-worker-boot-single-flight.md) | medium | P3-01 | todo |
+| P3-12 | [Single-flight Worker boot with failure backoff](tasks/phase-3-cloudflare/P3-12-worker-boot-single-flight.md) | medium | P3-01 | review |
 | P3-13 | [Admin token strength check and auth-failure throttle that cannot lock out valid tokens](tasks/phase-3-cloudflare/P3-13-admin-token-strength-failure-throttle.md) | medium | P3-04 | todo |
 | P3-14 | [cf:setup follow-ups (config refresh, rate-limit namespace, Windows docs, README button)](tasks/phase-3-cloudflare/P3-14-cf-setup-followups.md) | low | P3-05 | todo |
 | P3-15 | [Key-rotation guards (unreadable rows warning, Free-plan batch size, kv TTL validation)](tasks/phase-3-cloudflare/P3-15-rotation-guards.md) | low | P3-11 | todo |

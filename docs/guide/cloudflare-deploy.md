@@ -256,7 +256,9 @@ checked 2026-10-03). Use it only where a **person with a browser** is the client
 ## Troubleshooting
 
 - **503 on every request:** a missing or malformed setting or secret; the log line (Workers Logs) names the variable, never
-  a value. A database newer than the deployed code also fails closed.
+  a value. A database newer than the deployed code also fails closed. After a failed boot the Worker retries with a
+  backoff (5 s, 15 s, then every 60 s), so after fixing the setting wait up to a minute (the `Retry-After` header says
+  how long) or redeploy, which starts new isolates and boots at once.
 - **`wrangler deploy` says required secrets are missing:** run `pnpm cf:setup` (it sets them first) or `wrangler secret put`.
 - **Start over locally:** delete `apps/worker/wrangler.local.jsonc` (only forgets resource ids; resources stay linked by name).
 - **503 `key_version_retired` / `key_version_unknown` after a mistyped new key:** booting once with a wrong `RB_MASTER_KEY`

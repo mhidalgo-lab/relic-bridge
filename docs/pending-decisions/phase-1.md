@@ -240,3 +240,25 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Assumption made:** none in code; add to the owner set-up list.
 - **Needs:** owner: when creating the `live` environment (P1-12 entry), restrict deployment branches to `main` and
   require a reviewer.
+
+## P1-16 — Release publish isolation
+
+### P1-16 — Split build/publish jobs and idempotent reruns (owner steps unchanged, a few assumptions)
+- **Context:** P1-16 moved everything that installs or runs code into a `build` job (`contents: read`, no OIDC) and
+  left a minimal `publish` job (environment `release`, `id-token: write`) that only verifies, attests, publishes and
+  creates the GitHub Release. `plan` now also returns `release` (version on npm, no GitHub Release) and fails on a
+  `v<version>` tag that points at another commit. Nothing was published, tagged or configured.
+- **Assumption made:**
+  - The npm trusted-publisher entry from the P1-15 list stays valid: workflow `release.yml`, environment `release`
+    (the OIDC token now comes from the `publish` job, which keeps that environment).
+  - The release build is reproducible: a rerun repacks the tarball and skips `npm publish` only if it is
+    byte-identical to `dist.integrity` on npm (verified locally: two builds gave the same SHA-256). If it ever differs,
+    the run stops and the GitHub Release must be created by hand from the published tarball.
+  - `build` is not behind the environment, so it runs (tests, pack, artifact upload with 7-day retention) as soon as
+    `plan` says `publish`/`release`; only `publish` waits for approval.
+  - A leftover **draft** release `v<version>` makes `publish` stop with an error instead of reusing it.
+- **Options:** keep; put `build` behind the environment too (approval before tests run, slower feedback); in
+  `release` mode attach the tarball downloaded from npm instead of a rebuilt one (no reproducibility requirement,
+  but the asset would not be attested as built by this run).
+- **Needs:** owner's confirmation. P1-16 closes the blocker in "P1-review — Release must not ship before P1-16" once
+  merged; the P1-15 owner steps then apply unchanged.

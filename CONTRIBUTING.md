@@ -63,13 +63,24 @@ Maintainers only. `.github/workflows/release.yml` does the work; nobody publishe
 1. Changesets merged into `main` make the release workflow open a **"chore(release): version packages"** PR
    (`pnpm version-packages`: bumps `apps/cli/package.json`, writes `apps/cli/CHANGELOG.md`, syncs `VERSION` in
    `packages/core/src/version.ts`).
-2. Merging that PR leaves no changesets and a version npm doesn't have, so the **publish** job starts and waits for a
-   reviewer to approve the protected `release` environment. It runs only when the repository variable
-   `RB_RELEASE_ENABLED` is `true`.
-3. After approval it runs lint/typecheck/tests, the release build, `scripts/check-package.ts` (tarball allowlist,
-   manifest, secrets scan, packed-install smoke test, test hooks compiled out), writes a CycloneDX SBOM and
-   `SHA256SUMS`, attests all of them (Sigstore), publishes with npm trusted publishing (`--provenance`, no npm token)
-   and creates the GitHub Release `v<version>` from the CHANGELOG entry.
+2. Merging that PR leaves no changesets and a version npm doesn't have, so `plan` returns `publish`. The release
+   jobs run only on `main` and only when the repository variable `RB_RELEASE_ENABLED` is `true`.
+3. **build** (`contents: read`, no OIDC token) installs dependencies and runs lint/typecheck/tests, the release build,
+   `scripts/check-package.ts` (tarball allowlist, manifest, secrets scan, packed-install smoke test, test hooks
+   compiled out), writes the release notes, a CycloneDX SBOM and `SHA256SUMS`, and uploads them as a workflow
+   artifact.
+4. **publish** waits for a reviewer to approve the protected `release` environment. It is the only job with
+   `id-token: write`, and it never checks out the repository, installs dependencies or runs project scripts (a test in
+   `scripts/test/release.test.ts` enforces this). It downloads the artifact by id, checks `SHA256SUMS` against the
+   digest `build` reported, refuses a `v<version>` tag that points at another commit, attests the files (Sigstore),
+   publishes the tarball with npm trusted publishing (`--provenance --ignore-scripts`, no npm token) and creates the
+   GitHub Release `v<version>` from the CHANGELOG entry.
+
+Reruns are safe. If `npm publish` succeeded but the GitHub Release did not, rerun the workflow (failed jobs or all
+jobs): `plan` returns `release` (on npm, no GitHub Release), and `publish` skips `npm publish` when npm already has
+the version, as long as the rebuilt tarball is byte-identical to the published one (`dist.integrity`). Otherwise it
+stops and the release must be finished by hand. A leftover draft release `v<version>` must be deleted first. `plan`
+fails when `v<version>` exists on a commit other than the one being released.
 
 Check the tarball locally at any time: `pnpm build && pnpm check:package` (`--skip-install` offline).
 

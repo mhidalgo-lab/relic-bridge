@@ -472,6 +472,16 @@ type DepTaskState = z.infer<typeof depTaskState>;
 
 // ---------------------------------------------------------------------------------------------------------------------
 
+/** The tools the composites call for their sections (P6-25): kept in step with the `tool(...)` calls by a test. */
+const DEP_SIBLINGS = ['get_related_entities', 'get_golden_metrics'] as const;
+const HEALTH_SIBLINGS = [
+  'get_entity',
+  'get_golden_metrics',
+  'list_recent_issues',
+  'list_error_groups',
+  'list_change_events',
+] as const;
+
 /** `trace_error`, `dependency_health`, `entity_health` (read-only composites). */
 export function createInvestigationTools(deps: ToolDeps = {}): ToolDefinition[] {
   const client = toolClient(deps);
@@ -1007,6 +1017,7 @@ export function createInvestigationTools(deps: ToolDeps = {}): ToolDefinition[] 
     cost: DEP_COST,
     group: 'incident-response',
     phase: 6,
+    siblingTools: DEP_SIBLINGS,
     handler: async (args, ctx) => {
       const base = await prepareDep(args, ctx);
       // MCP Tasks (P7-23): the golden metrics of a few entities per `tasks/get`, each inside its own budget.
@@ -1261,6 +1272,7 @@ export function createInvestigationTools(deps: ToolDeps = {}): ToolDefinition[] 
     cost: HEALTH_COST,
     group: 'health',
     phase: 6,
+    siblingTools: HEALTH_SIBLINGS,
     handler: async (args, ctx) => {
       const base = prepareHealth(args, ctx);
       // MCP Tasks (P7-23): up to three sections per `tasks/get`, each inside its own budget.

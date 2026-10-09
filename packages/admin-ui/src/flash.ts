@@ -52,7 +52,7 @@ export const FLASH_MESSAGES: Readonly<Record<FlashCode, FlashMessage>> = Object.
   created: { kind: 'success', text: 'Created.' },
   created_with_notes: {
     kind: 'info',
-    text: 'Created. Some of what it asks for has no effect on this project: see the notes below.',
+    text: 'Created. Some of what it asks for has no effect, or needs more tools: see the notes below.',
   },
   deleted: { kind: 'success', text: 'Deleted.' },
   revoked: { kind: 'success', text: 'Revoked.' },

@@ -667,6 +667,17 @@ const impactTaskState = z.strictObject({
 });
 type ImpactTaskState = z.infer<typeof impactTaskState>;
 
+/** The tools each report calls for its sections (P6-25): kept in step with the `tool(...)` calls by a test. */
+const INSIGHTS_SIBLINGS = [
+  'get_entity',
+  'get_golden_metrics',
+  'list_error_groups',
+  'analyze_entity_logs',
+  'list_change_events',
+  'get_related_entities',
+] as const;
+const IMPACT_SIBLINGS = ['get_related_entities'] as const;
+
 /** `generate_alert_insights_report`, `generate_user_impact_report` (read-only composites). */
 export function createReportTools(deps: ToolDeps = {}): ToolDefinition[] {
   const client = toolClient(deps);
@@ -870,6 +881,7 @@ export function createReportTools(deps: ToolDeps = {}): ToolDefinition[] {
     cost: INSIGHTS_COST,
     group: 'incident-response',
     phase: 6,
+    siblingTools: INSIGHTS_SIBLINGS,
     handler: async (args, ctx) => {
       const prepared = await prepareInsights(args, ctx);
       // MCP Tasks (P7-21): a client that takes a task gets the sections one bounded step per `tasks/get`, each inside its
@@ -1437,6 +1449,7 @@ export function createReportTools(deps: ToolDeps = {}): ToolDefinition[] {
     cost: IMPACT_COST,
     group: 'incident-response',
     phase: 6,
+    siblingTools: IMPACT_SIBLINGS,
     handler: async (args, ctx) => {
       const base = await prepareImpact(args, ctx);
       // MCP Tasks (P7-23): related lookups and queries run a few per `tasks/get`, each inside its own budget. Only the

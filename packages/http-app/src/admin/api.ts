@@ -43,7 +43,7 @@ import {
   userWriteScope,
   type WriteScopeChange,
 } from '@relic-bridge/auth';
-import { type Clock, type Logger, redact, Secret } from '@relic-bridge/core';
+import { type Clock, type Logger, redact, Secret, siblingWarnings } from '@relic-bridge/core';
 import {
   type AccessTokenRecord,
   type AuditQuery,
@@ -125,6 +125,8 @@ export interface AdminApiDeps {
   readonly sessionKv?: Pick<KvRepository, 'get' | 'put' | 'delete' | 'list' | 'deletePrefix'>;
   readonly validateKey: KeyValidator;
   readonly catalog: readonly string[];
+  /** Composite tool to the sibling tools it calls (P6-25): `POST /grants` warns when a grant names one without them. */
+  readonly compositeSiblings?: Readonly<Record<string, readonly string[]>>;
   readonly clock: Clock;
   readonly logger: Logger;
   readonly maxBodyBytes: number;
@@ -658,7 +660,8 @@ const routes = {
     summary: 'Create a grant',
     description:
       'A grant may use the project default credential, a shared one, or its own user’s. Parts the project does not ' +
-      'allow are stored but have no effect (listed in `warnings`).',
+      'allow are stored but have no effect (listed in `warnings`). A composite tool named without the sibling tools ' +
+      'it calls is also listed there: a grant never implies them, so those sections come back skipped.',
     request: BODY(S.CreateGrantBody),
     responses: { 201: json(S.GrantOne, 'Created'), ...errors(404, 409, 413, 415, 422) },
   }),
@@ -1874,7 +1877,11 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
       },
       (r) => ({ targetId: r.grant.id, projectId: r.grant.projectId }),
     );
-    return c.json({ data: grantView(result.grant), warnings: [...result.warnings] }, 201);
+    const warnings = [
+      ...result.warnings,
+      ...siblingWarnings(deps.compositeSiblings ?? {}, result.grant.tools),
+    ];
+    return c.json({ data: grantView(result.grant), warnings }, 201);
   });
 
   api.openapi(routes.setGrantQuota, async (c) => {

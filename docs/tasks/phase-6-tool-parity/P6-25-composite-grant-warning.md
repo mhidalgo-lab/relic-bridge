@@ -2,11 +2,11 @@
 id: P6-25
 title: Warn in the grant editor when a composite tool lacks its sibling tools
 phase: 6
-status: todo
+status: review
 priority: low
 depends_on: [P6-21, P4-23]
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P6-25 — Warn in the grant editor when a composite tool lacks its sibling tools
@@ -23,9 +23,9 @@ admin at grant time so the result isn't a surprise.
   without them. Same warning in the `POST /grants` response `warnings`.
 
 ## Acceptance criteria
-- [ ] Selecting e.g. a report composite without its sibling tools shows the warning; granting them clears it.
-- [ ] `POST /grants` returns the warning; no change to authorization (siblings still not implied).
-- [ ] Tests for the metadata (stays in sync with `grantedSibling` usage) and the UI.
+- [x] Selecting e.g. a report composite without its sibling tools shows the warning; granting them clears it.
+- [x] `POST /grants` returns the warning; no change to authorization (siblings still not implied).
+- [x] Tests for the metadata (stays in sync with `grantedSibling` usage) and the UI.
 
 ## Security notes
 No authorization change; least privilege kept (T3).

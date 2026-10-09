@@ -48,6 +48,8 @@ export interface UiTool {
   readonly group: string;
   /** `read` tools have no side effects in New Relic; `write` and `destructive` ones do. */
   readonly kind: 'read' | 'write' | 'destructive';
+  /** For a composite tool: the sibling tools it calls. A grant never implies them (P6-25). */
+  readonly siblings?: readonly string[];
 }
 
 /** What the admin UI needs from the server (`@relic-bridge/http-app` provides it from the P4-02 sessions). */

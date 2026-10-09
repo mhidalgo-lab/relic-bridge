@@ -472,7 +472,7 @@ List grants
 
 Create a grant
 
-A grant may use the project default credential, a shared one, or its own user’s. Parts the project does not allow are stored but have no effect (listed in `warnings`).
+A grant may use the project default credential, a shared one, or its own user’s. Parts the project does not allow are stored but have no effect (listed in `warnings`). A composite tool named without the sibling tools it calls is also listed there: a grant never implies them, so those sections come back skipped.
 
 Request body (`CreateGrant`):
 

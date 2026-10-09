@@ -112,7 +112,9 @@ nobody shares a key. You (admin or owner) shape the access; members attach their
    panel's address (`<RB_PUBLIC_URL>/admin`); no email is sent.
 3. **Give each person a grant** (*Grants → New grant*): choose the project and the person, and optionally narrow tools and
    accounts, set query limits (rows, time window, response size, arbitrary NRQL, event types), add a rate limit and an
-   expiry. A limit looser than the project's is stored, but the project's applies; the grant page says so. Grants cannot be
+   expiry. A limit looser than the project's is stored, but the project's applies; the grant page says so. A composite tool (the
+   reports, `dependency_health`, `entity_health`) does not bring the tools it calls: tick those as well, or its sections
+   come back skipped. The form lists them under each composite and the grant page warns when any is missing. Grants cannot be
    edited afterwards: revoke and recreate to change limits. Leave the key as *Project default* for now.
 4. **Each member signs in, opens *My access*** and:
    - *Add a key*: pastes their New Relic User key (checked with New Relic, stored encrypted, never shown again);

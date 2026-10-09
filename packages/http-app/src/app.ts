@@ -35,6 +35,7 @@ import {
   APPROVAL_LEDGER_TTL_SECONDS,
   buildMcpServer,
   type Clock,
+  compositeSiblings,
   createBudget,
   createBuiltinTools,
   createMemoryTaskStore,
@@ -864,7 +865,13 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
           runInBackground,
           audit: uiAudit,
           adminApi: options.admin !== undefined,
-          tools: allTools.map((t) => ({ name: t.name, title: t.title, group: t.group, kind: t.kind })),
+          tools: allTools.map((t) => ({
+            name: t.name,
+            title: t.title,
+            group: t.group,
+            kind: t.kind,
+            ...(t.siblingTools === undefined ? {} : { siblings: t.siblingTools }),
+          })),
           now: () => clock.now(),
           kv: options.identity.storage.kv,
           onRejected: (c, status) =>
@@ -1035,6 +1042,7 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
           admin.validateKey ??
           nerdGraphKeyValidator({ logger, clock, ...(options.fetch ? { fetch: options.fetch } : {}) }),
         catalog,
+        compositeSiblings: compositeSiblings(allTools),
         clock,
         logger,
         ...(admin.maxRotationBatch === undefined

@@ -778,6 +778,24 @@ describe('grants and tokens', () => {
     issued.push(token, never.json?.['token']);
   });
 
+  it('warns when a grant names a composite tool without its sibling tools, and stores it unchanged (P6-25)', async () => {
+    const app = makeApp();
+    const body = (tools: string[]) => ({ projectId: world.projectIds.prod, label: 'ci', tools });
+    const bare = await admin(app, '/grants', { method: 'POST', body: body(['dependency_health']) });
+    expect(bare.status).toBe(201);
+    expect(bare.json?.['warnings']).toEqual([
+      expect.stringMatching(
+        /^dependency_health calls tools this grant does not include.*get_related_entities/,
+      ),
+    ]);
+    expect(bare.json?.['data'].tools).toEqual(['dependency_health']);
+    const full = await admin(app, '/grants', {
+      method: 'POST',
+      body: body(['dependency_health', 'get_related_entities', 'get_golden_metrics']),
+    });
+    expect(full.json?.['warnings']).toEqual([]);
+  });
+
   it('refuses a grant using another user’s personal key (not_permitted)', async () => {
     const app = makeApp();
     const bob = await admin(app, '/users', { method: 'POST', body: { email: 'bob@example.com' } });

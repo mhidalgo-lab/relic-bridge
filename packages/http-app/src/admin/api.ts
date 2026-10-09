@@ -52,7 +52,7 @@ import type { Context } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { HTTPException } from 'hono/http-exception';
 import type { AdminAuditEvent } from '../audit.ts';
-import type { OAuthDevice, OAuthDevices } from '../oauth/server.ts';
+import type { OAuthClient, OAuthClients, OAuthDevice, OAuthDevices } from '../oauth/server.ts';
 import {
   type AdminPrincipal,
   CSRF_HEADER,
@@ -133,6 +133,8 @@ export interface AdminApiDeps {
   readonly onChange?: () => void;
   /** OAuth devices (P5-05); absent when OAuth is off (lists are empty, revokes are 404). */
   readonly oauthDevices?: OAuthDevices;
+  /** OAuth clients and the registration switch (P5-08); absent when OAuth is off. */
+  readonly oauthClients?: OAuthClients;
   /** First-owner setup links (P4-01); absent when sign-in is not configured. */
   readonly setupLinks?: {
     readonly publicUrl: string;
@@ -441,6 +443,49 @@ const routes = {
       'remembered approval for the app on that project.',
     request: { params: S.UserDeviceParam },
     responses: { 200: json(S.OAuthDeviceOne, 'Revoked'), ...errors(404) },
+  }),
+
+  listOAuthClients: route({
+    method: 'get',
+    path: '/oauth/clients',
+    tags: ['oauth'],
+    summary: 'List OAuth clients',
+    description:
+      'Owners only. Clients registered dynamically and cached metadata-document clients, newest first, at most 500. ' +
+      'Names are chosen by whoever registered the client: show them as plain text. Empty when OAuth is off.',
+    responses: { 200: json(S.OAuthClientList, 'The clients'), ...errors() },
+  }),
+  removeOAuthClient: route({
+    method: 'post',
+    path: '/oauth/clients/remove',
+    tags: ['oauth'],
+    summary: 'Remove an OAuth client and everything issued to it',
+    description:
+      'Owners only. Deletes the client record and revokes every device authorization of the client (all users: every ' +
+      'access and refresh token) and forgets their remembered approvals. A metadata-document client can start over ' +
+      'with consent. Audited as `oauth_client.remove`. 404 when there is no such client or OAuth is off.',
+    request: BODY(S.RemoveOAuthClientBody),
+    responses: { 200: json(S.OAuthClientRemovalOne, 'Removed'), ...errors(404, 413, 415) },
+  }),
+  getOAuthRegistration: route({
+    method: 'get',
+    path: '/oauth/registration',
+    tags: ['oauth'],
+    summary: 'State of dynamic client registration',
+    description: 'Owners only. `404` when OAuth is off.',
+    responses: { 200: json(S.OAuthRegistrationOne, 'The state'), ...errors(404) },
+  }),
+  setOAuthRegistration: route({
+    method: 'post',
+    path: '/oauth/registration',
+    tags: ['oauth'],
+    summary: 'Turn dynamic client registration on or off',
+    description:
+      'Owners only. Stored in settings and read by every process within about 5 seconds. Off: `/oauth/register` ' +
+      'answers 404 and the server metadata has no `registration_endpoint`; existing clients keep working. It cannot ' +
+      'turn on what `RB_OAUTH_DCR=off` disabled. Audited as `oauth_registration.set`.',
+    request: BODY(S.SetOAuthRegistrationBody),
+    responses: { 200: json(S.OAuthRegistrationOne, 'The new state'), ...errors(404, 413, 415) },
   }),
 
   revokeUserSessions: route({
@@ -897,7 +942,8 @@ const SELF_SESSIONS = /^\/users\/[^/]+\/sessions\/revoke$/;
 const UNBIND = /^\/users\/[^/]+\/unbind$/;
 
 /**
- * The least role a cookie session needs for a route (P4-02). Owner-only: master-key rotation and owner setup links.
+ * The least role a cookie session needs for a route (P4-02). Owner-only: master-key rotation, owner setup links, the
+ * user unbind and `/oauth/*` (clients and the registration switch, P5-08).
  * Any role: `GET /session`, `GET /audit` (the handler limits members to their own rows) and revoking sessions (the
  * handler limits members to themselves). Everything else, unknown
  * paths included: `admin`.
@@ -909,6 +955,8 @@ export function requiredRole(method: string, rel: string): 'owner' | 'admin' | '
   if (rel === '/me' || rel.startsWith('/me/')) return 'member';
   if (method === 'POST' && (rel === '/keys/rotate' || rel === '/setup-links' || UNBIND.test(rel)))
     return 'owner';
+  // OAuth clients and the registration switch (P5-08): owners only, every method.
+  if (rel === '/oauth' || rel.startsWith('/oauth/')) return 'owner';
   return 'admin';
 }
 
@@ -2327,6 +2375,73 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
     const { id, deviceId } = c.req.valid('param');
     const user = await must('user', id, (x) => storage.users.get(x));
     return c.json({ data: deviceView(await revokeDeviceOf(c, user.id, deviceId, false)) }, 200);
+  });
+
+  // ------------------------------------------------------------------------------------- OAuth clients (P5-08)
+  const clientView = (cl: OAuthClient): z.infer<typeof S.OAuthClientSchema> => ({
+    id: cl.id,
+    kind: cl.kind,
+    name: cl.name,
+    host: cl.host,
+    redirectHosts: [...cl.redirectHosts],
+    registeredAt: cl.registeredAt,
+    expiresAt: cl.expiresAt,
+  });
+
+  api.openapi(routes.listOAuthClients, async (c) => {
+    const rows = deps.oauthClients === undefined ? [] : await deps.oauthClients.list();
+    const sorted = [...rows].sort((a, b) => (b.registeredAt ?? 0) - (a.registeredAt ?? 0));
+    return c.json({ data: sorted.map(clientView), nextCursor: null }, 200);
+  });
+
+  api.openapi(routes.removeOAuthClient, async (c) => {
+    const { clientId } = c.req.valid('json');
+    const removal = await change(
+      c,
+      { action: 'oauth_client.remove', targetType: 'oauth_client', targetId: clientId.slice(0, 64) },
+      async () => {
+        const done = deps.oauthClients === undefined ? null : await deps.oauthClients.remove(clientId);
+        if (done === null) throw notFound('OAuth client', clientId);
+        return done;
+      },
+      (r) => ({
+        details: {
+          clientKind: r.client.kind,
+          clientHost: r.client.host,
+          devicesRevoked: r.devicesRevoked,
+          approvalsForgotten: r.approvalsForgotten,
+        },
+      }),
+    );
+    return c.json(
+      {
+        data: {
+          client: clientView(removal.client),
+          devicesRevoked: removal.devicesRevoked,
+          approvalsForgotten: removal.approvalsForgotten,
+        },
+      },
+      200,
+    );
+  });
+
+  api.openapi(routes.getOAuthRegistration, async (c) => {
+    if (deps.oauthClients === undefined) throw notFound('OAuth', 'registration');
+    return c.json({ data: await deps.oauthClients.registration() }, 200);
+  });
+
+  api.openapi(routes.setOAuthRegistration, async (c) => {
+    const { enabled } = c.req.valid('json');
+    const state = await change(
+      c,
+      { action: 'oauth_registration.set', targetType: 'oauth_registration', details: { enabled } },
+      async () => {
+        if (deps.oauthClients === undefined) throw notFound('OAuth', 'registration');
+        await deps.oauthClients.setRegistration(enabled);
+        return deps.oauthClients.registration();
+      },
+    );
+    return c.json({ data: state }, 200);
   });
 
   api.openapi(routes.listAudit, async (c) => {

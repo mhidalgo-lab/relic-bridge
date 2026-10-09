@@ -485,6 +485,69 @@ export const UserDeviceParam = z.strictObject({
 });
 
 // ---------------------------------------------------------------------------------------------------------------
+// OAuth clients and the registration switch (P5-08)
+// ---------------------------------------------------------------------------------------------------------------
+
+export const OAuthClientSchema = z
+  .object({
+    id: z.string().openapi({ description: 'The client id: a metadata document URL or a registered id.' }),
+    kind: z.enum(['metadata_document', 'dynamic']),
+    name: z
+      .string()
+      .nullable()
+      .openapi({
+        description:
+          'Name from the registration or metadata document: chosen by whoever registered the client, not verified. ' +
+          'Show it as plain text only.',
+      }),
+    host: z.string().nullable().openapi({
+      description:
+        'Metadata-document clients: the host of the client id, which vouches for it. Null otherwise.',
+    }),
+    redirectHosts: z.array(z.string()).openapi({ description: 'Hosts of the redirect URIs.' }),
+    registeredAt: nullableTimestamp('Registered or fetched'),
+    expiresAt: nullableTimestamp('End of the record (a metadata document is fetched again after it)'),
+  })
+  .openapi('OAuthClient', { description: 'An OAuth client known to this server (P5-08). No secrets.' });
+
+export const OAuthClientList = z
+  .object({
+    data: z.array(OAuthClientSchema),
+    nextCursor: z
+      .null()
+      .openapi({ description: 'Always null: the list is one page of at most 500 clients.' }),
+  })
+  .openapi('OAuthClientList');
+
+export const RemoveOAuthClientBody = z
+  .strictObject({ clientId: z.string().min(1).max(512) })
+  .openapi('RemoveOAuthClient');
+
+export const OAuthClientRemovalSchema = z
+  .object({
+    client: OAuthClientSchema,
+    devicesRevoked: z.number().int().openapi({ description: 'Device authorizations revoked, every user.' }),
+    approvalsForgotten: z.number().int().openapi({ description: "Remembered 'don't ask again' approvals." }),
+  })
+  .openapi('OAuthClientRemoval');
+export const OAuthClientRemovalOne = one(OAuthClientRemovalSchema, 'OAuthClientRemovalResponse');
+
+export const OAuthRegistrationSchema = z
+  .object({
+    enabled: z.boolean().openapi({ description: 'What `/oauth/register` does now.' }),
+    deployment: z.boolean().openapi({
+      description: '`RB_OAUTH_DCR` (default on). When off, the switch cannot turn registration on.',
+    }),
+    setting: z.boolean().openapi({ description: 'The runtime switch (on when never set).' }),
+  })
+  .openapi('OAuthRegistration');
+export const OAuthRegistrationOne = one(OAuthRegistrationSchema, 'OAuthRegistrationResponse');
+
+export const SetOAuthRegistrationBody = z
+  .strictObject({ enabled: z.boolean() })
+  .openapi('SetOAuthRegistration');
+
+// ---------------------------------------------------------------------------------------------------------------
 // Audit
 // ---------------------------------------------------------------------------------------------------------------
 

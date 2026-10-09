@@ -265,6 +265,53 @@ export function parseOAuthDevice(r: Row): OAuthDevice | null {
   };
 }
 
+/** An OAuth client (P5-08). The name is untrusted text: render escaped, never as a link. */
+export interface OAuthClient {
+  readonly id: string;
+  readonly kind: 'metadata_document' | 'dynamic';
+  readonly name: string | null;
+  readonly host: string | null;
+  readonly redirectHosts: string[];
+  readonly registeredAt: number | null;
+  readonly expiresAt: number | null;
+}
+
+export function parseOAuthClient(r: Row): OAuthClient | null {
+  const id = str(r['id']);
+  if (id === '' || id.length > 512) return null;
+  return {
+    id,
+    kind: r['kind'] === 'metadata_document' ? 'metadata_document' : 'dynamic',
+    name: strOrNull(r['name']),
+    host: strOrNull(r['host']),
+    redirectHosts: strs(r['redirectHosts']),
+    registeredAt: intOrNull(r['registeredAt']),
+    expiresAt: intOrNull(r['expiresAt']),
+  };
+}
+
+/** Dynamic client registration state (P5-08). */
+export interface OAuthRegistration {
+  readonly enabled: boolean;
+  readonly deployment: boolean;
+  readonly setting: boolean;
+}
+
+export function parseOAuthRegistration(r: Row): OAuthRegistration | null {
+  if (typeof r['enabled'] !== 'boolean' || typeof r['deployment'] !== 'boolean') return null;
+  return { enabled: r['enabled'], deployment: r['deployment'], setting: r['setting'] !== false };
+}
+
+/** Result of removing a client. */
+export interface OAuthClientRemoval {
+  readonly devicesRevoked: number;
+  readonly approvalsForgotten: number;
+}
+
+export function parseOAuthClientRemoval(r: Row): OAuthClientRemoval | null {
+  return { devicesRevoked: int(r['devicesRevoked']), approvalsForgotten: int(r['approvalsForgotten']) };
+}
+
 /** `{ data: {...} }` of a single-resource answer. */
 export function one<T>(body: unknown, parse: (r: Row) => T | null): T | null {
   const data = (body as { data?: unknown } | null)?.data;

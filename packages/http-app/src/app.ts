@@ -124,7 +124,10 @@ export const DEFAULT_REQUEST_TIMEOUT_MS = 180_000;
 /** Subrequest budget per MCP request on Node (ADR-0010 "paid" figure; Workers sets its own). */
 export const DEFAULT_CALL_BUDGET = 1000;
 
-export type StorageForHttp = Pick<Storage, 'projects' | 'grants' | 'users' | 'credentials' | 'accessTokens'>;
+export type StorageForHttp = Pick<
+  Storage,
+  'projects' | 'grants' | 'users' | 'credentials' | 'accessTokens' | 'settings'
+>;
 
 /** What the hooks know about an authenticated MCP request. Never contains the token or the New Relic key. */
 export interface McpRequestInfo {
@@ -896,7 +899,7 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
             reason: rejectReason(c.get('log')),
           }),
         runInBackground,
-        ...(oauth ? { oauthDevices: oauth.devices } : {}),
+        ...(oauth ? { oauthDevices: oauth.devices, oauthClients: oauth.clients } : {}),
         // A revoked token, grant or key stops at once on this process (other processes: within the cache TTL); a
         // changed role or disabled user is re-read by the next session request here (elsewhere: within 5 s).
         onChange: () => {

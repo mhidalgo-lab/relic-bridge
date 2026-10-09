@@ -45,6 +45,8 @@ import {
   clientIdUrlProblem,
   fetchMetadataDocument,
   looksLikeClientIdUrl,
+  MAX_CLIENT_ID_URL_CHARS,
+  MAX_REDIRECT_URIS,
   readBoundedBytes,
   safeClientName,
 } from './clients.ts';
@@ -57,7 +59,7 @@ import {
   type StoredClientAuth,
   sealReplay,
 } from './refresh-replay.ts';
-import { forgetApprovals, type StoredApproval } from './remembered.ts';
+import { forgetApprovals, forgetClientApprovals, type StoredApproval } from './remembered.ts';
 
 export const OAUTH_AUTHORIZE_PATH = '/oauth/authorize';
 export const OAUTH_TOKEN_PATH = '/oauth/token';
@@ -247,6 +249,16 @@ const DEVICE_ID_RE = /^oauth_([A-Za-z0-9_-]{16})$/;
 const ACCESS_GRANT_ID_RE = /^[A-Za-z0-9_.:-]{1,64}$/;
 /** Devices read per user (listing and revoke-all). */
 export const MAX_OAUTH_DEVICES_PER_USER = 100;
+/** The runtime switch for dynamic client registration (settings table, owner-only through the admin API, P5-08). */
+export const OAUTH_REGISTRATION_SETTING = 'oauth.registration';
+/**
+ * How long one isolate or process keeps the switch it read: a change made elsewhere takes effect within this long
+ * (immediately on the process that made it). Documented in docs/dev/oauth.md.
+ */
+export const OAUTH_REGISTRATION_CACHE_MS = 5000;
+/** Most clients the admin list reads, and most grants one client removal scans. */
+export const MAX_OAUTH_CLIENTS_LISTED = 500;
+export const MAX_OAUTH_GRANTS_SCANNED = 20_000;
 /** Shared registration counter windows (`kv`, outside the provider's `oauth:` namespace). */
 const REGISTRATION_COUNTER_PREFIX = 'oauth-dcr-count:';
 
@@ -310,7 +322,7 @@ export interface OAuthRuntimeDeps {
   /** Issuer origin (`https://bridge.example.com`), from the configured public URL. */
   readonly issuer: string;
   readonly kv: Pick<KvRepository, 'get' | 'put' | 'delete' | 'list' | 'take' | 'increment'>;
-  readonly storage: Pick<Storage, 'projects' | 'grants' | 'users' | 'credentials'>;
+  readonly storage: Pick<Storage, 'projects' | 'grants' | 'users' | 'credentials' | 'settings'>;
   readonly catalog: readonly string[];
   readonly clock: Clock;
   readonly logger: Logger;
@@ -362,6 +374,56 @@ export interface OAuthDevices {
   ): Promise<number>;
 }
 
+/** One OAuth client (a stored client record) as the admin API shows it (P5-08). No secrets, no document body. */
+export interface OAuthClient {
+  /** The client id: a metadata document URL or a registered id. */
+  readonly id: string;
+  readonly kind: 'metadata_document' | 'dynamic';
+  /** Untrusted text from the registration or document (checked when stored): escape before display. */
+  readonly name: string | null;
+  /** Metadata-document clients: the host of the client id, which vouches for it. Null for dynamic clients. */
+  readonly host: string | null;
+  /** The hosts of the redirect URIs. */
+  readonly redirectHosts: readonly string[];
+  /** Epoch ms; null when the record has no date. */
+  readonly registeredAt: number | null;
+  /** Epoch ms of the record's expiry (a document is fetched again after it); null when it has none. */
+  readonly expiresAt: number | null;
+}
+
+/** What removing a client ended. */
+export interface OAuthClientRemoval {
+  readonly client: OAuthClient;
+  /** Device authorizations (provider grants, every user) revoked with all their tokens. */
+  readonly devicesRevoked: number;
+  /** Remembered "don't ask again" approvals forgotten. */
+  readonly approvalsForgotten: number;
+}
+
+/** The state of dynamic client registration. */
+export interface OAuthRegistrationState {
+  /** What `/oauth/register` does now: deployment on and the switch not off. */
+  readonly enabled: boolean;
+  /** `RB_OAUTH_DCR` (default on): when off, the switch cannot turn registration on. */
+  readonly deployment: boolean;
+  /** The runtime switch (settings); on when never set. */
+  readonly setting: boolean;
+}
+
+/** OAuth clients: list, remove, and the registration switch (admin API, owners only, P5-08). */
+export interface OAuthClients {
+  list(): Promise<readonly OAuthClient[]>;
+  /**
+   * Remove a client record and revoke every grant (all users, every token family) and remembered approval of it. Works
+   * for an id that has no record any more but still has grants (an expired cached document). Null when there is
+   * neither a record nor a grant.
+   */
+  remove(clientId: string): Promise<OAuthClientRemoval | null>;
+  registration(): Promise<OAuthRegistrationState>;
+  /** Turn dynamic registration on or off at runtime; other processes follow within {@link OAUTH_REGISTRATION_CACHE_MS}. */
+  setRegistration(enabled: boolean): Promise<void>;
+}
+
 /** One app's OAuth server: the route handlers and the MCP-route token check. Holds configuration and caches only. */
 export interface OAuthRuntime {
   readonly issuer: string;
@@ -387,6 +449,8 @@ export interface OAuthRuntime {
   authenticate(token: string, slug: string): Promise<OAuthAuthentication>;
   /** Users' OAuth devices (P5-05). */
   readonly devices: OAuthDevices;
+  /** OAuth clients and the registration switch (P5-08). */
+  readonly clients: OAuthClients;
 }
 
 export function createOAuthRuntime(deps: OAuthRuntimeDeps): OAuthRuntime {
@@ -412,7 +476,7 @@ export function createOAuthRuntime(deps: OAuthRuntimeDeps): OAuthRuntime {
     MAX_OAUTH_REFRESH_REUSE_WINDOW_S,
     true,
   );
-  const registration = options.registration ?? true;
+  const deploymentRegistration = options.registration ?? true;
   const registrationLimit =
     options.registrationLimit === undefined ? DEFAULT_OAUTH_REGISTRATION_LIMIT : options.registrationLimit;
   if (registrationLimit !== null) {
@@ -441,6 +505,29 @@ export function createOAuthRuntime(deps: OAuthRuntimeDeps): OAuthRuntime {
   /** Declared for routes that need no project (metadata, registration): never a valid slug, so never a token's. */
   const placeholderResource = `${issuer}/p/-/mcp`;
 
+  /**
+   * Whether `/oauth/register` works now: the deployment allows it and the runtime switch (settings) is not off. Read at
+   * most once per {@link OAUTH_REGISTRATION_CACHE_MS} per process. An unreadable setting counts as off (fail closed).
+   */
+  let registrationCache: { readonly setting: boolean; readonly at: number } | undefined;
+  const registrationSetting = async (): Promise<boolean> => {
+    const now = clock.now();
+    if (registrationCache !== undefined && now - registrationCache.at < OAUTH_REGISTRATION_CACHE_MS) {
+      return registrationCache.setting;
+    }
+    let setting: boolean;
+    try {
+      setting = (await deps.storage.settings.get(OAUTH_REGISTRATION_SETTING)) !== false;
+    } catch {
+      logger.warn('oauth registration switch unreadable; registration refused');
+      setting = false;
+    }
+    registrationCache = { setting, at: now };
+    return setting;
+  };
+  const registrationOn = async (): Promise<boolean> =>
+    deploymentRegistration && (await registrationSetting());
+
   let loaded: Promise<ProviderModule> | undefined;
   const provider = (): Promise<ProviderModule> => {
     loaded ??= import('@cloudflare/workers-oauth-provider');
@@ -450,7 +537,9 @@ export function createOAuthRuntime(deps: OAuthRuntimeDeps): OAuthRuntime {
   const servers = new Map<string, OAuthAuthorizationServer<ProviderEnv>>();
   const server = async (resources: readonly string[]): Promise<OAuthAuthorizationServer<ProviderEnv>> => {
     const list = resources.length === 0 ? [placeholderResource] : [...new Set(resources)].sort();
-    const key = list.join('\n');
+    const registration = await registrationOn();
+    // The registration endpoint is part of the provider's configuration (and of the metadata): one server per state.
+    const key = `${registration ? 'dcr' : 'nodcr'}\n${list.join('\n')}`;
     const cached = servers.get(key);
     if (cached) return cached;
     const mod = await provider();
@@ -1060,6 +1149,115 @@ export function createOAuthRuntime(deps: OAuthRuntimeDeps): OAuthRuntime {
     },
   });
 
+  // ------------------------------------------------------------------------------------------------ clients (P5-08)
+
+  const CLIENT_PREFIX = 'client:';
+  const GRANT_KEY_RE = /^grant:([A-Za-z0-9_-]{1,128}):([A-Za-z0-9_-]{16})$/;
+  const redirectHostsOf = (uris: unknown): string[] => {
+    if (!Array.isArray(uris)) return [];
+    const hosts = new Set<string>();
+    for (const uri of uris.slice(0, MAX_REDIRECT_URIS)) {
+      try {
+        hosts.add(new URL(String(uri)).hostname);
+      } catch {
+        // not a URL: not listed
+      }
+    }
+    return [...hosts];
+  };
+  /** A stored client record as the admin API shows it; never the secret hash or the raw document. */
+  const toClient = (clientId: string, record: Record<string, unknown>, expiration?: number): OAuthClient => {
+    const metadataDocument = looksLikeClientIdUrl(clientId);
+    let host: string | null = null;
+    if (metadataDocument) {
+      try {
+        host = new URL(clientId).hostname;
+      } catch {
+        host = null;
+      }
+    }
+    const expiresAtS =
+      expiration ??
+      (typeof record['registrationExpiresAt'] === 'number' ? record['registrationExpiresAt'] : null);
+    return {
+      id: clientId,
+      kind: metadataDocument ? 'metadata_document' : 'dynamic',
+      name: typeof record['clientName'] === 'string' ? safeClientName(record['clientName']) : null,
+      host,
+      redirectHosts: redirectHostsOf(record['redirectUris']),
+      registeredAt: typeof record['registrationDate'] === 'number' ? record['registrationDate'] * 1000 : null,
+      expiresAt: expiresAtS === null ? null : expiresAtS * 1000,
+    };
+  };
+  const clients: OAuthClients = Object.freeze({
+    async list() {
+      const out: OAuthClient[] = [];
+      let cursor: string | undefined;
+      do {
+        const page = await env.OAUTH_KV.list({
+          prefix: CLIENT_PREFIX,
+          ...(cursor === undefined ? {} : { cursor }),
+        });
+        for (const k of page.keys) {
+          const clientId = k.name.slice(CLIENT_PREFIX.length);
+          const record = (await env.OAUTH_KV.get(k.name, { type: 'json' })) as Record<string, unknown> | null;
+          if (record === null || typeof record !== 'object' || record['clientId'] !== clientId) continue;
+          out.push(toClient(clientId, record, k.expiration));
+          if (out.length >= MAX_OAUTH_CLIENTS_LISTED) return out;
+        }
+        cursor = page.list_complete ? undefined : page.cursor;
+      } while (cursor !== undefined);
+      return out;
+    },
+    async remove(clientId: string) {
+      if (clientId === '' || clientId.length > MAX_CLIENT_ID_URL_CHARS) return null;
+      const key = `${CLIENT_PREFIX}${clientId}`;
+      const record = (await env.OAUTH_KV.get(key, { type: 'json' })) as Record<string, unknown> | null;
+      // The record goes first: a registered client can't start another authorization or refresh meanwhile (a document
+      // client may fetch its document again and start over, with consent). Then every device authorization of it.
+      if (record !== null) await env.OAUTH_KV.delete(key);
+      const helpers = (await server([])).getOAuthApi(env);
+      let revoked = 0;
+      let scanned = 0;
+      let cursor: string | undefined;
+      do {
+        const page = await env.OAUTH_KV.list({
+          prefix: 'grant:',
+          ...(cursor === undefined ? {} : { cursor }),
+        });
+        for (const k of page.keys) {
+          if (++scanned > MAX_OAUTH_GRANTS_SCANNED) {
+            throw new Error('too many OAuth grants to scan for one client');
+          }
+          const m = GRANT_KEY_RE.exec(k.name);
+          if (m === null) continue;
+          const grant = (await env.OAUTH_KV.get(k.name, { type: 'json' })) as StoredGrant | null;
+          if (grant === null || grant.clientId !== clientId) continue;
+          // Pending code exchanges count too: revoking the grant makes the code useless.
+          await revokeFamily(m[1] as string, m[2] as string, helpers);
+          revoked += 1;
+        }
+        cursor = page.list_complete ? undefined : page.cursor;
+      } while (cursor !== undefined);
+      const forgotten = await forgetClientApprovals(deps.kv, clientId);
+      if (record === null && revoked === 0 && forgotten === 0) return null;
+      logger.info('oauth client removed', { devicesRevoked: revoked, approvalsForgotten: forgotten });
+      return {
+        client: toClient(clientId, record ?? {}),
+        devicesRevoked: revoked,
+        approvalsForgotten: forgotten,
+      };
+    },
+    async registration() {
+      const setting = await registrationSetting();
+      return { enabled: deploymentRegistration && setting, deployment: deploymentRegistration, setting };
+    },
+    async setRegistration(enabled: boolean) {
+      await deps.storage.settings.set(OAUTH_REGISTRATION_SETTING, enabled);
+      registrationCache = { setting: enabled, at: clock.now() };
+    },
+  });
+
   const runtime: OAuthRuntime = {
     issuer,
     resourceUrl,
@@ -1108,7 +1306,7 @@ export function createOAuthRuntime(deps: OAuthRuntimeDeps): OAuthRuntime {
     },
 
     async register(c) {
-      if (!registration) return jsonError(404, 'not_found', 'Client registration is disabled.');
+      if (!(await registrationOn())) return jsonError(404, 'not_found', 'Client registration is disabled.');
       const body = await readBounded(c.req.raw, OAUTH_MAX_BODY_BYTES);
       if (body === null) return jsonError(413, 'invalid_request', 'Request body too large.');
       const mediaType = (c.req.header('content-type') ?? '').split(';')[0]?.trim().toLowerCase();
@@ -1424,6 +1622,7 @@ export function createOAuthRuntime(deps: OAuthRuntimeDeps): OAuthRuntime {
     },
 
     devices,
+    clients,
   };
   return runtime;
 }

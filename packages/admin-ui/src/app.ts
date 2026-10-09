@@ -17,6 +17,7 @@ import { registerConnect } from './screens/connect.tsx';
 import { registerCredentials } from './screens/credentials.tsx';
 import { registerGrants } from './screens/grants.tsx';
 import { registerMe } from './screens/me.tsx';
+import { registerOAuthClients } from './screens/oauth-clients.tsx';
 import { registerOverview } from './screens/overview.tsx';
 import { registerProjects } from './screens/projects.tsx';
 import { registerTokens } from './screens/tokens.tsx';
@@ -35,6 +36,7 @@ function registerScreens(ui: Hono, kit: UiKit): void {
   registerTokens(ui, kit);
   registerConnect(ui, kit);
   registerUsers(ui, kit);
+  registerOAuthClients(ui, kit);
   registerAudit(ui, kit);
   registerMe(ui, kit);
   registerUsage(ui, kit);

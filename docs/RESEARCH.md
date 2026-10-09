@@ -302,3 +302,38 @@ and known issues before Phase 1.
   Kubernetes secret volumes are root-owned and become group-readable with `fsGroup`.
 - A loopback `Host` is refused by the server unless listed in `RB_ALLOWED_HOSTS`, so the health check treats a
   `403 forbidden_host` answer as alive.
+
+## 11. Workers runtime and tooling facts (P3-01, verified 2026-10-03)
+
+Sources: <https://developers.cloudflare.com/workers/wrangler/configuration/>,
+<https://developers.cloudflare.com/workers/testing/vitest-integration/>,
+<https://developers.cloudflare.com/workers/observability/errors/>,
+<https://developers.cloudflare.com/changelog/post/2025-10-24-automatic-resource-provisioning/>,
+<https://developers.cloudflare.com/changelog/post/2026-03-24-secrets-config-property/>. Checked locally with wrangler
+4.144.0 / workerd 1.20260926.1.
+
+- **Vitest integration renamed**: `@cloudflare/vitest-pool-workers` is now `@cloudflare/vitest-plugin` (1.x, Vitest
+  ≥ 4.1), configured with the `cloudflareTest({ wrangler: { configPath }, miniflare })` Vite plugin;
+  `defineWorkersConfig` and `cloudflare:test`'s `SELF`/`env` are deprecated in favour of `exports`/`env` from
+  `cloudflare:workers`. Projects with different pools coexist in one root `vitest.config.ts`.
+- **V8 coverage cannot attach to workerd** (`node:inspector` `Session` not implemented): `pnpm test:coverage` excludes
+  the `worker` project (`--project=!worker`), and CI runs it separately (`pnpm test:workers`).
+- **Main module exports**: workerd treats every named export of the `main` module as an entrypoint and refuses to start
+  when one is not a handler (`Incorrect type for map entry …`). The entry file exports the default handler only.
+- **Cross-request I/O**: I/O started by one request belongs to that request; awaiting it from another request is unsafe
+  (a cancelled originator leaves waiters hanging, or throws "Cannot perform I/O on behalf of a different request").
+  The Worker therefore never shares an in-flight boot between requests (each cold request boots; the first finished
+  runtime is kept). Caching non-I/O results (keyring, Hono app, in-memory buckets) and binding objects is fine.
+- **`env` identity**: the same `env` object is passed to every request of an isolate (observed under `wrangler dev`),
+  so a per-isolate cache can key on it.
+- **Automatic provisioning** (wrangler ≥ 4.45, open beta): D1/KV/R2 bindings without ids work in `wrangler dev`
+  (local resources) and are created on the first `wrangler deploy`, which writes the ids back into the config file.
+  The committed `apps/worker/wrangler.jsonc` therefore has no ids.
+- **`secrets.required`** declares secret names: `wrangler deploy` fails when one is not set; `wrangler dev` then loads
+  only those names from `.dev.vars`/`.env` and warns about missing ones (the Vitest integration prints the same warning;
+  tests pass secrets through `miniflare.bindings`).
+- **Rate Limiting binding** config: `"ratelimits": [{ "name", "namespace_id", "simple": { "limit", "period": 10 | 60 } }]`
+  (GA since 2025-09); it works locally under `wrangler dev`. Semantics are per-location and eventually consistent (P3-04).
+- **Bundle size**: `wrangler deploy --dry-run --outdir dist` (no account needed) bundles the Worker: 1.75 MiB raw,
+  **339 KiB gzip** at P3-01, well under the Free plan's 3 MiB compressed limit. `pnpm build` runs this for `apps/worker`.
+- No `nodejs_compat` flag is needed: every package is web-standard (ADR-0004).

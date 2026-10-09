@@ -1,5 +1,19 @@
 {
   "extends": "../../tsconfig.base.json",
-  "compilerOptions": { "types": [] },
+  "compilerOptions": {
+    // Web globals like the other packages; Workers-only types are imported from `@cloudflare/workers-types` as a
+    // module (its global form conflicts with lib.webworker, which the sibling packages are checked against).
+    "types": [],
+    "lib": ["es2023", "webworker"],
+    // App, not a library; type-checks sibling packages from source, which are not isolatedDeclarations-clean.
+    "declaration": false,
+    "isolatedDeclarations": false,
+    "paths": {
+      "@relic-bridge/auth": ["../../packages/auth/src/index.ts"],
+      "@relic-bridge/core": ["../../packages/core/src/index.ts"],
+      "@relic-bridge/http-app": ["../../packages/http-app/src/index.ts"],
+      "@relic-bridge/storage": ["../../packages/storage/src/index.ts"]
+    }
+  },
   "include": ["src", "test"]
 }

@@ -51,6 +51,7 @@ with what to configure. Setting only one of the two is a configuration error (ex
 | `RB_LIMITS_MAX_WINDOW_DAYS` | no | `7` | Longest time window a query may cover, in days (1–3660). |
 | `RB_LIMITS_RAW_NRQL` | no | `true` | Accepts `1`/`true`/`yes`/`on` and `0`/`false`/`no`/`off` (case-insensitive); anything else stops startup. `false` removes `run_nrql` and `get_query_result` (agent-written NRQL). |
 | `RB_MCP_APPS` | no | `on` | `off` removes the [chart view](charts.md) (`_meta.ui` on `run_nrql` / `get_query_result` and the `ui://` resource) for every client. `on`: only clients that declare MCP Apps support see it. Same name for `serve` and the Worker. |
+| `RB_TASKS` | no | `on` | `off` is the kill switch for the MCP Tasks extension (P7-34): no tasks capability in `server/discover`, no task record is written, a slow call answers inline (`run_nrql` returns its `get_query_result` handle; composite reports run in one request), and `tasks/*` are unknown methods. Applies to stdio, `serve`, the Worker and pass-through. Same name everywhere. |
 | `RB_LIMITS_MAX_RESPONSE_BYTES` | no | `524288` | Largest NerdGraph response accepted (1 KiB – 16 MiB). |
 | `RB_LIMITS_EVENT_TYPES_ALLOW` | no | | Only these event types may be queried (comma-separated, exact case). |
 | `RB_LIMITS_EVENT_TYPES_DENY` | no | | These event types may not be queried (comma-separated, case-insensitive). |

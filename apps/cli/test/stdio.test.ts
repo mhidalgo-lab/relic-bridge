@@ -22,6 +22,7 @@ import {
   SETUP_MESSAGE,
   selectTools,
   stdioMcpApps,
+  stdioTasks,
   stdioTelemetry,
   stdioWriteApproval,
   stdioWriteTools,
@@ -401,8 +402,9 @@ describe('MCP Tasks on stdio (P7-22)', () => {
   };
 
   /** A raw 2026-07-28 client (the SDK client has no Tasks support): one JSON-RPC exchange at a time. */
-  async function connect(tasks: boolean, clock: { now(): number }) {
+  async function connect(tasks: boolean, clock: { now(): number }, serverTasks = true) {
     const { factory, wrapTransport } = prepareServer({
+      tasks: serverTasks,
       project: project({ tools: ['run_nrql'] }),
       logger: createLogger({ level: 'error', sink: () => {} }),
       fetch: fetchStub,
@@ -467,6 +469,26 @@ describe('MCP Tasks on stdio (P7-22)', () => {
     for (const id of ['A'.repeat(43), 'nope']) {
       expect((await client.call('tasks/get', { taskId: id })).error).toMatchObject({ code: -32602 });
       expect((await client.call('tasks/cancel', { taskId: id })).error).toMatchObject({ code: -32602 });
+    }
+    await client.close();
+  });
+
+  it('RB_TASKS (P7-34) parses on/off only, default on', () => {
+    expect(stdioTasks({})).toBe(true);
+    expect(stdioTasks({ RB_TASKS: 'on' })).toBe(true);
+    expect(stdioTasks({ RB_TASKS: 'off' })).toBe(false);
+    expect(() => stdioTasks({ RB_TASKS: 'later' })).toThrow(ConfigError);
+  });
+
+  it('off: no capability, a Tasks client gets an inline answer, tasks/* are unknown methods', async () => {
+    const client = await connect(true, { now: () => 1_800_000_000_000 }, false);
+    expect(JSON.stringify((await client.call('server/discover', {})).result?.['capabilities'])).not.toContain(
+      TASKS,
+    );
+    const out = (await client.call('tools/call', SLOW_CALL)).result ?? {};
+    expect(out['resultType']).not.toBe('task');
+    for (const method of ['tasks/get', 'tasks/update', 'tasks/cancel']) {
+      expect((await client.call(method, { taskId: 'A'.repeat(43) })).error).toMatchObject({ code: -32601 });
     }
     await client.close();
   });

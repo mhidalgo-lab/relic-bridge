@@ -88,6 +88,12 @@ describe('parseWorkerSettings', () => {
     fails({ RB_PLAN: { nested: true } }, 'RB_PLAN');
   });
 
+  it('parses RB_TASKS (P7-34): on by default, off is the kill switch', () => {
+    expect(parseWorkerSettings({}).tasks).toBe(true);
+    expect(parseWorkerSettings({ RB_TASKS: 'off' }).tasks).toBe(false);
+    fails({ RB_TASKS: 'maybe' }, 'RB_TASKS');
+  });
+
   it('parses RB_MCP_APPS (P7-16): on by default, off turns the chart view off', () => {
     expect(parseWorkerSettings({}).mcpApps).toBe(true);
     expect(parseWorkerSettings({ RB_MCP_APPS: 'off' }).mcpApps).toBe(false);

@@ -2,11 +2,11 @@
 id: P7-34
 title: RB_TASKS=off switch for MCP Tasks
 phase: 7
-status: todo
+status: review
 priority: low
 depends_on: [P7-13, P7-29]
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P7-34 — RB_TASKS=off switch for MCP Tasks
@@ -22,8 +22,8 @@ kill switch for the hand-rolled MCP Tasks support, which depends on SDK internal
 - Composite report tools keep working without tasks.
 
 ## Acceptance criteria
-- [ ] With `off`, `initialize` has no tasks capability and no task record is written; tests on Node and Workers.
-- [ ] With the default, behaviour is unchanged (existing tests pass).
+- [x] With `off`, `initialize` has no tasks capability and no task record is written; tests on Node and Workers.
+- [x] With the default, behaviour is unchanged (existing tests pass).
 
 ## Security notes
 Reduces surface when disabled; T21 unchanged.

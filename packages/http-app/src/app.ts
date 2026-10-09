@@ -358,6 +358,12 @@ export interface HttpAppOptions {
    */
   readonly taskStore?: TaskStore;
   /**
+   * Kill switch for the Tasks extension (P7-34, `RB_TASKS`). Default true. False: no tasks capability is advertised, no
+   * task record is ever written (project routes and pass-through), a slow call answers inline as for a client without
+   * the extension, and `tasks/*` are unknown methods.
+   */
+  readonly tasks?: boolean;
+  /**
    * Where spent write approvals are remembered (P7-26): the storage `kv` (atomic `increment`, only the approval key, a
    * hash, is stored, expiring after the approval window). Absent: write approvals are bound to a time
    * window only and a replay inside it is not refused.
@@ -577,7 +583,8 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
   const limiters = new LimiterPool(options.concurrencyPerCredential);
   // Per-grant quota counters (P7-12): the host's store, else the storage table (atomic on SQLite and D1).
   const quotaStore: QuotaStore = options.quotaStore ?? options.storage.grantUsage;
-  const taskStore = options.taskStore;
+  const tasksOn = options.tasks !== false;
+  const taskStore = tasksOn ? options.taskStore : undefined;
   const approvalStore = options.approvalStore;
   // The process-local slot first, then the shared one: only calls this process would run anyway compete across them.
   const sharedConcurrency = options.sharedConcurrency;
@@ -1502,7 +1509,7 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
     const ptToolNames = Object.freeze(ptTools.map((t) => t.name));
     // Pass-through keeps nothing of the caller's, so its tasks live in the host's task store when it has one, else in a
     // bounded in-process one (sealed, lost on restart; P7-22).
-    const ptTaskStore = taskStore ?? createMemoryTaskStore();
+    const ptTaskStore = tasksOn ? (taskStore ?? createMemoryTaskStore()) : undefined;
     const requireTls = pt.requireTls ?? true;
     const concurrency = options.concurrencyPerCredential ?? DEFAULT_CONCURRENCY;
     createSemaphoreLimiter(concurrency); // validate at boot
@@ -1614,7 +1621,14 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
             : { queryCache: Object.freeze({ cache: queryCache, scope: 'passthrough' }) }),
           // Tasks belong to the key's fingerprint (T32, T12): never the key. The fingerprint is keyed per app instance, so
           // a restart (or another replica without a shared `fingerprintSecret`) makes old tasks "not found".
-          tasks: Object.freeze({ store: ptTaskStore, owner: `passthrough:${credentialId}/region:${region}` }),
+          ...(ptTaskStore === undefined
+            ? {}
+            : {
+                tasks: Object.freeze({
+                  store: ptTaskStore,
+                  owner: `passthrough:${credentialId}/region:${region}`,
+                }),
+              }),
           connection: Object.freeze({ allowedTools: ptToolNames, unavailableTools: ptGranted.unavailable }),
           logger: logger.child({ requestId, keyId }),
           clock,
@@ -1641,7 +1655,7 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
         scopes: [],
         extra: { [SCOPE_KEY]: scope },
       };
-      return mcpMethod !== null && TASK_METHODS.includes(mcpMethod)
+      return tasksOn && mcpMethod !== null && TASK_METHODS.includes(mcpMethod)
         ? serveTasks(c, scope)
         : serveMcp(c, authInfo, mcpMethod, mcpName);
     });

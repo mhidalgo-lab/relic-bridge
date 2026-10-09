@@ -73,6 +73,12 @@ describe('serveSettings', () => {
     expect(() => serveSettings({ ...base, env: { ...base.env, RB_OTEL: 'on' } })).toThrow(ConfigError);
   });
 
+  it('MCP Tasks (P7-34): on by default, RB_TASKS=off is the kill switch, other values are refused', () => {
+    expect(serveSettings(base).tasks).toBe(true);
+    expect(serveSettings({ ...base, env: { ...base.env, RB_TASKS: 'off' } }).tasks).toBe(false);
+    expect(() => serveSettings({ ...base, env: { ...base.env, RB_TASKS: 'maybe' } })).toThrow(ConfigError);
+  });
+
   it('MCP Apps (P7-16): on by default, RB_MCP_APPS=off turns the chart view off, other values are refused', () => {
     expect(serveSettings(base).mcpApps).toBe(true);
     expect(serveSettings({ ...base, env: { ...base.env, RB_MCP_APPS: 'off' } }).mcpApps).toBe(false);

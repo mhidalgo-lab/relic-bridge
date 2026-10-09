@@ -55,6 +55,8 @@ export interface WorkerVars {
   readonly RB_PUBLIC_TOOL_CATALOG?: string;
   /** `off` removes the MCP Apps chart view (P7-16); default on. */
   readonly RB_MCP_APPS?: string;
+  /** `off` disables the MCP Tasks extension (P7-34); default on. */
+  readonly RB_TASKS?: string;
   /** OAuth for MCP clients (P5-04, docs/guide/oauth.md): `on` / `off` (default off); needs sign-in. */
   readonly RB_OAUTH?: string;
   /** Dynamic client registration: `on` (default) / `off`. */

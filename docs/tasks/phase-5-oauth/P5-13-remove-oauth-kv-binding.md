@@ -2,7 +2,7 @@
 id: P5-13
 title: Remove the unused OAUTH_KV Worker binding
 phase: 5
-status: in-progress
+status: review
 priority: low
 depends_on: [P5-01]
 adr: ["0011"]
@@ -24,8 +24,8 @@ Owner decision (pending-decisions phase 5, P5-01, 2026-10-09): OAuth provider st
   `env.OAUTH_KV`, not a Cloudflare binding.
 
 ## Acceptance criteria
-- [ ] No Worker binding named `OAUTH_KV`; Workers runtime tests and `cf:setup` tests pass.
-- [ ] Deploy docs no longer mention a KV namespace; upgrade note says how to delete the old namespace
+- [x] No Worker binding named `OAUTH_KV`; Workers runtime tests and `cf:setup` tests pass.
+- [x] Deploy docs no longer mention a KV namespace; upgrade note says how to delete the old namespace
       (`wrangler kv namespace delete`).
 
 ## Security notes

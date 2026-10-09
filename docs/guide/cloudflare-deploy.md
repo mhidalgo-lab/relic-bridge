@@ -6,7 +6,7 @@ first to pick `free` or `paid`.
 
 > **Phone and claude.ai (web)** connect with OAuth: set `RB_OAUTH=on` and follow [Use relic-bridge from your phone and claude.ai](oauth-phone.md). Claude Code, Cursor and VS Code can use a device token.
 
-What gets created: a Worker, a D1 database (`DB`), a KV namespace (`OAUTH_KV`, reserved and currently unused) and a Rate Limiting binding
+What gets created: a Worker, a D1 database (`DB`) and a Rate Limiting binding
 (`RATE_LIMITER`). You supply nothing else: no database setup, **no migration command** (the Worker migrates D1 itself
 the first time it boots).
 
@@ -24,7 +24,7 @@ The script:
    machine's secure random generator, and passes them to Wrangler **on stdin**: never as command-line arguments
    (visible in the process list), never written to a repo file;
 2. deploys using `apps/worker/wrangler.local.jsonc`, a git-ignored copy of `wrangler.jsonc`, so Wrangler creates the D1
-   and KV resources and records their ids in the copy, not in a committed file. Another `--name` gets its own copy
+   database and records their ids in the copy, not in a committed file. Another `--name` gets its own copy
    (`wrangler.<name>.local.jsonc`) and its own D1 database named after the Worker, so a staging Worker never binds to
    the production database, and its own Rate Limiting namespace (two Workers on one account would otherwise share the
    `1701` counters);
@@ -52,7 +52,7 @@ refused too: a new master key would orphan every stored New Relic key. Restore t
 `wrangler.local.jsonc` is never overwritten (it holds the provisioned ids and any edits of yours, such as a custom
 domain). On a re-run the script compares it with `wrangler.jsonc`, ignoring comments, whitespace and the ids, and
 **warns** when they differ, for example after a `git pull` added a binding or cron. Copy the new entries into the local
-file, keeping its ids; deleting it would make Wrangler provision new D1/KV resources.
+file, keeping its ids; deleting it would make Wrangler provision a new D1 database.
 
 **Windows (PowerShell).** Everything above works the same (the script starts Wrangler with Node, no shell). Where the
 guide shows bash, use the PowerShell form given next to it.
@@ -61,7 +61,7 @@ guide shows bash, use the PowerShell form given next to it.
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/matiashidalgo/relic-bridge/tree/main/apps/worker)
 
-Cloudflare copies the repository to your GitHub/GitLab account, provisions D1 and KV, asks for the secrets listed in
+Cloudflare copies the repository to your GitHub/GitLab account, provisions D1, asks for the secrets listed in
 `apps/worker/.dev.vars.example` (`RB_MASTER_KEY`, `RB_ADMIN_TOKEN`) and deploys with Workers Builds; pushes to your copy
 redeploy. Generate the values yourself first:
 
@@ -210,6 +210,12 @@ pnpm cf:setup --plan free          # same plan as before; existing secrets and r
   `wrangler.jsonc` (new binding, cron or compatibility date), carry the change over by hand (keep the provisioned ids).
   Since P7-10 that includes the `durable_objects` and `exports` entries of the `SharedLimiter` class (needed only for
   `RB_SHARED_LIMITER`; without them the Worker logs a warning and keeps per-isolate limits).
+- **Upgrade note (P5-13): the `OAUTH_KV` namespace is gone.** Earlier versions declared a KV namespace that was never
+  used (OAuth state lives in D1, ADR-0011). Nothing breaks if your `wrangler.local.jsonc` still lists it, and
+  `cf:setup` prints a note while it does. To tidy up, remove the `kv_namespaces` entry from the local copy, redeploy,
+  then list and delete the old namespace:
+  `pnpm --filter @relic-bridge/worker exec wrangler kv namespace list` and
+  `... wrangler kv namespace delete --namespace-id <id>`.
 - With the button flow, a push to your copy of the repository redeploys through Workers Builds.
 
 ## Backups and the master key

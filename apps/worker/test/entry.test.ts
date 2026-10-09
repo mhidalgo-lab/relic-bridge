@@ -52,9 +52,9 @@ function countingD1(db: D1Database): { db: D1DatabaseLike; calls: string[] } {
 }
 
 describe('Worker entry (wrangler.jsonc) on local D1', () => {
-  it('declares the D1, KV and rate-limit bindings', () => {
+  it('declares the D1 and rate-limit bindings and no OAUTH_KV', () => {
     expect(typeof env.DB?.prepare).toBe('function');
-    expect(typeof env.OAUTH_KV?.get).toBe('function');
+    expect('OAUTH_KV' in env).toBe(false);
     expect(typeof env.RATE_LIMITER?.limit).toBe('function');
     expect(env.RB_PLAN).toBe('free');
   });

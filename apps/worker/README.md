@@ -12,7 +12,6 @@ with Workers bindings. Private package; it is deployed with Wrangler, not publis
 | Binding | Kind | Purpose |
 |---|---|---|
 | `DB` | D1 | Storage (projects, grants, tokens, encrypted credentials, audit log). |
-| `OAUTH_KV` | KV | Reserved, unused: OAuth provider state lives in D1 (ADR-0011). |
 | `RATE_LIMITER` | Rate Limiting | Shared coarse rate-limit ceiling (P3-04); exact rules stay per isolate. |
 | `SHARED_LIMITER` | Durable Object (`SharedLimiter`, SQLite) | Optional exact counters shared by every isolate (P7-10), used only with `RB_SHARED_LIMITER`. |
 | `RB_MASTER_KEY` | secret, required | Encrypts stored New Relic keys (`relic-bridge keys generate`). Back it up. |
@@ -22,7 +21,7 @@ with Workers bindings. Private package; it is deployed with Wrangler, not publis
 | `RB_GOOGLE_CLIENT_SECRET`, `RB_GITHUB_CLIENT_SECRET`, `RB_OIDC_CLIENT_SECRET` | secret, optional | OAuth client secrets of the [sign-in providers](../../docs/guide/identity-providers.md) you enable. |
 
 Secrets go through `wrangler secret put` (or `.dev.vars` locally), never `vars` and never D1. `wrangler.jsonc` holds no
-account or resource ids: local dev uses local resources, and Wrangler's automatic provisioning creates D1/KV on the
+account or resource ids: local dev uses local resources, and Wrangler's automatic provisioning creates D1 on the
 first deploy.
 
 ## Settings (`vars`)

@@ -1,5 +1,5 @@
 // relic-bridge on Cloudflare Workers (P3-01). No account or resource ids are committed: `wrangler dev` uses local
-// resources, and Wrangler's automatic provisioning creates D1/KV on the first deploy (P3-05 documents the setup).
+// resources, and Wrangler's automatic provisioning creates D1 on the first deploy (P3-05 documents the setup).
 // Secrets (`RB_MASTER_KEY`, `RB_ADMIN_TOKEN`) come from `wrangler secret put` or a local `.dev.vars`, never `vars`.
 {
   "$schema": "node_modules/wrangler/config-schema.json",
@@ -24,8 +24,6 @@
     "@relic-bridge/storage": "../../packages/storage/src/index.ts"
   },
   "d1_databases": [{ "binding": "DB", "database_name": "relic-bridge" }],
-  // Reserved and unused: OAuth provider state lives in D1 (ADR-0011). See docs/pending-decisions/phase-5.md.
-  "kv_namespaces": [{ "binding": "OAUTH_KV" }],
   // Workers Rate Limiting (P3-04). `namespace_id` is any account-unique integer string, not a secret.
   "ratelimits": [
     { "name": "RATE_LIMITER", "namespace_id": "1701", "simple": { "limit": 600, "period": 60 } }

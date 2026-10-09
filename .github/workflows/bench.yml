@@ -30,12 +30,10 @@ jobs:
   cpu:
     name: Worker CPU benchmark
     runs-on: ${{ fromJSON(vars.CI_RUNS_ON || '["self-hosted","linux","x64"]') }}
+    # workerd needs glibc 2.35+, newer than a fresh self-hosted runner's userland: run in a Debian 12 container.
+    container: node:24-bookworm
     timeout-minutes: 10
     steps:
-      - uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
-        if: ${{ runner.environment != 'github-hosted' }}
-        with:
-          egress-policy: audit
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false

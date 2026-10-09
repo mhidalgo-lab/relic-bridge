@@ -52,6 +52,21 @@ describe('parseCliArgs', () => {
     expect(() => parseCliArgs(['--config'])).toThrow(UsageError);
   });
 
+  it('parses db backup', () => {
+    expect(parseCliArgs(['db', 'backup', 'out.db', '--db', 'x.db'])).toEqual({
+      command: 'db',
+      dbAction: 'backup',
+      file: 'out.db',
+      db: 'x.db',
+    });
+    expect(parseCliArgs(['db', '--help'])).toEqual({ command: 'help' });
+    expect(() => parseCliArgs(['db'])).toThrow(/db backup/);
+    expect(() => parseCliArgs(['db', 'restore', 'x'])).toThrow(/db backup/);
+    expect(() => parseCliArgs(['db', 'backup'])).toThrow(/one destination/);
+    expect(() => parseCliArgs(['db', 'backup', 'a', 'b'])).toThrow(/one destination/);
+    expect(() => parseCliArgs(['db', 'backup', 'a', '--db', ' '])).toThrow(/--db/);
+  });
+
   it('help text documents the env block and never suggests key flags', () => {
     expect(HELP_TEXT).toContain('NEW_RELIC_API_KEY');
     expect(HELP_TEXT).toContain('"env" block');

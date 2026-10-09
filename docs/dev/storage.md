@@ -48,7 +48,7 @@ expirationTtl (s) })`, `delete`, `list({ prefix, limit ≤ 1000, cursor })` in k
 |---|---|---|
 | `memory` | `src/memory.ts` | Reference implementation; enforces every unique, FK and row rule; tests and ephemeral servers. |
 | `yaml` | `src/yaml.ts` | Read-only view of `relic-bridge.yaml`: each project → project (id = slug) + credential (id `project:<slug>`). The stdio CLI resolves its project from `yamlRecords()` (synchronous) at startup. |
-| `sqlite` | P2-02 | Node. Must enable `PRAGMA foreign_keys = ON`, run `migrate()` on start. |
+| `sqlite` | `packages/storage-sqlite` (`openSqliteStorage`) | Node, `node:sqlite` (ADR-0006). Creates the file `0600`, WAL, `busy_timeout`, `foreign_keys = ON`, runs `migrate()` on open (`migrate: false` only verifies). `backup(dest)` / `backupDatabase(src, dest)` write a consistent `0600` snapshot. Bundled into the CLI from source. |
 | `d1` | P3-02 | Workers. |
 
 Every adapter must pass the contract suite:
@@ -56,7 +56,10 @@ Every adapter must pass the contract suite:
 ```ts
 import { runStorageContract } from '@relic-bridge/storage/testing';
 
-runStorageContract({ name: 'sqlite', create: async (clock) => openSqlite(':memory:', { now: clock.now }) });
+runStorageContract({
+  name: 'sqlite',
+  create: (clock) => openSqliteStorage({ path: ':memory:', now: clock.now }),
+});
 // read-only adapters: runStorageContract({ name: 'yaml', createSeeded: async (fixture, clock) => … })
 ```
 

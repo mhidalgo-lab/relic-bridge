@@ -51,3 +51,20 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   synchronous; the YAML schema and parser moved to `packages/storage`. `serve` (P2-06) will use `Storage` directly.
 - **Options:** as assumed; make `main` async and read through `createYamlStorage()`.
 - **Needs:** nothing unless the owner prefers the async route.
+
+### P2-02 — `node:sqlite` instead of `better-sqlite3`
+- **Context:** ADR-0006 left the Node SQLite engine to P2-02. `node:sqlite` is built in (Node >= 24.11) but still
+  release-candidate upstream; `better-sqlite3` is mature but a native addon (install script, per-platform binaries,
+  conflicts with `strictDepBuilds` and the single-file CLI bundle).
+- **Assumption made:** `node:sqlite`, behind the `Storage` interface and contract suite, with plain parameterised SQL
+  (Drizzle 0.45 has no `node:sqlite` driver); recorded as an addendum to ADR-0006.
+- **Options:** as assumed; `better-sqlite3` (add it to `allowBuilds`, ship prebuilds); wait for Drizzle 1.0.
+- **Needs:** owner OK; revisit if `node:sqlite` regresses on an LTS.
+
+### P2-02 — Adapter lives in its own package, `db backup` is the only DB command so far
+- **Context:** Node-only code can't live in `packages/storage` (web-standard, ADR-0004).
+- **Assumption made:** new source-only workspace package `@relic-bridge/storage-sqlite`, bundled into the CLI like
+  `storage`; `relic-bridge db backup <file> --db <path>` (or `RB_DB_PATH`). No default DB path yet: `serve` (P2-06)
+  decides the data-directory layout.
+- **Options:** as assumed; publish the adapter as a separate npm package; add `db migrate` / `db restore` in P2-10.
+- **Needs:** nothing unless the owner wants a default data directory earlier.

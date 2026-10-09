@@ -7,6 +7,7 @@ import {
   type LogSink,
   VERSION,
 } from '@relic-bridge/core';
+import { backupDatabase } from '@relic-bridge/storage-sqlite';
 import { HELP_TEXT, isLogLevel, parseCliArgs, UsageError } from './args.ts';
 import { ConfigError, type ConfigFs, type Env, loadConfig } from './config.ts';
 import { serveProjectOverStdio } from './stdio.ts';
@@ -59,6 +60,22 @@ export function main(rt: CliRuntime): MainResult {
   const logger = createLogger({ level, sink: rt.stderr, fields: { app: 'relic-bridge' } });
   if (envLevel && !isLogLevel(envLevel)) {
     logger.warn('RB_LOG_LEVEL ignored: unknown level', { value: envLevel });
+  }
+
+  if (args.command === 'db' && args.file !== undefined) {
+    const dbPath = (args.db ?? rt.env['RB_DB_PATH'] ?? '').trim();
+    if (dbPath === '') {
+      logger.error('no database given', { hint: 'pass --db <path> or set RB_DB_PATH' });
+      return exit(2);
+    }
+    try {
+      backupDatabase(dbPath, args.file);
+    } catch (error) {
+      logger.error(error instanceof Error ? error.message : 'backup failed');
+      return exit(1);
+    }
+    rt.stdout(`Backed up ${dbPath} to ${args.file}\n`);
+    return exit(0);
   }
 
   try {

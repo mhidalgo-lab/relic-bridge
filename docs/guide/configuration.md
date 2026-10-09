@@ -12,6 +12,7 @@ connection) or from a **YAML file** (one or more projects). This page is the ref
 
 ```text
 relic-bridge [stdio] [--config <file> [--project <slug>]] [--log-level <level>]
+relic-bridge db backup <file> [--db <path>]
 relic-bridge --help | --version
 ```
 
@@ -20,6 +21,7 @@ relic-bridge --help | --version
 | `--config <file>` | `RB_CONFIG` | YAML config file. Use an absolute path in client configs (`~/` is expanded). Without it, env mode is used. |
 | `--project <slug>` | `RB_PROJECT` | Project to serve from the file. Optional when the file has one project. |
 | `--log-level <level>` | `RB_LOG_LEVEL` | `debug`, `info` (default), `warn`, `error`. |
+| `--db <path>` | `RB_DB_PATH` | SQLite database for `db` commands (see [self-hosting](self-hosting.md)). |
 
 Flags win over env vars. There is deliberately **no flag for the API key**: command lines show up in process lists and
 shell history. Unknown flags are refused.

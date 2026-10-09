@@ -66,7 +66,18 @@ function collectPropertyNames(schema: unknown, out: Set<string> = new Set(), dep
 
 /** The JSON Schema (2020-12) clients will see for a tool's input. */
 export function inputJsonSchema(def: Pick<ToolDefinition, 'inputSchema'>): Record<string, unknown> {
-  return z.toJSONSchema(def.inputSchema, { target: 'draft-2020-12' }) as Record<string, unknown>;
+  return withoutDialect(
+    z.toJSONSchema(def.inputSchema, { target: 'draft-2020-12' }) as Record<string, unknown>,
+  );
+}
+
+/**
+ * The same schema without its `$schema` keyword (P6-19). MCP says 2020-12 is the dialect when none is declared, and
+ * the 55 characters were repeated for every tool in every `tools/list`.
+ */
+export function withoutDialect(schema: Record<string, unknown>): Record<string, unknown> {
+  const { $schema: _dialect, ...rest } = schema;
+  return rest;
 }
 
 /** The JSON Schema for a tool's structured output, or undefined for text-only tools. */

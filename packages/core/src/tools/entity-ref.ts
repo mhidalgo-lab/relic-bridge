@@ -12,6 +12,11 @@ import { accountIdSchema } from './shared.ts';
 /** Worst case NerdGraph requests of one name resolution: a LIKE search plus a three-page catalogue scan. */
 export const RESOLVE_COST = 4;
 
+/** One wording for the `name` input of every entity tool (P6-19). Keep the prefix: the description lint keys on it. */
+const NAME_DESCRIPTION =
+  'Entity name instead of guid (loose match). If several match, nothing runs: candidates are returned.';
+const NAME_ACCOUNT_DESCRIPTION = 'With name: this account only.';
+
 /** Input fields for a tool that takes an entity. Add `.refine(exactlyOneEntityRef…)` through `refineEntityRef`. */
 export function entityRefFields(guidDescription: string): {
   guid: z.ZodOptional<z.ZodString>;
@@ -20,18 +25,8 @@ export function entityRefFields(guidDescription: string): {
 } {
   return {
     guid: z.string().min(8).max(512).optional().describe(guidDescription),
-    name: z
-      .string()
-      .min(1)
-      .max(256)
-      .optional()
-      .describe(
-        'Entity name instead of guid (loose is fine: "shippingservice" finds "Shipping-Service"). ' +
-          'If several entities match, nothing runs and the candidates are returned: pick one guid.',
-      ),
-    account: accountIdSchema
-      .optional()
-      .describe('With name only: look in this account (must be one of list_accounts). Default: all of them.'),
+    name: z.string().min(1).max(256).optional().describe(NAME_DESCRIPTION),
+    account: accountIdSchema.optional().describe(NAME_ACCOUNT_DESCRIPTION),
   };
 }
 
@@ -150,10 +145,7 @@ export function withEntityName(
     throw new Error(`withEntityName: ${def.name} has no "${field}" input or already has "name".`);
   const hadAccount = 'account' in shape;
   const extra = entityRefFields('');
-  const described = original.description ? `${original.description} ` : '';
-  shape[field] = (required ? original.optional() : original).describe(
-    required ? `${described}Give this or name.` : `${described}Or give name instead.`,
-  );
+  shape[field] = required ? original.optional() : original;
   shape['name'] = extra.name;
   if (!hadAccount) shape['account'] = extra.account;
   const inputSchema = z.strictObject(shape).superRefine((v, c) => {

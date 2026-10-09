@@ -36,21 +36,19 @@ export type Trend = 'up' | 'down' | 'flat' | 'unknown';
 
 const input = refineEntityRef(
   z.strictObject({
-    ...entityRefFields('Entity guid, exactly as returned by search_entities. Give this or name.'),
+    ...entityRefFields('Entity guid.'),
     since: z
       .string()
       .min(1)
       .max(200)
       .optional()
       .describe(
-        `Time window, e.g. "last 30 minutes" (default), "last 6 hours", "today". Same forms as time_range. Metrics whose query already has its own SINCE keep it.`,
+        `Time window as in time_range, e.g. "last 6 hours". Default "last 30 minutes". A metric query with its own SINCE keeps it.`,
       ),
     timeseries: z
       .boolean()
       .optional()
-      .describe(
-        'Fetch a time series to compute the trend (default true). False: one value per metric, no trend.',
-      ),
+      .describe('Fetch a time series for the trend (default true); false: one value per metric.'),
     max_metrics: z
       .number()
       .int()
@@ -94,7 +92,7 @@ const output = z.object({
 
 const DESCRIPTION = `Golden metrics of one entity (guid or name): the key signals New Relic defines for its kind (throughput, response time and error rate for a service; CPU and memory for a host...), each with its latest value, a trend (up, down, flat) and the NRQL that produced it.
 
-Use it for current metric values, and refine any metric with run_nrql. For metrics plus issues, errors and deployments in one call use entity_health. since defaults to the last 30 minutes. Runs one entity lookup, then one query per metric (up to max_metrics); metrics stopped by the request budget or query limits are marked skipped or error. ${UNTRUSTED}`;
+Use it for current metric values, and refine any metric with run_nrql. For metrics plus issues, errors and deployments in one call use entity_health.. Runs one entity lookup, then one query per metric (up to max_metrics); metrics stopped by budget or query limits are marked skipped or error. ${UNTRUSTED}`;
 
 const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 

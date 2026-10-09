@@ -35,6 +35,7 @@ import {
   num,
   singleAccount,
   type ToolDeps,
+  timeRangeInput,
   toolClient,
   UNTRUSTED,
 } from './shared.ts';
@@ -61,15 +62,7 @@ const GROUP_ID_RE = /^[A-Za-z0-9._:-]{1,128}$/;
 
 const guidInput = (what: string) =>
   z.string().min(8).max(512).describe(`${what} (guid from search_entities or resolve_entity).`);
-const rangeInput = (fallback: string) =>
-  z
-    .string()
-    .min(1)
-    .max(200)
-    .optional()
-    .describe(
-      `Time window, e.g. "last 6 hours", "yesterday", "2026-10-01 to 2026-10-02" (UTC). Default: "${fallback}". Cannot be longer than this connection's window limit.`,
-    );
+const rangeInput = (fallback: string) => timeRangeInput(fallback);
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Pure helpers
@@ -197,16 +190,14 @@ const traceInput = z.strictObject({
     .min(1)
     .max(64)
     .optional()
-    .describe(
-      'A distributed trace id (the trace.id of spans, logs and errors). Give this or error_group_id.',
-    ),
+    .describe('A distributed trace id (trace.id). Give this or error_group_id.'),
   error_group_id: z
     .string()
     .min(1)
     .max(128)
     .optional()
     .describe(
-      'An Errors Inbox error group id (from list_error_groups): its most recent traced occurrence is followed. Give this or trace_id.',
+      'An error group id (list_error_groups): its latest traced occurrence is followed. Give this or trace_id.',
     ),
   entity_guid: z
     .string()
@@ -259,9 +250,9 @@ const traceOutput = z.object({
   notes: z.array(z.string()),
 });
 
-const TRACE_DESCRIPTION = `Follow one failing request through the system: from a trace_id, or from an error group (error_group_id from list_error_groups: its latest occurrence with a trace), get the trace's spans (services, root span, error spans, slowest spans), the error events with request attributes (class, message, path, method, HTTP status) and the log lines carrying that trace id.
+const TRACE_DESCRIPTION = `Follow one failing request through the system: from a trace_id, or from an error group (error_group_id from list_error_groups: its latest occurrence with a trace), get the trace's spans (services, root, error and slowest spans), the error events with request attributes (class, message, path, method, status) and the log lines with that trace id.
 
-Use it for "follow this error" or "where did this request fail?". Runs 3 requests (4 with error_group_id); a part that does not fit or fails is noted (partial: true). spans_missing means the trace was sampled out or is outside time_range (default last 24 hours); the errors and logs still help. Only log lines with the trace id are returned: for other lines around the error use list_recent_logs with a narrow time_range. One account per call (an entity, by entity_guid or name, implies its account); synthetic traffic is skipped unless include_synthetic; query strings are removed from paths. ${UNTRUSTED}`;
+Use it for "follow this error" or "where did this request fail?". Runs 3 requests (4 with error_group_id); a part that fails or does not fit is noted (partial: true). spans_missing means the trace was sampled out or is outside time_range (default last 24 hours); errors and logs still help. Only log lines with the trace id are returned: for other lines use list_recent_logs with a narrow time_range. One account per call (an entity, by entity_guid or name, implies it); synthetic traffic is skipped unless include_synthetic; query strings are removed from paths. ${UNTRUSTED}`;
 
 const spanQuery = (traceId: string, sinceMs: number, untilMs: number): NrqlQuery =>
   nrql`SELECT ${nrql.identifier('timestamp')}, id, ${nrql.identifier('parent.id')} AS parentId, name, ${nrql.identifier('entity.name')} AS service, category, ${nrql.identifier('duration.ms')} AS durationMs, ${nrql.identifier('error.class')} AS errorClass, ${nrql.identifier('error.message')} AS errorMessage FROM Span WHERE ${nrql.identifier('trace.id')} = ${traceId} LIMIT ${SPAN_LIMIT} SINCE ${Math.floor(sinceMs / 1000)} UNTIL ${Math.ceil(untilMs / 1000)}`;
@@ -296,9 +287,7 @@ const depInput = z.strictObject({
   direction: z
     .enum(['OUTBOUND', 'INBOUND', 'BOTH'])
     .optional()
-    .describe(
-      'Relationships to follow: OUTBOUND (what it calls), INBOUND (what calls it) or BOTH (default).',
-    ),
+    .describe('OUTBOUND (what it calls), INBOUND (what calls it) or BOTH (default).'),
   max_dependencies: z
     .number()
     .int()
@@ -345,9 +334,9 @@ const depOutput = z.object({
   notes: z.array(z.string()),
 });
 
-const DEP_DESCRIPTION = `Is the problem in this entity or in what it depends on? For an entity (guid or name) it measures the golden metrics of the entity and of its directly related entities (alerting ones first) side by side, flagging clear signals: a CRITICAL or WARNING alert, not reporting, error rate, latency, CPU or memory trending up, or throughput down by 25% or more.
+const DEP_DESCRIPTION = `Is the problem in this entity or in what it depends on? For an entity (guid or name) it measures the golden metrics of the entity and of its directly related entities (alerting ones first) side by side, flagging clear signals (alerting, not reporting, rising error rate, latency, CPU or memory, throughput down 25% or more).
 
-Use it for "is it my dependency?". Runs about ${1 + (1 + DEFAULT_METRICS) * (1 + DEFAULT_DEPENDENCIES)} requests by default (fewer with max_dependencies or max_metrics); what does not fit is marked skipped (partial: true). Neighbours in accounts outside this connection are left out (hidden_outside_scope). For the entity alone use entity_health; for the plain list of neighbours use get_related_entities. Drill in with get_golden_metrics, list_error_groups or trace_error. ${UNTRUSTED}`;
+Use it for "is it my dependency?". Runs about ${1 + (1 + DEFAULT_METRICS) * (1 + DEFAULT_DEPENDENCIES)} requests by default (fewer with max_dependencies or max_metrics); what does not fit is marked skipped (partial: true). Neighbours in accounts outside this connection are left out (hidden_outside_scope). For the entity alone use entity_health; for the plain list of neighbours use get_related_entities.. ${UNTRUSTED}`;
 
 // ---------------------------------------------------------------------------------------------------------------------
 // entity_health
@@ -375,7 +364,7 @@ const healthInput = z.strictObject({
     .max(90)
     .optional()
     .describe(
-      `How far back to look for open issues and deployments (default ${DEFAULT_LOOKBACK_DAYS}, cut to this connection's window limit).`,
+      `Days back for open issues and deployments (default ${DEFAULT_LOOKBACK_DAYS}, capped by the window limit).`,
     ),
   max_metrics: z
     .number()

@@ -11,7 +11,14 @@ import { defineTool, type ToolDefinition } from '../tool.ts';
 import { compareWindows, FATAL_CODES, numberOf, type WindowStats } from './changes.ts';
 import { checkGuid } from './entities.ts';
 import { cleanName } from './identity.ts';
-import { assertWindowWithinLimit, singleAccount, type ToolDeps, toolClient, UNTRUSTED } from './shared.ts';
+import {
+  assertWindowWithinLimit,
+  singleAccount,
+  type ToolDeps,
+  timeRangeInput,
+  toolClient,
+  UNTRUSTED,
+} from './shared.ts';
 
 const DEFAULT_WINDOW = 'last 1 hour';
 const DEFAULT_LIMIT = 10;
@@ -19,19 +26,8 @@ const MAX_LIMIT = 50;
 const MINUTE_MS = 60_000;
 const MAX_NAME_CHARS = 300;
 
-const GUID_FIELD = z
-  .string()
-  .min(1)
-  .max(256)
-  .describe('The APM application (guid from search_entities). Its account is the account queried.');
-const RANGE_FIELD = z
-  .string()
-  .min(1)
-  .max(200)
-  .optional()
-  .describe(
-    `Time window, e.g. "last 6 hours", "yesterday", "2026-10-01 to 2026-10-02" (UTC). Default: "${DEFAULT_WINDOW}". Cannot be longer than this connection's window limit.`,
-  );
+const GUID_FIELD = z.string().min(1).max(256).describe('The APM application (guid; its account is queried).');
+const RANGE_FIELD = timeRangeInput(DEFAULT_WINDOW);
 const TYPE_FIELD = z
   .enum(['all', 'web', 'background'])
   .optional()
@@ -127,7 +123,7 @@ const listInput = z.strictObject({
     .enum(['slowest', 'errors', 'throughput'])
     .optional()
     .describe(
-      'slowest = highest 95th percentile duration (default), errors = most failed transactions, throughput = most requests.',
+      'slowest = highest p95 duration (default), errors = most failed transactions, throughput = most requests.',
     ),
   limit: z
     .number()
@@ -144,10 +140,7 @@ const listInput = z.strictObject({
     .optional()
     .describe('Only transactions whose name contains this text (case-insensitive).'),
   time_range: RANGE_FIELD,
-  minimal_output: z
-    .boolean()
-    .optional()
-    .describe('Only name, requests, error rate and p95 duration (default false).'),
+  minimal_output: z.boolean().optional().describe('Only name, requests, error rate and p95 duration.'),
 });
 
 const listOutput = z.object({
@@ -163,7 +156,7 @@ const listOutput = z.object({
 
 const LIST_DESCRIPTION = `Rank the transactions of an APM application (guid or name) by p95 latency (default), errors or throughput, with throughput, error count and rate, and average, p50, p95 and p99 duration in seconds.
 
-Use it to find which endpoints to look at. Filter with transaction_type or name_contains; the window defaults to the last hour. Rows with few requests have noisy percentiles: check the requests column. For the application as a whole, or a before/after view, use analyze_transactions. ${UNTRUSTED}`;
+Use it to find which endpoints to look at. Rows with few requests have noisy percentiles: check the requests column. For the application as a whole, or a before/after view, use analyze_transactions. ${UNTRUSTED}`;
 
 const LIST_MINIMAL = ['name', 'requests', 'errorRate', 'p95Duration'] as const;
 
@@ -178,15 +171,13 @@ const analyzeInput = z.strictObject({
     .min(1)
     .max(MAX_NAME_CHARS)
     .optional()
-    .describe('Analyse only this transaction (exact name, as shown by list_top_transactions). Default: all.'),
+    .describe('Only this transaction (exact name from list_top_transactions). Default: all.'),
   transaction_type: TYPE_FIELD,
   time_range: RANGE_FIELD,
   compare_previous: z
     .boolean()
     .optional()
-    .describe(
-      'Also measure the window of equal length just before time_range and compare (default true; false saves a request).',
-    ),
+    .describe('Also compare with the equal window before (default true; false saves a request).'),
 });
 
 const statsOut = z.object({

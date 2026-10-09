@@ -294,3 +294,17 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   `instructions` field.
 - **Needs:** owner's call; (b) only after the LLM eval shows injection cases still pass without it.
 
+
+## P6-19 — Trim tool input schema text
+
+### P6-19 — `$schema` keyword dropped from listed tool schemas; LLM eval not re-run
+- **Context:** `tools/list` went from 61 267 to 51 980 characters (descriptions plus input schemas). Besides shorter and
+  shared field wording, the `$schema` keyword (55 characters per tool, also on output schemas) is no longer emitted.
+  MCP says JSON Schema 2020-12 applies when none is declared. No `$ref`/`$defs` sharing was used: many clients do not
+  resolve `$ref`. Validation is unchanged (the zod schemas are the same). Enum value lists were dropped from a few
+  descriptions where the input schema already lists them (issue and error-group states, entity alert severity, log levels).
+- **Assumption made:** no client needs an explicit `$schema`. `pnpm eval:tools` was not run (no API key), so the
+  tool-choice rate after trimming is unmeasured; only the lint and the offline router baseline hold.
+- **Options:** (a) keep; (b) restore `$schema` (about 2 000 characters); (c) run `pnpm eval:tools` and compare with the
+  P6-13 baseline before merging the stack.
+- **Needs:** owner runs (c) with the P6-13 decision; (b) only if a client rejects schemas without `$schema`.

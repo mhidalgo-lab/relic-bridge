@@ -59,7 +59,7 @@ const MAX_TAG_CHARS = 300;
 export const ENTITY_TYPES_TTL_MS: number = 10 * 60_000;
 const ENTITY_TYPES_CACHE_MAX = 64;
 
-const guid = z.string().min(8).max(512).describe('Entity guid, exactly as returned by search_entities.');
+const guid = z.string().min(8).max(512).describe('Entity guid.');
 // Upper-cased by the handlers (no zod transforms: input schemas must convert to JSON Schema).
 const domainField = z.string().regex(/^[A-Za-z][A-Za-z0-9_]{0,31}$/);
 const typeField = z.string().regex(/^[A-Za-z][A-Za-z0-9_]{0,63}$/);
@@ -67,9 +67,7 @@ const TAG_KEY_RE = /^[A-Za-z_][A-Za-z0-9_.]{0,127}$/;
 /** NerdGraph cursors are opaque base64-like text. */
 const CURSOR_RE = /^[A-Za-z0-9+/=_.:-]{1,2048}$/;
 
-const accountInput = accountId
-  .optional()
-  .describe('Only this account (must be one of list_accounts). Default: every account of this connection.');
+const accountInput = accountId.optional().describe('Only this account (one of list_accounts). Default: all.');
 
 const searchInput = z.strictObject({
   name: z
@@ -90,7 +88,7 @@ const searchInput = z.strictObject({
       message: `At most ${MAX_TAG_FILTERS} tag filters.`,
     })
     .optional()
-    .describe('Exact tag matches, e.g. {"environment": "production", "team": "checkout"}. All must match.'),
+    .describe('Exact tag matches, e.g. {"environment": "production"}. All must match.'),
   account: accountInput,
   limit: z
     .number()
@@ -99,11 +97,7 @@ const searchInput = z.strictObject({
     .max(MAX_ENTITY_RESULTS)
     .optional()
     .describe(`Most entities to return (default ${DEFAULT_ENTITY_RESULTS}, max ${MAX_ENTITY_RESULTS}).`),
-  cursor: z
-    .string()
-    .regex(CURSOR_RE)
-    .optional()
-    .describe('next_cursor from a previous call with the same filters, for the next page.'),
+  cursor: z.string().regex(CURSOR_RE).optional().describe('next_cursor of the previous call (same filters).'),
 });
 
 const entityRow = z.object({
@@ -125,7 +119,7 @@ const searchOutput = z.object({
   query: z.string(),
 });
 
-const GUID_HINT = 'Entity guid, exactly as returned by search_entities. Give this or name.';
+const GUID_HINT = 'Entity guid.';
 const getEntityInput = refineEntityRef(z.strictObject(entityRefFields(GUID_HINT)));
 
 const getEntityOutput = entityRow.extend({
@@ -143,9 +137,7 @@ const relatedInput = refineEntityRef(
     direction: z
       .enum(['INBOUND', 'OUTBOUND', 'BOTH'])
       .optional()
-      .describe(
-        'INBOUND (entities pointing at this one, e.g. callers), OUTBOUND (what it calls/hosts…), BOTH (default).',
-      ),
+      .describe('INBOUND (callers), OUTBOUND (what it calls or runs on) or BOTH (default).'),
     types: z
       .array(z.strictObject({ domain: domainField, type: typeField }))
       .min(1)
@@ -206,7 +198,7 @@ const SEARCH_DESCRIPTION = `Find New Relic entities (services, hosts, browser an
 
 Use it to browse or filter, e.g. every APM service tagged env:prod. To turn one known name into one guid use resolve_entity (most entity tools also take the name directly). Filters combine with AND: name is a case-insensitive substring, domain and type are exact (see list_entity_types), tags are exact key/value matches. If next_cursor is returned, call again with the same filters and that cursor. ${UNTRUSTED}`;
 
-const GET_ENTITY_DESCRIPTION = `Get one entity's details (guid or name): name, account, domain/type, alert severity (CRITICAL, WARNING, NOT_ALERTING, NOT_CONFIGURED), whether it is reporting, tags, a link and its golden metric titles. No metric values.
+const GET_ENTITY_DESCRIPTION = `Get one entity's details (guid or name): name, account, domain/type, alert severity, whether it is reporting, tags, a link and its golden metric titles. No metric values.
 
 For metric values use get_golden_metrics; for a full health check (metrics, issues, errors, deployments) use entity_health. ${UNTRUSTED}`;
 

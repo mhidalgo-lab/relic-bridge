@@ -127,11 +127,14 @@ describe('buildMcpServer', () => {
     const a = (await first.listTools()).tools;
     const b = (await second.listTools()).tools;
     expect(a).toEqual(b);
-    // What the SDK emitted before the cache (its zod conversion with io: 'input').
-    expect(a[0]?.inputSchema).toEqual({
-      type: 'object',
-      ...z.toJSONSchema(echo.inputSchema, { target: 'draft-2020-12', io: 'input' }),
+    // What the SDK emitted before the cache (its zod conversion with io: 'input'), minus the repeated $schema (P6-19).
+    const { $schema, ...expected } = z.toJSONSchema(echo.inputSchema, {
+      target: 'draft-2020-12',
+      io: 'input',
     });
+    expect($schema).toContain('2020-12');
+    expect(a[0]?.inputSchema).toEqual({ type: 'object', ...expected });
+    expect(a[0]?.inputSchema).not.toHaveProperty('$schema');
     expect(a[1]?.outputSchema).toMatchObject({ type: 'object' });
     // The wrapper is memoised per schema and hands out one frozen object per conversion.
     const wrapped = withCachedJsonSchema(echo.inputSchema);

@@ -164,9 +164,7 @@ const input = z.strictObject({
     .min(1)
     .max(200)
     .optional()
-    .describe(
-      `Window for the check results, e.g. "last 1 hour", "last 24 hours" (default "${DEFAULT_WINDOW}").`,
-    ),
+    .describe(`Window for the check results (default "${DEFAULT_WINDOW}").`),
   limit: z
     .number()
     .int()
@@ -178,7 +176,7 @@ const input = z.strictObject({
   minimal_output: z
     .boolean()
     .optional()
-    .describe('Fewer fields per monitor: no URL, no per-location detail (default false).'),
+    .describe('Fewer fields per monitor: no URL, no per-location detail.'),
 });
 
 const locationSchema = z.object({
@@ -222,7 +220,7 @@ const output = z.object({
 
 const DESCRIPTION = `List the synthetic monitors of one account (type, status, run period, monitored URL, alert severity) and, by default, their recent results: checks, failures, failure percentage, average duration, latest result and failure message, per monitor and per location (failing first).
 
-Runs 2 requests (monitor search, then SyntheticCheck results); if the second is stopped the monitors still come back (partial). Filter by name; monitor_type and status are applied to the returned page. Page with next_cursor. Scripts, secure credentials and request headers are never read. ${UNTRUSTED}`;
+Runs 2 requests (monitor search, then SyntheticCheck results); if the second is stopped the monitors still come back (partial). monitor_type and status filter the returned page only. Page with next_cursor. Scripts, secure credentials and request headers are never read. ${UNTRUSTED}`;
 
 /** `list_synthetic_monitors` (read-only). */
 export function createSyntheticTools(deps: ToolDeps = {}): ToolDefinition[] {

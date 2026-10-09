@@ -112,7 +112,7 @@ const listInput = z.strictObject({
     .optional()
     .describe(`Dashboards per page (default ${DEFAULT_LIMIT}, max ${MAX_LIMIT}).`),
   cursor: cursorInput,
-  minimal_output: z.boolean().optional().describe('Only guid and name per dashboard (default false).'),
+  minimal_output: z.boolean().optional().describe('Only guid and name per dashboard.'),
 });
 
 const listOutput = z.object({
@@ -135,7 +135,7 @@ const getInput = z.strictObject({
   minimal_output: z
     .boolean()
     .optional()
-    .describe('Page and widget titles and visualization only: no NRQL or markdown (default false).'),
+    .describe('Page and widget titles and visualization only: no NRQL or markdown.'),
 });
 
 const widgetSchema = z.object({

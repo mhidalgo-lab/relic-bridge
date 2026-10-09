@@ -105,6 +105,12 @@ const GET_QUERY_RESULT_DESCRIPTION = `Fetch the result of a slow NRQL query that
 
 Pass the query_id and account from that response. If it is still running you get the same handle back with a new wait time; call again after waiting. Results are kept by New Relic only for a limited time (see expiresAt). Rows are returned like run_nrql's, inside an untrusted-data block.`;
 
+/**
+ * Tools that run agent-written NRQL. When a connection's `limits.rawNrql` is off they must not be registered at all
+ * (hidden from `tools/list`, not only refused): stdio `selectTools` and the access resolver (P2-04) both use this.
+ */
+export const RAW_NRQL_TOOLS: readonly string[] = Object.freeze(['run_nrql', 'get_query_result']);
+
 /** `run_nrql` and `get_query_result`. Both need raw NRQL enabled on the connection (`limits.rawNrql`). */
 export function createQueryTools(deps: ToolDeps = {}): ToolDefinition[] {
   const client = toolClient(deps);

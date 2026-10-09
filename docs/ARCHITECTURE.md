@@ -107,7 +107,12 @@ Access token (static bearer, per device)   or   OAuth client session (per device
 tools    = project.enabledTools ∩ grant.tools
 accounts = credential.reachableAccounts ∩ project.allowedAccounts ∩ grant.accounts
 key      = grant.credential ?? project.defaultCredential   (must exist, else 403)
+limits   = project.limits tightened by grant.limits        (min of numbers, rawNrql AND, allow ∩, deny ∪)
 ```
+
+Implemented by the pure resolver in `packages/auth/src/access` (P2-04): anything missing, disabled, revoked, expired,
+unvalidated or malformed denies, and a grant may only use the project's default credential, a shared (unowned) one or
+its own user's. Details and examples: [access model guide](guide/access-model.md).
 
 - Tools a client may not use are **not listed** at all; the MCP server is built per request with only the allowed tools.
   Calls to them are rejected anyway, as defence in depth.

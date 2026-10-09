@@ -48,3 +48,18 @@ together with the master key exposes every stored New Relic key.** Therefore:
 
 Creating, storing, backing up and rotating the master key: [secrets](secrets.md). See also the
 [threat model](../THREAT_MODEL.md) (T7).
+
+## Re-checking stored New Relic keys
+
+A New Relic key can be revoked or lose access to an account in New Relic at any time. Re-check every stored key
+with:
+
+```bash
+relic-bridge credential revalidate --db /var/lib/relic-bridge/relic-bridge.db   # needs RB_MASTER_KEY
+```
+
+A key New Relic refuses is marked `invalid`, and every grant that uses it stops working (fail closed) until the key is
+replaced or a later check passes. Valid keys get their reachable accounts refreshed, so an account the key lost is
+dropped from every connection. Network errors and rate limits change nothing. The command exits `1` when any key is
+invalid or could not be checked, so a daily cron job can alert you. How credentials, projects and grants combine:
+[access model](access-model.md).

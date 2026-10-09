@@ -125,3 +125,45 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Options:** as assumed; add a per-row revision counter to the AAD (format change, needs a migration).
 - **Needs:** nothing unless the owner wants rollback protection.
 
+
+## P2-04 — Access model
+
+### P2-04 — Which credential a grant may use
+- **Context:** ADR-0008 lets a grant name a credential but says nothing about whose. Without a rule an admin could,
+  by mistake, point a teammate's grant at someone else's personal NR key (their identity, RBAC and concurrency budget).
+- **Assumption made:** a grant may use the project's default credential, an unowned (shared) credential, or one owned
+  by the grant's own user. Anything else is refused at `createGrant` (`not_permitted`) and denied at request time
+  (`credential_not_permitted`). Service grants can therefore only use the project default or a shared key.
+- **Options:** as assumed; allow owners/admins to override per grant (needs a flag on the grant); no ownership rule.
+- **Needs:** owner OK (affects P2-09 / P2-10 wording).
+
+### P2-04 — A disabled or deleted credential owner stops their key everywhere
+- **Context:** a team project's default credential may belong to a person; when that person leaves (user disabled),
+  their key would otherwise keep serving everyone's grants.
+- **Assumption made:** deny with `credential_owner_disabled` (one extra storage read, only for keys owned by someone
+  other than the grant's user). Replace the project default (or re-add the key without an owner) to restore access.
+- **Options:** as assumed; keep the key working until it is revoked explicitly.
+- **Needs:** owner OK.
+
+### P2-04 — Unvalidated credentials are denied
+- **Context:** `reachable_account_ids` is null until a credential is validated, so the account intersection is unknown.
+- **Assumption made:** deny (`credential_unvalidated`). `createCredential` always validates before storing, so only rows
+  written around the services (or yaml references, which stdio doesn't resolve through this code) are affected.
+- **Options:** as assumed; treat "unknown" as "project accounts" (looser, not recommended).
+- **Needs:** nothing unless the yaml adapter is ever served over HTTP.
+
+### P2-04 — What `credential revalidate` counts as a refused key
+- **Context:** NerdGraph answers a revoked key with HTTP 401 (`RB_AUTH_INVALID_KEY`); a key used against the wrong data
+  center gets `RB_AUTH_WRONG_REGION`; HTTP 403 / `ACCESS_DENIED` (`RB_AUTH_FORBIDDEN`) on `actor` is rarer and less clear.
+- **Assumption made:** all three mark the credential `invalid` (fail closed); network errors, 429 and 5xx leave the status
+  alone and make the command exit 1. A later successful run restores `valid`.
+- **Options:** as assumed; treat 403 as transient.
+- **Needs:** owner OK; revisit if false `invalid`s show up.
+
+### P2-04 — Grants asking for more than the project allows
+- **Context:** the task asks that such a grant "gets the intersection, never more".
+- **Assumption made:** `createGrant` stores it as asked and returns warnings naming the tools/accounts with no effect, so
+  widening the project later widens the grant too (up to what it asked). Unknown tool names are refused.
+- **Options:** as assumed; refuse such grants outright; store only the intersection (then widening the project never
+  widens the grant).
+- **Needs:** owner OK (the admin API/UI will surface the warnings).

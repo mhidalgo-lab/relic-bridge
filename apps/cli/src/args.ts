@@ -2,7 +2,7 @@
 import { parseArgs } from 'node:util';
 import { type LogLevel, redact } from '@relic-bridge/core';
 
-export type Command = 'stdio' | 'db' | 'keys' | 'help' | 'version';
+export type Command = 'stdio' | 'db' | 'keys' | 'credential' | 'help' | 'version';
 
 export interface CliArgs {
   readonly command: Command;
@@ -12,6 +12,8 @@ export interface CliArgs {
   /** `db backup <file>`: the subcommand and its destination. */
   readonly dbAction?: 'backup';
   readonly file?: string;
+  /** `credential revalidate`. */
+  readonly credentialAction?: 'revalidate';
   /** `--db <path>`: the SQLite database file (or RB_DB_PATH). */
   readonly db?: string;
   /** `keys generate | rotate`. */
@@ -28,7 +30,7 @@ export class UsageError extends Error {
   }
 }
 
-const COMMANDS: readonly Command[] = ['stdio', 'db', 'keys', 'help', 'version'];
+const COMMANDS: readonly Command[] = ['stdio', 'db', 'keys', 'credential', 'help', 'version'];
 export const LOG_LEVELS: readonly LogLevel[] = ['debug', 'info', 'warn', 'error'];
 
 export function isLogLevel(value: string): value is LogLevel {
@@ -58,6 +60,7 @@ export function parseCliArgs(argv: readonly string[]): CliArgs {
   let dbAction: 'backup' | undefined;
   let file: string | undefined;
   let keysAction: 'generate' | 'rotate' | undefined;
+  let credentialAction: 'revalidate' | undefined;
   if (command === 'db' && !values.help && !values.version) {
     if (positionals[1] !== 'backup')
       throw new UsageError('Usage: relic-bridge db backup <file> [--db <path>].');
@@ -74,7 +77,12 @@ export function parseCliArgs(argv: readonly string[]): CliArgs {
       );
     }
     keysAction = action;
-  } else if (command !== 'db' && command !== 'keys' && positionals.length > 1) {
+  } else if (command === 'credential' && !values.help && !values.version) {
+    if (positionals[1] !== 'revalidate' || positionals.length !== 2) {
+      throw new UsageError('Usage: relic-bridge credential revalidate [--db <path>].');
+    }
+    credentialAction = 'revalidate';
+  } else if (command !== 'db' && command !== 'keys' && command !== 'credential' && positionals.length > 1) {
     throw new UsageError(`Expected at most one command, got ${positionals.length}.`);
   }
   if (values.help) command = 'help';
@@ -109,6 +117,7 @@ export function parseCliArgs(argv: readonly string[]): CliArgs {
     ...(dbAction === undefined || file === undefined ? {} : { dbAction, file }),
     ...(values.db === undefined ? {} : { db: values.db }),
     ...(keysAction === undefined ? {} : { keysAction }),
+    ...(credentialAction === undefined ? {} : { credentialAction }),
     ...(keyVersion === undefined ? {} : { keyVersion }),
     ...(values.config === undefined ? {} : { config: values.config }),
     ...(values.project === undefined ? {} : { project: values.project }),
@@ -140,6 +149,7 @@ Usage:
   relic-bridge db backup <file> [--db <path>]
   relic-bridge keys generate [--key-version <n>]
   relic-bridge keys rotate [--db <path>]
+  relic-bridge credential revalidate [--db <path>]
   relic-bridge --help | --version
 
 Commands:
@@ -150,6 +160,11 @@ Commands:
                      Store it in a secret manager and back it up.
   keys rotate        Re-encrypt every stored New Relic key under RB_MASTER_KEY, reading
                      old rows with RB_MASTER_KEY_PREVIOUS. Resumable; safe to run again.
+  credential revalidate
+                     Re-check every stored New Relic key with New Relic. A key New Relic
+                     refuses is marked invalid and every grant using it stops working;
+                     reachable accounts are refreshed. Exit 1 if any key is invalid or
+                     could not be checked (run it from cron to get alerted).
   help               Show this help.
   version            Print the version.
 
@@ -157,7 +172,7 @@ Options:
   --config <file>    YAML config with one or more projects (or RB_CONFIG).
   --project <slug>   Project to serve from the config file (or RB_PROJECT).
                      Optional when the file has a single project.
-  --db <path>        SQLite database for db / keys rotate (or RB_DB_PATH).
+  --db <path>        SQLite database for db / keys rotate / credential (or RB_DB_PATH).
   --key-version <n>  Version written into a generated key (default 1).
   --log-level <lvl>  debug | info | warn | error (or RB_LOG_LEVEL; default info).
   -h, --help         Show this help.
@@ -172,7 +187,7 @@ Env mode (no config file):
   RB_LIMITS_*            MAX_LIMIT, MAX_WINDOW_DAYS, RAW_NRQL, MAX_RESPONSE_BYTES,
                          EVENT_TYPES_ALLOW, EVENT_TYPES_DENY.
 
-Master key (serve / keys rotate):
+Master key (serve / keys rotate / credential revalidate):
   RB_MASTER_KEY            Current master key, v<n>:<base64> (or RB_MASTER_KEY_FILE).
   RB_MASTER_KEY_PREVIOUS   Previous key while rotating (or RB_MASTER_KEY_PREVIOUS_FILE).
 

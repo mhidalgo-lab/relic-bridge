@@ -10,6 +10,7 @@ import {
 import { backupDatabase } from '@relic-bridge/storage-sqlite';
 import { HELP_TEXT, isLogLevel, parseCliArgs, UsageError } from './args.ts';
 import { ConfigError, type ConfigFs, type Env, loadConfig } from './config.ts';
+import { credentialRevalidate } from './credentials.ts';
 import { keysGenerate, keysRotate } from './keys.ts';
 import { serveProjectOverStdio } from './stdio.ts';
 import { nerdGraphFetch } from './test-hooks.ts';
@@ -94,6 +95,36 @@ export function main(rt: CliRuntime): MainResult {
     return {
       kind: 'pending',
       done: keysRotate({ dbPath, env: rt.env, fs: rt.fs, platform: rt.platform, stdout: rt.stdout, logger }),
+    };
+  }
+
+  if (args.command === 'credential' && args.credentialAction === 'revalidate') {
+    const dbPath = (args.db ?? rt.env['RB_DB_PATH'] ?? '').trim();
+    if (dbPath === '') {
+      logger.error('no database given', { hint: 'pass --db <path> or set RB_DB_PATH' });
+      return exit(2);
+    }
+    let fetch: ReturnType<typeof nerdGraphFetch>;
+    try {
+      fetch = nerdGraphFetch(rt.env, logger);
+    } catch (error) {
+      if (error instanceof ConfigError) {
+        logger.error(error.message, error.hint === undefined ? {} : { hint: error.hint });
+        return exit(1);
+      }
+      throw error;
+    }
+    return {
+      kind: 'pending',
+      done: credentialRevalidate({
+        dbPath,
+        env: rt.env,
+        fs: rt.fs,
+        platform: rt.platform,
+        stdout: rt.stdout,
+        logger,
+        ...(fetch === undefined ? {} : { fetch }),
+      }),
     };
   }
 

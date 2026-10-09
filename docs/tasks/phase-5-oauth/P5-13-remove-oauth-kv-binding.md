@@ -2,11 +2,11 @@
 id: P5-13
 title: Remove the unused OAUTH_KV Worker binding
 phase: 5
-status: todo
+status: in-progress
 priority: low
 depends_on: [P5-01]
 adr: ["0011"]
-owner: ""
+owner: claude-agent
 ---
 
 # P5-13 — Remove the unused OAUTH_KV Worker binding

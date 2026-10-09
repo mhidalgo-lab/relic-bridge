@@ -34,6 +34,7 @@ export {
 } from './logger.ts';
 export * from './nerdgraph/index.ts';
 export * from './nrql/index.ts';
+export * from './output/index.ts';
 export { isSecretKeyName, REDACTED, redact, redactValue } from './redact.ts';
 export {
   inputJsonSchema,

@@ -161,7 +161,8 @@ key      = grant.credential ?? project.defaultCredential   (must exist, else 403
   - max response bytes
 - **Output contract**: every tool returns a short human summary plus a structured result (`structuredContent` with an
   output schema where useful), plus `meta` (accounts, NRQL actually run, inspected count, truncated flag, NR UI link
-  when available).
+  when available) under `_meta["relic-bridge/result"]`. Data is capped and wrapped in an untrusted-data envelope
+  (`packages/core/src/output`, [output formats guide](guide/output-formats.md)).
 - **Errors**: stable error codes (`RB_AUTH_*`, `RB_LIMIT_*`, `RB_NERDGRAPH_*`, `RB_BUDGET_EXHAUSTED`, …), mapped to
   MCP tool errors with actionable messages for the agent. Secrets are never echoed.
 - **Observability**: structured JSON logs (redacted); optional OpenTelemetry export (Phase 7).

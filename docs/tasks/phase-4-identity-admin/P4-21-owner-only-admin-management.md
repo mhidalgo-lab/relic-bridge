@@ -2,11 +2,11 @@
 id: P4-21
 title: Only owners create, demote, disable or unbind administrators
 phase: 4
-status: todo
+status: in-progress
 priority: medium
 depends_on: [P4-16]
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P4-21 — Only owners create, demote, disable or unbind administrators

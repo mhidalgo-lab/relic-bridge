@@ -783,6 +783,26 @@ describe('configuration', () => {
   });
 
   it.each([
+    ['allowlist with auto-provisioning off', { RB_LOGIN_ALLOW_EMAILS: 'a@example.com' }, true],
+    ['domain allowlist with auto-provisioning off', { RB_LOGIN_ALLOW_DOMAINS: 'example.com' }, true],
+    [
+      'allowlist with auto-provisioning member',
+      { RB_LOGIN_ALLOW_EMAILS: 'a@example.com', RB_LOGIN_AUTO_PROVISION: 'member' },
+      false,
+    ],
+    ['no allowlist and auto-provisioning off', {}, false],
+  ])('warns about an unused allowlist only when auto-provisioning is off: %s', (_n, extra, expected) => {
+    const s = identitySettingsFromEnv({
+      ...base,
+      RB_GITHUB_CLIENT_ID: 'h',
+      RB_GITHUB_CLIENT_SECRET: 's',
+      ...extra,
+    });
+    const hit = (s?.warnings ?? []).some((w) => w.includes('only users who already exist can sign in'));
+    expect(hit).toBe(expected);
+  });
+
+  it.each([
     [{ RB_GOOGLE_CLIENT_ID: 'g' }, 'RB_GOOGLE_CLIENT_SECRET'],
     [{ RB_GITHUB_CLIENT_SECRET: 's' }, 'RB_GITHUB_CLIENT_ID'],
     [{ RB_OIDC_ISSUER: MOCK_ISSUER }, 'RB_OIDC_CLIENT_ID'],

@@ -245,6 +245,11 @@ export function identitySettingsFromEnv(env: IdentityEnv): IdentitySettings | nu
       `RB_LOGIN_AUTO_PROVISION=${autoProvision} has no effect without an RB_LOGIN_ALLOW_* allowlist.`,
     );
   }
+  if (autoProvision === 'off' && emails.length + domains.length + githubOrgs.length > 0) {
+    warnings.push(
+      'An RB_LOGIN_ALLOW_* allowlist is set but RB_LOGIN_AUTO_PROVISION=off: only users who already exist can sign in; unknown identities are refused.',
+    );
+  }
   if (autoProvision === 'admin') {
     warnings.push(
       'RB_LOGIN_AUTO_PROVISION=admin: every allowlisted identity becomes an administrator on first sign-in.',

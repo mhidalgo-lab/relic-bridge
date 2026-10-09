@@ -30,19 +30,19 @@ const challengeOf = (slug: string): string =>
   `Bearer realm="relic-bridge", resource_metadata="${metadataOf(slug)}", scope="mcp:read"`;
 
 /** Claude Code's metadata document URL (P0-08 spike) and the shape of its document (loopback redirects, any port). */
-const CLAUDE_CODE_ID = 'https://claude.ai/oauth/claude-code-client-metadata';
+export const CLAUDE_CODE_ID = 'https://claude.ai/oauth/claude-code-client-metadata';
 /** A claude.ai-hosted document (web, Desktop and mobile share one client); the callback is the documented one. */
-const CLAUDE_AI_ID = 'https://claude.ai/oauth/mcp-oauth-client-metadata';
-const CLAUDE_AI_CALLBACK = 'https://claude.ai/api/mcp/auth_callback';
+export const CLAUDE_AI_ID = 'https://claude.ai/oauth/mcp-oauth-client-metadata';
+export const CLAUDE_AI_CALLBACK = 'https://claude.ai/api/mcp/auth_callback';
 
 /** A stand-in for the internet: client metadata documents by URL, and every URL asked for. Never a real fetch. */
-interface DocServer {
+export interface DocServer {
   readonly calls: string[];
   readonly docs: Map<string, () => Response | Promise<Response>>;
   readonly fetch: ClientMetadataFetch;
 }
 
-function docServer(): DocServer {
+export function docServer(): DocServer {
   const calls: string[] = [];
   const docs = new Map<string, () => Response | Promise<Response>>();
   return {
@@ -56,7 +56,7 @@ function docServer(): DocServer {
   };
 }
 
-const jsonDoc =
+export const jsonDoc =
   (body: unknown, headers: Record<string, string> = {}) =>
   (): Response =>
     new Response(JSON.stringify(body), {
@@ -64,7 +64,7 @@ const jsonDoc =
       headers: { 'content-type': 'application/json', ...headers },
     });
 
-const claudeCodeDoc = (over: Record<string, unknown> = {}): Record<string, unknown> => ({
+export const claudeCodeDoc = (over: Record<string, unknown> = {}): Record<string, unknown> => ({
   client_id: CLAUDE_CODE_ID,
   client_name: 'Claude Code',
   client_uri: 'https://claude.ai',
@@ -75,7 +75,7 @@ const claudeCodeDoc = (over: Record<string, unknown> = {}): Record<string, unkno
   ...over,
 });
 
-const claudeAiDoc = (over: Record<string, unknown> = {}): Record<string, unknown> => ({
+export const claudeAiDoc = (over: Record<string, unknown> = {}): Record<string, unknown> => ({
   client_id: CLAUDE_AI_ID,
   client_name: 'Claude',
   client_uri: 'https://claude.ai',

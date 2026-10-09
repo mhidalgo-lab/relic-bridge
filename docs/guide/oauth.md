@@ -8,6 +8,8 @@ then holds a token for that one project only.
 Status: sign-in and consent (P5-04), token lifetimes, refresh-token rotation and the list of connected apps with
 **Disconnect** (P5-05).
 
+Which apps are known to work, and how sure we are: [client compatibility](../reference/client-compatibility.md).
+
 ## Turn it on
 
 OAuth needs [sign-in](identity-providers.md) (`RB_PUBLIC_URL` and at least one provider): people approve apps as

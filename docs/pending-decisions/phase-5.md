@@ -214,3 +214,70 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   ("don't ask again" rows); disconnecting an app also forgets its approval for that project.
 - **Options:** merge both into one table in the admin UI.
 - **Needs:** owner preference (UI only).
+
+## P5-06 — Client compatibility matrix
+
+### P5-06 — real clients not verified (autonomous run had no accounts)
+- **Context:** the agent could not use claude.ai, Claude mobile, Claude Desktop, Cursor, VS Code or ChatGPT. The matrix in
+  `docs/reference/client-compatibility.md` rests on an automated suite (the official SDK client shaped like each client
+  family) plus vendor docs. The task's real-client acceptance criteria stay unticked.
+- **Assumption made:** vendor docs are right that web, Desktop, mobile and Cowork share one hosted OAuth client and callback
+  (`https://claude.ai/api/mcp/auth_callback`), so a pass on claude.ai web is strong evidence for mobile; the phone check is
+  still worth doing once because the in-app browser and sign-in cookies behave differently.
+- **Needs:** the owner (or a community tester) to run the checklist below and record dated results in the matrix.
+
+### P5-06 — manual verification checklist (phone + claude.ai)
+Prerequisites: a deployed relic-bridge reachable from the internet over https (Anthropic connects from `160.79.104.0/21`;
+`localhost`/LAN never works), `RB_PUBLIC_URL` set to that exact public URL, sign-in configured (GitHub or Cloudflare
+Access), `RB_OAUTH=on`, one project with a grant for your user. Keep `RB_OAUTH_DCR=on` for the first run.
+1. In a desktop browser: claude.ai > Settings > Connectors > Add custom connector > URL
+   `https://<public-host>/p/<slug>/mcp` (no OAuth client fields: leave advanced settings empty). Add.
+2. Claude opens your sign-in. Sign in, then check the consent page: client name "Claude" with "identified by claude.ai"
+   (CIMD) or the "not verified" badge (DCR), "Sends you back to claude.ai", your project and grant. Approve (optionally
+   name the device "claude.ai web"). Expect: connector shows Connected.
+3. New chat > enable the connector > ask "run whoami with the relic tool". Expect a result; check Admin > My access >
+   "Apps connected with OAuth" lists the app, and the audit log has `oauth.consent.approve` plus MCP calls with the
+   OAuth client id.
+4. Note in the server log (stderr) whether registration was CIMD (no `/oauth/register`) or DCR.
+5. **Phone** (iOS and/or Android Claude app, same account): Settings > Connectors: the connector added on web should
+   already be listed (connectors sync across surfaces). If it asks to connect, do so and approve again. Start a chat,
+   enable it, run the same prompt. Note whether the consent page opens in an in-app browser and is usable (320 px layout,
+   sign-in session, buttons). Then leave the phone idle for more than `RB_OAUTH_ACCESS_TTL` (set it to 5 min for the test),
+   ask again: expect it to keep working with no new consent (refresh). Check the audit log for `oauth.token.reuse`: there
+   must be none; if there is, a real client refreshes concurrently and P5-09 becomes urgent.
+6. Disconnect on the phone, then reconnect: should require consent again and work. Then in Admin > My access click
+   "Disconnect" for the app and ask again in Claude: expect an error and a prompt to reconnect, not a loop.
+7. Repeat 1-3 with `RB_OAUTH_DCR=off` to confirm CIMD alone works for claude.ai, and with the project's slug in the URL
+   typed in a different case to see how Claude reports the mismatch (expected: refused).
+8. Claude Desktop (remote connector, not stdio): confirm it shows the same connector from your account, run a prompt.
+9. Claude Code: `claude mcp add --transport http relic https://<public-host>/p/<slug>/mcp`, `/mcp` > authenticate, call a
+   tool; leave it past the access TTL and call again. Optionally `--callback-port 8080`.
+10. Cursor and VS Code: add the URL as a remote server and sign in; record whether they use DCR, which redirect URI the
+    consent page shows, and any error. Also try MCP Inspector (`npx @modelcontextprotocol/inspector`, Streamable HTTP,
+    OAuth).
+Record per client: date, client version, registration path (CIMD/DCR), result, anything odd. Put the results in
+`docs/reference/client-compatibility.md` (change **M** cells) and tick the P5-06 criteria.
+
+### P5-06 — parallel refresh vs strict rotation (finding)
+- **Context:** the SDK client (2.2.0) does not coalesce refreshes: three parallel calls over an expired access token sent
+  six refresh requests; with P5-05's strict single use the device is revoked and the person must approve again. Claude
+  refreshes both proactively (up to 5 min before expiry) and on `401` (vendor docs), so an overlap is plausible but unproven.
+- **Assumption made:** server left strict (security first); new task P5-09 decides after the manual results.
+- **Options:** keep strict; a short same-client replay window returning the already issued pair; provider-style previous
+  token valid once more (weakest).
+- **Needs:** owner decision after checklist step 5; otherwise leave as is.
+
+### P5-06 — CIMD redirect host rule vs ChatGPT and a possible `claude.com` callback
+- **Context:** ChatGPT documents `https://chatgpt.com/connector_platform_oauth_redirect`; a web search result mentions a
+  `https://claude.com/api/mcp/auth_callback` for Claude (not in Claude's own docs, which name only `claude.ai`). A CIMD
+  document drops https redirect URIs on a host other than the client id's (P5-03), so those redirects would be refused for
+  CIMD clients (DCR still works).
+- **Assumption made:** keep the rule; claude.ai's documented callback fits.
+- **Options:** allow the same registrable domain; an allow-list of (client id host -> extra redirect hosts) for known clients.
+- **Needs:** revisit only if the checklist or ChatGPT shows a refused redirect (the log says `redirect` / `no_usable_redirect_uri`).
+
+### P5-06 — scope tolerance
+- **Context:** claude.ai was reported (anthropics/claude-ai-mcp#1092) sending `scope=mcp offline_access` to another server.
+  relic-bridge accepts any scope names and grants `mcp:read` (+ `offline_access` when asked), so that connects.
+- **Assumption made:** keep (grants, not scopes, decide access). Tested.
+- **Needs:** nothing.

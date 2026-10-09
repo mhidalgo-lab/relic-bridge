@@ -15,6 +15,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Options:** merge the stack bottom-up (retarget each PR to `main` after its parent merges), or squash-merge the
   tip into `main` in one go.
 - **Needs:** owner's merge strategy; then mark merged tasks `done` and run `pnpm tasks index`.
+- **Decision (2026-10-09):** merge one phase at a time, bottom-up into `main` (see phase-1.md, same entry).
 
 ## P3-01 — Worker entry
 
@@ -26,6 +27,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   and operators can pin hostnames.
 - **Options:** keep; or require `RB_ALLOWED_HOSTS` and have the P3-05 setup script fill it in with the workers.dev name.
 - **Needs:** owner's call (P3-05 can set it either way).
+- **Decision (2026-10-09):** keep `RB_ALLOWED_HOSTS=*` by default on Workers (Cloudflare routes only the Worker's own hostnames; Origin still checked).
 
 ### P3-01 — committed `wrangler.jsonc` without ids instead of a `.example` file
 - **Context:** the task asked for `wrangler.jsonc.example`. Wrangler's automatic provisioning (wrangler ≥ 4.45, open
@@ -37,6 +39,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   commit the ids; (b) rely on provisioning (resources stay linked without ids) and discard the write-back; (c) use
   explicit `wrangler d1 create` + ids in a git-ignored file only.
 - **Needs:** decide with P3-05 (deploy button / setup script).
+- **Decision (2026-10-09):** resolved by P3-05: git-ignored `wrangler.local.jsonc` copies (`scripts/cloudflare-setup.ts`).
 
 ### P3-01 — `RB_ADMIN_TOKEN` listed as a required secret
 - **Context:** on Node the admin API is optional. On Workers there is no local CLI with database access, so the admin
@@ -45,12 +48,14 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   the code still runs with the admin API off when the token is absent.
 - **Options:** keep; or make the admin token optional and document the consequence.
 - **Needs:** owner's call.
+- **Decision (2026-10-09):** keep `RB_ADMIN_TOKEN` required (setup links, `keys rotate --remote`, break-glass recovery).
 
 ### P3-01 — Workers tests not in the coverage gate; new CI job not yet required
 - **Context:** V8 coverage cannot attach to workerd, so `pnpm test:coverage` runs `--project=!worker`, and a new CI
   job **Workers runtime tests** runs `pnpm test:workers`.
 - **Assumption made:** P3-06 makes the job a required check (branch protection is an owner setting).
 - **Needs:** add "Workers runtime tests" to the required checks once P3-06 lands.
+- **Decision (2026-10-09):** assumption accepted; owner action tracked in `docs/pending-decisions/owner-checklist.md`.
 
 ## P3-02 — D1 adapter
 
@@ -64,6 +69,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   traffic (would need a check that both histories agree).
 - **Needs:** owner's call; P3-05/P3-07 document whichever is kept. A failed migration shows up as 503 + a log line
   after deploy rather than as a failed `wrangler deploy`.
+- **Decision (2026-10-09):** keep migrations at boot with one shared history (ADR-0006); staging smoke catches failures.
 
 ### P3-02 — `PRAGMA foreign_keys` skipped on D1; not verified against remote D1
 - **Context:** migration `0001_audit_auth_kind` (drizzle-kit table rebuild) contains `PRAGMA foreign_keys=OFF/ON`.
@@ -71,12 +77,14 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   ignores the pragma anyway.
 - **Assumption made:** the D1 migration driver skips `PRAGMA foreign_keys` statements (checksums unchanged).
 - **Needs:** a first real deploy (P3-05) to confirm migrations apply cleanly on remote D1.
+- **Decision (2026-10-09):** assumption accepted; owner action tracked in `docs/pending-decisions/owner-checklist.md`.
 
 ### P3-02 — single-query access resolution split out (P3-09)
 - **Context:** the task's "access resolution = 1 D1 call on miss" needs a new `Storage` capability and changes in
   `@relic-bridge/auth`. Today a miss costs 5 reads in 3 round trips; a hit costs 0 (tested).
 - **Assumption made:** moved to the new task P3-09 (medium priority).
 - **Needs:** nothing unless the owner wants it before v0.3.
+- **Decision (2026-10-09):** resolved by P3-09 (`loadAccessRecords` in `packages/storage/src/d1.ts`).
 
 ## P3-03 — Workers plan presets
 
@@ -88,6 +96,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   instead of a new ADR since it refines its own provisional table.
 - **Options:** Free = 50 exactly; or Paid = 10,000 to match the platform.
 - **Needs:** owner's call only if they want different numbers (they are one line in `apps/worker/src/settings.ts`).
+- **Decision (2026-10-09):** confirmed as assumed.
 
 ### P3-03 — no new real-account measurement; CPU benchmark deferred to P3-10
 - **Context:** the task asked to run `spikes/workers-limits/deploy-and-measure.md` on a real Free account. That was done
@@ -95,6 +104,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Assumption made:** P0-06's production numbers stand as the evidence; the CI CPU benchmark is moved to P3-10 because
   workerd timers don't advance during CPU work, so the approach needs a decision.
 - **Needs:** optionally re-measure after P3-05 deploys, to confirm cold-start CPU with D1 migrations in the boot path.
+- **Decision (2026-10-09):** assumption accepted; owner action tracked in `docs/pending-decisions/owner-checklist.md`.
 
 ### P3-03 — a tool dearer than the budget is hidden, not partially served
 - **Context:** `cost` is a single expected number (run_nrql = 4, get_golden_metrics = 11), not a minimum.
@@ -102,6 +112,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   with less. Never triggers with the presets (45 / 1000).
 - **Options:** add a `minCost` to tool metadata so partial-capable tools stay available at small budgets.
 - **Needs:** only if someone runs with a budget below 11.
+- **Decision (2026-10-09):** confirmed as assumed.
 
 ## P3-04 — Rate limiting on Workers
 
@@ -114,6 +125,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Options:** a D1 counter table (atomic single statement); wait for the Durable Object limiter (P7-10).
 - **Needs:** owner's call whether the D1 counter is worth it before P7-10.
 - **Update (P7-10):** P7-10 addresses this: with `RB_SHARED_LIMITER=rules` (opt-in, `SHARED_LIMITER` Durable Object binding) the `fail:` throttle, take and peek, is counted once for the whole deployment; without it, or if the object is unreachable, it stays per isolate as described above. See docs/guide/cloudflare-limits.md#shared-limiter-durable-object-optional.
+- **Decision (2026-10-09):** resolved by P7-10 (`RB_SHARED_LIMITER` Durable Object).
 
 ### P3-04 — one binding with a fixed 600 per 60 s ceiling; exact rules enforced per isolate
 - **Context:** a binding has a single limit/period, but rules vary (grant `rateLimit`, token 120/min, key 120/min).
@@ -123,6 +135,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Options:** one binding per rule class (10 s and 60 s windows) in `wrangler.jsonc`; DO limiter (P7-10).
 - **Needs:** only if tighter global limits are wanted.
 - **Update (P7-10):** P7-10 addresses this: the Durable Object limiter exists (opt-in) and enforces the exact `fail:`, `signin:`, `oauth:` and `write:` rules deployment-wide; `ip:`, `token:`, `grant:` and `key:` deliberately stay on the binding (an object call on every request would add a round trip); moving them is a possible follow-up. See docs/guide/cloudflare-limits.md#shared-limiter-durable-object-optional.
+- **Decision (2026-10-09):** resolved by P7-10 (exact `fail:`/`signin:`/`oauth:`/`write:` rules in the Durable Object).
 
 ### P3-04 — pass-through on Workers needs `RB_FINGERPRINT_SECRET`
 - **Context:** P3-01 refused pass-through; P3-01 did not add a shared secret binding.
@@ -130,6 +143,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   binding; the secret is optional in `secrets.required` (not needed unless pass-through is on). P3-05 setup should offer to
   generate it.
 - **Needs:** nothing, unless the secret should be generated automatically.
+- **Decision (2026-10-09):** resolved: `cf:setup --passthrough` generates `RB_FINGERPRINT_SECRET`.
 
 ## P3-05 — Deploy button and setup script
 
@@ -139,6 +153,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   button covers the no-clone case. Wrangler is the version pinned in `apps/worker`.
 - **Options:** ship the script in the npm package and spawn `npx wrangler` (cross-platform shell issues, unpinned Wrangler).
 - **Needs:** nothing unless clone-free setup from npm is wanted.
+- **Decision (2026-10-09):** confirmed as assumed.
 
 ### P3-05 — real-account verification is outstanding (nothing here deployed)
 - **Context:** this run could not log in or deploy. The script is tested with a fake Wrangler runner only.
@@ -159,12 +174,14 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   3. RESEARCH §13 Rate Limiting binding: confirm the binding is created from `ratelimits` on deploy and `limit()` calls don't
      count as subrequests (assumed not).
   4. Time the whole flow to two working devices against the < 10 minute criterion and tick it in the task file.
+- **Decision (2026-10-09):** assumption accepted; owner action tracked in `docs/pending-decisions/owner-checklist.md`.
 
 ### P3-05 — secrets are revealed once on stdout
 - **Context:** the owner needs the admin token to continue, and the master key to back up; the task allowed a backup file.
 - **Assumption made:** print once (stdout; progress goes to stderr) and offer `--backup-file` (0600, no overwrite).
 - **Options:** never print and always require `--backup-file`; integrate with a password manager CLI.
 - **Needs:** owner's call whether a printed secret is acceptable (scrollback), or the backup file should be mandatory.
+- **Decision (2026-10-09):** keep: secrets printed once, `--backup-file` optional.
 
 
 ### P3-06 — staging smoke and the required check need the owner
@@ -177,6 +194,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
      the GitHub environment `staging` (required reviewers), set variable `STAGING_URL` and secret `STAGING_ADMIN_TOKEN`.
   3. Decide whether the nightly job should also deploy (needs a scoped `CLOUDFLARE_API_TOKEN` in `staging`); it only
      smoke-tests an already deployed Worker today.
+- **Decision (2026-10-09):** assumption accepted; owner action tracked in `docs/pending-decisions/owner-checklist.md`.
 
 ### P3-08 — audit purge cadence and budget
 - **Context:** the task allowed hourly or daily; D1 limits rows per statement and queries per invocation.
@@ -184,6 +202,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   run; the purge writes an `audit.purge` admin row only when it removed something. Purge runs even with `RB_AUDIT=off`.
 - **Options:** daily trigger (fewer invocations), larger batches on the paid plan, a `RB_AUDIT_PURGE_*` setting.
 - **Needs:** owner's call only if the hourly trigger conflicts with the Free plan's cron-trigger count in their account.
+- **Decision (2026-10-09):** confirmed as assumed.
 
 ### P3-09 — one-call access resolution: optional capability, batch of six reads, touch kept separate
 - **Context:** the task allowed one joined statement or one `batch()`; `loadAccessRecords` could be a required
@@ -197,6 +216,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Options:** make it required (add an in-memory implementation); a single joined statement; drop `last_used_at`
   writes on Workers entirely, or make them monotonic (`max(stored, now)`).
 - **Needs:** nothing unless the owner prefers one of the options.
+- **Decision (2026-10-09):** confirmed as assumed.
 
 ### P3-10 — CPU benchmark: representative scenarios, ratio-based gate, separate workflow
 - **Context:** the task asked for every built-in tool at three payload sizes and left the timer approach open.
@@ -208,6 +228,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   the variance across runners is known (the baseline was taken on a WSL2 dev machine, not a CI runner).
 - **Needs (owner):** after the first runs on GitHub, check the table's ratios; if CI ratios sit far from 1.0, refresh
   the baseline from a CI run (download the summary numbers, or run `pnpm bench:cpu --update` in a workflow_dispatch).
+- **Decision (2026-10-09):** assumption accepted; owner action tracked in `docs/pending-decisions/owner-checklist.md`.
 
 ### P3-07 — docs delivered without a clean-account validation; master-key rotation gap on D1
 - **Context:** the task asks for a fresh deployment on a clean account and release v0.3.0; neither is possible
@@ -221,6 +242,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Options:** ship the Worker guide only after a validation run; make P3-11 a Phase 3 release blocker.
 - **Needs (owner):** deploy to a clean account following `cloudflare-deploy.md`, fix whatever differs, tick the first
   acceptance criterion, then release v0.3.0; decide whether P3-11 blocks it.
+- **Decision (2026-10-09):** assumption accepted; owner action tracked in `docs/pending-decisions/owner-checklist.md`.
 
 ### P3-11 — master-key rotation on D1 through the admin API, not the cron trigger
 - **Context:** `keys rotate` needs the database and both keys; a Worker's D1 is only reachable from inside the Worker.
@@ -236,6 +258,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   but silent); a `--wait` that polls until old isolates drained.
 - **Needs (owner):** confirm on a real account that `wrangler secret bulk` with both keys deploys a single version
   (the runbook depends on it; not exercised in this run), then follow `cloudflare-deploy.md#rotate-the-master-key` once.
+- **Decision (2026-10-09):** assumption accepted; owner action tracked in `docs/pending-decisions/owner-checklist.md`.
 
 ## Phase 3 consolidation review
 
@@ -247,6 +270,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   entropy rule for the admin token.
 - **Needs:** owner's choice before P3-13 starts.
 - **Update:** P3-13 went ahead with (a) plus the entropy rule (see the P3-13 entries below).
+- **Decision (2026-10-09):** resolved by P3-13 (option a plus the admin-token strength rule).
 
 ### Review — real-account checks added by the review fixes
 - **Context:** `cf:setup` now deploys with `--keep-vars` and gives a non-default `--name` its own
@@ -254,6 +278,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Needs (owner, during the P3-05 real-account run):** (a) set `RB_ALLOWED_HOSTS` in the dashboard, re-run
   `pnpm cf:setup`, confirm it is still set; (b) `pnpm cf:setup --name relic-bridge-staging` creates a second D1
   database `relic-bridge-staging` (not the production one).
+- **Decision (2026-10-09):** assumption accepted; owner action tracked in `docs/pending-decisions/owner-checklist.md`.
 
 ## P3-13 — Admin token strength and failure throttle
 
@@ -267,6 +292,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Options:** keep; revert to "refuse everything from a locked IP" (restore the `peek` in `beforeAuth` for all scopes);
   add the D1 counter now instead of waiting for the Durable Object limiter (P7-10).
 - **Needs:** owner confirmation (also closes Phase 2 review M6).
+- **Decision (2026-10-09):** confirmed as assumed.
 
 ### P3-13 — strength thresholds
 - **Context:** the task suggested "fewer than ~10 distinct characters". 32 random hex characters (`openssl rand -hex
@@ -279,6 +305,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   token it reads, so a weak token configured on an older server is refused client-side too.
 - **Options:** other thresholds; make warnings refusals; ship a small word list.
 - **Needs:** nothing unless the owner wants stricter rules.
+- **Decision (2026-10-09):** confirmed as assumed.
 
 
 ## P3-14 — cf:setup follow-ups
@@ -289,15 +316,18 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Assumption made:** warn on drift (comments, whitespace, ids ignored) and never overwrite.
 - **Options:** add a JSONC parser and merge new top-level keys automatically; a `--refresh-config` flag.
 - **Needs:** nothing unless the warning proves noisy on the real-account run.
+- **Decision (2026-10-09):** confirmed as assumed.
 
 ### P3-14 — README Deploy button deferred
 - **Context:** the repository is private (`gh repo view`), and the button needs a public URL.
 - **Assumption made:** left out; the criterion stays open in P3-05. Needs the owner when the repo is made public.
+- **Decision (2026-10-09):** assumption accepted; owner action tracked in `docs/pending-decisions/owner-checklist.md`.
 
 ### P3-14 — rate-limit namespace and master-key flag
 - **Assumption made:** non-default names get `1000000 + FNV-1a(name) mod 8e9` as `namespace_id` (collision across names is
   possible but improbable). The flag is `--replace-master-key`. Both unverified against a real account.
 - **Needs:** owner check in the P3-05 real-account run (two Workers show separate rate-limit counters).
+- **Decision (2026-10-09):** assumption accepted; owner action tracked in `docs/pending-decisions/owner-checklist.md`.
 
 ## P3-15 — Rotation guards
 
@@ -309,4 +339,5 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   `batchSize` to 40 and the audit row records the effective size, because the CLI loops on `nextCursor` anyway. The
   review's L5 mistyped-key guard was not in the task's scope and stays documented-recovery only.
 - **Needs:** nothing unless you prefer a hard 422 on Free.
+- **Decision (2026-10-09):** confirmed: kv purge done (P4-09); Free plan clamps `batchSize` to 40 rather than answering 422.
 

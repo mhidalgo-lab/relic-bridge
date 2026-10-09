@@ -309,6 +309,8 @@ survive later runs because of `--keep-vars`:
 | `RB_GOOGLE_HOSTED_DOMAIN` | Restrict Google sign-in to one Workspace domain. |
 | `RB_SESSION_IDLE_MINUTES`, `RB_SESSION_MAX_HOURS` | Session lifetime (5 to 1440 minutes idle, default 30; 1 to 168 hours, default 12). |
 | `RB_CF_ACCESS_TEAM`, `RB_CF_ACCESS_AUD` | Cloudflare Access as a sign-in provider. |
+| `RB_OAUTH` | `on`: MCP clients such as claude.ai and Claude on your phone connect with OAuth (sign-in + a consent page). Needs sign-in. See [OAuth](oauth.md). |
+| `RB_OAUTH_DCR`, `RB_OAUTH_DCR_LIMIT`, `RB_OAUTH_DCR_REDIRECT_HOSTS` | Dynamic client registration: `on`/`off`, registrations per hour (default 30) or `off`, allowed https redirect hosts. |
 
 When it finishes, the script prints the redirect URL to register with each provider
 (`<RB_PUBLIC_URL>/auth/callback/<provider>`) and the next step, the first owner's link:

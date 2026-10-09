@@ -574,3 +574,20 @@ Source: <https://docs.github.com/en/rest/apps/oauth-applications#delete-an-app-t
   the endpoint is being spammed. Revoking the token ends that one token only; the user's app authorization stays.
 - relic-bridge treats `204` and `404` as done, anything else (and network errors or timeouts) as a failed, logged
   best-effort revocation.
+
+## 20. OAuth consent page in the browser (P5-04, measured 2026-10-05 with Playwright's Chromium)
+
+- **`form-action` and the redirect after a consent post.** With the admin UI policy (`form-action 'self'`), posting the
+  consent form to our origin and answering `303 Location: http://127.0.0.1:<port>/callback?code=…` is blocked by
+  Chromium (the navigation never reaches the client; `e2e/oauth.spec.ts` times out waiting for the callback). Adding
+  the redirect URI's origin to `form-action` fixes it. CSP3 host sources have no syntax for IPv6 literals, so an
+  `http://[::1]` redirect needs the `http:` scheme source. Source: https://www.w3.org/TR/CSP3/#directive-form-action
+  (the check applies to "navigations … including redirects" in Chromium; measured, not assumed).
+- **The provider's consent helpers** (`beginConsent` / `approveConsent` / `isConsentRemembered` in
+  `@cloudflare/workers-oauth-provider` 1.2.1): a 10-minute encrypted transaction in KV bound to the browser by a
+  `__Host-` cookie per transaction, and remembered consent in an HMAC-signed `__Host-…approvals` cookie keyed by client,
+  redirect URI, resource and an optional subject. `__Host-` cookies need `Secure`, which an `http://localhost`
+  development instance can't rely on, and the remembered-consent cookie stores scopes only (not which relic-bridge grant
+  was chosen) and can't be revoked server-side; relic-bridge keeps the request in the URL (re-validated each step) and
+  remembered approvals in its own `kv` rows instead. Source: `node_modules/@cloudflare/workers-oauth-provider/dist/oauth-provider.js`
+  (`src/oauth-consent.ts` region).

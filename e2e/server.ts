@@ -69,7 +69,8 @@ function listen(server: Server, port: number): Promise<void> {
   return new Promise((resolve) => server.listen(port, '127.0.0.1', () => resolve()));
 }
 
-export async function startServer(): Promise<TestServer> {
+/** `extraEnv`: more `RB_*` variables for the server (e.g. `RB_OAUTH=on`, P5-04). */
+export async function startServer(extraEnv: Readonly<Record<string, string>> = {}): Promise<TestServer> {
   const idpPort = await freePort();
   const issuer = `http://127.0.0.1:${idpPort}`;
   const idp = await createMockIdp({ issuer });
@@ -118,6 +119,7 @@ export async function startServer(): Promise<TestServer> {
         RB_OIDC_ISSUER: issuer,
         RB_OIDC_CLIENT_ID: MOCK_CLIENT_ID,
         RB_OIDC_CLIENT_SECRET: MOCK_CLIENT_SECRET,
+        ...extraEnv,
       },
       stdio: 'pipe',
     },

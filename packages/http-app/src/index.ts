@@ -78,12 +78,25 @@ export {
   type ClientMetadataFetch,
   isPublicIp,
 } from './oauth/clients.ts';
+export {
+  type ConsentScreen,
+  type ConsentScreenDeps,
+  createConsentScreen,
+  MAX_AUTHORIZE_URL_CHARS,
+  MAX_REMEMBERED_APPROVALS,
+  OAUTH_APPROVALS_FORGET_PATH,
+  OAUTH_APPROVALS_PATH,
+  OAUTH_CONSENT_PATH,
+  OAUTH_CONSENT_REMEMBER_TTL_S,
+} from './oauth/consent.ts';
 export { OAUTH_KV_PREFIX, type OAuthKvNamespace, oauthKvNamespace } from './oauth/kv-namespace.ts';
 export {
   DEFAULT_OAUTH_ACCESS_TTL_S,
   DEFAULT_OAUTH_REFRESH_TTL_S,
   DEFAULT_OAUTH_REGISTRATION_LIMIT,
+  deviceLabel,
   looksLikeOAuthToken,
+  MAX_DEVICE_LABEL_CHARS,
   MCP_SCOPE,
   OAUTH_AUTHORIZE_PATH,
   OAUTH_CODE_TTL_S,
@@ -104,6 +117,12 @@ export {
   type OAuthGrantProps,
   type OAuthOptions,
 } from './oauth/server.ts';
+export {
+  OAuthConfigError,
+  type OAuthEnv,
+  type OAuthSettings,
+  oauthSettingsFromEnv,
+} from './oauth/settings.ts';
 export {
   DEFAULT_PASSTHROUGH_IDENTITY_ENTRIES,
   DEFAULT_PASSTHROUGH_IDENTITY_TTL_MS,

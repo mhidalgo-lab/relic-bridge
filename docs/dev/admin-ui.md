@@ -98,6 +98,16 @@ appear only in a snippet whose client has no variable expansion (today only Clau
 and the test asserts which snippets contain it. Snippets are `<pre tabindex=0><code id>` with a `data-copy` button
 that `admin.js` reveals.
 
+## OAuth consent pages (P5-04)
+
+`src/consent.tsx` holds `ConsentPage` and `ApprovalsPage`, pure views rendered by the HTTP app's consent screen
+(`packages/http-app/src/oauth/consent.ts`, routes `/oauth/consent` and `/oauth/approvals`), not `/admin` screens: they
+use the same session (`adminUiDeps` is shared), CSRF field, `Layout` and stylesheet, but their forms are checked by the
+consent screen, not `kit.form`. The consent page's CSP is `consentCsp(source)` (the UI policy with one more
+`form-action` source, the client's redirect origin); `isUiCsp` tells the app's security middleware to keep it. The
+client name is untrusted text: render it as a child only. Tests: `test/consent.test.tsx` (axe-core, escaping, CSP
+helpers) and `packages/http-app/test/authz/consent-suite.ts`.
+
 ## Rules
 
 - **Escaping.** Strings go into JSX as children or attribute values and are escaped by Hono. Never use `raw()`, the

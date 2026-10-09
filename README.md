@@ -77,7 +77,7 @@ carries the tarball, an SBOM and checksums with build attestations. Changes: [CH
 
 - **Guides:** [local quickstart](docs/guide/quickstart-local.md) · [client setup](docs/guide/clients.md) ·
   [self-hosting](docs/guide/self-hosting.md) · [deploy to Cloudflare](docs/guide/cloudflare-deploy.md) · [Cloudflare limits and costs](docs/guide/cloudflare-limits.md) · [multi-device setup](docs/guide/multi-device.md) · [admin guide](docs/guide/admin-guide.md) ·
-  [admin panel](docs/guide/admin-panel.md) · [sign-in providers](docs/guide/identity-providers.md) · [admin access](docs/guide/admin-access.md) ·
+  [admin panel](docs/guide/admin-panel.md) · [sign-in providers](docs/guide/identity-providers.md) · [OAuth for claude.ai and phones](docs/guide/oauth.md) · [admin access](docs/guide/admin-access.md) ·
   [access model](docs/guide/access-model.md) · [secrets](docs/guide/secrets.md) ·
   [configuration](docs/guide/configuration.md) · [security basics](docs/guide/security-basics.md) ·
   [troubleshooting](docs/guide/troubleshooting.md) · [tool reference](docs/reference/tools.md) · [CLI reference](docs/reference/cli.md)

@@ -149,6 +149,66 @@ export function parseProject(r: Row): Project | null {
   };
 }
 
+/** Caps of one period; a missing number is no cap. */
+export interface QuotaCaps {
+  readonly queries: number | null;
+  readonly inspectedEvents: number | null;
+}
+
+export interface Quota {
+  readonly day: QuotaCaps | null;
+  readonly month: QuotaCaps | null;
+  readonly warnPercent: number;
+}
+
+const quotaCaps = (v: unknown): QuotaCaps | null => {
+  if (typeof v !== 'object' || v === null) return null;
+  const o = obj(v);
+  return { queries: intOrNull(o['queries']), inspectedEvents: intOrNull(o['inspectedEvents']) };
+};
+
+export function parseQuota(v: unknown): Quota | null {
+  if (typeof v !== 'object' || v === null || Array.isArray(v)) return null;
+  const o = obj(v);
+  const warn = intOrNull(o['warnPercent']);
+  return { day: quotaCaps(o['day']), month: quotaCaps(o['month']), warnPercent: warn ?? 80 };
+}
+
+/** One grant's counters against its caps (`GET /usage/quotas`). */
+export interface QuotaUsagePeriod {
+  readonly queries: number;
+  readonly inspected: number;
+}
+
+export interface QuotaUsage {
+  readonly grantId: string;
+  readonly projectId: string;
+  readonly userId: string | null;
+  readonly label: string | null;
+  readonly quota: Quota;
+  readonly day: QuotaUsagePeriod & { readonly resetsAt: number | null };
+  readonly month: QuotaUsagePeriod & { readonly resetsAt: number | null };
+}
+
+export function parseQuotaUsage(r: Row): QuotaUsage | null {
+  const grantId = str(r['grantId']);
+  const quota = parseQuota(r['quota']);
+  if (grantId === '' || quota === null) return null;
+  const period = (v: unknown) => {
+    const o = obj(v);
+    return { queries: int(o['queries']), inspected: int(o['inspected']), resetsAt: intOrNull(o['resetsAt']) };
+  };
+  return {
+    grantId,
+    projectId: str(r['projectId']),
+    userId: strOrNull(r['userId']),
+    label: strOrNull(r['label']),
+    quota,
+    day: period(r['day']),
+    month: period(r['month']),
+  };
+}
+
 export interface Grant {
   readonly id: string;
   readonly projectId: string;
@@ -158,6 +218,7 @@ export interface Grant {
   readonly tools: string[] | null;
   readonly accountIds: number[] | null;
   readonly rateLimit: { readonly requests: number; readonly perSeconds: number } | null;
+  readonly quota: Quota | null;
   readonly createdAt: number;
   readonly expiresAt: number | null;
   readonly revokedAt: number | null;
@@ -176,6 +237,7 @@ export function parseGrant(r: Row): Grant | null {
     tools: strsOrNull(r['tools']),
     accountIds: intsOrNull(r['accountIds']),
     rateLimit: rl === null ? null : { requests: int(rl['requests']), perSeconds: int(rl['perSeconds']) },
+    quota: parseQuota(r['quota']),
     createdAt: int(r['createdAt']),
     expiresAt: intOrNull(r['expiresAt']),
     revokedAt: intOrNull(r['revokedAt']),

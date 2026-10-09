@@ -12,7 +12,7 @@ an owner session), work locally and with `--remote`, and are recorded in the aud
 | Users (email, display name, role) | Access tokens (create new ones with `token create`) |
 | New Relic key **metadata** (label, region, owner) | Plaintext New Relic keys (see below) |
 | Projects (accounts, tools, limits, default key, disabled) | OAuth clients, devices, sessions, admin sessions |
-| Grants (project, user or service label, key, tools, accounts, limits, rate limit, expiry) | Sign-in identity bindings (`idp`, subject): people bind again on first sign-in |
+| Grants (project, user or service label, key, tools, accounts, limits, rate limit, usage quota, expiry) | Sign-in identity bindings (`idp`, subject): people bind again on first sign-in |
 | The `oauth.registration` setting | Master keys, key check values, the audit log |
 
 Revoked grants and keys, disabled users and expired grants are left out.

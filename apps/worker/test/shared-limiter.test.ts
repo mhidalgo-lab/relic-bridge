@@ -6,14 +6,17 @@ import { evictDurableObject, runDurableObjectAlarm, runInDurableObject } from 'c
 import { env } from 'cloudflare:workers';
 import type { DurableObjectState } from '@cloudflare/workers-types';
 import type { Client } from '@modelcontextprotocol/client';
+import { setGrantQuota } from '@relic-bridge/auth';
 import type { FetchLike } from '@relic-bridge/core';
 import { MemoryRateLimiter } from '@relic-bridge/http-app';
+import { createMemoryStorage, usagePeriods } from '@relic-bridge/storage';
 import { describe, expect, it } from 'vitest';
 import type { WorkerEnv } from '../src/env.ts';
 import { DURABLE_KEY_PREFIXES, WorkersRateLimiter } from '../src/rate-limit.ts';
 import { parseWorkerSettings, WorkerConfigError } from '../src/settings.ts';
 import {
   type AcquireResult,
+  createDurableQuotaStore,
   createSharedConcurrency,
   type SharedLimiterNamespace,
   type SharedLimiterRpc,
@@ -387,5 +390,135 @@ describe('object names', () => {
     expect(names.length).toBeGreaterThan(0);
     expect(names.every((n) => /^concurrency:pt_[0-9a-f]+$/.test(n))).toBe(true);
     expect(durable.names.join(' ')).not.toContain(NR_KEY);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------------------
+// Quota counters (P7-12)
+// ---------------------------------------------------------------------------------------------------------------
+
+const DAY = 'd2026-10-06';
+const MONTH = 'm2026-10';
+
+describe('SharedLimiter: quota counters', () => {
+  it('reserve is atomic across concurrent callers: 40 calls against a cap of 10 succeed exactly 10 times', async () => {
+    const stub = fresh('quota:');
+    const results = await Promise.all(Array.from({ length: 40 }, () => stub.quotaReserve(DAY, 10)));
+    expect(results.filter((r) => r !== null)).toHaveLength(10);
+    expect((await stub.quotaGet([DAY]))[DAY]).toEqual({ queries: 10, inspected: 0 });
+    // No cap counts without limit; a missing period is absent.
+    expect((await stub.quotaReserve(MONTH, null))?.queries).toBe(1);
+    expect(Object.keys(await stub.quotaGet([DAY, MONTH, 'd2026-01-01']))).toEqual([DAY, MONTH]);
+  });
+
+  it('adds inspected events, releases a query (never below zero) and ignores bad arguments', async () => {
+    const stub = fresh('quota:');
+    await Promise.all(Array.from({ length: 10 }, () => stub.quotaAdd(DAY, 3)));
+    expect(await stub.quotaGet([DAY])).toEqual({ [DAY]: { queries: 0, inspected: 30 } });
+    await stub.quotaReserve(DAY, null);
+    await stub.quotaRelease(DAY);
+    await stub.quotaRelease(DAY);
+    expect((await stub.quotaGet([DAY]))[DAY]?.queries).toBe(0);
+    expect(await stub.quotaReserve("d2026-10-06' OR 1=1", null)).toBeNull();
+    expect(await stub.quotaReserve(DAY, 0)).toBeNull();
+    expect((await stub.quotaAdd(DAY, -5)).inspected).toBe(30);
+    expect(await stub.quotaGet([])).toEqual({});
+    expect(await stub.quotaAdd('nonsense', 5)).toEqual({ queries: 0, inspected: 0 });
+  });
+
+  it('survives eviction, and the alarm drops periods that have ended but keeps the current ones', async () => {
+    const stub = fresh('quota:');
+    const now = usagePeriods(Date.now());
+    await stub.quotaReserve(now.day, null);
+    await stub.quotaReserve(now.month, null);
+    // Periods long over: written through the API like any other, then dropped by the alarm.
+    await stub.quotaReserve('d2020-01-01', null);
+    await stub.quotaAdd('m2020-01', 9);
+    await evictDurableObject(stub);
+    expect((await stub.quotaGet([now.day]))[now.day]?.queries).toBe(1);
+    expect(await runDurableObjectAlarm(stub)).toBe(true);
+    expect(Object.keys(await stub.quotaGet([now.day, now.month, 'd2020-01-01', 'm2020-01'])).sort()).toEqual(
+      [now.day, now.month].sort(),
+    );
+    const alarm = await runInDurableObject(stub, (_i, s: DurableObjectState) => s.storage.getAlarm());
+    expect(alarm).not.toBeNull();
+  });
+});
+
+describe('createDurableQuotaStore', () => {
+  it('uses the grant’s own object, and falls back to the storage counters (never unlimited) when it is unreachable', async () => {
+    const storage = createMemoryStorage();
+    await storage.projects.create({ id: 'p', slug: 'p', defaultAccountId: 1, allowedAccountIds: [1] });
+    await storage.grants.create({ id: 'grt_q', projectId: 'p', label: 'svc' });
+    const spy = spyNamespace();
+    const store = createDurableQuotaStore(spy, { fallback: storage.grantUsage });
+    expect(await store.reserve('grt_q', DAY, 2)).toEqual({ queries: 1, inspected: 0 });
+    expect(spy.names).toEqual(['quota:grt_q']);
+    expect(await storage.grantUsage.get('grt_q', [DAY])).toEqual({});
+
+    const logs: string[] = [];
+    const down = createDurableQuotaStore(spyNamespace(true), {
+      fallback: storage.grantUsage,
+      logger: {
+        warn: (m: string) => logs.push(m),
+        info: () => undefined,
+        debug: () => undefined,
+        error: () => undefined,
+        child() {
+          return this;
+        },
+      },
+    });
+    expect(await down.reserve('grt_q', DAY, 1)).toEqual({ queries: 1, inspected: 0 });
+    expect(await down.reserve('grt_q', DAY, 1)).toBeNull();
+    await down.addInspected('grt_q', DAY, 7);
+    expect(await down.get('grt_q', [DAY])).toEqual({ [DAY]: { queries: 1, inspected: 7 } });
+    expect(await down.getMany(['grt_q', 'other'], [DAY])).toEqual({
+      grt_q: { [DAY]: { queries: 1, inspected: 7 } },
+    });
+    expect(logs.filter((l) => l.includes('quota counted in storage'))).toHaveLength(1);
+  });
+});
+
+/** 4 simulated isolates x 5 parallel `whoami` calls against a grant capped at 8 calls a day. */
+async function quotaLoad(mode: 'off' | 'on') {
+  const { storage, token } = await seed(MASTER_KEY);
+  const grant = (await storage.grants.list())[0];
+  if (grant === undefined) throw new Error('no grant');
+  await setGrantQuota(storage, grant.id, { day: { queries: 8 } });
+  const nerdGraph = concurrencyLimitedNerdGraph(25, 5);
+  const e: WorkerEnv = { ...env, RB_SHARED_LIMITER: mode, RB_QUERY_CACHE: 'off' };
+  const clients: Client[] = [];
+  for (let i = 0; i < 4; i++) {
+    const w = createWorker({ openStorage: () => storage, fetch: nerdGraph.fetch, logSink: () => {} });
+    clients.push(await connect(w, e, fakeCtx(), token));
+  }
+  const results = await Promise.all(
+    Array.from({ length: 20 }, (_, i) =>
+      (clients[i % 4] as Client).callTool({ name: 'whoami', arguments: {} }),
+    ),
+  );
+  await Promise.all(clients.map((c) => c.close()));
+  const day = usagePeriods(Date.now()).day;
+  return {
+    ok: results.filter((r) => r.isError !== true).length,
+    denied: results.filter((r) => r.isError === true).length,
+    calls: nerdGraph.stats.calls,
+    inStorage: (await storage.grantUsage.get(grant.id, [day]))[day]?.queries ?? 0,
+    inObject: (await ns.getByName(`quota:${grant.id}`).quotaGet([day]))[day]?.queries ?? 0,
+  };
+}
+
+describe('quota across isolates', () => {
+  it('with storage counters (shared limiter off): exactly the cap gets through, counted in storage', async () => {
+    const r = await quotaLoad('off');
+    expect(r).toMatchObject({ ok: 8, denied: 12, inStorage: 8, inObject: 0 });
+    expect(r.calls).toBe(8);
+  });
+
+  it('with the shared limiter on: exactly the cap gets through, counted in the grant’s object, not in storage', async () => {
+    const r = await quotaLoad('on');
+    expect(r).toMatchObject({ ok: 8, denied: 12, inStorage: 0, inObject: 8 });
+    expect(r.calls).toBe(8);
   });
 });

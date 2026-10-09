@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-import type { Budget, Clock, Credential, Limiter, Region, ToolContext } from '../context.ts';
+import type { Budget, Clock, Credential, Limiter, QuotaGuard, Region, ToolContext } from '../context.ts';
 import { ErrorCode, RbError } from '../errors.ts';
 import type { Logger } from '../logger.ts';
 import { redact } from '../redact.ts';
@@ -39,6 +39,8 @@ export interface NerdGraphClientOptions {
   /** Response cap, enforced while streaming the body, before JSON.parse (ADR-0010). */
   maxResponseBytes: number;
   fetch?: FetchLike;
+  /** Counts each logical call against the grant's quota (P7-12); retries are not counted again. */
+  quota?: QuotaGuard;
   /** Total attempts including the first. Default 3. */
   maxAttempts?: number;
   timeoutMs?: number;
@@ -218,7 +220,10 @@ async function readErrorBody(res: Response): Promise<string> {
  * limiter and logs with the request logger. Documents are static constants and every value is a variable (T4).
  */
 export class NerdGraphClient {
-  readonly #o: Required<Omit<NerdGraphClientOptions, 'fetch'>> & { fetch: FetchLike };
+  readonly #o: Required<Omit<NerdGraphClientOptions, 'fetch' | 'quota'>> & {
+    fetch: FetchLike;
+    quota?: QuotaGuard;
+  };
 
   constructor(options: NerdGraphClientOptions) {
     this.#o = {
@@ -241,6 +246,9 @@ export class NerdGraphClient {
     options: QueryOptions = {},
   ): Promise<NerdGraphResult<TData>> {
     assertUserKey(this.#o.credential.apiKey);
+    // Past the key check, before any attempt: a call refused before NerdGraph (bad key) is not counted, a call that is
+    // sent counts once however often it is retried.
+    await this.#o.quota?.beforeCall();
     const { budget, limiter, maxAttempts, logger } = this.#o;
     const log = logger.child({ op: document.name });
     let lastError: RbError | undefined;
@@ -399,6 +407,7 @@ export function nerdGraphFor(
     logger: ctx.logger.child({ requestId: ctx.requestId, component: 'nerdgraph' }),
     clock: ctx.clock,
     maxResponseBytes: ctx.limits.maxResponseBytes,
+    ...(ctx.quota === undefined ? {} : { quota: ctx.quota }),
     ...overrides,
   });
 }

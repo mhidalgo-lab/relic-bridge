@@ -11,19 +11,42 @@
 //                                  same arithmetic as the isolate buckets (`tokenBucketStep`). Persisted, so eviction
 //                                  does not refill it; an alarm deletes the stored bucket once it is full again.
 //
+//   `quota:<grant id>`             a grant's usage counters per UTC period (P7-12, `RB_SHARED_LIMITER=on`): the same
+//                                  contract as the storage table (`reserve` refuses at the cap, atomically: one SQL
+//                                  statement run synchronously inside the object), persisted, with an alarm that drops
+//                                  periods that have ended. Saves a D1 write per NerdGraph call.
+//
 // Object names are credential ids (storage ids, or HMAC fingerprint ids for pass-through keys) and rate-limit keys:
 // never a New Relic key or any request data (T21). The client side (`createSharedConcurrency`, `WorkersRateLimiter`)
 // treats every failure to reach an object as "count in this isolate instead" and never blocks on it.
 import { DurableObject } from 'cloudflare:workers';
-import type { DurableObjectState } from '@cloudflare/workers-types';
+import type { DurableObjectState, SqlStorage } from '@cloudflare/workers-types';
 import { ErrorCode, type Limiter, type Logger, RbError } from '@relic-bridge/core';
 import {
   isRateLimitRule,
+  type QuotaStore,
   type RateLimitResult,
   type RateLimitRule,
   type TokenBucket,
   tokenBucketStep,
 } from '@relic-bridge/http-app';
+import {
+  checkPeriod,
+  checkPeriods,
+  periodResetsAt,
+  QUOTA_OBJECT_ADD_SQL,
+  QUOTA_OBJECT_CLEANUP_SQL,
+  QUOTA_OBJECT_COUNTS_SQL,
+  QUOTA_OBJECT_DDL,
+  QUOTA_OBJECT_EXISTS_SQL,
+  QUOTA_OBJECT_ONE_SQL,
+  QUOTA_OBJECT_RELEASE_SQL,
+  QUOTA_OBJECT_RESERVE_SQL,
+  quotaObjectGetSql,
+  type UsageByPeriod,
+  type UsageCounters,
+  usagePeriods,
+} from '@relic-bridge/storage';
 
 /** How long a slot is held at most when its release never arrives: twice the NerdGraph timeout (30 s). */
 export const DEFAULT_LEASE_MS = 60_000;
@@ -41,6 +64,8 @@ const BUCKET_KEY = 'bucket';
 export const WARN_EVERY_MS = 60_000;
 /** Name prefix of the concurrency objects; no rate-limit namespace starts with it. */
 export const CONCURRENCY_PREFIX = 'concurrency:';
+/** Name prefix of the quota objects (one per grant). */
+export const QUOTA_PREFIX = 'quota:';
 
 export type AcquireResult =
   | { readonly ok: true; readonly lease: string }
@@ -52,6 +77,10 @@ export interface SharedLimiterRpc {
   release(lease: string): Promise<void>;
   take(rule: RateLimitRule, cost?: number): Promise<RateLimitResult>;
   peek(rule: RateLimitRule): Promise<RateLimitResult>;
+  quotaReserve(period: string, maxQueries: number | null): Promise<UsageCounters | null>;
+  quotaRelease(period: string): Promise<void>;
+  quotaAdd(period: string, events: number): Promise<UsageCounters>;
+  quotaGet(periods: readonly string[]): Promise<UsageByPeriod>;
 }
 
 /** The `SHARED_LIMITER` binding, reduced to what the Worker uses. */
@@ -195,9 +224,108 @@ export class SharedLimiter extends DurableObject<unknown> {
     return result;
   }
 
+  // --- quota counters (P7-12) ----------------------------------------------------------------------------------------
+  // One row per period in the object's SQLite storage, changed by single statements run synchronously (no `await`
+  // between the check and the write), so no other event can run in between: the cap cannot be overshot.
+
+  #usageReady = false;
+
+  #usage(): SqlStorage {
+    const sql = this.ctx.storage.sql;
+    if (!this.#usageReady) {
+      sql.exec(QUOTA_OBJECT_DDL);
+      this.#usageReady = true;
+    }
+    return sql;
+  }
+
+  /** Arms the cleanup alarm for the end of `period` (an hour later) unless one is set. */
+  async #armCleanup(period: string): Promise<void> {
+    const storage = this.ctx.storage;
+    if ((await storage.getAlarm()) !== null) return;
+    const name = period.startsWith('m') ? 'month' : 'day';
+    await storage.setAlarm(periodResetsAt(name, Date.now()) + 3_600_000);
+  }
+
+  /** As `grant_usage`: adds one query unless the period already has `maxQueries`; `null` when refused. */
+  async quotaReserve(period: string, maxQueries: number | null): Promise<UsageCounters | null> {
+    try {
+      checkPeriod(period);
+    } catch {
+      return null;
+    }
+    if (maxQueries !== null && !intIn(maxQueries, 1, Number.MAX_SAFE_INTEGER)) return null;
+    const row = this.#usage()
+      .exec<{ queries: number; inspected: number }>(QUOTA_OBJECT_RESERVE_SQL, period, maxQueries, maxQueries)
+      .toArray()[0];
+    if (row === undefined) return null;
+    await this.#armCleanup(period);
+    return { queries: row.queries, inspected: row.inspected };
+  }
+
+  async quotaRelease(period: string): Promise<void> {
+    try {
+      checkPeriod(period);
+    } catch {
+      return;
+    }
+    this.#usage().exec(QUOTA_OBJECT_RELEASE_SQL, period);
+  }
+
+  async quotaAdd(period: string, events: number): Promise<UsageCounters> {
+    // Never thrown across RPC (the client validates the same rules): a bad argument changes nothing.
+    try {
+      checkPeriod(period);
+    } catch {
+      return { queries: 0, inspected: 0 };
+    }
+    if (!intIn(events, 0, Number.MAX_SAFE_INTEGER)) {
+      const cur = this.#usage()
+        .exec<{ queries: number; inspected: number }>(QUOTA_OBJECT_ONE_SQL, period)
+        .toArray()[0];
+      return cur === undefined
+        ? { queries: 0, inspected: 0 }
+        : { queries: cur.queries, inspected: cur.inspected };
+    }
+    const row = this.#usage()
+      .exec<{ queries: number; inspected: number }>(QUOTA_OBJECT_ADD_SQL, period, events)
+      .one();
+    await this.#armCleanup(period);
+    return { queries: row.queries, inspected: row.inspected };
+  }
+
+  async quotaGet(periods: readonly string[]): Promise<UsageByPeriod> {
+    let sql: string;
+    try {
+      sql = quotaObjectGetSql(periods);
+    } catch {
+      return {};
+    }
+    const found: Record<string, UsageCounters> = {};
+    for (const r of this.#usage().exec<{ period: string; queries: number; inspected: number }>(
+      sql,
+      ...periods,
+    )) {
+      found[r.period] = { queries: r.queries, inspected: r.inspected };
+    }
+    return found;
+  }
+
+  /** Drops the counters of periods that have ended; re-arms for the next period end while any remain. */
+  async #quotaAlarm(): Promise<void> {
+    const sql = this.#usage();
+    const now = usagePeriods(Date.now());
+    sql.exec(QUOTA_OBJECT_CLEANUP_SQL, now.day, now.month);
+    const { n, days } = sql.exec<{ n: number; days: number }>(QUOTA_OBJECT_COUNTS_SQL).one();
+    if (n === 0) return;
+    await this.ctx.storage.setAlarm(periodResetsAt(days > 0 ? 'day' : 'month', Date.now()) + 3_600_000);
+  }
+
   /** Deletes the bucket once it has refilled completely (indistinguishable from no bucket), else re-arms. */
   async alarm(): Promise<void> {
     const storage = this.ctx.storage;
+    // A quota object (it created its `usage` table) cleans up its periods; every other object holds one bucket.
+    if (this.ctx.storage.sql.exec(QUOTA_OBJECT_EXISTS_SQL).toArray().length > 0) return this.#quotaAlarm();
     const bucket = await storage.get<TokenBucket>(BUCKET_KEY);
     if (bucket === undefined) return;
     if (bucket.fullAt <= Date.now()) {
@@ -207,6 +335,83 @@ export class SharedLimiter extends DurableObject<unknown> {
       await storage.setAlarm(bucket.fullAt);
     }
   }
+}
+
+export interface DurableQuotaStoreOptions {
+  /** Counters used while an object cannot be reached (storage: exact on D1; the call is never made unlimited). */
+  readonly fallback: QuotaStore;
+  readonly logger?: Logger;
+}
+
+/**
+ * Quota counters in the `quota:<grant id>` objects (P7-12). An object that cannot be reached answers from `fallback`
+ * (the storage table) with a rate-capped warning, so a quota degrades to storage counters, never to "unlimited".
+ */
+export function createDurableQuotaStore(
+  namespace: SharedLimiterNamespace,
+  options: DurableQuotaStoreOptions,
+): QuotaStore {
+  const { fallback } = options;
+  let warnedAt = Number.NEGATIVE_INFINITY;
+  const guarded = async <T>(
+    grantId: string,
+    ask: (stub: SharedLimiterRpc) => Promise<T>,
+    other: () => Promise<T>,
+  ): Promise<T> => {
+    try {
+      return await ask(namespace.getByName(`${QUOTA_PREFIX}${grantId}`));
+    } catch (error) {
+      if (Date.now() - warnedAt >= WARN_EVERY_MS) {
+        warnedAt = Date.now();
+        options.logger?.warn('shared limiter unavailable: quota counted in storage', {
+          error: error instanceof Error ? error.name : typeof error,
+        });
+      }
+      return other();
+    }
+  };
+  return Object.freeze({
+    reserve: (grantId, period, maxQueries) =>
+      guarded(
+        grantId,
+        (o) => o.quotaReserve(period, maxQueries),
+        () => fallback.reserve(grantId, period, maxQueries),
+      ),
+    release: (grantId, period) =>
+      guarded(
+        grantId,
+        (o) => o.quotaRelease(period),
+        () => fallback.release(grantId, period),
+      ),
+    addInspected: (grantId, period, events) =>
+      guarded(
+        grantId,
+        (o) => o.quotaAdd(period, events),
+        () => fallback.addInspected(grantId, period, events),
+      ),
+    get: (grantId, periods) =>
+      guarded(
+        grantId,
+        (o) => o.quotaGet(periods),
+        () => fallback.get(grantId, periods),
+      ),
+    getMany: async (grantIds, periods) => {
+      const entries = await Promise.all(
+        [...new Set(grantIds)].map(
+          async (id) =>
+            [
+              id,
+              await guarded(
+                id,
+                (o) => o.quotaGet(periods),
+                () => fallback.get(id, periods),
+              ),
+            ] as const,
+        ),
+      );
+      return Object.fromEntries(entries.filter(([, v]) => Object.keys(v).length > 0));
+    },
+  });
 }
 
 export interface SharedConcurrencyOptions {

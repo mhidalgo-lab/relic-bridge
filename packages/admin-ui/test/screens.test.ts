@@ -448,6 +448,111 @@ describe('grants', () => {
     expect(refused.html).toMatch(/id="credentialId-error">not another user’s key</);
   });
 
+  describe('usage quota (P7-12)', () => {
+    const withQuota = (quota: unknown) => (call: AdminCall) =>
+      call.method === 'GET' && call.path === '/grants/grt_me'
+        ? { status: 200, body: { data: { ...sample().grants[0], quota } } }
+        : undefined;
+
+    it('shows the quota in words and a form filled with its caps', async () => {
+      const { app } = setup(
+        withQuota({
+          day: { queries: 100, inspectedEvents: 5_000_000 },
+          month: { queries: 2000 },
+          warnPercent: 90,
+        }),
+      );
+      const { html } = await get(app, '/admin/grants/grt_me');
+      expect(html).toContain('per day: 100 calls, 5,000,000 events; per month: 2,000 calls (warning at 90%)');
+      expect(html).toMatch(/name="day_queries"[^>]*value="100"/);
+      expect(html).toMatch(/name="day_events"[^>]*value="5000000"/);
+      expect(html).toMatch(/name="month_queries"[^>]*value="2000"/);
+      expect(html).toMatch(/name="warn"[^>]*value="90"/);
+      expect(html).toContain('action="/admin/grants/grt_me/quota"');
+    });
+
+    it('says none, and offers the form, for a grant without a quota', async () => {
+      const { app } = setup();
+      const { html } = await get(app, '/admin/grants/grt_me');
+      expect(html).toMatch(/Usage quota<\/dt>\s*<dd>none/);
+      expect(html).toContain('Save quota');
+    });
+
+    it('sets a quota with PUT and flashes saved', async () => {
+      const { app, fake } = setup((call) =>
+        call.method === 'PUT' ? { status: 200, body: { data: sample().grants[0] } } : undefined,
+      );
+      const { res } = await post(app, '/admin/grants/grt_me/quota', {
+        day_queries: '100',
+        month_events: '9000000',
+        warn: '75',
+      });
+      expect(res.status).toBe(303);
+      expect(res.headers.get('location')).toBe('/admin/grants/grt_me');
+      expect(res.headers.get('set-cookie')).toMatch(/^rb_flash=saved;/);
+      expect(changes(fake)).toEqual([
+        {
+          method: 'PUT',
+          path: '/grants/grt_me/quota',
+          body: { quota: { day: { queries: 100 }, month: { inspectedEvents: 9_000_000 }, warnPercent: 75 } },
+        },
+      ]);
+    });
+
+    it('blank fields remove the quota', async () => {
+      const { app, fake } = setup((call) =>
+        call.method === 'PUT' ? { status: 200, body: { data: sample().grants[0] } } : undefined,
+      );
+      const { res } = await post(app, '/admin/grants/grt_me/quota', {});
+      expect(res.headers.get('set-cookie')).toMatch(/^rb_flash=quota_removed;/);
+      expect(changes(fake)).toEqual([{ method: 'PUT', path: '/grants/grt_me/quota', body: { quota: null } }]);
+    });
+
+    it('refuses bad numbers, and a warning without a cap, without calling the API and without echoing input', async () => {
+      const { app, fake } = setup();
+      const hostile = '<script>alert(1)</script>';
+      const bad = await post(app, '/admin/grants/grt_me/quota', {
+        day_queries: '0',
+        day_events: hostile,
+        month_queries: '12.5',
+        warn: '100',
+      });
+      expect(bad.res.status).toBe(422);
+      expect(bad.html).toContain('id="day_queries-error"');
+      expect(bad.html).toContain('id="warn-error"');
+      expect(bad.html).not.toContain('<script>alert');
+      const lonely = await post(app, '/admin/grants/grt_me/quota', { warn: '50' });
+      expect(lonely.res.status).toBe(422);
+      expect(lonely.html).toContain('Set a cap first');
+      expect(changes(fake)).toEqual([]);
+    });
+
+    it('a grant that no longer exists goes back to the list; a refusal comes back as a flash', async () => {
+      const gone = setup((call) =>
+        call.method === 'PUT'
+          ? { status: 404, body: { error: { code: 'not_found', message: 'no grant' } } }
+          : undefined,
+      );
+      const a = await post(gone.app, '/admin/grants/grt_me/quota', { day_queries: '5' });
+      expect(a.res.headers.get('location')).toBe('/admin/grants');
+      const owner = setup((call) =>
+        call.method === 'PUT'
+          ? { status: 403, body: { error: { code: 'forbidden', message: 'owner only', detail: 'owner' } } }
+          : undefined,
+      );
+      const b = await post(owner.app, '/admin/grants/grt_me/quota', { day_queries: '5' });
+      expect(b.res.headers.get('location')).toBe('/admin/grants/grt_me');
+      expect(b.res.headers.get('set-cookie')).toMatch(/rb_flash=not_allowed/);
+    });
+
+    it('members cannot reach it and nothing is called', async () => {
+      const { app, fake } = setup();
+      const { res } = await post(app, '/admin/grants/grt_me/quota', { day_queries: '5' }, 'member');
+      expect(res.status).toBe(403);
+      expect(fake.calls).toEqual([]);
+    });
+  });
+
   it('revoke and delete ask first', async () => {
     const { app, fake } = setup((call) =>
       call.method !== 'GET' ? { status: 200, body: { data: {} } } : undefined,

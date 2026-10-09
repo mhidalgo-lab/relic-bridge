@@ -64,6 +64,7 @@ export const grant = (over: Partial<GrantRecord> = {}): GrantRecord => ({
   accountIds: null,
   limits: {},
   rateLimit: null,
+  quota: null,
   createdAt: 0,
   updatedAt: 0,
   expiresAt: null,

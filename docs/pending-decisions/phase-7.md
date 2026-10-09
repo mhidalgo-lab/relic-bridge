@@ -192,3 +192,25 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   gnome-keyring (this machine's WSL2 has no Secret Service, so only the "unavailable" path was exercised live). Confirm
   `security -i` returns a failing status on a refused add (the code also reads back, so a silent failure is caught), and
   that macOS prompts acceptably when the keychain entry is read by a node process started by an MCP client.
+
+### P7-12 — Per-grant quotas: counting rules, failure policy and calendar periods chosen without an owner
+- **Context:** The task asks for daily query quotas and inspected-events budgets per grant, with soft warn and hard deny,
+  and a usage dashboard. Nothing could be deployed, so D1 write cost and latency come from documentation only.
+- **Assumption made:** (1) A quota counts **logical NerdGraph calls** (retries of one call count once; query-cache hits,
+  `tools/list` and calls refused before New Relic count nothing) and **inspected events** (NRQL asks for cost stats while
+  the budget applies and the stats are dropped again when the caller did not ask; the budget is checked before a call, so
+  it can be overshot by the queries in flight). (2) Periods are UTC calendar **day and month** (no rolling window; the
+  task says day/month). (3) **Fail open:** if the counter store cannot be reached the call is allowed with one warning per
+  request, because a cost control should not turn a D1 or Durable Object outage into a tool outage; the Durable Object path
+  falls back to the D1 table instead of to unlimited. (4) Counters are one atomic upsert per New Relic call per period
+  (storage, atomic on SQLite and D1); with `RB_SHARED_LIMITER=on` they live in one Durable Object per grant. (5) Quotas
+  apply to grants only (not stdio, not pass-through keys). (6) The only grant change allowed in place is the quota
+  (`PUT /grants/{id}/quota`); an import does not change an existing grant's quota (the P7-06 rule for existing grants).
+  (7) Soft warning default 80%, one extra text line per result; hard deny is `RB_LIMIT_QUOTA`.
+- **Options:** fail closed on a counter error; count declared tool costs; count cache hits (separately); rolling windows;
+  per-project or per-user (across grants) quotas; allow an import to update an existing grant's quota; a CLI flag
+  (`grant create --quota-day-queries`); email or webhook alerts at the warning threshold; reset counters when a quota is
+  lowered.
+- **Needs:** owner's call on fail-open vs fail-closed; whether D1 write cost per call is acceptable (one or two writes per
+  New Relic call for a grant with a quota; the shared limiter avoids it) or whether quotas should be Durable Object-only
+  on Workers; on a deployment, measure the added latency per call and confirm a cap holds across isolates under load.

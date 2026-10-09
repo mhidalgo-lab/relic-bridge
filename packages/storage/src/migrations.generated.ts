@@ -56,5 +56,15 @@ export const MIGRATIONS: readonly Migration[] = Object.freeze([
       "ALTER TABLE `audit_log` ADD `key_id` text;",
       "CREATE INDEX `audit_log_key_ts_idx` ON `audit_log` (`key_id`,`ts`);"
     ]
+  },
+  {
+    "version": 4,
+    "name": "0003_grant_quota_usage",
+    "checksum": "1e87c4a4bc787563c9215ad0b2223936d1ad71efe28cbfb9e89ea1d8765441ac",
+    "statements": [
+      "CREATE TABLE `grant_usage` (\n\t`grant_id` text NOT NULL,\n\t`period` text NOT NULL,\n\t`queries` integer DEFAULT 0 NOT NULL,\n\t`inspected` integer DEFAULT 0 NOT NULL,\n\t`updated_at` integer NOT NULL,\n\tPRIMARY KEY(`grant_id`, `period`),\n\tFOREIGN KEY (`grant_id`) REFERENCES `grants`(`id`) ON UPDATE no action ON DELETE cascade,\n\tCONSTRAINT \"grant_usage_counts_check\" CHECK(\"grant_usage\".\"queries\" >= 0 AND \"grant_usage\".\"inspected\" >= 0)\n);",
+      "CREATE INDEX `grant_usage_updated_idx` ON `grant_usage` (`updated_at`);",
+      "ALTER TABLE `grants` ADD `quota` text;"
+    ]
   }
 ]);

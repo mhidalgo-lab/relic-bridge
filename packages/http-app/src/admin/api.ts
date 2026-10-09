@@ -32,6 +32,7 @@ import {
   revokeUserSessions,
   rotateCredentialKey,
   rotateCredentialKeysBatch,
+  setGrantQuota,
   type toTokenSummary,
   type UpdateProjectInput,
   updateProject,
@@ -44,13 +45,17 @@ import {
   ConflictError,
   type CredentialRecord,
   type GrantRecord,
+  type GrantUsageRepository,
   type KvRepository,
   newId,
   normalizeEmail,
   type ProjectRecord,
+  periodResetsAt,
   type Storage,
+  type StoredQuota,
   type UserPatch,
   type UserRecord,
+  usagePeriods,
 } from '@relic-bridge/storage';
 import type { Context } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
@@ -86,7 +91,7 @@ export const SESSION_ACTOR: 'session' = 'session';
 
 export type StorageForAdmin = Pick<
   Storage,
-  'users' | 'credentials' | 'projects' | 'grants' | 'accessTokens' | 'auditLog' | 'settings'
+  'users' | 'credentials' | 'projects' | 'grants' | 'accessTokens' | 'auditLog' | 'settings' | 'grantUsage'
 >;
 
 type Vars = {
@@ -100,6 +105,8 @@ export type AdminEnv = { Variables: Vars };
 /** What `createHttpApp` hands the admin API (everything request-scoped stays in the handler). */
 export interface AdminApiDeps {
   readonly storage: StorageForAdmin;
+  /** Where quota counters are read for the usage view (P7-12). Default: `storage.grantUsage`. */
+  readonly usage?: Pick<GrantUsageRepository, 'getMany'>;
   readonly keyring: Keyring;
   /** The bootstrap admin token; absent when only sessions are configured. */
   readonly verifier?: AdminTokenVerifier;
@@ -219,6 +226,7 @@ function grantView(g: GrantRecord): z.infer<typeof S.GrantSchema> {
     limits: limitsView(g.limits),
     rateLimit:
       g.rateLimit === null ? null : { requests: g.rateLimit.requests, perSeconds: g.rateLimit.perSeconds },
+    quota: g.quota === null ? null : (JSON.parse(JSON.stringify(g.quota)) as z.infer<typeof S.QuotaSchema>),
     createdAt: g.createdAt,
     updatedAt: g.updatedAt,
     expiresAt: g.expiresAt,
@@ -643,6 +651,29 @@ const routes = {
     request: BODY(S.CreateGrantBody),
     responses: { 201: json(S.GrantOne, 'Created'), ...errors(404, 409, 413, 415, 422) },
   }),
+  setGrantQuota: route({
+    method: 'put',
+    path: '/grants/{id}/quota',
+    tags: ['grants'],
+    summary: 'Set or remove a grant’s usage quota',
+    description:
+      'Caps per UTC day and month on real NerdGraph calls and inspected events (P7-12). Takes effect at once on this ' +
+      'process and within the access cache TTL elsewhere. Counters are kept: a cap below today’s use denies at once. ' +
+      'Admins and owners; only owners change a grant that acts for an owner.',
+    request: { params: S.IdParam, ...BODY(S.SetQuotaBody) },
+    responses: { 200: json(S.GrantOne, 'The grant with its quota'), ...errors(404, 413, 415, 422) },
+  }),
+  quotaUsage: route({
+    method: 'get',
+    path: '/usage/quotas',
+    tags: ['audit'],
+    summary: 'Usage against the quota of the grants that have one',
+    description:
+      'The counters of the current UTC day and month next to each grant’s caps, for at most 50 live grants with a quota ' +
+      '(one bounded read). Admins and owners only.',
+    responses: { 200: json(S.QuotaUsageResponse, 'Usage'), ...errors() },
+  }),
+
   getGrant: route({
     method: 'get',
     path: '/grants/{id}',
@@ -933,6 +964,7 @@ const REFUSAL_ROUTES: readonly (readonly [string, RegExp, string, string])[] = [
   ['POST', /^\/projects$/, 'project.create', 'project'],
   ['PATCH', /^\/projects\/([^/]+)$/, 'project.update', 'project'],
   ['POST', /^\/grants$/, 'grant.create', 'grant'],
+  ['PUT', /^\/grants\/([^/]+)\/quota$/, 'grant.quota_set', 'grant'],
   ['POST', /^\/tokens$/, 'token.create', 'token'],
   ['POST', /^\/keys\/rotate$/, 'keys.rotate', 'master_key'],
   ['POST', /^\/config\/export$/, 'config.export', 'config'],
@@ -972,6 +1004,8 @@ const viaOf = (principal: AdminPrincipal | undefined): string =>
   principal?.kind === 'session' ? SESSION_ACTOR : ADMIN_TOKEN_ACTOR;
 
 /** Bounds for self-service (a member cannot fill storage or fan out New Relic validations). */
+/** Grants the quota usage view lists at most (one bounded counter read). */
+export const QUOTA_USAGE_MAX_GRANTS = 50;
 const MAX_OWN_CREDENTIALS = 10;
 const MAX_LIVE_TOKENS_PER_GRANT = 20;
 
@@ -1805,6 +1839,67 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
       (r) => ({ targetId: r.grant.id, projectId: r.grant.projectId }),
     );
     return c.json({ data: grantView(result.grant), warnings: [...result.warnings] }, 201);
+  });
+
+  api.openapi(routes.setGrantQuota, async (c) => {
+    const { id } = c.req.valid('param');
+    const { quota } = c.req.valid('json');
+    const grant = await change(
+      c,
+      {
+        action: 'grant.quota_set',
+        targetType: 'grant',
+        targetId: id,
+        details: { removed: quota === null },
+      },
+      async () => {
+        const existing = await must('grant', id, (x) => storage.grants.get(x));
+        await guardOwnerAssets(c, await grantUsers(existing));
+        // Validated by the schema, and again by the service (`checkQuota`).
+        return setGrantQuota(storage, existing.id, quota as StoredQuota | null);
+      },
+      (g) => ({
+        projectId: g.projectId,
+        // The caps themselves are not secret and are what an auditor needs to see.
+        details: { quota: g.quota },
+      }),
+    );
+    return c.json({ data: grantView(grant) }, 200);
+  });
+
+  api.openapi(routes.quotaUsage, async (c) => {
+    const now = clock.now();
+    const live = (await storage.grants.list()).filter(
+      (g) => g.quota !== null && g.revokedAt === null && (g.expiresAt === null || g.expiresAt > now),
+    );
+    const shown = live.slice(0, QUOTA_USAGE_MAX_GRANTS);
+    const periods = usagePeriods(now);
+    const counters =
+      shown.length === 0
+        ? {}
+        : await (deps.usage ?? storage.grantUsage).getMany(
+            shown.map((g) => g.id),
+            [periods.day, periods.month],
+          );
+    const zero = { queries: 0, inspected: 0 };
+    const data = shown.map((g) => ({
+      grantId: g.id,
+      projectId: g.projectId,
+      userId: g.userId,
+      label: g.label,
+      quota: grantView(g).quota as z.infer<typeof S.QuotaSchema>,
+      day: {
+        period: periods.day,
+        ...(counters[g.id]?.[periods.day] ?? zero),
+        resetsAt: periodResetsAt('day', now),
+      },
+      month: {
+        period: periods.month,
+        ...(counters[g.id]?.[periods.month] ?? zero),
+        resetsAt: periodResetsAt('month', now),
+      },
+    }));
+    return c.json({ data, truncated: live.length > shown.length }, 200);
   });
 
   api.openapi(routes.getGrant, async (c) => {

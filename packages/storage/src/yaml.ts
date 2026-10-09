@@ -251,6 +251,15 @@ export function createYamlStorage(
       revoke: readOnly,
     },
     auditLog: { append: readOnly, list: empty, stats: empty, purgeBefore: readOnly },
+    // No grants, so no quotas: the counters are empty and every write refuses like the rest of the read-only adapter.
+    grantUsage: {
+      reserve: readOnly,
+      release: readOnly,
+      addInspected: readOnly,
+      get: async () => Object.freeze({}),
+      getMany: async () => Object.freeze({}),
+      purgeBefore: readOnly,
+    },
     settings: {
       get: async () => undefined,
       set: readOnly,

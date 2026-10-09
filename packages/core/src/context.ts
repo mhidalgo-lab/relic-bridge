@@ -36,6 +36,23 @@ export interface Limiter {
   run<T>(task: () => Promise<T>): Promise<T>;
 }
 
+/**
+ * A grant's usage quota as one request sees it (P7-12). Built per request by the host from the grant's caps and its
+ * shared counters; absent = no quota. It counts what New Relic actually served: the NerdGraph client calls
+ * `beforeCall` once per logical call (retries and query-cache hits do not count) and the NRQL engine reports the
+ * events New Relic says it inspected.
+ */
+export interface QuotaGuard {
+  /** True when the grant has an inspected-events budget: NRQL then always fetches cost stats (stripped if unasked). */
+  readonly tracksInspected: boolean;
+  /** Counts one NerdGraph call, or throws `RB_LIMIT_QUOTA` when a hard cap is reached. Never throws for store errors. */
+  beforeCall(): Promise<void>;
+  /** Adds the events one complete NRQL result inspected. Never throws. */
+  recordInspected(events: number): Promise<void>;
+  /** The soft-limit warning to show with this request's result (once per request), if a threshold was crossed. */
+  takeWarning(): string | undefined;
+}
+
 /** Query limits for a project, possibly tightened per grant. Enforced in P1-04. */
 export interface QueryLimits {
   /** Max rows a query may return (injected / clamped LIMIT). */
@@ -93,6 +110,8 @@ export interface ToolContext {
    * the host runtime, not module state, and isolates entries by scope, credential, key, accounts and limits (T16).
    */
   readonly queryCache?: QueryCacheBinding;
+  /** The grant's usage quota (P7-12). Absent: no quota (stdio, pass-through, grants without one). */
+  readonly quota?: QuotaGuard;
 }
 
 /** Simple counting budget. One instance per request. */

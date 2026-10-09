@@ -4,7 +4,9 @@
 // at request time anyway, so a row changed behind these services still can't widen access.
 import { redact, WRITE_TOOL_NAMES } from '@relic-bridge/core';
 import {
+  cloneQuota,
   type GrantRecord,
+  isStoredQuota,
   limitsSchema,
   newId,
   type ProjectPatch,
@@ -12,6 +14,7 @@ import {
   SLUG_RE,
   type Storage,
   type StoredLimits,
+  type StoredQuota,
   type StoredRateLimit,
 } from '@relic-bridge/storage';
 import { AccessError } from './errors.ts';
@@ -232,6 +235,8 @@ export interface CreateGrantInput {
   readonly accountIds?: readonly number[] | null;
   readonly limits?: StoredLimits;
   readonly rateLimit?: StoredRateLimit | null;
+  /** Usage caps per UTC day and month (P7-12). Null/absent = unlimited. */
+  readonly quota?: StoredQuota | null;
   readonly expiresAt?: number | null;
 }
 
@@ -242,6 +247,30 @@ export interface CreateGrantResult {
    * stored as asked but never take effect while the project doesn't allow them: access is always the intersection.
    */
   readonly warnings: readonly string[];
+}
+
+/** A quota as stored: only known fields, caps 1..QUOTA_MAX, each period naming a cap (P7-12). `null` clears it. */
+export function checkQuota(value: unknown, field: string): StoredQuota | null {
+  if (value === undefined || value === null) return null;
+  if (!isStoredQuota(value)) {
+    throw new AccessError(
+      'invalid_input',
+      'quota needs day and/or month with positive integer queries and/or inspectedEvents, and warnPercent 1-99',
+      field,
+    );
+  }
+  return cloneQuota(value);
+}
+
+/** Sets or clears (`null`) a grant's quota. Counters are kept: lowering a cap below today's use denies at once. */
+export async function setGrantQuota(
+  storage: Pick<Deps, 'grants'>,
+  grantId: string,
+  quota: StoredQuota | null,
+): Promise<GrantRecord> {
+  const grant = await storage.grants.get(grantId);
+  if (grant === null) throw new AccessError('not_found', `grant ${grantId} not found`, 'id');
+  return storage.grants.update(grant.id, { quota: checkQuota(quota, 'quota') });
 }
 
 export async function createGrant(
@@ -323,6 +352,7 @@ export async function createGrant(
       'rateLimit',
     );
   }
+  const quota = checkQuota(input.quota, 'quota');
   const expiresAt = input.expiresAt ?? null;
   if (expiresAt !== null && !(Number.isSafeInteger(expiresAt) && expiresAt > now)) {
     throw new AccessError('invalid_input', 'expiresAt must be in the future', 'expiresAt');
@@ -337,6 +367,7 @@ export async function createGrant(
     accountIds,
     limits: checkLimits(input.limits, 'limits'),
     rateLimit: rateLimit === null ? null : { requests: rateLimit.requests, perSeconds: rateLimit.perSeconds },
+    quota,
     expiresAt,
   });
   return Object.freeze({ grant, warnings: Object.freeze(warnings) });

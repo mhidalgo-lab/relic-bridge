@@ -12,6 +12,7 @@ export {
   type Limiter,
   newRequestId,
   type QueryLimits,
+  type QuotaGuard,
   type Region,
   systemClock,
   type ToolContext,

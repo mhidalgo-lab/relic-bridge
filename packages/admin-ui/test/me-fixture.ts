@@ -44,6 +44,7 @@ export const MY_GRANT: Row = {
   accountIds: null,
   limits: {},
   rateLimit: null,
+  quota: null,
   createdAt: T,
   updatedAt: T,
   expiresAt: null,

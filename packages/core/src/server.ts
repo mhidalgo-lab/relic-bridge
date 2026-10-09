@@ -179,8 +179,13 @@ export function buildMcpServer({
       const ctx = contextFor();
       try {
         const out = await invoke(def, input, ctx);
+        // Soft quota warning (P7-12): our own line after the result, never inside the untrusted-data envelope.
+        const warning = ctx.quota?.takeWarning();
         return {
-          content: [{ type: 'text', text: out.text }],
+          content: [
+            { type: 'text', text: out.text },
+            ...(warning === undefined ? [] : [{ type: 'text' as const, text: warning }]),
+          ],
           ...(out.structured === undefined
             ? {}
             : { structuredContent: out.structured as Record<string, unknown> }),

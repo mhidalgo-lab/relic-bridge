@@ -88,6 +88,12 @@ lists, and the admin API, not the page, limits a member to their own rows), bars
 style), and a file download is a `kit.page` handler returning its own `Response` with `UI_PAGE_HEADERS`, `no-store`,
 `nosniff` and a `Content-Disposition`. Text going into CSV passes `csvCell`.
 
+Since P7-12 the usage screen also shows `GET /usage/quotas` (the quota usage of up to 50 grants: `QuotaTable`, one
+`<meter>` per capped measure with `low`/`high` at the warning threshold) and a 14-day series from a second `/audit/stats`
+call grouped by `day` (`DailySeries`). Both are extra bounded reads; if one fails its section is left out and the rest of
+the page renders. The grant page has the quota form (`POST /admin/grants/:id/quota` calls `PUT /grants/{id}/quota`; blank
+fields remove the quota; errors name fields and never echo input); `AdminCall.method` therefore includes `PUT`.
+
 ## Connect page (P4-06)
 
 `screens/connect.tsx` (`/admin/connect`, admin) renders `SnippetList` (`snippets.tsx`) from the pure `clientSnippets`

@@ -26,6 +26,7 @@ export {
   type KvPurgeBudget,
   type KvPurgeResult,
   purgeExpiredKv,
+  purgeGrantUsage,
 } from './kv-purge.ts';
 export { createMemoryStorage, type MemoryStorageOptions } from './memory.ts';
 export {
@@ -39,6 +40,7 @@ export {
 } from './migrate.ts';
 export { MIGRATIONS } from './migrations.generated.ts';
 export * from './types.ts';
+export * from './usage.ts';
 export { lastOwnerGuardSql, UNBOUND_ENABLED_SQL } from './user-guards.ts';
 export * from './validate.ts';
 export {

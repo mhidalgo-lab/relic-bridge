@@ -1,13 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 /** @jsxImportSource hono/jsx */
 // Grants (P4-04): who may use a project (a person or a service), with which key, tools, accounts, rate and expiry.
-// Access is always the intersection of the grant and its project; the API has no grant update (revoke and recreate).
+// Access is always the intersection of the grant and its project; the API has no general grant update (revoke and
+// recreate). The one change in place is the usage quota (P7-12).
 //
 //   GET  /admin/grants                    list (filters: project, user; cursor pages)
 //   GET  /admin/grants/new                step 1: choose the project
 //   GET  /admin/grants/new?project=<id>   step 2: the grant form
 //   POST /admin/grants                    create
 //   GET  /admin/grants/:id                detail with its device tokens
+//   POST /admin/grants/:id/quota          set or remove the usage quota (blank fields remove it)
 //   POST /admin/grants/:id/revoke         revoke (needs confirm=yes): every token of it stops
 //   POST /admin/grants/:id/delete         delete with its tokens (needs confirm=yes)
 import type { Context, Hono } from 'hono';
@@ -26,7 +28,7 @@ import {
   SelectField,
   TextField,
 } from '../components.tsx';
-import { adminPath, type UiKit, type UiPrincipal, type UiTool } from '../kit.ts';
+import { adminPath, type UiKit, type UiPrincipal, type UiTool, type VerifiedForm } from '../kit.ts';
 import { htmlResponse } from '../pages.tsx';
 import { credentialOption } from './credentials.tsx';
 import {
@@ -40,6 +42,7 @@ import {
   parseProject,
   parseToken,
   parseUser,
+  type Quota,
   type Token,
   type User,
   validCursor,
@@ -612,6 +615,7 @@ export function registerGrants(ui: Hono, kit: UiKit): void {
                     ? 'none of its own'
                     : `${grant.rateLimit.requests} requests per ${grant.rateLimit.perSeconds} s`,
                 ],
+                ['Usage quota', quotaSummary(grant.quota)],
                 ['Expires', <When at={grant.expiresAt} none="never" />],
                 ['Created', <When at={grant.createdAt} />],
                 ...(grant.revokedAt === null ? [] : [['Revoked', <When at={grant.revokedAt} />] as const]),
@@ -635,9 +639,29 @@ export function registerGrants(ui: Hono, kit: UiKit): void {
             )}
           </section>
 
+          <section aria-labelledby="quota-heading">
+            <h2 id="quota-heading">Usage quota</h2>
+            <p>
+              Caps what this grant may spend of the shared New Relic key per UTC day and month. Only real New
+              Relic calls count (a result served from the query cache is free). Past a cap the connection gets
+              a clear error until the period ends; before that, results carry a warning.{' '}
+              <a href="/admin/usage#quotas-heading">See current usage</a>
+            </p>
+            {active && !locked ? (
+              <QuotaForm action={`${self}/quota`} csrf={principal.csrf} values={quotaValues(grant.quota)} />
+            ) : (
+              <p class="muted">
+                {locked ? 'Only an owner changes this grant.' : 'A revoked grant has no use to cap.'}
+              </p>
+            )}
+          </section>
+
           <section aria-labelledby="danger-heading">
             <h2 id="danger-heading">Revoke or delete</h2>
-            <p>The API cannot change a grant: to change it, create a new one and revoke this one.</p>
+            <p>
+              Apart from its quota, a grant cannot be changed: to change anything else, create a new one and
+              revoke this one.
+            </p>
             {locked ? <OwnerOnlyNote /> : null}
             {active && !locked ? (
               <ConfirmAction
@@ -664,6 +688,43 @@ export function registerGrants(ui: Hono, kit: UiKit): void {
           </section>
         </Layout>,
       );
+    }),
+  );
+
+  ui.post(
+    `${ROUTE}/:id/quota`,
+    kit.form('admin', async (c, principal, form) => {
+      const id = c.req.param('id') ?? '';
+      if (!isId(id)) return kit.redirect(BASE, 'not_found');
+      const self = `${BASE}${adminPath`/${id}`}`;
+      const parsed = quotaFrom(form);
+      if ('errors' in parsed) {
+        const { res, grant } = await loadGrant(c, principal, id);
+        if (grant === null) return kit.redirect(BASE, flashFor(problemOf(res)));
+        return htmlResponse(
+          <Layout title="Usage quota" viewer={principal} current={BASE}>
+            <p>
+              <a href={self}>Back to the grant</a>
+            </p>
+            <QuotaForm
+              action={`${self}/quota`}
+              csrf={principal.csrf}
+              values={parsed.values}
+              errors={parsed.errors}
+            />
+          </Layout>,
+          422,
+        );
+      }
+      const res = await kit.callAdmin(
+        c,
+        principal,
+        { method: 'PUT', path: adminPath`/grants/${id}/quota`, body: { quota: parsed.quota } },
+        form,
+      );
+      if (isOk(res)) return kit.redirect(self, parsed.quota === null ? 'quota_removed' : 'saved');
+      const problem = problemOf(res);
+      return kit.redirect(problem.status === 404 ? BASE : self, flashFor(problem));
     }),
   );
 
@@ -703,6 +764,133 @@ export function registerGrants(ui: Hono, kit: UiKit): void {
     });
   ui.post(`${ROUTE}/:id/revoke`, destructive('revoke'));
   ui.post(`${ROUTE}/:id/delete`, destructive('delete'));
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Usage quota (P7-12)
+// ---------------------------------------------------------------------------------------------------------------
+
+const QUOTA_MAX = 9_999_999_999_999;
+const QUOTA_FIELDS = ['day_queries', 'day_events', 'month_queries', 'month_events', 'warn'] as const;
+type QuotaField = (typeof QUOTA_FIELDS)[number];
+type QuotaValues = Readonly<Record<QuotaField, string>>;
+
+const capText = (n: number | null): string => (n === null ? '' : String(n));
+
+export function quotaValues(q: Quota | null): QuotaValues {
+  return {
+    day_queries: capText(q?.day?.queries ?? null),
+    day_events: capText(q?.day?.inspectedEvents ?? null),
+    month_queries: capText(q?.month?.queries ?? null),
+    month_events: capText(q?.month?.inspectedEvents ?? null),
+    warn: q === null ? '' : String(q.warnPercent),
+  };
+}
+
+/** The quota in words, for the grant summary. */
+export function quotaSummary(q: Quota | null): string {
+  if (q === null) return 'none';
+  const part = (name: string, caps: { queries: number | null; inspectedEvents: number | null } | null) => {
+    if (caps === null) return null;
+    const items = [
+      caps.queries === null ? null : `${caps.queries.toLocaleString('en-US')} calls`,
+      caps.inspectedEvents === null ? null : `${caps.inspectedEvents.toLocaleString('en-US')} events`,
+    ].filter((x): x is string => x !== null);
+    return items.length === 0 ? null : `per ${name}: ${items.join(', ')}`;
+  };
+  const parts = [part('day', q.day), part('month', q.month)].filter((x): x is string => x !== null);
+  return `${parts.join('; ')} (warning at ${q.warnPercent}%)`;
+}
+
+/** The form's quota: caps per period; blank everywhere removes the quota. Errors name fields, never echo input. */
+function quotaFrom(
+  form: VerifiedForm,
+): { quota: object | null } | { errors: Record<string, string>; values: QuotaValues } {
+  const errors: Record<string, string> = {};
+  const numbers: Partial<Record<QuotaField, number>> = {};
+  for (const name of QUOTA_FIELDS) {
+    const max = name === 'warn' ? 99 : QUOTA_MAX;
+    const n = positiveInt(form, name, max);
+    if (n === null) errors[name] = `A whole number from 1 to ${max}, or leave it blank.`;
+    else if (n !== undefined) numbers[name] = n;
+  }
+  const values = Object.fromEntries(QUOTA_FIELDS.map((n) => [n, form.fields.get(n) ?? ''])) as QuotaValues;
+  const period = (queries: number | undefined, events: number | undefined) =>
+    queries === undefined && events === undefined
+      ? undefined
+      : {
+          ...(queries === undefined ? {} : { queries }),
+          ...(events === undefined ? {} : { inspectedEvents: events }),
+        };
+  const day = period(numbers.day_queries, numbers.day_events);
+  const month = period(numbers.month_queries, numbers.month_events);
+  if (day === undefined && month === undefined) {
+    if (numbers.warn !== undefined) errors['warn'] = 'Set a cap first, or leave this blank.';
+    if (Object.keys(errors).length === 0) return { quota: null };
+  }
+  if (Object.keys(errors).length > 0) return { errors, values };
+  return {
+    quota: {
+      ...(day === undefined ? {} : { day }),
+      ...(month === undefined ? {} : { month }),
+      ...(numbers.warn === undefined ? {} : { warnPercent: numbers.warn }),
+    },
+  };
+}
+
+function QuotaForm(props: {
+  readonly action: string;
+  readonly csrf: string;
+  readonly values: QuotaValues;
+  readonly errors?: Readonly<Record<string, string>>;
+}): JSX.Element {
+  const v = props.values;
+  const e = props.errors ?? {};
+  return (
+    <Form action={props.action} csrf={props.csrf} label="Usage quota">
+      <TextField
+        name="day_queries"
+        label="Calls per day"
+        hint="New Relic calls per UTC day. Leave blank for no cap."
+        value={v.day_queries}
+        error={e['day_queries']}
+        inputmode="numeric"
+      />
+      <TextField
+        name="day_events"
+        label="Events inspected per day"
+        hint="Events New Relic scanned for NRQL queries, per UTC day. Checked before each call, so one query can overshoot."
+        value={v.day_events}
+        error={e['day_events']}
+        inputmode="numeric"
+      />
+      <TextField
+        name="month_queries"
+        label="Calls per month"
+        hint="Per UTC month. Leave blank for no cap."
+        value={v.month_queries}
+        error={e['month_queries']}
+        inputmode="numeric"
+      />
+      <TextField
+        name="month_events"
+        label="Events inspected per month"
+        value={v.month_events}
+        error={e['month_events']}
+        inputmode="numeric"
+      />
+      <TextField
+        name="warn"
+        label="Warn at percent"
+        hint="Results carry a warning from this share of a cap (1 to 99, default 80)."
+        value={v.warn}
+        error={e['warn']}
+        inputmode="numeric"
+      />
+      <p class="muted">Leave every field blank to remove the quota. Usage so far is kept.</p>
+      <Button>Save quota</Button>
+    </Form>
+  );
 }
 
 /** Tokens of one grant, with a revoke button per live token (confirmation on the next page). */

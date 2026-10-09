@@ -60,7 +60,7 @@ List users
 
 Create a user
 
-Users own personal credentials and receive user grants. Login identities arrive in Phase 4.
+Users own personal credentials and receive user grants. Login identities arrive in Phase 4. Creating an admin or an owner is owner-only (`403 forbidden`, `detail: owner`, P4-21).
 
 Request body (`CreateUser`):
 
@@ -96,7 +96,7 @@ Get a user
 
 Update or disable a user
 
-Demoting or disabling the last enabled owner is refused with `409 conflict`, `detail: last_owner` (P4-16). Re-enabling a user who holds a live grant naming a write tool is owner-only: `403 forbidden`, `detail: write_scope` (P7-32).
+Only an owner (or the admin token) promotes a user to admin or changes, demotes, disables or enables another admin: an admin session gets `403 forbidden`, `detail: owner` (P4-21). Demoting or disabling the last enabled owner is refused with `409 conflict`, `detail: last_owner` (P4-16). Re-enabling a user who holds a live grant naming a write tool is owner-only: `403 forbidden`, `detail: write_scope` (P7-32).
 
 | Parameter | In | Type | Required | Description |
 | --- | --- | --- | --- | --- |
@@ -185,7 +185,7 @@ Admins (an owner's apps: owners only). Revokes every token of that authorization
 
 Sign a user out everywhere
 
-Ends every admin session of the user at once (all devices). Members may do this for themselves only; admins for anyone but an owner. A role change or disabling a user does this automatically.
+Ends every admin session of the user at once (all devices). Members may do this for themselves only; admins for members and themselves (another admin or an owner: owners only). A role change or disabling a user does this automatically.
 
 | Parameter | In | Type | Required | Description |
 | --- | --- | --- | --- | --- |

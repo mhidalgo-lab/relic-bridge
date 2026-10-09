@@ -53,6 +53,16 @@ export function sample(text = ''): Sample {
         updatedAt: T,
         disabledAt: T,
       },
+      {
+        id: 'usr_admin2',
+        email: 'admin2@example.com',
+        displayName: null,
+        idp: 'github',
+        role: 'admin',
+        createdAt: T,
+        updatedAt: T,
+        disabledAt: null,
+      },
     ],
     credentials: [
       {

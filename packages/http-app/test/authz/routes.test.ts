@@ -509,6 +509,8 @@ describe('admin routes × session principals (P4-02)', () => {
     expect(detail(await patch(admin, owner.userId, { displayName: 'x' }))).toBe('403 owner');
     expect(detail(await post(admin, `/users/${owner.userId}/sessions/revoke`))).toBe('403 owner');
     expect(detail(await post(admin, '/users', { email: 'o2@example.com', role: 'owner' }))).toBe('403 owner');
+    // Admins are not peers (P4-21): no admin made either; an owner promotes.
+    expect(detail(await patch(admin, member.userId, { role: 'admin' }))).toBe('403 owner');
     // Members: only their own sessions.
     expect(detail(await post(member, `/users/${admin.userId}/sessions/revoke`))).toBe('403 role');
     expect(detail(await post(member, '/users/usr_none/sessions/revoke'))).toBe('403 role');
@@ -516,7 +518,7 @@ describe('admin routes × session principals (P4-02)', () => {
     expect((await me(admin)).status).toBe(200);
 
     // A role change ends every session of that user, at once.
-    expect((await patch(admin, member.userId, { role: 'admin' })).status).toBe(200);
+    expect((await patch(owner, member.userId, { role: 'admin' })).status).toBe(200);
     expect((await me(member)).status).toBe(401);
     expect((await me(memberPhone)).status).toBe(401);
     // Disabling too; and a disabled user's fresh session (minted directly) still fails.

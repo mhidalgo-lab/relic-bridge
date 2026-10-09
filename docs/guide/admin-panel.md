@@ -9,7 +9,7 @@ Who sees what:
 | Role | Panel |
 |---|---|
 | owner | everything, including adding or changing owners |
-| admin | keys, projects, grants, devices and users (not owners) |
+| admin | keys, projects, grants, devices and members (not owners or other admins; only an owner adds, changes, disables or signs out an admin) |
 | member | the overview, the audit page (own rows) and "My access": their own keys, grants and device tokens (see [admin access](admin-access.md#my-access-adminme-every-role)) |
 
 The screens work without JavaScript. The only script adds copy buttons.

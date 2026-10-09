@@ -94,7 +94,7 @@ On a Worker, `pnpm cf:setup --sign-in` asks for the public URL and each provider
 | Role | In the panel and API |
 |---|---|
 | `owner` | Everything, including master-key rotation, setup links, **moving a user to another provider**, managing other owners and **enabling write tools** on projects and grants. The bootstrap `RB_ADMIN_TOKEN` acts as owner. |
-| `admin` | Keys, projects, grants, device tokens and users, the audit log with CSV export, usage statistics and the connect page. Cannot create, promote, change or sign out an owner, and cannot act on an owner's personal keys, grants or device tokens (or make an owner's key a project default). |
+| `admin` | Keys, projects, grants, device tokens and users, the audit log with CSV export, usage statistics and the connect page. Cannot create, promote, change or sign out an owner, and cannot create, promote, demote, disable, move to another provider or sign out another administrator (only an owner does; admins manage members), and cannot act on an owner's personal keys, grants or device tokens (or make an owner's key a project default). |
 | `member` | Overview, their own rows in the audit log, and **My access**: their own keys, their grants and device tokens. |
 
 Nobody can change their own role or disable themselves through a session. Changing a role or disabling a user ends all

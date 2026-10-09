@@ -2,11 +2,11 @@
 id: P4-23
 title: Limit fields on the admin panel grant form
 phase: 4
-status: todo
+status: review
 priority: low
 depends_on: [P4-04]
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P4-23 — Limit fields on the admin panel grant form
@@ -21,9 +21,9 @@ admin panel, not only through the API. Grants stay non-editable (revoke and recr
 - Show the grant's limits (and the effective, project-capped limits warnings) on the grant view.
 
 ## Acceptance criteria
-- [ ] Creating a grant with limits from the panel stores them; invalid values show field errors.
-- [ ] Limits above the project's are accepted with the existing warning text displayed.
-- [ ] Admin UI tests; CSRF/escaping checks pass (`check-ui-escaping`).
+- [x] Creating a grant with limits from the panel stores them; invalid values show field errors.
+- [x] Limits above the project's are accepted with the existing warning text displayed.
+- [x] Admin UI tests; CSRF/escaping checks pass (`check-ui-escaping`).
 
 ## Security notes
 No new route; existing `POST /grants` authorization applies. T31 write-scope guard unchanged.

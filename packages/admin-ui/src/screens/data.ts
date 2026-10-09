@@ -217,6 +217,7 @@ export interface Grant {
   readonly credentialId: string | null;
   readonly tools: string[] | null;
   readonly accountIds: number[] | null;
+  readonly limits: Limits;
   readonly rateLimit: { readonly requests: number; readonly perSeconds: number } | null;
   readonly quota: Quota | null;
   readonly createdAt: number;
@@ -236,6 +237,7 @@ export function parseGrant(r: Row): Grant | null {
     credentialId: strOrNull(r['credentialId']),
     tools: strsOrNull(r['tools']),
     accountIds: intsOrNull(r['accountIds']),
+    limits: parseLimits(r['limits']),
     rateLimit: rl === null ? null : { requests: int(rl['requests']), perSeconds: int(rl['perSeconds']) },
     quota: parseQuota(r['quota']),
     createdAt: int(r['createdAt']),

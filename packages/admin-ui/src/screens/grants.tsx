@@ -35,6 +35,7 @@ import {
   type Credential,
   type Grant,
   isId,
+  type Limits,
   one,
   type Project,
   parseCredential,
@@ -58,7 +59,11 @@ import {
   flashFor,
   formMessage,
   isOk,
+  LimitsFields,
+  LimitsText,
   lifecycle,
+  limitFieldOf,
+  limitsFrom,
   listAll,
   listOne,
   loadFailed,
@@ -99,6 +104,35 @@ export function noEffect(g: Grant, p: Project): string[] {
     const outside = g.accountIds.filter((a) => !p.allowedAccountIds.includes(a));
     if (outside.length > 0) out.push(`Accounts not allowed on the project: ${outside.join(', ')}.`);
   }
+  out.push(...limitNotes(g.limits, p.limits));
+  return out;
+}
+
+/** The server defaults a project without its own value falls back to (shown in the limit field hints). */
+const DEFAULT_LIMITS = { maxLimit: 1000, maxWindowDays: 7, maxResponseBytes: 524_288 } as const;
+
+/** Grant limits looser than the project's: stored, but the project's apply (a grant can only narrow). */
+function limitNotes(g: Limits, p: Limits): string[] {
+  const out: string[] = [];
+  for (const [key, label] of [
+    ['maxLimit', 'Most rows per query'],
+    ['maxWindowDays', 'Longest time window'],
+    ['maxResponseBytes', 'Largest response'],
+  ] as const) {
+    const mine = g[key];
+    const ceiling = p[key] ?? DEFAULT_LIMITS[key];
+    if (mine !== undefined && mine > ceiling) {
+      out.push(`${label} is above the project's limit (${ceiling}): the project's limit applies.`);
+    }
+  }
+  if (g.rawNrql === true && p.rawNrql === false) {
+    out.push('Arbitrary NRQL is off on the project: it stays off for this grant.');
+  }
+  const allowed = p.eventTypes?.allow;
+  const outside = (g.eventTypes?.allow ?? []).filter((e) => allowed !== undefined && !allowed.includes(e));
+  if (outside.length > 0) {
+    out.push(`Event types the project does not allow (no effect): ${outside.join(', ')}.`);
+  }
   return out;
 }
 
@@ -112,6 +146,7 @@ interface GrantValues {
   readonly credentialId: string;
   readonly tools: readonly string[] | null;
   readonly accounts: readonly number[] | null;
+  readonly limits: Limits;
   readonly requests: string;
   readonly perSeconds: string;
   readonly expiresDays: string;
@@ -223,6 +258,11 @@ function grantFormPage(props: GrantFormProps) {
             error={props.errors['accounts']}
           />
         </fieldset>
+        <LimitsFields
+          limits={v.limits}
+          errors={props.errors}
+          hint="Leave a field blank to use the project's limits. A grant can only narrow them: a looser value is stored but the project's limit applies."
+        />
         <fieldset class="field">
           <legend>Rate limit (optional)</legend>
           <p class="hint">Both blank: no grant-specific limit.</p>
@@ -424,6 +464,7 @@ export function registerGrants(ui: Hono, kit: UiKit): void {
             credentialId: '',
             tools: null,
             accounts: null,
+            limits: {},
             requests: '',
             perSeconds: '',
             expiresDays: '',
@@ -459,6 +500,8 @@ export function registerGrants(ui: Hono, kit: UiKit): void {
       if (accounts !== null && accounts.length === 0) {
         errors['accounts'] = 'Choose at least one account, or every account the project allows.';
       }
+      const limits = limitsFrom(form);
+      if ('errors' in limits) Object.assign(errors, limits.errors);
       const requests = positiveInt(form, 'rate_requests', 1_000_000);
       const perSeconds = positiveInt(form, 'rate_seconds', 86_400);
       if (requests === null) errors['rate_requests'] = 'A whole number from 1 to 1000000.';
@@ -479,6 +522,7 @@ export function registerGrants(ui: Hono, kit: UiKit): void {
         credentialId: credentialId ?? '',
         tools: 'value' in tools ? tools.value : [],
         accounts,
+        limits: 'limits' in limits ? limits.limits : {},
         requests: form.fields.get('rate_requests') ?? '',
         perSeconds: form.fields.get('rate_seconds') ?? '',
         expiresDays: form.fields.get('expires_days') ?? '',
@@ -508,6 +552,7 @@ export function registerGrants(ui: Hono, kit: UiKit): void {
         credentialId,
         tools: values.tools,
         accountIds: accounts,
+        ...(Object.keys(values.limits).length > 0 ? { limits: values.limits } : {}),
         ...(typeof requests === 'number' && typeof perSeconds === 'number'
           ? { rateLimit: { requests, perSeconds } }
           : {}),
@@ -517,24 +562,29 @@ export function registerGrants(ui: Hono, kit: UiKit): void {
       if (isOk(res)) {
         const grant = one(res.body, parseGrant);
         const warnings = (res.body as { warnings?: unknown } | null)?.warnings;
-        const noted = Array.isArray(warnings) && warnings.length > 0;
+        const noted =
+          (Array.isArray(warnings) && warnings.length > 0) ||
+          limitNotes(values.limits, project.limits).length > 0;
         return kit.redirect(
           grant ? `${BASE}${adminPath`/${grant.id}`}` : BASE,
           noted ? 'created_with_notes' : 'created',
         );
       }
       const problem = problemOf(res);
-      const at = (
-        {
-          userId: 'userId',
-          label: 'label',
-          credentialId: 'credentialId',
-          tools: 'tools',
-          accountIds: 'accounts',
-          rateLimit: 'rate_requests',
-          expiresAt: 'expires_days',
-        } as Record<string, string>
-      )[(problem.field ?? '').split('.')[0] ?? ''];
+      const limitAt = limitFieldOf(problem.field);
+      const at =
+        limitAt ??
+        (
+          {
+            userId: 'userId',
+            label: 'label',
+            credentialId: 'credentialId',
+            tools: 'tools',
+            accountIds: 'accounts',
+            rateLimit: 'rate_requests',
+            expiresAt: 'expires_days',
+          } as Record<string, string>
+        )[(problem.field ?? '').split('.')[0] ?? ''];
       if (problem.status === 404 && problem.field === 'projectId')
         return kit.redirect(`${BASE}/new`, 'not_found');
       if (at !== undefined && [400, 404, 422].includes(problem.status)) {
@@ -609,6 +659,7 @@ export function registerGrants(ui: Hono, kit: UiKit): void {
                 ],
                 ['Tools', grant.tools === null ? 'every tool the project enables' : grant.tools.join(', ')],
                 ['Accounts', accountList(grant.accountIds, 'every account the project allows')],
+                ['Query limits', <LimitsText limits={grant.limits} />],
                 [
                   'Rate limit',
                   grant.rateLimit === null

@@ -1,10 +1,12 @@
-# Admin panel in a real browser (P4-11). Manual only: Chromium download and run cost Actions minutes, so it is never
-# triggered by pull requests or pushes. Run it before a release or after changing admin-ui / sign-in / headers, or run
+# Admin panel in a real browser (P4-11). Weekly (Monday 04:47 UTC, default branch only) and on demand: Chromium download
+# and run cost Actions minutes, so it is never triggered by pull requests or pushes. Run it on demand before a release or after changing admin-ui / sign-in / headers, or run
 # `pnpm test:e2e` locally. Uses no secrets and never deploys; the identity provider and NerdGraph are loopback mocks.
 name: Admin browser E2E
 
 on:
   workflow_dispatch:
+  schedule:
+    - cron: '47 4 * * 1'
 
 permissions:
   contents: read

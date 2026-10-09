@@ -2,7 +2,7 @@
 // CPU benchmark runner (P3-10). Runs `apps/worker/bench/cpu.bench.ts` in workerd, prints a table and compares it with
 // the committed `apps/worker/bench/baseline.json`.
 //
-//   node scripts/bench-cpu.ts            run, print the table, exit 1 on a clear regression
+//   node scripts/bench-cpu.ts            run, print the table, exit 1 on a clear regression (confirmed by re-runs)
 //   node scripts/bench-cpu.ts --update   run and rewrite the baseline (do this on a quiet machine, commit the result)
 //   node scripts/bench-cpu.ts --report   run and print only; never fails on a regression
 //
@@ -20,6 +20,12 @@ import { fileURLToPath } from 'node:url';
 export const TOLERANCE = 2;
 /** Minimum slowdown, in ms at the baseline machine's speed, before a ratio growth counts. */
 export const MIN_DELTA_MS = 1;
+/**
+ * Runs before a regression counts (phase 6 review). A scenario fails only when it regresses in every run: a real
+ * slowdown repeats, a burst of load from another process (parallel test runs, a busy laptop) rarely hits the same
+ * scenario three times. The first run alone decides when it has no regression.
+ */
+export const MAX_RUNS = 3;
 /** Workers Free CPU limit per request, the reference column of the table. */
 export const FREE_CPU_MS = 10;
 /** `typical` of the calibration scenario below this means the clock did not advance: the measurement is meaningless. */
@@ -88,6 +94,13 @@ export function compare(
   }
   const missing = Object.keys(baseline.scenarios).filter((n) => results[n] === undefined);
   return { rows, missing, regressions };
+}
+
+/** Scenarios that regressed in every comparison (the runs so far). */
+export function persistentRegressions(comparisons: readonly Comparison[]): string[] {
+  const [first, ...rest] = comparisons;
+  if (first === undefined) return [];
+  return first.regressions.filter((name) => rest.every((c) => c.regressions.includes(name)));
 }
 
 export function toBaseline(results: Readonly<Record<string, Measured>>): Baseline {
@@ -169,15 +182,28 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     process.exit(0);
   }
   const baseline = JSON.parse(readFileSync(baselinePath, 'utf8')) as Baseline;
-  const comparison = compare(results, baseline);
-  const table = renderTable(comparison, results['calibration']?.typical ?? 0);
-  process.stdout.write(`\n${table}\n`);
+  const comparisons = [compare(results, baseline)];
+  let last = results;
+  // Re-run only to confirm: stop as soon as no scenario has regressed in every run so far.
+  while (comparisons.length < MAX_RUNS && persistentRegressions(comparisons).length > 0) {
+    process.stderr.write(
+      `\nPossible regression (${persistentRegressions(comparisons).join(', ')}): confirming, run ${comparisons.length + 1} of ${MAX_RUNS}.\n`,
+    );
+    last = run();
+    comparisons.push(compare(last, baseline));
+  }
+  const regressions = persistentRegressions(comparisons);
+  const comparison = comparisons[comparisons.length - 1] as Comparison;
+  const table = renderTable(comparison, last['calibration']?.typical ?? 0);
+  const runsNote =
+    comparisons.length > 1 ? `\nRuns: ${comparisons.length} (the table is the last one).\n` : '';
+  process.stdout.write(`\n${table}\n${runsNote}`);
   const summary = process.env['GITHUB_STEP_SUMMARY'];
   if (summary !== undefined && summary !== '')
-    appendFileSync(summary, `### Worker CPU benchmark\n\n${table}\n`);
-  if (comparison.regressions.length > 0) {
+    appendFileSync(summary, `### Worker CPU benchmark\n\n${table}\n${runsNote}`);
+  if (regressions.length > 0) {
     process.stderr.write(
-      `\nCPU regression (more than ${TOLERANCE}x slower relative to calibration): ${comparison.regressions.join(', ')}\n`,
+      `\nCPU regression (more than ${TOLERANCE}x slower relative to calibration in ${comparisons.length} runs): ${regressions.join(', ')}\n`,
     );
     process.exit(args.has('--report') ? 0 : 1);
   }

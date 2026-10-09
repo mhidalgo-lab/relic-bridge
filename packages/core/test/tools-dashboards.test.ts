@@ -131,6 +131,17 @@ describe('documents and readers', () => {
     expect(mixed.withheld).toBe(true);
     expect(mixed.queries).toEqual([]);
   });
+
+  it('checks every account of a multi-account widget (accountIds), not just accountId (phase 6 review)', () => {
+    const allowed = new Set([A]);
+    const cfg = (q: Record<string, unknown>) => ({ title: 'm', rawConfiguration: { nrqlQueries: [q] } });
+    const both = readWidget(cfg({ accountId: A, accountIds: [A, OTHER], query: 'SELECT x' }), allowed, true);
+    expect(both).toMatchObject({ withheld: true, queries: [] });
+    const modern = readWidget(cfg({ accountIds: [A], query: 'SELECT y' }), allowed, true);
+    expect(modern).toMatchObject({ withheld: false, queries: [{ accountId: A, nrql: 'SELECT y' }] });
+    const foreign = readWidget(cfg({ accountIds: [OTHER], query: 'SELECT z' }), allowed, true);
+    expect(foreign.withheld).toBe(true);
+  });
 });
 
 describe('list_dashboards', () => {

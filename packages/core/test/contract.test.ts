@@ -12,51 +12,13 @@ import { RESOLVE_COST } from '../src/tools/entity-ref.ts';
 import { FAKE_KEY, testContext } from './helpers/context.ts';
 import { connectInMemory, resultText } from './helpers/mcp.ts';
 import { MOCK_ACCOUNT, MOCK_GUID, mockNerdGraph } from './helpers/mock-nerdgraph.ts';
+import { SAMPLE_CALLS } from './helpers/sample-calls.ts';
 
 /**
  * MCP contract tests: every tool in the registry is listed and called through a real in-memory MCP client.
  * Tools are discovered from the registry, so a new tool is covered automatically; one without a sample call below
  * fails `every registered tool has a sample call`, which forces whoever adds it to extend this table.
  */
-const SAMPLE_CALLS: Record<string, Record<string, unknown>> = {
-  whoami: {},
-  list_accounts: {},
-  time_range: { expression: 'last 1 hour' },
-  run_nrql: { nrql: 'SELECT count(*) FROM Transaction SINCE 1 hour ago' },
-  get_query_result: { query_id: 'q-123e4567-e89b', account: MOCK_ACCOUNT },
-  search_entities: { name: 'checkout' },
-  get_entity: { guid: MOCK_GUID },
-  get_related_entities: { guid: MOCK_GUID },
-  list_entity_types: {},
-  resolve_entity: { query: 'checkout' },
-  decode_entity_guid: { guid: MOCK_GUID },
-  get_golden_metrics: { guid: MOCK_GUID },
-  list_event_types: {},
-  get_attributes: { event_type: 'Transaction' },
-  list_alert_policies: {},
-  list_alert_conditions: { policy_id: '8000026' },
-  list_recent_issues: {},
-  search_incidents: { states: ['CREATED'] },
-  list_error_groups: { states: ['UNRESOLVED'], sort_by: 'occurrences' },
-  list_change_events: {},
-  analyze_deployment_impact: { entity_guid: MOCK_GUID },
-  list_top_transactions: { entity_guid: MOCK_GUID },
-  analyze_transactions: { entity_guid: MOCK_GUID },
-  list_recent_logs: { level: 'error', contains: 'timeout' },
-  analyze_entity_logs: { entity_guid: MOCK_GUID },
-  analyze_threads: { entity_guid: MOCK_GUID },
-  list_gc_metrics: { entity_guid: MOCK_GUID },
-  analyze_kafka_metrics: {},
-  list_synthetic_monitors: {},
-  list_dashboards: {},
-  get_dashboard: { guid: MOCK_GUID },
-  generate_alert_insights_report: { issue_id: 'issue-1' },
-  generate_user_impact_report: { issue_id: 'issue-1' },
-  trace_error: { trace_id: 'abcdef0123456789' },
-  dependency_health: { guid: MOCK_GUID },
-  entity_health: { guid: MOCK_GUID },
-};
-
 const registry = new ToolRegistry();
 for (const tool of createBuiltinTools({ fetch: async () => new Response('{}') })) registry.register(tool);
 const names = registry.list().map((t) => t.name);

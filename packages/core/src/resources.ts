@@ -126,8 +126,15 @@ export function registerResources(
         }
         input['event_type'] = eventType;
       }
+      // The tool's own input schema, as on `tools/call`: the handler never sees unvalidated URI text.
+      const parsed = tool.inputSchema.safeParse(input);
+      if (!parsed.success) {
+        throw new Error(
+          `${ErrorCode.InputInvalid}: the URI does not name a valid ${def.kind.replace('_', ' ')}.`,
+        );
+      }
       try {
-        const out = await opts.invoke(tool, input);
+        const out = await opts.invoke(tool, parsed.data);
         return { contents: [{ uri: uri.href, mimeType: def.mimeType, text: NOTICE + out.text }] };
       } catch (error) {
         throw readError(error);

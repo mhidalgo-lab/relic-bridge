@@ -179,6 +179,10 @@ export const PROMPTS: readonly PromptDefinition[] = [
     goal: 'Investigate the error spike on entity {entity_guid} in time range {time_range}.',
     needsAnyOf: ['list_error_groups', 'get_golden_metrics', 'run_nrql'],
     steps: [
+      {
+        tool: 'entity_health',
+        text: 'Start with one overview of {entity_guid}: alert state, golden metrics, open issues, top error groups and recent deployments. Drill in with the steps below.',
+      },
       { tool: 'get_entity', text: 'Confirm the entity {entity_guid}: name, type, account and alert status.' },
       {
         tool: 'get_golden_metrics',

@@ -308,3 +308,23 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Options:** (a) keep; (b) restore `$schema` (about 2 000 characters); (c) run `pnpm eval:tools` and compare with the
   P6-13 baseline before merging the stack.
 - **Needs:** owner runs (c) with the P6-13 decision; (b) only if a client rejects schemas without `$schema`.
+
+
+## Phase 6 review
+
+### REVIEW — A composite's grant no longer implies its sibling tools
+- **Context:** `generate_alert_insights_report`, `generate_user_impact_report`, `entity_health` and `dependency_health`
+  called sibling handlers directly, so a grant with only the composite returned log patterns, error groups, issues,
+  deployments and neighbours that the grant did not list (review H1).
+- **Assumption made:** fixed by requiring the sibling's grant (`grantedSibling`): a section whose tool is not granted is
+  `skipped` with the reason; `dependency_health` without `get_related_entities` fails with `RB_TOOL_DISABLED`. The
+  composite's own queries (issue lookup, `trace_error` spans/errors/trace logs, user-impact front-end queries) stay part
+  of its grant. Stdio and pass-through list every tool, so nothing changes there.
+- **Options:** (a) keep (least privilege); (b) a composite grant implies its parts, documented in the admin UI (the
+  grant editor could auto-add them); (c) the admin UI warns when a composite is granted without its parts.
+- **Needs:** owner's call; (c) is cheap with (a).
+
+### REVIEW — CPU benchmark gate
+- **Context:** agents reported `pnpm bench:cpu` as noisy during Phase 6. See the review's Local CI section for the
+  measurements and what changed in `scripts/bench-cpu.ts`.
+- **Needs:** nothing unless the owner prefers a different gate.

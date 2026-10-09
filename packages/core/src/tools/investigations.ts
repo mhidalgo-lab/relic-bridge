@@ -8,6 +8,7 @@ import { ErrorCode, RbError } from '../errors.ts';
 import type { NrqlComplete } from '../nrql/engine.ts';
 import { runNrql } from '../nrql/engine.ts';
 import { type NrqlQuery, nrql } from '../nrql/template.ts';
+import { envelope } from '../output/envelope.ts';
 import { shapeRows } from '../output/format.ts';
 import { parseTimeRange } from '../time/range.ts';
 import { defineTool, type ToolDefinition } from '../tool.ts';
@@ -31,6 +32,7 @@ import {
 import {
   accountInput,
   assertWindowWithinLimit,
+  grantedSibling,
   label,
   num,
   singleAccount,
@@ -410,7 +412,7 @@ export function createInvestigationTools(deps: ToolDeps = {}): ToolDefinition[] 
   const tool = (name: string): ToolDefinition => {
     const t = siblings.get(name);
     if (!t) throw new RbError(ErrorCode.Internal, `Investigation tool ${name} is missing.`);
-    return t;
+    return grantedSibling(t);
   };
 
   type Outcome = { rows: Record<string, unknown>[] } | { note: string };
@@ -809,7 +811,7 @@ export function createInvestigationTools(deps: ToolDeps = {}): ToolDefinition[] 
 
       const flagged = deps2.filter((d) => d.signals.length > 0);
       const lines = [
-        `${deps2.length} related entit${deps2.length === 1 ? 'y' : 'ies'} measured next to ${selfEntity.name ?? 'the entity'}, ${range.since} to ${range.until} (UTC): ` +
+        `${deps2.length} related entit${deps2.length === 1 ? 'y' : 'ies'} measured next to the entity, ${range.since} to ${range.until} (UTC): ` +
           `${flagged.length} with signals.${partial ? ' Partial result: see the notes and the status column.' : ''}`,
       ];
       for (const n of notes) lines.push(`Note: ${n}`);
@@ -970,9 +972,12 @@ export function createInvestigationTools(deps: ToolDeps = {}): ToolDefinition[] 
           `${count('partial') ? `, ${count('partial')} partial` : ''}` +
           `${count('error') ? `, ${count('error')} failed` : ''}` +
           `${count('skipped') ? `, ${count('skipped')} skipped (budget)` : ''}.` +
-          `${signals.length ? ` Signals: ${signals.join('; ')}.` : ''}` +
+          `${signals.length ? ` ${signals.length} signal(s), below.` : ''}` +
           `${partial ? ' Partial summary: see the section notes.' : ''}`,
       ];
+      // Signals quote golden-metric titles, which New Relic users can customise: untrusted data (T6).
+      if (signals.length)
+        lines.push(envelope(`Signals: ${signals.join('; ')}.`, { source: 'New Relic signals' }));
       for (const n of notes) lines.push(`Note: ${n}`);
       for (const s of sections) {
         lines.push(`## ${SECTION_TITLES[s.name as HealthSection]} [${s.status}]`);

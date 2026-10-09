@@ -341,7 +341,8 @@ Sources: <https://github.com/cloudflare/workers-oauth-provider>, issues #264, #3
 - Dashboards (P6-09, not verified against a real account): dashboards are entities `domain = 'VIZ' AND type = 'DASHBOARD'`
   (`... on DashboardEntityOutline { permissions }` in search). The detail is `... on DashboardEntity { description permissions pages
   { guid name description widgets { id title visualization { id } rawConfiguration } } }`. `rawConfiguration` is a JSON scalar; the
-  tools read `nrqlQueries[].{accountId, query}` and, for markdown widgets, `text`. **Unverified:** every name above and the shape of
+  tools read `nrqlQueries[].{accountId, accountIds, query}` (multi-account widgets carry an `accountIds` array; every account named
+  must be allowed, phase 6 review) and, for markdown widgets, `text`. **Unverified:** every name above and the shape of
   `rawConfiguration` per visualization (billboard, table, line, markdown, and visualizations with other query keys give no NRQL).
   Widget NRQL is never executed by the tools; `permissions` is PRIVATE / PUBLIC_READ_ONLY / PUBLIC_READ_WRITE.
 - Composite reports (P6-10, not verified against a real account): the issue is looked up with `aiIssues.issues(filter: { ids })`

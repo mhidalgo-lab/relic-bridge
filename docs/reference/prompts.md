@@ -41,13 +41,14 @@ Offered when the connection can use at least one of: `list_error_groups`, `get_g
 
 ### Steps (tool, skipped when not allowed)
 
-1. `get_entity`
-2. `get_golden_metrics`
-3. `list_error_groups`
-4. `list_change_events`
-5. `analyze_deployment_impact`
-6. `analyze_entity_logs`
-7. `get_related_entities`
+1. `entity_health`
+2. `get_entity`
+3. `get_golden_metrics`
+4. `list_error_groups`
+5. `list_change_events`
+6. `analyze_deployment_impact`
+7. `analyze_entity_logs`
+8. `get_related_entities`
 
 ## `investigate_incident`
 

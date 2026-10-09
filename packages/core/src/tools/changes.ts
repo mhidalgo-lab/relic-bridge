@@ -751,7 +751,7 @@ export function createChangeTools(deps: ToolDeps = {}): ToolDefinition[] {
       };
 
       const lines = [
-        `Deployment impact for ${entity.name ?? 'the application'} (account ${account}), deployment at ${deployment.time}${deployment.recorded ? '' : ' (not recorded in change tracking; time as given)'}: ${windows.minutes} minutes before vs after.`,
+        `Deployment impact for the application (account ${account}), deployment at ${deployment.time}${deployment.recorded ? '' : ' (not recorded in change tracking; time as given)'}: ${windows.minutes} minutes before vs after.`,
         `Overall: ${overall.replaceAll('_', ' ')}.${partial ? ' Partial result: see notes.' : ''}`,
       ];
       for (const n of notes) lines.push(`Note: ${n}`);

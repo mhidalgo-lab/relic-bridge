@@ -24,6 +24,7 @@ import {
   accountInput,
   assertWindowWithinLimit,
   DAY_MS,
+  grantedSibling,
   num,
   singleAccount,
   type ToolDeps,
@@ -213,6 +214,8 @@ export async function runSection(
     if (!(e instanceof RbError) || FATAL_CODES.has(e.code)) throw e;
     if (e.code === ErrorCode.BudgetExhausted)
       return { name, status: 'skipped', note: BUDGET_NOTE, data: null, text: null };
+    if (e.code === ErrorCode.ToolDisabled)
+      return { name, status: 'skipped', note: e.message, data: null, text: null };
     return { name, status: 'error', note: cleanName(e.message, 300), data: null, text: null };
   }
 }
@@ -535,7 +538,7 @@ export function createReportTools(deps: ToolDeps = {}): ToolDefinition[] {
   const tool = (name: string): ToolDefinition => {
     const t = siblings.get(name);
     if (!t) throw new RbError(ErrorCode.Internal, `Report section tool ${name} is missing.`);
-    return t;
+    return grantedSibling(t);
   };
 
   const insights = defineTool({

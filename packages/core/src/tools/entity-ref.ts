@@ -80,10 +80,11 @@ export async function resolveEntityRef(
     ...(input.type === undefined ? {} : { type: input.type }),
   });
   if (r.status === 'resolved' && r.entity) {
-    const shown = cleanName(r.entity.name || input.name, 120);
+    // The matched entity's own name is New Relic text and stays out of this note (T6); the tool's enveloped result
+    // shows it. The guid has a safe charset.
     return {
       guid: r.entity.guid,
-      note: `Resolved name "${cleanName(input.name, 120)}" to "${shown}" (${r.matchedBy?.replace('_', ' ')} match, guid ${r.entity.guid}).`,
+      note: `Resolved name "${cleanName(input.name, 120)}" (${r.matchedBy?.replace('_', ' ')} match) to guid ${r.entity.guid}.`,
     };
   }
   if (r.status === 'ambiguous') {

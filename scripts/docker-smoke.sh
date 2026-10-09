@@ -27,6 +27,13 @@ certs="$(mktemp -d)"
 cli=(docker exec -i "$name" /nodejs/bin/node /app/dist/index.mjs)
 
 cleanup() {
+  status=$?
+  if [[ "$status" -ne 0 ]]; then
+    echo "--- logs of the NerdGraph stand-in ($fake) ---" >&2
+    docker logs "$fake" >&2 2>&1 || true
+    echo "--- logs of the image under test ($name) ---" >&2
+    docker logs "$name" >&2 2>&1 || true
+  fi
   docker rm -f "$name" "$fake" "$seed" >/dev/null 2>&1 || true
   docker volume rm -f "$name" >/dev/null 2>&1 || true
   docker network rm "$net" >/dev/null 2>&1 || true

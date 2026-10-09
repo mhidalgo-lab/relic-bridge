@@ -2,6 +2,7 @@
 // The Worker host inside workerd (P3-01): MCP through the Worker's fetch, fail-closed boot, per-isolate runtime,
 // `waitUntil` audit writes and the client address from `CF-Connecting-IP`.
 import { env } from 'cloudflare:workers';
+import { MigrationError } from '@relic-bridge/storage';
 import { describe, expect, it } from 'vitest';
 import type { WorkerEnv } from '../src/env.ts';
 import { BOOT_RETRY_MS, createWorker, type OpenStorage } from '../src/worker.ts';
@@ -190,16 +191,25 @@ describe('Worker boot', () => {
     }
   });
 
-  it('answers 503 while the storage cannot be opened (default factory before P3-02)', async () => {
+  it('answers 503 while the storage cannot be opened (missing binding, failed migration)', async () => {
     const log = logs();
-    const worker = createWorker({ logSink: log.sink });
-    const res = await call(worker, env, fakeCtx(), '/p/prod/mcp', { method: 'POST' });
+    const noDb = createWorker({ logSink: log.sink });
+    const res = await call(noDb, { ...env, DB: undefined }, fakeCtx(), '/p/prod/mcp', { method: 'POST' });
     expect(res.status).toBe(503);
     expect(log.lines.find((l) => l['msg'] === 'worker boot failed')).toMatchObject({
       error: 'WorkerStorageUnavailableError',
+      detail: 'the DB (D1) binding is missing',
     });
-    const noDb = createWorker({ logSink: log.sink });
-    await call(noDb, { ...env, DB: undefined }, fakeCtx(), '/health');
-    expect(JSON.stringify(log.lines)).toContain('the DB (D1) binding is missing');
+    const broken = createWorker({
+      logSink: log.sink,
+      openStorage: () => {
+        throw new MigrationError('database schema version 99 is newer than this build');
+      },
+    });
+    expect((await call(broken, env, fakeCtx(), '/health')).status).toBe(503);
+    expect(log.lines.filter((l) => l['msg'] === 'worker boot failed').at(-1)).toMatchObject({
+      error: 'MigrationError',
+      code: 'migration',
+    });
   });
 });

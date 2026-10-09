@@ -3,9 +3,8 @@
 The Cloudflare Worker host for relic-bridge: the same HTTP app as `relic-bridge serve` (`@relic-bridge/http-app`),
 with Workers bindings. Private package; it is deployed with Wrangler, not published to npm.
 
-> **Status (Phase 3, in progress).** The entry, bindings and per-isolate runtime are in place (P3-01). The D1 storage
-> adapter lands in P3-02: until then every route answers `503 {"error":"unavailable"}` and the log says
-> `the D1 storage adapter is not available yet (P3-02)`. The deployment guide comes with P3-05/P3-07.
+> **Status (Phase 3, in progress).** The entry, bindings and per-isolate runtime (P3-01) and the D1 storage (P3-02) are
+> in place: the Worker serves MCP, the admin API and `/health` on D1. The deployment guide comes with P3-05/P3-07.
 
 ## Bindings
 
@@ -46,6 +45,9 @@ problem, never a secret value. The Worker retries the boot after 5 seconds.
   them. Nothing request-specific is kept (THREAT_MODEL T21).
 - **Caches are per isolate.** An admin change (revoking a token, editing a grant) clears the access cache of the
   isolate that served the admin call only; other isolates pick it up within `RB_ACCESS_CACHE_TTL` (default 30 s).
+- **Storage is D1** (`DB`). The schema is migrated by the Worker itself when an isolate boots (the same embedded,
+  checksummed migrations as `relic-bridge serve`); there is no `wrangler d1 migrations apply` step. A database newer
+  than the deployed build, or a failed migration, fails the boot closed (503) and the log names the error code.
 - **Client address** for rate limits and audit rows: `CF-Connecting-IP` (set by Cloudflare; clients can't override it).
 
 ## Local development
@@ -57,5 +59,5 @@ pnpm --filter @relic-bridge/worker build                    # bundle check (wran
 pnpm test:workers                                           # tests inside workerd
 ```
 
-Deployment (D1 migrations, secrets, custom domain) is documented with P3-05/P3-07; before P3-02 a deployed Worker
-only answers 503.
+`wrangler dev` keeps its local D1 database under `apps/worker/.wrangler/` (git-ignored); delete that folder to start
+from an empty database. Deployment (secrets, custom domain) is documented with P3-05/P3-07.

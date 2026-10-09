@@ -8,6 +8,7 @@ runtime-specific code lives in the adapters' hosts (P2-02 Node SQLite, P3-02 D1)
 | Import | Contents |
 |---|---|
 | `@relic-bridge/storage` | `Storage` interface and record types, errors, `createMemoryStorage`, `createYamlStorage` / `yamlRecords` / `parseYamlConfig` (+ the YAML zod schema), `migrate` / `MIGRATIONS`, row rules (`validate.ts`), `newId()` |
+| `@relic-bridge/storage/d1` | `createD1Storage(db, { now, migrate })`, `d1MigrationDriver`, `mapD1Error` and the structural `D1DatabaseLike` type (Workers; P3-02) |
 | `@relic-bridge/storage/schema` | Drizzle tables (SQLite dialect) for the SQL adapters |
 | `@relic-bridge/storage/testing` | `runStorageContract()`, fixtures (test-only; imports vitest) |
 
@@ -55,7 +56,7 @@ expirationTtl (s) })`, `delete`, `list({ prefix, limit ≤ 1000, cursor })` in k
 | `memory` | `src/memory.ts` | Reference implementation; enforces every unique, FK and row rule; tests and ephemeral servers. |
 | `yaml` | `src/yaml.ts` | Read-only view of `relic-bridge.yaml`: each project → project (id = slug) + credential (id `project:<slug>`). The stdio CLI resolves its project from `yamlRecords()` (synchronous) at startup. |
 | `sqlite` | `packages/storage-sqlite` (`openSqliteStorage`) | Node, `node:sqlite` (ADR-0006). Creates the file `0600`, WAL, `busy_timeout`, `foreign_keys = ON`, runs `migrate()` on open (`migrate: false` only verifies). `backup(dest)` / `backupDatabase(src, dest)` write a consistent `0600` snapshot. Bundled into the CLI from source. |
-| `d1` | P3-02 | Workers. |
+| `d1` | `src/d1.ts` (`@relic-bridge/storage/d1`, `createD1Storage`) | Workers, on the `DB` binding (P3-02). Plain parameterised SQL like `sqlite`; every write is one statement (see below). Runs `migrate()` on open; `apps/worker` opens it once per isolate during the lazy boot. Contract and D1-specific tests run inside workerd (`apps/worker/test/d1.test.ts`, `pnpm test:workers`). |
 
 Every adapter must pass the contract suite:
 
@@ -68,6 +69,26 @@ runStorageContract({
 });
 // read-only adapters: runStorageContract({ name: 'yaml', createSeeded: async (fixture, clock) => … })
 ```
+
+### D1: atomic without transactions
+
+D1 has no interactive transactions, and each call is a round trip other isolates can interleave with, so the adapter
+never reads, decides in JavaScript, then writes. Every write is **one statement** whose condition the engine checks,
+and the outcome comes from `meta.changes` or `RETURNING`:
+
+- `settings.setIfAbsent`: `INSERT … ON CONFLICT(key) DO NOTHING`, `true` iff one row changed.
+- `credentials.update` with `ifKey`: the guard is in the `UPDATE … WHERE` (`key_ciphertext`, `key_iv`, `key_version`).
+  When nothing matched, one extra read tells `ConflictError` (`credentials.key`) from `NotFoundError`.
+- Every `update`: `UPDATE … SET <patched columns only> … RETURNING *`, so concurrent patches of different fields both
+  stick, and the result costs no extra read. `create` uses `INSERT … RETURNING *`.
+- Cascades and restrictions are the engine's foreign keys. D1 always enforces them (`PRAGMA foreign_keys` reads 1; no
+  pragma needed).
+- Engine errors (`D1_ERROR: UNIQUE constraint failed: users.email: SQLITE_CONSTRAINT`, also in `cause`) map to the
+  storage errors by constraint name (`mapD1Error`); values never reach the message.
+
+Round trips matter on Workers. An access-cache miss currently costs five D1 reads (token by hash; project + grant;
+user + credential, in parallel pairs) plus the throttled `last_used_at` write; a hit costs none
+(`apps/worker/test/entry.test.ts`). P3-09 loads them in one call.
 
 ## Schema and migrations
 
@@ -84,6 +105,15 @@ runStorageContract({
 - **idempotent** — applied versions are skipped, so it runs on every start;
 - **forward-only** — no down migrations; a database newer than the build is refused;
 - **atomic per migration** — the statements and the `schema_migrations` row commit together.
+
+**On D1** the same runner and the same embedded `MIGRATIONS` are the only migration path (no `wrangler d1
+migrations` directory, which would be a second history to keep in sync; ADR-0006 update P3-02). `createD1Storage`
+runs it when the Worker's runtime boots, so a deploy migrates on its first request. Isolates booting at once on an
+outdated database race safely: a loser's batch rolls back (primary key on `schema_migrations`, or its DDL) and it
+re-runs from the versions now recorded, a bounded number of times. `PRAGMA foreign_keys` statements (drizzle-kit adds
+them around table rebuilds) are skipped by the D1 driver: SQLite ignores them inside a transaction, and a D1 batch is
+one. A migration that rebuilds a referenced table must keep its rows valid at commit (`PRAGMA defer_foreign_keys` is the
+D1 tool if a future migration needs it).
 
 `test/sqlite/migrate.test.ts` checks all of this against a real SQLite engine (`node:sqlite`, test only) and compares
 the migrated tables, indexes and foreign keys with the Drizzle schema (drift check).

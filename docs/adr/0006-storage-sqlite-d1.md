@@ -35,3 +35,19 @@ Decision: the `sqlite` adapter (`packages/storage-sqlite`) uses Node's built-in 
   parameterised SQL against the migrated schema (the schema-drift test in `packages/storage` keeps them aligned).
 - **Revisit** if `node:sqlite` regresses in an LTS or a feature we need (for example async I/O for heavy audit
   workloads) is missing.
+
+## Update (P3-02): D1 adapter and migrations on Workers
+
+- The `d1` adapter (`@relic-bridge/storage/d1`) uses plain parameterised SQL against the migrated schema, like the
+  `sqlite` adapter; Drizzle stays the source of the schema and the migrations, not a runtime query builder. The D1
+  binding is typed structurally, so `packages/storage` does not depend on `@cloudflare/workers-types`.
+- D1 has no interactive transactions: every write is a single statement checked by the engine (conditional
+  `INSERT … ON CONFLICT DO NOTHING`, `UPDATE … WHERE <guard>`, partial `UPDATE … RETURNING *`), with the outcome read
+  from `meta.changes` / `RETURNING`. That keeps `settings.setIfAbsent` and the credential key compare-and-swap atomic
+  across isolates, which master-key verification and rotation (ADR-0007) depend on.
+- **Migrations:** the embedded `MIGRATIONS` and our forward-only runner (`migrate`, checksums, `schema_migrations`)
+  are the single source of truth on D1 too. The Worker applies pending migrations while its runtime boots (once per
+  isolate; concurrent boots race safely because each migration is one atomic D1 `batch()`). We do **not** keep a
+  `wrangler d1 migrations` directory: it would track a second history (`d1_migrations`) that could drift from ours.
+  Consequence: a deploy whose migration fails answers 503 (boot fails closed, retried every 5 s) instead of failing at
+  `wrangler deploy` time; migrations must stay small enough for one D1 batch.

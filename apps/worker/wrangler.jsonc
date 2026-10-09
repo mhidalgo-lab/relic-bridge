@@ -15,6 +15,7 @@
     "@relic-bridge/auth": "../../packages/auth/src/index.ts",
     "@relic-bridge/core": "../../packages/core/src/index.ts",
     "@relic-bridge/http-app": "../../packages/http-app/src/index.ts",
+    "@relic-bridge/storage/d1": "../../packages/storage/src/d1.ts",
     "@relic-bridge/storage": "../../packages/storage/src/index.ts"
   },
   "d1_databases": [{ "binding": "DB", "database_name": "relic-bridge" }],

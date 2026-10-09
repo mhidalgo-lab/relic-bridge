@@ -337,3 +337,28 @@ Sources: <https://developers.cloudflare.com/workers/wrangler/configuration/>,
 - **Bundle size**: `wrangler deploy --dry-run --outdir dist` (no account needed) bundles the Worker: 1.75 MiB raw,
   **339 KiB gzip** at P3-01, well under the Free plan's 3 MiB compressed limit. `pnpm build` runs this for `apps/worker`.
 - No `nodejs_compat` flag is needed: every package is web-standard (ADR-0004).
+
+## 12. Cloudflare D1 facts (P3-02, verified 2026-10-03)
+
+Sources: <https://developers.cloudflare.com/d1/worker-api/d1-database/>,
+<https://developers.cloudflare.com/d1/reference/migrations/>, <https://developers.cloudflare.com/d1/sql-api/foreign-keys/>.
+Checked locally with wrangler 4.144.0 / `@cloudflare/vitest-plugin` 1.3.3 (Miniflare's D1); not yet against a remote
+database.
+
+- **No interactive transactions.** `batch()` sends several statements in one call and runs them as one SQL transaction
+  (a failing statement rolls the whole batch back); otherwise D1 auto-commits each statement. Atomic
+  read-decide-write therefore needs a single conditional statement.
+- **Results:** `meta.changes` counts rows written; `RETURNING` works (`INSERT/UPDATE … RETURNING *` via `.all()`).
+  BLOBs bind from `ArrayBuffer`/typed arrays and come back as byte arrays (`toBytes` normalises them).
+- **Errors** read `D1_ERROR: UNIQUE constraint failed: users.email: SQLITE_CONSTRAINT (extended: …)`, with the plain
+  SQLite message as `cause`; the constraint names match SQLite's, so one mapping serves both adapters.
+- **Foreign keys are always enforced** (`PRAGMA foreign_keys` reads 1); D1 offers `PRAGMA defer_foreign_keys = true`
+  for migrations that must violate them temporarily. SQLite ignores `PRAGMA foreign_keys` inside a transaction, so the
+  D1 migration driver skips those statements (drizzle-kit emits them around table rebuilds).
+- **Read retries:** D1 retries read-only queries (`SELECT`/`EXPLAIN`/`WITH`) up to twice on retryable errors; writes are
+  not retried (changelog 2025-09-11).
+- **`wrangler d1 migrations`** tracks applied files in its own `d1_migrations` table (`migrations_dir`,
+  `migrations_pattern` for drizzle's nested layout since 2026-06). relic-bridge does not use it: the Worker runs the
+  embedded migrations itself (ADR-0006 update P3-02).
+- **Test isolation:** in `@cloudflare/vitest-plugin` 1.3.3 the local D1 database is shared by the tests of a file;
+  tests that need an empty database drop the tables first (`wipeD1`).

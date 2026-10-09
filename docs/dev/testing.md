@@ -28,9 +28,11 @@ simulators). Test secrets (`RB_MASTER_KEY`, `RB_ADMIN_TOKEN`) are generated per 
 and passed as Miniflare bindings; nothing is committed. The tests drive the Worker's `fetch` with an MCP SDK client
 (`initialize`, `tools/list`, a tool call), check the boot (fail-closed 503s, retry window, one runtime per isolate),
 `waitUntil` audit writes and the `CF-Connecting-IP` client address. `pnpm test` includes them; `pnpm test:coverage`
-skips them because V8 coverage cannot attach to workerd, so CI runs them as the **Workers runtime tests** job. The
-storage is the in-memory adapter until P3-02 adds D1; P3-06 adds the storage contract and the authorization suite under
-this pool.
+skips them because V8 coverage cannot attach to workerd, so CI runs them as the **Workers runtime tests** job. Most
+host tests inject the in-memory storage; `test/entry.test.ts` drives the deployed entry on the local D1 database, and
+`test/d1.test.ts` runs the storage contract suite plus D1 concurrency, foreign-key and migration tests against local D1
+(P3-02). The local D1 database is shared by a file's tests, so tests that need it empty call `wipeD1`. P3-06 adds the
+authorization suite under this pool.
 
 ## Live tests
 

@@ -163,6 +163,19 @@ const errorGroup = (guid: string | null, name: string) => ({
   occurrences: { totalCount: 3, firstSeenAt: 1790338648000, lastSeenAt: 1790338700000 },
 });
 
+const changeEvent = (guid: string | null, id: string) => ({
+  changeTrackingId: id,
+  category: 'DEPLOYMENT',
+  type: 'BASIC',
+  categoryAndType: 'DEPLOYMENT__BASIC',
+  timestamp: 1790338700000,
+  description: 'rollout',
+  shortDescription: 'deploy',
+  user: 'ci',
+  entity: guid === null ? null : { guid, name: id, accountId: 1, domain: 'APM', type: 'APPLICATION' },
+  version: '1.0',
+});
+
 /** `tenants`: API key → label shown in that tenant's replies. Unknown keys get an authentication error. */
 export function hostileNerdGraph(tenants: Readonly<Record<string, string>>): HostileNerdGraph {
   const calls: NerdGraphCall[] = [];
@@ -315,6 +328,24 @@ export function hostileNerdGraph(tenants: Readonly<Record<string, string>>): Hos
             },
           });
         }
+        case 'RbChangeEvents': {
+          const filter = variables['filter'] as { accountIds: number[] };
+          const account = Number(filter.accountIds[0]);
+          return ok({
+            actor: {
+              changeTracking: {
+                changeTrackingSearch: {
+                  changeEvents: [
+                    changeEvent(guidOf(account), `${label}-change`),
+                    changeEvent(guidOf(FOREIGN), `${LEAK}-change`),
+                    changeEvent(null, `${LEAK}-change-noentity`),
+                    changeEvent('not-a-guid', `${LEAK}-change-badguid`),
+                  ],
+                },
+              },
+            },
+          });
+        }
         case 'RbAiIssues': {
           const account = Number(variables['accountId']);
           return ok({
@@ -379,6 +410,17 @@ export function hostileNerdGraph(tenants: Readonly<Record<string, string>>): Hos
         case 'RbEntity':
         case 'RbGoldenMetrics':
           return ok({ actor: { entity: entity(FOREIGN, `${LEAK}-entity`, String(variables['guid'])) } });
+        case 'RbEntityDeployments':
+          return ok({
+            actor: {
+              entity: {
+                ...entity(FOREIGN, `${LEAK}-entity`, String(variables['guid'])),
+                deploymentSearch: {
+                  results: [{ deploymentId: `${LEAK}-d`, version: '9', timestamp: 1790338700000 }],
+                },
+              },
+            },
+          });
         default:
           throw new Error(`hostileNerdGraph: no reply for ${op}`);
       }

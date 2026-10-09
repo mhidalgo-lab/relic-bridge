@@ -53,3 +53,17 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   strength of `accountIds` filtering alone; (d) add assignee display (masked) if wanted.
 - **Needs:** a live run on an account with errors; owner's call on (c) and (d).
 
+## P6-04 — Change tracking and deployment impact tools
+
+### P6-04 — change tracking only introspected; entity scope is deployments only; impact is APM only with fixed thresholds
+- **Context:** No live sample exists for `changeTrackingSearch` or `deploymentSearch`, so row shapes, the `limit` ceiling and
+  the syntax of the filter `query` are from introspection. Neither search pages, and `changeTrackingSearch` cannot be filtered
+  by entity with a verified syntax. Whether `Transaction.entityGuid` and the single-percentile result shape hold for every
+  APM agent is unverified.
+- **Assumption made:** `list_change_events` shows every event kind per account, and with `entity_guid` only that entity's
+  deployments; events without an entity are hidden. `analyze_deployment_impact` handles APM applications only, compares equal
+  windows (default 30 minutes) on `Transaction` (throughput, error percentage, average and p95 duration), and applies fixed
+  thresholds (30 transactions per window, 15% latency band, 25% throughput band, error-rate z of 3 and 0.5 pp). Cost is 3.
+- **Options:** (a) keep as is; (b) live probe with real deployments (`pnpm test:live`); (c) use `query` to filter other change
+  kinds per entity once its syntax is verified; (d) support browser/mobile/OTel services; (e) make thresholds arguments.
+- **Needs:** a live run on an account with recorded deployments; owner's call on (c) to (e).

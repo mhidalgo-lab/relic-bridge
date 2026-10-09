@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import type { ToolDefinition } from '../tool.ts';
 import { createAlertTools } from './alerts.ts';
+import { createChangeTools } from './changes.ts';
 import { createEntityTools } from './entities.ts';
 import { createErrorTools } from './errors.ts';
 import { createGoldenMetricTools } from './golden.ts';
@@ -14,6 +15,7 @@ export { createTimeTools } from './time.ts';
 import { createTimeTools } from './time.ts';
 
 export { createAlertTools } from './alerts.ts';
+export { createChangeTools } from './changes.ts';
 export { createEntityTools, ENTITY_TYPES_TTL_MS, MAX_ENTITY_RESULTS } from './entities.ts';
 export { createErrorTools } from './errors.ts';
 export { createGoldenMetricTools, DEFAULT_GOLDEN_SINCE, summarizeSeries, withTimeClauses } from './golden.ts';
@@ -52,5 +54,6 @@ export function createBuiltinTools(deps: ToolDeps = {}): ToolDefinition[] {
     ...createAlertTools(deps),
     ...createIssueTools(deps),
     ...createErrorTools(deps),
+    ...createChangeTools(deps),
   ];
 }

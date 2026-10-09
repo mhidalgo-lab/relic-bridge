@@ -36,6 +36,8 @@ const SAMPLE_CALLS: Record<string, Record<string, unknown>> = {
   list_recent_issues: {},
   search_incidents: { states: ['CREATED'] },
   list_error_groups: { states: ['UNRESOLVED'], sort_by: 'occurrences' },
+  list_change_events: {},
+  analyze_deployment_impact: { entity_guid: MOCK_GUID },
 };
 
 const registry = new ToolRegistry();

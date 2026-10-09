@@ -3,6 +3,9 @@
 `pnpm test` runs the unit, integration and E2E suites offline (mock NerdGraph). `pnpm lint`, `pnpm typecheck` and
 `pnpm build` must also pass before a PR.
 
+Tool descriptions have their own lint, eval set and offline router baseline inside `pnpm test`, plus an optional
+model-in-the-loop eval (`pnpm eval:tools`): see [evals.md](evals.md).
+
 ## Authorization and isolation suite
 
 `pnpm test:authz` runs `packages/http-app/test/authz/` alone (it is also part of `pnpm test`, and CI runs it as the

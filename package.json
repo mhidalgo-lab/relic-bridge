@@ -25,6 +25,7 @@
     "lint:fix": "biome check --write .",
     "tasks": "node scripts/tasks.ts",
     "bench:cpu": "node scripts/bench-cpu.ts",
+    "eval:tools": "node scripts/eval-tools.ts",
     "cf:setup": "node scripts/cloudflare-setup.ts",
     "docs:tools": "node scripts/gen-tool-docs.ts",
     "ui:assets": "node scripts/gen-admin-assets.ts",
@@ -36,6 +37,7 @@
     "db:generate": "pnpm --filter @relic-bridge/storage db:generate"
   },
   "devDependencies": {
+    "@anthropic-ai/sdk": "0.131.0",
     "@biomejs/biome": "2.5.14",
     "@changesets/cli": "3.0.3",
     "@playwright/test": "1.63.0",

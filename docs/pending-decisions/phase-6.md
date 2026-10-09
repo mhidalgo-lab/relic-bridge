@@ -269,3 +269,28 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   is unchanged (issue id input only).
 - **Options:** (a) keep; (b) charge the cost only when `name` is given; (c) fold the P6-17 tools into the adapter too.
 - **Needs:** owner's call on (b), (c).
+
+
+## P6-13 — Tool description quality and agent evals
+
+### P6-13 — LLM eval not run: no API key; baseline and release gate pending
+- **Context:** The LLM tool-choice eval (`pnpm eval:tools`) needs a paid `ANTHROPIC_API_KEY`; none was available and no
+  external LLM API was called. The acceptance criterion "baseline pass rate recorded" is met offline only (description lint
+  + BM25 router baseline in `pnpm test`, top-1 30/44, top-3 38/44).
+- **Assumption made:** default model `claude-opus-5-5`, effort `medium`, server-side refusal fallback on; the release gate is
+  `--min 0.9` plus every injection case passing. `@anthropic-ai/sdk` 0.131.0 added as a root dev dependency (script only,
+  never bundled). v0.6.0 is not cut by this task.
+- **Options:** (a) run `ANTHROPIC_API_KEY=... pnpm eval:tools --out eval-report.json` once, record the result in
+  `docs/dev/evals.md` § Baseline and pick the gate from it; (b) also run it with `--model claude-sonnet-5-5` / `claude-haiku-4-5`
+  to see how the descriptions hold up on smaller models; (c) run it in CI on release tags with a budgeted key (secret +
+  billing decision).
+- **Needs:** owner runs (a) (about 47 requests); decision on the gate threshold and on (c).
+
+### P6-13 — Untrusted-data sentence shortened in descriptions
+- **Context:** Each description had its own one- or two-sentence untrusted-data warning (~130 chars × 33 tools).
+- **Assumption made:** one fixed sentence (`UNTRUSTED`) on every open-world tool, enforced by the lint; the per-result
+  envelope notice (the actual control, T6) is unchanged. Catalogue size went from 65 683 to 61 267 characters.
+- **Options:** (a) keep; (b) drop the sentence from descriptions entirely and rely on the result notice plus a server
+  `instructions` field.
+- **Needs:** owner's call; (b) only after the LLM eval shows injection cases still pass without it.
+

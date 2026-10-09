@@ -127,3 +127,9 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Options:** other thresholds or a `COMPARE WITH` baseline; select `unit` once checked against the live schema.
 - **Needs:** one live run against an APM entity.
 
+### P1-10 — Schema tools not gated by `rawNrql`; defaults; no counts
+- **Context:** `list_event_types` / `get_attributes` run server-built NRQL (the `nrql` tag), not agent-written NRQL.
+- **Assumption made:** not gated by `rawNrql` (query limits and event-type allow/deny still apply). Default window "last 24 hours", 5-minute per-instance cache. With an event-type allow list `list_event_types` returns the list without querying; deny lists are filtered from the output. The optional per-type counts in the original scope were dropped (one query per type; use `run_nrql`). Exact NRQL result shapes of `keyset()` (`key`/`type` rows; older key-list form also parsed) are unverified live.
+- **Options:** gate on `rawNrql`; longer default window; add counts as a separate task.
+- **Needs:** one live run against an account with APM data.
+

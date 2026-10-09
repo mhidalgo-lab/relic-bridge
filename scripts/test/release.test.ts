@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
-import { readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { parse } from 'yaml';
 import {
@@ -185,7 +188,7 @@ describe('.github/workflows/release.yml (THREAT_MODEL T18, P1-16)', () => {
       for (const step of job.steps ?? []) {
         expect(step.uses ?? '').not.toMatch(/^actions\/checkout@|^pnpm\/action-setup@/);
         expect(step.run ?? '').not.toMatch(RUNS_PROJECT_CODE);
-        if (/npm\s+publish/.test(step.run ?? '')) expect(step.run).toContain('--ignore-scripts');
+        if (/npm\s+stage\s+publish/.test(step.run ?? '')) expect(step.run).toContain('--ignore-scripts');
       }
     }
   });
@@ -213,9 +216,91 @@ describe('.github/workflows/release.yml (THREAT_MODEL T18, P1-16)', () => {
     const steps = (workflow.jobs.publish?.steps ?? []).map((s) => `${s.uses ?? ''} ${s.run ?? ''}`);
     const verify = steps.findIndex((s) => s.includes('sha256sum -c --strict SHA256SUMS'));
     const attest = steps.findIndex((s) => s.includes('actions/attest@'));
-    const publish = steps.findIndex((s) => /npm publish/.test(s));
+    const publish = steps.findIndex((s) => /npm stage publish/.test(s));
     expect(verify).toBeGreaterThan(-1);
     expect(verify).toBeLessThan(attest);
     expect(attest).toBeLessThan(publish);
+  });
+
+  it('stages on npm and never publishes directly (second approval with 2FA on npmjs.com)', () => {
+    const steps = workflow.jobs.publish?.steps ?? [];
+    for (const step of steps)
+      expect(step.run ?? '').not.toMatch(/\bnpm\s+publish\b|\bnpm\s+stage\s+approve\b/);
+    const stage = steps.find((s) => /npm\s+stage\s+publish/.test(s.run ?? ''));
+    expect(stage?.if).toBe("steps.npm.outputs.published == 'false'");
+    for (const flag of ['--provenance', '--access public', '--ignore-scripts']) {
+      expect(stage?.run).toContain(flag);
+    }
+    // an absolute path (npm reads a relative a/b.tgz as a git shorthand)
+    expect(stage?.run).toContain('"${PWD}/dist-release/release/');
+  });
+
+  it('creates the GitHub Release only once the version is live on npm', () => {
+    const steps = workflow.jobs.publish?.steps ?? [];
+    const release = steps.find((s) => /gh release create/.test(s.run ?? ''));
+    expect(release?.if).toBe("steps.npm.outputs.published == 'true'");
+  });
+
+  describe('stage step reruns (stub npm)', () => {
+    const stage = (workflow.jobs.publish?.steps ?? []).find((s) => /npm\s+stage\s+publish/.test(s.run ?? ''));
+
+    function run(npmScript: string) {
+      const dir = mkdtempSync(join(tmpdir(), 'stage-'));
+      mkdirSync(join(dir, 'dist-release/release'), { recursive: true });
+      writeFileSync(join(dir, 'dist-release/release/relic-bridge-1.2.3.tgz'), 'x');
+      const mk = (name: string, body: string) => {
+        writeFileSync(join(dir, name), `#!/bin/bash\n${body}\n`);
+        chmodSync(join(dir, name), 0o755);
+      };
+      mk('npm', npmScript);
+      const result = spawnSync('bash', ['-c', `set -eo pipefail\n${stage?.run}`], {
+        env: {
+          PATH: `${dir}:${process.env['PATH']}`,
+          VERSION: '1.2.3',
+          RUNNER_TEMP: dir,
+          GITHUB_STEP_SUMMARY: join(dir, 'summary.md'),
+        },
+        encoding: 'utf8',
+        cwd: dir,
+      });
+      let summary = '';
+      try {
+        summary = readFileSync(join(dir, 'summary.md'), 'utf8');
+      } catch {
+        // no summary written
+      }
+      return { ...result, summary };
+    }
+    // `--version` answers a current npm; any other call is the stage command.
+    const stub = (stageBody: string, version = '11.16.0') =>
+      `if [[ "$1" == --version ]]; then echo ${version}; exit 0; fi\necho "$@" >> "$RUNNER_TEMP/calls"\n${stageBody}`;
+
+    it('stages once and reports that approval is pending', () => {
+      const r = run(stub('echo staged; exit 0'));
+      expect(r.status).toBe(0);
+      expect(r.summary).toMatch(/staged, not published/);
+      expect(r.summary).toMatch(/sha512-/);
+    });
+
+    it('treats "already staged, not approved" as awaiting approval, not a failure', () => {
+      const r = run(
+        stub('echo "npm error code E409" >&2; echo "npm error cannot publish over staged 1.2.3" >&2; exit 1'),
+      );
+      expect(r.status).toBe(0);
+      expect(r.summary).toMatch(/already staged/);
+      expect(r.stdout).toMatch(/nothing staged again/);
+    });
+
+    it('fails on any other error', () => {
+      const r = run(stub('echo "npm error code E403" >&2; echo "npm error forbidden" >&2; exit 1'));
+      expect(r.status).toBe(1);
+      expect(r.stdout).toMatch(/npm stage publish failed/);
+    });
+
+    it('refuses an npm too old for staged publishing', () => {
+      const r = run(stub('exit 0', '11.14.9'));
+      expect(r.status).toBe(1);
+      expect(r.stdout).toMatch(/too old/);
+    });
   });
 });

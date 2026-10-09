@@ -395,8 +395,31 @@ Sources: <https://github.com/cloudflare/workers-oauth-provider>, issues #264, #3
 - `actions/attest` v4 (successor of `attest-build-provenance`) needs `id-token: write`, `attestations: write` and
   `artifact-metadata: write`; in **private** repositories attestations need GitHub Enterprise, so release from a public
   repo.
-- npm staged publishing (`npm stage publish`, `--allow-stage-publish` on the trusted publisher) lets CI upload a
-  version that a maintainer then approves with 2FA; an alternative to environment approval (pending decision P1-15).
+- **npm staged publishing** (verified 2026-10-09 against the official docs and `npm help stage` / `npm trust github
+  --help` of npm 11.16; sources: docs.npmjs.com/staged-publishing, /cli/v11/commands/npm-stage,
+  /cli/v11/commands/npm-trust, /trusted-publishers):
+  - Needs npm CLI >= 11.15.0 and Node >= 22.14. `npm stage publish [<package-spec>]` places the version in the
+    registry in a non-public state; it never asks for 2FA and accepts `--tag`, `--access`, `--provenance`, `--dry-run`.
+    `--ignore-scripts` is a global npm config flag and is accepted (checked with `--dry-run` on a tarball). A relative
+    tarball path like `a/b.tgz` is parsed as a git shorthand: pass an absolute path or `./a/b.tgz`.
+  - Approval: `npm stage approve <stage-id>` (2FA) or the **Staged Packages** tab on npmjs.com (**Approve**).
+    `npm stage list|view|download` need no 2FA, `npm stage reject` needs 2FA. **The `npm stage` subcommands cannot use
+    OIDC tokens** ("proof of presence"), so CI can neither list, approve nor reject, and cannot detect staged state.
+  - Staged and published versions share one semver unique index: a version that is staged cannot be published or
+    staged again. A stage can sit next to normal publishes and several versions can be staged. The tag is fixed when
+    staging (reject and re-stage to change it). `private: true` is refused as with `npm publish`.
+  - The package must already exist (the name is owned: 0.0.0 placeholder). Staging a package that does not exist
+    creates a public `0.0.0-stage` placeholder.
+  - Trusted publisher: each configuration has "Allowed actions"; `npm stage publish` is always allowed and
+    `npm publish` is optional. CLI: `npm trust github <pkg> --file release.yml --env release --repo <owner/repo>
+    --allow-stage-publish` (`--allow-publish` is the other flag; at least one is required). OIDC tokens can run only
+    `npm stage publish` and `npm publish`. The docs say configurations created after 2026-09-03 default to allowing
+    stage publish.
+  - **Not documented** (so the workflow does not rely on it): the stage-id format, expiry of a staged version, the exact
+    error text of staging a version twice. The release job therefore matches a conflict error loosely
+    (`E409`, `already staged`, `cannot publish over`, ...) and treats it as "already staged, awaiting approval";
+    any other failure fails the job. Verify the real wording on the first release and tighten
+    `release.yml` and its test (docs/dev/releasing.md).
 - The name `relic-bridge` is owned by the maintainer (0.0.0 placeholder, 2026-10-03; P0-01).
 
 ## 7. Existing community projects (prior art)

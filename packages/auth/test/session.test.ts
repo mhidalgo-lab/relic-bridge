@@ -137,7 +137,8 @@ describe('session store', () => {
     for (let i = 0; i < 1005; i++) await issue('usr_many');
     expect(await revokeUserSessions(kv, 'usr_many')).toBe(1005);
     expect((await kv.list({ prefix: 'sess:usr_many:' })).keys).toEqual([]);
-  });
+    // About 5 s on a loaded machine (2N storage calls; P4-17 batches them): explicit timeout against flakes.
+  }, 30_000);
 
   it('CSRF tokens compare exactly', async () => {
     const s = await issue();

@@ -872,7 +872,8 @@ const FORBIDDEN_MESSAGES: Readonly<Record<string, string>> = {
   origin_missing: 'request origin unknown: send the Origin header',
   self: 'you cannot change your own role or disable yourself; ask another owner',
   no_user: 'this route is for signed-in users: the admin token has no keys, grants or tokens of its own',
-  owner: 'only an owner can create, change or sign out an owner',
+  owner:
+    "only an owner can create, change or sign out an owner, or act on an owner's keys, grants and tokens",
 };
 
 /** Build the admin sub-app (mounted at {@link ADMIN_API_BASE}). */
@@ -1169,6 +1170,31 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
     new AdminApiError('forbidden', FORBIDDEN_MESSAGES[reason] ?? 'not allowed', { detail: reason });
   const actsAsOwner = (c: Context) => (c.get('principal') as AdminPrincipal | undefined)?.role === 'owner';
 
+  /**
+   * "Only owners touch owners" also covers an owner's keys, grants and tokens (phase 4 review H1): without this, an
+   * admin could issue a token on an owner's grant (and query New Relic with the owner's personal key), point an
+   * owner's key at another account, plant keys on an owner or delete an owner's grant. `userIds` are the users the
+   * change acts for: a grant's user, a credential's owner, or the owner of the key a grant uses.
+   */
+  const guardOwnerAssets = async (c: Context, userIds: ReadonlyArray<string | null | undefined>) => {
+    if (actsAsOwner(c)) return;
+    for (const userId of new Set(userIds)) {
+      if (userId == null) continue;
+      if ((await storage.users.get(userId))?.role === 'owner') throw denied('owner');
+    }
+  };
+  const credentialOwnerId = async (credentialId: string | null | undefined) =>
+    credentialId == null ? null : ((await storage.credentials.get(credentialId))?.ownerUserId ?? null);
+  /**
+   * A grant acts for its user and for the owner of the personal key it names. A project default stays out: an owner
+   * who made their own key a project's default shared it with that project (admins cannot make that choice for them:
+   * project create and update are guarded).
+   */
+  const grantUsers = async (grant: { userId: string | null; credentialId: string | null }) => [
+    grant.userId,
+    await credentialOwnerId(grant.credentialId),
+  ];
+
   /** End every session of a user after a privilege change, audited as its own row. */
   const endSessions = async (c: Context, userId: string, reason: string): Promise<void> => {
     const revoked = await revokeAll(userId);
@@ -1367,13 +1393,15 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
         targetType: 'credential',
         details: { label: body.label, region: body.region, owned: body.ownerUserId != null },
       },
-      () =>
-        createCredential(credentialDeps, {
+      async () => {
+        await guardOwnerAssets(c, [body.ownerUserId]);
+        return createCredential(credentialDeps, {
           label: body.label,
           region: body.region,
           apiKey: new Secret(body.apiKey),
           ownerUserId: body.ownerUserId ?? null,
-        }),
+        });
+      },
       (r) => ({ targetId: r.id }),
     );
     return c.json({ data: credentialView(credential) }, 201);
@@ -1395,6 +1423,7 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
       { action: 'credential.update', targetType: 'credential', targetId: id, details: { label: body.label } },
       async () => {
         const existing = await must('credential', id, (x) => storage.credentials.get(x));
+        await guardOwnerAssets(c, [existing.ownerUserId]);
         const label = body.label.trim();
         if (label === '')
           throw new AdminApiError('invalid_request', 'label must not be blank', { field: 'label' });
@@ -1408,6 +1437,7 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
     const { id } = c.req.valid('param');
     await change(c, { action: 'credential.delete', targetType: 'credential', targetId: id }, async () => {
       const existing = await must('credential', id, (x) => storage.credentials.get(x));
+      await guardOwnerAssets(c, [existing.ownerUserId]);
       try {
         await storage.credentials.delete(existing.id);
       } catch (error) {
@@ -1431,7 +1461,8 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
       c,
       { action: 'credential.rotate', targetType: 'credential', targetId: id },
       async () => {
-        await must('credential', id, (x) => storage.credentials.get(x));
+        const existing = await must('credential', id, (x) => storage.credentials.get(x));
+        await guardOwnerAssets(c, [existing.ownerUserId]);
         return rotateCredentialKey(credentialDeps, id, new Secret(body.apiKey));
       },
       (r) => ({ details: { warnings: [...r.warnings] } }),
@@ -1480,7 +1511,10 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
     const project = await change(
       c,
       { action: 'project.create', targetType: 'project', details: { slug: body.slug } },
-      () => createProject(storage, compact(body) as CreateProjectInput, catalog),
+      async () => {
+        await guardOwnerAssets(c, [await credentialOwnerId(body.defaultCredentialId)]);
+        return createProject(storage, compact(body) as CreateProjectInput, catalog);
+      },
       (p) => ({ targetId: p.id, projectId: p.id }),
     );
     return c.json({ data: projectView(project) }, 201);
@@ -1503,7 +1537,10 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
         projectId: id,
         details: { fields: Object.keys(body) },
       },
-      () => updateProject(storage, id, compact(body) as UpdateProjectInput, catalog, clock.now()),
+      async () => {
+        await guardOwnerAssets(c, [await credentialOwnerId(body.defaultCredentialId)]);
+        return updateProject(storage, id, compact(body) as UpdateProjectInput, catalog, clock.now());
+      },
     );
     return c.json({ data: projectView(result.project), warnings: [...result.warnings] }, 200);
   });
@@ -1542,7 +1579,13 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
         projectId: body.projectId,
         details: { userId: body.userId ?? null, credentialId: body.credentialId ?? null },
       },
-      () => createGrant(storage, compact(body) as CreateGrantInput, catalog, clock.now()),
+      async () => {
+        await guardOwnerAssets(
+          c,
+          await grantUsers({ userId: body.userId ?? null, credentialId: body.credentialId ?? null }),
+        );
+        return createGrant(storage, compact(body) as CreateGrantInput, catalog, clock.now());
+      },
       (r) => ({ targetId: r.grant.id, projectId: r.grant.projectId }),
     );
     return c.json({ data: grantView(result.grant), warnings: [...result.warnings] }, 201);
@@ -1560,6 +1603,7 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
       { action: 'grant.revoke', targetType: 'grant', targetId: id },
       async () => {
         const existing = await must('grant', id, (x) => storage.grants.get(x));
+        await guardOwnerAssets(c, await grantUsers(existing));
         return existing.revokedAt !== null
           ? existing
           : storage.grants.update(existing.id, { revokedAt: clock.now() });
@@ -1576,6 +1620,7 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
       { action: 'grant.delete', targetType: 'grant', targetId: id },
       async () => {
         const existing = await must('grant', id, (x) => storage.grants.get(x));
+        await guardOwnerAssets(c, await grantUsers(existing));
         await storage.grants.delete(existing.id);
         return existing;
       },
@@ -1608,6 +1653,8 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
         details: { grantId: body.grantId, label: body.label, ttlSeconds: body.ttlSeconds ?? null },
       },
       async () => {
+        const target = await storage.grants.get(body.grantId);
+        if (target) await guardOwnerAssets(c, await grantUsers(target));
         const result = await issueAccessToken(
           storage,
           { grantId: body.grantId, label: body.label, ...(ttl === undefined ? {} : { ttl }) },
@@ -1651,6 +1698,9 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
       c,
       { action: 'token.revoke', targetType: 'token', targetId: id },
       async () => {
+        const record = await storage.accessTokens.get(id);
+        const target = record ? await storage.grants.get(record.grantId) : null;
+        if (target) await guardOwnerAssets(c, await grantUsers(target));
         const summary = await revokeAccessToken(storage, id, clock.now());
         const grant = await storage.grants.get(summary.grantId);
         return { summary, projectId: grant?.projectId ?? null };

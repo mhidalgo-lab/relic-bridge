@@ -390,3 +390,29 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Context:** `RB_LOGIN_ALLOW_*` set with `RB_LOGIN_AUTO_PROVISION=off` admits nobody and logs no warning (the reverse
   case does warn). The guide says so plainly.
 - **Needs:** owner choice: add a start-up warning in a follow-up task, or leave as is.
+
+## Phase 4 consolidation review
+
+### Review H1 — Admins no longer act on an owner's keys, grants and tokens
+- **Context:** "only owners touch owners" covered `/users` only. An admin session could issue a device token on an
+  owner's grant (and so query New Relic with the owner's personal key), rotate an owner's key to another account, plant
+  keys on an owner, make an owner's key a project default, and revoke or delete an owner's grants and tokens.
+- **Decision made in the review (fixed, `docs/reviews/phase-4-review.md`):** those changes now answer `403`
+  (`detail: owner`) unless the caller is an owner or the bootstrap token. A project whose default an *owner* set to
+  their own key stays usable: admins still grant other users on it (the owner chose to share the key with the project).
+- **Options:** (a) keep; (b) also refuse admins any grant on a project whose default is an owner's personal key;
+  (c) drop the rule and trust admins with everything but `/users` owners (the pre-review behaviour).
+- **Needs:** owner confirmation; the panel still shows the controls that now lead to the 403 page (P4-20).
+
+### Review — Members and pinned keys, personal keys as project defaults
+- **Context:** a member can reset an administrator-pinned key on their grant to the project default
+  (`PATCH /me/grants/{id}` `credentialId: null`), and a member whose personal key is a project default can rotate or
+  rename the key everyone in that project uses.
+- **Assumption made:** left as is; tracked in P4-18 with the earlier P4-10 decision.
+- **Needs:** owner choice together with "P4-10 — Members cannot create their own grants".
+
+### Review — Last owner and session cap
+- **Context:** nothing stops two owners demoting each other into zero owners (recovery: CLI or `RB_ADMIN_TOKEN`), and
+  sessions per user are unbounded.
+- **Assumption made:** tasks P4-16 (last-owner guard, atomic binding) and P4-17 (session cap, batched revoke).
+- **Needs:** owner: the session cap value (20 proposed).

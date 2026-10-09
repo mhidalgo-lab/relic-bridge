@@ -94,7 +94,7 @@ On a Worker, `pnpm cf:setup --sign-in` asks for the public URL and each provider
 | Role | In the panel and API |
 |---|---|
 | `owner` | Everything, including master-key rotation, setup links, **moving a user to another provider**, and managing other owners. The bootstrap `RB_ADMIN_TOKEN` acts as owner. |
-| `admin` | Keys, projects, grants, device tokens and users, the audit log with CSV export, usage statistics and the connect page. Cannot create, promote, change or sign out an owner. |
+| `admin` | Keys, projects, grants, device tokens and users, the audit log with CSV export, usage statistics and the connect page. Cannot create, promote, change or sign out an owner, and cannot act on an owner's personal keys, grants or device tokens (or make an owner's key a project default). |
 | `member` | Overview, their own rows in the audit log, and **My access**: their own keys, their grants and device tokens. |
 
 Nobody can change their own role or disable themselves through a session. Changing a role or disabling a user ends all
@@ -152,7 +152,8 @@ scrolling, and follows your light or dark setting.
   that user's page; their device tokens keep working (disable the user or revoke the grant to stop those).
 - Every form carries a CSRF token and is accepted only from the panel's own origin. Cross-site images, scripts, frames and
   `fetch` calls never reach the session. Bearer tokens never open a panel page.
-- Sign-in requests are rate limited per client address: `RB_RATE_LIMIT_SIGN_IN`, default `60/300` (60 per 5 minutes).
+- Sign-in requests are rate limited per client address: default 60 per 5 minutes (`RB_RATE_LIMIT_SIGN_IN` on `serve`).
+  On Workers the rule is fixed at the default and counted per isolate (best effort), like the auth-failure throttle.
   Behind a reverse proxy, set `RB_TRUSTED_PROXY_HOPS` or everyone shares one address.
 
 ## 9. Everyday tasks
@@ -184,7 +185,7 @@ scrolling, and follows your light or dark setting.
 | `RB_LOGIN_AUTO_PROVISION` | `off` | `off`, `member` or `admin`. Never `owner`. |
 | `RB_SESSION_IDLE_MINUTES` | `30` | 5 to 1440. |
 | `RB_SESSION_MAX_HOURS` | `12` | 1 to 168. |
-| `RB_RATE_LIMIT_SIGN_IN` | `60/300` | Sign-in requests per client address. |
+| `RB_RATE_LIMIT_SIGN_IN` | `60/300` | Sign-in requests per client address (`serve` only; fixed on Workers, per isolate). |
 
 Variables go in the environment for `serve` (also Docker and compose). On a Worker, ids and public settings are
 variables and client secrets are Worker secrets; `pnpm cf:setup --sign-in` sets them (it asks for the public URL, each

@@ -10,6 +10,7 @@ import {
   type Keyring,
   loadKeyringFromEnv,
   nerdGraphKeyValidator,
+  providerRouteId,
   verifyKeyChecks,
 } from '@relic-bridge/auth';
 import {
@@ -99,7 +100,7 @@ export async function openLocalClient(options: LocalOptions): Promise<AdminClien
         publicUrl: identity.publicUrl,
         kv: storage.kv,
         providers: identity.providers.map((p) => ({
-          id: p.kind === 'oidc' ? p.name : p.kind,
+          id: providerRouteId(p),
           kind: p.kind === 'cf-access' ? ('header' as const) : ('redirect' as const),
         })),
       };

@@ -299,6 +299,16 @@ function sessionTimeouts(env: IdentityEnv): SessionTimeouts {
 }
 
 /** Build the providers of `settings`. `fetch` reaches the IdPs (tests inject a mock IdP). */
+/**
+ * The id a provider is reached by: the `/auth/login/<id>` path segment and the admin API's `provider` value. Generic
+ * OIDC providers are `oidc` (default name) or `oidc-<name>`; every other provider is its kind. One function so that the
+ * CLI's local `setup-link` and the HTTP app never disagree (phase 4 review L2).
+ */
+export function providerRouteId(p: ProviderSettings): string {
+  if (p.kind !== 'oidc') return p.kind;
+  return p.name === 'oidc' ? 'oidc' : `oidc-${p.name}`;
+}
+
 export function createIdentityProviders(
   settings: Pick<IdentitySettings, 'providers' | 'policy'>,
   deps: { readonly fetch?: FetchLike; readonly clock?: Clock } = {},
@@ -325,7 +335,7 @@ export function createIdentityProviders(
         });
       case 'oidc':
         return createOidcProvider({
-          id: p.name === 'oidc' ? 'oidc' : `oidc-${p.name}`,
+          id: providerRouteId(p),
           label: p.label,
           idp: `oidc:${p.name}`,
           issuer: p.issuer,

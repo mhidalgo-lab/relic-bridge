@@ -13,7 +13,7 @@ Usage:
                     Owner only. Clear the user's sign-in identity so they can sign in with another
                     provider (they are signed out everywhere). Whoever then signs in with that
                     verified email, at any configured provider, takes the account.
-  relic-bridge setup-link [--provider google|github|cf-access|<oidc name>] [--ttl <minutes>]
+  relic-bridge setup-link [--provider google|github|cf-access|oidc|oidc-<name>] [--ttl <minutes>]
                     Print a single-use link that makes whoever signs in with it an owner. Locally
                     it needs RB_PUBLIC_URL and the provider variables as for serve; with --remote
                     it asks the server.

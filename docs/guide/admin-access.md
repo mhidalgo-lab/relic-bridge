@@ -35,7 +35,7 @@ Sign-in itself (Google, GitHub, Cloudflare Access, OIDC, the first-owner setup l
 | Role | Can |
 |---|---|
 | `owner` | Everything, including master-key rotation (`POST /keys/rotate`), owner setup links (`POST /setup-links`) and managing other owners. |
-| `admin` | Manage users, credentials, projects, grants, tokens; read the audit log. Cannot create an owner, promote anyone to owner, or change or sign out an owner. |
+| `admin` | Manage users, credentials, projects, grants, tokens; read the audit log. Cannot create an owner, promote anyone to owner, or change or sign out an owner. Cannot act on an owner's keys, grants or tokens either: a credential owned by an owner, a grant of an owner or on an owner's key, and its tokens answer `403` (`detail: owner`) to change, rotate, delete, revoke and token issue; so do `ownerUserId` = an owner and a project `defaultCredentialId` that is an owner's key. |
 | `member` | `GET /session`, signing out their own sessions, and `GET /audit` limited to their own entries (the `userId` filter is forced; usage statistics are admin-only). The self-service namespace `/api/admin/v1/me/*` (below): their own keys, their grants and device tokens. |
 
 ### Member self-service (`/api/admin/v1/me/*`)

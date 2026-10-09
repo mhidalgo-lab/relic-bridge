@@ -3,7 +3,13 @@
 // fields and ids only and pass through `redact()`, so a key or token pasted into the wrong field is never echoed.
 import { isAccessError, isCryptoError, isKeyRejection } from '@relic-bridge/auth';
 import { isRbError, redact } from '@relic-bridge/core';
-import { ConflictError, InvalidInputError, NotFoundError, ReadOnlyStorageError } from '@relic-bridge/storage';
+import {
+  ConflictError,
+  InvalidInputError,
+  NotFoundError,
+  ReadOnlyStorageError,
+  StorageError,
+} from '@relic-bridge/storage';
 
 export type AdminErrorCode =
   | 'invalid_request'
@@ -133,7 +139,23 @@ export function toAdminApiError(error: unknown): AdminApiError | null {
   if (error instanceof InvalidInputError) {
     return new AdminApiError('invalid_request', error.message, { field: error.field });
   }
+  // Any other storage failure (adapter outage, migration problem) and a busy/locked engine: an outage, not a bug.
+  if (error instanceof StorageError || isBusyError(error)) {
+    return new AdminApiError('unavailable', 'storage is unavailable; retry');
+  }
   return null;
+}
+
+/** Seconds a client is told to wait before retrying a `503 unavailable`. */
+export const ADMIN_RETRY_AFTER_SECONDS = 5;
+
+const BUSY = /database is (locked|busy)|SQLITE_(BUSY|LOCKED)/i;
+
+/** A SQLite engine error for a locked or busy database (the adapter does not wrap these). */
+function isBusyError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const code = (error as { code?: unknown }).code;
+  return BUSY.test(error.message) || (typeof code === 'string' && BUSY.test(code));
 }
 
 /** Storage constraint names are internal; say what they mean instead. */

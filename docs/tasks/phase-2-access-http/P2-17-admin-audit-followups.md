@@ -2,11 +2,11 @@
 id: P2-17
 title: Admin API audit and error-model follow-ups
 phase: 2
-status: todo
+status: review
 priority: medium
 depends_on: [P2-09]
 adr: [0009]
-owner: ""
+owner: claude-agent
 ---
 
 # P2-17 — Admin API audit and error-model follow-ups
@@ -31,9 +31,9 @@ Every refused admin change is audited, and a storage outage looks like an outage
   truncated ids and field names) and the P2-09 row of `docs/THREAT_MODEL.md` to match.
 
 ## Acceptance criteria
-- [ ] Test: an invalid body on each mutating route writes exactly one `admin` row with `invalid_request`, no body values.
-- [ ] Test: a storage adapter that throws gives `503` with `Retry-After` on a read and on a change.
-- [ ] P2-12 authz matrix still green; docs updated.
+- [x] Test: an invalid body on each mutating route writes exactly one `admin` row with `invalid_request`, no body values.
+- [x] Test: a storage adapter that throws gives `503` with `Retry-After` on a read and on a change.
+- [x] P2-12 authz matrix still green; docs updated.
 
 ## Security notes
 T14/T17 (admin actions audited), T20 (refusal rows capped). No new route.

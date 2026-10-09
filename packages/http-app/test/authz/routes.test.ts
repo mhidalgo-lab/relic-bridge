@@ -196,10 +196,24 @@ describe('admin routes × principals', () => {
     });
   }
 
-  it('positive control: the admin token passes authentication on every admin route', async () => {
+  /** Samples reference ids that don't exist (404 `not_found`); the rest must succeed: 200, or 201 for creates. */
+  const adminControlStatus = (route: (typeof ADMIN_ROUTES)[number]): number => {
+    const dangling =
+      route.path.includes('_none') ||
+      route.path.endsWith('/no-such-endpoint') ||
+      (route.method === 'POST' &&
+        (route.path.endsWith('/grants') || route.path.endsWith('/tokens')) &&
+        route.body !== undefined);
+    if (dangling) return 404;
+    return route.method === 'POST' ? 201 : 200;
+  };
+
+  it('positive control: the admin token gets the expected answer on every admin route', async () => {
     for (const route of ADMIN_ROUTES) {
       const res = await h.send(requestFor(route, { headers: { authorization: `Bearer ${ADMIN_TOKEN}` } }));
-      expect(res.status, `${route.method} ${route.path}`).not.toBe(401);
+      const want = adminControlStatus(route);
+      expect(res.status, `${route.method} ${route.path}`).toBe(want);
+      if (want === 404) expect(JSON.parse(res.text).error.code).toBe('not_found');
     }
   });
 

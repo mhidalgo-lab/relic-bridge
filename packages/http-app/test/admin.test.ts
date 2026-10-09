@@ -3,7 +3,7 @@
 // a scan that no response or log line ever carries key material or token hashes.
 import type { KeyValidator } from '@relic-bridge/auth';
 import { createLogger, ErrorCode, type Identity, RbError, Secret } from '@relic-bridge/core';
-import type { AuditRecord } from '@relic-bridge/storage';
+import { type AuditRecord, StorageError } from '@relic-bridge/storage';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   createAuditRecorder,
@@ -881,6 +881,106 @@ describe('audit', () => {
       201,
     );
     expect((await auditRows()).filter((r) => r.kind === 'admin')).toHaveLength(0);
+  });
+});
+
+describe('refused changes and outages (P2-17)', () => {
+  const SECRET_VALUE = 'NRAK-SHOULDNEVERBEAUDITED0123456789';
+  const invalid: readonly (readonly [string, string, string, unknown])[] = [
+    ['POST', '/users', 'user.create', { email: 'not-an-email', extra: SECRET_VALUE }],
+    ['PATCH', '/users/usr_x', 'user.update', { disabled: SECRET_VALUE }],
+    ['POST', '/credentials', 'credential.create', { label: 1, apiKey: SECRET_VALUE, region: 'MARS' }],
+    ['PATCH', '/credentials/cred_x', 'credential.update', { label: 5, apiKey: SECRET_VALUE }],
+    ['POST', '/credentials/cred_x/rotate', 'credential.rotate', { apiKey: 5, extra: SECRET_VALUE }],
+    ['POST', '/projects', 'project.create', { slug: 'Bad Slug', extra: SECRET_VALUE }],
+    ['PATCH', '/projects/prj_x', 'project.update', { disabled: SECRET_VALUE }],
+    ['POST', '/grants', 'grant.create', { projectId: 5, extra: SECRET_VALUE }],
+    ['POST', '/tokens', 'token.create', { grantId: 5, extra: SECRET_VALUE }],
+  ];
+
+  it('audits a schema-invalid body on every mutating route, once, without submitted values', async () => {
+    const app = makeApp();
+    for (const [method, path, action, body] of invalid) {
+      const before = (await auditRows()).filter((r) => r.kind === 'admin').length;
+      const res = await admin(app, path, { method, body });
+      expect(res.status, `${method} ${path}`).toBe(400);
+      expect(res.json?.['error']?.code).toBe('invalid_request');
+      await vi.waitFor(async () =>
+        expect((await auditRows()).filter((r) => r.kind === 'admin')).toHaveLength(before + 1),
+      );
+      const row = (await auditRows()).find((r) => r.kind === 'admin' && r.action === action);
+      expect(row, action).toMatchObject({ status: 'error', errorCode: 'invalid_request' });
+      expect(JSON.stringify(row)).not.toContain(SECRET_VALUE);
+    }
+    // Malformed JSON is a refused change too.
+    const before = (await auditRows()).filter((r) => r.kind === 'admin').length;
+    const broken = await admin(app, '/users', {
+      method: 'POST',
+      raw: '{"email":',
+      headers: { 'content-type': 'application/json' },
+    });
+    expect(broken.status).toBe(400);
+    await vi.waitFor(async () =>
+      expect((await auditRows()).filter((r) => r.kind === 'admin')).toHaveLength(before + 1),
+    );
+  });
+
+  it('does not audit refused reads, and caps the refusal rows', async () => {
+    const app = makeApp();
+    await admin(app, '/users?limit=zzz');
+    for (let i = 0; i < 130; i++) await admin(app, '/users', { method: 'POST', body: { email: 5 } });
+    await vi.waitFor(async () =>
+      expect((await auditRows()).filter((r) => r.action === 'user.create').length).toBeGreaterThan(0),
+    );
+    await new Promise((r) => setTimeout(r, 50));
+    const rows = (await auditRows()).filter((r) => r.kind === 'admin');
+    expect(rows.length).toBeLessThanOrEqual(120);
+    expect(rows.some((r) => r.action === 'user.list')).toBe(false);
+  });
+
+  it('answers a storage outage with 503 and Retry-After, on a read and on a change', async () => {
+    const app = makeApp();
+    vi.spyOn(world.storage.users, 'list').mockRejectedValue(new StorageError('migration', 'down'));
+    const read = await admin(app, '/users');
+    expect(read.status).toBe(503);
+    expect(read.json?.['error']?.code).toBe('unavailable');
+    expect(read.headers.get('retry-after')).toBe('5');
+    vi.spyOn(world.storage.users, 'create').mockRejectedValue(new Error('SQLITE_BUSY: database is locked'));
+    const write = await admin(app, '/users', { method: 'POST', body: { email: 'z@example.com' } });
+    expect(write.status).toBe(503);
+    expect(write.headers.get('retry-after')).toBe('5');
+    expect(JSON.stringify(write.json)).not.toContain('SQLITE');
+    await vi.waitFor(async () =>
+      expect((await auditRows()).find((r) => r.action === 'user.create')).toMatchObject({
+        status: 'error',
+        errorCode: 'unavailable',
+      }),
+    );
+  });
+
+  it('accepts body-less actions without a Content-Type', async () => {
+    const app = makeApp();
+    for (const path of [`/tokens/${world.tokenIds.prod}/revoke`, `/grants/${world.grantIds.prod}/revoke`]) {
+      const res = await admin(app, path, { method: 'POST' });
+      expect(res.status, path).toBe(200);
+    }
+  });
+
+  it('audits the effective token TTL', async () => {
+    const app = makeApp();
+    const tok = await admin(app, '/tokens', {
+      method: 'POST',
+      body: { grantId: world.grantIds.prod, label: 'ttl' },
+    });
+    issued.push(tok.json?.['token']);
+    await vi.waitFor(async () =>
+      expect((await auditRows()).find((r) => r.action === 'token.create')).toBeDefined(),
+    );
+    const row = (await auditRows()).find((r) => r.action === 'token.create');
+    const expiresAt = tok.json?.['data'].expiresAt as number | null;
+    const expected = expiresAt === null ? 'never' : Math.round((expiresAt - world.clock.now()) / 1000);
+    expect(row?.details?.['ttlSeconds']).toBe(expected);
+    expect(row?.details?.['ttlSeconds']).not.toBeNull();
   });
 });
 

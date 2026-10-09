@@ -2,11 +2,11 @@
 id: P7-31
 title: "Description lint for write tools"
 phase: 7
-status: todo
+status: review
 priority: low
 depends_on: [P7-27]
 adr: []
-owner: unassigned
+owner: claude-agent
 ---
 
 # P7-31 — Description lint for write tools
@@ -21,8 +21,8 @@ sentence on all four (they return New Relic text only inside an envelope), and `
 - Run the lint on `createWriteTools()` in `tool-descriptions.test.ts`.
 
 ## Acceptance criteria
-- [ ] Write tools pass the description lint (rules adapted, not weakened for read tools).
-- [ ] Budget tests from P7-27 still pass.
+- [x] Write tools pass the description lint (rules adapted, not weakened for read tools).
+- [x] Budget tests from P7-27 still pass.
 
 ## Docs to update
 - `docs/dev/evals.md`.

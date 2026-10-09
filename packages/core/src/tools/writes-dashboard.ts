@@ -167,7 +167,7 @@ const dashboardOutput = z.object({
 
 const DESCRIPTION = `Create a new private New Relic dashboard from NRQL queries: pages of charts (line, area, bar, billboard, pie, table) and plain-text markdown widgets.
 
-Write tool, opt-in. ${SIDE_EFFECT_NOTICE} Needs confirm: true; dry_run: true returns the plan without creating it. Each call creates a new dashboard (not idempotent; it cannot be edited or deleted here), always PRIVATE. Widget NRQL is checked like run_nrql and every query account must be on this connection. Limits: ${DASHBOARD_LIMITS.pages} pages, ${DASHBOARD_LIMITS.widgetsPerPage} widgets per page, ${DASHBOARD_LIMITS.widgets} in all, ${DASHBOARD_LIMITS.queriesPerWidget} queries per widget. To read dashboards use list_dashboards and get_dashboard.`;
+Write tool, opt-in. ${SIDE_EFFECT_NOTICE} Needs confirm: true; dry_run: true returns the plan without creating it. Each call creates a new dashboard (not idempotent; it cannot be edited or deleted here), always PRIVATE. Widget NRQL is checked like run_nrql and every query account must be on this connection. Limits: ${DASHBOARD_LIMITS.pages} pages, ${DASHBOARD_LIMITS.widgetsPerPage} widgets per page, ${DASHBOARD_LIMITS.widgets} in all, ${DASHBOARD_LIMITS.queriesPerWidget} queries per widget. To read dashboards use list_dashboards and get_dashboard. To record a change event instead, use create_change_event.`;
 
 /** Prefix an error with where it happened, keeping its code (limits → RB_LIMIT_QUERY, accounts → RB_AUTH_FORBIDDEN). */
 function at(where: string, e: unknown): never {

@@ -97,6 +97,7 @@ Generated from task front matter (`pnpm tasks index` once P0-05 lands). Status l
 | P1-15 | [Release pipeline and v0.1.0](tasks/phase-1-core-stdio/P1-15-release-v0-1.md) | high | P1-11, P1-12, P1-14 | review |
 | P1-16 | [Isolate the OIDC publish step and make release reruns idempotent](tasks/phase-1-core-stdio/P1-16-release-publish-isolation.md) | high | P1-15 | review |
 | P1-17 | [CLI warnings and docs accuracy follow-ups from the Phase 1 review](tasks/phase-1-core-stdio/P1-17-cli-docs-polish.md) | low | P1-11, P1-14 | review |
+| P1-18 | [Require npm staged-publish approval on top of the release environment](tasks/phase-1-core-stdio/P1-18-npm-staged-publish.md) | high | P1-16 | todo |
 
 ### Phase 2
 

@@ -15,6 +15,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Options:** merge the stack bottom-up (retarget each PR to `main` after its parent merges), or squash-merge the
   tip into `main` in one go.
 - **Needs:** owner's merge strategy; then mark merged tasks `done` and run `pnpm tasks index`.
+- **Decision (2026-10-09):** merge **one phase at a time**, bottom-up into `main` (retarget each PR after its parent merges), mark merged tasks `done`, run `pnpm tasks index`, release, then move to the next phase.
 
 ## P1-05 — Output shaping
 
@@ -26,6 +27,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Options:** keep (safest); envelope only known free-text attributes (cheaper, easy to miss one); make it a
   connection setting.
 - **Needs:** owner's confirmation.
+- **Decision (2026-10-09):** keep: every rendered data block is enveloped.
 
 ### P1-05 — Redacting secret-shaped values in telemetry rows
 - **Context:** Log lines sometimes contain keys or `password=…`. The central `redact()` (T8) can scrub them before they
@@ -34,6 +36,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   it off per call site, but no tool input exposes that switch.
 - **Options:** keep on by default; make it a connection setting (P2); off by default.
 - **Needs:** owner's preference.
+- **Decision (2026-10-09):** keep: redaction is on by default for rows and structured content, with no per-call or connection switch.
 
 ### P1-05 — Default caps
 - **Context:** No measured token budget yet (P7-01 evaluates large results).
@@ -41,6 +44,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   renders a table up to 8 columns, CSV above. Hard maximums 1000 / 4000 / 100 000 / 200.
 - **Options:** tune after P1-12 evals or real usage.
 - **Needs:** nothing now; revisit with data.
+- **Decision (2026-10-09):** confirmed; revisit with P8-03 / real usage data.
 
 ## P1-06 — Query tools
 
@@ -52,6 +56,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Options:** keep; filter in the stdio CLI (P1-11) when its config sets `rawNrql: false`; filter centrally in the
   Phase 2 grant resolution (P2-xx).
 - **Needs:** owner's preference on where the filter lives; nothing blocks Phase 1.
+- **Decision (2026-10-09):** resolved: filtered centrally in grant resolution (`packages/auth/src/access/resolve.ts`, `RAW_NRQL_TOOLS`) and in the stdio CLI.
 
 ### P1-06 — Polling behaviour of `run_nrql`
 - **Context:** The engine supports `sync`, `async` and `auto` modes. Agents only see `timeout_s`.
@@ -60,6 +65,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   per call.
 - **Options:** keep; expose a `wait` / `mode` input; return the handle right after `timeout_s` (no polling).
 - **Needs:** nothing now; revisit after P1-12 evals or real usage.
+- **Decision (2026-10-09):** confirmed; revisit after real usage.
 
 ## P1-07 — Identity, accounts and time tools
 
@@ -71,6 +77,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   The enum value is from the NerdGraph schema as remembered, not yet verified against a live account.
 - **Options:** `GLOBAL` (accounts in every region); verify live with the P0-09 spike profile.
 - **Needs:** one live check of `IN_REGION` when a key is at hand; swap the `ACCOUNT_SCOPE` constant if rejected.
+- **Decision (2026-10-09):** keep `IN_REGION`; owner action: one live check (see the owner checklist).
 
 ### P1-07 — `time_range` semantics
 - **Context:** the task didn't fix the grammar, time zone or clause format.
@@ -80,12 +87,14 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   documented NRQL; the clause is accepted by our own limits parser but not yet run live).
 - **Options:** add a `timezone` input; use ISO string literals in the clause; calendar meaning for "last week".
 - **Needs:** nothing now; revisit after P1-12 evals.
+- **Decision (2026-10-09):** confirmed (UTC, calendar/rolling as assumed).
 
 ### P1-07 — `whoami` email default
 - **Assumption made:** email shown unmasked unless `mask_email: true` (it is the connection owner's own address and the
   tool exists for debugging). Names and email are enveloped as untrusted data.
 - **Options:** mask by default; drop the email.
 - **Needs:** owner's preference.
+- **Decision (2026-10-09):** keep unmasked by default; `mask_email: true` masks it.
 
 
 ## P1-08 — Entity tools
@@ -100,6 +109,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   Results are filtered by `accountId` client-side regardless, so a wrong guess can only hide entities, never leak them.
 - **Options:** verify with the P0-09 spike profile; switch to unquoted ids or one search per account if `IN` is rejected.
 - **Needs:** one live run against an account with APM entities.
+- **Decision (2026-10-09):** owner action: one live run against an account with APM entities.
 
 ### P1-08 — Tag keys and name matching
 - **Assumption made:** tag-key filters accept only `[A-Za-z0-9_.]` (bare `tags.<key>`), because backtick quoting inside
@@ -107,6 +117,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   (`LIKE '%…%'`) and a `%` typed by the agent stays a wildcard (no documented escape; it can't end the literal).
 - **Options:** probe backtick quoting live and widen the charset; offer an exact-name option.
 - **Needs:** nothing now.
+- **Decision (2026-10-09):** confirmed.
 
 ### P1-08 — `list_entity_types` cache scope
 - **Context:** the task asks for a per-isolate cache; AGENTS.md forbids module-level request state (T21).
@@ -115,23 +126,27 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   catalogue. It stores only domain/type names and counts.
 - **Options:** keep; move to the Phase 7 cache layer; drop caching (one subrequest per call).
 - **Needs:** owner's confirmation when the Worker shares tool instances across tenants (Phase 3).
+- **Decision (2026-10-09):** keep: per-instance bounded map keyed by credential + region + account set.
 
 ### P1-09 — Golden metrics run when raw NRQL is off
 - **Context:** golden-metric NRQL is supplied by New Relic, but `run_nrql`'s `rawNrql` switch exists to stop agent-written NRQL.
 - **Assumption made:** `get_golden_metrics` is not gated by `rawNrql` (new `runTrustedNrql` engine entry point); query limits still apply.
 - **Options:** keep; gate the tool on `rawNrql` as well; add its own grant in Phase 2.
 - **Needs:** owner's call once per-tool grants exist (Phase 2).
+- **Decision (2026-10-09):** resolved by P6-21: with `rawNrql: false` only aggregate-only golden queries run (`packages/core/src/tools/golden.ts`).
 
 ### P1-09 — Trend definition and defaults
 - **Assumption made:** window default "last 30 minutes" with `TIMESERIES AUTO`; trend compares the mean of the later half of the series with the earlier half (flat within +/-5%, at least 4 points); faceted metrics get a value-less row pointing to `run_nrql`. Metrics with their own SINCE/TIMESERIES keep them. At most 10 metrics by default (max 20); the `title`/`query` fields are the only ones selected (`unit` unverified live).
 - **Options:** other thresholds or a `COMPARE WITH` baseline; select `unit` once checked against the live schema.
 - **Needs:** one live run against an APM entity.
+- **Decision (2026-10-09):** confirmed; owner action: one live run against an APM entity.
 
 ### P1-10 — Schema tools not gated by `rawNrql`; defaults; no counts
 - **Context:** `list_event_types` / `get_attributes` run server-built NRQL (the `nrql` tag), not agent-written NRQL.
 - **Assumption made:** not gated by `rawNrql` (query limits and event-type allow/deny still apply). Default window "last 24 hours", 5-minute per-instance cache. With an event-type allow list `list_event_types` returns the list without querying; deny lists are filtered from the output. The optional per-type counts in the original scope were dropped (one query per type; use `run_nrql`). Exact NRQL result shapes of `keyset()` (`key`/`type` rows; older key-list form also parsed) are unverified live.
 - **Options:** gate on `rawNrql`; longer default window; add counts as a separate task.
 - **Needs:** one live run against an account with APM data.
+- **Decision (2026-10-09):** confirmed (not gated by `rawNrql`, no counts); owner action: one live run.
 
 
 ### P1-11 — CLI packaging, config discovery and stdio defaults
@@ -154,6 +169,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Options:** auto-discover a config file; refuse plaintext keys; publish `@relic-bridge/core` as a library; keychain
   support (macOS Keychain / libsecret) as a later task.
 - **Needs:** owner's confirmation; one live `claude mcp add` run with a real key.
+- **Decision (2026-10-09):** confirmed: no config auto-discovery (explicit `--config` / `RB_CONFIG` only — a cloned repo must not be able to supply config); plaintext `apiKey` stays a warning that points to `${VAR}` / keychain; keychain support shipped in P7-11. Owner action: one live `claude mcp add` run.
 
 ### P1-12 — Test harness: injected fetch instead of msw; live suite and `live` environment
 - **Context:** the task named msw and a protected live environment; the core is web-standard and already tests via an injected `fetch` (P1-02).
@@ -162,6 +178,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   - Live suite in `packages/core/test/live/*.live.ts` (excluded from `pnpm test`), env `RB_LIVE_API_KEY`, `RB_LIVE_ACCOUNT_ID`, `RB_LIVE_REGION`; manual-only `.github/workflows/live.yml` using a GitHub environment named `live`.
 - **Options:** adopt msw later for the HTTP app (Phase 2); raise thresholds; run live nightly.
 - **Needs:** owner to create the `live` environment (required reviewers) with the secrets, and **one manual `pnpm test:live` run with a real key**: the live suite has never been executed.
+- **Decision (2026-10-09):** confirmed (no msw); owner action: create the `live` environment and run `pnpm test:live` once.
 
 ### P1-13 — Generated tool reference: scope and shape
 - **Context:** the task asked for a generated `docs/reference/tools.md` and a CI staleness check.
@@ -170,6 +187,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   - Only top-level input/output fields are tabulated (nested shapes shown as `object` / `object[]`); no config-file reference generated.
 - **Options:** nested field rendering; generate the CLI config reference from `configFileSchema`; publish the reference on the docs site (P8-04).
 - **Needs:** nothing urgent; owner may request a config-reference task.
+- **Decision (2026-10-09):** confirmed; no config-reference task for now.
 
 ### P1-14 — Client guides: one page, unverified clients, no generated config reference
 - **Context:** the task asked for per-client guides, a config reference "generated if feasible", and a dry-run by a fresh agent session.
@@ -179,6 +197,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   - `docs/guide/*.md` messages and error codes were checked against source; `RB_LIMIT_RATE` is intentionally not documented (unused in code).
 - **Options:** generate the config reference from `configFileSchema`; add per-client screenshots; add Windsurf/Zed guides.
 - **Needs:** owner to run the quickstart once with a real key in at least Claude Code and one JSON-config client, and fix any drift.
+- **Decision (2026-10-09):** confirmed; owner action: quickstart with a real key in Claude Code and one JSON-config client.
 
 ### P1-15 — Release pipeline built, nothing published (owner actions required)
 - **Context:** the pipeline and the v0.1.0 bump are ready, but publishing needs npm and repository settings only the
@@ -215,6 +234,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   6. Smoke test on macOS, Windows and Linux: `npx -y relic-bridge --version`, then the quickstart with a real key.
   7. After it is live: remove the pre-release notes in `docs/guide/quickstart-local.md`, `docs/guide/clients.md`
      and the root `README.md` Install section, tick the last P1-15 criterion and mark it `done`.
+- **Decision (2026-10-09):** gate releases with **both** the `release` environment approval and npm staged publishing (2FA approval on npmjs.com); implementation tracked in P1-18. Remaining owner steps as listed.
 
 ## Phase 1 consolidation review
 
@@ -225,6 +245,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Assumption made:** over-redaction is the safer default (consistent with the P1-05 "redaction on" assumption).
 - **Options:** keep; narrower patterns for telemetry rows than for our own logs; connection setting (P2).
 - **Needs:** owner's confirmation.
+- **Decision (2026-10-09):** keep the broad patterns on telemetry rows as well; over-redaction is the accepted cost.
 
 ### P1-review — Release must not ship before P1-16
 - **Context:** the publish job gives `id-token: write` to a job that also runs `pnpm install` and the test suite,
@@ -233,6 +254,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   P1-15 owner list (`RB_RELEASE_ENABLED=true`).
 - **Options:** do P1-16 first (recommended); publish v0.1.0 now with the environment approval as the only guard.
 - **Needs:** owner's call.
+- **Decision (2026-10-09):** resolved: P1-16 is in the stack; it must merge before `RB_RELEASE_ENABLED=true`.
 
 ### P1-review — `live` environment branch rule
 - **Context:** `live.yml` is `workflow_dispatch` only; dispatching it from a feature branch runs that branch's test
@@ -240,6 +262,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Assumption made:** none in code; add to the owner set-up list.
 - **Needs:** owner: when creating the `live` environment (P1-12 entry), restrict deployment branches to `main` and
   require a reviewer.
+- **Decision (2026-10-09):** owner action: restrict the `live` environment to `main` with a required reviewer.
 
 ## P1-16 — Release publish isolation
 
@@ -262,6 +285,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   but the asset would not be attested as built by this run).
 - **Needs:** owner's confirmation. P1-16 closes the blocker in "P1-review — Release must not ship before P1-16" once
   merged; the P1-15 owner steps then apply unchanged.
+- **Decision (2026-10-09):** confirmed as built (`build` not behind the environment).
 
 ## P1-17 — CLI warnings and docs accuracy
 
@@ -272,3 +296,4 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Assumption made:** document-as-reserved rather than remove the codes; changing the tool text is not a contract break
   (human-readable text only).
 - **Needs:** nothing unless you prefer deleting unused codes (would be an `errors.ts` change in a later task).
+- **Decision (2026-10-09):** confirmed: keep the codes documented as reserved.

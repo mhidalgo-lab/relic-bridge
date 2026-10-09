@@ -21,6 +21,10 @@ export interface WorkerVars {
   readonly RB_CORS_ORIGINS?: string;
   /** Access cache TTL in seconds, 0-60 (0 disables). Default 30. */
   readonly RB_ACCESS_CACHE_TTL?: string;
+  /** NRQL query cache (P7-02): `on` (isolate memory + per-colo Cache API; paid default), `memory` (free default), `off`. */
+  readonly RB_QUERY_CACHE?: string;
+  /** Lifetime in seconds of cached results over moving windows (0-300, default 30; 0 caches only settled windows). */
+  readonly RB_QUERY_CACHE_TTL?: string;
   readonly RB_AUDIT?: string;
   readonly RB_AUDIT_NRQL?: string;
   readonly RB_AUDIT_CLIENT_IP?: string;

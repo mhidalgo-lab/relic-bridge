@@ -9,6 +9,7 @@ import {
   type FetchLike,
   type Logger,
   newRequestId,
+  type QueryCache,
   RAW_NRQL_TOOLS,
   systemClock,
   type ToolContext,
@@ -56,6 +57,8 @@ export interface StdioServerOptions {
   /** NerdGraph fetch override (test hook); default global fetch. */
   readonly fetch?: FetchLike;
   readonly clock?: Clock;
+  /** NRQL query cache for this process (P7-02); absent or null: off. One process serves one credential. */
+  readonly queryCache?: QueryCache | null;
 }
 
 export interface PreparedServer {
@@ -80,6 +83,8 @@ export function prepareServer(options: StdioServerOptions): PreparedServer {
     ...(project.slug === undefined ? {} : { project: project.slug }),
     allowedTools: Object.freeze(tools.map((t) => t.name)),
   });
+  const queryCache =
+    options.queryCache == null ? undefined : Object.freeze({ cache: options.queryCache, scope: 'stdio' });
   // A fresh request id and budget per tool call (T21: nothing request-scoped is shared between calls).
   const contextFor = (): ToolContext => ({
     requestId: newRequestId(),
@@ -91,6 +96,7 @@ export function prepareServer(options: StdioServerOptions): PreparedServer {
     connection,
     logger,
     clock,
+    ...(queryCache === undefined ? {} : { queryCache }),
   });
   return { tools, factory: () => buildMcpServer({ tools, ctx: contextFor }) };
 }

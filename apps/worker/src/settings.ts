@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Worker settings from `vars` (P3-01). Same names and meanings as `relic-bridge serve` where both exist; anything
 // invalid fails closed (the Worker answers 503 and logs which variable is wrong) instead of running half-configured.
-import type { LogLevel } from '@relic-bridge/core';
+import { DEFAULT_QUERY_CACHE_POLICY, type LogLevel, MAX_RELATIVE_TTL_MS } from '@relic-bridge/core';
 import {
   AUDIT_NRQL_MODES,
   type AuditNrqlMode,
@@ -65,6 +65,8 @@ export interface WorkerSettings {
   readonly allowedOrigins?: readonly string[];
   readonly corsOrigins: readonly string[];
   readonly accessCacheTtlMs?: number;
+  /** NRQL query cache (P7-02): stores and the TTL of results over moving windows. */
+  readonly queryCache: { readonly mode: 'on' | 'memory' | 'off'; readonly relativeTtlMs: number };
   readonly audit: {
     readonly enabled: boolean;
     readonly nrql: AuditNrqlMode;
@@ -178,6 +180,18 @@ export function parseWorkerSettings(vars: WorkerVars): WorkerSettings {
     accessCacheTtlMs = Number(ttl) * 1000;
   }
 
+  // Free plan: memory only by default. Each Cache API call is a subrequest, and 45 per request leave little room.
+  const cacheMode = text(vars, 'RB_QUERY_CACHE')?.toLowerCase() ?? (plan === 'free' ? 'memory' : 'on');
+  if (cacheMode !== 'on' && cacheMode !== 'memory' && cacheMode !== 'off') {
+    throw new WorkerConfigError('RB_QUERY_CACHE', 'RB_QUERY_CACHE must be on, memory or off');
+  }
+  const cacheTtl = intVar(
+    'RB_QUERY_CACHE_TTL',
+    DEFAULT_QUERY_CACHE_POLICY.relativeTtlMs / 1000,
+    0,
+    MAX_RELATIVE_TTL_MS / 1000,
+  );
+
   const auditEnabled = onOff(vars, 'RB_AUDIT', true);
   const nrql = text(vars, 'RB_AUDIT_NRQL')?.toLowerCase() ?? 'mask';
   if (!(AUDIT_NRQL_MODES as readonly string[]).includes(nrql)) {
@@ -230,6 +244,7 @@ export function parseWorkerSettings(vars: WorkerVars): WorkerSettings {
     ...(allowedOrigins === undefined ? {} : { allowedOrigins }),
     corsOrigins,
     ...(accessCacheTtlMs === undefined ? {} : { accessCacheTtlMs }),
+    queryCache: { mode: cacheMode, relativeTtlMs: cacheTtl * 1000 },
     audit: { enabled: auditEnabled, nrql: nrql as AuditNrqlMode, clientIp: auditClientIp, retentionDays },
     rateLimit,
     passthrough,

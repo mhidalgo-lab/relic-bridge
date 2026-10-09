@@ -12,6 +12,11 @@ export interface CheckedNrql {
   readonly eventTypes: readonly string[];
   /** Upper bound of the time range the query can scan, in ms. */
   readonly windowMs: number;
+  /**
+   * Latest epoch ms the query can read when its window is fixed (absolute SINCE and UNTIL, no subquery), so the same
+   * text always reads the same range; absent when the window moves with the clock. Used for cache TTLs (P7-02).
+   */
+  readonly fixedEndMs?: number;
 }
 
 const MINUTE = 60_000;
@@ -82,6 +87,8 @@ function unitMs(t: Token | undefined): number | undefined {
 interface TimePoint {
   /** How long ago, in ms (upper bound for SINCE, lower bound for UNTIL). */
   readonly agoMs: number;
+  /** The epoch ms named, for an absolute time (epoch or quoted date); latest possible instant under WITH TIMEZONE. */
+  readonly absoluteMs?: number;
 }
 
 const PLAIN_NUMBER_RE = /^\d+(\.\d+)?$/;
@@ -127,7 +134,7 @@ function parseTime(
     if (ms === undefined) {
       throw limitError(`${a.text} is not an epoch timestamp in seconds or milliseconds.`, UNSUPPORTED_TIME);
     }
-    return { agoMs: Math.max(0, now - ms) };
+    return { agoMs: Math.max(0, now - ms), absoluteMs: ms };
   }
   if (a?.kind === 'string' && role !== 'compare') {
     const iso = /[zZ]|[+-]\d\d:?\d\d$/.test(a.value) ? a.value : `${a.value.replace(' ', 'T')}Z`;
@@ -135,7 +142,7 @@ function parseTime(
     if (Number.isNaN(ms)) throw limitError(`Could not read the date ${a.text}.`, UNSUPPORTED_TIME);
     // Zone-less dates are UTC (measured), unless WITH TIMEZONE shifts them: then widen the window conservatively.
     const slack = withTimezone ? (role === 'since' ? TIMEZONE_SLACK_MS : -TIMEZONE_SLACK_MS) : 0;
-    return { agoMs: Math.max(0, now - ms + slack) };
+    return { agoMs: Math.max(0, now - ms + slack), absoluteMs: ms + (withTimezone ? TIMEZONE_SLACK_MS : 0) };
   }
   if (isWord(a, 'NOW') && role === 'until') return { agoMs: 0 };
   if (a?.kind === 'word' && role !== 'compare') {
@@ -214,9 +221,15 @@ function checkEventTypes(tokens: readonly Token[], limits: QueryLimits): string[
 }
 
 /** Window of the top-level query: SINCE..UNTIL plus COMPARE WITH; subquery SINCEs are checked up to now. */
-function checkWindow(tokens: readonly Token[], limits: QueryLimits, now: number): number {
+function checkWindow(
+  tokens: readonly Token[],
+  limits: QueryLimits,
+  now: number,
+): { windowMs: number; fixedEndMs?: number } {
   let since: number | undefined;
   let until = 0;
+  let sinceFixed = false;
+  let untilEnd: number | undefined;
   let compare = 0;
   let widest = 0;
   const seen = new Set<string>();
@@ -232,11 +245,15 @@ function checkWindow(tokens: readonly Token[], limits: QueryLimits, now: number)
     if (t.depth === 0 && (t.value === 'SINCE' || t.value === 'UNTIL')) once(t.value);
     if (t.depth === 0 && t.value === 'COMPARE') once('COMPARE WITH');
     if (t.value === 'SINCE') {
-      const agoMs = parseTime(tokens, i + 1, now, 'since', tz).agoMs;
-      if (t.depth === 0) since = Math.max(since ?? 0, agoMs);
-      else widest = Math.max(widest, agoMs);
+      const point = parseTime(tokens, i + 1, now, 'since', tz);
+      if (t.depth === 0) {
+        since = Math.max(since ?? 0, point.agoMs);
+        sinceFixed = point.absoluteMs !== undefined;
+      } else widest = Math.max(widest, point.agoMs);
     } else if (t.value === 'UNTIL' && t.depth === 0) {
-      until = parseTime(tokens, i + 1, now, 'until', tz).agoMs;
+      const point = parseTime(tokens, i + 1, now, 'until', tz);
+      until = point.agoMs;
+      untilEnd = point.absoluteMs;
     } else if (t.value === 'COMPARE' && isWord(tokens[i + 1], 'WITH') && t.depth === 0) {
       compare = parseTime(tokens, i + 2, now, 'compare', tz).agoMs;
     }
@@ -252,7 +269,9 @@ function checkWindow(tokens: readonly Token[], limits: QueryLimits, now: number)
       { windowDays: days, maxWindowDays: limits.maxWindowDays },
     );
   }
-  return windowMs;
+  // Fixed only when both ends are absolute and nothing nested (a subquery has its own, possibly relative, window).
+  const nested = tokens.some((t) => t.depth > 0 && t.kind === 'word' && t.value === 'SELECT');
+  return sinceFixed && untilEnd !== undefined && !nested ? { windowMs, fixedEndMs: untilEnd } : { windowMs };
 }
 
 /** Top-level SELECT list contains a function call → aggregate (or at least not a raw event dump). */
@@ -330,7 +349,7 @@ export function enforceQueryLimits(source: string, limits: QueryLimits, now: num
   }
   const notes: string[] = [];
   const eventTypes = checkEventTypes(tokens, limits);
-  const windowMs = checkWindow(tokens, limits, now);
+  const { windowMs, fixedEndMs } = checkWindow(tokens, limits, now);
   const edits = checkLimit(tokens, limits, source, notes);
   for (const c of comments) edits.push({ start: c.start, end: c.end, text: ' ' });
   if (comments.length > 0) notes.push('Comments removed before sending.');
@@ -338,7 +357,7 @@ export function enforceQueryLimits(source: string, limits: QueryLimits, now: num
   for (const e of edits.sort((x, y) => y.start - x.start))
     nrql = nrql.slice(0, e.start) + e.text + nrql.slice(e.end);
   if (comments.length > 0) nrql = nrql.trim();
-  return { nrql, notes, eventTypes, windowMs };
+  return { nrql, notes, eventTypes, windowMs, ...(fixedEndMs === undefined ? {} : { fixedEndMs }) };
 }
 
 /** `run_nrql` (arbitrary NRQL) can be switched off per connection. */

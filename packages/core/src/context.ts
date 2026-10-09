@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+import type { QueryCacheBinding } from './cache/query-cache.ts';
 import { ErrorCode, RbError } from './errors.ts';
 import type { Logger } from './logger.ts';
 import type { Secret } from './secret.ts';
@@ -87,6 +88,11 @@ export interface ToolContext {
   readonly connection?: ConnectionInfo;
   readonly logger: Logger;
   readonly clock: Clock;
+  /**
+   * The runtime's NRQL query cache and this connection's scope (P7-02). Absent: caching is off. The cache is owned by
+   * the host runtime, not module state, and isolates entries by scope, credential, key, accounts and limits (T16).
+   */
+  readonly queryCache?: QueryCacheBinding;
 }
 
 /** Simple counting budget. One instance per request. */

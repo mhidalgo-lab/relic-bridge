@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+export * from './cache/query-cache.ts';
 export {
   type AccountScope,
   type Budget,

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import { z } from 'zod';
+import type { QueryCacheInfo } from '../cache/query-cache.ts';
 import type { NrqlComplete, NrqlOutcome, NrqlPending } from '../nrql/engine.ts';
 import { redact, redactValue } from '../redact.ts';
 import type { ToolOutput } from '../tool.ts';
@@ -107,6 +108,8 @@ export interface NrqlResultMeta {
   readonly inspectedCount?: number;
   readonly polls: number;
   readonly notes: readonly string[];
+  /** What the query cache did (P7-02): hit / miss / bypass / off. */
+  readonly cache?: QueryCacheInfo;
   readonly tokenEstimate: number;
 }
 
@@ -221,8 +224,10 @@ function shapeComplete(outcome: NrqlComplete, allOptions: ShapeNrqlOptions): Too
         reduced.summary.omittedSeries > 0 ? `; ${reduced.summary.omittedSeries} more series not shown` : ''
       }. For every row, call again with detail "full" (max_rows up to 1000).`
     : undefined;
+  const cache = outcome.cache;
   const lines = [
     summary,
+    ...(cache?.status === 'hit' ? [`Served from the query cache, ${cache.ageSeconds ?? 0} s old.`] : []),
     ...outcome.notes.map((n) => `Note: ${n}`),
     ...(summaryNotice ? [summaryNotice] : []),
     shaped.text,
@@ -274,6 +279,7 @@ function shapeComplete(outcome: NrqlComplete, allOptions: ShapeNrqlOptions): Too
     ...(outcome.stats?.inspectedCount === undefined ? {} : { inspectedCount: outcome.stats.inspectedCount }),
     polls: outcome.polls,
     notes: outcome.notes,
+    ...(cache === undefined ? {} : { cache }),
   });
 }
 

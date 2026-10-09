@@ -262,6 +262,11 @@ environment variable (`secrets.ts`); the node-only terminal pieces live in `host
   fallback), an entity name adds up to 4 (`RESOLVE_COST`), retries are not counted (they follow a failure and each attempt
   spends a unit, so the budget still caps them). Composites plan in these units and degrade to a partial result;
   `tool-costs.test.ts` forces the worst case on every tool and asserts requests ≤ declared cost. `RB_MAX_RESPONSE_BYTES` is a platform ceiling over each project's `maxResponseBytes`.
+- **Query cache** (P7-02, [guide](guide/query-cache.md)): NRQL results are reused for a short TTL (moving windows 30 s,
+  settled fixed windows 10 min) from a bounded in-memory LRU (stdio, `serve`, Worker isolates) and, on Workers with
+  `RB_QUERY_CACHE=on`, the per-colo Cache API (encrypted bodies). Entry ids are HMACs over the connection scope,
+  credential, key hash, accounts, query limits and normalized NRQL (THREAT_MODEL T16); lookups happen after account and
+  limit checks. The cache is owned by the runtime and passed in `ToolContext.queryCache`.
 - **Concurrency**: per-credential semaphore (default 5) inside an invocation and process; ≤ 6 on Workers. Optional
   Durable Object global limiter (Phase 7).
 - **Query limits** (per project, can be tightened per grant):

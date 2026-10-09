@@ -75,6 +75,7 @@ const runNrqlInput = z.strictObject({
   format,
   detail,
   max_rows: maxRows,
+  cache: z.enum(['use', 'bypass']).optional().describe('"bypass" skips the short-lived query cache.'),
 });
 
 const getQueryResultInput = z.strictObject({
@@ -132,6 +133,7 @@ export function createQueryTools(deps: ToolDeps = {}): ToolDefinition[] {
           ...(input.accounts ? { accounts: input.accounts } : {}),
           ...(input.timeout_seconds === undefined ? {} : { timeoutS: input.timeout_seconds }),
           mode: 'auto',
+          ...(input.cache === undefined ? {} : { cache: input.cache }),
         },
         { client: client(ctx), ...(deps.sleep ? { sleep: deps.sleep } : {}) },
       );

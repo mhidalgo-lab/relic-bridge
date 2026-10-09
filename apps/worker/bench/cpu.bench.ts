@@ -382,7 +382,8 @@ describe('cpu', () => {
         method: 'tools/call',
         params: {
           name: 'run_nrql',
-          arguments: { nrql: 'SELECT * FROM Transaction SINCE 1 hour ago LIMIT MAX' },
+          // `bypass`: measure the NerdGraph path plus the cache write (the worst case), not a cache hit (P7-02).
+          arguments: { nrql: 'SELECT * FROM Transaction SINCE 1 hour ago LIMIT MAX', cache: 'bypass' },
         },
       };
       record(
@@ -405,6 +406,7 @@ describe('cpu', () => {
         name: 'run_nrql',
         arguments: {
           nrql: 'SELECT average(duration), count(*) FROM Transaction FACET appName TIMESERIES 1 minute SINCE 1 day ago',
+          cache: 'bypass',
         },
       },
     };

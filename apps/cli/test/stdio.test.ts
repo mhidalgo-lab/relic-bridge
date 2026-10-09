@@ -6,6 +6,7 @@ import {
   createLogger,
   DEFAULT_LIMITS,
   type FetchLike,
+  QueryCache,
   type QueryLimits,
   Secret,
 } from '@relic-bridge/core';
@@ -65,10 +66,15 @@ describe('prepareServer', () => {
     clients = [];
   });
 
-  async function connect(p: ResolvedProject, fetch: FetchLike) {
+  async function connect(p: ResolvedProject, fetch: FetchLike, queryCache?: QueryCache) {
     const lines: string[] = [];
     const logger = createLogger({ level: 'debug', sink: (l) => lines.push(l) });
-    const { factory, tools } = prepareServer({ project: p, logger, fetch });
+    const { factory, tools } = prepareServer({
+      project: p,
+      logger,
+      fetch,
+      ...(queryCache === undefined ? {} : { queryCache }),
+    });
     const [clientT, serverT] = InMemoryTransport.createLinkedPair();
     await factory().connect(serverT);
     const client = new Client({ name: 'test', version: '0.0.0' });
@@ -98,6 +104,38 @@ describe('prepareServer', () => {
     expect(seen).toEqual([{ url: 'https://api.newrelic.com/graphql', key: FAKE_KEY }]);
     expect(JSON.stringify(r)).not.toContain(FAKE_KEY);
     expect(lines.join('\n')).not.toContain(FAKE_KEY);
+  });
+
+  it('query cache (P7-02): a repeated run_nrql is served from the process cache; off without one', async () => {
+    let calls = 0;
+    const fetch: FetchLike = async () => {
+      calls++;
+      return Response.json({
+        data: {
+          actor: {
+            account: {
+              nrql: {
+                results: [{ count: calls }],
+                metadata: { eventTypes: ['Transaction'], facets: null, messages: null, timeWindow: null },
+                totalResult: null,
+                otherResult: null,
+                queryProgress: null,
+              },
+            },
+          },
+        },
+      });
+    };
+    const args = { nrql: 'SELECT count(*) FROM Transaction SINCE 1 hour ago' };
+    const status = (r: Awaited<ReturnType<Client['callTool']>>) =>
+      (r._meta?.['relic-bridge/result'] as { cache?: { status: string } } | undefined)?.cache?.status;
+    const cached = await connect(project({ tools: ['run_nrql'] }), fetch, new QueryCache());
+    expect(status(await cached.client.callTool({ name: 'run_nrql', arguments: args }))).toBe('miss');
+    expect(status(await cached.client.callTool({ name: 'run_nrql', arguments: args }))).toBe('hit');
+    expect(calls).toBe(1);
+    const off = await connect(project({ tools: ['run_nrql'] }), fetch);
+    expect(status(await off.client.callTool({ name: 'run_nrql', arguments: args }))).toBe('off');
+    expect(calls).toBe(2);
   });
 
   it('uses a fresh request id per call', async () => {

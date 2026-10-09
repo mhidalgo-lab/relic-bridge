@@ -256,6 +256,8 @@ Env mode (no config file):
   RB_TOOLS               Tool allowlist (comma-separated). Default: all read-only tools.
   RB_LIMITS_*            MAX_LIMIT, MAX_WINDOW_DAYS, RAW_NRQL, MAX_RESPONSE_BYTES,
                          EVENT_TYPES_ALLOW, EVENT_TYPES_DENY.
+  RB_QUERY_CACHE         on (default) or off: reuse NRQL results for a short time (also serve).
+  RB_QUERY_CACHE_TTL     Seconds a result over a moving window is reused, 0-300 (default 30).
 
 HTTP server (serve):
   RB_ALLOWED_HOSTS       Hostnames clients use to reach the server (Host check against DNS

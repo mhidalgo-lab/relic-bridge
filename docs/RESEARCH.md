@@ -712,3 +712,25 @@ Two facts the code relies on were not verified live because the run had no New R
 
 `pnpm test:live` now carries one probe for each (`packages/core/test/live/nerdgraph.live.ts`). Run it with
 `RB_LIVE_API_KEY` / `RB_LIVE_ACCOUNT_ID`, then replace this section with the measured result.
+
+## 23. Workers Cache API for the query cache (P7-02, from documentation 2026-10-06, not measured on a deployment)
+
+Sources: developers.cloudflare.com/workers/runtime-apis/cache/, /workers/platform/limits/ (Cache API limits),
+/cache/concepts/default-cache-behavior/.
+
+- The Cache API is per data center: entries are not replicated to other locations and `cache.put` does not take part
+  in tiered caching. `caches.open(name)` gives a named cache next to `caches.default`.
+- `put()` honours `Cache-Control` on the stored response (and `Expires`, `ETag`, `Last-Modified`, `Cache-Tag`); a
+  response with `private`, `no-store`, `no-cache` or `max-age=0` is not stored, and one with `Set-Cookie` is never
+  stored. relic-bridge therefore stores `Cache-Control: max-age=<ttl>` only and re-checks the expiry it encrypted into
+  the body.
+- Calls per request (`put`, `match`, `delete`): 50 on Free, 1,000 on Paid, **sharing the subrequest quota** with
+  `fetch()`. The query cache spends one unit of the request budget per Cache API call and stops using it once half of
+  the budget is gone; the Free preset defaults to the isolate memory store only.
+- "Workers deployed to custom domains have access to functional cache operations"; Cache API calls in the dashboard
+  editor and Playground previews have no effect, and the Cache API is unavailable behind Cloudflare Access. Expect
+  misses on other hostnames (e.g. `workers.dev`).
+- Workers Caching (the newer cache in front of a Worker, configured with `Cache-Control` on Worker responses) is a
+  separate mechanism; relic-bridge does not use it (MCP responses are per caller and never cacheable).
+- workerd in `@cloudflare/vitest-plugin` implements `caches.open` / `match` / `put` locally (used by
+  `apps/worker/test/query-cache.test.ts`).

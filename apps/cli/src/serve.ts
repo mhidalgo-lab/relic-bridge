@@ -17,7 +17,16 @@ import {
   loadKeyringFromEnv,
   verifyKeyChecks,
 } from '@relic-bridge/auth';
-import { type FetchLike, type Logger, Secret, VERSION } from '@relic-bridge/core';
+import {
+  type CacheCryptoKey,
+  DEFAULT_QUERY_CACHE_POLICY,
+  type FetchLike,
+  type Logger,
+  MAX_RELATIVE_TTL_MS,
+  QueryCache,
+  Secret,
+  VERSION,
+} from '@relic-bridge/core';
 import {
   AUDIT_NRQL_MODES,
   type AuditNrqlMode,
@@ -203,6 +212,40 @@ function auditSettings(env: Env, warnings: string[]): AuditSettings {
   };
 }
 
+/** NRQL query cache (P7-02): `RB_QUERY_CACHE` (on|off, default on) and `RB_QUERY_CACHE_TTL` (seconds, 0-300). */
+export interface QueryCacheSettings {
+  readonly enabled: boolean;
+  /** Lifetime of results over moving windows; 0 caches only settled fixed windows. */
+  readonly relativeTtlMs: number;
+}
+
+/** Shared by `serve` and stdio. Throws `ConfigError`. */
+export function queryCacheSettings(env: Env): QueryCacheSettings {
+  const enabled = onOff(env, 'RB_QUERY_CACHE', true);
+  const raw = env['RB_QUERY_CACHE_TTL']?.trim();
+  let relativeTtlMs = DEFAULT_QUERY_CACHE_POLICY.relativeTtlMs;
+  if (raw !== undefined && raw !== '') {
+    const max = MAX_RELATIVE_TTL_MS / 1000;
+    if (!/^\d{1,3}$/.test(raw) || Number(raw) > max) {
+      throw new ConfigError(`RB_QUERY_CACHE_TTL must be 0-${max} seconds.`);
+    }
+    relativeTtlMs = Number(raw) * 1000;
+  }
+  return { enabled, relativeTtlMs };
+}
+
+/** The in-memory query cache for this process, or null when `RB_QUERY_CACHE=off`. */
+export function createProcessQueryCache(
+  settings: QueryCacheSettings,
+  macKey?: CacheCryptoKey,
+): QueryCache | null {
+  if (!settings.enabled) return null;
+  return new QueryCache({
+    ...(macKey === undefined ? {} : { macKey }),
+    policy: { relativeTtlMs: settings.relativeTtlMs },
+  });
+}
+
 /** Pass-through mode (P2-15): `null` when off (the default). */
 export interface PassthroughSettings {
   readonly identityTtlMs: number;
@@ -248,6 +291,8 @@ export interface ServeSettings {
   readonly identity: IdentitySettings | null;
   /** OAuth for MCP clients (P5-04, `RB_OAUTH=on`); `null` when off (the default). */
   readonly oauth: OAuthSettings | null;
+  /** NRQL query cache (P7-02). */
+  readonly queryCache: QueryCacheSettings;
   readonly warnings: readonly string[];
 }
 
@@ -385,6 +430,7 @@ export function serveSettings(input: {
     passthrough: passthroughSettings(env, warnings),
     identity,
     oauth: oauthSettings(env, identity),
+    queryCache: queryCacheSettings(env),
     warnings,
   };
 }
@@ -526,6 +572,7 @@ export async function startServer(options: StartServerOptions): Promise<RunningS
     corsOrigins: settings.corsOrigins,
     ...(settings.accessCacheTtlMs === undefined ? {} : { accessCacheTtlMs: settings.accessCacheTtlMs }),
     hsts: settings.hsts,
+    queryCache: createProcessQueryCache(settings.queryCache, keyring.queryCacheKeys().id),
     ...(hooks === undefined ? {} : { hooks }),
     ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
     // Admin API: the bootstrap token, admin sessions (sign-in configured, P4-02), or both.

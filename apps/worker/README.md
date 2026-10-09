@@ -36,6 +36,8 @@ first deploy.
 | `RB_ALLOWED_ORIGINS` | loopback | Hostnames browsers may send in `Origin`. |
 | `RB_CORS_ORIGINS` | off | Full origins allowed by CORS. |
 | `RB_ACCESS_CACHE_TTL` | `30` | Seconds a resolved token/grant stays cached per isolate (0-60, 0 disables). |
+| `RB_QUERY_CACHE` | `memory` (free), `on` (paid) | NRQL query cache (P7-02): `on` = isolate memory plus the data center's Cache API (bodies encrypted with a master-key-derived key; each lookup or write counts as a subrequest and is skipped once half the request budget is spent), `memory` = isolate memory only, `off`. |
+| `RB_QUERY_CACHE_TTL` | `30` | Seconds a result over a moving window is reused (0-300). |
 | `RB_AUDIT`, `RB_AUDIT_NRQL`, `RB_AUDIT_CLIENT_IP` | `on`, `mask`, `on` | As for `serve`. Audit rows are written with `ctx.waitUntil`. |
 | `RB_AUDIT_RETENTION_DAYS` | `90` | Days to keep audit rows (`0` = forever). An hourly cron trigger (`triggers.crons`) deletes older rows, in batches of 500 (up to 10,000 per run); a larger backlog is finished by the next run. |
 | `RB_RATE_LIMIT` | `on` | `off` disables rate limiting (isolate buckets and the `RATE_LIMITER` binding). The binding's own limit (default 600 per 60 s per key) is set in `wrangler.jsonc`. |

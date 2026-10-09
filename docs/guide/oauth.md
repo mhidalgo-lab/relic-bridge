@@ -5,8 +5,11 @@ Desktop connectors, Claude Code's `/mcp` login, MCP inspectors — connect with 
 opens a page on your relic-bridge server, you sign in, choose which of your accesses the app gets, and approve. The app
 then holds a token for that one project only.
 
-Status: sign-in and consent (P5-04), token lifetimes, refresh-token rotation and the list of connected apps with
-**Disconnect** (P5-05).
+Includes sign-in and consent, token lifetimes, refresh-token rotation, the list of connected apps with **Disconnect**,
+the owner's OAuth apps list and the registration switch.
+
+Step by step for claude.ai and the phone: [Use relic-bridge from your phone and claude.ai](oauth-phone.md); how it
+works: [explainer](oauth-how-it-works.md).
 
 Which apps are known to work, and how sure we are: [client compatibility](../reference/client-compatibility.md).
 

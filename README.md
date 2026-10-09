@@ -2,8 +2,8 @@
 
 > **Status: alpha.** v0.1 (local stdio) is the released line. The self-hosted multi-device server (Phase 2, v0.2), the
 > Cloudflare Worker (Phase 3, v0.3) and the sign-in and admin panel (Phase 4, v0.4) are implemented on the development
-> branches and documented here; none of them is released yet. OAuth (claude.ai web and mobile) is on the
-> [roadmap](docs/ROADMAP.md).
+> branches and documented here; none of them is released yet. OAuth (Phase 5, v0.5) is implemented and documented for
+> claude.ai and Claude mobile, but has **not** been verified with the real apps ([compatibility](docs/reference/client-compatibility.md)).
 
 [![CI](https://github.com/matiashidalgo/relic-bridge/actions/workflows/ci.yml/badge.svg)](https://github.com/matiashidalgo/relic-bridge/actions/workflows/ci.yml)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/matiashidalgo/relic-bridge/badge)](https://scorecard.dev/viewer/?uri=github.com/matiashidalgo/relic-bridge)
@@ -47,10 +47,18 @@ only a **User API key** — no account-level MCP enablement required.
   members, who bring their own keys ([panel guide](docs/guide/admin-panel.md)).
 - Contributor checks: a Playwright browser run (`pnpm test:e2e`) and an OWASP ZAP baseline scan (`pnpm scan:zap`).
 
+**Implemented for v0.5 (OAuth for claude.ai and your phone; not released yet, [phone guide](docs/guide/oauth-phone.md)):**
+
+- **OAuth 2.1** (`RB_OAUTH=on`): claude.ai on the web and the Claude mobile apps connect to `/p/{slug}/mcp` without a
+  token. Discovery, client metadata documents and dynamic registration, a consent screen where you choose the grant,
+  one-hour access tokens with rotating refresh tokens, and per-device **Disconnect** plus an owner's OAuth apps list
+  ([OAuth guide](docs/guide/oauth.md), [how it works](docs/guide/oauth-how-it-works.md)).
+- The split for several devices: laptops use a device token each, the phone uses OAuth.
+- Tested with SDK clients shaped like the real ones; the real claude.ai and mobile apps are still to be checked
+  ([client compatibility](docs/reference/client-compatibility.md)).
+
 **Planned** (see the [roadmap](docs/ROADMAP.md); none of this exists yet):
 
-- OAuth 2.1, which claude.ai on the web and Claude on your phone need (static tokens work in Claude Code, Cursor and
-  VS Code on your computers today).
 - More tools (Phase 6) and power features (Phase 7).
 
 ## Install
@@ -77,7 +85,7 @@ carries the tarball, an SBOM and checksums with build attestations. Changes: [CH
 
 - **Guides:** [local quickstart](docs/guide/quickstart-local.md) · [client setup](docs/guide/clients.md) ·
   [self-hosting](docs/guide/self-hosting.md) · [deploy to Cloudflare](docs/guide/cloudflare-deploy.md) · [Cloudflare limits and costs](docs/guide/cloudflare-limits.md) · [multi-device setup](docs/guide/multi-device.md) · [admin guide](docs/guide/admin-guide.md) ·
-  [admin panel](docs/guide/admin-panel.md) · [sign-in providers](docs/guide/identity-providers.md) · [OAuth for claude.ai and phones](docs/guide/oauth.md) · [admin access](docs/guide/admin-access.md) ·
+  [admin panel](docs/guide/admin-panel.md) · [sign-in providers](docs/guide/identity-providers.md) · [use it from your phone and claude.ai](docs/guide/oauth-phone.md) · [OAuth settings](docs/guide/oauth.md) · [how OAuth works](docs/guide/oauth-how-it-works.md) · [client compatibility](docs/reference/client-compatibility.md) · [admin access](docs/guide/admin-access.md) ·
   [access model](docs/guide/access-model.md) · [secrets](docs/guide/secrets.md) ·
   [configuration](docs/guide/configuration.md) · [security basics](docs/guide/security-basics.md) ·
   [troubleshooting](docs/guide/troubleshooting.md) · [tool reference](docs/reference/tools.md) · [CLI reference](docs/reference/cli.md)

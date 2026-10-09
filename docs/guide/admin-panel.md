@@ -71,7 +71,7 @@ can't be shown again: the shell command reads it from `RELIC_BRIDGE_TOKEN` (`rea
 history) and the JSON files use the client's `${VAR}` expansion. The form *Create a token for this device* issues a token
 through the same flow as **Devices**; its one-time page repeats the snippets with the real token filled into the one
 that needs it (Claude Desktop's `mcp-remote` bridge). Copy buttons appear when your browser allows them; without
-JavaScript, select the text. claude.ai on the web and the Claude mobile apps need OAuth (Phase 5).
+JavaScript, select the text. claude.ai on the web and the Claude mobile apps connect with OAuth instead ([guide](oauth-phone.md)).
 
 **Users** (`/admin/users`). *Add a user* is the invitation: that person can then sign in with any configured provider
 that confirms the email address (no email is sent, so tell them the panel's address). A user page shows their role,

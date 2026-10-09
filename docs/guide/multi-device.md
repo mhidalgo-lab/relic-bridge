@@ -17,9 +17,10 @@ flowchart LR
 > **On Cloudflare instead of your own server?** The same flow works against a Worker (no VPS, no TLS proxy): see
 > [Deploy to Cloudflare, connect your devices](cloudflare-deploy.md#connect-your-devices).
 
-> **Phone and claude.ai (web) are not covered.** They can only connect to servers that support OAuth, which arrives
-> in Phase 5 ([roadmap](../ROADMAP.md)); a static bearer token can't be entered there. Claude Code, Cursor and VS Code
-> on your computers work today.
+> **Phone and claude.ai (web):** they can't send a static bearer token, so they connect with OAuth (`RB_OAUTH=on`,
+> sign-in required): see [Use relic-bridge from your phone and claude.ai](oauth-phone.md). The split: laptops and
+> desktops use one device token each (this guide); the phone uses OAuth, revocable on its own under **My access**.
+> The OAuth path is implemented and tested with SDK clients but not yet run with the real Claude apps.
 
 What you need: a machine that is always on and reachable from your devices (a VPS, a home server), a DNS name for it
 (`mcp.example.com` below), Node.js 24.11 or later or Docker, and a New Relic **User** API key

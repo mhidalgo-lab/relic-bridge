@@ -8,7 +8,7 @@ settings are an owner decision (THREAT_MODEL T13, T18).
 
 | Setting | Required value | Why |
 | --- | --- | --- |
-| Environment `release` | **Required reviewers**: at least one maintainer who is not the person who triggered the run; **prevent self-review** on. | `publish` (OIDC token, registry credentials, npm publish) waits for this approval. Without reviewers the gate is a no-op. |
+| Environment `release` | **Required reviewers**: at least one maintainer who is not the person who triggered the run; **prevent self-review** on. | `publish` (OIDC token, staging on npm) waits for this approval. This is the first of two approvals. Without reviewers the gate is a no-op. |
 | Environment `release` | **Deployment branches**: selected branches, only `main` (no tags rule, no "all branches"). | A workflow on another branch must not obtain the approval prompt or the environment's permissions. |
 | Repository variable `RB_RELEASE_ENABLED` | unset or `false` until the first release is intended; then `true`. | Every release job is skipped without it. |
 | Branch protection / ruleset on `main` | Pull request required, status checks required (including `Docker` and `CI`), no force push, no deletion. | The release workflows run for what is on `main`. |
@@ -36,3 +36,44 @@ device token with the CLI, and lists tools over MCP with that token (and gets `4
 The compose example was also run once with a local Caddy (internal CA) in front of the image (P2-19): `/health`
 answered over TLS and Caddy waited for the server's health check. That is a manual check; repeat it when
 `deploy/` changes.
+
+## npm: staged publishing (second approval, P1-18)
+
+A release needs **two** approvals: the GitHub `release` environment and an approval with 2FA on npmjs.com. The
+`publish` job runs `npm stage publish` (never `npm publish`): the tarball is uploaded with provenance but the version
+is not public until a maintainer approves it. A compromised GitHub account or workflow alone cannot put a version on
+npm, and CI cannot approve (`npm stage` subcommands refuse OIDC tokens). Facts and sources: RESEARCH section 6.
+
+### One-time set-up (owner)
+
+1. Trusted publisher for `relic-bridge` allowing staged publishing only, so nothing can publish directly:
+   `npm trust github relic-bridge --repo <owner>/relic-bridge --file release.yml --env release --allow-stage-publish`
+   (or npmjs.com: package *Settings, Trusted publisher*, GitHub Actions, workflow `release.yml`, environment `release`,
+   allowed actions: `npm stage publish` only). Do not add `--allow-publish`.
+2. Package *Publishing access*: "Require 2FA and disallow tokens".
+3. 2FA enabled on the approving npm account, with publish access to the package.
+
+### Releasing
+
+1. Merge to `main`, set `RB_RELEASE_ENABLED=true`, approve the `release` deployment on GitHub.
+2. The `publish` job stages the tarball. Its summary shows the integrity of the tarball it staged.
+3. On npmjs.com open the package, *Staged Packages*, review (or `npm stage download <stage-id>` and compare with the
+   GitHub artifact and `SHA256SUMS`), then **Approve** with 2FA (CLI alternative: `npm stage list relic-bridge`,
+   `npm stage approve <stage-id>`; reject with `npm stage reject <stage-id>`).
+4. Run the *Release* workflow again on `main` (Actions, *Run workflow*). `plan` sees the version on npm without a
+   GitHub Release (mode `release`), rebuilds, checks the tarball is identical to the one on npm and creates only the
+   GitHub Release `v<version>`.
+
+### Reruns
+
+| Situation | What happens |
+| --- | --- |
+| Staged, not approved, workflow rerun | `npm stage publish` is refused because the version is already staged; the step reports "already staged, awaiting approval", succeeds, stages nothing and creates no GitHub Release. |
+| Approved, no GitHub Release | The next run is mode `release`, or the "Already on npm?" step finds the version: nothing is staged and only the GitHub Release is created (the tarball must match `dist.integrity`, otherwise the run stops). |
+| Rejected on npmjs.com | Rerun the workflow: the version is neither staged nor on npm, so it is staged again. |
+| Stage failed for another reason | The job fails with npm's output. |
+
+The conflict error text of staging a version twice is not documented by npm; the step matches it loosely (see RESEARCH
+section 6). After the first real release, confirm the wording and tighten the pattern in `release.yml` and
+`scripts/test/release.test.ts`. A rerun cannot tell whether the version staged earlier has the same content as the
+current build (CI cannot run `npm stage download`), so compare integrities before approving.

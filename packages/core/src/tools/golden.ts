@@ -9,7 +9,9 @@ import { envelope } from '../output/envelope.ts';
 import { shapeRows } from '../output/format.ts';
 import { parseTimeRange } from '../time/range.ts';
 import { defineTool, type ToolDefinition } from '../tool.ts';
-import { checkGuid, isNonNull, outOfScope, requireField } from './entities.ts';
+import { checkGuid, isNonNull, outOfScope, requireField } from './entity-common.ts';
+import { entityRefFields, RESOLVE_COST, refineEntityRef, resolveEntityRef } from './entity-ref.ts';
+import { createEntityResolver } from './entity-resolver.ts';
 import { cleanName } from './identity.ts';
 import { assertWindowWithinLimit, type ToolDeps, toolClient } from './shared.ts';
 
@@ -32,30 +34,32 @@ const FATAL_CODES: ReadonlySet<string> = new Set([
 
 export type Trend = 'up' | 'down' | 'flat' | 'unknown';
 
-const input = z.strictObject({
-  guid: z.string().min(8).max(512).describe('Entity guid, exactly as returned by search_entities.'),
-  since: z
-    .string()
-    .min(1)
-    .max(200)
-    .optional()
-    .describe(
-      `Time window, e.g. "last 30 minutes" (default), "last 6 hours", "today". Same forms as time_range. Metrics whose query already has its own SINCE keep it.`,
-    ),
-  timeseries: z
-    .boolean()
-    .optional()
-    .describe(
-      'Fetch a time series to compute the trend (default true). False: one value per metric, no trend.',
-    ),
-  max_metrics: z
-    .number()
-    .int()
-    .min(1)
-    .max(MAX_METRICS)
-    .optional()
-    .describe(`Most golden metrics to run (default ${DEFAULT_MAX_METRICS}, max ${MAX_METRICS}).`),
-});
+const input = refineEntityRef(
+  z.strictObject({
+    ...entityRefFields('Entity guid, exactly as returned by search_entities. Give this or name.'),
+    since: z
+      .string()
+      .min(1)
+      .max(200)
+      .optional()
+      .describe(
+        `Time window, e.g. "last 30 minutes" (default), "last 6 hours", "today". Same forms as time_range. Metrics whose query already has its own SINCE keep it.`,
+      ),
+    timeseries: z
+      .boolean()
+      .optional()
+      .describe(
+        'Fetch a time series to compute the trend (default true). False: one value per metric, no trend.',
+      ),
+    max_metrics: z
+      .number()
+      .int()
+      .min(1)
+      .max(MAX_METRICS)
+      .optional()
+      .describe(`Most golden metrics to run (default ${DEFAULT_MAX_METRICS}, max ${MAX_METRICS}).`),
+  }),
+);
 
 const metricRow = z.object({
   title: z.string(),
@@ -191,6 +195,7 @@ const pct = (r: number | null) => (r === null ? '' : `${r >= 0 ? '+' : ''}${(r *
 /** `get_golden_metrics`. */
 export function createGoldenMetricTools(deps: ToolDeps = {}): ToolDefinition[] {
   const client = toolClient(deps);
+  const resolver = deps.resolver ?? createEntityResolver(deps);
 
   async function runMetric(
     ctx: ToolContext,
@@ -248,10 +253,12 @@ export function createGoldenMetricTools(deps: ToolDeps = {}): ToolDefinition[] {
     kind: 'read',
     openWorld: true,
     // One entity lookup plus one query per metric (default cap).
-    cost: 1 + DEFAULT_MAX_METRICS,
+    cost: 1 + DEFAULT_MAX_METRICS + RESOLVE_COST,
     group: 'health',
     phase: 1,
-    handler: async (args, ctx) => {
+    handler: async (rawArgs, ctx) => {
+      const ref = await resolveEntityRef(resolver, ctx, rawArgs);
+      const args = { ...rawArgs, guid: ref.guid };
       const decoded = checkGuid(ctx, args.guid);
       const sinceText = args.since ?? DEFAULT_GOLDEN_SINCE;
       const range = parseTimeRange(sinceText, ctx.clock.now());
@@ -329,7 +336,7 @@ export function createGoldenMetricTools(deps: ToolDeps = {}): ToolDefinition[] {
         );
       }
       return {
-        text: lines.join('\n'),
+        text: [...(ref.note ? [ref.note] : []), ...lines].join('\n'),
         structured: { entity, since: sinceText, metrics, partial, totalMetrics: defs.length },
       };
     },

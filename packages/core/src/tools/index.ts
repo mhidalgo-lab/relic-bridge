@@ -5,7 +5,7 @@ import { createApmTools } from './apm.ts';
 import { createChangeTools } from './changes.ts';
 import { createDashboardTools } from './dashboards.ts';
 import { createEntityTools } from './entities.ts';
-import { createEntityResolveTools } from './entity-resolver.ts';
+import { createEntityResolver, createEntityResolveTools } from './entity-resolver.ts';
 import { createErrorTools } from './errors.ts';
 import { createGoldenMetricTools } from './golden.ts';
 import { createIdentityTools } from './identity.ts';
@@ -69,7 +69,9 @@ export {
 export { createSyntheticTools } from './synthetics.ts';
 
 /** Every built-in tool, ready for `ToolRegistry.register`. Later tool groups add themselves here. */
-export function createBuiltinTools(deps: ToolDeps = {}): ToolDefinition[] {
+export function createBuiltinTools(options: ToolDeps = {}): ToolDefinition[] {
+  // One resolver for every tool that accepts an entity name: a single cache, keyed per credential and account set.
+  const deps: ToolDeps = { ...options, resolver: options.resolver ?? createEntityResolver(options) };
   return [
     ...createIdentityTools(deps),
     ...createTimeTools(),

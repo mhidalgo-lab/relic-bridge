@@ -20,7 +20,7 @@ import {
   requireField,
   scopeAccounts,
   toRow,
-} from './entities.ts';
+} from './entity-common.ts';
 import { cleanName } from './identity.ts';
 import { accountIdSchema, nextCursorOf, type ToolDeps, toolClient } from './shared.ts';
 
@@ -317,7 +317,7 @@ Use it before get_entity, get_related_entities or get_golden_metrics when you on
 
 /** `resolve_entity`. */
 export function createEntityResolveTools(deps: ToolDeps = {}): ToolDefinition[] {
-  const resolver = createEntityResolver(deps);
+  const resolver = deps.resolver ?? createEntityResolver(deps);
   const resolve = defineTool({
     name: 'resolve_entity',
     title: 'Resolve entity name',

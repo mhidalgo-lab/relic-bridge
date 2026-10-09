@@ -15,14 +15,14 @@
 | [`list_event_types`](#list_event_types) | discovery | read | 1 | 1 |
 | [`decode_entity_guid`](#decode_entity_guid) | entities | read | 0 | 1 |
 | [`get_dashboard`](#get_dashboard) | entities | read | 1 | 6 |
-| [`get_entity`](#get_entity) | entities | read | 1 | 1 |
-| [`get_related_entities`](#get_related_entities) | entities | read | 1 | 1 |
+| [`get_entity`](#get_entity) | entities | read | 5 | 1 |
+| [`get_related_entities`](#get_related_entities) | entities | read | 5 | 1 |
 | [`list_dashboards`](#list_dashboards) | entities | read | 1 | 6 |
 | [`list_entity_types`](#list_entity_types) | entities | read | 1 | 1 |
 | [`resolve_entity`](#resolve_entity) | entities | read | 1 | 6 |
 | [`search_entities`](#search_entities) | entities | read | 1 | 1 |
 | [`entity_health`](#entity_health) | health | read | 10 | 6 |
-| [`get_golden_metrics`](#get_golden_metrics) | health | read | 11 | 1 |
+| [`get_golden_metrics`](#get_golden_metrics) | health | read | 15 | 1 |
 | [`list_accounts`](#list_accounts) | identity | read | 1 | 1 |
 | [`whoami`](#whoami) | identity | read | 1 | 1 |
 | [`analyze_deployment_impact`](#analyze_deployment_impact) | incident-response | read | 3 | 6 |
@@ -345,7 +345,7 @@ readOnly: `true` · destructive: `false` · idempotent: `true` · openWorld: `tr
 
 ## `get_entity`
 
-**Get entity** · group `entities` · phase 1 · kind `read` · cost 1 NerdGraph call
+**Get entity** · group `entities` · phase 1 · kind `read` · cost 5 NerdGraph calls
 
 Get one entity by guid: name, account, domain/type, alert severity (CRITICAL, WARNING, NOT_ALERTING, NOT_CONFIGURED), whether it is reporting, its tags, a New Relic link and the titles of its golden metrics.
 
@@ -355,7 +355,9 @@ Use it after search_entities to inspect an entity. For metric values use get_gol
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `guid` | `string` | yes | Entity guid, exactly as returned by search_entities. |
+| `guid` | `string` | no | Entity guid, exactly as returned by search_entities. Give this or name. |
+| `name` | `string` | no | Entity name instead of guid (loose is fine: "shippingservice" finds "Shipping-Service"). If several entities match, nothing runs and the candidates are returned: pick one guid. |
+| `account` | `integer` | no | With name only: look in this account (must be one of list_accounts). Default: all of them. |
 
 ### Output
 
@@ -381,7 +383,7 @@ readOnly: `true` · destructive: `false` · idempotent: `true` · openWorld: `tr
 
 ## `get_related_entities`
 
-**Get related entities** · group `entities` · phase 1 · kind `read` · cost 1 NerdGraph call
+**Get related entities** · group `entities` · phase 1 · kind `read` · cost 5 NerdGraph calls
 
 List the entities directly related to one entity (one hop): the services it calls or is called by, the hosts it runs on, its containers, monitors and so on.
 
@@ -391,7 +393,9 @@ Use it to map dependencies during an investigation (e.g. which upstream service 
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `guid` | `string` | yes | Entity guid, exactly as returned by search_entities. |
+| `guid` | `string` | no | Entity guid, exactly as returned by search_entities. Give this or name. |
+| `name` | `string` | no | Entity name instead of guid (loose is fine: "shippingservice" finds "Shipping-Service"). If several entities match, nothing runs and the candidates are returned: pick one guid. |
+| `account` | `integer` | no | With name only: look in this account (must be one of list_accounts). Default: all of them. |
 | `direction` | `"INBOUND" \| "OUTBOUND" \| "BOTH"` | no | INBOUND (entities pointing at this one, e.g. callers), OUTBOUND (what it calls/hosts…), BOTH (default). |
 | `types` | `object[]` | no | Only related entities of these kinds, e.g. [{"domain": "APM", "type": "APPLICATION"}]. |
 | `limit` | `integer` | no | Most relationships to return (default 50, max 100). |
@@ -570,7 +574,7 @@ readOnly: `true` · destructive: `false` · idempotent: `true` · openWorld: `tr
 
 ## `get_golden_metrics`
 
-**Get golden metrics** · group `health` · phase 1 · kind `read` · cost 11 NerdGraph calls
+**Get golden metrics** · group `health` · phase 1 · kind `read` · cost 15 NerdGraph calls
 
 Health summary of one entity from its golden metrics: the handful of metrics New Relic defines as the key signals for that kind of entity (throughput, response time and error rate for a service; CPU and memory for a host; and so on).
 
@@ -580,7 +584,9 @@ Pass a guid from search_entities. Each metric returns its latest value, a trend 
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `guid` | `string` | yes | Entity guid, exactly as returned by search_entities. |
+| `guid` | `string` | no | Entity guid, exactly as returned by search_entities. Give this or name. |
+| `name` | `string` | no | Entity name instead of guid (loose is fine: "shippingservice" finds "Shipping-Service"). If several entities match, nothing runs and the candidates are returned: pick one guid. |
+| `account` | `integer` | no | With name only: look in this account (must be one of list_accounts). Default: all of them. |
 | `since` | `string` | no | Time window, e.g. "last 30 minutes" (default), "last 6 hours", "today". Same forms as time_range. Metrics whose query already has its own SINCE keep it. |
 | `timeseries` | `boolean` | no | Fetch a time series to compute the trend (default true). False: one value per metric, no trend. |
 | `max_metrics` | `integer` | no | Most golden metrics to run (default 10, max 20). |

@@ -13,10 +13,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CATALOG, connect, NR_KEY } from '../fixtures.ts';
 import { accountsNamed, createHarness, FOREIGN, guidOf, type Harness, LEAK } from './harness.ts';
 
-/** `ok`: answered; `refused`: RB_AUTH_FORBIDDEN. `offline`: must not reach NerdGraph at all. */
+/** `ok`: answered; `refused`: RB_AUTH_FORBIDDEN; `invalid`: RB_INPUT_INVALID (ambiguous, unknown or out-of-scope name). `offline`: must not reach NerdGraph at all. */
 interface ToolCall {
   readonly args: Record<string, unknown>;
-  readonly expect: 'ok' | 'refused';
+  readonly expect: 'ok' | 'refused' | 'invalid';
   readonly offline?: boolean;
 }
 
@@ -200,14 +200,41 @@ export const TOOL_CASES: Readonly<Record<string, readonly ToolCall[]>> = {
     { args: { guid: guidOf(FOREIGN) }, expect: 'refused', offline: true },
     // NerdGraph answers with an entity in the foreign account behind an allowed account's GUID.
     { args: { guid: guidOf(1) }, expect: 'refused' },
+    // Name path (P6-17): an unavailable account is refused offline; the resolver never picks among several matches,
+    // never resolves into an account outside the grant, and what it resolves is still checked against NerdGraph.
+    { args: { name: 'entity', account: FOREIGN }, expect: 'refused', offline: true },
+    { args: { name: 'entity', account: 3 }, expect: 'refused', offline: true },
+    { args: { name: 'entity' }, expect: 'invalid' }, // matches accounts 1 and 2: ambiguous
+    { args: { name: 'entity-3' }, expect: 'invalid' }, // only in account 3 (not allowed): not found
+    { args: { name: 'entity-1' }, expect: 'refused' },
+    { args: { name: 'entity-1', guid: guidOf(1) }, expect: 'invalid' },
+    { args: {}, expect: 'invalid' },
   ],
   get_related_entities: [
     { args: { guid: guidOf(FOREIGN) }, expect: 'refused', offline: true },
     { args: { guid: guidOf(1) }, expect: 'ok' },
+    // Name path (P6-17): an unavailable account is refused offline; the resolver never picks among several matches,
+    // never resolves into an account outside the grant, and what it resolves is still checked against NerdGraph.
+    { args: { name: 'entity', account: FOREIGN }, expect: 'refused', offline: true },
+    { args: { name: 'entity', account: 3 }, expect: 'refused', offline: true },
+    { args: { name: 'entity' }, expect: 'invalid' }, // matches accounts 1 and 2: ambiguous
+    { args: { name: 'entity-3' }, expect: 'invalid' }, // only in account 3 (not allowed): not found
+    { args: { name: 'entity-1' }, expect: 'ok' },
+    { args: { name: 'entity-1', guid: guidOf(1) }, expect: 'invalid' },
+    { args: {}, expect: 'invalid' },
   ],
   get_golden_metrics: [
     { args: { guid: guidOf(FOREIGN) }, expect: 'refused', offline: true },
     { args: { guid: guidOf(1) }, expect: 'refused' },
+    // Name path (P6-17): an unavailable account is refused offline; the resolver never picks among several matches,
+    // never resolves into an account outside the grant, and what it resolves is still checked against NerdGraph.
+    { args: { name: 'entity', account: FOREIGN }, expect: 'refused', offline: true },
+    { args: { name: 'entity', account: 3 }, expect: 'refused', offline: true },
+    { args: { name: 'entity' }, expect: 'invalid' }, // matches accounts 1 and 2: ambiguous
+    { args: { name: 'entity-3' }, expect: 'invalid' }, // only in account 3 (not allowed): not found
+    { args: { name: 'entity-1' }, expect: 'refused' },
+    { args: { name: 'entity-1', guid: guidOf(1) }, expect: 'invalid' },
+    { args: {}, expect: 'invalid' },
   ],
   // Offline decoding of the caller's own input: says the account is not available, fetches nothing.
   decode_entity_guid: [{ args: { guid: guidOf(FOREIGN) }, expect: 'ok', offline: true }],
@@ -252,6 +279,10 @@ describe('tool isolation against a hostile NerdGraph', () => {
         if (call.expect === 'refused') {
           expect(result.isError, what).toBe(true);
           expect(code, what).toBe(ErrorCode.AuthForbidden);
+        } else if (call.expect === 'invalid') {
+          expect(result.isError, what).toBe(true);
+          // Schema-level rejections (guid and name, neither) carry no tool error code.
+          if (code !== undefined) expect(code, what).toBe(ErrorCode.InputInvalid);
         } else {
           expect(result.isError ?? false, `${what}: ${dump.slice(0, 300)}`).toBe(false);
         }

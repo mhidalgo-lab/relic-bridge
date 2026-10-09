@@ -243,3 +243,17 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   fallback "logs near the error time" when the trace has no logs; (d) cross-account trace stitching (one query per allowed
   account); (e) fold `entity_health` into `generate_alert_insights_report` (entity_guid input) and drop it.
 - **Needs:** owner's call on (b) to (e); a check against a real account.
+
+
+## P6-17 — Name input on entity tools
+
+### P6-17 — Name input only on three tools; resolution cost is charged to every call
+- **Context:** Scope said "get_entity, get_related_entities, get_golden_metrics and the entity-based report tools".
+- **Assumption made:** shipped the three entity tools; the report, investigation and `entity_guid` tools split into P6-18
+  (composites need resolve-once and budget planning). Each tool's `cost` includes the worst case of a resolution (4 requests),
+  so budget planning is conservative even for guid calls. Only `account` narrows a name (no `domain`/`type`); ambiguity is
+  an `RB_INPUT_INVALID` error with the candidates in `details`, not a successful result.
+- **Options:** (a) keep as is; (b) also add `domain`/`type` to the name path; (c) make ambiguity a normal result with a
+  `candidates` field (needs output-schema changes); (d) charge the resolution cost only when `name` is given (needs
+  per-call cost).
+- **Needs:** owner's call on (b) to (d); whether P6-18 is wanted.

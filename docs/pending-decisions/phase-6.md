@@ -227,3 +227,19 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   pass-through, parsed query-only, allow-listed root paths, account and field checks) after a new ADR; (c) build P7-15 for
   stdio/self-hosted bearer connections only; (d) drop P7-15 entirely.
 - **Needs:** owner's confirmation of ADR-0014 (or a concrete NerdGraph read that justifies (b)/(c)); then unblock or drop P7-15.
+
+
+## P6-16 — Investigation workflow tools
+
+### P6-16 — All three candidate tools ship; two attribute names are unverified; no `around` for logs
+- **Context:** The task listed `trace_error`, `dependency_health` and `entity_health` as candidates. `generate_alert_insights_report`
+  already covers an issue's entity, but nothing gave a one-call health view for an arbitrary entity.
+- **Assumption made:** ship all three (module `investigations.ts`, reusing sibling handlers, planned against the budget).
+  `trace_error` finds an error group's trace through `TransactionError.error.group.guid` and drops synthetic traffic with
+  `nr.syntheticsMonitorId IS NULL`; both attribute names are unverified (see RESEARCH). Spans are read from the one account
+  queried, so a trace that crosses accounts shows only that account's part. The `around` timestamp for logs was not added: logs
+  are matched by `trace.id`, which already pins them to the request. P6-13 evals get a note to cover the tools.
+- **Options:** (a) keep as is; (b) verify the two attribute names against a real account and adjust; (c) add `around` plus a
+  fallback "logs near the error time" when the trace has no logs; (d) cross-account trace stitching (one query per allowed
+  account); (e) fold `entity_health` into `generate_alert_insights_report` (entity_guid input) and drop it.
+- **Needs:** owner's call on (b) to (e); a check against a real account.

@@ -51,6 +51,9 @@ const SAMPLE_CALLS: Record<string, Record<string, unknown>> = {
   get_dashboard: { guid: MOCK_GUID },
   generate_alert_insights_report: { issue_id: 'issue-1' },
   generate_user_impact_report: { issue_id: 'issue-1' },
+  trace_error: { trace_id: 'abcdef0123456789' },
+  dependency_health: { guid: MOCK_GUID },
+  entity_health: { guid: MOCK_GUID },
 };
 
 const registry = new ToolRegistry();

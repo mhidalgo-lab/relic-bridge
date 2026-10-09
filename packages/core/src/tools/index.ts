@@ -9,6 +9,7 @@ import { createEntityResolveTools } from './entity-resolver.ts';
 import { createErrorTools } from './errors.ts';
 import { createGoldenMetricTools } from './golden.ts';
 import { createIdentityTools } from './identity.ts';
+import { createInvestigationTools } from './investigations.ts';
 import { createIssueTools } from './issues.ts';
 import { createLogTools } from './logs.ts';
 import { createQueryTools, type ToolDeps } from './query.ts';
@@ -46,6 +47,7 @@ export {
   maskEmail,
   type ScopedAccount,
 } from './identity.ts';
+export { createInvestigationTools } from './investigations.ts';
 export { createIssueTools } from './issues.ts';
 export { createLogTools } from './logs.ts';
 export {
@@ -86,5 +88,6 @@ export function createBuiltinTools(deps: ToolDeps = {}): ToolDefinition[] {
     ...createSyntheticTools(deps),
     ...createDashboardTools(deps),
     ...createReportTools(deps),
+    ...createInvestigationTools(deps),
   ];
 }

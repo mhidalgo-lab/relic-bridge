@@ -13,6 +13,7 @@ owner: ""
 
 ## Scope
 - Eval set (~40 realistic questions) → expected tool choice / successful answer, run against fixtures with a real model; track pass rate per release.
+- Include the P6-16 investigation tools (`trace_error`, `dependency_health`, `entity_health`): expected-tool-choice cases for "follow this error", "is it my dependency?" and "is this service healthy?".
 - Iterate descriptions, names, schemas; release v0.6.0.
 
 ## Acceptance criteria

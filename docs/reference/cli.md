@@ -47,6 +47,7 @@ the key is valid.
 relic-bridge init [--db <path>] [--master-key-file <path>] [--label <l> --region US|EU|JP [key source]]
                   [--slug <s> --default-account <id> --accounts 1,2] [--device <name>] [--url <https://host>]
                   [--client claude-code|claude-code-powershell|claude-desktop|cursor|vscode|all] [--no-config]
+relic-bridge doctor [--config <file>] [--project <slug>] [--db <path>] [--offline] [--remote <url> [--insecure]] [--json]
 relic-bridge admin-token generate
 relic-bridge user add --email <e> [--name <n>] [--role owner|admin|member] | user list [--limit <n>]
 relic-bridge user unbind <id> [--confirm <email>]
@@ -104,3 +105,24 @@ version, `1` when rows are left (listed on stderr with the reason). `--json` pri
   seconds until interrupted.
 
 See the [self-hosting guide](../guide/self-hosting.md#management-cli) for a walk-through.
+
+## doctor
+
+`relic-bridge doctor` is a read-only health check. It prints one line per check (`ok`, `warn`, `FAIL`, `skip`) and,
+for every warning or failure, a `fix:` line. With `--json` it prints one document
+`{"ok":true,"summary":{"ok":n,"warn":n,"fail":n,"skip":n},"checks":[{"id","status","title","detail"?,"fix"?}]}`.
+Exit codes: `0` when nothing failed (warnings are allowed), `1` when a check failed, `2` for a usage error.
+
+| Check | What it verifies |
+|---|---|
+| `node` | Node 24.11 or later. |
+| `config` | The stdio config (`--config` / `RB_CONFIG` YAML, or `NEW_RELIC_*` variables) loads; file permissions; plaintext key warning. Skipped when none is configured. |
+| `newrelic-key` | One NerdGraph call with your own key: User-key format, validity, region (a wrong region says which to use) and that the default account is reachable. Shows the key's prefix and last four characters only. `--offline` skips it. |
+| `master-key` | `RB_MASTER_KEY[_FILE]` loads (file mode `0600`); prints key versions, never the key. |
+| `database` | The SQLite file exists, is not readable by others, opens, has no pending migrations, and the master key matches the stored key checks. Nothing is written. |
+| `public-url` | `RB_PUBLIC_URL` is https (or localhost), a bare origin, and its host is in `RB_ALLOWED_HOSTS`. |
+| `clock` | Skew against New Relic's (or, with `--remote`, the server's) `Date` header: warning over 30 s, failure over 300 s. |
+| `remote-*` | With `--remote <url>` (or `RB_REMOTE`): `/health`, `/version`, that the MCP endpoint refuses an unauthenticated probe, and that the OAuth issuer is the origin you reached. No admin token is needed. |
+| `workers-drift` | In a clone: `apps/worker/wrangler.local.jsonc` (from `pnpm cf:setup`) still matches `wrangler.jsonc`. |
+
+Only New Relic (with your key) and the `--remote` server are contacted; `--offline` makes no request at all.

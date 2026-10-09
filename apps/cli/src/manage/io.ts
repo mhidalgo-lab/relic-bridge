@@ -23,6 +23,10 @@ export interface ManageHost {
   userName(): string;
   /** Create `path` (and parents, mode 0700) exclusively with mode 0600; throws when it exists. */
   writeSecretFile(path: string, text: string): void;
+  /** Node version for `doctor` (tests); defaults to the running process. */
+  readonly nodeVersion?: string;
+  /** Clock for `doctor` (tests); defaults to `Date.now`. */
+  readonly now?: () => number;
   /** `audit tail --follow` stops when this aborts. */
   readonly signal?: AbortSignal;
   /** Pause for `ms`; resolves early on abort. */

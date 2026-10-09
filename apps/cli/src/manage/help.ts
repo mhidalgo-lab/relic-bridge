@@ -7,6 +7,10 @@ Usage:
   relic-bridge init [--db <path>] [--master-key-file <path>] [--label <l> --region US|EU|JP
                     (key on stdin | --key-file <f> | --key-env <VAR>)] [--slug <s>
                     --default-account <id>] [--device <name>] [--url <https://host>]
+  relic-bridge doctor [--config <file>] [--project <slug>] [--db <path>] [--offline] [--remote <url>]
+                    Read-only diagnostics (Node, config, New Relic key and region, master key,
+                    database, RB_PUBLIC_URL, clock, remote server, Workers config drift). Prints a
+                    fix for every problem, never a secret. Exit 1 when a check fails.
   relic-bridge admin-token generate
   relic-bridge user add --email <e> [--name <n>] [--role owner|admin|member] | user list
   relic-bridge user unbind <id> [--confirm <email>]

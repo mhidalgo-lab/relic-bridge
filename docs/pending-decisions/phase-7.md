@@ -338,3 +338,17 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   phones.
 - **Needs:** owner's call on (1), (3) and (6); a check of how Claude Code, Claude Desktop, VS Code and the phone apps
   show the form and whether any auto-accepts it.
+
+### P7-21 — Composite report tasks: insights only, a task whenever the client takes one, 3 sections per poll
+- **Context:** Report sections run to completion inside a call; nothing is pending at New Relic. A task helps only by
+  spreading the sections over several requests (each with its own budget and quota check). Nothing ran against a real
+  Tasks client.
+- **Assumption made:** (1) Only `generate_alert_insights_report` now; the others are P7-23. (2) Any Tasks-declaring
+  client gets a task for it (poll interval 1 s, so a report takes a few polls), even when it would fit one request.
+  (3) At most 3 sections per poll; a section that does not fit a poll's remaining budget waits for the next one. (4)
+  Above 300,000 characters of sealed state the remaining sections are skipped and the report completes.
+- **Options:** return inline when the budget fits the whole report (faster for small reports, but the client cannot know
+  beforehand); run all sections in the creating request and use the task only for what is left; more or fewer sections
+  per poll.
+- **Needs:** owner's call on (2) and (3); a real Tasks client to see how it handles a short multi-poll task.
+

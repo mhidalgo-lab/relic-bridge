@@ -18,6 +18,24 @@ export {
   type McpRequestInfo,
   type StorageForHttp,
 } from './app.ts';
+export { normalizeClientIp, resolveClientIp } from './client-ip.ts';
+export {
+  DEFAULT_RATE_LIMIT_MAX_KEYS,
+  isRateLimitRule,
+  MemoryRateLimiter,
+  type MemoryRateLimiterOptions,
+  type RateLimiter,
+  type RateLimitResult,
+  type RateLimitRule,
+} from './rate-limit.ts';
+export {
+  createRateLimitHooks,
+  DEFAULT_RATE_LIMITS,
+  mergeHooks,
+  type RateLimitHooksOptions,
+  type RateLimitRules,
+  rateLimited,
+} from './rate-limit-hooks.ts';
 export {
   checkHost,
   checkOrigin,

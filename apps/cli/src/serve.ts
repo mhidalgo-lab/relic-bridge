@@ -6,13 +6,20 @@ import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
 import { createAdaptorServer } from '@hono/node-server';
+import { getConnInfo } from '@hono/node-server/conninfo';
 import { CryptoError, loadKeyringFromEnv, verifyKeyChecks } from '@relic-bridge/auth';
 import { type FetchLike, type Logger, VERSION } from '@relic-bridge/core';
 import {
   createHttpApp,
+  createRateLimitHooks,
+  DEFAULT_RATE_LIMITS,
   defaultAllowedHostnames,
   MAX_ACCESS_CACHE_TTL_MS,
+  MemoryRateLimiter,
   originHostname,
+  type RateLimitRule,
+  type RateLimitRules,
+  resolveClientIp,
 } from '@relic-bridge/http-app';
 import { StorageError } from '@relic-bridge/storage';
 import { openSqliteStorage } from '@relic-bridge/storage-sqlite';
@@ -68,6 +75,48 @@ function list(env: Env, name: string): string[] | undefined {
     .filter((s) => s !== '');
 }
 
+/** `<requests>/<seconds>` (e.g. `600/60`) or `off` (null). */
+export function parseRateRule(name: string, raw: string): RateLimitRule | null {
+  const v = raw.trim().toLowerCase();
+  if (v === 'off') return null;
+  const m = /^(\d{1,7})\/(\d{1,6})$/.exec(v);
+  if (m === null || Number(m[1]) < 1 || Number(m[2]) < 1) {
+    throw new ConfigError(
+      `${name} must look like <requests>/<seconds> (e.g. 600/60) or off.`,
+      `Got "${raw.slice(0, 40)}".`,
+    );
+  }
+  return { requests: Number(m[1]), perSeconds: Number(m[2]) };
+}
+
+function rateLimitSettings(env: Env, warnings: string[]): RateLimitRules | null {
+  const all = env['RB_RATE_LIMIT']?.trim().toLowerCase();
+  if (all === 'off' || all === 'false' || all === '0') {
+    warnings.push('RB_RATE_LIMIT=off disables all rate limiting (brute-force and abuse protection).');
+    return null;
+  }
+  if (all !== undefined && all !== '' && all !== 'on' && all !== 'true' && all !== '1') {
+    throw new ConfigError(
+      'RB_RATE_LIMIT must be on or off.',
+      'Tune single limits with RB_RATE_LIMIT_IP etc.',
+    );
+  }
+  const pick = (name: string, fallback: RateLimitRule | null): RateLimitRule | null => {
+    const raw = env[name];
+    return raw === undefined || raw.trim() === '' ? fallback : parseRateRule(name, raw);
+  };
+  const rules = {
+    ip: pick('RB_RATE_LIMIT_IP', DEFAULT_RATE_LIMITS.ip),
+    authFailures: pick('RB_RATE_LIMIT_AUTH_FAIL', DEFAULT_RATE_LIMITS.authFailures),
+    token: pick('RB_RATE_LIMIT_TOKEN', DEFAULT_RATE_LIMITS.token),
+    grant: pick('RB_RATE_LIMIT_GRANT', DEFAULT_RATE_LIMITS.grant),
+  };
+  if (rules.authFailures === null) {
+    warnings.push('RB_RATE_LIMIT_AUTH_FAIL=off: failed authentications are not throttled per IP.');
+  }
+  return rules;
+}
+
 export interface ServeSettings {
   readonly port: number;
   readonly host: string;
@@ -77,6 +126,10 @@ export interface ServeSettings {
   readonly corsOrigins: readonly string[];
   readonly accessCacheTtlMs?: number;
   readonly hsts: 'auto' | boolean;
+  /** Rate limit rules (`null` entries are off); `null` here disables rate limiting altogether (`RB_RATE_LIMIT=off`). */
+  readonly rateLimits: RateLimitRules | null;
+  /** Reverse proxies in front of the server (`X-Forwarded-For` is trusted for that many hops from the right). */
+  readonly trustedProxyHops: number;
   readonly warnings: readonly string[];
 }
 
@@ -148,6 +201,14 @@ export function serveSettings(input: {
     throw new ConfigError('RB_HSTS must be auto, true or false.');
   }
 
+  const rateLimits = rateLimitSettings(env, warnings);
+  const hopsRaw = env['RB_TRUSTED_PROXY_HOPS']?.trim() ?? '0';
+  if (!/^[0-5]$/.test(hopsRaw)) {
+    throw new ConfigError(
+      'RB_TRUSTED_PROXY_HOPS must be an integer 0-5 (reverse proxies in front of the server).',
+    );
+  }
+
   return {
     port: Number(portRaw),
     host,
@@ -157,6 +218,8 @@ export function serveSettings(input: {
     corsOrigins,
     ...(accessCacheTtlMs === undefined ? {} : { accessCacheTtlMs }),
     hsts,
+    rateLimits,
+    trustedProxyHops: Number(hopsRaw),
     warnings,
   };
 }
@@ -196,6 +259,38 @@ export async function startServer(options: StartServerOptions): Promise<RunningS
   if (created) logger.info('database created', { path: settings.dbPath });
   for (const w of settings.warnings) logger.warn(w);
 
+  // Two bounded in-memory stores: unauthenticated traffic (IP keys) can't push token/grant buckets out of the other.
+  let warnedForwarded = false;
+  const hooks =
+    settings.rateLimits === null
+      ? undefined
+      : createRateLimitHooks({
+          limiter: new MemoryRateLimiter(),
+          preAuthLimiter: new MemoryRateLimiter(),
+          rules: settings.rateLimits,
+          logger,
+          getClientIp: (c) => {
+            let socketIp: string | undefined;
+            try {
+              socketIp = getConnInfo(c).remote.address;
+            } catch {
+              // not served through the Node adaptor (in-process call)
+            }
+            if (!warnedForwarded && settings.trustedProxyHops === 0 && c.req.header('x-forwarded-for')) {
+              warnedForwarded = true;
+              logger.warn(
+                'X-Forwarded-For seen but RB_TRUSTED_PROXY_HOPS=0: behind a reverse proxy every client shares the ' +
+                  "proxy's address for rate limiting. Set RB_TRUSTED_PROXY_HOPS to the number of proxies.",
+              );
+            }
+            return resolveClientIp({
+              socketIp,
+              forwardedFor: c.req.header('x-forwarded-for'),
+              trustedProxyHops: settings.trustedProxyHops,
+            });
+          },
+        });
+
   const app = createHttpApp({
     storage,
     keyring,
@@ -205,6 +300,7 @@ export async function startServer(options: StartServerOptions): Promise<RunningS
     corsOrigins: settings.corsOrigins,
     ...(settings.accessCacheTtlMs === undefined ? {} : { accessCacheTtlMs: settings.accessCacheTtlMs }),
     hsts: settings.hsts,
+    ...(hooks === undefined ? {} : { hooks }),
     ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
   });
 
@@ -249,6 +345,8 @@ export async function startServer(options: StartServerOptions): Promise<RunningS
     db: settings.dbPath,
     allowedHosts: settings.allowedHosts,
     cors: settings.corsOrigins.length > 0,
+    rateLimit: settings.rateLimits !== null,
+    trustedProxyHops: settings.trustedProxyHops,
   });
 
   let closing: Promise<void> | undefined;

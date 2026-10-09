@@ -226,6 +226,35 @@ describe('relic-bridge serve (built CLI)', () => {
     for (const t of Object.values(tokens)) expect(server.stderr).not.toContain(t);
   }, 60_000);
 
+  it('throttles repeated authentication failures per client IP, ignoring a spoofed X-Forwarded-For', async () => {
+    const server = new ServeProcess(
+      ['--port', '0', '--db', dbPath],
+      env({ RB_RATE_LIMIT_AUTH_FAIL: '3/300' }),
+    );
+    try {
+      const base = await server.url;
+      const call = (token: string, headers: Record<string, string> = {}) =>
+        fetch(`${base}/p/prod/mcp`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', authorization: `Bearer ${token}`, ...headers },
+          body: '{}',
+        });
+      for (let i = 0; i < 3; i++)
+        expect((await call('rb_live_nope', { 'x-forwarded-for': `9.9.9.${i}` })).status).toBe(401);
+      await new Promise((r) => setTimeout(r, 50)); // the charge runs after the response
+      // The valid token is refused too (one answer, no oracle), and the forged header changes nothing.
+      const blocked = await call(tokens.prod, { 'x-forwarded-for': '8.8.8.8' });
+      expect(blocked.status).toBe(429);
+      expect(Number(blocked.headers.get('retry-after'))).toBeGreaterThanOrEqual(1);
+      expect(await blocked.text()).toContain('Slow down');
+      expect(server.stderr).toContain('rate_limit_auth_failures');
+    } finally {
+      server.child.kill('SIGTERM');
+      expect(await server.exit()).toBe(0);
+    }
+    for (const t of Object.values(tokens)) expect(server.stderr).not.toContain(t);
+  }, 60_000);
+
   it('refuses to start with the wrong master key', async () => {
     const server = new ServeProcess(
       ['--port', '0', '--db', dbPath],

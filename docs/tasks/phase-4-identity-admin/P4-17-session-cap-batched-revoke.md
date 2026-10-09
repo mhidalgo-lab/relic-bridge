@@ -2,11 +2,11 @@
 id: P4-17
 title: "Cap live sessions per user and revoke them in bounded batches"
 phase: 4
-status: todo
+status: review
 priority: medium
 depends_on: [P4-02]
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P4-17 — Cap live sessions per user and revoke them in bounded batches
@@ -28,9 +28,9 @@ default under load.
 - Give the revoke-many test an explicit timeout or make it fast.
 
 ## Acceptance criteria
-- [ ] Sign-in number cap+1 evicts the oldest session (unit + workers pool).
-- [ ] Revoking 1,000 sessions makes a constant number of storage calls (counted in the D1 test).
-- [ ] RESEARCH, worker comments and THREAT_MODEL agree on D1 per-invocation limits, with a source.
+- [x] Sign-in number cap+1 evicts the oldest session (unit + workers pool).
+- [x] Revoking 1,000 sessions makes a constant number of storage calls (counted in the D1 test).
+- [x] RESEARCH, worker comments and THREAT_MODEL agree on D1 per-invocation limits, with a source.
 
 ## Security notes
 T13 (session revocation must be reliable), T20 (unauthenticated or cheap work amplification).

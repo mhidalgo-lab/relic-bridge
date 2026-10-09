@@ -487,6 +487,12 @@ export interface KvRepository {
    * invisible to every other method, so this only reclaims space. Callers loop while the count equals `limit`.
    */
   purgeExpired(limit?: number): Promise<number>;
+  /**
+   * Deletes every row whose key starts with `prefix` in ONE statement (P4-17: revoking all sessions of a user costs a
+   * constant number of storage calls, however many there are) and resolves how many rows it removed (rows already
+   * expired but not yet purged count). An empty prefix is refused (`InvalidInputError`): it would wipe the table.
+   */
+  deletePrefix(prefix: string): Promise<number>;
   /** Keys in lexicographic order. `limit` default and max 1000. */
   list(options?: {
     readonly prefix?: string;

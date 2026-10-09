@@ -7,6 +7,7 @@ import {
   checkSessionTimeouts,
   createSession,
   csrfTokenMatches,
+  DEFAULT_MAX_SESSIONS_PER_USER,
   DEFAULT_SESSION_TIMEOUTS,
   IdentityConfigError,
   identitySettingsFromEnv,
@@ -133,12 +134,71 @@ describe('session store', () => {
     expect(await revokeUserSessions(kv, 'bad:id')).toBe(0);
   });
 
-  it('revoke-all pages through many sessions', async () => {
-    for (let i = 0; i < 1005; i++) await issue('usr_many');
-    expect(await revokeUserSessions(kv, 'usr_many')).toBe(1005);
-    expect((await kv.list({ prefix: 'sess:usr_many:' })).keys).toEqual([]);
-    // About 5 s on a loaded machine (2N storage calls; P4-17 batches them): explicit timeout against flakes.
-  }, 30_000);
+  it('revoking 1,000 sessions costs a constant number of storage calls', async () => {
+    const rows = new Map<string, string>();
+    for (let i = 0; i < 1000; i++) {
+      const h = `${i}`.padStart(64, '0');
+      rows.set(`sess:usr_many:${h}`, '{}');
+      rows.set(`sess-seen:usr_many:${h}`, '1');
+    }
+    rows.set('sess:usr_other:x', '{}');
+    let calls = 0;
+    const counting = new Proxy(kv, {
+      get(target, prop, receiver) {
+        const v = Reflect.get(target, prop, receiver);
+        return typeof v === 'function'
+          ? (...args: unknown[]) => {
+              calls++;
+              return v.apply(target, args);
+            }
+          : v;
+      },
+    });
+    for (const [k, v] of rows) await kv.put(k, v);
+    expect(await revokeUserSessions(counting, 'usr_many')).toBe(1000);
+    expect(calls).toBe(2);
+    expect((await kv.list({ prefix: 'sess' })).keys.map((k) => k.name)).toEqual(['sess:usr_other:x']);
+  });
+
+  it('sign-in number cap+1 ends the oldest session', async () => {
+    const issued = [];
+    for (let i = 0; i < DEFAULT_MAX_SESSIONS_PER_USER; i++) {
+      now += 1000;
+      const s = await issue('usr_cap');
+      expect(s.evicted).toBe(0);
+      issued.push(s);
+    }
+    const other = await issue('usr_cap2');
+    now += 1000;
+    const next = await issue('usr_cap');
+    expect(next.evicted).toBe(1);
+    expect((await load(issued[0]?.cookieValue)).ok).toBe(false);
+    expect((await kv.list({ prefix: `sess-seen:usr_cap:${issued[0]?.hash}` })).keys).toEqual([]);
+    for (const s of [...issued.slice(1), next]) expect((await load(s.cookieValue)).ok).toBe(true);
+    expect((await kv.list({ prefix: 'sess:usr_cap:' })).keys).toHaveLength(DEFAULT_MAX_SESSIONS_PER_USER);
+    expect((await load(other.cookieValue)).ok).toBe(true);
+  });
+
+  it('a user far over the cap loses every older session at once; a custom cap and its range apply', async () => {
+    for (let i = 0; i < 100; i++) {
+      await kv.put(`sess:usr_big:${`${i}`.padStart(64, '0')}`, '{}');
+    }
+    const s = await createSession(
+      kv,
+      { userId: 'usr_big', provider: 'github', idp: 'github' },
+      DEFAULT_SESSION_TIMEOUTS,
+      clock,
+    );
+    expect(s.evicted).toBe(100);
+    expect((await kv.list({ prefix: 'sess:usr_big:' })).keys).toHaveLength(1);
+    const one = (n: number) =>
+      createSession(kv, { userId: 'usr_c', provider: 'x', idp: 'x' }, DEFAULT_SESSION_TIMEOUTS, clock, n);
+    const first = await one(1);
+    expect((await one(1)).evicted).toBe(1);
+    expect((await load(first.cookieValue)).ok).toBe(false);
+    await expect(one(0)).rejects.toThrow(RangeError);
+    await expect(one(101)).rejects.toThrow(RangeError);
+  });
 
   it('CSRF tokens compare exactly', async () => {
     const s = await issue();

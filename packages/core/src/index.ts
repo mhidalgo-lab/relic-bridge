@@ -82,6 +82,7 @@ export { Secret } from './secret.ts';
 export {
   type BuildServerOptions,
   buildMcpServer,
+  clientCanElicitForm,
   DEFAULT_SERVER_INFO,
   type ServerInfo,
   type ToolCallEvent,

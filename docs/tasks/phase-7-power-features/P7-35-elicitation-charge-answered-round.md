@@ -2,11 +2,11 @@
 id: P7-35
 title: Charge the write rate limit only for the answered elicitation round
 phase: 7
-status: todo
+status: review
 priority: low
 depends_on: [P7-20, P7-24]
 adr: ["0015"]
-owner: ""
+owner: claude-agent
 ---
 
 # P7-35 — Charge the write rate limit only for the answered elicitation round
@@ -24,8 +24,8 @@ unit of the per-grant write bucket (20/hour), not two. Today `packages/http-app/
 - Fail-closed behaviour on limiter errors (P7-24) stays for charged calls.
 
 ## Acceptance criteria
-- [ ] Elicitation flow: two rounds → one `write:` unit; tests on Node and Workers (DO limiter and binding).
-- [ ] `confirm: true` flow and dry runs: unchanged / uncharged as today; negative test that an unanswered first round
+- [x] Elicitation flow: two rounds → one `write:` unit; tests on Node and Workers (DO limiter and binding).
+- [x] `confirm: true` flow and dry runs: unchanged / uncharged as today; negative test that an unanswered first round
       cannot be used to exceed the general limits.
 
 ## Security notes
@@ -33,6 +33,13 @@ T31 rate limit on writes: the mutation-carrying call is still always charged; up
 
 ## Docs to update
 - `docs/guide/cloudflare-limits.md`, write-tools guide, ADR-0015 (append an "Update (P7-35)" line).
+
+## Implementation notes
+- `classifyRound` (`packages/http-app/src/jsonrpc.ts`) reads the raw body: `dry_run` (`arguments.dry_run === true`),
+  `answered` (an `inputResponses` key), `question` (no key, and `_meta` client capabilities declare form elicitation),
+  otherwise `confirm`. The rate limit hook skips `dry_run` and `question` only; unclassified calls are charged.
+- Defence in depth: a `question` call gets `ToolContext.writeQuestionOnly`; `humanGate` then never lets it send a change.
+- Dry runs were charged before (P7-09); the scope above makes them free, still under the token and grant limits.
 
 ## Out of scope
 - Changing the 20/hour figure.

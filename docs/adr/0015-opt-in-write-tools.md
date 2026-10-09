@@ -162,7 +162,7 @@ A write tool also asks the person, not the model, to approve the exact change, w
   and a stale approval is harmless because it only matches an identical message.
 - **Limits of the guarantee:** the answer is as trustworthy as the client. A client that auto-accepts forms, or a model
   that can drive it, defeats it; this removes the model from the loop only where the client really shows the form to
-  a person. The per-grant write rate limit counts each HTTP round, so a confirmed write uses two of the 20 per hour.
+  a person. The per-grant write rate limit counted each HTTP round, so a confirmed write used two of the 20 per hour (changed in P7-35, see the update at the end).
 
 ## Addendum: phase 7 review (2026-10-07)
 
@@ -263,3 +263,16 @@ kept a revoked write grant alive for up to 30 s per process.
   user's key never write. Re-enabling a user without such a grant, disabling, and other user edits stay open to admins.
   No other user change restores write access (roles do not reach tools, unbinding is owner-only, revoked grants and
   keys cannot be restored).
+
+## Update (P7-35)
+
+Owner decision (2026-10-09): the per-grant write rate limit is charged only for a write call that can mutate. The
+question-only round of the elicitation flow (no `inputResponses`, from a request that declares form elicitation) and dry
+runs (`dry_run: true`) are not charged to the `write:` bucket, so a confirmed write uses one of the 20 per hour, not two
+(this supersedes the sentence in the elicitation addendum that each round counts). The decision is made in the rate
+limit hook from the raw body, before the tool runs. Every call that can reach a mutation stays charged: a call with
+`inputResponses` (junk or empty included), the `confirm: true` flow, and any call that is not provably one of the two.
+The uncharged round is also enforced by the server: the host marks it (`ToolContext.writeQuestionOnly`) and `humanGate`
+then refuses to let it send a change, so a mismatch between what the hook read and what the SDK sees cannot turn the
+free round into a free mutation. Question rounds and dry runs stay under the token and grant limits. The 20 per hour is
+unchanged.

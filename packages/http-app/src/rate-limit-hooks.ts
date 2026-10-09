@@ -49,7 +49,7 @@ export interface RateLimitRules {
   /**
    * Write tool calls per grant (P7-09, ADR-0015), on top of `token` and `grant`: stricter. The hook fails closed: a limiter
    * that throws refuses the write instead of allowing it. Whether the cap is deployment-wide depends on the limiter
-   * (the Workers one needs the shared limiter, and refuses a write when that store is unreachable). Dry runs count too. Optional for callers built before it; `null` =
+   * (the Workers one needs the shared limiter, and refuses a write when that store is unreachable). Dry runs and question-only elicitation rounds are not charged (P7-35); every call that can mutate is. Optional for callers built before it; `null` =
    * off.
    */
   readonly write?: RateLimitRule | null;
@@ -198,13 +198,21 @@ export function createRateLimitHooks(options: RateLimitHooksOptions): HttpAppHoo
       }
       // Write tools (P7-09): a stricter bucket per grant, charged only for a granted write tool (an ungranted one is
       // answered "not found" anyway). Fails closed: no answer from the limiter, no write.
+      // P7-35: what is charged is decided from the raw request body, here, before any tool runs. A dry run (it returns
+      // before any mutation) and a question-only round (no `inputResponses` from a client that declared form
+      // elicitation: it can only ask, and the server enforces that) cost nothing here and stay under the token and
+      // grant limits above. Everything else that can reach a mutation is charged: the call that carries
+      // `inputResponses` (answered, junk or empty included), the `confirm: true` flow, and any call whose round is
+      // unknown. So a confirmed write through elicitation costs one unit, not two.
       const writeRule = rules.write;
       if (
         writeRule &&
         info.mcpMethod === 'tools/call' &&
         info.mcpName !== null &&
         WRITE_TOOL_NAMES.includes(info.mcpName) &&
-        info.access.tools.includes(info.mcpName)
+        info.access.tools.includes(info.mcpName) &&
+        info.writeRound !== 'dry_run' &&
+        info.writeRound !== 'question'
       ) {
         const r = await guard('write', () => post.take(`write:${info.grantId}`, writeRule));
         if (r === undefined || !r.allowed) {

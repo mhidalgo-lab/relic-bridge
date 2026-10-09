@@ -83,7 +83,7 @@ import {
 import { createAdminTokenVerifier } from './admin/token.ts';
 import type { AdminAuditEvent } from './audit.ts';
 import { createIdentityRoutes, IDENTITY_BASE, type IdentityOptions } from './identity.ts';
-import { peekJsonRpc, type RpcPeek } from './jsonrpc.ts';
+import { peekJsonRpc, type RpcPeek, type WriteRound } from './jsonrpc.ts';
 import {
   createConsentScreen,
   OAUTH_APPROVALS_FORGET_PATH,
@@ -158,6 +158,12 @@ export interface McpRequestInfo {
   readonly mcpMethod: string | null;
   /** `params.name` of the body (sanitised): the tool name for `tools/call`. */
   readonly mcpName: string | null;
+  /**
+   * For a `tools/call` of a write tool: how the raw body relates to the write limit (P7-35, see `WriteRound`). `null` or
+   * absent means "unknown": the write bucket charges it. A `question` round is also marked on the tool context so it
+   * cannot send a change.
+   */
+  readonly writeRound?: WriteRound | null;
   /** A `subscriptions/listen` request: answered at once, not a tool call (don't rate-limit it like one). */
   readonly listen: boolean;
   readonly access: EffectiveAccess;
@@ -750,10 +756,18 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
    */
   const readRpc = async (
     c: Context<Env>,
-  ): Promise<{ readonly mcpMethod: string | null; readonly mcpName: string | null } | Response> => {
+  ): Promise<
+    | {
+        readonly mcpMethod: string | null;
+        readonly mcpName: string | null;
+        readonly round: WriteRound | null;
+      }
+    | Response
+  > => {
     const log = c.get('log');
     let mcpMethod: string | null = null;
     let mcpName: string | null = null;
+    let round: WriteRound | null = null;
     if (c.req.method === 'POST') {
       const peek = await peekWithin(c.req.raw, maxBodyBytes, timeoutMs);
       // Refused without reading the rest: release the unread original as well (never awaited, it may be stalled).
@@ -776,11 +790,12 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
       if (peek.kind === 'message') {
         mcpMethod = safeMcpHeader(peek.method);
         mcpName = safeMcpHeader(peek.name);
+        round = peek.round;
       }
     }
     if (mcpMethod !== null) log['mcpMethod'] = mcpMethod;
     if (mcpName !== null) log['mcpName'] = mcpName;
-    return { mcpMethod, mcpName };
+    return { mcpMethod, mcpName, round };
   };
 
   /**
@@ -1325,7 +1340,7 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
     // to skip rate limiting, or a granted tool to hide an ungranted call from the audit (P2-12).
     const rpc = await readRpc(c);
     if (rpc instanceof Response) return rpc;
-    const { mcpMethod, mcpName } = rpc;
+    const { mcpMethod, mcpName, round } = rpc;
     // A write tool call never runs on cached access (P7-28): a revoked grant, token or write tool stops the next write
     // at once, on every process, instead of within the cache TTL. Reads keep the cache.
     if (
@@ -1353,6 +1368,7 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
       clientId,
       mcpMethod,
       mcpName,
+      writeRound: round,
       listen: mcpMethod === 'subscriptions/listen',
       access,
     });
@@ -1376,6 +1392,8 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
         ctx: Object.freeze({
           requestId,
           credential,
+          // P7-35: a call the write limit did not charge (a question round) cannot send a change.
+          ...(info.writeRound === 'question' ? { writeQuestionOnly: true } : {}),
           accounts: access.accounts,
           budget: createBudget(callBudget),
           limiter: withShared(limiters.for(credential.id), credential.id),

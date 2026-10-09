@@ -4,7 +4,7 @@
 
 import { env } from 'cloudflare:workers';
 import type { RateLimit } from '@cloudflare/workers-types';
-import { MemoryRateLimiter } from '@relic-bridge/http-app';
+import { createRateLimitHooks, type McpRequestInfo, MemoryRateLimiter } from '@relic-bridge/http-app';
 import { describe, expect, it } from 'vitest';
 import type { WorkerEnv } from '../src/env.ts';
 import { SHARED_KEY_PREFIXES, WorkersRateLimiter } from '../src/rate-limit.ts';
@@ -217,5 +217,52 @@ describe('pass-through on Workers', () => {
     expect(keyed).toHaveLength(2);
     expect(new Set(keyed).size).toBe(1);
     expect(binding.keys.join(' ')).not.toContain(NR_KEY);
+  });
+});
+
+describe('write bucket charging with the rate limit binding (P7-35)', () => {
+  const info = (writeRound: McpRequestInfo['writeRound']): McpRequestInfo =>
+    ({
+      tokenId: 'tok_b',
+      grantId: 'grt_b',
+      listen: false,
+      mcpMethod: 'tools/call',
+      mcpName: 'acknowledge_issue',
+      writeRound,
+      access: { tools: ['acknowledge_issue'], rateLimit: null },
+    }) as unknown as McpRequestInfo;
+  const c = { get: () => undefined } as never;
+
+  it('without the shared object, write: stays on the isolate bucket and only mutating rounds are charged', async () => {
+    const binding = fakeBinding();
+    const hooks = createRateLimitHooks({
+      limiter: new WorkersRateLimiter({ binding }),
+      rules: {
+        ip: null,
+        authFailures: null,
+        token: null,
+        grant: null,
+        write: { requests: 2, perSeconds: 3600 },
+      },
+      getClientIp: () => null,
+    });
+    for (let i = 0; i < 5; i++) {
+      expect(await hooks.beforeMcp?.(c, info('question'))).toBeUndefined();
+      expect(await hooks.beforeMcp?.(c, info('dry_run'))).toBeUndefined();
+    }
+    expect(await hooks.beforeMcp?.(c, info('answered'))).toBeUndefined();
+    expect(await hooks.beforeMcp?.(c, info('confirm'))).toBeUndefined();
+    expect((await hooks.beforeMcp?.(c, info('answered')))?.status).toBe(429);
+    expect(binding.keys.filter((k) => k.startsWith('write:'))).toEqual([]);
+  });
+
+  it('the binding still bounds repeated question rounds through the token and grant limits', async () => {
+    const binding = fakeBinding((key) => !key.startsWith('token:'));
+    const hooks = createRateLimitHooks({
+      limiter: new WorkersRateLimiter({ binding }),
+      rules: { ip: null, authFailures: null, write: { requests: 2, perSeconds: 3600 } },
+      getClientIp: () => null,
+    });
+    expect((await hooks.beforeMcp?.(c, info('question')))?.status).toBe(429);
   });
 });

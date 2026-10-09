@@ -1084,6 +1084,41 @@ describe('approval shows and binds the whole change (phase 7 review H2)', () => 
     ).toBe('ask');
   });
 
+  describe('an uncharged question round never sends a change (P7-35)', () => {
+    const message = 'Record a deployment change on "checkout"';
+    const change = { entity_guid: 'g', change_type: 'DEPLOYMENT' };
+    it('is refused when the connection cannot be asked, with or without the approval switch', async () => {
+      const { humanGate } = await import('../src/tools/write-common.ts');
+      for (const requireWriteApproval of [false, true]) {
+        const ctx = {
+          ...testContext({ clock: { now: () => NOW } }),
+          writeQuestionOnly: true,
+          requireWriteApproval,
+        } as ToolContext;
+        await expect(humanGate(ctx, 'create_change_event', message, change)).rejects.toThrow(
+          /question round/,
+        );
+      }
+    });
+
+    it('only asks, even if an answer is somehow present', async () => {
+      const { humanGate } = await import('../src/tools/write-common.ts');
+      const approved = new Set<string>();
+      const base = testContext({ clock: { now: () => NOW } });
+      const asking = {
+        ...base,
+        writeQuestionOnly: true,
+        elicitation: { answer: (k: string) => (approved.has(k) ? 'accept' : 'missing') },
+      } as ToolContext;
+      const first = await humanGate(asking, 'create_change_event', message, change);
+      expect(first.state).toBe('ask');
+      approved.add((first as { ask: { key: string } }).ask.key);
+      await expect(humanGate(asking, 'create_change_event', message, change)).rejects.toThrow(
+        /question round/,
+      );
+    });
+  });
+
   describe('an approval answers one attempt in a bounded window (P7-26)', () => {
     const message = 'Record a deployment change on "checkout"';
     const change = { entity_guid: 'g', change_type: 'DEPLOYMENT' };

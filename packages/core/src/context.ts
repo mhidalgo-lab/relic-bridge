@@ -137,6 +137,12 @@ export interface ToolContext {
    */
   readonly requireWriteApproval?: boolean;
   /**
+   * Set by the host for a write `tools/call` it did not charge to the write limit because it can only ask (P7-35: no
+   * `inputResponses`, form elicitation declared). Such a call never sends a change: `humanGate` refuses to let it go on,
+   * whatever else the request holds, so the uncharged round cannot be used to mutate.
+   */
+  readonly writeQuestionOnly?: boolean;
+  /**
    * Where spent write approvals are remembered, scoped by the host to this caller (P7-26): an approval answers one
    * attempt. Absent: only the time bucket bounds a replay (hosts without shared storage).
    */

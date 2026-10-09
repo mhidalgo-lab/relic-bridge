@@ -10,10 +10,19 @@ An open-source [Model Context Protocol](https://modelcontextprotocol.io) server 
 Claude Desktop, claude.ai, Claude mobile, Cursor, VS Code, …) query **New Relic** through the **NerdGraph** API using
 only a **User API key** — no account-level MCP enablement required.
 
-- **Runs anywhere:** local stdio (`npx`), self-hosted Node / Docker, or a Cloudflare Worker you can reach from every device.
-- **Multiple projects:** each New Relic account/region/key gets its own URL (`/p/{slug}/mcp`).
-- **Fine-grained access:** per-device tokens or OAuth, per-grant tool and account allowlists, bring-your-own-key for teams.
-- **Secure by default:** read-only tools, encrypted keys, query limits, audit log, documented threat model.
+**Available in v0.1 (local stdio):**
+
+- **Local stdio** (`npx`): your MCP client starts the server; one connection from env vars, or one project per
+  process from a YAML file.
+- **Secure by default:** read-only tools, query limits, redacted logs, documented [threat model](docs/THREAT_MODEL.md).
+  The key is read from the environment (`${VAR}` references in YAML) and is never a tool argument.
+
+**Planned** (see the [roadmap](docs/ROADMAP.md); none of this exists yet):
+
+- Self-hosted Node / Docker HTTP server and a Cloudflare Worker reachable from every device.
+- Multiple projects behind one server, each at its own URL (`/p/{slug}/mcp`).
+- Per-device tokens or OAuth (needed for claude.ai web and mobile), per-grant tool and account allowlists.
+- Encrypted key storage, bring-your-own-key for teams, and an audit log.
 
 ## Install
 

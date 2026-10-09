@@ -28,7 +28,7 @@ const timeRangeOutput = z.object({
 
 const TIME_RANGE_DESCRIPTION = `Convert a human time expression into exact UTC timestamps and the NRQL time clause for it.
 
-Use it when you need absolute bounds (incident windows, "yesterday", an ISO range) or want the clause to append to a query. No request is sent to New Relic. Returns epoch milliseconds (since_ms / until_ms), ISO forms, the window length, and a ready SINCE/UNTIL clause. "last week" and "last month" are rolling 7 and 30 days; "this week", "previous week", "this month", "previous month" are calendar periods (weeks start on Monday); a date without a time is midnight UTC, and a date-only range end includes that whole day. A warning is added when the window is longer than this connection allows.`;
+Use it when you need absolute bounds (incident windows, "yesterday", an ISO range) or want the clause to append to a query. No request is sent to New Relic. Returns epoch milliseconds (sinceMs / untilMs), ISO forms, the window length, and a ready SINCE/UNTIL clause. "last week" and "last month" are rolling 7 and 30 days; "this week", "previous week", "this month", "previous month" are calendar periods (weeks start on Monday); a date without a time is midnight UTC, and a date-only range end includes that whole day. A warning is added when the window is longer than this connection allows.`;
 
 /** `time_range`: pure, no subrequest. */
 export function createTimeTools(): ToolDefinition[] {
@@ -48,7 +48,7 @@ export function createTimeTools(): ToolDefinition[] {
       const exceeds = range.windowMs > ctx.limits.maxWindowDays * DAY_MS;
       const lines = [
         `Range: ${range.since} to ${range.until} (UTC), ${formatDuration(range.windowMs)}.`,
-        `since_ms: ${range.sinceMs}, until_ms: ${range.untilMs}`,
+        `sinceMs: ${range.sinceMs}, untilMs: ${range.untilMs}`,
         `NRQL clause: ${range.clause}`,
       ];
       if (exceeds) {

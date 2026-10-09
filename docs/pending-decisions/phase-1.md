@@ -262,3 +262,13 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   but the asset would not be attested as built by this run).
 - **Needs:** owner's confirmation. P1-16 closes the blocker in "P1-review — Release must not ship before P1-16" once
   merged; the P1-15 owner steps then apply unchanged.
+
+## P1-17 — CLI warnings and docs accuracy
+
+### P1-17 — `RB_LIMIT_RATE` / `RB_AUTH_UNAUTHORIZED` documented as reserved; `time_range` text uses camelCase
+- **Context:** The error codes exist in `errors.ts` but v0.1 never returns them. The troubleshooting guide now lists
+  them as reserved for hosted modes. The `time_range` tool text and description now say `sinceMs` / `untilMs` (the
+  structured output names) instead of `since_ms` / `until_ms`.
+- **Assumption made:** document-as-reserved rather than remove the codes; changing the tool text is not a contract break
+  (human-readable text only).
+- **Needs:** nothing unless you prefer deleting unused codes (would be an `errors.ts` change in a later task).

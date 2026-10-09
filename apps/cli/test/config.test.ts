@@ -206,6 +206,19 @@ describe('YAML mode', () => {
     expect(warnings.join()).not.toContain(FAKE_KEY);
   });
 
+  it('warns when RB_PROJECT is set in env mode, without key material', () => {
+    const none = loadConfig({ env: baseEnv, fs: memoryFs({}), platform: 'linux' });
+    expect(none.warnings).toEqual([]);
+    const { warnings } = loadConfig({
+      env: { ...baseEnv, RB_PROJECT: 'acme' },
+      fs: memoryFs({}),
+      platform: 'linux',
+    });
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain('RB_PROJECT is ignored');
+    expect(warnings.join()).not.toContain(FAKE_KEY);
+  });
+
   it('refuses apiKey with text around ${VAR}', () => {
     const text = 'projects:\n  - slug: acme\n    apiKey: "x${K}"\n    defaultAccount: 5\n';
     expect(errorOf(() => yaml(text, { K: FAKE_KEY })).message).toContain('exactly ${ENV_VAR}');
@@ -214,7 +227,12 @@ describe('YAML mode', () => {
   it('warns when the file is world-readable (T8), not on Windows', () => {
     const one = 'projects:\n  - slug: solo\n    apiKey: ${K}\n    defaultAccount: 5\n';
     expect(yaml(one, { K: FAKE_KEY }, { mode: 0o100644 }).warnings.join()).toContain('chmod 600');
-    expect(yaml(one, { K: FAKE_KEY }, { mode: 0o100640 }).warnings).toEqual([]);
+    const group = yaml(one, { K: FAKE_KEY }, { mode: 0o100640 }).warnings;
+    expect(group).toHaveLength(1);
+    expect(group[0]).toContain('readable by its group');
+    expect(group[0]).toContain('chmod 600');
+    expect(group.join()).not.toContain(FAKE_KEY);
+    expect(yaml(one, { K: FAKE_KEY }, { mode: 0o100600 }).warnings).toEqual([]);
     const win = loadConfig({
       configPath: FILE,
       env: { K: FAKE_KEY },

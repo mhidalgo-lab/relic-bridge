@@ -40,7 +40,7 @@ Used when no config file is given.
 | `RB_TOOLS` | no | all | Tool allowlist, comma-separated (e.g. `whoami,list_accounts,run_nrql`). Unknown names stop startup. |
 | `RB_LIMITS_MAX_LIMIT` | no | `1000` | Highest NRQL `LIMIT` (1–5000). |
 | `RB_LIMITS_MAX_WINDOW_DAYS` | no | `7` | Longest time window a query may cover, in days (1–3660). |
-| `RB_LIMITS_RAW_NRQL` | no | `true` | `false` removes `run_nrql` and `get_query_result` (agent-written NRQL). |
+| `RB_LIMITS_RAW_NRQL` | no | `true` | Accepts `1`/`true`/`yes`/`on` and `0`/`false`/`no`/`off` (case-insensitive); anything else stops startup. `false` removes `run_nrql` and `get_query_result` (agent-written NRQL). |
 | `RB_LIMITS_MAX_RESPONSE_BYTES` | no | `524288` | Largest NerdGraph response accepted (1 KiB – 16 MiB). |
 | `RB_LIMITS_EVENT_TYPES_ALLOW` | no | | Only these event types may be queried (comma-separated, exact case). |
 | `RB_LIMITS_EVENT_TYPES_DENY` | no | | These event types may not be queried (comma-separated, case-insensitive). |
@@ -78,8 +78,13 @@ Rules:
   ignored). Slugs must be unique.
 - `apiKey` should be exactly `${ENV_VAR}`: the key is read from that variable, which must be set in the client's `env`
   block. A literal key works but logs a warning.
-- `RB_LIMITS_*`, `RB_TOOLS` and `NEW_RELIC_*` are **ignored** in YAML mode; the file is the source of truth.
-- On Linux and macOS a warning is logged when the file is readable by every user (`chmod 600 relic-bridge.yaml`).
+- These variables are **ignored** in YAML mode; the file is the source of truth: `NEW_RELIC_API_KEY`,
+  `NEW_RELIC_ACCOUNT_ID`, `NEW_RELIC_REGION`, `RB_ACCOUNTS`, `RB_TOOLS` and every `RB_LIMITS_*`. (Variables your
+  `${VAR}` references name are read, of course.) These still apply: `RB_CONFIG`, `RB_PROJECT` (unless `--project`
+  is given) and `RB_LOG_LEVEL`.
+- Conversely, `RB_PROJECT` is ignored in env mode (a warning is logged).
+- On Linux and macOS a warning is logged when the file is readable by every user or by its group
+  (`chmod 600 relic-bridge.yaml`).
 - The file may be at most 1 MiB.
 
 **One process per project.** Each MCP server entry in your client runs `relic-bridge --config … --project <slug>`, so

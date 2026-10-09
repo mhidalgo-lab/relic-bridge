@@ -15,6 +15,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Options:** merge the stack bottom-up (retarget each PR to `main` after its parent merges), or squash-merge the
   tip into `main` in one go.
 - **Needs:** owner's merge strategy; then mark merged tasks `done` and run `pnpm tasks index`.
+- **Decision (2026-10-09):** merge one phase at a time, bottom-up into `main` (see phase-1.md, same entry).
 
 ## P2-01 — Storage
 
@@ -26,6 +27,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   generator (`scripts/gen-migrations.ts`) and the SQL adapters.
 - **Options:** stay on 0.x until 1.0 is final (recommended); adopt the RC now for `node:sqlite` support in P2-02.
 - **Needs:** owner OK; revisit when 1.0 ships.
+- **Decision (2026-10-09):** confirmed as assumed.
 
 ### P2-01 — Own migration runner and `schema_migrations` table
 - **Context:** ARCHITECTURE §4 names `schema_migrations`; drizzle's migrator uses `__drizzle_migrations` and
@@ -35,6 +37,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Options:** keep it (one path everywhere); on Workers use `wrangler d1 migrations apply` at deploy time instead
   (P3-02 would then need the SQL in wrangler's folder layout).
 - **Needs:** confirm before P3-02.
+- **Decision (2026-10-09):** resolved: forward-only runner with checksums recorded in ADR-0006 (Update P3-02).
 
 ### P2-01 — Deletion rules
 - **Context:** the schema needs `ON DELETE` behaviour for every reference.
@@ -44,6 +47,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   deleted. Revocation (`revoked_at`, `disabled_at`) is the normal path; audit rows have no foreign keys and stay.
 - **Options:** as assumed; soft-delete only (no hard deletes at all).
 - **Needs:** owner OK (affects P2-09 admin API and P2-10 CLI wording).
+- **Decision (2026-10-09):** confirmed as assumed.
 
 ### P2-01 — stdio CLI reads the YAML adapter's records synchronously
 - **Context:** the `Storage` interface is async; `apps/cli` resolves its project synchronously at startup.
@@ -51,6 +55,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   synchronous; the YAML schema and parser moved to `packages/storage`. `serve` (P2-06) will use `Storage` directly.
 - **Options:** as assumed; make `main` async and read through `createYamlStorage()`.
 - **Needs:** nothing unless the owner prefers the async route.
+- **Decision (2026-10-09):** confirmed as assumed.
 
 ### P2-02 — `node:sqlite` instead of `better-sqlite3`
 - **Context:** ADR-0006 left the Node SQLite engine to P2-02. `node:sqlite` is built in (Node >= 24.11) but still
@@ -60,6 +65,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   (Drizzle 0.45 has no `node:sqlite` driver); recorded as an addendum to ADR-0006.
 - **Options:** as assumed; `better-sqlite3` (add it to `allowBuilds`, ship prebuilds); wait for Drizzle 1.0.
 - **Needs:** owner OK; revisit if `node:sqlite` regresses on an LTS.
+- **Decision (2026-10-09):** confirmed as assumed.
 
 ### P2-02 — Adapter lives in its own package, `db backup` is the only DB command so far
 - **Context:** Node-only code can't live in `packages/storage` (web-standard, ADR-0004).
@@ -68,6 +74,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   decides the data-directory layout.
 - **Options:** as assumed; publish the adapter as a separate npm package; add `db migrate` / `db restore` in P2-10.
 - **Needs:** nothing unless the owner wants a default data directory earlier.
+- **Decision (2026-10-09):** resolved: default data directory exists (`apps/cli/src/serve.ts`: `--db` > `RB_DB_PATH` > `<data dir>/relic-bridge.db`).
 
 ## P2-03 — Secrets encryption
 
@@ -79,6 +86,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Options:** as assumed; a separate `RB_MASTER_KEY_VERSION` variable; versions looked up by key check value in the
   database (no prefix, but the database must exist before the key is usable).
 - **Needs:** owner OK.
+- **Decision (2026-10-09):** confirmed as assumed.
 
 ### P2-03 — Derived data key and stored key check values
 - **Context:** ADR-0007 allows a data key "derived from or wrapped by" the master key.
@@ -88,6 +96,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Options:** as assumed; wrapped random data keys (rotation would re-wrap one value instead of re-encrypting rows,
   but adds a second secret to back up); no key check values.
 - **Needs:** owner OK.
+- **Decision (2026-10-09):** confirmed as assumed.
 
 ### P2-03 — Rotation is per row (compare-and-swap), not one transaction
 - **Context:** the task asked for transactional/resumable rotation; the `Storage` interface has no transactions and D1
@@ -97,6 +106,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   Rows that change concurrently are reported, not overwritten.
 - **Options:** as assumed; add a `Storage.transaction()` for SQLite only.
 - **Needs:** nothing unless the owner wants all-or-nothing rotation.
+- **Decision (2026-10-09):** confirmed as assumed.
 
 ### P2-03 — Master key file support on Node
 - **Context:** ADR-0007 mentions "env or a file with 0600 permissions" on Node.
@@ -104,6 +114,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   can read them (POSIX); setting both the variable and the file is an error.
 - **Options:** as assumed; env only.
 - **Needs:** nothing.
+- **Decision (2026-10-09):** confirmed as assumed.
 
 ### P2-03 — Security review: key check registration is not atomic (SR-4 residual)
 - **Context:** `settings` has only `get`/`set`, so registering a key check value is check-then-set. The review added a
@@ -114,6 +125,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Options:** add `settings.setIfAbsent(key, value)` (SQLite `INSERT … ON CONFLICT DO NOTHING`, D1 the same) to the
   storage contract and use it in `verifyKeyChecks` (recommended, small, P2-06 or a follow-up); keep as is.
 - **Needs:** owner OK; best done together with wiring the boot check into `serve` (P2-06).
+- **Decision (2026-10-09):** resolved: `setIfAbsent` added and used for key-check registration (`packages/auth/src/crypto/rotate.ts`).
 
 ### P2-03 — Security review: replay of an older ciphertext of the same credential
 - **Context:** AAD binds a ciphertext to its credential id and key version, not to a row revision. Someone who can write
@@ -124,6 +136,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   leaked.
 - **Options:** as assumed; add a per-row revision counter to the AAD (format change, needs a migration).
 - **Needs:** nothing unless the owner wants rollback protection.
+- **Decision (2026-10-09):** confirmed as assumed.
 
 
 ## P2-04 — Access model
@@ -136,6 +149,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   (`credential_not_permitted`). Service grants can therefore only use the project default or a shared key.
 - **Options:** as assumed; allow owners/admins to override per grant (needs a flag on the grant); no ownership rule.
 - **Needs:** owner OK (affects P2-09 / P2-10 wording).
+- **Decision (2026-10-09):** confirmed as assumed.
 
 ### P2-04 — A disabled or deleted credential owner stops their key everywhere
 - **Context:** a team project's default credential may belong to a person; when that person leaves (user disabled),
@@ -144,6 +158,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   other than the grant's user). Replace the project default (or re-add the key without an owner) to restore access.
 - **Options:** as assumed; keep the key working until it is revoked explicitly.
 - **Needs:** owner OK.
+- **Decision (2026-10-09):** confirmed as assumed.
 
 ### P2-04 — Unvalidated credentials are denied
 - **Context:** `reachable_account_ids` is null until a credential is validated, so the account intersection is unknown.
@@ -151,6 +166,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   written around the services (or yaml references, which stdio doesn't resolve through this code) are affected.
 - **Options:** as assumed; treat "unknown" as "project accounts" (looser, not recommended).
 - **Needs:** nothing unless the yaml adapter is ever served over HTTP.
+- **Decision (2026-10-09):** confirmed as assumed.
 
 ### P2-04 — What `credential revalidate` counts as a refused key
 - **Context:** NerdGraph answers a revoked key with HTTP 401 (`RB_AUTH_INVALID_KEY`); a key used against the wrong data
@@ -159,6 +175,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   alone and make the command exit 1. A later successful run restores `valid`.
 - **Options:** as assumed; treat 403 as transient.
 - **Needs:** owner OK; revisit if false `invalid`s show up.
+- **Decision (2026-10-09):** confirmed as assumed.
 
 ### P2-04 — Grants asking for more than the project allows
 - **Context:** the task asks that such a grant "gets the intersection, never more".
@@ -167,6 +184,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Options:** as assumed; refuse such grants outright; store only the intersection (then widening the project never
   widens the grant).
 - **Needs:** owner OK (the admin API/UI will surface the warnings).
+- **Decision (2026-10-09):** confirmed as assumed.
 
 ## P2-05 — Access tokens
 
@@ -180,6 +198,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   drop `env` altogether (then the second gitleaks alternative must change).
 - **Needs:** owner OK before the first real token is issued (changing the shape later invalidates nothing stored, since
   only hashes are kept, but scanners and docs would need updating).
+- **Decision (2026-10-09):** confirmed as assumed.
 
 ### P2-05 — Unkeyed SHA-256 at rest
 - **Context:** an HMAC with a server-side pepper would make a stolen DB dump useless even for (impossible) brute force,
@@ -188,6 +207,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   guessable; matches ADR-0009.
 - **Options:** as assumed; HMAC-SHA-256 keyed from the master key (would need a new ADR and a re-issue of all tokens).
 - **Needs:** nothing unless the owner prefers defence in depth here.
+- **Decision (2026-10-09):** confirmed as assumed.
 
 ### P2-05 — Token lifetime rules
 - **Context:** the task set a 90-day default and allows `never` with a warning.
@@ -196,6 +216,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   Issuing requires a live grant; a disabled project or user does not block issuing (the resolver denies at use).
 - **Options:** as assumed; cap TTLs (e.g. 1 year) unless `never`; clamp to the grant's expiry.
 - **Needs:** owner OK (P2-10 CLI wording).
+- **Decision (2026-10-09):** confirmed as assumed.
 
 ## P2-06 — HTTP app and `serve`
 
@@ -209,6 +230,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Options:** as assumed; make every DB command use the same default (convenient, but a typo'd environment could then
   silently act on the default database); a config file listing the path.
 - **Needs:** owner OK; decide whether P2-10 commands should share the default.
+- **Decision (2026-10-09):** resolved: all commands share the default database path (Phase 2 review fix; THREAT_MODEL item 3).
 
 ### P2-06 — `subscriptions/listen` is closed at once
 - **Context:** Claude Code 2.1.287 opens a `subscriptions/listen` and holds it. We push no notifications yet.
@@ -219,6 +241,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   grants can change tools live and we publish `tools/list_changed`.
 - **Needs:** confirm against real clients (P5-06): if a client re-opens a closed listen in a tight loop, switch to the
   capped hold.
+- **Decision (2026-10-09):** confirmed as assumed.
 
 ### P2-06 — Pass-through mode split into P2-15
 - **Context:** the task listed an optional pass-through mode (client-supplied NR key) that must "still be rate-limited";
@@ -226,6 +249,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Assumption made:** moved to a new task P2-15 (depends on P2-06 and P2-07), off by default.
 - **Options:** as assumed; drop pass-through from v0.2 entirely.
 - **Needs:** owner OK.
+- **Decision (2026-10-09):** resolved: pass-through shipped as P2-15 (`packages/http-app/src/passthrough.ts`).
 
 ### P2-06 — HTTP defaults
 - **Context:** several limits had no specified values.
@@ -236,6 +260,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   warning.
 - **Options:** as assumed; shorter cache (10 s) for faster revocation; hide `/version` behind auth.
 - **Needs:** owner OK.
+- **Decision (2026-10-09):** confirmed as assumed.
 
 ### P2-06 — Storage failures answer 503, not 401
 - **Context:** T19 asks for one answer for every *denial*; a database outage is not a denial.
@@ -243,6 +268,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   don't discard a valid token. This reveals only that the server is unhealthy, independent of slug or token.
 - **Options:** as assumed; answer 401 for everything (clients may then prompt for re-authentication during an outage).
 - **Needs:** nothing unless the owner prefers 401.
+- **Decision (2026-10-09):** confirmed as assumed.
 
 ### P2-07 — Rate limit defaults and failure behaviour
 - **Context:** no figures were specified; the limiter must also not become an oracle for token validity.
@@ -256,6 +282,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Needs:** owner OK of the figures, once real clients (P5-06, Claude mobile) show their request patterns.
 - **Update (P3-13):** the "refuse every request from a locked IP" rule was replaced: valid tokens now go through a
   locked IP (see the review entry "Auth-failure throttle also refuses valid tokens" below).
+- **Decision (2026-10-09):** confirmed as assumed.
 
 
 ### P2-08 — Audit log defaults and shape
@@ -268,6 +295,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Options:** as assumed; default `hash` or `off` for stricter privacy; store labels in rows; audit every MCP request;
   hash-chain rows for tamper evidence (would be a new task).
 - **Needs:** owner OK of the defaults.
+- **Decision (2026-10-09):** confirmed as assumed.
 
 ## P2-09 — Admin REST API
 
@@ -284,6 +312,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   command (`admin-token generate` exists since P2-10 but prints a plain random string); store a hashed admin token in the database so it can be rotated without a
   restart (and listed/revoked, like device tokens).
 - **Needs:** owner OK; decide the format before P2-10 documents it.
+- **Decision (2026-10-09):** keep the plain random admin token (break-glass secret, strength-checked; daily use goes through sign-in/OAuth). Revisit with an `rb_adm_` prefix only if it ever gets pasted into client configs.
 
 ### P2-09 — HTTP status codes and response envelope
 - **Context:** the task asked for a consistent error model without fixing codes.
@@ -295,6 +324,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   the API, milliseconds in the service.
 - **Options:** as assumed; RFC 9457 `application/problem+json`; `403` instead of `422` for `not_permitted`.
 - **Needs:** owner OK before P2-10 and the admin panel (P4) depend on it.
+- **Decision (2026-10-09):** confirmed as assumed.
 
 ### P2-09 — Scope additions and omissions
 - **Context:** the task listed users as "later" and credentials as "create, list, rotate, delete".
@@ -304,6 +334,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   credential revoke (delete, refused while in use).
 - **Options:** as assumed; add grant `PATCH` (tools, accounts, limits, expiry) when the admin panel needs it.
 - **Needs:** nothing unless the owner wants grant updates in v0.2.
+- **Decision (2026-10-09):** confirmed as assumed.
 
 ### P2-09 — Generated reference checked by a test, not `pnpm lint`
 - **Context:** the other generators run as Node scripts in `pnpm lint`, before `pnpm build`; the admin API imports
@@ -312,6 +343,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   `pnpm test` fails when it is stale, `pnpm docs:admin-api` rewrites it.
 - **Options:** as assumed; build before lint in CI and use a Node script.
 - **Needs:** nothing.
+- **Decision (2026-10-09):** confirmed as assumed.
 
 ### P2-09 — Lists are paged in memory
 - **Context:** the `Storage` list methods return every row (no limit/cursor) except the audit log.
@@ -319,6 +351,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   and small-team instances (tens to hundreds of rows). The audit log pages in the database (`beforeId`).
 - **Options:** as assumed; add `limit`/`after` to the storage list methods when an instance grows (contract change).
 - **Needs:** nothing for v0.2.
+- **Decision (2026-10-09):** confirmed as assumed.
 
 ### P2-10 — Local mode runs the admin API in-process
 - **Context:** the task wants the same commands against a local database and a remote instance, and the P2-09 notes
@@ -328,6 +361,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   audit cannot drift; local audit rows record `via: cli` plus the OS user (`details.cliUser`), actor ids stay empty.
 - **Options:** as assumed; call the `@relic-bridge/auth` services directly (two code paths to keep in sync).
 - **Needs:** nothing.
+- **Decision (2026-10-09):** confirmed as assumed.
 
 ### P2-10 — Admin token is never a command-line option
 - **Context:** the task text sketched `--remote https://… --admin-token …`.
@@ -336,6 +370,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Options:** as assumed; a `--admin-token-file` flag; a stored profile file (`~/.config/relic-bridge/remotes.json`)
   once there are several instances to manage.
 - **Needs:** nothing.
+- **Decision (2026-10-09):** confirmed as assumed.
 
 ### P2-10 — Wizard is flag-driven with prompts only on a terminal; master key written to a file
 - **Context:** `init` must work on a headless server and on a laptop.
@@ -347,6 +382,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   The service grant for the first device is named `<slug>-devices`. Device tokens use the server default (90 days).
 - **Options:** as assumed; print the master key instead of writing it; always run all steps.
 - **Needs:** owner OK before v0.2 docs are final.
+- **Decision (2026-10-09):** confirmed as assumed.
 
 ### P2-10 — Client snippets
 - **Context:** "ready-to-paste client configs" depend on each client's current remote-server syntax.
@@ -355,6 +391,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   Snippets go to stderr (stdout carries only the token). Verify against `docs/guide/clients.md` before release.
 - **Options:** as assumed; drop Desktop until it supports remote servers with static headers natively.
 - **Needs:** a check against the current client docs (P2-13 / release).
+- **Decision (2026-10-09):** assumption accepted; owner action tracked in `docs/pending-decisions/owner-checklist.md`.
 
 
 ### P2-11 — Container key files: keep the 0600 rule, no relaxation switch
@@ -366,6 +403,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Options:** as assumed; add `RB_ALLOW_READABLE_KEY_FILES=true` for orchestrators that cannot set owner and mode (weakens
   the check for everyone who sets it); run the image as root (rejected).
 - **Needs:** owner OK; revisit if the Kubernetes path proves awkward (Helm chart is post-1.0).
+- **Decision (2026-10-09):** confirmed as assumed.
 
 ### P2-11 — Distroless runtime, uid 65532, images published on release only
 - **Context:** the task allowed "distroless or slim".
@@ -376,6 +414,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Options:** as assumed; Debian slim with a shell; also publish `:<major>.<minor>` tags.
 - **Needs:** before the first release: make the GHCR package public (or decide to keep it private), confirm the
   `release` environment also guards this workflow, and check `cosign verify` with the documented identity.
+- **Decision (2026-10-09):** assumption accepted; owner action tracked in `docs/pending-decisions/owner-checklist.md`.
 
 ### P2-11 — Trivy ignores unfixed vulnerabilities
 - **Context:** "scan clean of high/critical" can fail on base-image CVEs with no fix available.
@@ -383,6 +422,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   bumps the digest-pinned base image). Secrets scanning is on as well.
 - **Options:** as assumed; fail on unfixed too and maintain a `.trivyignore` with expiry dates.
 - **Needs:** nothing.
+- **Decision (2026-10-09):** confirmed as assumed.
 
 ### P2-12 — JSON-RPC batches refused on the MCP endpoint
 - **Context:** SDK 2.2.0's legacy (2025-era) stateless path still accepts a JSON array of requests and runs every call
@@ -392,6 +432,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   documented in the self-hosting guide.
 - **Options:** as assumed; accept batches and charge the rate limiter once per element (needs a hook interface change).
 - **Needs:** owner OK; revisit only if a supported client turns out to batch.
+- **Decision (2026-10-09):** confirmed as assumed.
 
 ### P2-12 — Make the "Authorization suite" CI job a required check
 - **Context:** the acceptance criterion asks for the suite to be required; branch protection is a repository setting
@@ -401,6 +442,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Options:** add `Authorization suite` to the required status checks of `main`; rely on the `check` job (already
   runs it) being required.
 - **Needs:** the owner to add the required check once the stack is merged.
+- **Decision (2026-10-09):** assumption accepted; owner action tracked in `docs/pending-decisions/owner-checklist.md`.
 
 ## P2-15 — Pass-through mode
 
@@ -418,6 +460,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   default-account header; a stable fingerprint secret from env for multi-replica rate limiting (the option exists in
   the library, not in `serve`).
 - **Needs:** owner OK on the defaults (especially raw NRQL on and the `401` scheme).
+- **Decision (2026-10-09):** confirmed as assumed.
 
 ### P2-15 — Plain HTTP refused on the pass-through route
 - **Context:** the key travels in every request; the app can't see TLS behind a proxy.
@@ -426,6 +469,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   `passthrough.requireTls: false` (not exposed in `serve`).
 - **Options:** as assumed; only warn at start; trust `X-Forwarded-Proto` from trusted proxies instead of `RB_HSTS`.
 - **Needs:** owner OK.
+- **Decision (2026-10-09):** confirmed as assumed.
 
 ### P2-15 — Pass-through tool calls not audited yet (superseded: audited since P2-16)
 - **Context:** the audit hooks take an `McpRequestInfo` (project, grant, token); a pass-through request has none, and a
@@ -433,6 +477,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Assumption made:** refusals are audited (existing hooks), tool calls are not; new task P2-16.
 - **Options:** as assumed; record them now under `details.keyId` with the existing schema.
 - **Needs:** nothing: done in P2-16 (`audit_log.key_id`).
+- **Decision (2026-10-09):** resolved: P2-16 audits pass-through calls (`0002_audit_key_id` migration).
 
 ### P2-16 — Audit actor for pass-through calls, and the key id's lifetime
 - **Context:** pass-through calls have no user, grant or token; the audit row needs an actor that is not the key.
@@ -445,6 +490,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   cost of a long-lived secret whose leak lets someone confirm a guessed key against the table); put the id in
   `details.keyId` with no migration; also record the id on `auth.denied` rows for refused keys.
 - **Needs:** owner OK; say if stable ids across restarts are wanted.
+- **Decision (2026-10-09):** confirmed as assumed.
 
 ### P2-13 — Release v0.2.0 and docs that name the pre-release
 - **Context:** the task scope listed "Release v0.2.0". Tags, npm/GHCR publishing and the changelog are the owner's call
@@ -453,6 +499,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Assumption made:** docs describe v0.2 features as implemented but not released (README says so).
 - **Needs:** after the stack is merged and v0.2.0 is cut: bump the image tag in `deploy/docker-compose.example.yml` and
   the self-hosting guide, drop the pre-release notes, and tick the last P2-13 acceptance criterion.
+- **Decision (2026-10-09):** assumption accepted; owner action tracked in `docs/pending-decisions/owner-checklist.md`.
 
 ### P2-13 — "Validated by a fresh agent session"
 - **Context:** the autonomous run could not spawn an independent reader. The author ran every command in
@@ -460,12 +507,14 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   init, credential/project/grant/token creation, serve, 200 vs 401, local and `--remote` revocation, expiry.
   Not run: Docker/compose, Caddy and the systemd unit, a real New Relic key, real Windows 365 / macOS clients.
 - **Needs:** one real walkthrough on the owner's three devices; report discrepancies as issues.
+- **Decision (2026-10-09):** assumption accepted; owner action tracked in `docs/pending-decisions/owner-checklist.md`.
 
 ### P2-13 — Management CLI has no flag for project/grant query limits or rate limits
 - **Context:** the team example in the access-model guide uses `maxWindowDays`, which can only be set through the admin
   API today. The guide says so.
 - **Options:** new task to add `--max-window-days` / `--max-limit` / `--rate-limit` to `project add|update` and `grant create`.
 - **Needs:** owner priority.
+- **Decision (2026-10-09):** leave as is: project limits via admin panel/API, grant limits via API; no CLI limit flags.
 
 ## Phase 2 consolidation review (2026-10-03)
 
@@ -489,6 +538,7 @@ Questions raised by `docs/reviews/phase-2-review.md`. Nothing here blocks Phase 
   Reasoning in `THREAT_MODEL.md` (P3-13 row). **Reversible:** restoring the `peek` of `fail:<ip>` in `beforeAuth` for
   every scope (`packages/http-app/src/rate-limit-hooks.ts`, a few lines) brings back the old rule; the tests that pin
   the new behaviour say "P3-13". Owner: confirm, or ask for the revert (see `phase-3.md`, "P3-13").
+- **Decision (2026-10-09):** resolved by P3-13 (verified tokens bypass the failure throttle); see phase-3.md P3-13 entry.
 
 ### REVIEW — Pass-through key ids change on every restart
 - **Context:** `/passthrough/mcp` fingerprints keys with an HMAC secret drawn at random per process, so `pt_…` ids in
@@ -497,6 +547,7 @@ Questions raised by `docs/reviews/phase-2-review.md`. Nothing here blocks Phase 
 - **Options:** keep; add `RB_PASSTHROUGH_FINGERPRINT_SECRET` (`_FILE`, ≥ 32 bytes) wired to the existing
   `PassthroughOptions.fingerprintSecret` (Workers will need it for a shared limiter anyway).
 - **Needs:** owner choice; small task if yes.
+- **Decision (2026-10-09):** keep per-boot pass-through key ids on `serve`; no long-lived fingerprint secret (it would let its holder confirm guessed keys against the audit table).
 
 ### REVIEW — "Is this request HTTPS?" behind a proxy
 - **Context:** the app decides HSTS and the pass-through `tls_required` check from the request URL or `RB_HSTS=true`;
@@ -504,6 +555,7 @@ Questions raised by `docs/reviews/phase-2-review.md`. Nothing here blocks Phase 
 - **Assumption made:** an explicit `RB_HSTS=true` is clearer than trusting a header.
 - **Options:** keep; trust `X-Forwarded-Proto` only when `RB_TRUSTED_PROXY_HOPS > 0`.
 - **Needs:** nothing unless the owner prefers the header.
+- **Decision (2026-10-09):** confirmed as assumed.
 
 ## P2-19 Docker release hardening
 
@@ -515,6 +567,7 @@ Questions raised by `docs/reviews/phase-2-review.md`. Nothing here blocks Phase 
 - **Options:** apply by hand (once); later add a scheduled workflow or script that reads the settings with a
   read-only token and fails when they drift.
 - **Needs:** owner action before the first release.
+- **Decision (2026-10-09):** assumption accepted; owner action tracked in `docs/pending-decisions/owner-checklist.md`.
 
 ### P2-19 — The release-time arm64 scan is a rebuild, not the published archive
 - **Context:** Trivy cannot read a multi-arch OCI archive, so the arm64 scan runs on a docker archive built from the
@@ -524,4 +577,5 @@ Questions raised by `docs/reviews/phase-2-review.md`. Nothing here blocks Phase 
 - **Options:** keep; or unpack per-platform images from the OCI archive with `skopeo copy` to docker archives in
   `build` and scan those (exact, a few more steps).
 - **Needs:** nothing unless the owner wants the exact-archive scan.
+- **Decision (2026-10-09):** confirmed as assumed.
 

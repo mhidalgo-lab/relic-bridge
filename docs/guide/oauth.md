@@ -91,7 +91,10 @@ default) the app asks you again.
 
 Connecting the **same app** to the same project again (same app registration and, for apps identified by a web
 address, the same return address) replaces its earlier connection once the app has finished signing in (audit
-`oauth.device.replace`). Merely opening the approval link, even with a remembered approval, disconnects nothing.
+`oauth.device.replace`). Two installations that share one app registration and return address (for example two
+Claude accounts of yours on the same project) therefore count as one connection: the second replaces the first. Each
+person can hold at most 50 connected apps; connecting one more replaces the oldest (audit `oauth.device.replace`,
+reason `device_limit`). Merely opening the approval link, even with a remembered approval, disconnects nothing.
 
 Apps can also give their tokens back (RFC 7009 revocation, as when you sign out in the app): giving back a refresh token
 disconnects the app.

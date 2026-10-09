@@ -369,6 +369,23 @@ Record per client: date, client version, registration path (CIMD/DCR), result, a
   device label matches.
 - **Needs:** owner choice, ideally after the P5-06 manual checklist shows whether Claude web, Desktop and mobile share
   one connection (vendor docs suggest connectors are per Claude account, so one connection serves all three).
+- **Update (P5-11):** replacement kept (the reversible default); the per-user device cap below bounds the downside.
+
+### P5-11 — per-user device cap of 50, oldest replaced
+- **Context:** issuance had no cap while the listing and "disconnect all" read at most 100 devices.
+- **Assumption made:** at code redemption a user keeps at most 50 live devices (`oauth.maxDevicesPerUser`, 1-100); the
+  oldest others are revoked and audited `oauth.device.replace` (`reason: device_limit`) rather than refusing the new
+  connection. "Disconnect all" now pages up to 1,000 rows per pass.
+- **Options:** refuse the new connection past the cap; another number; expose it as an environment variable (not wired
+  to `RB_*` yet: a code option only).
+- **Needs:** owner preference.
+
+### P5-11 — client removal that stops at its budget answers `complete: false`
+- **Context:** removal threw past 20,000 grant rows and a retry found no client record.
+- **Assumption made:** a resumable removal (cursor marker, 100 revocations or 20,000 rows per call); the admin API and
+  UI say "remove again" when `complete` is false. The budgets are conservative for D1 (50 operations per invocation was
+  assumed; each revocation is several operations, so lower `clientRemovalBudget.revoke` if D1 limits bite).
+- **Needs:** owner confirmation of the budgets on a real Worker.
 
 ### P5 review — `redirect_uri` optional at the token endpoint with PKCE
 - **Context:** the provider checks `redirect_uri` on the code exchange only when the client sends it; PKCE binds the

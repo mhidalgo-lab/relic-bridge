@@ -531,6 +531,10 @@ export const OAuthClientRemovalSchema = z
     client: OAuthClientSchema,
     devicesRevoked: z.number().int().openapi({ description: 'Device authorizations revoked, every user.' }),
     approvalsForgotten: z.number().int().openapi({ description: "Remembered 'don't ask again' approvals." }),
+    complete: z.boolean().openapi({
+      description:
+        'False when the call stopped at its work budget: repeat the same removal until it is true (the client record is already gone).',
+    }),
   })
   .openapi('OAuthClientRemoval');
 export const OAuthClientRemovalOne = one(OAuthClientRemovalSchema, 'OAuthClientRemovalResponse');

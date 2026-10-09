@@ -17,6 +17,7 @@ export type FlashCode =
   | 'deleted'
   | 'revoked'
   | 'client_removed'
+  | 'client_removal_partial'
   | 'form_used'
   | 'registration_on'
   | 'registration_off'
@@ -57,6 +58,10 @@ export const FLASH_MESSAGES: Readonly<Record<FlashCode, FlashMessage>> = Object.
   client_removed: {
     kind: 'success',
     text: 'App removed. Every device authorization of it is revoked and its tokens no longer work.',
+  },
+  client_removal_partial: {
+    kind: 'info',
+    text: 'The app is removed and cannot connect again, but it had too many device authorizations to revoke in one go. Remove it again to revoke the rest.',
   },
   registration_on: { kind: 'success', text: 'Dynamic client registration is on.' },
   registration_off: {

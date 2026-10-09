@@ -1329,6 +1329,7 @@ An OAuth client known to this server (P5-08). No secrets.
 | `client` | `OAuthClient` | yes | An OAuth client known to this server (P5-08). No secrets. |
 | `devicesRevoked` | `integer` | yes | Device authorizations revoked, every user. |
 | `approvalsForgotten` | `integer` | yes | Remembered 'don't ask again' approvals. |
+| `complete` | `boolean` | yes | False when the call stopped at its work budget: repeat the same removal until it is true (the client record is already gone). |
 
 ### OAuthClientRemovalResponse
 

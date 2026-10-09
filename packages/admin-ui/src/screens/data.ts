@@ -306,10 +306,16 @@ export function parseOAuthRegistration(r: Row): OAuthRegistration | null {
 export interface OAuthClientRemoval {
   readonly devicesRevoked: number;
   readonly approvalsForgotten: number;
+  /** False when the call stopped at its work budget; removing again continues (P5-11). */
+  readonly complete: boolean;
 }
 
 export function parseOAuthClientRemoval(r: Row): OAuthClientRemoval | null {
-  return { devicesRevoked: int(r['devicesRevoked']), approvalsForgotten: int(r['approvalsForgotten']) };
+  return {
+    devicesRevoked: int(r['devicesRevoked']),
+    approvalsForgotten: int(r['approvalsForgotten']),
+    complete: r['complete'] !== false,
+  };
 }
 
 /** `{ data: {...} }` of a single-resource answer. */

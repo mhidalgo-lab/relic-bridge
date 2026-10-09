@@ -2413,6 +2413,7 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
           clientHost: r.client.host,
           devicesRevoked: r.devicesRevoked,
           approvalsForgotten: r.approvalsForgotten,
+          complete: r.complete,
         },
       }),
     );
@@ -2422,6 +2423,7 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
           client: clientView(removal.client),
           devicesRevoked: removal.devicesRevoked,
           approvalsForgotten: removal.approvalsForgotten,
+          complete: removal.complete,
         },
       },
       200,

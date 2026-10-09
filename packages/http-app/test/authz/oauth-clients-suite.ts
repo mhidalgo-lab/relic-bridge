@@ -314,6 +314,40 @@ export function oauthClientsSuite(): void {
       );
     });
 
+    it('a removal that stops at its work budget finishes when repeated (P5-11, L6)', async () => {
+      build({ clientRemovalBudget: { scan: 3, revoke: 2 } });
+      await registerClient();
+      const users = [];
+      for (let i = 0; i < 5; i += 1) users.push(await connect('member'));
+      const owner = await h.addSession({ role: 'owner' });
+      const remove = async () => {
+        const res = await api('POST', '/oauth/clients/remove', owner.headers, { clientId: client.clientId });
+        expect(res.status, res.text).toBe(200);
+        return data(res) as { devicesRevoked: number; complete: boolean };
+      };
+      let total = 0;
+      let calls = 0;
+      let last = { devicesRevoked: 0, complete: false };
+      while (!last.complete) {
+        calls += 1;
+        expect(calls).toBeLessThan(30);
+        last = await remove();
+        total += last.devicesRevoked;
+        if (!last.complete && calls === 1) {
+          // The record is gone at once; devices not reached yet are still being revoked.
+          const listed = data(await api('GET', '/oauth/clients', owner.headers)) as unknown[];
+          expect(listed).toHaveLength(0);
+        }
+      }
+      expect(calls).toBeGreaterThan(1);
+      expect(total).toBe(5);
+      for (const u of users) expect((await client.mcp('prod', u.t.access_token)).status).toBe(401);
+      // Done: the marker is cleared, so the same id is unknown now.
+      expect(
+        (await api('POST', '/oauth/clients/remove', owner.headers, { clientId: client.clientId })).status,
+      ).toBe(404);
+    });
+
     it('rejects malformed bodies', async () => {
       const owner = await h.addSession({ role: 'owner' });
       for (const body of [{}, { clientId: '' }, { clientId: 'x'.repeat(513) }, { clientId: 'a', extra: 1 }]) {

@@ -2,11 +2,11 @@
 id: P4-23
 title: Limit fields on the admin panel grant form
 phase: 4
-status: todo
+status: in-progress
 priority: low
 depends_on: [P4-04]
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P4-23 — Limit fields on the admin panel grant form

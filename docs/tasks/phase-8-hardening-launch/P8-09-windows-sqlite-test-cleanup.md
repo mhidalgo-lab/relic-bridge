@@ -2,11 +2,11 @@
 id: P8-09
 title: Fix EPERM temp-dir cleanup in the SQLite tests on Windows
 phase: 8
-status: todo
+status: review
 priority: medium
 depends_on: []
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P8-09 — Fix EPERM temp-dir cleanup in the SQLite tests on Windows
@@ -22,8 +22,8 @@ refuses to delete open files, so some test leaves a handle open.
   projects that the Windows job runs for the same pattern.
 
 ## Acceptance criteria
-- [ ] The `sqlite-os` matrix job passes on `windows-latest` and `macos-latest`.
-- [ ] No test hides the error (no swallowing `EPERM` in cleanup).
+- [x] The `sqlite-os` matrix job passes on `windows-latest` and `macos-latest`.
+- [x] No test hides the error (no swallowing `EPERM` in cleanup).
 
 ## Security notes
 None (test-only).

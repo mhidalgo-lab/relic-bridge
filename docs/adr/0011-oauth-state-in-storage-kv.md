@@ -28,6 +28,9 @@ listing, an atomic `take`, a contract test suite and an hourly purge of expired 
 - The `OAUTH_KV` binding stays declared but unused (removing it is an owner decision, see
   `docs/pending-decisions/phase-5.md`).
 
+> **Update (P5-13):** the owner decided to remove it. The Worker no longer declares an `OAUTH_KV` Cloudflare binding;
+> `env.OAUTH_KV` exists only as the in-process adapter handed to the provider library.
+
 ## Consequences
 - One code path and one consistency model on Node and Workers; the same integration suite runs on memory, SQLite and
   D1 storage.

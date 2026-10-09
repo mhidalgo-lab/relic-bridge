@@ -235,6 +235,19 @@ describe('runSetup', () => {
     expect(h.logs.join('\n')).not.toContain('differs from wrangler.jsonc');
   });
 
+  it('notes a leftover OAUTH_KV binding in the local copy without a drift warning (P5-13)', async () => {
+    const withKv = COMMITTED.replace(
+      '"ratelimits"',
+      '"kv_namespaces": [{ "binding": "OAUTH_KV", "id": "abc" }], "ratelimits"',
+    );
+    const h = harness(ok, true, [], withKv);
+    await runSetup(OPTS, h.deps);
+    const out = h.logs.join('\n');
+    expect(out).toMatch(/still declares the OAUTH_KV KV namespace/);
+    expect(out).not.toContain('differs from wrangler.jsonc');
+    expect(h.copies).toEqual([]);
+  });
+
   it('warns on a re-run when wrangler.jsonc gained something the local copy lacks, without overwriting it', async () => {
     const old = COMMITTED.replace(', "ratelimits"', ', "x": 1, "ratelimits"').replace('"x": 1, ', '');
     const stale = old.replace(/, "ratelimits".*\}$/, ' }');

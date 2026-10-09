@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // The Worker's bindings (`wrangler.jsonc`). Secrets arrive through `wrangler secret put` (production) or `.dev.vars`
 // (local); they are never `vars` and never stored in D1 (THREAT_MODEL T7).
-import type { D1Database, KVNamespace, RateLimit } from '@cloudflare/workers-types';
+import type { D1Database, RateLimit } from '@cloudflare/workers-types';
 import type { SharedLimiterNamespace } from './shared-limiter.ts';
 
 /** Plain-text settings from `vars` (all optional; see `settings.ts` for defaults and validation). */
@@ -117,8 +117,6 @@ export interface WorkerSecrets {
 export interface WorkerBindings {
   /** D1 database (storage, P3-02). */
   readonly DB?: D1Database;
-  /** Reserved, unused: the OAuth provider keeps its state in D1 (ADR-0011); removal is a pending owner decision. */
-  readonly OAUTH_KV?: KVNamespace;
   /** Workers Rate Limiting binding (P3-04). */
   readonly RATE_LIMITER?: RateLimit | undefined;
   /** Durable Object namespace of the `SharedLimiter` class (P7-10); used only with `RB_SHARED_LIMITER`. */

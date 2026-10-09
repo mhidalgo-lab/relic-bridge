@@ -261,7 +261,7 @@ export interface WindowStats {
 
 const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 /** A plain number, or the first numeric member of an object (percentile results are keyed by percentile). */
-const numberOf = (v: unknown): number | null => {
+export const numberOf = (v: unknown): number | null => {
   if (isNum(v)) return v;
   if (v !== null && typeof v === 'object')
     return Object.values(v as Record<string, unknown>).find(isNum) ?? null;
@@ -430,7 +430,7 @@ const windowQuery = (guid: string, sinceMs: number, untilMs: number): NrqlQuery 
 };
 
 /** Errors that make every window fail the same way: abort instead of reporting two identical failures. */
-const FATAL_CODES: ReadonlySet<string> = new Set([
+export const FATAL_CODES: ReadonlySet<string> = new Set([
   ErrorCode.AuthUnauthorized,
   ErrorCode.AuthForbidden,
   ErrorCode.AuthInvalidKey,

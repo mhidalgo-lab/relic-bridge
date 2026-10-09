@@ -38,6 +38,8 @@ const SAMPLE_CALLS: Record<string, Record<string, unknown>> = {
   list_error_groups: { states: ['UNRESOLVED'], sort_by: 'occurrences' },
   list_change_events: {},
   analyze_deployment_impact: { entity_guid: MOCK_GUID },
+  list_top_transactions: { entity_guid: MOCK_GUID },
+  analyze_transactions: { entity_guid: MOCK_GUID },
 };
 
 const registry = new ToolRegistry();
@@ -57,6 +59,7 @@ async function connectAll() {
     testContext({
       accounts: { allowed: [MOCK_ACCOUNT], default: MOCK_ACCOUNT },
       budget: createBudget(50),
+      clock: { now: () => 1790943448000 },
     });
   const client = await connectInMemory(tools, ctx);
   clients.push(client);

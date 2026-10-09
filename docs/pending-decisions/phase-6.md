@@ -67,3 +67,17 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Options:** (a) keep as is; (b) live probe with real deployments (`pnpm test:live`); (c) use `query` to filter other change
   kinds per entity once its syntax is verified; (d) support browser/mobile/OTel services; (e) make thresholds arguments.
 - **Needs:** a live run on an account with recorded deployments; owner's call on (c) to (e).
+
+## P6-05 — APM transaction tools
+
+### P6-05 — NRQL result shapes unverified; no entity-type check; fixed sort keys
+- **Context:** No live sample exists for `FACET name` results over `Transaction`, so the facet key, the shape of multi-percentile
+  selects and NRQL `ORDER BY` / `LIKE` behaviour are from documentation and the P6-04 assumptions.
+- **Assumption made:** `list_top_transactions` sorts by p95 (slowest), error count or request count and re-sorts client-side;
+  `analyze_transactions` compares with the equal window before (the P6-04 thresholds). Neither looks the entity up (the account
+  comes from the GUID, cost 1 and 2), so a non-APM GUID returns no rows instead of an error. Percentiles use three single-value
+  selects. Web/background is `transactionType` `Web`/`Other`.
+- **Options:** (a) keep as is; (b) live probe on an APM account (`pnpm test:live`); (c) add an entity lookup (cost +1) to refuse
+  non-APM entities with a clear error; (d) minimum-requests filter for the slowest sort; (e) a time series per transaction.
+- **Needs:** a live run on an APM account; owner's call on (c) to (e).
+

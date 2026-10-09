@@ -103,9 +103,12 @@ runs-on: ${{ fromJSON(vars.CI_RUNS_ON || '["self-hosted","linux","x64"]') }}
 
 If those runners are offline, set the repository (or organization) **variable** `CI_RUNS_ON` to `["ubuntu-latest"]`
 (Settings, Secrets and variables, Actions, Variables) and re-run: the same jobs go back to GitHub-hosted runners. Delete
-the variable to return to the default. Jobs must not assume preinstalled tools; they set up Node and pnpm through
-actions and install anything else (actionlint, gitleaks) with checksum verification. `harden-runner` only runs on
-GitHub-hosted runners.
+the variable to return to the default. Jobs must not assume preinstalled tools or a recent system userland: they set up
+Node (before pnpm: `pnpm/action-setup` runs on the `node` on `PATH`) and pnpm through actions and install anything else
+(actionlint, gitleaks) with checksum verification. `harden-runner` only runs on GitHub-hosted runners. `workerd` needs
+glibc 2.35+, so the Workers runtime tests and the CPU benchmark run through `scripts/ci-container.sh`, which runs the
+pnpm script in a `node:24-bookworm` container (repository copied in with `docker cp`; no bind mounts). The Docker
+smoke test (`scripts/docker-smoke.sh`) likewise uses no bind mounts or published ports.
 
 Stay on GitHub-hosted runners, always: `release.yml` (provenance, OIDC), `docker.yml` `plan` / `publish` and release
 builds, `scorecard.yml`, `live.yml`, `staging-smoke.yml` (secrets) and the macOS/Windows matrix. `scripts/test/ci-runners.test.ts`

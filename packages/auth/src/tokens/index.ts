@@ -7,6 +7,7 @@ export {
   hashToken,
   MAX_TOKEN_LENGTH,
   TOKEN_DISPLAY_CHARS,
+  TOKEN_PREFIX,
   type TokenFormatProblem,
 } from './format.ts';
 export {

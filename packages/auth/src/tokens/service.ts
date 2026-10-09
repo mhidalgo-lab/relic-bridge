@@ -299,8 +299,11 @@ export async function listAccessTokens(
  * The token from an `Authorization` header value (`Bearer <token>`, scheme case-insensitive), or `null`. Anything
  * longer than a token could be is `null` too, so a huge header is never hashed.
  */
-export function bearerToken(header: string | null | undefined): string | null {
-  if (typeof header !== 'string' || header.length > MAX_TOKEN_LENGTH + 32) return null;
+export function bearerToken(
+  header: string | null | undefined,
+  maxTokenLength: number = MAX_TOKEN_LENGTH,
+): string | null {
+  if (typeof header !== 'string' || header.length > maxTokenLength + 32) return null;
   const m = /^[ \t]*bearer[ \t]+([^\s]+)[ \t]*$/i.exec(header);
   return m?.[1] ?? null;
 }

@@ -72,6 +72,29 @@ export {
   type StorageForIdentity,
   safeNextPath,
 } from './identity.ts';
+export { OAUTH_KV_PREFIX, type OAuthKvNamespace, oauthKvNamespace } from './oauth/kv-namespace.ts';
+export {
+  DEFAULT_OAUTH_ACCESS_TTL_S,
+  DEFAULT_OAUTH_REFRESH_TTL_S,
+  looksLikeOAuthToken,
+  MCP_SCOPE,
+  OAUTH_AUTHORIZE_PATH,
+  OAUTH_CODE_TTL_S,
+  OAUTH_DENY_REASONS,
+  OAUTH_MAX_BODY_BYTES,
+  OAUTH_METADATA_PATH,
+  OAUTH_REGISTER_PATH,
+  OAUTH_SCOPES,
+  OAUTH_TOKEN_PATH,
+  type OAuthApproval,
+  type OAuthAuthentication,
+  type OAuthAuthorizationRequest,
+  type OAuthConsentApi,
+  type OAuthConsentHandler,
+  type OAuthDenyReason,
+  type OAuthGrantProps,
+  type OAuthOptions,
+} from './oauth/server.ts';
 export {
   DEFAULT_PASSTHROUGH_IDENTITY_ENTRIES,
   DEFAULT_PASSTHROUGH_IDENTITY_TTL_MS,

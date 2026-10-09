@@ -25,6 +25,13 @@ export default defineConfig({
     '@relic-bridge/storage-sqlite': fileURLToPath(
       new URL('../../packages/storage-sqlite/src/index.ts', import.meta.url),
     ),
+    // The bundled OAuth provider imports `WorkerEntrypoint` for `instanceof` checks only (ADR-0009, P5-01).
+    'cloudflare:workers': fileURLToPath(
+      new URL('../../packages/http-app/src/oauth/cloudflare-workers-shim.ts', import.meta.url),
+    ),
   },
   define: { __RB_TEST_HOOKS__: JSON.stringify(testHooks) },
+  // One file ships (scripts/check-package.ts): lazily imported modules (the OAuth provider) stay inside it, still
+  // evaluated only when first imported.
+  outputOptions: { inlineDynamicImports: true },
 });

@@ -40,6 +40,12 @@ export interface RateLimitRules {
    * unauthenticated client must not create thousands of them. Optional for callers built before it; `null` = off.
    */
   readonly signIn?: RateLimitRule | null;
+  /**
+   * Requests to the unauthenticated OAuth endpoints (P5-01: metadata, authorize, token, registration) per client IP, on
+   * top of `ip`: registration and authorization write provider state. Optional for callers built before it; `null` =
+   * off.
+   */
+  readonly oauth?: RateLimitRule | null;
 }
 
 /** Sized for personal use: one MCP request makes a handful of NerdGraph calls against NRQL's 3,000/min/account. */
@@ -50,6 +56,7 @@ export const DEFAULT_RATE_LIMITS: RateLimitRules = Object.freeze({
   grant: Object.freeze({ requests: 300, perSeconds: 60 }),
   passthroughKey: Object.freeze({ requests: 120, perSeconds: 60 }),
   signIn: Object.freeze({ requests: 60, perSeconds: 300 }),
+  oauth: Object.freeze({ requests: 60, perSeconds: 300 }),
 });
 
 export interface RateLimitHooksOptions {
@@ -126,6 +133,14 @@ export function createRateLimitHooks(options: RateLimitHooksOptions): HttpAppHoo
         const r = await guard('sign_in', () => pre.take(`signin:${ip}`, rule));
         if (r && !r.allowed) {
           mark(c, 'rate_limit_sign_in');
+          return rateLimited(r.retryAfterMs);
+        }
+      }
+      if (rules.oauth && scope === 'oauth') {
+        const rule = rules.oauth;
+        const r = await guard('oauth', () => pre.take(`oauth:${ip}`, rule));
+        if (r && !r.allowed) {
+          mark(c, 'rate_limit_oauth');
           return rateLimited(r.retryAfterMs);
         }
       }

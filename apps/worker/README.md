@@ -14,6 +14,7 @@ with Workers bindings. Private package; it is deployed with Wrangler, not publis
 | `DB` | D1 | Storage (projects, grants, tokens, encrypted credentials, audit log). |
 | `OAUTH_KV` | KV | Reserved, unused: OAuth provider state lives in D1 (ADR-0011). |
 | `RATE_LIMITER` | Rate Limiting | Shared coarse rate-limit ceiling (P3-04); exact rules stay per isolate. |
+| `SHARED_LIMITER` | Durable Object (`SharedLimiter`, SQLite) | Optional exact counters shared by every isolate (P7-10), used only with `RB_SHARED_LIMITER`. |
 | `RB_MASTER_KEY` | secret, required | Encrypts stored New Relic keys (`relic-bridge keys generate`). Back it up. |
 | `RB_MASTER_KEY_PREVIOUS` | secret, optional | The previous master key while rotating ([runbook](../../docs/guide/cloudflare-deploy.md#rotate-the-master-key)). |
 | `RB_FINGERPRINT_SECRET` | secret, optional | Required only with `RB_PASSTHROUGH=on` (`pnpm cf:setup --passthrough` generates it). |
@@ -42,8 +43,9 @@ first deploy.
 | `RB_OTEL`, `RB_OTEL_ENDPOINT`, `RB_OTEL_SAMPLE` (vars), `RB_OTEL_HEADERS` (secret) | `off` | Opt-in OTLP self-monitoring, exported with `ctx.waitUntil`; see `docs/guide/observability.md`. |
 | `RB_AUDIT_RETENTION_DAYS` | `90` | Days to keep audit rows (`0` = forever). An hourly cron trigger (`triggers.crons`) deletes older rows, in batches of 500 (up to 10,000 per run); a larger backlog is finished by the next run. |
 | `RB_RATE_LIMIT` | `on` | `off` disables rate limiting (isolate buckets and the `RATE_LIMITER` binding). The binding's own limit (default 600 per 60 s per key) is set in `wrangler.jsonc`. |
+| `RB_SHARED_LIMITER` | `off` | Durable Object limiter (P7-10, [Cloudflare limits](../../docs/guide/cloudflare-limits.md#shared-limiter-durable-object-optional)): `rules` counts the auth-failure, sign-in, OAuth and write limits once for the deployment instead of per isolate; `on` also caps NerdGraph calls in flight per credential (`RB_CONCURRENCY`) across isolates. Needs the `SHARED_LIMITER` binding (warning and per-isolate limits without it). |
 | `RB_PASSTHROUGH` | `off` | `on` enables `/passthrough/mcp`; it needs `RB_FINGERPRINT_SECRET` and the `RATE_LIMITER` binding, otherwise the boot fails (503). |
-| `RB_WRITE_TOOLS` | `off` | `on` offers the opt-in write tools (P7-09, `docs/adr/0015-opt-in-write-tools.md`); each still needs the project and the grant to name it, and owners only can do that. Needs `RB_AUDIT=on`. The stricter write rate limit is per isolate until the Durable Object limiter (P7-10). |
+| `RB_WRITE_TOOLS` | `off` | `on` offers the opt-in write tools (P7-09, `docs/adr/0015-opt-in-write-tools.md`); each still needs the project and the grant to name it, and owners only can do that. Needs `RB_AUDIT=on`. The stricter write rate limit is per isolate unless `RB_SHARED_LIMITER` is `rules` or `on`. |
 | `RB_LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error`. Logs go to Workers Logs, redacted. |
 | `RB_PUBLIC_URL`, `RB_GOOGLE_CLIENT_ID`, `RB_GOOGLE_HOSTED_DOMAIN`, `RB_GITHUB_CLIENT_ID`, `RB_OIDC_*`, `RB_CF_ACCESS_TEAM`, `RB_CF_ACCESS_AUD`, `RB_LOGIN_*`, `RB_SESSION_IDLE_MINUTES`, `RB_SESSION_MAX_HOURS` | off | Admin sign-in (P4-01) and admin sessions (P4-02, default 30 min idle / 12 h): the admin panel is served at `/admin` when sign-in is on (P4-03, assets bundled, no static-assets binding). See the [identity providers guide](../../docs/guide/identity-providers.md) and [admin access](../../docs/guide/admin-access.md). A half-configured provider fails the boot. |
 

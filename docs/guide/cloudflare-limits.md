@@ -10,7 +10,7 @@ in `vars`; each plan is a preset you can override one number at a time. Sources 
 |---|---|---|---|---|
 | NerdGraph calls per MCP request | 45 | 1000 | `RB_CALL_BUDGET` | Free allows 50 external subrequests; 5 spare for redirects. Retries and async polls spend from it. |
 | Response size ceiling | 512 KiB | 8 MiB | `RB_MAX_RESPONSE_BYTES` | Reading and parsing a body costs about 5 ms CPU per MB; Free has 10 ms. Applied while streaming, before parse. |
-| NerdGraph calls in flight per credential | 5 | 5 | `RB_CONCURRENCY` | Workers allows 6 simultaneous outgoing connections per request; the value is limited to 6. |
+| NerdGraph calls in flight per credential | 5 | 5 | `RB_CONCURRENCY` | Workers allows 6 simultaneous outgoing connections per request; the value is limited to 6. Counted per isolate unless `RB_SHARED_LIMITER=on` ([below](#shared-limiter-durable-object-optional)). |
 
 D1 and KV calls (token lookup, access resolution, audit rows) do **not** use the 50: Cloudflare counts them against a
 separate allowance of 1,000 per request on Free. An access-cache miss costs one D1 call (a batch of reads) plus at
@@ -71,6 +71,7 @@ There are no egress or bandwidth charges on either plan.
 | D1 storage | 5 GB total | 5 GB included, then $0.75 per GB-month |
 | KV (used by Phase 5 only) | 100,000 reads, 1,000 writes per day | 10 M reads, 1 M writes per month included, then $0.50 and $5.00 per million |
 | Rate Limiting binding | no separate charge listed on the pricing page | same |
+| Durable Objects (only with `RB_SHARED_LIMITER`, SQLite-backed) | 100,000 requests and 13,000 GB-s per day; 100,000 rows written, 5 M read, 5 GB stored | 1 M requests and 400,000 GB-s per month included, then $0.15 per million requests and $12.50 per million GB-s; rows as D1 |
 
 Free-plan quotas reset at 00:00 UTC. Subrequests (the NerdGraph calls) are not billed.
 
@@ -120,11 +121,11 @@ token 120/min, per grant 300/min unless the grant sets its own, per pass-through
 | Per-isolate token bucket | Enforces the exact rule (including a grant's own `rateLimit`) with no I/O; provides the "peek" the auth-failure throttle needs. | Each isolate counts alone, so the effective limit is up to (isolates x limit). |
 | Workers Rate Limiting binding `RATE_LIMITER` (`ratelimits` in `wrangler.jsonc`, default 600 per 60 s per key) | Shared backstop for the `ip:`, `token:`, `grant:` and `key:` buckets; a refusal answers `429` with `Retry-After: 60`. | One fixed limit and period (10 or 60 s) per binding; counted per Cloudflare location and eventually consistent, so it is permissive by design; cannot be peeked. |
 
-- **Auth-failure throttle** is per isolate only: the binding cannot report a count without consuming, so failed
+- **Auth-failure throttle** is per isolate by default: the binding cannot report a count without consuming, so failed
   authentications are not shared across isolates or locations. An attacker spread over many isolates gets more guesses
   than on Node, but access tokens carry 256 bits of entropy and the admin token is refused at boot when predictable
-  (P3-13). The Durable Object limiter (P7-10) closes this gap; until then, a WAF rate-limiting rule on `/api/admin/*`
-  is a cheap shared backstop ([deploy guide](cloudflare-deploy.md#harden-the-admin-api)). As on Node, the throttle
+  (P3-13). The [shared limiter](#shared-limiter-durable-object-optional) (`RB_SHARED_LIMITER=rules`) closes this gap;
+  without it, a WAF rate-limiting rule on `/api/admin/*` is a cheap shared backstop ([deploy guide](cloudflare-deploy.md#harden-the-admin-api)). As on Node, the throttle
   refuses further *failures* only: a valid MCP or admin token is served from an address that sprayed bad ones (P3-13,
   Phase 2 review M6).
 - **Client address** is `CF-Connecting-IP`, which Cloudflare sets and clients cannot override. Requests without it
@@ -133,6 +134,50 @@ token 120/min, per grant 300/min unless the grant sets its own, per pass-through
 - To tighten the shared backstop, change `limit`/`period` of the `RATE_LIMITER` entry in `wrangler.jsonc`.
   `RB_RATE_LIMIT=off` turns all of it off (not recommended).
 - Without the binding the Worker still starts (isolate buckets only) and logs a warning.
+
+### Shared limiter (Durable Object, optional)
+
+Some limits cannot be shared through the Rate Limiting binding (one fixed rule, no peek), and NerdGraph concurrency is
+counted per isolate, so a key used by many clients at once can run `isolates x RB_CONCURRENCY` calls in parallel. New
+Relic limits concurrent requests per user ([RESEARCH §2](../RESEARCH.md#2-nerdgraph-limits)) and answers `429` above
+that. The `SharedLimiter` Durable Object (P7-10) keeps exact counters that every isolate shares. It is **off by default**.
+
+| `RB_SHARED_LIMITER` | Counted by the object for the whole deployment | Object requests |
+|---|---|---|
+| `off` (default) | nothing (as before) | none |
+| `rules` | failed authentications per address (`fail:`), sign-in (`signin:`) and OAuth (`oauth:`) requests per address, write tool calls per grant (`write:`) | one per counted request (a failed authentication, a sign-in or OAuth request, a write call) |
+| `on` | the rules above, plus NerdGraph calls in flight per credential (`RB_CONCURRENCY`) | the above plus two per NerdGraph call (take and release a slot) |
+
+Turn it on with `pnpm cf:setup --shared-limiter rules` (or `on`), or set the variable in the dashboard. The
+`SHARED_LIMITER` binding and the class are declared in `wrangler.jsonc` (`durable_objects`, `exports`); Wrangler creates
+the namespace on deploy, and an unused namespace costs nothing. A deployment whose `wrangler.local.jsonc` predates P7-10
+lacks them: the Worker then logs `SHARED_LIMITER binding is missing` and keeps per-isolate limits.
+
+How it behaves:
+
+- **Concurrency:** one object per credential (named by the stored credential's id, or the fingerprint id for
+  pass-through keys; never the key). A call waits in a first-come queue for up to 10 s; if no slot frees, the tool call
+  fails with `RB_LIMIT_RATE` without calling New Relic. Each slot is a 60 s lease, so an isolate that crashes or is
+  cancelled mid-call frees its slot on its own. The isolate's own semaphore still applies first.
+- **Rules:** one object per key (for example one per client address), holding one token bucket in its storage, so it is
+  not reset when the object is evicted; an alarm deletes the stored bucket once it has refilled. The `ip:`, `token:`,
+  `grant:` and `key:` limits stay on the binding (asking the object on every request would add a round trip to each).
+- **Failure policy:** if the object cannot be reached (an outage, or the Free plan's daily Durable Object limits),
+  nothing is refused because of it: each rule falls back to the isolate bucket (a limit per isolate, the behaviour
+  without the shared limiter, never "unlimited") and concurrency falls back to the isolate semaphore. A warning is
+  logged (at most once a minute per isolate). The write limit keeps failing closed only if the isolate bucket itself fails.
+- **Latency, not CPU:** each object request is a round trip to the data center that hosts the object (the first
+  caller's), a few milliseconds nearby and more from far away; it costs wall time, not CPU, so `pnpm bench:cpu` does
+  not change. With `on`, every NerdGraph call pays two round trips.
+- **Cost:** object requests count against the Durable Objects allowance, not Worker requests. On Free (100,000 a day)
+  `rules` is negligible for normal use; `on` with tools of 1 to 4 NerdGraph calls uses 2 to 8 object requests per tool
+  call, so about 12,000 to 50,000 tool calls a day exhaust it (then the fallback above applies until 00:00 UTC). On Paid
+  the included 1 M a month covers about 125,000 to 500,000 tool calls; beyond it, $0.15 per million. Storage is tiny
+  (one row per active address or grant, deleted once idle). Object calls count against the 1,000 Cloudflare-service
+  subrequests per request on Free, not the 50 external ones that NerdGraph uses.
+
+Use `rules` when the auth-failure, sign-in or write limits must hold across isolates (a public instance); use `on` when
+several people or agents share one New Relic key and you see `RB_NERDGRAPH_RATE_LIMITED`.
 
 ### Optional: a WAF rate-limiting rule in front
 

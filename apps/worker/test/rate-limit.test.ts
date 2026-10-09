@@ -48,10 +48,10 @@ describe('WorkersRateLimiter', () => {
   it('peek consumes nothing and never calls the binding', async () => {
     const binding = fakeBinding();
     const rl = new WorkersRateLimiter({ binding, local: new MemoryRateLimiter() });
-    for (let i = 0; i < 5; i++) expect(rl.peek('ip:x', rule).allowed).toBe(true);
+    for (let i = 0; i < 5; i++) expect((await rl.peek('ip:x', rule)).allowed).toBe(true);
     expect(binding.keys).toEqual([]);
     for (let i = 0; i < 3; i++) await rl.take('ip:x', rule);
-    expect(rl.peek('ip:x', rule).allowed).toBe(false);
+    expect((await rl.peek('ip:x', rule)).allowed).toBe(false);
   });
 
   it('works without a binding (isolate buckets only) and lets a binding error propagate to the fail-open guard', async () => {

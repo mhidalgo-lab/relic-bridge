@@ -113,6 +113,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   locks out valid tokens) is unchanged and still open.
 - **Options:** a D1 counter table (atomic single statement); wait for the Durable Object limiter (P7-10).
 - **Needs:** owner's call whether the D1 counter is worth it before P7-10.
+- **Update (P7-10):** P7-10 addresses this: with `RB_SHARED_LIMITER=rules` (opt-in, `SHARED_LIMITER` Durable Object binding) the `fail:` throttle, take and peek, is counted once for the whole deployment; without it, or if the object is unreachable, it stays per isolate as described above. See docs/guide/cloudflare-limits.md#shared-limiter-durable-object-optional.
 
 ### P3-04 — one binding with a fixed 600 per 60 s ceiling; exact rules enforced per isolate
 - **Context:** a binding has a single limit/period, but rules vary (grant `rateLimit`, token 120/min, key 120/min).
@@ -121,6 +122,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   answers `Retry-After: 60`.
 - **Options:** one binding per rule class (10 s and 60 s windows) in `wrangler.jsonc`; DO limiter (P7-10).
 - **Needs:** only if tighter global limits are wanted.
+- **Update (P7-10):** P7-10 addresses this: the Durable Object limiter exists (opt-in) and enforces the exact `fail:`, `signin:`, `oauth:` and `write:` rules deployment-wide; `ip:`, `token:`, `grant:` and `key:` deliberately stay on the binding (an object call on every request would add a round trip); moving them is a possible follow-up. See docs/guide/cloudflare-limits.md#shared-limiter-durable-object-optional.
 
 ### P3-04 — pass-through on Workers needs `RB_FINGERPRINT_SECRET`
 - **Context:** P3-01 refused pass-through; P3-01 did not add a shared secret binding.

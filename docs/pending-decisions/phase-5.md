@@ -45,6 +45,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   a registration cap shared across isolates (D1-backed counter) is left to P5-03.
 - **Options:** D1 counter for DCR only (P5-03); a second Rate Limiting binding with a stricter rule for `/oauth/*`.
 - **Needs:** owner choice for P5-03.
+- **Update (P7-10):** P7-10 addresses this: the per-IP `oauth` rule is counted by the Durable Object limiter with `RB_SHARED_LIMITER=rules` or `on`. See docs/guide/cloudflare-limits.md#shared-limiter-durable-object-optional.
 
 ### P5-01 — strict single use of authorization codes
 - **Context:** the marker is consumed before the provider checks PKCE; a client whose exchange fails on the network
@@ -402,6 +403,7 @@ Record per client: date, client version, registration path (CIMD/DCR), result, a
   Durable Object limiter (P7-10).
 - **Needs:** owner: confirm the defaults, especially that shared egress addresses (a proxy, claude.ai's servers) share
   one per-address budget.
+- **Update (P7-10):** P7-10 addresses this: the `oauth` rule can be shared across isolates with `RB_SHARED_LIMITER=rules` (opt-in); the defaults question is unchanged. See docs/guide/cloudflare-limits.md#shared-limiter-durable-object-optional.
 
 ### P5-12 — `[::1]` redirects, mixed-script names
 - **Assumption made:** an `http://[::1]` redirect gets no CSP widening; the consent post answers with a same-origin

@@ -38,7 +38,9 @@ Pick a path outside the repository (only `.env` files are git-ignored; the scrip
 and note that Windows ignores the mode.
 
 Other options: `--name <worker>` (default `relic-bridge`), `--passthrough` (also generates `RB_FINGERPRINT_SECRET` and
-sets `RB_PASSTHROUGH=on`), `--assume-new` (see below).
+sets `RB_PASSTHROUGH=on`), `--shared-limiter rules|on` (sets `RB_SHARED_LIMITER`: limits counted once for the whole
+deployment by a Durable Object instead of per isolate, see [Cloudflare limits](cloudflare-limits.md#shared-limiter-durable-object-optional)),
+`--assume-new` (see below).
 
 **Re-running is safe.** Secrets that already exist are kept, never regenerated (a new master key would orphan every
 stored credential), so you can re-run the script to redeploy after `git pull`. If Wrangler can't tell whether the Worker
@@ -197,10 +199,12 @@ pnpm cf:setup --plan free          # same plan as before; existing secrets and r
 - Sign-in variables set by `cf:setup --sign-in` are deployed with `--var` and kept by later runs because of
   `--keep-vars`; check Settings, Variables after the first run, and re-run with `--sign-in` to change them.
 - Settings and secrets set in the dashboard survive redeploys: `pnpm cf:setup` deploys with `--keep-vars` and only
-  overwrites `RB_PLAN` (and `RB_PASSTHROUGH` with `--passthrough`). A plain `wrangler deploy` without `--keep-vars`
+  overwrites `RB_PLAN` (and `RB_PASSTHROUGH` with `--passthrough`, `RB_SHARED_LIMITER` with `--shared-limiter`). A plain `wrangler deploy` without `--keep-vars`
   **deletes** dashboard variables such as `RB_ALLOWED_HOSTS`.
 - `wrangler.local.jsonc` is copied from `wrangler.jsonc` once and never refreshed: after a `git pull` that changes
   `wrangler.jsonc` (new binding, cron or compatibility date), carry the change over by hand (keep the provisioned ids).
+  Since P7-10 that includes the `durable_objects` and `exports` entries of the `SharedLimiter` class (needed only for
+  `RB_SHARED_LIMITER`; without them the Worker logs a warning and keeps per-isolate limits).
 - With the button flow, a push to your copy of the repository redeploys through Workers Builds.
 
 ## Backups and the master key
@@ -333,8 +337,9 @@ session once [sign-in](identity-providers.md) is configured. What protects it:
 - **Token strength.** `cf:setup` and `admin-token generate` make 256-bit tokens; the Worker refuses predictable ones at
   boot.
 - **Failure throttle.** 10 failed authentications per 5 minutes per client address, then further failures get `429`.
-  It is counted per isolate (Cloudflare runs many), so a distributed guesser gets more attempts; your valid token is
-  never refused by it, even from an address that sent bad ones (a shared office or mobile network).
+  It is counted per isolate (Cloudflare runs many), so a distributed guesser gets more attempts, unless the
+  [shared limiter](cloudflare-limits.md#shared-limiter-durable-object-optional) is on (`RB_SHARED_LIMITER=rules`), which
+  counts it once for the whole deployment; your valid token is never refused by it, even from an address that sent bad ones (a shared office or mobile network).
 - **Optional shared backstop:** a WAF rate-limiting rule (dashboard: your zone > **Security** > **Security rules** >
   **Create rule** > **Rate limiting rules**) matching `http.host eq "<your custom domain>" and
   starts_with(http.request.uri.path, "/api/admin/")`, counted per IP, for example 30 requests per 10 seconds, action

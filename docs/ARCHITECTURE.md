@@ -162,7 +162,7 @@ Implemented by `createHttpApp` in `packages/http-app` (P2-06); `relic-bridge ser
    key. Every denial in steps 2-3 is the same 401 (with OAuth on, its `WWW-Authenticate` names the slug's RFC 9728
    metadata, built from the path alone, P5-02); storage errors are 503.
 4. **Rate limit** (P2-07, `createRateLimitHooks` over a pluggable `RateLimiter`; bounded in-memory token bucket on
-   Node; on Workers `WorkersRateLimiter` = per-isolate bucket plus the Rate Limiting binding as shared backstop, the auth-failure throttle per isolate (P3-04); Durable Object limiter in P7-10). Before step 2 (`beforeAuth`): per-IP request limit (and,
+   Node; on Workers `WorkersRateLimiter` = per-isolate bucket plus the Rate Limiting binding as shared backstop, the auth-failure throttle per isolate (P3-04); with `RB_SHARED_LIMITER` the `SharedLimiter` Durable Object counts `fail:`/`signin:`/`oauth:`/`write:` for the whole deployment and, with `on`, NerdGraph concurrency per credential (P7-10)). Before step 2 (`beforeAuth`): per-IP request limit (and,
    on the pass-through route only, the per-IP auth-failure throttle, before a key is sent to NerdGraph). On a failed
    authentication (`refuseAuthFailure`, P3-13) the failure is charged to the IP and, past the budget, answered 429
    instead of 401; a credential that verifies never reaches it, so valid tokens are not locked out.

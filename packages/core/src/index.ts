@@ -46,7 +46,13 @@ export {
   ToolRegistry,
 } from './registry.ts';
 export { Secret } from './secret.ts';
-export { type BuildServerOptions, buildMcpServer, DEFAULT_SERVER_INFO, type ServerInfo } from './server.ts';
+export {
+  type BuildServerOptions,
+  buildMcpServer,
+  DEFAULT_SERVER_INFO,
+  type ServerInfo,
+  type ToolCallEvent,
+} from './server.ts';
 export * from './time/index.ts';
 export {
   annotationsFor,

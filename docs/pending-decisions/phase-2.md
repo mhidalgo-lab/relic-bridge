@@ -255,3 +255,14 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   rejected); a global per-credential limit now (P7-10).
 - **Needs:** owner OK of the figures, once real clients (P5-06, Claude mobile) show their request patterns.
 
+
+### P2-08 — Audit log defaults and shape
+- **Context:** the task left masking, retention and what counts as an audited event open (THREAT_MODEL open question).
+- **Assumption made:** on by default; NRQL stored masked (`RB_AUDIT_NRQL=mask`: strings and numbers become `?`, keywords,
+  names, `SINCE`/`LIMIT` kept), truncated to 2000 chars; retention 90 days (`RB_AUDIT_RETENTION_DAYS`, `0` = forever),
+  purged at startup and hourly. Refusal rows (new kind `auth`, one forward-only migration) include the client IP
+  (`RB_AUDIT_CLIENT_IP=off` to drop) and are capped at 120/min with a summary row. Rows carry ids, not labels (the
+  project slug is kept in `details`). Only `tools/call`, refusals and admin changes are audited, not `tools/list`.
+- **Options:** as assumed; default `hash` or `off` for stricter privacy; store labels in rows; audit every MCP request;
+  hash-chain rows for tamper evidence (would be a new task).
+- **Needs:** owner OK of the defaults.

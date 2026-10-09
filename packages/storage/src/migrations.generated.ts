@@ -31,5 +31,21 @@ export const MIGRATIONS: readonly Migration[] = Object.freeze([
       "CREATE UNIQUE INDEX `users_email_unique` ON `users` (`email`);",
       "CREATE UNIQUE INDEX `users_identity_unique` ON `users` (`idp`,`idp_subject`);"
     ]
+  },
+  {
+    "version": 2,
+    "name": "0001_audit_auth_kind",
+    "checksum": "86e23e3afc7083d8e1d0e7ea09d42e68dcf4c12ff59830b8907f4e8de98807e4",
+    "statements": [
+      "PRAGMA foreign_keys=OFF;",
+      "CREATE TABLE `__new_audit_log` (\n\t`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,\n\t`ts` integer NOT NULL,\n\t`kind` text NOT NULL,\n\t`action` text NOT NULL,\n\t`status` text NOT NULL,\n\t`request_id` text,\n\t`user_id` text,\n\t`grant_id` text,\n\t`token_id` text,\n\t`client_id` text,\n\t`project_id` text,\n\t`account_ids` text,\n\t`nrql` text,\n\t`duration_ms` integer,\n\t`inspected_count` integer,\n\t`error_code` text,\n\t`target_type` text,\n\t`target_id` text,\n\t`details` text,\n\tCONSTRAINT \"audit_log_kind_check\" CHECK(\"__new_audit_log\".\"kind\" IN ('tool_call', 'admin', 'auth')),\n\tCONSTRAINT \"audit_log_status_check\" CHECK(\"__new_audit_log\".\"status\" IN ('ok', 'error', 'denied'))\n);",
+      "INSERT INTO `__new_audit_log`(\"id\", \"ts\", \"kind\", \"action\", \"status\", \"request_id\", \"user_id\", \"grant_id\", \"token_id\", \"client_id\", \"project_id\", \"account_ids\", \"nrql\", \"duration_ms\", \"inspected_count\", \"error_code\", \"target_type\", \"target_id\", \"details\") SELECT \"id\", \"ts\", \"kind\", \"action\", \"status\", \"request_id\", \"user_id\", \"grant_id\", \"token_id\", \"client_id\", \"project_id\", \"account_ids\", \"nrql\", \"duration_ms\", \"inspected_count\", \"error_code\", \"target_type\", \"target_id\", \"details\" FROM `audit_log`;",
+      "DROP TABLE `audit_log`;",
+      "ALTER TABLE `__new_audit_log` RENAME TO `audit_log`;",
+      "PRAGMA foreign_keys=ON;",
+      "CREATE INDEX `audit_log_ts_idx` ON `audit_log` (`ts`);",
+      "CREATE INDEX `audit_log_project_ts_idx` ON `audit_log` (`project_id`,`ts`);",
+      "CREATE INDEX `audit_log_user_ts_idx` ON `audit_log` (`user_id`,`ts`);"
+    ]
   }
 ]);

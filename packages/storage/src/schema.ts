@@ -164,7 +164,7 @@ export const auditLog = sqliteTable(
   {
     id: integer('id').primaryKey({ autoIncrement: true }),
     ts: integer('ts').notNull(),
-    kind: text('kind', { enum: ['tool_call', 'admin'] }).notNull(),
+    kind: text('kind', { enum: ['tool_call', 'admin', 'auth'] }).notNull(),
     action: text('action').notNull(),
     status: text('status', { enum: ['ok', 'error', 'denied'] }).notNull(),
     requestId: text('request_id'),
@@ -186,7 +186,7 @@ export const auditLog = sqliteTable(
     index('audit_log_ts_idx').on(t.ts),
     index('audit_log_project_ts_idx').on(t.projectId, t.ts),
     index('audit_log_user_ts_idx').on(t.userId, t.ts),
-    check('audit_log_kind_check', sql`${t.kind} IN ('tool_call', 'admin')`),
+    check('audit_log_kind_check', sql`${t.kind} IN ('tool_call', 'admin', 'auth')`),
     check('audit_log_status_check', sql`${t.status} IN ('ok', 'error', 'denied')`),
   ],
 );

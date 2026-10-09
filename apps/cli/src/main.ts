@@ -9,6 +9,7 @@ import {
 } from '@relic-bridge/core';
 import { backupDatabase } from '@relic-bridge/storage-sqlite';
 import { HELP_TEXT, isLogLevel, parseCliArgs, UsageError } from './args.ts';
+import { auditPurge } from './audit.ts';
 import { ConfigError, type ConfigFs, type Env, loadConfig } from './config.ts';
 import { credentialRevalidate } from './credentials.ts';
 import { keysGenerate, keysRotate } from './keys.ts';
@@ -98,6 +99,24 @@ export function main(rt: CliRuntime): MainResult {
     return {
       kind: 'pending',
       done: keysRotate({ dbPath, env: rt.env, fs: rt.fs, platform: rt.platform, stdout: rt.stdout, logger }),
+    };
+  }
+
+  if (args.command === 'audit' && args.auditAction === 'purge') {
+    const dbPath = (args.db ?? rt.env['RB_DB_PATH'] ?? '').trim();
+    if (dbPath === '') {
+      logger.error('no database given', { hint: 'pass --db <path> or set RB_DB_PATH' });
+      return exit(2);
+    }
+    return {
+      kind: 'pending',
+      done: auditPurge({
+        dbPath,
+        env: rt.env,
+        ...(args.olderThanDays === undefined ? {} : { olderThanDays: args.olderThanDays }),
+        stdout: rt.stdout,
+        logger,
+      }),
     };
   }
 

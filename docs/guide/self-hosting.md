@@ -45,6 +45,10 @@ relic-bridge serve --port 9000 --db /var/lib/relic-bridge/relic-bridge.db
 | `RB_RATE_LIMIT_TOKEN` | `120/60` | Requests per access token. |
 | `RB_RATE_LIMIT_GRANT` | `300/60` | Requests per grant, unless the grant has its own `rateLimit`, which replaces this. |
 | `RB_TRUSTED_PROXY_HOPS` | `0` | Reverse proxies in front of the server (0-5). `X-Forwarded-For` is only believed for that many hops, counted from the right; with `0` the socket address is the client. **Set it behind a proxy**, or all clients share the proxy's address and one bad device can lock the others out. |
+| `RB_AUDIT` | `on` | `off` stops recording tool calls, refusals and admin changes. See the [audit log](audit-log.md). |
+| `RB_AUDIT_NRQL` | `mask` | `mask` (literal values hidden), `hash`, `full` or `off`: how NRQL text is stored. |
+| `RB_AUDIT_RETENTION_DAYS` | `90` | Days to keep audit rows (`0` = forever). Purged at startup and hourly; `relic-bridge audit purge` does it by hand. |
+| `RB_AUDIT_CLIENT_IP` | `on` | Record the client address on refused requests. |
 | `RB_HSTS` | `auto` | `Strict-Transport-Security` when the request arrived over https; `true` behind a TLS-terminating proxy. |
 | `RB_LOG_LEVEL` | `info` | One JSON line per request on stderr (never the token or the New Relic key). |
 
@@ -65,6 +69,8 @@ relic-bridge serve --port 9000 --db /var/lib/relic-bridge/relic-bridge.db
   invalid tokens, so a `429` never tells a guesser anything; per-token and per-grant limits apply after. IPv6 clients are
   counted per /64. `subscriptions/listen` isn't counted. Devices behind one NAT share a failure budget: a device
   retrying an expired token can block the others for a few minutes. Several server processes each keep their own counters.
+- **Audit log**: every tool call, refused request and admin change is recorded without secrets or result data, after
+  the response (a failed write is logged, never surfaced). What is stored and how to tune it: [audit log](audit-log.md).
 - Storage errors answer `503` (fail closed), never "allowed".
 - `subscriptions/listen` (opened by 2026-era clients such as Claude Code) is acknowledged and closed at once: the
   server has no change notifications to push.

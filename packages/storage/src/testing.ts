@@ -692,8 +692,16 @@ export function runStorageContract(options: StorageContractOptions): void {
         expect(page1.map((r) => r.ts)).toEqual([500, 400]);
         const page2 = await s.auditLog.list({ limit: 2, beforeId: page1.at(-1)?.id as number });
         expect(page2.map((r) => r.ts)).toEqual([300, 200]);
+        await s.auditLog.append({
+          ts: 600,
+          kind: 'auth',
+          action: 'auth.denied',
+          status: 'denied',
+          errorCode: 'missing_token',
+        });
+        expect((await s.auditLog.list({ kind: 'auth' })).map((r) => r.action)).toEqual(['auth.denied']);
         expect(await s.auditLog.purgeBefore(300)).toBe(2);
-        expect((await s.auditLog.list()).map((r) => r.ts)).toEqual([500, 400, 300]);
+        expect((await s.auditLog.list()).map((r) => r.ts)).toEqual([600, 500, 400, 300]);
         await s.close();
       });
     });

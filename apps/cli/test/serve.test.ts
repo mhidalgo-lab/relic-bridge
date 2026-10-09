@@ -90,6 +90,33 @@ describe('serveSettings', () => {
     }
   });
 
+  it('audits by default (masked NRQL, 90 days, client address) and validates its settings', () => {
+    expect(serveSettings(base).audit).toEqual({
+      enabled: true,
+      nrql: 'mask',
+      retentionDays: 90,
+      clientIp: true,
+    });
+    const tuned = serveSettings({
+      ...base,
+      env: { RB_AUDIT_NRQL: 'hash', RB_AUDIT_RETENTION_DAYS: '0', RB_AUDIT_CLIENT_IP: 'off' },
+    });
+    expect(tuned.audit).toEqual({ enabled: true, nrql: 'hash', retentionDays: 0, clientIp: false });
+    expect(serveSettings({ ...base, env: { RB_AUDIT: 'off' } }).warnings.join()).toMatch(/RB_AUDIT=off/);
+    expect(serveSettings({ ...base, env: { RB_AUDIT_NRQL: 'full' } }).warnings.join()).toMatch(
+      /literal values/,
+    );
+    for (const env of [
+      { RB_AUDIT: 'maybe' },
+      { RB_AUDIT_NRQL: 'raw' },
+      { RB_AUDIT_RETENTION_DAYS: '-1' },
+      { RB_AUDIT_RETENTION_DAYS: 'x' },
+      { RB_AUDIT_CLIENT_IP: '2' },
+    ]) {
+      expect(() => serveSettings({ ...base, env }), JSON.stringify(env)).toThrow(ConfigError);
+    }
+  });
+
   it('has rate limits on by default, tunable per rule, and refuses nonsense', () => {
     expect(serveSettings(base)).toMatchObject({
       trustedProxyHops: 0,

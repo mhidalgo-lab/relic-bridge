@@ -173,6 +173,12 @@ export function mergeHooks(...sets: readonly (HttpAppHooks | undefined)[]): Http
       }
       return undefined;
     },
+    async onRejected(c, info) {
+      await Promise.allSettled(hooks.map((h) => h.onRejected?.(c, info)));
+    },
+    async onToolCall(c, info, event) {
+      await Promise.allSettled(hooks.map((h) => h.onToolCall?.(c, info, event)));
+    },
     async afterMcp(c, info, outcome) {
       await Promise.allSettled(hooks.map((h) => h.afterMcp?.(c, info, outcome)));
     },

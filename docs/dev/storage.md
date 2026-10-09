@@ -30,7 +30,11 @@ runtime-specific code lives in the adapters' hosts (P2-02 Node SQLite, P3-02 D1)
 ### Secrets
 
 - Credentials: `key` is `{ kind: 'encrypted', ciphertext, iv (12 bytes), keyVersion }` in every writable adapter.
-  `keyHint` holds at most the last 4 characters for display. Encryption itself is P2-03.
+  `keyHint` holds at most the last 4 characters for display. Encrypt and decrypt only through
+  `Keyring.encryptCredentialKey` / `decryptCredentialKey` in `@relic-bridge/auth` (P2-03, [secrets](../guide/secrets.md)).
+- `credentials.update(id, { key, ifKey })` is a compare-and-swap: with `ifKey` the patch applies only while the stored
+  key is still exactly `ifKey` (ciphertext, IV, version), else `ConflictError` (`credentials.key`). SQL adapters must
+  check it inside the `UPDATE` statement, not with a separate read. Master-key rotation relies on it.
 - The `yaml` adapter yields `{ kind: 'env', variable }` or `{ kind: 'inline', reveal() }` instead; `reveal` is
   non-enumerable, so a credential serialises without the literal.
 - Access tokens: only `tokenHash` (SHA-256, lowercase hex) and a display `prefix` (≤ 12 chars). Format and hashing

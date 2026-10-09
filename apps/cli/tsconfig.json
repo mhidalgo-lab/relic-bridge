@@ -6,6 +6,7 @@
     "declaration": false,
     "isolatedDeclarations": false,
     "paths": {
+      "@relic-bridge/auth": ["../../packages/auth/src/index.ts"],
       "@relic-bridge/core": ["../../packages/core/src/index.ts"],
       "@relic-bridge/storage": ["../../packages/storage/src/index.ts"],
       "@relic-bridge/storage-sqlite": ["../../packages/storage-sqlite/src/index.ts"]

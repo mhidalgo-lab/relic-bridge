@@ -2,7 +2,14 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "types": [],
-    "lib": ["es2023", "webworker"]
+    "lib": ["es2023", "webworker"],
+    // Type-checks storage from source, which is not isolatedDeclarations-clean.
+    "isolatedDeclarations": false,
+    "paths": {
+      "@relic-bridge/core": ["../core/src/index.ts"],
+      "@relic-bridge/storage": ["../storage/src/index.ts"],
+      "@relic-bridge/storage/testing": ["../storage/src/testing.ts"]
+    }
   },
   "include": ["src", "test"]
 }

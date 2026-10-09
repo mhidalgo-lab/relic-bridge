@@ -209,6 +209,9 @@ importers:
       '@modelcontextprotocol/client':
         specifier: 2.2.0
         version: 2.2.0
+      '@relic-bridge/auth':
+        specifier: workspace:*
+        version: link:../../packages/auth
       '@relic-bridge/core':
         specifier: workspace:*
         version: link:../../packages/core
@@ -235,7 +238,17 @@ importers:
         version: 0.23.0(tsx@4.23.15)(typescript@7.0.2)
 
   packages/auth:
+    dependencies:
+      '@relic-bridge/core':
+        specifier: workspace:*
+        version: link:../core
+      '@relic-bridge/storage':
+        specifier: workspace:*
+        version: link:../storage
     devDependencies:
+      fast-check:
+        specifier: 4.10.2
+        version: 4.10.2
       tsdown:
         specifier: 0.23.0
         version: 0.23.0(tsx@4.23.15)(typescript@7.0.2)

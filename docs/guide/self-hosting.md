@@ -43,6 +43,8 @@ together with the master key exposes every stored New Relic key.** Therefore:
 - Treat a backup exactly like the live file: it has the same contents. Encrypt backups at rest if they leave the host,
   and keep their permissions at `0600`.
 - Don't commit `*.db`, `*.sqlite` or their `-wal` / `-shm` files (they are in `.gitignore`).
-- If the file or a backup may have leaked, rotate the master key and the New Relic keys stored in it.
+- If the file or a backup may have leaked, rotate the master key (`relic-bridge keys rotate`) and the New Relic keys
+  stored in it.
 
-See the [threat model](../THREAT_MODEL.md) (T7).
+Creating, storing, backing up and rotating the master key: [secrets](secrets.md). See also the
+[threat model](../THREAT_MODEL.md) (T7).

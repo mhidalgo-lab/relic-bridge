@@ -44,6 +44,7 @@ jobs:
       - run: node scripts/check-licenses.ts
 
   # P2-02: the SQLite adapter and the CLI's `db backup` on every OS the CLI supports (node:sqlite has no native build).
+  # P2-03: WebCrypto (auth) and `keys rotate` on the same OSes.
   sqlite-os:
     name: SQLite adapter (${{ matrix.os }}, Node 24)
     runs-on: ${{ matrix.os }}
@@ -62,7 +63,7 @@ jobs:
           node-version: '24'
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm vitest run --project storage-sqlite --project storage
+      - run: pnpm vitest run --project storage-sqlite --project storage --project auth
       - run: pnpm vitest run --project cli apps/cli/test/args.test.ts apps/cli/test/main.test.ts
 
   actionlint:

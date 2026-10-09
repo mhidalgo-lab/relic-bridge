@@ -26,6 +26,7 @@ import {
   type KvListResult,
   type KvPutOptions,
   type KvRepository,
+  keyChangedError,
   NotFoundError,
   normalizeEmail,
   type ProjectRecord,
@@ -250,8 +251,10 @@ export function createRepositories(
           nrUserEmail: v?.nrUserEmail === undefined ? cur.nrUserEmail : v.nrUserEmail,
           reachable: v?.reachableAccountIds === undefined ? cur.reachableAccountIds : v.reachableAccountIds,
         };
-        run(
-          'UPDATE credentials SET label = ?, key_ciphertext = ?, key_iv = ?, key_version = ?, key_hint = ?, validation_status = ?, validation_error_code = ?, validated_at = ?, nr_user_id = ?, nr_user_email = ?, reachable_account_ids = ?, updated_at = ?, revoked_at = ? WHERE id = ?',
+        // `ifKey` is checked in the UPDATE itself, so it holds against other connections too (compare-and-swap).
+        const guard = patch.ifKey === undefined ? null : encKey(patch.ifKey);
+        const changed = run(
+          `UPDATE credentials SET label = ?, key_ciphertext = ?, key_iv = ?, key_version = ?, key_hint = ?, validation_status = ?, validation_error_code = ?, validated_at = ?, nr_user_id = ?, nr_user_email = ?, reachable_account_ids = ?, updated_at = ?, revoked_at = ? WHERE id = ?${guard === null ? '' : ' AND key_ciphertext = ? AND key_iv = ? AND key_version = ?'}`,
           [
             next.label,
             k.c,
@@ -267,8 +270,13 @@ export function createRepositories(
             now(),
             next.revokedAt,
             id,
+            ...(guard === null ? [] : [guard.c, guard.iv, guard.v]),
           ],
         );
+        if (changed === 0) {
+          if (guard !== null) throw keyChangedError(id);
+          throw new NotFoundError('credential', id);
+        }
         return getCredential(id) as CredentialRecord;
       }),
     delete: (id) =>

@@ -170,3 +170,12 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   - Only top-level input/output fields are tabulated (nested shapes shown as `object` / `object[]`); no config-file reference generated.
 - **Options:** nested field rendering; generate the CLI config reference from `configFileSchema`; publish the reference on the docs site (P8-04).
 - **Needs:** nothing urgent; owner may request a config-reference task.
+
+### P1-14 — Client guides: one page, unverified clients, no generated config reference
+- **Context:** the task asked for per-client guides, a config reference "generated if feasible", and a dry-run by a fresh agent session.
+- **Assumption made:**
+  - One `docs/guide/clients.md` covers Claude Code, Claude Desktop, Cursor, VS Code and MCP Inspector; the config reference stays hand-written (`configuration.md`).
+  - Desktop/Cursor/VS Code config shapes follow each client's documentation from memory/Context7 and were not run; commands in the docs are shown with `npx -y relic-bridge`, with a pre-release note to use `node …/apps/cli/dist/index.mjs`. P1-15 must remove that note once v0.1 is on npm.
+  - `docs/guide/*.md` messages and error codes were checked against source; `RB_LIMIT_RATE` is intentionally not documented (unused in code).
+- **Options:** generate the config reference from `configFileSchema`; add per-client screenshots; add Windsurf/Zed guides.
+- **Needs:** owner to run the quickstart once with a real key in at least Claude Code and one JSON-config client, and fix any drift.

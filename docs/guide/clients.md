@@ -1,0 +1,148 @@
+# Client setup guides
+
+Every client below starts relic-bridge as a **local stdio** server. Read the [local quickstart](quickstart-local.md)
+first for the key, account id and region. In the examples replace `<your User key>` with your `NRAK-…` key and
+`1234567` with your account id.
+
+> **Pre-release.** Until v0.1 is on npm, replace `npx -y relic-bridge` with
+> `node /absolute/path/to/relic-bridge/apps/cli/dist/index.mjs` (after `pnpm install && pnpm build`). In JSON configs
+> that means `"command": "node"` and `"args": ["/absolute/path/to/relic-bridge/apps/cli/dist/index.mjs"]`.
+
+Two rules apply to every client:
+
+1. **Put `NEW_RELIC_*` in the server's `env` block.** Clients start stdio servers with a minimal environment (see
+   [configuration](configuration.md)).
+2. **Don't commit the file that holds your key.** For project-level config files, use the secret-prompt options shown
+   below or keep the key in a user-level file.
+
+For several projects, use YAML mode: add `--project <slug> --config /absolute/path/relic-bridge.yaml` to the args and
+put the `${VAR}` variables the YAML refers to in `env` (see [quickstart, section 2](quickstart-local.md)).
+
+## Claude Code
+
+```sh
+claude mcp add relic \
+  --env NEW_RELIC_API_KEY=<your User key> \
+  --env NEW_RELIC_ACCOUNT_ID=1234567 \
+  --env NEW_RELIC_REGION=US \
+  -- npx -y relic-bridge
+```
+
+- The default scope is `local` (only you, only this project, stored in `~/.claude.json`). Add `--scope user` to use the
+  server in every project. Avoid `--scope project`: it writes `.mcp.json` into the repository, and you would commit your
+  key.
+- Check it: `claude mcp list`, or `/mcp` inside a session. Remove it with `claude mcp remove relic`.
+- Debug output: `claude --debug` shows the server's stderr.
+
+## Claude Desktop
+
+Open *Settings > Developer > Edit Config*, which opens `claude_desktop_config.json`:
+
+- macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
+- Windows: `%APPDATA%\Claude\claude_desktop_config.json`
+
+```json
+{
+  "mcpServers": {
+    "relic": {
+      "command": "npx",
+      "args": ["-y", "relic-bridge"],
+      "env": {
+        "NEW_RELIC_API_KEY": "<your User key>",
+        "NEW_RELIC_ACCOUNT_ID": "1234567",
+        "NEW_RELIC_REGION": "US"
+      }
+    }
+  }
+}
+```
+
+Quit and restart Claude Desktop completely after editing. The tools appear under the connectors/tools menu of a new
+chat. Logs: `~/Library/Logs/Claude/mcp-server-relic.log` (macOS) or `%APPDATA%\Claude\logs\` (Windows).
+
+Desktop doesn't use your shell's `PATH`: if `npx` isn't found, use the absolute path to `npx` (or to `node` in the
+pre-release setup) as `command`. On Windows, if `npx` fails to start, use `"command": "cmd"` with
+`"args": ["/c", "npx", "-y", "relic-bridge"]`.
+
+## Cursor
+
+Create `~/.cursor/mcp.json` (all projects) or `.cursor/mcp.json` (one project; don't commit it with a key). The shape is
+the same `mcpServers` object as Claude Desktop:
+
+```json
+{
+  "mcpServers": {
+    "relic": {
+      "command": "npx",
+      "args": ["-y", "relic-bridge"],
+      "env": {
+        "NEW_RELIC_API_KEY": "<your User key>",
+        "NEW_RELIC_ACCOUNT_ID": "1234567",
+        "NEW_RELIC_REGION": "US"
+      }
+    }
+  }
+}
+```
+
+Then open *Settings > Tools & MCP* (older versions: *MCP*) and make sure `relic` is enabled with a green status.
+
+## VS Code (GitHub Copilot agent mode)
+
+VS Code reads `.vscode/mcp.json` (workspace) or the user-level file from the command *MCP: Open User Configuration*.
+The top-level key is `servers` (not `mcpServers`), and `inputs` lets VS Code prompt for the key and store it, so it
+never sits in the file:
+
+```json
+{
+  "inputs": [
+    {
+      "type": "promptString",
+      "id": "newrelic-api-key",
+      "description": "New Relic User API key (NRAK-...)",
+      "password": true
+    }
+  ],
+  "servers": {
+    "relic": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "relic-bridge"],
+      "env": {
+        "NEW_RELIC_API_KEY": "${input:newrelic-api-key}",
+        "NEW_RELIC_ACCOUNT_ID": "1234567",
+        "NEW_RELIC_REGION": "US"
+      }
+    }
+  }
+}
+```
+
+Start the server from the *Start* code lens above it in the file (or *MCP: List Servers*), then pick the tools in
+Copilot Chat in **Agent** mode.
+
+## Other clients and MCP Inspector
+
+Any client that can launch a stdio server works: give it the command `npx -y relic-bridge` and the three `env`
+variables. To test without an AI client:
+
+```sh
+NEW_RELIC_API_KEY=<your User key> NEW_RELIC_ACCOUNT_ID=1234567 \
+  npx @modelcontextprotocol/inspector npx -y relic-bridge
+```
+
+(The Inspector passes its own environment to the server.)
+
+## Check that it works
+
+Ask the agent: "Use whoami, then run `SELECT count(*) FROM Transaction SINCE 1 hour ago`." You should see your user,
+region and account, then a count (an empty result is fine if the account has no APM data: try `list_event_types`).
+
+If it doesn't work, see [troubleshooting](troubleshooting.md).
+
+## Compatibility status
+
+The server speaks standard MCP over stdio and was verified with the MCP TypeScript SDK client and the MCP Inspector
+(P0-07, P1-12). Claude Code's `claude mcp add` syntax was checked against its `--help`. The config shapes for Claude
+Desktop, Cursor and VS Code follow each client's current documentation but haven't been run by the maintainers yet;
+report problems as issues.

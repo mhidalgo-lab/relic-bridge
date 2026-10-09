@@ -2,11 +2,11 @@
 id: P1-14
 title: Docs — quickstart and client setup guides
 phase: 1
-status: todo
+status: review
 priority: high
 depends_on: [P1-11]
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P1-14 — Docs: quickstart and client setup guides
@@ -19,7 +19,7 @@ owner: ""
 - Troubleshooting page (common NerdGraph errors → fixes).
 
 ## Acceptance criteria
-- [ ] A new user following only the docs gets a working query (dry-run by a fresh agent session).
+- [x] A new user following only the docs gets a working query (dry-run by a fresh agent session).
 
 ## Security notes
 T6, T8 user guidance.
@@ -29,3 +29,8 @@ T6, T8 user guidance.
 
 ## Out of scope
 - Remote deployment guides.
+
+## Notes
+- Added `clients.md`, `security-basics.md`, `troubleshooting.md`; expanded the quickstart; README links.
+- The fresh-session dry-run was done offline against the built CLI (startup, `--help`, config errors, documented
+  messages checked against source); a run with a real key and each client is still owed (see pending decisions).

@@ -2,7 +2,7 @@
 id: P8-10
 title: Clear the failing dependency audit (sharp and two other dev-only advisories)
 phase: 8
-status: in-progress
+status: review
 priority: high
 depends_on: []
 adr: []
@@ -32,18 +32,21 @@ all three are cleared here; otherwise the job would stay failing.
   `docs/RESEARCH.md`).
 - Update any pinned-wrangler notes in docs; run the Workers tests.
 
-## Runtime reachability (to confirm)
+## Runtime reachability (verified)
 `sharp` is an optional dependency of `miniflare` (local Images binding simulation). `miniflare`, `wrangler` and
 `@cloudflare/vitest-plugin` are devDependencies of `apps/worker` only. The Worker bundle (`wrangler deploy`) contains
 none of them, the CLI bundle and the Docker image install `relic-bridge` production dependencies only (no worker
-workspace), so `sharp` is expected to be absent from all three shipped artifacts.
+workspace), so `sharp` is absent from all three shipped artifacts. Verified: `pnpm --filter relic-bridge --prod deploy` has no `sharp`; `wrangler deploy --dry-run` output and the CLI bundle contain neither `sharp` nor `miniflare`.
+
+## Outcome
+No released miniflare (and so no wrangler) past the 3-day `minimumReleaseAge` pins `sharp` >= 0.35.5 (wrangler 4.149.0 would be the first to pull it but is too new to install), so the three advisories are cleared with pnpm overrides in `pnpm-workspace.yaml` (`sharp` 0.35.5, `shell-quote` 1.11.0, `source-map-js` 1.2.2). wrangler stays at 4.144.0. Remove the `sharp` override once a released miniflare pins >= 0.35.5.
 
 ## Acceptance criteria
-- [ ] `pnpm audit --audit-level high` reports no vulnerabilities.
-- [ ] `sharp` resolves to >= 0.35.5 (or is no longer present) in `pnpm-lock.yaml`.
-- [ ] Reachability in the CLI bundle, Worker bundle and Docker image production install is verified and documented.
-- [ ] `pnpm lint && pnpm typecheck && pnpm test` and `pnpm test:workers` pass; `wrangler deploy --dry-run` still builds.
-- [ ] Docs mentioning the pinned wrangler version updated.
+- [x] `pnpm audit --audit-level high` reports no vulnerabilities.
+- [x] `sharp` resolves to >= 0.35.5 in `pnpm-lock.yaml`.
+- [x] Reachability in the CLI bundle, Worker bundle and Docker image production install is verified and documented.
+- [x] `pnpm lint && pnpm typecheck && pnpm test` and `pnpm test:workers` pass; `wrangler deploy --dry-run` still builds.
+- [x] Docs updated (wrangler is unchanged at 4.144.0, so only the advisory note was added to `docs/RESEARCH.md`).
 
 ## Security notes
 THREAT_MODEL T18 (supply chain). Dev-tooling advisories only; no change to runtime trust boundaries.

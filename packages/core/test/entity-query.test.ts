@@ -94,6 +94,15 @@ describe('entityQuery', () => {
     expect(entityQuery.and([ids, entityQuery`type = ${'HOST'}`]).text).toBe(
       "accountId IN ('1', '2') AND type = 'HOST'",
     );
+    // A part with OR cannot widen the account scope.
+    expect(entityQuery.and([ids, entityQuery`type = ${'A'} OR type = ${'B'}`]).text).toBe(
+      "accountId IN ('1', '2') AND (type = 'A' OR type = 'B')",
+    );
+    // An OR inside a quoted value is data, not an operator: no parentheses.
+    expect(entityQuery.and([ids, entityQuery`name = ${'a OR b'}`]).text).toBe(
+      "accountId IN ('1', '2') AND name = 'a OR b'",
+    );
+    expect(entityQuery.and([ids]).text).toBe("accountId IN ('1', '2')");
     expect(entityQuery.and([]).text).toBe('');
     expect(isEntitySearchQuery(ids)).toBe(true);
     expect(isEntitySearchQuery({ text: 'x' })).toBe(false);

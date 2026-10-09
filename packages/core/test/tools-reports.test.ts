@@ -548,6 +548,23 @@ describe('generate_user_impact_report', () => {
     expect(ng.calls.map((c) => c.op)).toEqual(['RbAiIssues', 'RbNrql']);
   });
 
+  it('does not pair entity names with GUIDs when a name was dropped', async () => {
+    // Two entities, one empty name: which name belongs to which GUID is unknown.
+    const ng = nerdGraph({
+      issues: [issueRow({ entityGuids: [BROWSER, MOCK_GUID], entityNames: ['', 'shop web'] })],
+      nrql: answers,
+    });
+    const client = await connect(ng.fetch);
+    const r = await client.callTool({
+      name: 'generate_user_impact_report',
+      arguments: { issue_id: 'issue-1', compare_previous: false },
+    });
+    expect(r.isError, resultText(r)).toBeFalsy();
+    expect(resultText(r)).toContain('Entity names could not be matched');
+    const s = r.structuredContent as { frontEnds: { name: string }[] };
+    expect(s.frontEnds.map((f) => f.name)).not.toContain('shop web');
+  });
+
   it('marks queries that do not fit the budget as not run', async () => {
     const ng = nerdGraph({ related, nrql: answers });
     const client = await connect(ng.fetch, { budget: createBudget(5) });

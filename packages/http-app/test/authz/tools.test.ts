@@ -11,7 +11,7 @@ import type { Client } from '@modelcontextprotocol/client';
 import { ERROR_META_KEY, ErrorCode } from '@relic-bridge/core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CATALOG, connect, NR_KEY } from '../fixtures.ts';
-import { accountsNamed, createHarness, FOREIGN, guidOf, type Harness, LEAK } from './harness.ts';
+import { accountsNamed, createHarness, FOREIGN, guidOf, type Harness, HONEST_ID, LEAK } from './harness.ts';
 
 /** `ok`: answered; `refused`: RB_AUTH_FORBIDDEN; `invalid`: RB_INPUT_INVALID (ambiguous, unknown or out-of-scope name). `offline`: must not reach NerdGraph at all. */
 interface ToolCall {
@@ -22,6 +22,9 @@ interface ToolCall {
 
 const NRQL = 'SELECT count(*) FROM Transaction SINCE 1 hour ago';
 const ALLOWED = [1, 2] as const;
+/** An entity this NerdGraph answers honestly: the only way to reach the success path of the composite tools. */
+const honest = (account: number, domain = 'APM', type = 'APPLICATION') =>
+  guidOf(account, HONEST_ID, domain, type);
 
 const GUID_CASES: Readonly<Record<string, readonly ToolCall[]>> = {
   whoami: [{ args: {}, expect: 'ok' }],
@@ -107,6 +110,7 @@ const GUID_CASES: Readonly<Record<string, readonly ToolCall[]>> = {
     { args: { entity_guid: guidOf(FOREIGN) }, expect: 'refused', offline: true },
     { args: { entity_guid: guidOf(3) }, expect: 'refused', offline: true },
     { args: { entity_guid: guidOf(1) }, expect: 'refused' },
+    { args: { entity_guid: honest(1) }, expect: 'ok' },
   ],
   list_top_transactions: [
     { args: { entity_guid: guidOf(FOREIGN) }, expect: 'refused', offline: true },
@@ -158,7 +162,10 @@ const GUID_CASES: Readonly<Record<string, readonly ToolCall[]>> = {
   ],
   get_dashboard: [
     { args: { entity_guid: guidOf(FOREIGN) }, expect: 'refused', offline: true },
+    { args: { entity_guid: guidOf(FOREIGN, 'x', 'VIZ', 'DASHBOARD') }, expect: 'refused', offline: true },
+    { args: { entity_guid: guidOf(3, 'x', 'VIZ', 'DASHBOARD') }, expect: 'refused', offline: true },
     { args: { entity_guid: guidOf(1) }, expect: 'refused' },
+    { args: { entity_guid: honest(1, 'VIZ', 'DASHBOARD') }, expect: 'ok' },
   ],
   generate_alert_insights_report: [
     { args: { issue_id: 'issue-alpha-issue', account: FOREIGN }, expect: 'refused', offline: true },
@@ -183,6 +190,7 @@ const GUID_CASES: Readonly<Record<string, readonly ToolCall[]>> = {
     { args: { trace_id: 'abcdef0123456789', account: FOREIGN }, expect: 'refused', offline: true },
     { args: { trace_id: 'abcdef0123456789', account: 3 }, expect: 'refused', offline: true },
     { args: { error_group_id: 'eg-1', entity_guid: guidOf(FOREIGN) }, expect: 'refused', offline: true },
+    { args: { error_group_id: 'eg-1', entity_guid: guidOf(3) }, expect: 'refused', offline: true },
     { args: { trace_id: 'abcdef0123456789', account: 1 }, expect: 'ok' },
   ],
   dependency_health: [
@@ -190,11 +198,13 @@ const GUID_CASES: Readonly<Record<string, readonly ToolCall[]>> = {
     { args: { entity_guid: guidOf(3) }, expect: 'refused', offline: true },
     // NerdGraph answers the entity's own golden metrics with an entity in the foreign account: fails closed.
     { args: { entity_guid: guidOf(1) }, expect: 'refused' },
+    { args: { entity_guid: honest(1) }, expect: 'ok' },
   ],
   entity_health: [
     { args: { entity_guid: guidOf(FOREIGN) }, expect: 'refused', offline: true },
     { args: { entity_guid: guidOf(3) }, expect: 'refused', offline: true },
     { args: { entity_guid: guidOf(1) }, expect: 'refused' },
+    { args: { entity_guid: honest(1) }, expect: 'ok' },
   ],
   get_entity: [
     { args: { entity_guid: guidOf(FOREIGN) }, expect: 'refused', offline: true },
@@ -389,6 +399,22 @@ describe('tool isolation against a hostile NerdGraph', () => {
     expect(s.events.map((x) => x.id)).toEqual(['alpha-change']);
     expect(s.hiddenOutsideScope).toBe(true);
     expect(JSON.stringify(r)).not.toContain(LEAK);
+  });
+
+  it('monitors and dashboards of other accounts or with a forged GUID are dropped and flagged', async () => {
+    const client = await isoClient();
+    const monitors = await client.callTool({
+      name: 'list_synthetic_monitors',
+      arguments: { account: 1 },
+    });
+    const m = monitors.structuredContent as { monitors: { name: string }[]; hiddenOutsideScope: boolean };
+    expect(m.monitors.map((x) => x.name)).toEqual(['alpha-monitor-1']);
+    expect(m.hiddenOutsideScope).toBe(true);
+    const dashboards = await client.callTool({ name: 'list_dashboards', arguments: { account: 1 } });
+    const d = dashboards.structuredContent as { dashboards: { name: string }[]; hiddenOutsideScope: boolean };
+    expect(d.dashboards.map((x) => x.name)).toEqual(['alpha-dash-1']);
+    expect(d.hiddenOutsideScope).toBe(true);
+    expect(JSON.stringify([monitors, dashboards])).not.toContain(LEAK);
   });
 
   it('list tools return only allowed accounts and entities, and say what was left out', async () => {

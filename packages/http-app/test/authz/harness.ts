@@ -91,6 +91,16 @@ const entity = (account: number, name: string, guid = guidOf(account, name)) => 
   },
 });
 
+/** An entity id that this NerdGraph answers honestly (the entity really is in the GUID's account): a success path. */
+export const HONEST_ID = 'honest';
+const isHonest = (guid: unknown): boolean => {
+  try {
+    return decodeEntityGuid(String(guid)).domainId === HONEST_ID;
+  } catch {
+    return false;
+  }
+};
+
 const vertex = (account: number, name: string, guid = guidOf(account, name)) => ({
   guid,
   accountId: account,
@@ -275,6 +285,18 @@ export function hostileNerdGraph(tenants: Readonly<Record<string, string>>): Hos
           });
         // A dashboard in the foreign account behind an allowed account's GUID.
         case 'RbDashboard':
+          if (isHonest(variables['guid'])) {
+            return ok({
+              actor: {
+                entity: {
+                  ...entity(guidAccount(), `${label}-dashboard`, String(variables['guid'])),
+                  domain: 'VIZ',
+                  type: 'DASHBOARD',
+                  pages: [],
+                },
+              },
+            });
+          }
           return ok({
             actor: {
               entity: {
@@ -328,7 +350,15 @@ export function hostileNerdGraph(tenants: Readonly<Record<string, string>>): Hos
                 relatedEntities: {
                   nextCursor: null,
                   results: [
-                    { type: 'CALLS', source: self, target: vertex(2, `${label}-rel`) },
+                    {
+                      type: 'CALLS',
+                      source: self,
+                      target: vertex(
+                        2,
+                        `${label}-rel`,
+                        isHonest(variables['guid']) ? guidOf(2, HONEST_ID) : undefined,
+                      ),
+                    },
                     {
                       type: 'CALLS',
                       source: self,
@@ -470,8 +500,25 @@ export function hostileNerdGraph(tenants: Readonly<Record<string, string>>): Hos
         // A single entity in the foreign account behind an allowed account's GUID.
         case 'RbEntity':
         case 'RbGoldenMetrics':
+          if (isHonest(variables['guid'])) {
+            return ok({
+              actor: { entity: entity(guidAccount(), `${label}-honest`, String(variables['guid'])) },
+            });
+          }
           return ok({ actor: { entity: entity(FOREIGN, `${LEAK}-entity`, String(variables['guid'])) } });
         case 'RbEntityDeployments':
+          if (isHonest(variables['guid'])) {
+            return ok({
+              actor: {
+                entity: {
+                  ...entity(guidAccount(), `${label}-honest`, String(variables['guid'])),
+                  deploymentSearch: {
+                    results: [{ deploymentId: 'd-1', version: '9', timestamp: 1790338700000 }],
+                  },
+                },
+              },
+            });
+          }
           return ok({
             actor: {
               entity: {

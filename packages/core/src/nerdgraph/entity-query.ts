@@ -106,7 +106,7 @@ export interface EntityQueryTag {
   (strings: TemplateStringsArray, ...values: EntityQueryValue[]): EntitySearchQuery;
   /** `tags.<key>`, for a key from the strict charset. Anything else → RB_INPUT_INVALID. */
   tag(key: string): EntityTagKey;
-  /** Join finished filters with AND. An empty list gives an empty filter (every entity). */
+  /** Join finished filters with AND; a part containing OR is parenthesised. An empty list gives an empty filter (every entity). */
   and(parts: readonly EntitySearchQuery[]): EntitySearchQuery;
 }
 
@@ -128,6 +128,10 @@ export const entityQuery: EntityQueryTag = Object.assign(tag, {
     for (const p of parts) {
       if (!isEntitySearchQuery(p)) throw invalid('entityQuery.and takes only entityQuery values.');
     }
-    return make(parts.map((p) => p.text).join(' AND '));
+    // A part with an OR operator (outside quoted values) is parenthesised, so it cannot widen the others. Other parts
+    // stay bare: the queries measured in P0-09 and sent by every tool keep their exact shape.
+    const hasOr = (text: string) => /\bOR\b/i.test(text.replace(/'(?:[^'\\]|\\.)*'/g, "''"));
+    const nonEmpty = parts.filter((p) => p.text !== '');
+    return make(nonEmpty.map((p) => (hasOr(p.text) ? `(${p.text})` : p.text)).join(' AND '));
   },
 });

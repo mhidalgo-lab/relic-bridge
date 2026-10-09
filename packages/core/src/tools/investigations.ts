@@ -983,7 +983,7 @@ export function createInvestigationTools(deps: ToolDeps = {}): ToolDefinition[] 
           `${count('ok')} section(s) complete` +
           `${count('partial') ? `, ${count('partial')} partial` : ''}` +
           `${count('error') ? `, ${count('error')} failed` : ''}` +
-          `${count('skipped') ? `, ${count('skipped')} skipped (budget)` : ''}.` +
+          `${count('skipped') ? `, ${count('skipped')} skipped (budget or grant, see the section notes)` : ''}.` +
           `${signals.length ? ` ${signals.length} signal(s), below.` : ''}` +
           `${partial ? ' Partial summary: see the section notes.' : ''}`,
       ];

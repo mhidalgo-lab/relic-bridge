@@ -701,3 +701,14 @@ Source: <https://docs.github.com/en/rest/apps/oauth-applications#delete-an-app-t
   sessions under concurrent `/token` requests (<https://github.com/PrefectHQ/fastmcp/issues/4901>).
 - relic-bridge (ADR-0013) is narrower than both: the replay returns the **same** successor pair (no new token per
   reuse), only while that successor is still current, only for the same client, ≤ 120 s.
+
+## 22. NRQL LIKE escapes and comment markers in identifiers (P6-23, NOT measured)
+
+Two facts the code relies on were not verified live because the run had no New Relic key:
+
+- `likePattern` (`tools/apm.ts`) escapes `%` and `_` with a backslash. Whether NRQL `LIKE` treats `\_` / `\%` as literals
+  is unconfirmed; if it does not, a value with `_` matches by wildcard (wider, never a leak) or nothing.
+- `nrql.identifier` allows `--`, `//` and `/*` inside backticks. Only `get_attributes` `event_type` takes a user value.
+
+`pnpm test:live` now carries one probe for each (`packages/core/test/live/nerdgraph.live.ts`). Run it with
+`RB_LIVE_API_KEY` / `RB_LIVE_ACCOUNT_ID`, then replace this section with the measured result.

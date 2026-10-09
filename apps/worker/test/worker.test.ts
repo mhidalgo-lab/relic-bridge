@@ -463,9 +463,11 @@ describe('Self-monitoring (P7-08)', () => {
     await client.callTool({ name: 'whoami', arguments: {} });
     await client.close();
     await ctx.settle();
-    expect(sent.map((s) => s.path).sort()).toEqual(['/v1/metrics', '/v1/traces']);
+    // P7-18: the request log lines (allowlisted) ride along with the first call's export.
+    expect(sent.map((s) => s.path).sort()).toEqual(['/v1/logs', '/v1/metrics', '/v1/traces']);
     expect(sent.every((s) => s.key === 'fake-license-key')).toBe(true);
     expect(sent.map((s) => s.body).join('')).not.toContain('a@example.com');
+    expect(sent.map((s) => s.body).join('')).not.toContain('fake-license-key');
   });
 
   it('fails the boot closed on RB_OTEL=on without an endpoint', async () => {

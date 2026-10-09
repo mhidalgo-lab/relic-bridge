@@ -638,6 +638,8 @@ export async function startServer(options: StartServerOptions): Promise<RunningS
           endpoint: settings.telemetry.endpoint,
           headers: settings.telemetry.headers,
           traceSampleRate: settings.telemetry.traceSampleRate,
+          acceptTraceparent: settings.telemetry.acceptTraceparent,
+          logFlushIntervalMs: 5000,
           runtime: 'node',
           logger,
         });
@@ -649,7 +651,8 @@ export async function startServer(options: StartServerOptions): Promise<RunningS
   const app = createHttpApp({
     storage,
     keyring,
-    logger,
+    // With telemetry on, the request logs are also exported as OTLP logs (allowlisted).
+    logger: telemetry === undefined ? logger : telemetry.wrapLogger(logger),
     allowedHosts: settings.allowedHosts,
     ...(settings.allowedOrigins === undefined ? {} : { allowedOrigins: settings.allowedOrigins }),
     corsOrigins: settings.corsOrigins,
@@ -768,6 +771,7 @@ export async function startServer(options: StartServerOptions): Promise<RunningS
     url,
     close: () => {
       clearInterval(purgeTimer);
+      telemetry?.close();
       closing ??= (async () => {
         await new Promise<void>((resolve) => {
           server.close(() => resolve());
@@ -776,6 +780,7 @@ export async function startServer(options: StartServerOptions): Promise<RunningS
           setTimeout(() => server.closeAllConnections(), 5_000).unref();
         });
         await storage.close();
+        await telemetry?.flush();
       })();
       return closing;
     },

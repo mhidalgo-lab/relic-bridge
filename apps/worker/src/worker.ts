@@ -370,6 +370,7 @@ async function boot(env: WorkerEnv, options: WorkerOptions): Promise<Runtime> {
           endpoint: telemetryConfig.endpoint,
           headers: telemetryConfig.headers,
           traceSampleRate: telemetryConfig.traceSampleRate,
+          acceptTraceparent: telemetryConfig.acceptTraceparent,
           runtime: 'workers',
           logger: log,
           ...(options.telemetryFetch === undefined ? {} : { fetch: options.telemetryFetch }),
@@ -389,7 +390,8 @@ async function boot(env: WorkerEnv, options: WorkerOptions): Promise<Runtime> {
   const app = createHttpApp({
     storage,
     keyring,
-    logger: log,
+    // With telemetry on, the request logs are also exported as OTLP logs (allowlisted; flushed with the next call).
+    logger: telemetry === undefined ? log : telemetry.wrapLogger(log),
     allowedHosts: settings.allowedHosts,
     ...(settings.allowedOrigins === undefined ? {} : { allowedOrigins: settings.allowedOrigins }),
     corsOrigins: settings.corsOrigins,

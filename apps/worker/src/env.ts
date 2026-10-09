@@ -44,6 +44,8 @@ export interface WorkerVars {
   readonly RB_OTEL_ENDPOINT?: string;
   /** Share of tool calls exported as traces, 0-1 (default 1). */
   readonly RB_OTEL_SAMPLE?: string;
+  /** `on`: spans join an inbound W3C `traceparent` (P7-18). Default off. */
+  readonly RB_OTEL_TRACEPARENT?: string;
   readonly RB_PASSTHROUGH?: string;
   /** Opt-in write tools (P7-09, docs/adr/0015-opt-in-write-tools.md): `on` / `off` (default off); needs RB_AUDIT=on. */
   readonly RB_WRITE_TOOLS?: string;

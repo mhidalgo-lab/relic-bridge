@@ -14,7 +14,7 @@
 
 import type { CallToolResult } from '@modelcontextprotocol/server';
 import { toCallToolResult } from './call-result.ts';
-import type { ToolContext } from './context.ts';
+import { budgetUsage, type ToolContext } from './context.ts';
 import { ERROR_META_KEY, ErrorCode, isRbError, RbError, toToolErrorResult } from './errors.ts';
 import type { ToolCallEvent } from './server.ts';
 import type { ToolDefinition, ToolOutput } from './tool.ts';
@@ -366,6 +366,7 @@ async function resume(ctx: ToolContext, record: TaskRecord, options: ResumeOptio
         durationMs: Math.max(0, ctx.clock.now() - started),
         input: { task: true },
         meta,
+        ...budgetUsage(ctx),
       });
     } catch {
       // an observer never changes a result

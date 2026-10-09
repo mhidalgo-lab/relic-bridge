@@ -2,7 +2,7 @@
 import { type CallToolResult, McpServer, type StandardSchemaWithJSON } from '@modelcontextprotocol/server';
 import { clientAppsSupport, toolUiMeta } from './apps/index.ts';
 import { toCallToolResult } from './call-result.ts';
-import type { ToolContext } from './context.ts';
+import { budgetUsage, type ToolContext } from './context.ts';
 import { ERROR_META_KEY, toToolErrorResult } from './errors.ts';
 import { type PromptDefinition, promptConfig, renderPrompt, selectPrompts } from './prompts.ts';
 import { withoutDialect } from './registry.ts';
@@ -22,6 +22,9 @@ export interface ToolCallEvent {
   readonly input: unknown;
   /** `_meta` of a successful result (e.g. `relic-bridge/result`: NRQL run, accounts, inspected count). */
   readonly meta: Readonly<Record<string, unknown>> | undefined;
+  /** NerdGraph attempts and response bytes this call used (P7-18); absent when the budget does not count them. */
+  readonly nerdgraphCalls?: number;
+  readonly nerdgraphBytes?: number;
 }
 
 export interface ServerInfo {
@@ -190,6 +193,7 @@ export function buildMcpServer({
           durationMs: Math.max(0, ctx.clock.now() - started),
           input,
           meta,
+          ...budgetUsage(ctx),
         });
       } catch {
         // an observer never changes a tool result

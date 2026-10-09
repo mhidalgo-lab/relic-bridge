@@ -9,6 +9,8 @@ import {
   parseOtlpEndpoint,
   parseOtlpHeaders,
   parseSampleRate,
+  parseTraceparent,
+  TELEMETRY_LOG_BUFFER,
   TelemetryConfigError,
   telemetrySettingsFromEnv,
 } from '../src/index.ts';
@@ -94,7 +96,16 @@ describe('OTLP export', () => {
       expect(s.traceId).toMatch(/^[0-9a-f]{32}$/);
       expect(s.spanId).toMatch(/^[0-9a-f]{16}$/);
       const keys = s.attributes.map((a: { key: string }) => a.key);
-      for (const k of keys) expect(['tool', 'status', 'error.code', 'project', 'mode']).toContain(k);
+      for (const k of keys)
+        expect([
+          'tool',
+          'status',
+          'error.code',
+          'project',
+          'mode',
+          'nerdgraph.calls',
+          'nerdgraph.response_bytes',
+        ]).toContain(k);
     }
     expect(received[0]?.headers['api-key']).toBe(LICENSE);
 
@@ -249,6 +260,7 @@ describe('configuration', () => {
       endpoint: 'https://otlp.example.com:4318',
       headers: { 'api-key': 'abc=' },
       traceSampleRate: 0.25,
+      acceptTraceparent: false,
     });
   });
 
@@ -278,5 +290,221 @@ describe('configuration', () => {
     expect(parseSampleRate('off')).toBe(0);
     expect(() => parseSampleRate('2')).toThrow(TelemetryConfigError);
     expect(() => parseSampleRate('x')).toThrow(TelemetryConfigError);
+  });
+});
+
+const EVENT = {
+  tool: 'whoami',
+  status: 'ok',
+  errorCode: null,
+  durationMs: 5,
+  input: {},
+  meta: undefined,
+} as const;
+
+// biome-ignore lint/suspicious/noExplicitAny: test inspects raw OTLP JSON
+const bodies = (path: string): any[] =>
+  received.filter((r) => r.path === path).map((r) => JSON.parse(r.body));
+
+describe('budget usage (P7-18)', () => {
+  it('exports NerdGraph calls and bytes per tool call as low-cardinality counters, and on the span', async () => {
+    const t = createTelemetry({ endpoint: base, fetch: receiverFetch });
+    await t.hooks.onToolCall?.({} as never, { projectSlug: 'prod' } as never, {
+      ...EVENT,
+      nerdgraphCalls: 3,
+      nerdgraphBytes: 4096,
+    });
+    const metrics = bodies('/v1/metrics')[0].resourceMetrics[0].scopeMetrics[0].metrics;
+    const byName = Object.fromEntries(metrics.map((m: { name: string }) => [m.name, m]));
+    expect(byName['relic_bridge.nerdgraph.calls'].sum.dataPoints[0].asInt).toBe('3');
+    expect(byName['relic_bridge.nerdgraph.response_bytes'].sum.dataPoints[0].asInt).toBe('4096');
+    expect(byName['relic_bridge.nerdgraph.response_bytes'].unit).toBe('By');
+    const keys = byName['relic_bridge.nerdgraph.calls'].sum.dataPoints[0].attributes.map(
+      (a: { key: string }) => a.key,
+    );
+    expect(keys).toEqual(['tool', 'status', 'project', 'mode']);
+    const span = bodies('/v1/traces')[0].resourceSpans[0].scopeSpans[0].spans[0];
+    expect(span.attributes).toContainEqual({ key: 'nerdgraph.calls', value: { intValue: '3' } });
+  });
+
+  it('ignores missing or hostile usage numbers', async () => {
+    const t = createTelemetry({ endpoint: base, fetch: receiverFetch, traceSampleRate: 0 });
+    await t.hooks.onToolCall?.({} as never, { projectSlug: 'prod' } as never, {
+      ...EVENT,
+      nerdgraphCalls: Number.NaN,
+      nerdgraphBytes: -5,
+    });
+    expect(received[0]?.body).not.toContain('nerdgraph');
+  });
+
+  it('counts calls and bytes on a real tool call through the app', async () => {
+    const app = appWith();
+    const client = await connect(app, 'prod', world.tokens.prod, 'modern');
+    await client.callTool({ name: 'whoami', arguments: {} });
+    await client.close();
+    await vi.waitFor(() => expect(bodies('/v1/metrics').length).toBe(1));
+    const names = bodies('/v1/metrics')[0].resourceMetrics[0].scopeMetrics[0].metrics.map(
+      (m: { name: string }) => m.name,
+    );
+    expect(names).toContain('relic_bridge.nerdgraph.calls');
+    expect(names).toContain('relic_bridge.nerdgraph.response_bytes');
+  });
+});
+
+describe('OTLP logs (P7-18)', () => {
+  it('exports only allowlisted, pattern-checked fields; secrets and free text never leave', async () => {
+    const t = createTelemetry({ endpoint: base, fetch: receiverFetch });
+    const log = t.wrapLogger(createLogger({ level: 'debug', sink: (l) => logLines.push(l) }));
+    log.debug('tool ok', { ms: 3 });
+    log.info('tool error', {
+      tool: 'run_nrql',
+      code: 'RB_NRQL_INVALID',
+      ms: 12,
+      nrql: "SELECT * FROM Log WHERE user = 'victim@example.com'",
+      apiKey: NR_KEY,
+      error: 'x; DROP TABLE',
+      email: 'victim@example.com',
+    });
+    log.child({ tool: 'whoami', token: world.tokens.prod }).warn(`bad token ${world.tokens.prod}`);
+    log.warn('user victim@example.com signed in');
+    log.error('NerdGraph said: SELECT secret');
+    log.info('telemetry export failed; pausing exports');
+    await t.flush();
+    const records = bodies('/v1/logs').flatMap((b) => b.resourceLogs[0].scopeLogs[0].logRecords);
+    expect(records.map((r: { severityText: string }) => r.severityText)).toEqual([
+      'INFO',
+      'WARN',
+      'WARN',
+      'ERROR',
+    ]);
+    expect(records[0].body.stringValue).toBe('tool error');
+    expect(records[0].attributes).toEqual([
+      { key: 'log.tool', value: { stringValue: 'run_nrql' } },
+      { key: 'log.code', value: { stringValue: 'RB_NRQL_INVALID' } },
+      { key: 'log.ms', value: { intValue: '12' } },
+      { key: 'log.error', value: { stringValue: 'other' } },
+    ]);
+    expect(records[1].body.stringValue).toBe('other');
+    expect(records[2].body.stringValue).toBe('other');
+    expect(records[3].body.stringValue).toBe('other');
+    const dump = received.map((r) => r.body).join('\n');
+    for (const forbidden of ['SELECT', 'victim', 'DROP', NR_KEY, world.tokens.prod]) {
+      expect(dump).not.toContain(forbidden);
+    }
+  });
+
+  it('keeps writing the wrapped logger unchanged and bounds the buffer', async () => {
+    const t = createTelemetry({ endpoint: base, fetch: receiverFetch });
+    const log = t.wrapLogger(createLogger({ sink: (l) => logLines.push(l) }));
+    for (let i = 0; i < 350; i++) log.info('purged');
+    expect(logLines.length).toBe(350);
+    await t.flush();
+    const n = bodies('/v1/logs').reduce((a, b) => a + b.resourceLogs[0].scopeLogs[0].logRecords.length, 0);
+    expect(n).toBe(TELEMETRY_LOG_BUFFER);
+  });
+
+  it('flushes with the next tool call, and a failing collector does not re-export its own warning', async () => {
+    up = false;
+    const t = createTelemetry({ endpoint: base, fetch: receiverFetch, logger: logger() });
+    const log = t.wrapLogger(logger());
+    log.info('housekeeping done');
+    await t.hooks.onToolCall?.({} as never, { projectSlug: 'prod' } as never, EVENT);
+    up = true;
+    t.close();
+    expect(received).toEqual([]);
+  });
+
+  it('exports logs alongside a tool call when the collector is up', async () => {
+    const t = createTelemetry({ endpoint: base, fetch: receiverFetch });
+    t.wrapLogger(silentLoggerFor()).info('housekeeping done');
+    await t.hooks.onToolCall?.({} as never, { projectSlug: 'prod' } as never, EVENT);
+    expect(received.map((r) => r.path).sort()).toEqual(['/v1/logs', '/v1/metrics', '/v1/traces']);
+  });
+});
+
+function silentLoggerFor() {
+  return createLogger({ sink: () => undefined });
+}
+
+describe('trace context (P7-18)', () => {
+  const TRACE = '4bf92f3577b34da6a3ce929d0e0e4736';
+  const PARENT = '00f067aa0ba902b7';
+  const ctx = (value: string | undefined) =>
+    ({ req: { header: (n: string) => (n === 'traceparent' ? value : undefined) } }) as never;
+
+  it('parses only a strict version 00 header', () => {
+    expect(parseTraceparent(`00-${TRACE}-${PARENT}-01`)).toEqual({ traceId: TRACE, spanId: PARENT });
+    for (const bad of [
+      undefined,
+      '',
+      `01-${TRACE}-${PARENT}-01`,
+      `00-${TRACE.toUpperCase()}-${PARENT}-01`,
+      `00-${'0'.repeat(32)}-${PARENT}-01`,
+      `00-${TRACE}-${'0'.repeat(16)}-01`,
+      `00-${TRACE}-${PARENT}-01-extra`,
+      `00-${TRACE}-${PARENT}`,
+      `00-${TRACE}-${PARENT}-0g`,
+      `00-${TRACE}-${PARENT}-01\n`,
+    ]) {
+      expect(parseTraceparent(bad)).toBeUndefined();
+    }
+  });
+
+  it('is ignored unless enabled', async () => {
+    const t = createTelemetry({ endpoint: base, fetch: receiverFetch });
+    await t.hooks.onToolCall?.(ctx(`00-${TRACE}-${PARENT}-01`), { projectSlug: 'prod' } as never, EVENT);
+    const span = bodies('/v1/traces')[0].resourceSpans[0].scopeSpans[0].spans[0];
+    expect(span.traceId).not.toBe(TRACE);
+    expect(span.parentSpanId).toBeUndefined();
+  });
+
+  it('joins the client trace when enabled, and falls back to a fresh trace for a bad header', async () => {
+    const t = createTelemetry({ endpoint: base, fetch: receiverFetch, acceptTraceparent: true });
+    await t.hooks.onToolCall?.(ctx(`00-${TRACE}-${PARENT}-01`), { projectSlug: 'prod' } as never, EVENT);
+    await t.hooks.onPassthroughToolCall?.(ctx('garbage'), {} as never, EVENT);
+    const spans = bodies('/v1/traces').map((b) => b.resourceSpans[0].scopeSpans[0].spans[0]);
+    expect(spans[0].traceId).toBe(TRACE);
+    expect(spans[0].parentSpanId).toBe(PARENT);
+    expect(spans[1].traceId).toMatch(/^[0-9a-f]{32}$/);
+    expect(spans[1].traceId).not.toBe(TRACE);
+    expect(spans[1].parentSpanId).toBeUndefined();
+  });
+
+  it('never changes a response, and is not forwarded to NerdGraph', async () => {
+    const nerdgraph = mockNerdGraph();
+    const seenHeaders: string[] = [];
+    const spy: FetchLike = (url, init) => {
+      seenHeaders.push(JSON.stringify([...new Headers(init.headers).entries()]));
+      return nerdgraph.fetch(url, init);
+    };
+    const telemetry = createTelemetry({
+      endpoint: base,
+      fetch: receiverFetch,
+      acceptTraceparent: true,
+    });
+    const app = createHttpApp({
+      storage: world.storage,
+      keyring: world.keyring,
+      clock: world.clock,
+      logger: logger(),
+      fetch: spy,
+      hooks: mergeHooks(telemetry.hooks),
+    });
+    const withHeader = {
+      fetch: (req: Request) => {
+        const headers = new Headers(req.headers);
+        headers.set('traceparent', `00-${TRACE}-${PARENT}-01`);
+        return app.fetch(new Request(req, { headers }));
+      },
+    };
+    const client = await connect(withHeader, 'prod', world.tokens.prod, 'modern');
+    const out = await client.callTool({ name: 'whoami', arguments: {} });
+    await client.close();
+    expect(out.isError).toBeFalsy();
+    await vi.waitFor(() => expect(bodies('/v1/traces').length).toBe(1));
+    expect(bodies('/v1/traces')[0].resourceSpans[0].scopeSpans[0].spans[0].traceId).toBe(TRACE);
+    expect(seenHeaders.length).toBeGreaterThan(0);
+    expect(seenHeaders.join('')).not.toMatch(/traceparent|tracestate/);
+    expect(seenHeaders.join('')).not.toContain(TRACE);
   });
 });

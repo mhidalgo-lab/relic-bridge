@@ -13,6 +13,7 @@ export {
 export {
   type AccountScope,
   type Budget,
+  budgetUsage,
   type Clock,
   type ConnectionInfo,
   type Credential,

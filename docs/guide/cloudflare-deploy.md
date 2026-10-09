@@ -26,21 +26,34 @@ The script:
 2. deploys using `apps/worker/wrangler.local.jsonc`, a git-ignored copy of `wrangler.jsonc`, so Wrangler creates the D1
    and KV resources and records their ids in the copy, not in a committed file. Another `--name` gets its own copy
    (`wrangler.<name>.local.jsonc`) and its own D1 database named after the Worker, so a staging Worker never binds to
-   the production database;
+   the production database, and its own Rate Limiting namespace (two Workers on one account would otherwise share the
+   `1701` counters);
 3. prints the Worker URL and the next steps.
 
 The two secrets are **shown once**, right after they are set (before the deploy, so a failed deploy doesn't lose them). Save them in a password manager. If you lose `RB_MASTER_KEY`, stored New
 Relic keys can't be decrypted and you must re-add them. `--backup-file <path>` also writes them to a new file with mode
 0600 (never overwrites: an existing path is refused before anything is generated, and a failed write is reported
 after the secrets were shown); it is off by default, and you should move it to your password manager and delete it.
-Pick a path outside the repository (only `.env` files are git-ignored), and note that Windows ignores the mode.
+Pick a path outside the repository (only `.env` files are git-ignored; the script warns when the path is inside it),
+and note that Windows ignores the mode.
 
 Other options: `--name <worker>` (default `relic-bridge`), `--passthrough` (also generates `RB_FINGERPRINT_SECRET` and
 sets `RB_PASSTHROUGH=on`), `--assume-new` (see below).
 
 **Re-running is safe.** Secrets that already exist are kept, never regenerated (a new master key would orphan every
 stored credential), so you can re-run the script to redeploy after `git pull`. If Wrangler can't tell whether the Worker
-exists (network or login problem), the script stops instead of guessing; pass `--assume-new` only for a first deploy.
+exists (network or login problem), the script stops instead of guessing; pass `--assume-new` only for a first deploy
+(it is refused when the Worker already has secrets). A Worker that has `RB_ADMIN_TOKEN` but no `RB_MASTER_KEY` is
+refused too: a new master key would orphan every stored New Relic key. Restore the original key, or pass
+`--replace-master-key` to accept that and re-add the credentials.
+
+`wrangler.local.jsonc` is never overwritten (it holds the provisioned ids and any edits of yours, such as a custom
+domain). On a re-run the script compares it with `wrangler.jsonc`, ignoring comments, whitespace and the ids, and
+**warns** when they differ, for example after a `git pull` added a binding or cron. Copy the new entries into the local
+file, keeping its ids; deleting it would make Wrangler provision new D1/KV resources.
+
+**Windows (PowerShell).** Everything above works the same (the script starts Wrangler with Node, no shell). Where the
+guide shows bash, use the PowerShell form given next to it.
 
 ## Path B: Deploy to Cloudflare button
 
@@ -51,6 +64,7 @@ Cloudflare copies the repository to your GitHub/GitLab account, provisions D1 an
 redeploy. Generate the values yourself first:
 
 ```sh
+# PowerShell: the same two commands work with double quotes outside and single quotes inside the script.
 node -e "console.log('v1:'+require('crypto').randomBytes(32).toString('base64'))"   # RB_MASTER_KEY
 node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"      # RB_ADMIN_TOKEN
 ```
@@ -85,6 +99,24 @@ done
 curl "$RB_REMOTE/health"        # {"status":"ok"}
 ```
 
+PowerShell (Windows PowerShell 5.1 or 7; use `node apps/cli/dist/index.mjs` for `relic-bridge` until the package is on
+npm, and `curl.exe` because `curl` is an alias of `Invoke-WebRequest`):
+
+```powershell
+$env:RB_REMOTE = "https://relic-bridge.<your-subdomain>.workers.dev"
+$env:RB_ADMIN_TOKEN = "..."                                # from the setup output (password manager)
+relic-bridge credential add --label main --region US
+relic-bridge project add --slug prod --default-account 1234567 --default-credential cred_...
+relic-bridge grant create --project prod --label prod-devices
+foreach ($d in "macbook","pc","w365") {
+  relic-bridge token create --grant grt_... --label $d --url $env:RB_REMOTE --client claude-code-powershell
+}
+curl.exe "$env:RB_REMOTE/health"
+```
+
+Use `--client claude-code-powershell` there: the default `claude-code` line is quoted for bash and zsh, and its
+`'\''` escaping is not valid in PowerShell. (The default prints every client, so each snippet is labelled.)
+
 Each `token create` prints its token **once** on stdout and a ready-to-paste `claude mcp add` line on stderr. Send each
 token to its device through a password manager. `RB_REMOTE` (or `--remote <url>` on any command) is what points the CLI at Cloudflare; without it the CLI manages a
 local SQLite file, not the Worker. (`init` ignores it on purpose: it only creates local state.)
@@ -96,6 +128,15 @@ claude mcp add --transport http --scope user relic-bridge-prod \
   https://relic-bridge.<your-subdomain>.workers.dev/p/prod/mcp \
   --header "Authorization: Bearer rb_live_<token for this device>"
 claude mcp list                  # relic-bridge-prod ... connected
+```
+
+PowerShell:
+
+```powershell
+claude mcp add --transport http --scope user relic-bridge-prod `
+  https://relic-bridge.<your-subdomain>.workers.dev/p/prod/mcp `
+  --header 'Authorization: Bearer rb_live_<token for this device>'
+claude mcp list
 ```
 
 To keep the token out of `~/.claude.json`, use `${RELIC_BRIDGE_TOKEN}` in the header and set that variable per device

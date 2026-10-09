@@ -44,7 +44,7 @@ the key is valid.
 ```text
 relic-bridge init [--db <path>] [--master-key-file <path>] [--label <l> --region US|EU|JP [key source]]
                   [--slug <s> --default-account <id> --accounts 1,2] [--device <name>] [--url <https://host>]
-                  [--client claude-code|claude-desktop|cursor|vscode|all] [--no-config]
+                  [--client claude-code|claude-code-powershell|claude-desktop|cursor|vscode|all] [--no-config]
 relic-bridge admin-token generate
 relic-bridge user add --email <e> [--name <n>] [--role owner|admin|member] | user list [--limit <n>]
 relic-bridge credential add --label <l> --region US|EU|JP [--owner <user id>] [key source]
@@ -56,7 +56,7 @@ relic-bridge grant create --project <slug|id> [--user <id>] [--label <l>] [--cre
                   [--accounts 1,2] [--expires-in-days <n>]
 relic-bridge grant list [--project <slug|id>] [--user <id>] [--limit <n>] | grant revoke <id>
 relic-bridge token create --grant <id> --label <device> [--ttl-days <n> | --never] [--url <https://host>]
-                  [--client claude-code|claude-desktop|cursor|vscode|all] [--no-config]
+                  [--client claude-code|claude-code-powershell|claude-desktop|cursor|vscode|all] [--no-config]
 relic-bridge token list [--grant <id>] [--limit <n>] | token revoke <id>
 relic-bridge audit tail [--limit <n>] [--follow] [--kind --action --status --project --user --grant --token-id --key-id --since --until]
 relic-bridge keys rotate --remote <url> [--batch-size <1-100>]

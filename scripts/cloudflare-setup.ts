@@ -13,7 +13,7 @@
 import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export interface SetupOptions {
@@ -25,6 +25,8 @@ export interface SetupOptions {
   assumeNew: boolean;
   /** Also write the generated secrets to this file (created 0600, never overwritten). Off by default. */
   backupFile: string | undefined;
+  /** Allow generating a new RB_MASTER_KEY although the Worker already has RB_ADMIN_TOKEN (orphans stored keys). */
+  replaceMasterKey: boolean;
 }
 
 export interface WranglerResult {
@@ -45,6 +47,8 @@ export interface SetupDeps {
   reveal: (line: string) => void;
   /** Worker directory (holds wrangler.jsonc). */
   workerDir: string;
+  /** Repository root, to warn when `--backup-file` would land inside the working tree. */
+  repoRoot?: string;
   fs: {
     exists: (path: string) => boolean;
     read: (path: string) => string;
@@ -71,9 +75,33 @@ export function localConfigName(name: string): string {
 export function localConfigFor(committed: string, name: string): string {
   if (name === DEFAULT_NAME) return committed;
   const re = /"database_name":\s*"relic-bridge"/;
+  const ns = /("namespace_id":\s*)"1701"/;
   if (!re.test(committed))
     throw new SetupError('wrangler.jsonc has no relic-bridge D1 database_name to rename');
-  return committed.replace(re, `"database_name": "${name}"`);
+  if (!ns.test(committed))
+    throw new SetupError('wrangler.jsonc has no ratelimits namespace_id "1701" to rename');
+  return committed.replace(re, `"database_name": "${name}"`).replace(ns, `$1"${rateLimitNamespace(name)}"`);
+}
+
+/** Cloudflare wants an account-unique integer string; derive one from the Worker name (FNV-1a), 1701 for the default. */
+export function rateLimitNamespace(name: string): string {
+  if (name === DEFAULT_NAME) return '1701';
+  let h = 0x811c9dc5;
+  for (const ch of name) h = Math.imul(h ^ ch.charCodeAt(0), 0x01000193) >>> 0;
+  return String(1_000_000 + (h % 8_000_000_000));
+}
+
+/**
+ * Comparable form of a wrangler config: comments, whitespace and the ids Wrangler writes on provisioning
+ * (`database_id`, KV `id`) removed. Equal forms mean a `git pull` changed nothing the local copy lacks.
+ */
+export function normalizeConfig(text: string): string {
+  return text
+    .replace(/(^|\s)\/\/.*$/gm, '')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/"(database_id|id)"\s*:\s*"[^"]*"\s*,?/g, '')
+    .replace(/,\s*([}\]])/g, '$1')
+    .replace(/\s+/g, '');
 }
 const WORKER_NAME_RE = /^[a-z0-9][a-z0-9-]{0,62}$/;
 
@@ -85,6 +113,7 @@ export function parseArgs(argv: readonly string[]): SetupOptions | 'help' {
     dryRun: false,
     assumeNew: false,
     backupFile: undefined,
+    replaceMasterKey: false,
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i] as string;
@@ -102,6 +131,7 @@ export function parseArgs(argv: readonly string[]): SetupOptions | 'help' {
     } else if (a === '--passthrough') o.passthrough = true;
     else if (a === '--dry-run') o.dryRun = true;
     else if (a === '--assume-new') o.assumeNew = true;
+    else if (a === '--replace-master-key') o.replaceMasterKey = true;
     else if (a === '--backup-file') o.backupFile = value();
     else throw new SetupError(`unknown option ${a}`);
   }
@@ -119,7 +149,9 @@ Deploys relic-bridge to your Cloudflare account (run \`wrangler login\` first).
   --plan free|paid     RB_PLAN preset for NerdGraph limits (default free)
   --passthrough        Also generate RB_FINGERPRINT_SECRET and set RB_PASSTHROUGH=on
   --backup-file <path> Also write the generated secrets to a new file (mode 0600). Off by default.
-  --assume-new         First deploy: treat an unreadable secret list as "no Worker yet"
+  --assume-new         First deploy: treat an unreadable secret list as "no Worker yet" (refused if the Worker exists)
+  --replace-master-key Generate a new RB_MASTER_KEY although the Worker already has RB_ADMIN_TOKEN. DESTRUCTIVE:
+                       every stored New Relic key becomes undecryptable. Rarely what you want.
   --dry-run            Print what would happen; generates and sends nothing, calls no Cloudflare API
 `;
 
@@ -157,13 +189,19 @@ async function existingSecrets(
     try {
       const rows = JSON.parse(r.stdout) as unknown;
       if (Array.isArray(rows)) {
+        if (opts.assumeNew && rows.length > 0) {
+          throw new SetupError(
+            '--assume-new is for a first deploy, but this Worker already exists (it has secrets). Re-run without --assume-new.',
+          );
+        }
         return rows.flatMap((row) =>
           typeof row === 'object' && row !== null && typeof (row as { name?: unknown }).name === 'string'
             ? [(row as { name: string }).name]
             : [],
         );
       }
-    } catch {
+    } catch (e) {
+      if (e instanceof SetupError) throw e;
       // fall through to the refusal below
     }
     throw new SetupError("could not read the Worker's secret list; refusing to generate secrets blindly");
@@ -188,16 +226,34 @@ export async function runSetup(opts: SetupOptions, deps: SetupDeps): Promise<{ u
 
   if (opts.dryRun) {
     log('Dry run: nothing is generated, sent or deployed.');
-    log(`  1. copy wrangler.jsonc to ${localName} (git-ignored; Wrangler writes the D1/KV ids there)`);
+    log(
+      `  1. copy wrangler.jsonc to ${localName} (git-ignored; Wrangler writes the D1/KV ids there)` +
+        (opts.name === DEFAULT_NAME
+          ? ''
+          : `, with D1 database "${opts.name}" and rate-limit namespace ${rateLimitNamespace(opts.name)}`),
+    );
+    log('     on a re-run: warn when wrangler.jsonc changed (a new binding or cron) and the copy lacks it');
     log(
       `  2. generate ${wanted.join(', ')} for Worker "${opts.name}" and send them to \`wrangler secret bulk\` on stdin,`,
     );
-    log('     skipping any that already exist');
+    log(
+      '     skipping any that already exist; a missing RB_MASTER_KEY next to an existing RB_ADMIN_TOKEN is refused',
+    );
+    log('     unless --replace-master-key is given; --assume-new is refused if the Worker already exists');
     log(
       `  3. wrangler deploy --keep-vars (Wrangler provisions the D1 and KV resources; RB_PLAN=${opts.plan}${opts.passthrough ? ', RB_PASSTHROUGH=on' : ''})`,
     );
     log('  4. print next steps (the Worker applies its D1 migrations when it first boots)');
     return { url: undefined };
+  }
+
+  if (backupPath !== undefined && deps.repoRoot !== undefined) {
+    const rel = relative(resolve(deps.repoRoot), backupPath);
+    if (rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))) {
+      log(
+        `WARNING: ${opts.backupFile} is inside the repository. Only .env files are git-ignored: a different name could be committed. Prefer a path outside the repo.`,
+      );
+    }
   }
 
   // Before anything is generated: a backup file that can't be created must not cost the only copy of the secrets.
@@ -209,6 +265,18 @@ export async function runSetup(opts: SetupOptions, deps: SetupDeps): Promise<{ u
     const committed = deps.fs.read(join(deps.workerDir, 'wrangler.jsonc'));
     deps.fs.writeNew(localConfig, localConfigFor(committed, opts.name), 0o644);
     log(`Created ${localName} (git-ignored).`);
+  } else {
+    const wanted = normalizeConfig(
+      localConfigFor(deps.fs.read(join(deps.workerDir, 'wrangler.jsonc')), opts.name),
+    );
+    if (normalizeConfig(deps.fs.read(localConfig)) !== wanted) {
+      log(
+        `WARNING: ${localName} differs from wrangler.jsonc (a git pull may have added a binding, cron or setting that this deploy will not include, or you edited the copy on purpose, e.g. a custom domain).`,
+      );
+      log(
+        `  Compare the two files, copy new entries into ${localName} and keep its provisioned ids. Deleting the copy would make Wrangler provision new D1/KV resources.`,
+      );
+    }
   }
 
   const who = await deps.wrangler(['whoami']);
@@ -220,6 +288,17 @@ export async function runSetup(opts: SetupOptions, deps: SetupDeps): Promise<{ u
 
   const have = new Set(await existingSecrets(opts, deps, cfg));
   const missing = wanted.filter((n) => !have.has(n));
+  if (missing.includes('RB_MASTER_KEY') && have.has('RB_ADMIN_TOKEN')) {
+    if (!opts.replaceMasterKey) {
+      throw new SetupError(
+        'This Worker has RB_ADMIN_TOKEN but no RB_MASTER_KEY: a new master key would make every stored New Relic key undecryptable. ' +
+          'Restore the original key (`wrangler secret put RB_MASTER_KEY`), or pass --replace-master-key to accept losing the stored credentials and re-add them.',
+      );
+    }
+    log(
+      'WARNING: --replace-master-key: stored New Relic keys will be undecryptable; re-add them with `credential add`.',
+    );
+  }
   const generated = generateSecrets(missing, deps.random);
   if (missing.length > 0) {
     const r = await deps.wrangler(['secret', 'bulk', ...cfg], JSON.stringify(generated));
@@ -324,6 +403,7 @@ async function main(): Promise<number> {
       log: (l) => process.stderr.write(`${l}\n`),
       reveal: (l) => process.stdout.write(`${l}\n`),
       workerDir,
+      repoRoot: resolve(workerDir, '..', '..'),
       fs: {
         exists: existsSync,
         read: (p) => readFileSync(p, 'utf8'),

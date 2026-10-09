@@ -69,4 +69,4 @@ pnpm test:workers                                           # tests inside worke
 ```
 
 `wrangler dev` keeps its local D1 database under `apps/worker/.wrangler/` (git-ignored); delete that folder to start
-from an empty database. Deployment: [deployment guide](../../docs/guide/cloudflare-deploy.md) (`pnpm cf:setup`, which keeps provisioned ids in the git-ignored `wrangler.local.jsonc`).
+from an empty database. Deployment: [deployment guide](../../docs/guide/cloudflare-deploy.md) (`pnpm cf:setup`, which keeps provisioned ids in the git-ignored `wrangler.local.jsonc`, warns when it drifts from `wrangler.jsonc`, and gives each `--name` its own D1 database and Rate Limiting namespace).

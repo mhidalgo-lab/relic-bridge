@@ -2,7 +2,7 @@
 // Shared guards and helpers of the opt-in write tools (P7-09, P7-19, ADR-0015, THREAT_MODEL T6/T31): the explicit-grant
 // re-check, `confirm: true` / `dry_run`, secret refusal, a no-retry NerdGraph client and the audit record in `_meta`.
 import { z } from 'zod';
-import type { ToolContext } from '../context.ts';
+import type { ToolContext, WriteApprovals } from '../context.ts';
 import { ErrorCode, RbError } from '../errors.ts';
 import { type FetchLike, type NerdGraphClient, nerdGraphFor } from '../nerdgraph/client.ts';
 import { redact } from '../redact.ts';
@@ -159,6 +159,25 @@ async function sha256Hex(value: string): Promise<string> {
   return [...hash].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
+/** Length of the time bucket an approval is bound to (P7-26). */
+export const APPROVAL_BUCKET_MS: number = 10 * 60_000;
+/** How long a spent approval is remembered: the two buckets it is honoured in. */
+export const APPROVAL_LEDGER_TTL_SECONDS: number = 20 * 60;
+
+/** A process-local single-use ledger (stdio: one process, one local user). Hosts with shared storage use their own. */
+export function createMemoryApprovalLedger(clock: { now(): number }): WriteApprovals {
+  const spent = new Map<string, number>();
+  return {
+    consume: (key) => {
+      const now = clock.now();
+      for (const [k, until] of spent) if (until <= now) spent.delete(k);
+      if (spent.has(key)) return Promise.resolve(false);
+      spent.set(key, now + APPROVAL_LEDGER_TTL_SECONDS * 1000);
+      return Promise.resolve(true);
+    },
+  };
+}
+
 /** What `humanGate` decided: go on (asked and accepted, or the client cannot be asked) or stop with a reason. */
 export type Gate =
   | { readonly state: 'go'; readonly confirmation: Confirmation | undefined }
@@ -179,7 +198,12 @@ export type Gate =
  * `ctx.elicitation`. The answer is bound to this exact message and change (the key is their hash), so a retry whose
  * arguments changed asks again instead of reusing an approval. Without `ctx.elicitation` nothing is asked.
  */
-export async function humanGate(ctx: ToolContext, message: string, change: unknown): Promise<Gate> {
+export async function humanGate(
+  ctx: ToolContext,
+  tool: string,
+  message: string,
+  change: unknown,
+): Promise<Gate> {
   if (ctx.elicitation === undefined) {
     // P7-25: with `RB_WRITE_APPROVAL=required` a client that cannot be asked cannot write: `confirm: true` is set by the
     // model and never counts as a person's approval.
@@ -187,13 +211,34 @@ export async function humanGate(ctx: ToolContext, message: string, change: unkno
     return { state: 'go', confirmation: undefined };
   }
   const bounded = boundMessage(message);
-  // The key binds the message and the exact change sent (`change`: the mutation's variables or the parsed arguments),
-  // so an approval never covers a change that differs in a detail the message shows in a normalized form.
-  const key = `confirm_${(await sha256Hex(`${bounded}\u0000${JSON.stringify(change) ?? ''}`)).slice(0, 24)}`;
-  const answer = ctx.elicitation.answer(key);
-  if (answer === 'accept') return { state: 'go', confirmation: 'accepted' };
-  if (answer === 'decline') return { state: 'declined', confirmation: 'declined' };
-  if (answer === 'cancel') return { state: 'cancelled', confirmation: 'cancelled' };
+  // The key binds the tool, the message and the exact change sent (`change`: the mutation's variables or the parsed
+  // arguments), so an approval never covers a change that differs in a detail the message shows in a normalized form.
+  // It also binds a time bucket (P7-26): an answer is honoured in the bucket it was asked in and the next one (10 to 20
+  // minutes), so a client replaying an old `inputResponses` later is asked again.
+  const bucket = Math.floor(ctx.clock.now() / APPROVAL_BUCKET_MS);
+  const keyFor = async (b: number): Promise<string> =>
+    `confirm_${(await sha256Hex(`${tool}\u0000${b}\u0000${bounded}\u0000${JSON.stringify(change) ?? ''}`)).slice(0, 24)}`;
+  const key = await keyFor(bucket);
+  const stale = await keyFor(bucket - 1);
+  const live = ctx.elicitation.answer(key);
+  const answer =
+    live !== 'missing' ? { key, value: live } : { key: stale, value: ctx.elicitation.answer(stale) };
+  if (answer.value === 'accept') {
+    // One approval, one attempt: the first call that spends it goes on, a replay of the same answer (a client that
+    // resends `inputResponses`, a retry after a lost reply) is refused instead of repeating a non-idempotent write.
+    if (ctx.writeApprovals !== undefined && !(await ctx.writeApprovals.consume(answer.key))) {
+      throw new RbError(
+        ErrorCode.InputInvalid,
+        'This approval was already used for one attempt, so the change was not sent again: nothing was changed by this call.',
+        {
+          hint: 'Check the target with a read tool to see whether the first attempt applied. If you still want this change, ask the user again after a few minutes (the same change cannot be repeated sooner).',
+        },
+      );
+    }
+    return { state: 'go', confirmation: 'accepted' };
+  }
+  if (answer.value === 'decline') return { state: 'declined', confirmation: 'declined' };
+  if (answer.value === 'cancel') return { state: 'cancelled', confirmation: 'cancelled' };
   return { state: 'ask', confirmation: 'asked', ask: { key, message: bounded } };
 }
 

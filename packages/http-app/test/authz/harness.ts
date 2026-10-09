@@ -821,6 +821,7 @@ export const httpAppHost: AuthzHost = {
           hooks: recorder.hooks,
           // MCP Tasks (P7-13), as `serve` and the Worker keep them.
           taskStore: storage.kv,
+          approvalStore: storage.kv,
           admin: {
             token: new Secret(ADMIN_TOKEN),
             storage,

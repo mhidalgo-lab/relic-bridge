@@ -1068,13 +1068,71 @@ describe('approval shows and binds the whole change (phase 7 review H2)', () => 
       elicitation: { answer: (k: string) => (approved.has(k) ? 'accept' : 'missing') },
     } as ToolContext;
     const message = 'Create the PRIVATE dashboard "x": SELECT count(*) FROM Transaction';
-    const first = await humanGate(asking, message, { nrql: 'SELECT count(*) FROM Transaction' });
+    const first = await humanGate(asking, 'create_dashboard', message, {
+      nrql: 'SELECT count(*) FROM Transaction',
+    });
     expect(first.state).toBe('ask');
     approved.add((first as { ask: { key: string } }).ask.key);
-    expect((await humanGate(asking, message, { nrql: 'SELECT count(*) FROM Transaction' })).state).toBe('go');
+    expect(
+      (await humanGate(asking, 'create_dashboard', message, { nrql: 'SELECT count(*) FROM Transaction' }))
+        .state,
+    ).toBe('go');
     // Same text shown (whitespace is collapsed in the prompt), different query sent: asked again.
-    expect((await humanGate(asking, message, { nrql: 'SELECT  count(*)  FROM Transaction' })).state).toBe(
-      'ask',
-    );
+    expect(
+      (await humanGate(asking, 'create_dashboard', message, { nrql: 'SELECT  count(*)  FROM Transaction' }))
+        .state,
+    ).toBe('ask');
+  });
+
+  describe('an approval answers one attempt in a bounded window (P7-26)', () => {
+    const message = 'Record a deployment change on "checkout"';
+    const change = { entity_guid: 'g', change_type: 'DEPLOYMENT' };
+    const setup = async (ledger: boolean) => {
+      const { humanGate, createMemoryApprovalLedger } = await import('../src/tools/write-common.ts');
+      let now = NOW;
+      const clock = { now: () => now };
+      const approved = new Set<string>();
+      const ctx = {
+        ...testContext({ clock }),
+        elicitation: { answer: (k: string) => (approved.has(k) ? 'accept' : 'missing') },
+        ...(ledger ? { writeApprovals: createMemoryApprovalLedger(clock) } : {}),
+      } as ToolContext;
+      const ask = async (tool = 'create_change_event') => humanGate(ctx, tool, message, change);
+      const first = await ask();
+      expect(first.state).toBe('ask');
+      approved.add((first as { ask: { key: string } }).ask.key);
+      return { ask, advance: (ms: number) => (now += ms) };
+    };
+
+    it('refuses a second use of the same approval inside the window', async () => {
+      const { ask } = await setup(true);
+      expect((await ask()).state).toBe('go');
+      await expect(ask()).rejects.toThrow(/already used/);
+    });
+
+    it('asks again when the approval is replayed after the window', async () => {
+      const { ask, advance } = await setup(true);
+      advance(25 * 60_000);
+      expect((await ask()).state).toBe('ask');
+    });
+
+    it('still honours an answer given just after a bucket boundary', async () => {
+      const { ask, advance } = await setup(true);
+      advance(10 * 60_000);
+      expect((await ask()).state).toBe('go');
+    });
+
+    it('does not carry the approval to another tool', async () => {
+      const { ask } = await setup(true);
+      expect((await ask('create_dashboard')).state).toBe('ask');
+    });
+
+    it('without a ledger only the window bounds a replay', async () => {
+      const { ask, advance } = await setup(false);
+      expect((await ask()).state).toBe('go');
+      expect((await ask()).state).toBe('go');
+      advance(25 * 60_000);
+      expect((await ask()).state).toBe('ask');
+    });
   });
 });

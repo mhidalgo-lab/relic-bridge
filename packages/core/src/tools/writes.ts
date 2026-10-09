@@ -255,6 +255,7 @@ export function createWriteTools(deps: ToolDeps = {}): ToolDefinition[] {
 
       const gate = await humanGate(
         ctx,
+        'create_change_event',
         [
           'relic-bridge asks you to approve this change in New Relic (text in quotes comes from the request or from New Relic, not from relic-bridge):',
           `Record a ${input.change_type} change event on ${shown(row.name)} (guid ${shown(input.entity_guid, 512)}) in account ${account}.`,
@@ -425,6 +426,7 @@ export function createWriteTools(deps: ToolDeps = {}): ToolDefinition[] {
 
         const gate = await humanGate(
           ctx,
+          spec.name,
           [
             'relic-bridge asks you to approve this change in New Relic (text in quotes comes from New Relic, not from relic-bridge):',
             `${closing ? 'Close (resolve) by hand' : 'Acknowledge'} alert issue ${shown(input.issue_id, 100)} in account ${account}.`,

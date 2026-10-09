@@ -2,7 +2,7 @@
 id: P7-26
 title: "Bind write approvals to one attempt (no replay of non-idempotent writes)"
 phase: 7
-status: todo
+status: review
 priority: low
 depends_on: [P7-20]
 adr: [ADR-0015]
@@ -23,9 +23,9 @@ not for these two tools.
 - Optionally refuse an identical non-idempotent write repeated within the window.
 
 ## Acceptance criteria
-- [ ] Test: an approval replayed after the window asks again; within the window an identical second call of a
+- [x] Test: an approval replayed after the window asks again; within the window an identical second call of a
       non-idempotent tool is refused or asks again.
-- [ ] ADR-0015 addendum and THREAT_MODEL T31 residual updated.
+- [x] ADR-0015 addendum and THREAT_MODEL T31 residual updated.
 
 ## Security notes
 T31.

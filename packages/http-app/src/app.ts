@@ -32,6 +32,7 @@ import {
   TOKEN_PREFIX,
 } from '@relic-bridge/auth';
 import {
+  APPROVAL_LEDGER_TTL_SECONDS,
   buildMcpServer,
   type Clock,
   createBudget,
@@ -348,6 +349,12 @@ export interface HttpAppOptions {
    */
   readonly taskStore?: TaskStore;
   /**
+   * Where spent write approvals are remembered (P7-26): the storage `kv` (atomic `increment`, only the approval key, a
+   * hash, is stored, expiring after the approval window). Absent: write approvals are bound to a time
+   * window only and a replay inside it is not refused.
+   */
+  readonly approvalStore?: Pick<KvRepository, 'increment'>;
+  /**
    * Registry-friendly discovery (P7-14, `RB_PUBLIC_TOOL_CATALOG=on`). Default false: every MCP request needs a
    * credential. On: `GET /.well-known/relic-bridge/tools.json` serves the static read-only tool catalog, and a POST to
    * `/p/:slug/mcp` without an `Authorization` header that asks only for `initialize`, `server/discover`, `ping` or
@@ -562,6 +569,7 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
   // Per-grant quota counters (P7-12): the host's store, else the storage table (atomic on SQLite and D1).
   const quotaStore: QuotaStore = options.quotaStore ?? options.storage.grantUsage;
   const taskStore = options.taskStore;
+  const approvalStore = options.approvalStore;
   // The process-local slot first, then the shared one: only calls this process would run anyway compete across them.
   const sharedConcurrency = options.sharedConcurrency;
   const withShared = (local: Limiter, credentialId: string): Limiter => {
@@ -1358,6 +1366,18 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
                 tasks: Object.freeze({
                   store: taskStore,
                   owner: `project:${access.projectId}/grant:${access.grantId}/token:${tokenId}/client:${clientId ?? '-'}`,
+                }),
+              }),
+          // Spent write approvals, scoped to project, grant and user (P7-26): one approval answers one attempt.
+          ...(approvalStore === undefined
+            ? {}
+            : {
+                writeApprovals: Object.freeze({
+                  consume: async (key: string): Promise<boolean> =>
+                    (await approvalStore.increment(
+                      `write-approval:${access.projectId}/${access.grantId}/${access.userId ?? '-'}/${key}`,
+                      { expirationTtl: APPROVAL_LEDGER_TTL_SECONDS },
+                    )) === 1,
                 }),
               }),
           connection: Object.freeze({

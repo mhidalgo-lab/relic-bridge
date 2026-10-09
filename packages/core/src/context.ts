@@ -136,6 +136,16 @@ export interface ToolContext {
    * without `elicitation` the write is refused instead of relying on the model's `confirm: true`.
    */
   readonly requireWriteApproval?: boolean;
+  /**
+   * Where spent write approvals are remembered, scoped by the host to this caller (P7-26): an approval answers one
+   * attempt. Absent: only the time bucket bounds a replay (hosts without shared storage).
+   */
+  readonly writeApprovals?: WriteApprovals;
+}
+
+/** Single-use marks for approvals. `consume` resolves true for the first use of `key` and false for any later one. */
+export interface WriteApprovals {
+  consume(key: string): Promise<boolean>;
 }
 
 /** The answers a retried `tools/call` carries to the questions an earlier round asked (never trusted beyond that). */

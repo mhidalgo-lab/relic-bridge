@@ -1039,3 +1039,72 @@ describe('owner switch: a person must approve every write (P7-25, RB_WRITE_APPRO
     expect(tools).toContain('run_nrql');
   });
 });
+
+describe('an approval answers one attempt (P7-26): the kv ledger end to end', () => {
+  const FORM = { elicitation: { form: {} } };
+  const NON_IDEMPOTENT = ['create_change_event', 'create_dashboard'] as const;
+  const mutations = (from: number) => h.nerdGraph.calls.slice(from).filter((c) => MUTATIONS.has(c.op));
+  const asker = async (slug: string) => {
+    const app = h.makeApp({ writeTools: true });
+    const { token } = await setup(slug);
+    const client = await connect(app, slug, token.value, 'modern', undefined, FORM);
+    clients.push(client);
+    const asked: string[] = [];
+    client.setRequestHandler('elicitation/create', (request) => {
+      asked.push((request.params as { message: string }).message);
+      return { action: 'accept', content: { confirm: true } } as never;
+    });
+    return { client, asked };
+  };
+
+  for (const tool of NON_IDEMPOTENT) {
+    const slug = tool.replaceAll('_', '-');
+    const args = GOOD[tool] as Record<string, unknown>;
+
+    it(`${tool}: the same change approved again is refused and sends nothing more`, async () => {
+      const { client, asked } = await asker(`led-twice-${slug}`);
+      const before = h.nerdGraph.calls.length;
+      const first = await client.callTool({ name: tool, arguments: args });
+      expect(first.isError ?? false, JSON.stringify(first).slice(0, 300)).toBe(false);
+      expect(mutations(before).length).toBe(1);
+      const second = await client.callTool({ name: tool, arguments: args });
+      expect(asked.length).toBe(2);
+      expect(second.isError).toBe(true);
+      expect(codeOfResult(second)).toBe(ErrorCode.InputInvalid);
+      expect(JSON.stringify(second.content)).toContain('already used');
+      expect(mutations(before).length).toBe(1);
+    });
+
+    it(`${tool}: a retry after a network error is not sent again`, async () => {
+      const real = h.nerdGraph.fetch;
+      let attempts = 0;
+      (h.nerdGraph as { fetch: typeof real }).fetch = async (url, init) => {
+        if (/mutation Rb/.test(String(init.body))) {
+          attempts += 1;
+          throw new TypeError('network error (simulated)');
+        }
+        return real(url, init);
+      };
+      const { client } = await asker(`led-net-${slug}`);
+      const first = await client.callTool({ name: tool, arguments: args });
+      expect(first.isError).toBe(true);
+      expect(attempts).toBe(1);
+      const retry = await client.callTool({ name: tool, arguments: args });
+      expect(retry.isError).toBe(true);
+      expect(JSON.stringify(retry.content)).toContain('already used');
+      expect(attempts).toBe(1);
+    });
+
+    it(`${tool}: another grant, or a changed change, is not blocked by a spent approval`, async () => {
+      const a = await asker(`led-a-${slug}`);
+      const b = await asker(`led-b-${slug}`);
+      const before = h.nerdGraph.calls.length;
+      expect((await a.client.callTool({ name: tool, arguments: args })).isError ?? false).toBe(false);
+      expect((await b.client.callTool({ name: tool, arguments: args })).isError ?? false).toBe(false);
+      const changed =
+        tool === 'create_change_event' ? { ...args, version: '9.9.9' } : { ...args, name: 'Checkout 2' };
+      expect((await a.client.callTool({ name: tool, arguments: changed })).isError ?? false).toBe(false);
+      expect(mutations(before).length).toBe(3);
+    });
+  }
+});

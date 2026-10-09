@@ -413,6 +413,7 @@ async function boot(env: WorkerEnv, options: WorkerOptions): Promise<Runtime> {
     mcpApps: settings.mcpApps,
     // MCP Tasks (P7-13): sealed task records in D1 `kv`, purged by the hourly cron with the other expired rows.
     taskStore: storage.kv,
+    approvalStore: storage.kv,
     // Background work (audit rows) must outlive the response: the runtime cancels unawaited promises otherwise.
     waitUntil: (c, task) => c.executionCtx.waitUntil(task),
     ...(hooks === undefined ? {} : { hooks }),

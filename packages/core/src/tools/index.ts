@@ -136,3 +136,4 @@ export function createBuiltinTools(options: ToolDeps = {}): ToolDefinition[] {
     return o ? withEntityName(t, resolver, o) : t;
   });
 }
+export { APPROVAL_LEDGER_TTL_SECONDS, createMemoryApprovalLedger } from './write-common.ts';

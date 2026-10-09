@@ -149,6 +149,8 @@ async function boot(env: WorkerEnv, options: WorkerOptions): Promise<Runtime> {
     corsOrigins: settings.corsOrigins,
     ...(settings.accessCacheTtlMs === undefined ? {} : { accessCacheTtlMs: settings.accessCacheTtlMs }),
     callBudget: settings.callBudget,
+    maxResponseBytes: settings.maxResponseBytes,
+    concurrencyPerCredential: settings.concurrency,
     // Background work (audit rows) must outlive the response: the runtime cancels unawaited promises otherwise.
     waitUntil: (c, task) => c.executionCtx.waitUntil(task),
     ...(hooks === undefined ? {} : { hooks }),
@@ -199,6 +201,8 @@ export function createWorker(options: WorkerOptions = {}): WorkerHandler {
       version: VERSION,
       plan: settings.plan,
       callBudget: settings.callBudget,
+      maxResponseBytes: settings.maxResponseBytes,
+      concurrency: settings.concurrency,
       adminApi: runtime.adminApi,
       audit: settings.audit.enabled ? settings.audit.nrql : 'off',
       rateLimit: settings.rateLimit ? 'isolate' : 'off',

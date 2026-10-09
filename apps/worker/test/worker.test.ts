@@ -2,6 +2,7 @@
 // The Worker host inside workerd (P3-01): MCP through the Worker's fetch, fail-closed boot, per-isolate runtime,
 // `waitUntil` audit writes and the client address from `CF-Connecting-IP`.
 import { env } from 'cloudflare:workers';
+import type { FetchLike } from '@relic-bridge/core';
 import { MigrationError } from '@relic-bridge/storage';
 import { describe, expect, it } from 'vitest';
 import type { WorkerEnv } from '../src/env.ts';
@@ -117,7 +118,7 @@ describe('Worker boot', () => {
     expect(log.lines.filter((l) => l['msg'] === 'worker runtime ready')).toHaveLength(1);
     expect(log.lines.find((l) => l['msg'] === 'worker runtime ready')).toMatchObject({
       plan: 'free',
-      callBudget: 50,
+      callBudget: 45,
     });
   });
 
@@ -212,4 +213,87 @@ describe('Worker boot', () => {
       code: 'migration',
     });
   });
+});
+
+describe('Plan limits', () => {
+  const withVars = (vars: Record<string, string>): WorkerEnv => ({ ...env, ...vars }) as WorkerEnv;
+  const text = (result: unknown): string =>
+    ((result as { content: { text?: string }[] }).content ?? []).map((c) => c.text ?? '').join('\n');
+
+  it('hides tools the budget cannot pay for and says so in whoami', async () => {
+    const { storage, token } = await seed(MASTER_KEY);
+    const worker = createWorker({
+      openStorage: () => storage,
+      fetch: mockNerdGraph().fetch,
+      logSink: () => {},
+    });
+    const small = withVars({ RB_CALL_BUDGET: '5' });
+    const client = await connect(worker, small, fakeCtx(), token);
+    const names = (await client.listTools()).tools.map((t) => t.name);
+    expect(names).toContain('run_nrql');
+    expect(names).not.toContain('get_golden_metrics');
+    const who = await client.callTool({ name: 'whoami', arguments: {} });
+    expect(text(who)).toMatch(/Not offered here: get_golden_metrics/);
+    expect(
+      (who as { structuredContent?: { limits?: { callBudget?: number } } }).structuredContent?.limits,
+    ).toMatchObject({ callBudget: 5 });
+    await client.close();
+  });
+
+  it('applies the plan response ceiling to the connection limits', async () => {
+    const { storage, token } = await seed(MASTER_KEY);
+    const worker = createWorker({
+      openStorage: () => storage,
+      fetch: mockNerdGraph().fetch,
+      logSink: () => {},
+    });
+    const client = await connect(worker, withVars({ RB_MAX_RESPONSE_BYTES: '4096' }), fakeCtx(), token);
+    const who = await client.callTool({ name: 'whoami', arguments: {} });
+    expect(
+      (who as { structuredContent?: { limits?: { maxResponseBytes?: number } } }).structuredContent?.limits,
+    ).toMatchObject({ maxResponseBytes: 4096 });
+    await client.close();
+  });
+
+  it('a query that never finishes stops polling inside the budget and returns a handle, not an error', async () => {
+    const { storage, token } = await seed(MASTER_KEY);
+    let calls = 0;
+    const fetch: FetchLike = async () => {
+      calls++;
+      const container = { results: [], queryProgress: { completed: false, queryId: 'q-1', retryAfter: 0 } };
+      return new Response(
+        JSON.stringify({ data: { actor: { account: { nrql: container, nrqlQueryProgress: container } } } }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    };
+    const worker = createWorker({ openStorage: () => storage, fetch, logSink: () => {} });
+    // Budget 4 = one submit plus the three default polls; a budget of 3 would hide run_nrql, so go through 4.
+    const client = await connect(worker, withVars({ RB_CALL_BUDGET: '4' }), fakeCtx(), token);
+    const result = await client.callTool({
+      name: 'run_nrql',
+      arguments: { nrql: 'SELECT count(*) FROM Transaction' },
+    });
+    expect(result.isError ?? false).toBe(false);
+    expect(text(result)).toMatch(/q-1/);
+    expect(calls).toBeLessThanOrEqual(4);
+    await client.close();
+  }, 20_000);
+
+  it('a failing NerdGraph is a tool error within the budget, never a 500', async () => {
+    const { storage, token } = await seed(MASTER_KEY);
+    let calls = 0;
+    const fetch: FetchLike = async () => {
+      calls++;
+      return new Response('{}', { status: 503 });
+    };
+    const worker = createWorker({ openStorage: () => storage, fetch, logSink: () => {} });
+    const client = await connect(worker, withVars({ RB_CALL_BUDGET: '4' }), fakeCtx(), token);
+    const result = await client.callTool({
+      name: 'run_nrql',
+      arguments: { nrql: 'SELECT count(*) FROM Transaction' },
+    });
+    expect(result.isError).toBe(true);
+    expect(calls).toBeLessThanOrEqual(4);
+    await client.close();
+  }, 30_000);
 });

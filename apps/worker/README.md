@@ -25,7 +25,10 @@ first deploy.
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `RB_PLAN` | `free` | NerdGraph calls per MCP request: `free` = 50, `paid` = 1000 (ADR-0010; P3-03 adds the other presets). |
+| `RB_PLAN` | `free` | Preset for the limits below: `free` (45 calls, 512 KiB, 5 in flight) or `paid` (1000 calls, 8 MiB, 5 in flight). See [Cloudflare limits](../../docs/guide/cloudflare-limits.md). |
+| `RB_CALL_BUDGET` | per plan | NerdGraph calls per MCP request, 1-10000. Tools costing more are not offered. |
+| `RB_MAX_RESPONSE_BYTES` | per plan | Ceiling for a NerdGraph response body (1 KiB-64 MiB); a project's own limit still applies, the smaller wins. |
+| `RB_CONCURRENCY` | per plan | NerdGraph calls in flight per credential, 1-6 (Workers allows 6 simultaneous connections). |
 | `RB_ALLOWED_HOSTS` | any | Comma-separated `Host` allowlist. Cloudflare only routes your hostnames to the Worker, so the DNS-rebinding check `serve` needs is off by default; set it to pin your hostnames. |
 | `RB_ALLOWED_ORIGINS` | loopback | Hostnames browsers may send in `Origin`. |
 | `RB_CORS_ORIGINS` | off | Full origins allowed by CORS. |

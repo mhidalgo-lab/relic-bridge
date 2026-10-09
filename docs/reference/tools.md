@@ -317,6 +317,7 @@ Use it first when something doesn't work (wrong region, "account not found", mis
 | `defaultAccountReachable` | `boolean` | yes |  |
 | `accountCount` | `integer` | yes |  |
 | `allowedTools` | `string[] \| null` | yes |  |
+| `unavailableTools` | `object[]` | yes |  |
 | `limits` | `object` | yes |  |
 
 ### Annotations

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import { describe, expect, it } from 'vitest';
-import { PLAN_CALL_BUDGET, parseWorkerSettings, WorkerConfigError } from '../src/settings.ts';
+import { PLAN_CALL_BUDGET, PLAN_PRESETS, parseWorkerSettings, WorkerConfigError } from '../src/settings.ts';
 
 const fails = (vars: Record<string, unknown>, variable: string): void => {
   let caught: unknown;
@@ -18,7 +18,7 @@ describe('parseWorkerSettings', () => {
     const s = parseWorkerSettings({});
     expect(s).toMatchObject({
       plan: 'free',
-      callBudget: 50,
+      callBudget: 45,
       allowedHosts: '*',
       corsOrigins: [],
       audit: { enabled: true, nrql: 'mask', clientIp: true },
@@ -79,5 +79,51 @@ describe('parseWorkerSettings', () => {
 
   it('accepts RB_PASSTHROUGH=off', () => {
     expect(() => parseWorkerSettings({ RB_PASSTHROUGH: 'off' })).not.toThrow();
+  });
+
+  describe('plan presets', () => {
+    it('free keeps the NerdGraph budget under the 50 external subrequests, and responses small', () => {
+      expect(parseWorkerSettings({})).toMatchObject({
+        callBudget: 45,
+        maxResponseBytes: 512 * 1024,
+        concurrency: 5,
+      });
+      expect(PLAN_PRESETS.free.callBudget).toBeLessThan(50);
+    });
+
+    it('paid raises the budget and the response ceiling; concurrency stays within 6', () => {
+      expect(parseWorkerSettings({ RB_PLAN: 'paid' })).toMatchObject({
+        callBudget: 1000,
+        maxResponseBytes: 8 * 1024 * 1024,
+        concurrency: 5,
+      });
+      for (const p of Object.values(PLAN_PRESETS)) expect(p.concurrency).toBeLessThanOrEqual(6);
+    });
+
+    it('explicit overrides win over the preset', () => {
+      expect(
+        parseWorkerSettings({
+          RB_PLAN: 'paid',
+          RB_CALL_BUDGET: 200 as unknown as string,
+          RB_MAX_RESPONSE_BYTES: '1048576',
+          RB_CONCURRENCY: '2',
+        }),
+      ).toMatchObject({ callBudget: 200, maxResponseBytes: 1048576, concurrency: 2 });
+    });
+
+    it('rejects out-of-range or malformed overrides instead of clamping them', () => {
+      fails({ RB_CALL_BUDGET: '0' }, 'RB_CALL_BUDGET');
+      fails({ RB_CALL_BUDGET: '10001' }, 'RB_CALL_BUDGET');
+      fails({ RB_CALL_BUDGET: '1e3' }, 'RB_CALL_BUDGET');
+      fails({ RB_MAX_RESPONSE_BYTES: '10' }, 'RB_MAX_RESPONSE_BYTES');
+      fails({ RB_CONCURRENCY: '7' }, 'RB_CONCURRENCY');
+      fails({ RB_CONCURRENCY: '0' }, 'RB_CONCURRENCY');
+    });
+
+    it('warns when a Free deployment is configured beyond its platform limits', () => {
+      const s = parseWorkerSettings({ RB_CALL_BUDGET: '100', RB_MAX_RESPONSE_BYTES: '2097152' });
+      expect(s.warnings).toHaveLength(2);
+      expect(parseWorkerSettings({ RB_PLAN: 'paid', RB_CALL_BUDGET: '100' }).warnings).toEqual([]);
+    });
   });
 });

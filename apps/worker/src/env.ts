@@ -7,6 +7,12 @@ import type { D1Database, KVNamespace, RateLimit } from '@cloudflare/workers-typ
 export interface WorkerVars {
   /** `free` (default) or `paid`: the NerdGraph call budget per request (ADR-0010). */
   readonly RB_PLAN?: string;
+  /** Override the plan's NerdGraph calls per request (free 45, paid 1000). */
+  readonly RB_CALL_BUDGET?: string;
+  /** Override the plan's response-size ceiling in bytes (free 512 KiB, paid 8 MiB). */
+  readonly RB_MAX_RESPONSE_BYTES?: string;
+  /** Override NerdGraph calls in flight per credential (default 5, at most 6 on Workers). */
+  readonly RB_CONCURRENCY?: string;
   /** Comma-separated `Host` allowlist. Default: any (Cloudflare routes only your hostnames to the Worker). */
   readonly RB_ALLOWED_HOSTS?: string;
   /** Comma-separated `Origin` hostnames browsers may call from. Default: loopback names only. */

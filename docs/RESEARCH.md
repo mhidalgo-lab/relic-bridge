@@ -5,13 +5,16 @@ must re-check every item marked **verify** against the real platforms before Pha
 
 ## 1. Cloudflare Workers platform limits
 
-Source: <https://developers.cloudflare.com/workers/platform/limits/>
+Sources: <https://developers.cloudflare.com/workers/platform/limits/>,
+<https://developers.cloudflare.com/changelog/post/2026-02-11-subrequests-limit/>,
+<https://developers.cloudflare.com/workers/platform/pricing/> (checked 2026-10-03, P3-03).
 
 | Limit | Free | Paid | Impact on relic-bridge |
 |---|---|---|---|
 | Requests / day | 100,000 | unlimited | Far above personal or small-team MCP usage. |
 | CPU time / request | **10 ms** | 30 s default, 5 min max | **Main risk.** Network waits do *not* count, but JSON parsing of large NRQL results, crypto, and output shaping do. |
-| Subrequests / request | **50** | 10,000 | **D1, KV and fetch calls all count.** Every NerdGraph call, async poll, D1 lookup and OAuth-token KV read uses budget. |
+| Subrequests / request | **50 external** + 1,000 to Cloudflare services | 10,000 (configurable up to 10 M via `limits.subrequests`) | **Changed 2026-02-11:** on Free, `fetch` to the Internet (every NerdGraph call and async poll) counts against the 50; D1, KV and other Cloudflare services count against a separate 1,000. Each redirect hop counts. The old assumption "D1 lookups eat the 50" no longer holds, so the access-resolve cost (5 D1 reads + 1 write on a miss) does not touch the NerdGraph budget. |
+| D1 rows (Free) | 5 M read / 100 k written per day | 25 B / 50 M per month included | Enforced since 2026-09-01: queries fail with a "free tier daily row read/write limit" error until 00:00 UTC. Matters for audit writes and cache misses on a busy Free deployment. |
 | Concurrent connections waiting for headers | 6 | 6 | Parallel NerdGraph fan-out from one invocation is capped at 6. |
 | Wall-clock duration (HTTP) | no limit while the client is connected | same | Async NRQL polling is fine while the MCP client keeps the connection open. |
 | Memory | 128 MB | 128 MB | Cap result sizes; never buffer unbounded responses. |
@@ -22,8 +25,10 @@ Source: <https://developers.cloudflare.com/workers/platform/limits/>
   - tokens are high-entropy random values, so they're hashed with a single SHA-256; never PBKDF2 or bcrypt on the hot path
   - AES-GCM uses a raw imported key
   - response bytes are capped before parsing
-- Every request carries a **subrequest budget** (`free` = 50, `paid` = 1000 by default; configurable). Tools
-  declare their expected cost, and combined report tools degrade gracefully (partial report plus a note) instead of failing.
+- Every request carries a **NerdGraph call budget** (`RB_PLAN=free` = 45, `paid` = 1000; overridable with `RB_CALL_BUDGET`).
+  It counts external `fetch` calls only (see the table), and Free keeps 5 below the platform's 50 for redirects. Tools
+  declare their expected cost; tools that cost more than the budget are not offered (and `whoami` says why), and combined
+  report tools degrade gracefully (partial report plus a note) instead of failing.
 - Auth and config lookups are cached in isolate memory with a short TTL (≤ 60 s) to save subrequests.
   This bounds how long a revocation takes to apply (documented trade-off; the TTL is configurable, and 0 disables the cache).
 - Docs will recommend Workers Paid for heavy use or shared teams. Spike **P0-06** measures real CPU numbers.

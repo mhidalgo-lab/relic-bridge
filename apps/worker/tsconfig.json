@@ -17,5 +17,5 @@
       "@relic-bridge/storage/testing": ["../../packages/storage/src/testing.ts"]
     }
   },
-  "include": ["src", "test"]
+  "include": ["src", "test", "bench"]
 }

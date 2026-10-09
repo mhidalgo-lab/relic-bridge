@@ -195,3 +195,14 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Options:** make it required (add an in-memory implementation); a single joined statement; drop `last_used_at`
   writes on Workers entirely, or make them monotonic (`max(stored, now)`).
 - **Needs:** nothing unless the owner prefers one of the options.
+
+### P3-10 — CPU benchmark: representative scenarios, ratio-based gate, separate workflow
+- **Context:** the task asked for every built-in tool at three payload sizes and left the timer approach open.
+- **Assumption made:** `performance.now()` in local workerd (it advances during CPU work there); scenarios cover each
+  hot path and one tool per cost class (`whoami`, `run_nrql` at 10 KB / 100 KB / ~500 KB), not all tools. A regression
+  is a ratio to a same-run calibration job above 2x the baseline's and more than 1 ms slower. Own workflow
+  `bench.yml` (PRs touching Worker-path code, weekly, manual), not a required check, failing on a regression.
+- **Options:** benchmark every tool; report-only; nightly instead of path-filtered PRs; a stricter tolerance once
+  the variance across runners is known (the baseline was taken on a WSL2 dev machine, not a CI runner).
+- **Needs (owner):** after the first runs on GitHub, check the table's ratios; if CI ratios sit far from 1.0, refresh
+  the baseline from a CI run (download the summary numbers, or run `pnpm bench:cpu --update` in a workflow_dispatch).

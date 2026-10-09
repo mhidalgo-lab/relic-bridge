@@ -86,7 +86,7 @@ export interface WorkerSettings {
   readonly passthrough: boolean;
   /** `RB_WRITE_TOOLS=on` (P7-09, ADR-0015): offer the opt-in write tools. Off by default; needs `RB_AUDIT=on`. */
   readonly writeTools: boolean;
-  /** `RB_WRITE_APPROVAL=required` (P7-25): writes need a person's approval through elicitation. Default `client`. */
+  /** `RB_WRITE_APPROVAL` (P7-25): writes need a person's approval through elicitation. Default `required` (ADR-0016). */
   readonly requireWriteApproval: boolean;
   /**
    * `RB_PUBLIC_TOOL_CATALOG=on` (P7-14): unauthenticated `initialize` / `tools/list` and the static catalog at
@@ -266,9 +266,15 @@ export function parseWorkerSettings(vars: WorkerVars): WorkerSettings {
   if (approvalRaw !== undefined && approvalRaw !== 'client' && approvalRaw !== 'required') {
     throw new WorkerConfigError('RB_WRITE_APPROVAL', 'RB_WRITE_APPROVAL must be client or required');
   }
-  const requireWriteApproval = approvalRaw === 'required';
-  if (requireWriteApproval && !writeTools) {
+  // ADR-0016: required unless the owner opts down to `client`.
+  const requireWriteApproval = approvalRaw !== 'client';
+  if (approvalRaw === 'required' && !writeTools) {
     warnings.push('RB_WRITE_APPROVAL=required has no effect without RB_WRITE_TOOLS=on.');
+  }
+  if (approvalRaw === 'client' && writeTools) {
+    warnings.push(
+      'RB_WRITE_APPROVAL=client with RB_WRITE_TOOLS=on: a client that cannot show an approval form can write when the model sets confirm: true, so a prompt-injected agent is the only gate. Remove RB_WRITE_APPROVAL (default required) unless you accept that.',
+    );
   }
   if (writeTools && !rateLimit) {
     warnings.push('RB_WRITE_TOOLS=on with RB_RATE_LIMIT=off: write tool calls are not rate limited.');

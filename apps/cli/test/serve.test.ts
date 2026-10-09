@@ -102,12 +102,18 @@ describe('serveSettings', () => {
     expect(unlimited.warnings.join(' ')).toContain('not rate limited');
   });
 
-  it('RB_WRITE_APPROVAL (P7-25): client by default, required on request, anything else refused', () => {
-    expect(serveSettings(base).requireWriteApproval).toBe(false);
+  it('RB_WRITE_APPROVAL (P7-25, P7-33): required by default, client as an explicit opt-down (with a warning), anything else refused', () => {
+    expect(serveSettings(base).requireWriteApproval).toBe(true);
     const wt = { ...base.env, RB_WRITE_TOOLS: 'on' };
-    expect(serveSettings({ ...base, env: { ...wt, RB_WRITE_APPROVAL: 'client' } }).requireWriteApproval).toBe(
-      false,
-    );
+    const unset = serveSettings({ ...base, env: wt });
+    expect(unset.requireWriteApproval).toBe(true);
+    expect(unset.warnings.join(' ')).not.toContain('RB_WRITE_APPROVAL');
+    const optDown = serveSettings({ ...base, env: { ...wt, RB_WRITE_APPROVAL: 'client' } });
+    expect(optDown.requireWriteApproval).toBe(false);
+    expect(optDown.warnings.join(' ')).toContain('RB_WRITE_APPROVAL=client');
+    expect(
+      serveSettings({ ...base, env: { ...base.env, RB_WRITE_APPROVAL: 'client' } }).warnings.join(' '),
+    ).not.toContain('RB_WRITE_APPROVAL=client');
     expect(
       serveSettings({ ...base, env: { ...wt, RB_WRITE_APPROVAL: 'required' } }).requireWriteApproval,
     ).toBe(true);

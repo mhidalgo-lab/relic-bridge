@@ -25,6 +25,7 @@ import {
   resolveDbPath,
   serveSettings,
   startServer,
+  WRITE_APPROVAL_CLIENT_WARNING,
 } from './serve.ts';
 import {
   isUnconfigured,
@@ -234,6 +235,9 @@ export function main(rt: CliRuntime): MainResult {
       ...(rt.homeDir === undefined ? {} : { homeDir: rt.homeDir }),
     });
     for (const w of warnings) logger.warn(w);
+    const requireWriteApproval = stdioWriteApproval(rt.env);
+    const writeTools = stdioWriteTools(rt.env);
+    if (writeTools && !requireWriteApproval) logger.warn(WRITE_APPROVAL_CLIENT_WARNING);
     assertUserKey(project.apiKey);
     const fetch = nerdGraphFetch(rt.env, logger);
     const telemetry = stdioTelemetry(rt.env, logger);
@@ -242,8 +246,8 @@ export function main(rt: CliRuntime): MainResult {
       logger,
       ...(telemetry === undefined ? {} : { telemetry }),
       queryCache: createProcessQueryCache(queryCacheSettings(rt.env)),
-      writeTools: stdioWriteTools(rt.env),
-      requireWriteApproval: stdioWriteApproval(rt.env),
+      writeTools,
+      requireWriteApproval,
       mcpApps: stdioMcpApps(rt.env),
       ...(fetch === undefined ? {} : { fetch }),
     });

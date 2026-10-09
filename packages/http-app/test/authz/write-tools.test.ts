@@ -1017,6 +1017,23 @@ describe('owner switch: a person must approve every write (P7-25, RB_WRITE_APPRO
     });
   }
 
+  // P7-33 / ADR-0016: a deployment that never mentions RB_WRITE_APPROVAL gets `required`.
+  for (const tool of WRITES) {
+    const slug = tool.replaceAll('_', '-');
+    it(`${tool}: variable unset, a client that cannot be asked gets applied: false, no mutation, audit unavailable`, async () => {
+      const app = h.makeApp({ writeTools: true, writeApprovalUnset: true });
+      const { token } = await setup(`unset-none-${slug}`);
+      const client = await open(app, `unset-none-${slug}`, token.value);
+      const before = h.nerdGraph.calls.length;
+      const r = await client.callTool({ name: tool, arguments: GOOD[tool] as Record<string, unknown> });
+      expect(r.isError ?? false).toBe(false);
+      expect(r.structuredContent).toMatchObject({ applied: false });
+      expect(JSON.stringify(r.content)).toContain('RB_WRITE_APPROVAL=required');
+      expect(mutations(before)).toEqual([]);
+      await vi.waitFor(async () => expect(await confirmations(tool)).toContain('unavailable'));
+    });
+  }
+
   it('a dry run is still allowed without elicitation (nothing is changed)', async () => {
     const app = h.makeApp({ writeTools: true, requireWriteApproval: true });
     const { token } = await setup('req-dry');

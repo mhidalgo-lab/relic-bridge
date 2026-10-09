@@ -69,6 +69,10 @@ export interface MockIdp {
   readonly calls: string[];
   /** Bodies posted to token endpoints (to check PKCE and client auth). */
   readonly tokenRequests: { url: string; body: URLSearchParams; authorization: string | null }[];
+  /** GitHub token revocations seen (`DELETE /applications/{client_id}/token`). */
+  readonly revocations: { clientId: string; accessToken: unknown; authorization: string | null }[];
+  /** Status the revocation endpoint answers (204 success); `'throw'` simulates a network failure. */
+  revokeStatus: number | 'throw';
   /** The OIDC user the next `/authorize` signs in. */
   user: MockUser;
   googleUser: MockUser;
@@ -107,6 +111,8 @@ export async function createMockIdp(options: { issuer?: string } = {}): Promise<
   const idp: MockIdp = {
     calls: [],
     tokenRequests: [],
+    revocations: [],
+    revokeStatus: 204,
     user: { sub: 'user-1', email: 'Owner@Example.com', email_verified: true, name: 'Owner One' },
     googleUser: { sub: 'g-1', email: 'owner@example.com', email_verified: true, name: 'Owner G' },
     githubUser: {
@@ -311,6 +317,22 @@ export async function createMockIdp(options: { issuer?: string } = {}): Promise<
 
       // ---- GitHub API
       if (u.host === 'api.github.com') {
+        const rev = /^\/applications\/([^/]+)\/token$/.exec(u.pathname);
+        if (rev && req.method === 'DELETE') {
+          const parsed = JSON.parse(await req.text()) as {
+            access_token?: unknown;
+          };
+          idp.revocations.push({
+            clientId: decodeURIComponent(rev[1] as string),
+            accessToken: parsed.access_token,
+            authorization: auth,
+          });
+          if (idp.revokeStatus === 'throw') throw new TypeError('network down');
+          if (idp.revokeStatus === 204) accessTokens.delete(String(parsed.access_token));
+          return new Response(idp.revokeStatus === 204 ? null : '{"message":"x"}', {
+            status: idp.revokeStatus,
+          });
+        }
         const grant = accessTokens.get((auth ?? '').replace(/^Bearer /, ''));
         if (grant === undefined) return json({ message: 'Bad credentials' }, 401);
         const gh = grant.user as GitHubMockUser;

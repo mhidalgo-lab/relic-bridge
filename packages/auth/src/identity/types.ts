@@ -46,11 +46,19 @@ interface ProviderBase {
   readonly idp: string;
 }
 
+/** Optional per-request hooks for `complete` (P4-13). */
+export interface CompleteHooks {
+  /** Runs best-effort follow-up work (Workers: `waitUntil`). Without it the work is awaited. */
+  readonly background?: (task: Promise<unknown>) => void;
+  /** Warnings; fields never carry secrets or tokens. */
+  readonly warn?: (message: string, fields: Record<string, unknown>) => void;
+}
+
 /** Authorization code flow (Google, GitHub, generic OIDC). */
 export interface RedirectIdentityProvider extends ProviderBase {
   readonly kind: 'redirect';
   authorizationUrl(request: AuthorizationRequest): Promise<URL>;
-  complete(result: AuthorizationResult): Promise<VerifiedIdentity>;
+  complete(result: AuthorizationResult, hooks?: CompleteHooks): Promise<VerifiedIdentity>;
 }
 
 /** Identity asserted by a header from a trusted proxy (Cloudflare Access). */

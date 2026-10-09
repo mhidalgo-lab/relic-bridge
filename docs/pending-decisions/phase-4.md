@@ -315,3 +315,8 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 
 ### P4-10 — Member screens split out
 - Screens for members (P4-15) and a session list for members (not built) are follow-ups.
+
+### P4-13 — Revocation does not retry
+- **Context:** A failed revocation (GitHub down, 5xx) is logged at `warn` and not retried. The token then lives until GitHub expires or the user revokes the app authorization.
+- **Assumption made:** One best-effort attempt is enough; the token is never stored, so a retry queue would need new state.
+- **Needs:** nothing unless the warnings turn out to be frequent.

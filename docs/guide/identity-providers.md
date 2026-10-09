@@ -137,6 +137,11 @@ user id is the numeric GitHub id. Only an **active** organization membership cou
 If an organization restricts OAuth app access, an organization owner must approve the app, or GitHub hides the
 membership.
 
+After the identity lookup (success or refusal) relic-bridge revokes the user access token at GitHub
+(`DELETE /applications/{client_id}/token`), so nothing lingers there. Revocation is best effort: if it fails, sign-in
+still follows the policy decision and a `warn` log line records the status code (never the token). On Workers it runs
+in the background (`waitUntil`).
+
 ### Cloudflare Access (Workers, or anything behind Cloudflare)
 
 Use this when Cloudflare Access already protects the hostname. Access signs each request's identity into the

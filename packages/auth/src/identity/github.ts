@@ -8,10 +8,11 @@
 //   `read:org`); a pending invitation or a 404/403 is not membership.
 import type { FetchLike, Secret } from '@relic-bridge/core';
 import { IdentityError } from './errors.ts';
-import { asRecord, idpJson } from './http.ts';
+import { asRecord, IDP_TIMEOUT_MS, idpJson } from './http.ts';
 import {
   type AuthorizationRequest,
   type AuthorizationResult,
+  type CompleteHooks,
   canonicalEmail,
   type RedirectIdentityProvider,
   type VerifiedIdentity,
@@ -53,6 +54,43 @@ export function createGitHubProvider(options: GitHubProviderOptions): RedirectId
       'GitHub API',
     );
 
+  /**
+   * Revoke the user access token (`DELETE /applications/{client_id}/token`, Basic auth with the client credentials,
+   * 204 on success). Best effort: never throws; a failure is reported by status or error class only, never the token.
+   */
+  const revoke = async (token: string, hooks: CompleteHooks | undefined): Promise<void> => {
+    const warn = (reason: string, status?: number) =>
+      hooks?.warn?.('GitHub token revocation failed', {
+        provider: 'github',
+        reason,
+        ...(status === undefined ? {} : { status }),
+      });
+    try {
+      const basic = btoa(`${options.clientId}:${options.clientSecret.reveal()}`);
+      const res = await fetch(
+        `${GITHUB_API_URL}/applications/${encodeURIComponent(options.clientId)}/token`,
+        {
+          method: 'DELETE',
+          headers: {
+            accept: 'application/vnd.github+json',
+            authorization: `Basic ${basic}`,
+            'content-type': 'application/json',
+            'user-agent': 'relic-bridge',
+            'x-github-api-version': GITHUB_API_VERSION,
+          },
+          body: JSON.stringify({ access_token: token }),
+          redirect: 'manual',
+          signal: AbortSignal.timeout(IDP_TIMEOUT_MS),
+        },
+      );
+      await res.body?.cancel().catch(() => undefined);
+      // 404: the token is already gone (nothing lingers).
+      if (res.status !== 204 && res.status !== 404) warn('status', res.status);
+    } catch {
+      warn('network');
+    }
+  };
+
   return {
     kind: 'redirect',
     id: 'github',
@@ -71,7 +109,7 @@ export function createGitHubProvider(options: GitHubProviderOptions): RedirectId
       return url;
     },
 
-    async complete(result: AuthorizationResult): Promise<VerifiedIdentity> {
+    async complete(result: AuthorizationResult, hooks?: CompleteHooks): Promise<VerifiedIdentity> {
       const form = new URLSearchParams({
         client_id: options.clientId,
         client_secret: options.clientSecret.reveal(),
@@ -102,51 +140,58 @@ export function createGitHubProvider(options: GitHubProviderOptions): RedirectId
         throw new IdentityError('idp_error', 'GitHub refused the authorization code');
       }
 
-      const user = await api('/user', token);
-      const u = asRecord(user.body);
-      if (user.status !== 200 || u === null)
-        throw new IdentityError('idp_unavailable', 'GitHub user lookup failed');
-      const id = u['id'];
-      if (typeof id !== 'number' || !Number.isSafeInteger(id) || id <= 0) {
-        throw new IdentityError('invalid_token', 'GitHub returned no user id');
+      try {
+        return await lookup(token);
+      } finally {
+        // The token is dropped at GitHub as soon as the lookup is over, on success and on refusals alike.
+        const task = revoke(token, hooks);
+        if (hooks?.background) hooks.background(task);
+        else await task;
       }
-
-      const emails = await api('/user/emails', token);
-      if (emails.status !== 200 || !Array.isArray(emails.body)) {
-        throw new IdentityError(
-          'email_missing',
-          'GitHub did not share the email addresses (scope user:email)',
-        );
-      }
-      const primary = emails.body.map(asRecord).find((e) => e !== null && e['primary'] === true);
-      const email = canonicalEmail(primary?.['email']);
-      if (email === null) {
-        throw new IdentityError(
-          'email_missing',
-          'the GitHub account has no usable (ASCII) primary email address',
-        );
-      }
-      if (primary?.['verified'] !== true) {
-        throw new IdentityError('email_unverified', 'the primary GitHub email address is not verified');
-      }
-
-      const member: string[] = [];
-      for (const org of orgs) {
-        const m = await api(`/user/memberships/orgs/${encodeURIComponent(org)}`, token);
-        if (m.status === 200 && asRecord(m.body)?.['state'] === 'active') member.push(org);
-        else if (m.status >= 500)
-          throw new IdentityError('idp_unavailable', 'GitHub membership lookup failed');
-      }
-
-      const name = typeof u['name'] === 'string' && u['name'].trim() !== '' ? u['name'] : u['login'];
-      return Object.freeze({
-        idp: 'github',
-        subject: String(id),
-        email,
-        emailVerified: true,
-        displayName: typeof name === 'string' ? name.trim().slice(0, 200) : null,
-        orgs: Object.freeze(member),
-      });
     },
   };
+
+  async function lookup(token: string): Promise<VerifiedIdentity> {
+    const user = await api('/user', token);
+    const u = asRecord(user.body);
+    if (user.status !== 200 || u === null)
+      throw new IdentityError('idp_unavailable', 'GitHub user lookup failed');
+    const id = u['id'];
+    if (typeof id !== 'number' || !Number.isSafeInteger(id) || id <= 0) {
+      throw new IdentityError('invalid_token', 'GitHub returned no user id');
+    }
+
+    const emails = await api('/user/emails', token);
+    if (emails.status !== 200 || !Array.isArray(emails.body)) {
+      throw new IdentityError('email_missing', 'GitHub did not share the email addresses (scope user:email)');
+    }
+    const primary = emails.body.map(asRecord).find((e) => e !== null && e['primary'] === true);
+    const email = canonicalEmail(primary?.['email']);
+    if (email === null) {
+      throw new IdentityError(
+        'email_missing',
+        'the GitHub account has no usable (ASCII) primary email address',
+      );
+    }
+    if (primary?.['verified'] !== true) {
+      throw new IdentityError('email_unverified', 'the primary GitHub email address is not verified');
+    }
+
+    const member: string[] = [];
+    for (const org of orgs) {
+      const m = await api(`/user/memberships/orgs/${encodeURIComponent(org)}`, token);
+      if (m.status === 200 && asRecord(m.body)?.['state'] === 'active') member.push(org);
+      else if (m.status >= 500) throw new IdentityError('idp_unavailable', 'GitHub membership lookup failed');
+    }
+
+    const name = typeof u['name'] === 'string' && u['name'].trim() !== '' ? u['name'] : u['login'];
+    return Object.freeze({
+      idp: 'github',
+      subject: String(id),
+      email,
+      emailVerified: true,
+      displayName: typeof name === 'string' ? name.trim().slice(0, 200) : null,
+      orgs: Object.freeze(member),
+    });
+  }
 }

@@ -344,13 +344,19 @@ export function createIdentityRoutes(
       if (code === undefined || code === '')
         return fail(c, provider.id, provider.idp, 'invalid_callback', clear);
       const iss = c.req.query('iss');
-      const identity = await provider.complete({
-        code,
-        redirectUri: redirectUri(provider.id),
-        codeVerifier: tx.codeVerifier,
-        nonce: tx.nonce,
-        ...(iss === undefined ? {} : { issuer: iss }),
-      });
+      const identity = await provider.complete(
+        {
+          code,
+          redirectUri: redirectUri(provider.id),
+          codeVerifier: tx.codeVerifier,
+          nonce: tx.nonce,
+          ...(iss === undefined ? {} : { issuer: iss }),
+        },
+        {
+          background: (task) => deps.runInBackground(c, task, 'github_token_revoke'),
+          warn: (message, fields) => logger.warn(message, { requestId: c.get('requestId'), ...fields }),
+        },
+      );
       return await complete(c, provider, identity, tx.setup, tx.next, clear);
     } catch (error) {
       if (isIdentityError(error)) return fail(c, provider.id, provider.idp, error.code, clear);

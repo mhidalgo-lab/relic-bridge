@@ -1306,6 +1306,7 @@ export function runStorageContract(options: StorageContractOptions): void {
           false,
         );
         expect(await s.kv.get('task:a')).toBeNull();
+        await s.close();
       });
 
       it('increment counts atomically in a fixed window that restarts after expiry (P5-03 shared caps)', async () => {

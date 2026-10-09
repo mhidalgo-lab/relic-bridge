@@ -190,6 +190,15 @@ strict zod validation → handler. Handlers call the same domain services as the
 OpenAPI 3.1 document is generated from the route schemas and served at `/api/admin/v1/openapi.json`;
 `docs/reference/admin-api.md` is generated from it. Phase 4 adds IdP sessions next to the bootstrap token.
 
+### Management CLI (P2-10)
+
+`apps/cli/src/manage` implements `init`, `admin-token`, `user|credential|project|grant|token` and `audit tail` once,
+against an `AdminClient` (`call(method, path, {query, body})`). Two transports: `remoteClient` (`fetch` to
+`/api/admin/v1`, https only, `redirect: 'error'`) and `openLocalClient`, which mounts `createAdminApi` in-process over
+`openSqliteStorage` with a per-process random bearer, so local and remote share validation, rule refusals, masking and
+audit (local rows carry `via: cli` and the OS user). Secrets are read only from a hidden prompt, stdin, a file or an
+environment variable (`secrets.ts`); the node-only terminal pieces live in `host.ts` behind the `ManageHost` interface.
+
 ## 6. Cross-cutting concerns
 
 - **Budget**: per-invocation counter of subrequests (D1/KV/fetch), configured by `RB_PLAN` (`free` = 50, `paid` = 1000)

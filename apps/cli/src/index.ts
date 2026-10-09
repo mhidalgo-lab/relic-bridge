@@ -3,6 +3,7 @@
 import { readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { main } from './main.ts';
+import { nodeHost } from './manage/host.ts';
 
 // stdout is the MCP channel. Anything a dependency prints with console.log/info/debug goes to stderr instead.
 const toStderr = (...args: unknown[]): void => console.error(...args);
@@ -13,6 +14,9 @@ console.debug = toStderr;
 const stderr = (line: string): void => {
   process.stderr.write(line.endsWith('\n') ? line : `${line}\n`);
 };
+
+const abort = new AbortController();
+if (process.argv.includes('--follow')) process.once('SIGINT', () => abort.abort());
 
 const result = main({
   argv: process.argv.slice(2),
@@ -27,6 +31,7 @@ const result = main({
     process.stdout.write(text);
   },
   stderr,
+  manage: nodeHost(abort.signal),
 });
 
 if (result.kind === 'exit') {

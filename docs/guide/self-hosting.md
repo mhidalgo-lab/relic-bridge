@@ -18,7 +18,7 @@ relic-bridge serve --port 9000 --db /var/lib/relic-bridge/relic-bridge.db
 - Each project is one MCP endpoint: `http://<host>:<port>/p/<project-slug>/mcp` (Streamable HTTP, both the 2025 and
   2026-07-28 protocol eras). Clients authenticate with a per-device token: `Authorization: Bearer rb_live_…`
   ([access model](access-model.md#devices-and-access-tokens)). Projects, credentials, grants and tokens are managed
-  through the [admin API](#admin-api) (the management CLI, P2-10, builds on it).
+  through the [management CLI](#management-cli) or the [admin API](#admin-api).
 - **Database**: `--db`, else `RB_DB_PATH`, else `relic-bridge.db` in the data directory: `RB_DATA_DIR`, else
   `$XDG_DATA_HOME/relic-bridge` or `~/.local/share/relic-bridge` (Linux), `~/Library/Application Support/relic-bridge`
   (macOS), `%LOCALAPPDATA%\relic-bridge` (Windows). It is created (`0600`) and migrated on first start.
@@ -75,6 +75,34 @@ relic-bridge serve --port 9000 --db /var/lib/relic-bridge/relic-bridge.db
 - Storage errors answer `503` (fail closed), never "allowed".
 - `subscriptions/listen` (opened by 2026-era clients such as Claude Code) is acknowledged and closed at once: the
   server has no change notifications to push.
+
+## Management CLI
+
+`relic-bridge` manages a local database directly, or a running instance through the admin API. Same commands for
+both; full list in the [CLI reference](../reference/cli.md).
+
+```bash
+# First run on the server: master key file + database + first key, project and device token.
+relic-bridge init --label main --region US --slug prod --url https://mcp.example.com   # key on stdin or hidden prompt
+export RB_MASTER_KEY_FILE=~/.local/share/relic-bridge/master.key                       # back this file up
+relic-bridge credential add --label eu --region EU --key-file ./eu.key
+relic-bridge project add --slug eu --default-account 2000002 --default-credential <credential id>
+relic-bridge grant create --project eu --label phone
+relic-bridge token create --grant <grant id> --label phone --url https://mcp.example.com
+
+# From your laptop, against the running server (admin API enabled with RB_ADMIN_TOKEN there):
+export RB_ADMIN_TOKEN=...            # relic-bridge admin-token generate
+relic-bridge project list --remote https://mcp.example.com   # any management command takes --remote
+relic-bridge audit tail --follow --remote https://mcp.example.com
+```
+
+- **Keys and tokens never go on the command line.** New Relic keys come from a hidden prompt, stdin, `--key-file` or
+  `--key-env`; the admin token from `RB_ADMIN_TOKEN[_FILE]` or a prompt. Options that would carry a secret are refused.
+- **Remote needs https** (plain `http://localhost` only with `--insecure`), and never follows redirects.
+- A new device token is printed **once**, with snippets for Claude Code, Claude Desktop, Cursor and VS Code.
+- Local changes made while `serve` runs reach it within `RB_ACCESS_CACHE_TTL` (default 30 s); revoke through
+  `--remote` for an immediate effect.
+- `--json` makes any command scriptable; exit codes are `0` ok, `1` failed, `2` usage.
 
 ## Admin API
 

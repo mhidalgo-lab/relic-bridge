@@ -423,3 +423,14 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   rate-bound per change.
 - **Needs:** owner's call on whether to also refuse identical repeated writes in the `confirm: true` flow (it would
   block legitimate repeats), and on the 10-minute window.
+
+### P7-27 — tools/list budget with write tools, and headroom
+- **Context:** built-ins sat 33 characters under the 54 400 budget; write tools (about 8 100 characters) were unguarded.
+- **Assumption made:** two budgets (built-ins 54 400, with writes 62 400), both with at least 1 000 characters of
+  headroom enforced by test (1 500 and 1 917 today, about 3%, not 10%: a 10% margin would need about 5 000 characters of
+  cuts, which would remove information agents use). Trimmed wording only. `inputJsonSchema` now omits
+  `"maximum": 9007199254740991` (`Number.MAX_SAFE_INTEGER`, on every account id); validation is unchanged because the
+  handlers use the zod schema. The offline description lint is not applied to write tools (they fail rules 7 and the
+  overlap rule by design): follow-up P7-31.
+- **Needs:** owner's call on whether a 3% margin is enough, and on dropping the safe-integer `maximum` from the advertised
+  schema (revert `withoutSafeIntegerMax` to restore about 1 100 characters of schema text).

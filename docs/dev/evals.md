@@ -26,8 +26,8 @@ An agent picks a tool from its name, description and input schema, nothing else.
    "lines around this error" mode in the log tools (use a narrow `time_range`).
 7. **End with the untrusted-data sentence** (`UNTRUSTED` in `packages/core/src/tools/shared.ts`) on every tool that
    returns New Relic text. The result repeats a fuller notice in front of every data block, so one short sentence is enough.
-8. **Bounded.** At most 1 200 characters per description; the whole catalogue (descriptions plus input schemas) at most
-   53 500 characters (`TOOLS_LIST_BUDGET`; it was 65 683 before P6-13, 61 291 before P6-19 and 52 000 before P6-24, which added `limit` and `cursor` to every list). Every tool is sent in every conversation.
+8. **Bounded.** At most 1 200 characters per description, and the whole catalogue (descriptions plus input schemas) under
+   a budget, see "tools/list budget" below. Every tool is sent in every conversation.
 9. Behaviour, names and schemas do not change in a description edit. Renaming a tool is a breaking change. Argument and
    output names follow [tool-conventions.md](tool-conventions.md) (P6-22), checked by `lintNaming` in the same test file.
 10. No uppercase NRQL keywords followed by a space in source strings: the NRQL template lint rejects them (write
@@ -36,6 +36,30 @@ An agent picks a tool from its name, description and input schema, nothing else.
 The lint (`lintDescriptions`) enforces 1, 3, 4, 5, 7 and 8, plus: every input field has a description, every
 `list_*`/`get_*`/`analyze_*`... word in a description is a real tool, and any two descriptions whose content words overlap
 by 30% or more (Jaccard) must be a declared confusable pair.
+
+## tools/list budget
+
+Every client sends the whole `tools/list` to the model on every conversation (about 4 characters per token, so 54 400
+characters is roughly 13 600 tokens of context before the user types anything), and some clients truncate or defer
+long tool lists. So the size is a tested budget, in `packages/core/test/evals/quality.ts`:
+
+| Budget | Covers | Ceiling | Size now | Headroom |
+|---|---|---|---|---|
+| `TOOLS_LIST_BUDGET` | built-in (read) tools, the default `tools/list` | 54 400 | 52 900 | 1 500 |
+| `TOOLS_LIST_BUDGET_WITH_WRITES` | built-ins plus the four write tools (`RB_WRITE_TOOLS=on`) | 62 400 | 60 483 | 1 917 |
+
+History: 65 683 before P6-13, 61 291 after it, 51 980 after P6-19, then growth from P6-24 (`limit` and `cursor` on every
+list), P7-02 and P7-03; P7-27 trimmed 1 467 from the built-ins and 553 from the write tools (shared `name`, `time_range`
+and write-input wording, and the redundant `"maximum": 9007199254740991` that `inputJsonSchema` now omits: the server
+still validates it).
+
+Policy:
+
+- A test fails when either size exceeds its budget, and when headroom drops under 1 000 characters.
+- Prefer trimming (shared field wording, text repeating the schema) to raising. A raise needs the new tool or field to
+  be worth its per-conversation cost, a line in the PR and in the phase's pending-decisions log, and the budget set to
+  the new size plus about 1 500 characters. Write tools count against the write-enabled budget only: they are off by default.
+- A new write tool raises `TOOLS_LIST_BUDGET_WITH_WRITES` by its size, never `TOOLS_LIST_BUDGET`.
 
 ## Eval set
 

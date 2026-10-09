@@ -13,8 +13,7 @@ import { accountIdSchema } from './shared.ts';
 export const RESOLVE_COST: number = RESOLVE_CALLS;
 
 /** One wording for the `name` input of every entity tool (P6-19). Keep the prefix: the description lint keys on it. */
-const NAME_DESCRIPTION =
-  'Entity name instead of guid (loose match). Ambiguous: nothing runs, candidates are returned.';
+const NAME_DESCRIPTION = 'Entity name instead of guid. Ambiguous: nothing runs, candidates returned.';
 const NAME_ACCOUNT_DESCRIPTION = 'With name: this account only.';
 
 /** Input fields for a tool that takes an entity. Add `.refine(exactlyOneEntityRef…)` through `refineEntityRef`. */

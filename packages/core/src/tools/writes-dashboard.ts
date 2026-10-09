@@ -96,29 +96,19 @@ const plainMultiline = (max: number, what: string) =>
 const MARKDOWN_FORBIDDEN_RE = /<|>|\]\(|\]\s*:|\]\[|:\/\/|\bwww\.|\bmailto:|\bjavascript:|\bdata:\w+\//i;
 
 const queryInput = z.strictObject({
-  nrql: z
-    .string()
-    .min(1)
-    .max(MAX_NRQL_CHARS)
-    .describe('NRQL for this widget, checked like run_nrql (connection limits apply).'),
-  account: accountIdSchema
-    .optional()
-    .describe("Account this query reads (list_accounts). Default: the dashboard's account."),
+  nrql: z.string().min(1).max(MAX_NRQL_CHARS).describe('NRQL, checked like run_nrql.'),
+  account: accountIdSchema.optional().describe("Account to read (list_accounts). Default: the dashboard's."),
 });
 
 const widgetInput = z.strictObject({
   title: plain(DASHBOARD_LIMITS.nameChars, 'Widget title.'),
-  visualization: z
-    .enum(VISUALIZATIONS)
-    .describe('Chart type; "markdown" shows plain text (no links, images or HTML).'),
+  visualization: z.enum(VISUALIZATIONS).describe('"markdown" is plain text (no links, images or HTML).'),
   queries: z
     .array(queryInput)
     .min(1)
     .max(DASHBOARD_LIMITS.queriesPerWidget)
     .optional()
-    .describe(
-      `NRQL queries (1–${DASHBOARD_LIMITS.queriesPerWidget}); required for charts, not for markdown.`,
-    ),
+    .describe('Required for charts, not for markdown.'),
   markdown: plainMultiline(DASHBOARD_LIMITS.markdownChars, 'Text of a markdown widget.').optional(),
   width: z
     .number()
@@ -137,20 +127,18 @@ const pageInput = z.strictObject({
     .array(widgetInput)
     .min(1)
     .max(DASHBOARD_LIMITS.widgetsPerPage)
-    .describe(`Widgets in reading order (1–${DASHBOARD_LIMITS.widgetsPerPage}); laid out left to right.`),
+    .describe('In reading order, laid out left to right.'),
 });
 
 const dashboardInput = z.strictObject({
   name: plain(DASHBOARD_LIMITS.nameChars, 'Dashboard name.'),
   description: plainMultiline(DASHBOARD_LIMITS.descriptionChars, 'Dashboard description.').optional(),
-  account: accountInput.describe(
-    'Account the dashboard is created in (list_accounts). Default: the default.',
-  ),
+  account: accountInput.describe('Account it is created in (list_accounts). Default: the default.'),
   pages: z
     .array(pageInput)
     .min(1)
     .max(DASHBOARD_LIMITS.pages)
-    .describe(`Pages (1–${DASHBOARD_LIMITS.pages}), at most ${DASHBOARD_LIMITS.widgets} widgets in all.`),
+    .describe(`At most ${DASHBOARD_LIMITS.widgets} widgets in all.`),
   confirm: confirmInput,
   dry_run: dryRunInput,
 });
@@ -178,7 +166,7 @@ const dashboardOutput = z.object({
 
 const DESCRIPTION = `Create a new private New Relic dashboard from NRQL queries: pages of charts (line, area, bar, billboard, pie, table) and plain-text markdown widgets.
 
-Write tool, opt-in. ${SIDE_EFFECT_NOTICE} Needs confirm: true; dry_run: true checks everything and returns the planned dashboard without creating it. Each call creates a new dashboard (not idempotent; relic-bridge cannot edit or delete dashboards). The dashboard is always PRIVATE. Widget NRQL is checked like run_nrql (event types, window, LIMIT) and every query account must be on this connection. Limits: ${DASHBOARD_LIMITS.pages} pages, ${DASHBOARD_LIMITS.widgetsPerPage} widgets per page, ${DASHBOARD_LIMITS.widgets} in all, ${DASHBOARD_LIMITS.queriesPerWidget} queries per widget. To read existing dashboards use list_dashboards and get_dashboard.`;
+Write tool, opt-in. ${SIDE_EFFECT_NOTICE} Needs confirm: true; dry_run: true returns the plan without creating it. Each call creates a new dashboard (not idempotent; it cannot be edited or deleted here), always PRIVATE. Widget NRQL is checked like run_nrql and every query account must be on this connection. Limits: ${DASHBOARD_LIMITS.pages} pages, ${DASHBOARD_LIMITS.widgetsPerPage} widgets per page, ${DASHBOARD_LIMITS.widgets} in all, ${DASHBOARD_LIMITS.queriesPerWidget} queries per widget. To read dashboards use list_dashboards and get_dashboard.`;
 
 /** Prefix an error with where it happened, keeping its code (limits → RB_LIMIT_QUERY, accounts → RB_AUTH_FORBIDDEN). */
 function at(where: string, e: unknown): never {

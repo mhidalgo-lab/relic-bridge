@@ -2,7 +2,7 @@
 id: P7-33
 title: Default RB_WRITE_APPROVAL to required
 phase: 7
-status: in-progress
+status: review
 priority: high
 depends_on: [P7-25]
 adr: ["0015", "0016"]
@@ -22,10 +22,10 @@ Implement ADR-0016 (owner decision 2026-10-09): when write tools are on, a write
 - Write docs and examples: say that clients without elicitation can only dry-run until `client` is set.
 
 ## Acceptance criteria
-- [ ] Unset `RB_WRITE_APPROVAL` behaves as `required` on all three runtimes; tests cover unset, `client`, `required`.
-- [ ] Negative test: a non-elicitation connection with writes on and the variable unset gets `applied: false`, no
+- [x] Unset `RB_WRITE_APPROVAL` behaves as `required` on all three runtimes; tests cover unset, `client`, `required`.
+- [x] Negative test: a non-elicitation connection with writes on and the variable unset gets `applied: false`, no
       mutation, audit `confirmation: unavailable`.
-- [ ] `pnpm lint && pnpm typecheck && pnpm test` pass; generated docs regenerated.
+- [x] `pnpm lint && pnpm typecheck && pnpm test` pass; generated docs regenerated.
 
 ## Security notes
 T6, T31: removes the model-only approval path by default. Update `docs/THREAT_MODEL.md` T31.

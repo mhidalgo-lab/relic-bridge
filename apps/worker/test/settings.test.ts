@@ -105,10 +105,21 @@ describe('parseWorkerSettings', () => {
     );
     fails({ RB_WRITE_TOOLS: 'sure' }, 'RB_WRITE_TOOLS');
     // P7-25: the approval switch
-    expect(parseWorkerSettings({}).requireWriteApproval).toBe(false);
+    // ADR-0016 / P7-33: unset means required; `client` is an explicit opt-down that warns when writes are on
+    expect(parseWorkerSettings({}).requireWriteApproval).toBe(true);
+    expect(parseWorkerSettings({ RB_WRITE_TOOLS: 'on' }).requireWriteApproval).toBe(true);
+    expect(parseWorkerSettings({ RB_WRITE_TOOLS: 'on' }).warnings.join(' ')).not.toContain(
+      'RB_WRITE_APPROVAL',
+    );
     expect(
       parseWorkerSettings({ RB_WRITE_TOOLS: 'on', RB_WRITE_APPROVAL: 'required' }).requireWriteApproval,
     ).toBe(true);
+    const optDown = parseWorkerSettings({ RB_WRITE_TOOLS: 'on', RB_WRITE_APPROVAL: 'client' });
+    expect(optDown.requireWriteApproval).toBe(false);
+    expect(optDown.warnings.join(' ')).toContain('RB_WRITE_APPROVAL=client');
+    expect(parseWorkerSettings({ RB_WRITE_APPROVAL: 'client' }).warnings.join(' ')).not.toContain(
+      'RB_WRITE_APPROVAL=client',
+    );
     expect(parseWorkerSettings({ RB_WRITE_APPROVAL: 'required' }).warnings.join(' ')).toContain('no effect');
     fails({ RB_WRITE_APPROVAL: 'always' }, 'RB_WRITE_APPROVAL');
   });

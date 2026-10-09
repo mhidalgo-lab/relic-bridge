@@ -663,7 +663,7 @@ export interface Harness {
   readonly recorderHooks: HttpAppHooks;
   /** Calls the app made to identity providers (sign-in routes, P4-01); a stand-in that answers 503. */
   readonly idpCalls: string[];
-  makeApp(over?: Partial<HttpAppOptions>): { fetch(request: Request): Response | Promise<Response> };
+  makeApp(over?: AuthzAppOptions): { fetch(request: Request): Response | Promise<Response> };
   send(request: Request, app?: { fetch(request: Request): Response | Promise<Response> }): Promise<Captured>;
   /** A validated credential reaching `reachable` (default 1, 2, 3 and FOREIGN). */
   addCredential(opts?: {
@@ -763,12 +763,18 @@ export const IDENTITY_ENV: Readonly<Record<string, string>> = Object.freeze({
 
 /** The app under test with the admin API (token `ADMIN_TOKEN`), sign-in and the audit recorder on. */
 export interface HostApp {
-  makeApp(over?: Partial<HttpAppOptions>): AuthzApp;
+  makeApp(over?: AuthzAppOptions): AuthzApp;
   /** The recorder's hooks, for tests composing their own hooks (the HTTP app host only). */
   readonly recorderHooks: HttpAppHooks;
   /** Wait for background work (audit rows written through `waitUntil`). */
   settle?(): Promise<void>;
 }
+
+/**
+ * The options a test passes to `makeApp`. `writeApprovalUnset` stands for a deployment that leaves `RB_WRITE_APPROVAL`
+ * unset (ADR-0016: `required`): the HTTP app host sets the resolved value, the Worker host leaves the variable out.
+ */
+export type AuthzAppOptions = Partial<HttpAppOptions> & { readonly writeApprovalUnset?: true };
 
 export interface AuthzHost {
   readonly kind: 'http-app' | 'worker';
@@ -807,7 +813,7 @@ export const httpAppHost: AuthzHost = {
     };
     return {
       recorderHooks: recorder.hooks,
-      makeApp: (over = {}) => {
+      makeApp: ({ writeApprovalUnset, ...over } = {}) => {
         // Sign-in comes back to http://localhost; a test that narrows the Host allowlist elsewhere goes without it.
         const hosts = over.allowedHosts;
         const signIn = hosts === undefined || hosts === '*' || hosts.includes('localhost');
@@ -829,6 +835,7 @@ export const httpAppHost: AuthzHost = {
             audit: recorder,
           },
           ...(signIn ? { identity: identityOptions } : {}),
+          ...(writeApprovalUnset === true ? { requireWriteApproval: true } : {}),
           ...over,
         });
       },

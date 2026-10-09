@@ -30,7 +30,7 @@ class SystemClock extends ManualClock {
 const SECRET = 'fp-'.padEnd(40, 'f');
 
 /** The HTTP app options a test may override, as the Worker's settings. */
-function envFor(over: Partial<HttpAppOptions>): WorkerEnv {
+function envFor(over: Partial<HttpAppOptions>, approvalUnset = false): WorkerEnv {
   const vars: Record<string, string> = {
     RB_ADMIN_TOKEN: ADMIN_TOKEN,
     // The matrix sends thousands of refusals from one (absent) address; rate limits have their own tests.
@@ -46,7 +46,10 @@ function envFor(over: Partial<HttpAppOptions>): WorkerEnv {
     vars['RB_FINGERPRINT_SECRET'] = SECRET;
   }
   if (over.writeTools === true) vars['RB_WRITE_TOOLS'] = 'on';
-  if (over.requireWriteApproval === true) vars['RB_WRITE_APPROVAL'] = 'required';
+  // ADR-0016: the Worker default is `required`; these suites exercise the `client` flow unless they ask for `required`.
+  if (over.writeTools === true && !approvalUnset) {
+    vars['RB_WRITE_APPROVAL'] = over.requireWriteApproval === true ? 'required' : 'client';
+  }
   if (over.publicToolCatalog === true) vars['RB_PUBLIC_TOOL_CATALOG'] = 'on';
   if (over.mcpApps === false) vars['RB_MCP_APPS'] = 'off';
   const {
@@ -86,8 +89,8 @@ export const workerHost: AuthzHost = {
       settle: () => ctx.settle(),
       makeApp(over = {}) {
         // OAuth (P5-01) is a programmatic Worker option, not a setting.
-        const { oauth, ...settings } = over;
-        const workerEnv = envFor(settings);
+        const { oauth, writeApprovalUnset, ...settings } = over;
+        const workerEnv = envFor(settings, writeApprovalUnset === true);
         // One Worker (isolate) per app, like a fresh deployment.
         const worker = createWorker({
           fetch: nerdGraph.fetch,

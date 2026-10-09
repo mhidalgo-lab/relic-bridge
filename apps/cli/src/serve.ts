@@ -313,7 +313,7 @@ export interface ServeSettings {
   readonly telemetry: TelemetrySettings | null;
   /** Opt-in write tools (P7-09, `RB_WRITE_TOOLS=on`); off by default. Needs the audit log on. */
   readonly writeTools: boolean;
-  /** `RB_WRITE_APPROVAL=required` (P7-25): writes need a person's approval through elicitation. Default `client`. */
+  /** `RB_WRITE_APPROVAL` (P7-25, ADR-0016): writes need a person's approval through elicitation. Default `required`. */
   readonly requireWriteApproval: boolean;
   /** Registry-friendly discovery (P7-14, `RB_PUBLIC_TOOL_CATALOG=on`); off by default. */
   readonly publicToolCatalog: boolean;
@@ -322,16 +322,29 @@ export interface ServeSettings {
   readonly warnings: readonly string[];
 }
 
-/** `RB_WRITE_APPROVAL` (P7-25): `client` (default) or `required`. Without write tools it has no effect and says so. */
+/**
+ * `RB_WRITE_APPROVAL` (P7-25, ADR-0016): `required` (default) or `client`. `client` is an explicit opt-down and warns
+ * when write tools are on; an explicit `required` without write tools has no effect and says so.
+ */
 export function writeApprovalSetting(env: Env, warnings: string[]): boolean {
   const v = env['RB_WRITE_APPROVAL']?.trim().toLowerCase();
-  if (v === undefined || v === '' || v === 'client') return false;
-  if (v !== 'required') throw new ConfigError('RB_WRITE_APPROVAL must be client or required.');
-  if (!onOff(env, 'RB_WRITE_TOOLS', false)) {
+  if (v !== undefined && v !== '' && v !== 'client' && v !== 'required') {
+    throw new ConfigError('RB_WRITE_APPROVAL must be client or required.');
+  }
+  const writes = onOff(env, 'RB_WRITE_TOOLS', false);
+  if (v === 'client') {
+    if (writes) warnings.push(WRITE_APPROVAL_CLIENT_WARNING);
+    return false;
+  }
+  if (v === 'required' && !writes) {
     warnings.push('RB_WRITE_APPROVAL=required has no effect without RB_WRITE_TOOLS=on.');
   }
   return true;
 }
+
+/** Startup warning for `RB_WRITE_APPROVAL=client` with write tools on (T31). */
+export const WRITE_APPROVAL_CLIENT_WARNING =
+  'RB_WRITE_APPROVAL=client with RB_WRITE_TOOLS=on: a client that cannot show an approval form can write when the model sets confirm: true, so a prompt-injected agent is the only gate. Remove RB_WRITE_APPROVAL (default required) unless you accept that.';
 
 /** `RB_WRITE_TOOLS` (P7-09, ADR-0015): off by default; refused without the audit log (every write must be recorded). */
 export function writeToolsSetting(

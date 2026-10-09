@@ -288,11 +288,11 @@ export function stdioMcpApps(env: Readonly<Record<string, string | undefined>>):
   throw new ConfigError('RB_MCP_APPS must be on or off.');
 }
 
-/** `RB_WRITE_APPROVAL` for stdio (P7-25): `client` (default) or `required`; any other value fails startup. */
+/** `RB_WRITE_APPROVAL` for stdio (P7-25, ADR-0016): `required` (default) or `client`; any other value fails startup. */
 export function stdioWriteApproval(env: Readonly<Record<string, string | undefined>>): boolean {
   const v = env['RB_WRITE_APPROVAL']?.trim().toLowerCase();
-  if (v === undefined || v === '' || v === 'client') return false;
-  if (v === 'required') return true;
+  if (v === undefined || v === '' || v === 'required') return true;
+  if (v === 'client') return false;
   throw new ConfigError('RB_WRITE_APPROVAL must be client or required.');
 }
 

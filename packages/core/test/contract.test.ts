@@ -120,6 +120,8 @@ describe('MCP contract: every registered tool', () => {
     expect(resultText(r).length).toBeGreaterThan(0);
     // Closed-world tools never reach the network; open-world ones may.
     if (!def?.openWorld) expect(mock.calls).toHaveLength(0);
+    // Read-only by construction (ADR-0014, T22): every document sent is a named query, never a mutation.
+    for (const call of mock.calls) expect(call.body.query, name).toMatch(/^\s*query\s+Rb[A-Za-z0-9_]*\b/);
     // No secret may leak into a result.
     expect(JSON.stringify(r)).not.toContain(FAKE_KEY);
   });

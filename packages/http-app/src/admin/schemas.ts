@@ -816,3 +816,143 @@ export const SessionsRevokedSchema = z
 export const SessionsRevokedOne = z
   .object({ data: SessionsRevokedSchema })
   .openapi('SessionsRevokedResponse');
+
+// ---------------------------------------------------------------------------------------------------------------
+// Config import/export (P7-06)
+// ---------------------------------------------------------------------------------------------------------------
+
+const b64 = (max: number) =>
+  z
+    .string()
+    .max(max)
+    .regex(/^[A-Za-z0-9+/_-]+={0,2}$/, 'must be base64');
+
+const BundleUserSchema = z.strictObject({
+  email: z.email().max(320),
+  displayName: text(100).nullable(),
+  role: z.enum(['owner', 'admin', 'member']),
+});
+
+const BundleCredentialSchema = z.strictObject({
+  ref: idRef('Link used inside the bundle.'),
+  label,
+  region,
+  owner: z.email().max(320).nullable(),
+});
+
+const BundleProjectSchema = z.strictObject({
+  slug: z.string().regex(/^[a-z0-9][a-z0-9-]{0,62}$/),
+  name: text(100).nullable(),
+  defaultAccountId: accountId,
+  allowedAccountIds: accountIds,
+  enabledTools: toolNames.nullable(),
+  limits: LimitsSchema,
+  defaultCredential: idRef('A `credentials[].ref`.').nullable(),
+  disabled: z.boolean(),
+});
+
+const BundleGrantSchema = z.strictObject({
+  project: z.string().regex(/^[a-z0-9][a-z0-9-]{0,62}$/),
+  user: z.email().max(320).nullable(),
+  label: text(100).nullable(),
+  credential: idRef('A `credentials[].ref`.').nullable(),
+  tools: toolNames.nullable(),
+  accountIds: accountIds.nullable(),
+  limits: LimitsSchema,
+  rateLimit: RateLimitSchema.nullable(),
+  expiresAt: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).nullable(),
+});
+
+const BundleKdfSchema = z.strictObject({
+  name: z.literal('pbkdf2-sha256'),
+  iterations: z.number().int().min(600_000).max(10_000_000),
+  salt: b64(24),
+});
+
+const BundleSecretsSchema = z.strictObject({
+  kdf: BundleKdfSchema,
+  cipher: z.literal('aes-256-gcm'),
+  nonce: b64(24),
+  sealed: b64(300_000),
+});
+
+export const ConfigBundleSchema = z
+  .strictObject({
+    format: z.literal('relic-bridge-config'),
+    version: z.literal(1),
+    exportedAt: z.string().max(40),
+    users: z.array(BundleUserSchema).max(200),
+    credentials: z.array(BundleCredentialSchema).max(100),
+    projects: z.array(BundleProjectSchema).max(100),
+    grants: z.array(BundleGrantSchema).max(500),
+    settings: z.strictObject({ 'oauth.registration': z.boolean().optional() }),
+    secrets: BundleSecretsSchema.optional(),
+  })
+  .openapi('ConfigBundle', {
+    description:
+      'A relic-bridge configuration. Never holds plaintext New Relic keys, access tokens, sessions or OAuth state; ' +
+      'keys appear only in `secrets`, sealed with AES-256-GCM under a passphrase-derived key.',
+  });
+
+const wrapKey = b64(64).openapi({
+  description:
+    'The 32-byte AES wrap key (base64) the CLI derived from the passphrase (PBKDF2-HMAC-SHA-256, 600 000+ ' +
+    'iterations). The passphrase itself is never sent. Treat like a password: send over TLS only.',
+});
+
+export const ExportConfigBody = z
+  .strictObject({
+    wrapKey: wrapKey.optional(),
+    kdf: BundleKdfSchema.optional().openapi({
+      description: 'The KDF parameters the wrap key was derived with (stored in the bundle).',
+    }),
+  })
+  .refine((b) => (b.wrapKey === undefined) === (b.kdf === undefined), 'wrapKey and kdf go together')
+  .openapi('ExportConfig', {
+    description: 'Omit both for an export without New Relic keys. Give both to include them, sealed.',
+  });
+
+export const ExportConfigOne = z
+  .object({ data: ConfigBundleSchema, warnings })
+  .openapi('ExportConfigResponse');
+
+export const ImportConfigBody = z
+  .strictObject({
+    bundle: ConfigBundleSchema,
+    apply: z.boolean().optional().openapi({ description: 'Default false: a dry run that changes nothing.' }),
+    wrapKey: wrapKey.optional(),
+  })
+  .openapi('ImportConfig');
+
+const PlanEntrySchema = z
+  .object({
+    kind: z.enum(['user', 'credential', 'project', 'grant', 'setting']),
+    key: z.string(),
+    action: z.enum(['create', 'update', 'unchanged', 'skip']),
+    fields: z.array(z.string()).optional(),
+    reason: z.string().optional(),
+  })
+  .openapi('ImportPlanEntry');
+
+export const ImportReportSchema = z
+  .object({
+    dryRun: z.boolean(),
+    entries: z.array(PlanEntrySchema),
+    summary: z.object({
+      create: z.number().int(),
+      update: z.number().int(),
+      unchanged: z.number().int(),
+      skip: z.number().int(),
+    }),
+    warnings: z.array(z.string()),
+    failed: z
+      .object({ kind: z.string(), key: z.string(), code: z.string(), message: z.string() })
+      .nullable()
+      .openapi({
+        description:
+          'Apply stopped at this entity; the entries before it were applied. Import again to resume.',
+      }),
+  })
+  .openapi('ImportReport');
+
+export const ImportReportOne = z.object({ data: ImportReportSchema }).openapi('ImportConfigResponse');

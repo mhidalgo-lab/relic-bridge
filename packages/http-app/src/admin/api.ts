@@ -14,15 +14,19 @@
 // - every change is written to the audit log and clears the in-process access cache.
 import { createRoute, OpenAPIHono, type RouteConfig, type z } from '@hono/zod-openapi';
 import {
+  type ConfigBundle,
   type CreateGrantInput,
   type CreateProjectInput,
   createCredential,
   createGrant,
   createProject,
   createSetupLink,
+  exportConfig,
+  importConfig,
   issueAccessToken,
   type Keyring,
   type KeyValidator,
+  parseWrapKey,
   revalidateCredential,
   revokeAccessToken,
   revokeUserSessions,
@@ -715,6 +719,37 @@ const routes = {
     responses: { 200: json(S.KeyRotationOne, 'What this batch did'), ...errors(413, 415) },
   }),
 
+  exportConfig: route({
+    method: 'post',
+    path: '/config/export',
+    tags: ['config'],
+    summary: 'Export projects, grants, users and settings',
+    description:
+      'Owner only (P7-06). Returns a `relic-bridge-config` bundle. New Relic keys are never included in plaintext: ' +
+      'leave the body empty for an export without keys, or send `wrapKey` + `kdf` (derived by the CLI from a ' +
+      "passphrase) to include them sealed with AES-256-GCM: shared keys and the caller's own personal keys only (the admin " +
+      "token, which is nobody, gets shared keys; a colleague's personal key is never exported). Access tokens, sessions, OAuth state, identity bindings " +
+      'and master keys are never exported. Audited as `config.export`.',
+    request: BODY(S.ExportConfigBody),
+    responses: { 200: json(S.ExportConfigOne, 'The bundle'), ...errors(413, 415) },
+  }),
+
+  importConfig: route({
+    method: 'post',
+    path: '/config/import',
+    tags: ['config'],
+    summary: 'Import a configuration bundle (dry run by default)',
+    description:
+      'Owner only (P7-06). Validates the bundle strictly, then returns what it would create, update or skip ' +
+      '(`apply` false, the default: nothing changes). With `apply: true` it makes those changes through the same rules ' +
+      'as the other routes and stops at the first failure (`failed`); importing again resumes. Matching is by natural ' +
+      'key (user email, credential owner and label, project slug, grant project and user), so a repeated import ' +
+      'changes nothing. Never deletes or revokes; users are create-only and never owners; existing grants and stored ' +
+      'keys are not modified. Audited as `config.import`.',
+    request: BODY(S.ImportConfigBody),
+    responses: { 200: json(S.ImportReportOne, 'The plan or the outcome'), ...errors(413, 415, 422) },
+  }),
+
   createSetupLink: route({
     method: 'post',
     path: '/setup-links',
@@ -900,6 +935,8 @@ const REFUSAL_ROUTES: readonly (readonly [string, RegExp, string, string])[] = [
   ['POST', /^\/grants$/, 'grant.create', 'grant'],
   ['POST', /^\/tokens$/, 'token.create', 'token'],
   ['POST', /^\/keys\/rotate$/, 'keys.rotate', 'master_key'],
+  ['POST', /^\/config\/export$/, 'config.export', 'config'],
+  ['POST', /^\/config\/import$/, 'config.import', 'config'],
   ['POST', /^\/setup-links$/, 'setup_link.create', 'setup_link'],
 ];
 
@@ -943,7 +980,7 @@ const UNBIND = /^\/users\/[^/]+\/unbind$/;
 
 /**
  * The least role a cookie session needs for a route (P4-02). Owner-only: master-key rotation, owner setup links, the
- * user unbind and `/oauth/*` (clients and the registration switch, P5-08).
+ * user unbind, config export/import and `/oauth/*` (clients and the registration switch, P5-08).
  * Any role: `GET /session`, `GET /audit` (the handler limits members to their own rows) and revoking sessions (the
  * handler limits members to themselves). Everything else, unknown
  * paths included: `admin`.
@@ -953,7 +990,14 @@ export function requiredRole(method: string, rel: string): 'owner' | 'admin' | '
   if (method === 'POST' && SELF_SESSIONS.test(rel)) return 'member';
   // Self-service (P4-10): every handler works on the caller's own rows only (and refuses the admin token).
   if (rel === '/me' || rel.startsWith('/me/')) return 'member';
-  if (method === 'POST' && (rel === '/keys/rotate' || rel === '/setup-links' || UNBIND.test(rel)))
+  if (
+    method === 'POST' &&
+    (rel === '/keys/rotate' ||
+      rel === '/setup-links' ||
+      rel === '/config/export' ||
+      rel === '/config/import' ||
+      UNBIND.test(rel))
+  )
     return 'owner';
   // OAuth clients and the registration switch (P5-08): owners only, every method.
   if (rel === '/oauth' || rel.startsWith('/oauth/')) return 'owner';
@@ -1192,6 +1236,8 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
       targetId?: string | null;
       projectId?: string | null;
       details?: Record<string, unknown>;
+      /** A change that finished but not fully (config import stopped at a failure). */
+      outcome?: { readonly status: 'error'; readonly errorCode: string };
     },
   ): Promise<T> => {
     const record = (event: Omit<AdminAuditEvent, 'actor' | 'action' | 'targetType'>) => {
@@ -1233,6 +1279,7 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
       targetId: extra.targetId ?? meta.targetId ?? null,
       projectId: extra.projectId ?? meta.projectId ?? null,
       ...(extra.details ? { details: extra.details } : {}),
+      ...(extra.outcome ?? {}),
     });
     deps.onChange?.();
     return result;
@@ -1924,6 +1971,81 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
       },
       200,
     );
+  });
+
+  // ------------------------------------------------------------------------------------- config import/export
+  api.openapi(routes.exportConfig, async (c) => {
+    if (!actsAsOwner(c)) throw denied('role');
+    const body = c.req.valid('json');
+    const wrap =
+      body.wrapKey === undefined || body.kdf === undefined
+        ? undefined
+        : { key: parseWrapKey(body.wrapKey), kdf: body.kdf };
+    try {
+      const result = await change(
+        c,
+        { action: 'config.export', targetType: 'config', details: { withCredentials: wrap !== undefined } },
+        () => {
+          const principal = c.get('principal') as AdminPrincipal | undefined;
+          return exportConfig(
+            { storage, keyring: deps.keyring, clock },
+            wrap === undefined
+              ? {}
+              : { wrap, keyOwnerUserId: principal?.kind === 'session' ? principal.user.id : null },
+          );
+        },
+        (r) => ({
+          details: {
+            users: r.bundle.users.length,
+            credentials: r.bundle.credentials.length,
+            projects: r.bundle.projects.length,
+            grants: r.bundle.grants.length,
+            warnings: r.warnings.length,
+          },
+        }),
+      );
+      return c.json(
+        {
+          // The bundle is plain JSON data built field by field; the schema type is just its mutable twin.
+          data: JSON.parse(JSON.stringify(result.bundle)) as z.infer<typeof S.ConfigBundleSchema>,
+          warnings: [...result.warnings],
+        },
+        200,
+      );
+    } finally {
+      wrap?.key.fill(0);
+    }
+  });
+
+  api.openapi(routes.importConfig, async (c) => {
+    if (!actsAsOwner(c)) throw denied('role');
+    const body = c.req.valid('json');
+    const apply = body.apply === true;
+    const wrapKey = body.wrapKey === undefined ? undefined : parseWrapKey(body.wrapKey);
+    try {
+      const report = await change(
+        c,
+        { action: 'config.import', targetType: 'config', details: { dryRun: !apply } },
+        () =>
+          importConfig(
+            { storage, keyring: deps.keyring, validate: deps.validateKey, catalog, clock },
+            body.bundle as ConfigBundle,
+            { apply, ...(wrapKey === undefined ? {} : { wrapKey }) },
+          ),
+        (r) => ({
+          details: {
+            ...r.summary,
+            warnings: r.warnings.length,
+            // Natural keys only (emails, slugs, labels): no secret ever reaches an entry.
+            ...(r.failed === null ? {} : { failedKind: r.failed.kind, failedCode: r.failed.code }),
+          },
+          ...(r.failed === null ? {} : { outcome: { status: 'error' as const, errorCode: r.failed.code } }),
+        }),
+      );
+      return c.json({ data: report as z.infer<typeof S.ImportReportSchema> }, 200);
+    } finally {
+      wrapKey?.fill(0);
+    }
   });
 
   // -------------------------------------------------------------------------------------------- setup links

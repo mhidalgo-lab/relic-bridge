@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // Admin REST API (P2-09): authentication (negative cases on every route), validation, every resource, audit rows, and
 // a scan that no response or log line ever carries key material or token hashes.
-import { generateMasterKey, Keyring, type KeyValidator } from '@relic-bridge/auth';
+import { deriveWrapKey, generateMasterKey, Keyring, type KeyValidator, newKdf } from '@relic-bridge/auth';
 import { createLogger, ErrorCode, type Identity, RbError, Secret } from '@relic-bridge/core';
-import { type AuditRecord, StorageError } from '@relic-bridge/storage';
+import { type AuditRecord, createMemoryStorage, StorageError } from '@relic-bridge/storage';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   createAuditRecorder,
@@ -197,6 +197,23 @@ const ROUTES: readonly [string, string, unknown?][] = [
   ['GET', '/audit'],
   ['GET', '/audit/stats'],
   ['POST', '/keys/rotate', {}],
+  ['POST', '/config/export', {}],
+  [
+    'POST',
+    '/config/import',
+    {
+      bundle: {
+        format: 'relic-bridge-config',
+        version: 1,
+        exportedAt: '2026-01-01T00:00:00.000Z',
+        users: [],
+        credentials: [],
+        projects: [],
+        grants: [],
+        settings: {},
+      },
+    },
+  ],
   ['GET', '/no-such-endpoint'],
 ];
 
@@ -1292,5 +1309,157 @@ describe('OpenAPI document', () => {
       const props = Object.keys(doc.components['schemas']?.[name].properties).join(',');
       expect(props).not.toMatch(/key$|apiKey|ciphertext|iv|hash/i);
     }
+  });
+});
+
+describe('config export / import (P7-06)', () => {
+  const PASS = 'correct horse battery staple';
+  const toB64 = (bytes: Uint8Array) => btoa(String.fromCharCode(...bytes));
+
+  async function emptyTarget() {
+    const storage = createMemoryStorage({ now: () => world.clock.now() });
+    const keyring = await Keyring.create({ current: generateMasterKey(1) });
+    const app = createHttpApp({
+      storage,
+      keyring,
+      clock: world.clock,
+      fetch: mockNerdGraph().fetch,
+      admin: { token: new Secret(ADMIN), storage, validateKey },
+    });
+    return { storage, keyring, app };
+  }
+
+  it('exports without keys by default, audited, with no secret anywhere in the response', async () => {
+    const res = await admin(makeApp(), '/config/export', { method: 'POST', body: {} });
+    expect(res.status).toBe(200);
+    const text = JSON.stringify(res.json);
+    expect(text).not.toContain('NRAK');
+    expect(res.json?.['data']).toMatchObject({ format: 'relic-bridge-config', version: 1 });
+    expect(res.json?.['data'].secrets).toBeUndefined();
+    expect(res.json?.['data'].projects.map((p: { slug: string }) => p.slug)).toEqual(['eu', 'noraw', 'prod']);
+    const row = (await auditRows()).find((r) => r.action === 'config.export');
+    expect(row).toMatchObject({ status: 'ok', targetType: 'config', details: { withCredentials: false } });
+  });
+
+  /** A shared key, a project that defaults to it and a service grant (the admin token exports shared keys only). */
+  async function addSharedSetup(app: App) {
+    const cred = await admin(app, '/credentials', {
+      method: 'POST',
+      body: { label: 'shared', region: 'US', apiKey: NR_KEY_2 },
+    });
+    expect(cred.status).toBe(201);
+    const project = await admin(app, '/projects', {
+      method: 'POST',
+      body: {
+        slug: 'shared-prod',
+        defaultAccountId: 1,
+        allowedAccountIds: [1, 2],
+        defaultCredentialId: cred.json?.['data'].id,
+      },
+    });
+    expect(project.status).toBe(201);
+    const grant = await admin(app, '/grants', {
+      method: 'POST',
+      body: { projectId: project.json?.['data'].id, label: 'ci' },
+    });
+    expect(grant.status).toBe(201);
+  }
+
+  it('round trip over the API: sealed export, dry run changes nothing, apply, then idempotent', async () => {
+    const app = makeApp();
+    await addSharedSetup(app);
+    const kdf = newKdf();
+    const wrapKey = toB64(await deriveWrapKey(PASS, kdf));
+    const exported = await admin(app, '/config/export', { method: 'POST', body: { wrapKey, kdf } });
+    expect(exported.status).toBe(200);
+    expect(JSON.stringify(exported.json)).not.toContain(NR_KEY);
+    expect(JSON.stringify(exported.json)).not.toContain(NR_KEY_2);
+    // The seeded key is a personal one (owned by a user): the admin token is nobody, so it stays behind.
+    expect(exported.json?.['warnings'].some((w: string) => w.includes('personal key of another user'))).toBe(
+      true,
+    );
+    const bundle = exported.json?.['data'];
+    expect(bundle.secrets.kdf.iterations).toBe(600_000);
+
+    const t = await emptyTarget();
+    const send = (body: unknown) => admin(t.app, '/config/import', { method: 'POST', body });
+    const dry = await send({ bundle, wrapKey });
+    expect(dry.status).toBe(200);
+    expect(dry.json?.['data']).toMatchObject({ dryRun: true, failed: null });
+    expect(dry.json?.['data'].summary.create).toBeGreaterThan(5);
+    expect(await t.storage.projects.list()).toHaveLength(0);
+
+    const applied = await send({ bundle, wrapKey, apply: true });
+    expect(applied.json?.['data']).toMatchObject({ dryRun: false, failed: null });
+    expect((await t.storage.projects.list()).map((p) => p.slug).sort()).toEqual([
+      'eu',
+      'noraw',
+      'prod',
+      'shared-prod',
+    ]);
+    const creds = await t.storage.credentials.list();
+    expect(creds.map((c) => c.label)).toEqual(['shared']);
+    const [cred] = creds;
+    expect((await t.keyring.decryptCredentialKey(cred?.id as string, cred?.key as never)).reveal()).toBe(
+      NR_KEY_2,
+    );
+    // Grants that depend on the personal key that stayed behind are skipped, with the reason; the shared one is made.
+    const grants = applied.json?.['data'].entries.filter((e: { kind: string }) => e.kind === 'grant');
+    expect(grants.filter((g: { action: string }) => g.action === 'create')).toHaveLength(1);
+    expect(grants.filter((g: { action: string }) => g.action === 'skip').length).toBeGreaterThan(0);
+
+    const again = await send({ bundle, wrapKey, apply: true });
+    expect(again.json?.['data'].summary).toMatchObject({ create: 0, update: 0 });
+    expect(await t.storage.credentials.list()).toHaveLength(1);
+  });
+
+  it('records import audits with counts only, and a wrong wrap key is 422 and changes nothing', async () => {
+    const kdf = newKdf();
+    const wrapKey = toB64(await deriveWrapKey(PASS, kdf));
+    const bundle = (await admin(makeApp(), '/config/export', { method: 'POST', body: { wrapKey, kdf } }))
+      .json?.['data'];
+    const app = makeApp();
+    const wrong = toB64(await deriveWrapKey('another passphrase!!', kdf));
+    const refused = await admin(app, '/config/import', {
+      method: 'POST',
+      body: { bundle, wrapKey: wrong, apply: true },
+    });
+    expect(refused.status).toBe(422);
+    expect(refused.json?.['error'].code).toBe('not_permitted');
+    const ok = await admin(app, '/config/import', { method: 'POST', body: { bundle, wrapKey } });
+    expect(ok.status).toBe(200);
+    const rows = (await auditRows()).filter((r) => r.action === 'config.import');
+    expect(rows.map((r) => [r.status, r.errorCode])).toEqual(
+      expect.arrayContaining([
+        ['denied', 'not_permitted'],
+        ['ok', null],
+      ]),
+    );
+    expect(JSON.stringify(rows)).not.toContain(wrapKey);
+  });
+
+  it('validates strictly: unknown fields, a bad wrap key, mismatched kdf and dangling references are 400', async () => {
+    const app = makeApp();
+    const bundle = (await admin(app, '/config/export', { method: 'POST', body: {} })).json?.['data'];
+    const post = (body: unknown) => admin(app, '/config/import', { method: 'POST', body });
+    expect((await post({ bundle: { ...bundle, extra: 1 } })).status).toBe(400);
+    expect((await post({ bundle, wrapKey: 'AAAA' })).status).toBe(400);
+    expect((await post({ bundle, apply: 'yes' })).status).toBe(400);
+    expect((await post({ bundle: { ...bundle, version: 2 } })).status).toBe(400);
+    const dangling = { ...bundle, grants: [{ ...bundle.grants[0], project: 'nope' }] };
+    expect((await post({ bundle: dangling })).status).toBe(400);
+    expect(
+      (await admin(app, '/config/export', { method: 'POST', body: { wrapKey: toB64(new Uint8Array(32)) } }))
+        .status,
+    ).toBe(400);
+    const weak = { name: 'pbkdf2-sha256', iterations: 1000, salt: toB64(new Uint8Array(16)) };
+    expect(
+      (
+        await admin(app, '/config/export', {
+          method: 'POST',
+          body: { wrapKey: toB64(new Uint8Array(32)), kdf: weak },
+        })
+      ).status,
+    ).toBe(400);
   });
 });

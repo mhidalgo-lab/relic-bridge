@@ -24,6 +24,9 @@ are redacted from the error. Process lists and shell history would leak them.
 
 - **New Relic key** (`credential add|rotate`, `init`): hidden prompt on a terminal; else stdin (first line);
   `--key-file <file>` (mode `0600`); `--key-env <VAR>` (the variable's *name*).
+- **Config passphrase** (`config export --with-credentials`, `config import`): hidden prompt (asked twice on export);
+  `--passphrase-file <file>` (mode `0600`); `--passphrase-env <VAR>` (the variable's *name*). Only the derived key
+  reaches the server.
 - **Admin token**: `RB_ADMIN_TOKEN`, `RB_ADMIN_TOKEN_FILE`, or a hidden prompt. Generate one with
   `relic-bridge admin-token generate`.
 - **Sign-in client secrets** (`setup-link`, local mode, and `serve`): `RB_GOOGLE_CLIENT_SECRET`,
@@ -49,6 +52,8 @@ relic-bridge init [--db <path>] [--master-key-file <path>] [--label <l> --region
                   [--client claude-code|claude-code-powershell|claude-desktop|cursor|vscode|all] [--no-config]
 relic-bridge doctor [--config <file>] [--project <slug>] [--db <path>] [--offline] [--remote <url> [--insecure]] [--json]
 relic-bridge admin-token generate
+relic-bridge config export --out <file> [--with-credentials (--passphrase-file <f> | --passphrase-env <VAR>)]
+relic-bridge config import <file> [--apply] [--passphrase-file <f> | --passphrase-env <VAR>]
 relic-bridge user add --email <e> [--name <n>] [--role owner|admin|member] | user list [--limit <n>]
 relic-bridge user unbind <id> [--confirm <email>]
 relic-bridge setup-link [--provider google|github|cf-access|oidc|oidc-<name>] [--ttl <minutes>]
@@ -101,6 +106,11 @@ version, `1` when rows are left (listed on stderr with the reason). `--json` pri
 - **`credential remove`** asks for confirmation on a terminal; without one it requires `--yes`. The API refuses it
   (`conflict`) while a project or grant uses the key.
 - `--tools all` clears a tool restriction; `--default-credential none` clears the project's default key.
+- **`config export` / `config import`** (owner only; local or `--remote`): see the
+  [migration guide](../guide/migrating-config.md). Export writes a YAML file (mode `0600`, never overwritten); New Relic
+  keys (shared ones, and the caller's own personal ones) are included only with `--with-credentials`, encrypted under a passphrase (hidden prompt, `--passphrase-file`
+  with mode `0600`, or `--passphrase-env <NAME>`; never an option value; 12+ characters). Import is a dry run unless
+  `--apply`, is idempotent, never deletes, never creates owners and stops at the first failure (exit `1`).
 - **`audit tail`** prints the newest `--limit` rows (default 20, at most 200) oldest-first; `--follow` polls every two
   seconds until interrupted.
 

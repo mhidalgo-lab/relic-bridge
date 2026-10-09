@@ -89,3 +89,22 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   keep `doctor` to a single NerdGraph request.
 - **Needs:** owner confirms the exit-code policy and whether the unauthenticated probe is acceptable against servers
   with WAF/rate limits.
+
+### P7-06 — Config import/export: KDF, personal-key defaults and scope chosen without an owner
+- **Context:** The task said "age/scrypt". WebCrypto has neither scrypt nor Argon2, and `packages/auth` must stay
+  web-standard (ADR-0004). Workers also cap PBKDF2 at 100 000 iterations, below what is sensible for a passphrase.
+- **Assumption made:** PBKDF2-HMAC-SHA-256 at 600 000 iterations (OWASP) with AES-256-GCM, run **in the CLI**; the Admin
+  API receives only the derived wrap key (never the passphrase) and the format is versioned (`version: 1`,
+  `secrets.kdf`). Import never deletes, never creates `owner` users, never modifies existing users or grants, keeps stored
+  keys, and is not transactional (stops at the first failure; re-running resumes). A personal key may become a project
+  default through an import (the admin API refuses that unless the key's owner makes the change) because the importer is
+  an owner and the file reproduces another deployment; the plan warns. The 64 KiB admin body limit bounds bundle size. Export seals only shared keys and the caller's own personal keys (the
+  admin token and the CLI are nobody: shared keys only), so an owner cannot exfiltrate a colleague's key; the personal keys of
+  other people must be re-added on the target. Large imports on the Workers Free plan (50 D1 queries per request) stop with
+  503 and resume on re-run.
+- **Options:** add `scrypt`/Argon2 through a vetted pure-JS dependency in the CLI only (the KDF runs client side, so it
+  would not touch Workers) and bump the format version; refuse personal-key defaults like the API does; add
+  `--prune`/update-existing-grants; raise the body limit for `/config/import`; a `--wrap-key-file` for automation.
+- **Needs:** owner confirms PBKDF2 is acceptable (or asks for Argon2id in the CLI), whether personal-key defaults should
+  be refused on import, and whether existing grants should be updatable. Also run one real Node-to-Worker move (export
+  with `--with-credentials`, `import --apply --remote https://<worker>`) against a deployed Worker, which this run could not.

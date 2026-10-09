@@ -36,6 +36,14 @@ Usage:
   relic-bridge token list [--grant <id>] | token revoke <id>
   relic-bridge audit tail [--limit <n>] [--follow] [--kind --action --status --project
                     --user --grant --token-id --key-id (pt_… or any) --since --until]
+  relic-bridge config export --out <file> [--with-credentials (--passphrase-file <f> | --passphrase-env <VAR>)]
+                    Owner only. Write users, projects, grants and settings to a new YAML file (mode
+                    0600, never overwritten). New Relic keys are left out unless --with-credentials:
+                    then they are encrypted with a passphrase (PBKDF2-SHA-256 600k + AES-256-GCM).
+                    Access tokens, sessions and OAuth state are never exported.
+  relic-bridge config import <file> [--apply] [--passphrase-file <f> | --passphrase-env <VAR>]
+                    Owner only. Dry run by default: prints what would be created, updated or skipped.
+                    --apply makes the changes (idempotent; never deletes; never creates owners).
   relic-bridge keys rotate --remote <url> [--batch-size <1-100>]
                     Re-encrypt every stored key under the server's RB_MASTER_KEY (the server
                     reads old rows with RB_MASTER_KEY_PREVIOUS), in batches, until done.
@@ -53,6 +61,8 @@ Secrets (never accepted as option values):
   New Relic key    Hidden prompt on a terminal, else stdin, --key-file <file> (mode 0600) or
                    --key-env <VAR> (the variable's name).
   Admin token      RB_ADMIN_TOKEN, or RB_ADMIN_TOKEN_FILE (mode 0600), else a hidden prompt.
+  Passphrase       Hidden prompt on a terminal, --passphrase-file <file> (mode 0600) or
+                   --passphrase-env <VAR> (the variable's name), at least 12 characters.
   Master key       Local mode: RB_MASTER_KEY or RB_MASTER_KEY_FILE.
   A new device token is printed once on stdout (snippets for MCP clients go to stderr).
 

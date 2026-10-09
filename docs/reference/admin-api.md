@@ -630,6 +630,50 @@ Request body (`RotateKeys`):
 | 413 | `Error` | Body too large (`payload_too_large`) |
 | 415 | `Error` | Body is not JSON (`unsupported_media_type`) |
 
+## Config
+
+### POST /config/export
+
+Export projects, grants, users and settings
+
+Owner only (P7-06). Returns a `relic-bridge-config` bundle. New Relic keys are never included in plaintext: leave the body empty for an export without keys, or send `wrapKey` + `kdf` (derived by the CLI from a passphrase) to include them sealed with AES-256-GCM: shared keys and the caller's own personal keys only (the admin token, which is nobody, gets shared keys; a colleague's personal key is never exported). Access tokens, sessions, OAuth state, identity bindings and master keys are never exported. Audited as `config.export`.
+
+Request body (`ExportConfig`):
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `wrapKey` | `string` | no | The 32-byte AES wrap key (base64) the CLI derived from the passphrase (PBKDF2-HMAC-SHA-256, 600 000+ iterations). The passphrase itself is never sent. Treat like a password: send over TLS only. |
+| `kdf` | `object` | no | The KDF parameters the wrap key was derived with (stored in the bundle). |
+
+| Status | Body | Description |
+| --- | --- | --- |
+| 200 | `ExportConfigResponse` | The bundle |
+| 403 | `Error` | Session refused: role too low, missing/invalid CSRF token or cross-origin request (`forbidden`) |
+| 413 | `Error` | Body too large (`payload_too_large`) |
+| 415 | `Error` | Body is not JSON (`unsupported_media_type`) |
+
+### POST /config/import
+
+Import a configuration bundle (dry run by default)
+
+Owner only (P7-06). Validates the bundle strictly, then returns what it would create, update or skip (`apply` false, the default: nothing changes). With `apply: true` it makes those changes through the same rules as the other routes and stops at the first failure (`failed`); importing again resumes. Matching is by natural key (user email, credential owner and label, project slug, grant project and user), so a repeated import changes nothing. Never deletes or revokes; users are create-only and never owners; existing grants and stored keys are not modified. Audited as `config.import`.
+
+Request body (`ImportConfig`):
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `bundle` | `ConfigBundle` | yes | A relic-bridge configuration. Never holds plaintext New Relic keys, access tokens, sessions or OAuth state; keys appear only in `secrets`, sealed with AES-256-GCM under a passphrase-derived key. |
+| `apply` | `boolean` | no | Default false: a dry run that changes nothing. |
+| `wrapKey` | `string` | no | The 32-byte AES wrap key (base64) the CLI derived from the passphrase (PBKDF2-HMAC-SHA-256, 600 000+ iterations). The passphrase itself is never sent. Treat like a password: send over TLS only. |
+
+| Status | Body | Description |
+| --- | --- | --- |
+| 200 | `ImportConfigResponse` | The plan or the outcome |
+| 403 | `Error` | Session refused: role too low, missing/invalid CSRF token or cross-origin request (`forbidden`) |
+| 413 | `Error` | Body too large (`payload_too_large`) |
+| 415 | `Error` | Body is not JSON (`unsupported_media_type`) |
+| 422 | `Error` | Refused by a rule (`not_permitted`) or New Relic refused the key (`key_rejected`) |
+
 ## Identity
 
 ### POST /setup-links
@@ -1108,6 +1152,22 @@ Token metadata. The token hash is never returned.
 | `maxDurationMs` | `integer \| null` | yes |  |
 | `inspectedCount` | `integer` | yes | Events New Relic reported inspecting, summed. |
 
+### ConfigBundle
+
+A relic-bridge configuration. Never holds plaintext New Relic keys, access tokens, sessions or OAuth state; keys appear only in `secrets`, sealed with AES-256-GCM under a passphrase-derived key.
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `format` | `"relic-bridge-config"` | yes |  |
+| `version` | `1` | yes |  |
+| `exportedAt` | `string` | yes |  |
+| `users` | `object[]` | yes |  |
+| `credentials` | `object[]` | yes |  |
+| `projects` | `object[]` | yes |  |
+| `grants` | `object[]` | yes |  |
+| `settings` | `object` | yes |  |
+| `secrets` | `object` | no |  |
+
 ### CreateCredential
 
 | Field | Type | Required | Description |
@@ -1217,6 +1277,22 @@ Masked credential metadata. Key plaintext and ciphertext are never returned.
 | --- | --- | --- | --- |
 | `error` | `object` | yes |  |
 
+### ExportConfig
+
+Omit both for an export without New Relic keys. Give both to include them, sealed.
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `wrapKey` | `string` | no | The 32-byte AES wrap key (base64) the CLI derived from the passphrase (PBKDF2-HMAC-SHA-256, 600 000+ iterations). The passphrase itself is never sent. Treat like a password: send over TLS only. |
+| `kdf` | `object` | no | The KDF parameters the wrap key was derived with (stored in the bundle). |
+
+### ExportConfigResponse
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `data` | `ConfigBundle` | yes | A relic-bridge configuration. Never holds plaintext New Relic keys, access tokens, sessions or OAuth state; keys appear only in `secrets`, sealed with AES-256-GCM under a passphrase-derived key. |
+| `warnings` | `string[]` | yes | Non-fatal notes about the change (e.g. parts of a grant the project does not allow). |
+
 ### Grant
 
 | Field | Type | Required | Description |
@@ -1248,6 +1324,40 @@ Masked credential metadata. Key plaintext and ciphertext are never returned.
 | --- | --- | --- | --- |
 | `data` | `Grant` | yes |  |
 | `warnings` | `string[]` | no | Non-fatal notes about the change (e.g. parts of a grant the project does not allow). |
+
+### ImportConfig
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `bundle` | `ConfigBundle` | yes | A relic-bridge configuration. Never holds plaintext New Relic keys, access tokens, sessions or OAuth state; keys appear only in `secrets`, sealed with AES-256-GCM under a passphrase-derived key. |
+| `apply` | `boolean` | no | Default false: a dry run that changes nothing. |
+| `wrapKey` | `string` | no | The 32-byte AES wrap key (base64) the CLI derived from the passphrase (PBKDF2-HMAC-SHA-256, 600 000+ iterations). The passphrase itself is never sent. Treat like a password: send over TLS only. |
+
+### ImportConfigResponse
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `data` | `ImportReport` | yes |  |
+
+### ImportPlanEntry
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `kind` | `"user" \| "credential" \| "project" \| "grant" \| "setting"` | yes |  |
+| `key` | `string` | yes |  |
+| `action` | `"create" \| "update" \| "unchanged" \| "skip"` | yes |  |
+| `fields` | `string[]` | no |  |
+| `reason` | `string` | no |  |
+
+### ImportReport
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `dryRun` | `boolean` | yes |  |
+| `entries` | `ImportPlanEntry[]` | yes |  |
+| `summary` | `object` | yes |  |
+| `warnings` | `string[]` | yes |  |
+| `failed` | `object \| null` | yes | Apply stopped at this entity; the entries before it were applied. Import again to resume. |
 
 ### KeyRotation
 

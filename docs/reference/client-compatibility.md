@@ -121,6 +121,18 @@ gets the `queryId` handle (T). No real client was run.
 | Cursor, VS Code, ChatGPT, MCP Inspector | ? | same |
 | `@modelcontextprotocol/ext-tasks` client sessions (0.2.x) | D (the extension's reference client), not tested | — |
 
+## Write confirmation through elicitation (P7-20, 2026-10-06)
+
+A write tool asks the person to approve the exact change when the client declares `elicitation` (form). Evidence: **T**
+with the SDK client 2.2.0 on stdio-style in-memory 2025-era connections (the SDK relays the request) and over HTTP with a
+2026-07-28 client (`input_required`, stateless, on the HTTP app and the Worker). A stateless 2025-era HTTP client is not
+asked (SDK 2.2.0 holds no capabilities there) and keeps `confirm: true`. No real client was run.
+
+| Client | Shows the form | Notes |
+|---|---|---|
+| Claude Code, Claude Desktop, VS Code, Cursor | ? , **M** | check that it shows the message and does not auto-accept |
+| Claude mobile, hosted Claude | ? , **M** | needs 2026-07-28 over HTTP |
+
 ## Re-run procedure (each minor release)
 
 1. `pnpm test && pnpm test:workers` (the suite is `packages/http-app/test/authz/client-conformance-suite.ts`, run on

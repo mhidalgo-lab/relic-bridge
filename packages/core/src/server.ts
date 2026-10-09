@@ -1,8 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
-import { type CallToolResult, McpServer, type StandardSchemaWithJSON } from '@modelcontextprotocol/server';
+import {
+  type CallToolResult,
+  inputRequired,
+  McpServer,
+  type StandardSchemaWithJSON,
+} from '@modelcontextprotocol/server';
 import { clientAppsSupport, toolUiMeta } from './apps/index.ts';
 import { toCallToolResult } from './call-result.ts';
-import { budgetUsage, type ToolContext } from './context.ts';
+import { budgetUsage, type ElicitationBinding, type ToolContext } from './context.ts';
 import { ERROR_META_KEY, toToolErrorResult } from './errors.ts';
 import { type PromptDefinition, promptConfig, renderPrompt, selectPrompts } from './prompts.ts';
 import { withoutDialect } from './registry.ts';
@@ -63,6 +68,12 @@ export interface BuildServerOptions {
    * capabilities are unknown, see `clientAppsSupport`) and hidden from one that did not.
    */
   mcpApps?: boolean;
+  /**
+   * Let write tools ask the person to approve a change through MCP elicitation (P7-20; default true). Used only for a
+   * client that declared the elicitation capability on this request; it adds to `confirm: true`, never replaces it.
+   * False: write tools never ask.
+   */
+  elicitWrites?: boolean;
   /** Called after every tool call, success or error. Must not throw; a throw or rejection is swallowed. */
   onToolCall?: (event: ToolCallEvent) => void;
 }
@@ -150,6 +161,44 @@ function envelopeOf(extra: unknown): unknown {
   return (req as { envelope?: unknown }).envelope;
 }
 
+/** How long the SDK waits for the person when it relays an elicitation on a 2025-era connection (stdio). */
+export const ELICIT_ROUND_TIMEOUT_MS: number = 5 * 60_000;
+
+/** Whether the client can be shown a form (the pre-mode `elicitation: {}` counts as form support). */
+export function clientCanElicitForm(capabilities: unknown): boolean {
+  if (capabilities === null || typeof capabilities !== 'object') return false;
+  const e = (capabilities as { elicitation?: unknown }).elicitation;
+  if (e === null || typeof e !== 'object') return false;
+  const keys = Object.keys(e);
+  return keys.length === 0 || 'form' in e;
+}
+
+/** The retried request's embedded answers (`inputResponses`), read defensively. Only 2026-07-28 or the SDK shim has them. */
+function elicitationFrom(extra: unknown): ElicitationBinding {
+  const req =
+    extra !== null && typeof extra === 'object' ? (extra as { mcpReq?: unknown }).mcpReq : undefined;
+  const responses =
+    req !== null && typeof req === 'object'
+      ? (req as { inputResponses?: unknown }).inputResponses
+      : undefined;
+  return {
+    answer(key) {
+      if (responses === null || typeof responses !== 'object') return 'missing';
+      const entry = (responses as Record<string, unknown>)[key];
+      if (entry === null || typeof entry !== 'object') return 'missing';
+      const { action, content } = entry as { action?: unknown; content?: unknown };
+      if (action === 'cancel') return 'cancel';
+      if (action !== 'accept') return action === 'decline' ? 'decline' : 'missing';
+      // Accepting an empty or unticked form is not an approval.
+      const ok =
+        content !== null &&
+        typeof content === 'object' &&
+        (content as { confirm?: unknown }).confirm === true;
+      return ok ? 'accept' : 'decline';
+    },
+  };
+}
+
 /**
  * Build a fresh MCP server for one request (ADR-0005: stateless, one server per request).
  * Tools not in `tools` are simply not registered, so they are neither listed nor callable.
@@ -163,6 +212,7 @@ export function buildMcpServer({
   prompts,
   resources,
   mcpApps = true,
+  elicitWrites = true,
 }: BuildServerOptions): McpServer {
   // Tasks (P7-13) are offered only where the host bound a task store to the request (HTTP project routes).
   const offersTasks = typeof context !== 'function' && context.tasks !== undefined;
@@ -173,6 +223,8 @@ export function buildMcpServer({
         tools: { listChanged: toolsListChanged },
         ...(offersTasks ? { extensions: { [TASKS_EXTENSION]: {} } } : {}),
       },
+      // Human-paced, but bounded: no answer in time ends the round, nothing is changed (P7-20).
+      inputRequired: { roundTimeoutMs: ELICIT_ROUND_TIMEOUT_MS },
     },
   );
   if (offersTasks) allowTaskResults(server);
@@ -202,6 +254,7 @@ export function buildMcpServer({
     try {
       const out = await def.handler(input as never, ctx);
       logger.debug('tool ok', { ms: ctx.clock.now() - started });
+      // A question to the person is an audited round too: a write that is never answered leaves an `asked` row.
       observe('ok', null, out.meta);
       return out;
     } catch (error) {
@@ -238,12 +291,37 @@ export function buildMcpServer({
       async (input: unknown, extra: unknown): Promise<CallToolResult> => {
         const base = contextFor();
         // A client that declared the Tasks extension on this request may get a task for a tool that can resume one.
-        const ctx =
+        const withTasks =
           base.tasks !== undefined && def.resumeTask !== undefined && clientDeclaresTasks(envelopeOf(extra))
             ? Object.freeze({ ...base, tasks: Object.freeze({ ...base.tasks, accepted: true }) })
             : base;
+        // Write tools may ask the person only when this request's client can be asked (P7-20, T21: per request).
+        const ctx =
+          elicitWrites && def.kind !== 'read' && clientCanElicitForm(server.server.getClientCapabilities())
+            ? Object.freeze({ ...withTasks, elicitation: Object.freeze(elicitationFrom(extra)) })
+            : withTasks;
         try {
           const out = await invoke(def, input, ctx);
+          if (out.inputRequired !== undefined && ctx.elicitation !== undefined) {
+            return inputRequired({
+              inputRequests: {
+                [out.inputRequired.key]: inputRequired.elicit({
+                  message: out.inputRequired.message,
+                  requestedSchema: {
+                    type: 'object',
+                    properties: {
+                      confirm: {
+                        type: 'boolean',
+                        title: 'Make this change in New Relic',
+                        description: 'Tick to approve exactly the change described above.',
+                      },
+                    },
+                    required: ['confirm'],
+                  },
+                }),
+              },
+            }) as unknown as CallToolResult;
+          }
           if (out.task !== undefined && ctx.tasks?.accepted === true) {
             try {
               const task = await createTask(ctx, def.name, out.task);

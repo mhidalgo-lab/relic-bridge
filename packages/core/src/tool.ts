@@ -28,6 +28,12 @@ export interface ToolOutput<O = unknown> {
    * a complete answer (e.g. the `queryId` handle).
    */
   task?: TaskJob;
+  /**
+   * Ask the person to approve (P7-20): the server answers the call with an MCP `input_required` result carrying this
+   * elicitation, and the client calls again with the answer (`ToolContext.elicitation`). Set only by write tools when
+   * `ctx.elicitation` is present.
+   */
+  inputRequired?: { readonly key: string; readonly message: string };
 }
 
 export interface ToolDefinition<I extends InputSchema = InputSchema, O = unknown> {

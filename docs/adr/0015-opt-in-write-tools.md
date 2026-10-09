@@ -62,8 +62,7 @@ the tool explicitly (defence in depth for library and test use).
 
 ### Approval model
 The model sets `confirm: true`, so it is a speed bump and an intent signal, not a human approval. The human approvals
-are the opt-ins above (owner, project, grant, OAuth consent box). Confirmation through MCP elicitation, which asks the
-person directly, needs a round trip that the stateless HTTP transport (ADR-0005) does not keep; it is follow-up P7-20.
+are the opt-ins above (owner, project, grant, OAuth consent box) and, since P7-20, the elicitation below.
 
 ### Limits and audit
 - A stricter per-grant rate limit for write tool calls (`RB_RATE_LIMIT_WRITE`, default 20 per hour), on top of the token
@@ -132,3 +131,35 @@ Every layer above applies unchanged (it is in `WRITE_TOOL_NAMES`). In addition:
 Still never: editing or deleting dashboards, sharing them, or any other dashboard mutation. Residual: once created, a
 widget's query runs in the New Relic UI under the viewer's own permissions and time picker, outside relic-bridge's
 limits; the stored window is only the initial one.
+
+## Addendum (P7-20): the person confirms through MCP elicitation
+
+A write tool also asks the person, not the model, to approve the exact change, when the client can be asked.
+
+- **When:** the client declared the `elicitation` capability (form mode; `{}` counts) on this request, and the server
+  was not built with `elicitWrites: false`. It is asked **in addition to** `confirm: true`, the opt-ins and every
+  other check, right before the mutation: after validation, the target read and the no-op check; never for `dry_run`
+  or a no-op. A client without the capability keeps the `confirm: true` + `dry_run` flow unchanged.
+- **How, statelessly (ADR-0005):** the SDK's multi-round-trip pattern (protocol 2026-07-28, SEP-2322). The handler
+  answers the first `tools/call` with `input_required` carrying one `elicitation/create` form (a boolean `confirm`);
+  the client shows it, then repeats the same call with `inputResponses`. Nothing is kept on the server and there is no
+  `requestState`: the answer is bound to the message instead. The key of the question is a hash of the exact message
+  shown, so a retry whose arguments (or the target as New Relic now reports it) differ finds no answer and asks again.
+  The same code serves a 2025-era connection through the SDK's legacy shim, which sends a real server-to-client
+  `elicitation/create`; that needs the `initialize` state, so it works on stdio and **not on stateless HTTP** with a
+  2025-era client, which has no declared capabilities there: such a client is not asked and keeps `confirm: true`
+  (SDK 2.2.0: `getClientCapabilities()` is empty on a stateless 2025-era request). The same holds on Workers.
+- **Message:** the tool, account, target and every field that will be sent (dashboard: every widget and its checked
+  NRQL, plus the content hash), at most 6000 characters (shortened with a note). Anything that came from New Relic or the
+  model is a quoted, escaped, length-capped single line (`shown`: control characters collapsed, secrets redacted), so
+  an issue title cannot add lines or pose as the question. Text of the form is fixed: "Make this change in New Relic".
+- **Answers:** only `accept` with `confirm: true` proceeds. `decline`, `cancel`, an unticked box, empty content or no
+  answer send nothing. The call returns a normal result (`applied: false`) telling the agent not to retry unless asked.
+- **Audit:** each round is an audit row; `details.write.record.confirmation` is `asked` (question sent), then
+  `accepted`, `declined` or `cancelled`. A question that is never answered leaves only its `asked` row.
+- **Timeouts:** on the shim path the SDK waits at most 5 minutes (`ELICIT_ROUND_TIMEOUT_MS`) and then fails the call
+  without a mutation. On 2026-07-28 the server cannot wait (it is stateless); the client's own request timeout applies,
+  and a stale approval is harmless because it only matches an identical message.
+- **Limits of the guarantee:** the answer is as trustworthy as the client. A client that auto-accepts forms, or a model
+  that can drive it, defeats it; this removes the model from the loop only where the client really shows the form to
+  a person. The per-grant write rate limit counts each HTTP round, so a confirmed write uses two of the 20 per hour.

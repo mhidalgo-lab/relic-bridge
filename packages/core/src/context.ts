@@ -126,6 +126,17 @@ export interface ToolContext {
    * pass-through). `accepted` is set per `tools/call` when the client declared the extension.
    */
   readonly tasks?: TaskBinding;
+  /**
+   * Set per `tools/call` when the client declared the elicitation capability (P7-20): write tools may then ask the person
+   * to approve the change. Absent: they cannot ask and rely on `confirm: true` alone.
+   */
+  readonly elicitation?: ElicitationBinding;
+}
+
+/** The answers a retried `tools/call` carries to the questions an earlier round asked (never trusted beyond that). */
+export interface ElicitationBinding {
+  /** What the person answered to the question `key`, `missing` when this round carries no answer to it. */
+  answer(key: string): 'accept' | 'decline' | 'cancel' | 'missing';
 }
 
 /** Simple counting budget. One instance per request. */

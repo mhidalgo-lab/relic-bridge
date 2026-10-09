@@ -96,7 +96,9 @@ row keeps a summary (pages, widgets, accounts, event types and a SHA-256 of the 
 Once created, the dashboard's queries run in the New Relic UI under the viewer's own rights and time picker, outside
 relic-bridge's limits.
 
-The agent sets `confirm: true` itself, so it is not a human approval: a prompt-injected agent can still try a write you
+The agent sets `confirm: true` itself, so it is not a human approval. When your client supports MCP elicitation, relic-bridge
+also asks you in a form to approve the exact change before it is made (stdio, and HTTP with clients on protocol
+2026-07-28); decline or cancel changes nothing. Without that, a prompt-injected agent can still try a write you
 allowed. Enable only the tools you need, prefer `acknowledge_issue` over `close_issue`, and keep write-enabled grants
 apart from the ones you use with untrusted data or other powerful tools. The New Relic mutations are not verified live
 yet; try one with `dry_run` and then once by hand before relying on them.

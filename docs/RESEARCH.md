@@ -935,3 +935,22 @@ Sources: [server.json format](https://github.com/modelcontextprotocol/registry/b
 - MCP Server Cards (`/.well-known/mcp/server-card(s).json`) are still a draft SEP (SEP-2127 superseding SEP-1649) with
   no settled path; not implemented. relic-bridge's own `/.well-known/relic-bridge/tools.json` is project-specific and can
   be replaced once a card format is ratified.
+
+
+## 31. MCP elicitation for write confirmation (P7-20, SDK 2.2.0 types and tests, no real client verified)
+
+- 2026-07-28 removes server-to-client requests: a `tools/call` handler returns `input_required` with embedded
+  `inputRequests` (`inputRequired({ inputRequests: { key: inputRequired.elicit({ message, requestedSchema }) } })`); the
+  client fulfils them through its `elicitation/create` handler and repeats the call with `inputResponses` (bare
+  `ElicitResult`: `action` `accept`/`decline`/`cancel`, `content`). It works on stateless HTTP, Node and Workers
+  (tested through both hosts). `requestState` is optional, opaque and must be integrity-protected if it carries
+  authority; relic-bridge uses none (the question key is the SHA-256 of the message).
+- On a 2025-era connection the SDK's default-on legacy shim fulfils the same `input_required` return with a real
+  `elicitation/create` request (needs the `initialize` state: stdio, not stateless HTTP) and re-enters the handler.
+  `ServerOptions.inputRequired.roundTimeoutMs` (default 10 min) bounds a wait; relic-bridge sets 5 min; `maxRounds`
+  (default 8).
+- The server checks the declared capabilities before returning an embedded elicitation (an unsupported one answers
+  `-32021`), so relic-bridge only asks when `getClientCapabilities().elicitation` is present (empty object or `form`).
+- Form schemas are restricted to flat primitives; a single boolean `confirm` is used. Whether a client shows `message`
+  as plain text or Markdown is unknown; the message is therefore plain lines with quoted values.
+- Not verified: Claude Code, Claude Desktop, VS Code and mobile behaviour with these forms.

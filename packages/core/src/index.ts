@@ -19,6 +19,7 @@ export {
   type Credential,
   createBudget,
   DEFAULT_LIMITS,
+  type ElicitationBinding,
   type Limiter,
   newRequestId,
   type QueryLimits,

@@ -658,6 +658,109 @@ const routes = {
     responses: { 201: json(S.SetupLinkOne, 'Issued'), ...errors(413, 415, 422) },
   }),
 
+  // ---- Member self-service (P4-10): the caller's own rows; any signed-in role (the admin token has no "own").
+  myCredentials: route({
+    method: 'get',
+    path: '/me/credentials',
+    tags: ['me'],
+    summary: 'List my New Relic keys (masked)',
+    description: 'Only keys owned by the signed-in user. Needs a session (the admin token owns nothing).',
+    request: { query: S.MyCredentialQuery },
+    responses: { 200: json(S.CredentialPage, 'Your keys, without key material'), ...errors() },
+  }),
+  addMyCredential: route({
+    method: 'post',
+    path: '/me/credentials',
+    tags: ['me'],
+    summary: 'Add my own New Relic User key',
+    description:
+      'Validates the key and stores it encrypted, owned by you (it cannot be shared or given to someone else). ' +
+      'At most 10 per user. The key is never returned.',
+    request: BODY(S.CreateMyCredentialBody),
+    responses: { 201: json(S.CredentialOne, 'Created (masked)'), ...errors(409, 413, 415, 422, 502) },
+  }),
+  renameMyCredential: route({
+    method: 'patch',
+    path: '/me/credentials/{id}',
+    tags: ['me'],
+    summary: 'Rename my key',
+    request: { params: S.IdParam, ...BODY(S.UpdateCredentialBody) },
+    responses: { 200: json(S.CredentialOne, 'Updated'), ...errors(404, 413, 415) },
+  }),
+  deleteMyCredential: route({
+    method: 'delete',
+    path: '/me/credentials/{id}',
+    tags: ['me'],
+    summary: 'Delete my key',
+    description: 'Refused (`409`) while one of your grants uses it: point the grant elsewhere first.',
+    request: { params: S.IdParam },
+    responses: { 204: { description: 'Deleted' }, ...errors(404, 409) },
+  }),
+  rotateMyCredential: route({
+    method: 'post',
+    path: '/me/credentials/{id}/rotate',
+    tags: ['me'],
+    summary: 'Replace my key',
+    request: { params: S.IdParam, ...BODY(S.RotateCredentialBody) },
+    responses: { 200: json(S.CredentialOne, 'Rotated (masked)'), ...errors(404, 409, 413, 415, 422, 502) },
+  }),
+  revalidateMyCredential: route({
+    method: 'post',
+    path: '/me/credentials/{id}/revalidate',
+    tags: ['me'],
+    summary: 'Re-check my key against New Relic',
+    request: { params: S.IdParam },
+    responses: { 200: json(S.RevalidationOne, 'Outcome'), ...errors(404) },
+  }),
+  myGrants: route({
+    method: 'get',
+    path: '/me/grants',
+    tags: ['me'],
+    summary: 'List my grants',
+    description: 'Grants assigned to you (an administrator creates them), with the project to connect to.',
+    request: { query: S.PageQuery },
+    responses: { 200: json(S.MyGrantPage, 'Your grants'), ...errors() },
+  }),
+  setMyGrantCredential: route({
+    method: 'patch',
+    path: '/me/grants/{id}',
+    tags: ['me'],
+    summary: 'Use one of my keys for my grant',
+    description:
+      'Points one of your live grants at one of your own keys, or back at the project default (`null`). The key must be ' +
+      "yours and valid; the grant's scope (tools, accounts, limits) does not change.",
+    request: { params: S.IdParam, ...BODY(S.SetMyGrantCredentialBody) },
+    responses: { 200: json(S.MyGrantOne, 'Updated'), ...errors(404, 409, 413, 415, 422) },
+  }),
+  myTokens: route({
+    method: 'get',
+    path: '/me/tokens',
+    tags: ['me'],
+    summary: 'List the device tokens of my grants',
+    request: { query: S.TokenQuery },
+    responses: { 200: json(S.TokenPage, 'Token metadata, never the token'), ...errors(404) },
+  }),
+  createMyToken: route({
+    method: 'post',
+    path: '/me/tokens',
+    tags: ['me'],
+    summary: 'Issue a device token for one of my grants',
+    description: 'Shown once. At most 20 live tokens per grant.',
+    request: BODY(S.CreateTokenBody),
+    responses: {
+      201: json(S.TokenCreated, 'Created; the token is in the body, once'),
+      ...errors(404, 409, 413, 415),
+    },
+  }),
+  revokeMyToken: route({
+    method: 'post',
+    path: '/me/tokens/{id}/revoke',
+    tags: ['me'],
+    summary: 'Revoke one of my device tokens',
+    request: { params: S.IdParam },
+    responses: { 200: json(S.TokenOne, 'Revoked'), ...errors(404) },
+  }),
+
   listAudit: route({
     method: 'get',
     path: '/audit',
@@ -694,6 +797,11 @@ const REFUSAL_ROUTES: readonly (readonly [string, RegExp, string, string])[] = [
   ['POST', /^\/credentials$/, 'credential.create', 'credential'],
   ['PATCH', /^\/credentials\/([^/]+)$/, 'credential.update', 'credential'],
   ['POST', /^\/credentials\/([^/]+)\/rotate$/, 'credential.rotate', 'credential'],
+  ['POST', /^\/me\/credentials$/, 'credential.create', 'credential'],
+  ['PATCH', /^\/me\/credentials\/([^/]+)$/, 'credential.update', 'credential'],
+  ['POST', /^\/me\/credentials\/([^/]+)\/rotate$/, 'credential.rotate', 'credential'],
+  ['PATCH', /^\/me\/grants\/([^/]+)$/, 'grant.set_credential', 'grant'],
+  ['POST', /^\/me\/tokens$/, 'token.create', 'token'],
   ['POST', /^\/projects$/, 'project.create', 'project'],
   ['PATCH', /^\/projects\/([^/]+)$/, 'project.update', 'project'],
   ['POST', /^\/grants$/, 'grant.create', 'grant'],
@@ -733,6 +841,10 @@ function relPath(c: Context): string {
 const viaOf = (principal: AdminPrincipal | undefined): string =>
   principal?.kind === 'session' ? SESSION_ACTOR : ADMIN_TOKEN_ACTOR;
 
+/** Bounds for self-service (a member cannot fill storage or fan out New Relic validations). */
+const MAX_OWN_CREDENTIALS = 10;
+const MAX_LIVE_TOKENS_PER_GRANT = 20;
+
 const SELF_SESSIONS = /^\/users\/[^/]+\/sessions\/revoke$/;
 const UNBIND = /^\/users\/[^/]+\/unbind$/;
 
@@ -745,6 +857,8 @@ const UNBIND = /^\/users\/[^/]+\/unbind$/;
 export function requiredRole(method: string, rel: string): 'owner' | 'admin' | 'member' {
   if (method === 'GET' && (rel === '/session' || rel === '/audit')) return 'member';
   if (method === 'POST' && SELF_SESSIONS.test(rel)) return 'member';
+  // Self-service (P4-10): every handler works on the caller's own rows only (and refuses the admin token).
+  if (rel === '/me' || rel.startsWith('/me/')) return 'member';
   if (method === 'POST' && (rel === '/keys/rotate' || rel === '/setup-links' || UNBIND.test(rel)))
     return 'owner';
   return 'admin';
@@ -757,6 +871,7 @@ const FORBIDDEN_MESSAGES: Readonly<Record<string, string>> = {
   origin_mismatch: 'cross-origin request refused',
   origin_missing: 'request origin unknown: send the Origin header',
   self: 'you cannot change your own role or disable yourself; ask another owner',
+  no_user: 'this route is for signed-in users: the admin token has no keys, grants or tokens of its own',
   owner: 'only an owner can create, change or sign out an owner',
 };
 
@@ -941,6 +1056,8 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
         return forbidden(c, 'role');
       }
     }
+    // Self-service routes belong to a user; the bootstrap admin token is nobody (audited like any refusal).
+    if (principal.kind !== 'session' && /^\/me(?:\/|$)/.test(relPath(c))) return forbidden(c, 'no_user');
     // Bodies: JSON only, bounded while read (a body without Content-Length can't bypass the limit).
     if (c.req.method === 'POST' || c.req.method === 'PATCH' || c.req.method === 'PUT') {
       const type = c.req.header('content-type') ?? '';
@@ -1048,7 +1165,7 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
         : Promise.resolve(0);
 
   /** A refusal inside a handler (audited by `change` as `denied`). */
-  const denied = (reason: 'self' | 'owner' | 'role') =>
+  const denied = (reason: 'self' | 'owner' | 'role' | 'no_user') =>
     new AdminApiError('forbidden', FORBIDDEN_MESSAGES[reason] ?? 'not allowed', { detail: reason });
   const actsAsOwner = (c: Context) => (c.get('principal') as AdminPrincipal | undefined)?.role === 'owner';
 
@@ -1629,6 +1746,309 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
   });
 
   // ---------------------------------------------------------------------------------------------------- audit
+  // ------------------------------------------------------------------------------------------ self-service (P4-10)
+  // Every handler starts from `me(c)` (the signed-in user; the admin token is refused before it gets here) and then
+  // looks a row up by id AND requires it to be the caller's. A row that is someone else's answers exactly like one that
+  // does not exist (`404`), so ids cannot be probed. No handler takes a user id, an owner id or a project id from the
+  // request: ownership always comes from the session.
+  const me = (c: Context): UserRecord => {
+    const principal = c.get('principal') as AdminPrincipal | undefined;
+    if (principal?.kind !== 'session') throw denied('no_user');
+    return principal.user;
+  };
+  const ownCredential = async (id: string, userId: string): Promise<CredentialRecord> => {
+    const row = await storage.credentials.get(id);
+    if (row === null || row.ownerUserId !== userId) throw notFound('credential', id);
+    return row;
+  };
+  const ownGrant = async (id: string, userId: string): Promise<GrantRecord> => {
+    const row = await storage.grants.get(id);
+    if (row === null || row.userId === null || row.userId !== userId) throw notFound('grant', id);
+    return row;
+  };
+  const myGrantView = async (g: GrantRecord) => {
+    const project = await storage.projects.get(g.projectId);
+    return {
+      ...grantView(g),
+      project:
+        project === null
+          ? null
+          : { slug: project.slug, name: project.name, disabled: project.disabledAt !== null },
+    };
+  };
+
+  api.openapi(routes.myCredentials, async (c) => {
+    const self = me(c);
+    const q = c.req.valid('query');
+    const rows = (await storage.credentials.list({ ownerUserId: self.id })).filter(
+      (r) => r.ownerUserId === self.id,
+    );
+    const { page, nextCursor } = paginate(rows, q.limit, q.cursor);
+    return c.json({ data: page.map(credentialView), nextCursor }, 200);
+  });
+
+  api.openapi(routes.addMyCredential, async (c) => {
+    const self = me(c);
+    const body = c.req.valid('json');
+    const credential = await change(
+      c,
+      {
+        action: 'credential.create',
+        targetType: 'credential',
+        details: { label: body.label, region: body.region, owned: true, self: true },
+      },
+      async () => {
+        const mine = await storage.credentials.list({ ownerUserId: self.id });
+        if (mine.length >= MAX_OWN_CREDENTIALS) {
+          throw new AdminApiError(
+            'conflict',
+            `you can keep at most ${MAX_OWN_CREDENTIALS} keys: delete one you no longer use first`,
+          );
+        }
+        return createCredential(credentialDeps, {
+          label: body.label,
+          region: body.region,
+          apiKey: new Secret(body.apiKey),
+          ownerUserId: self.id,
+        });
+      },
+      (r) => ({ targetId: r.id }),
+    );
+    return c.json({ data: credentialView(credential) }, 201);
+  });
+
+  api.openapi(routes.renameMyCredential, async (c) => {
+    const self = me(c);
+    const { id } = c.req.valid('param');
+    const body = c.req.valid('json');
+    const credential = await change(
+      c,
+      {
+        action: 'credential.update',
+        targetType: 'credential',
+        targetId: id,
+        details: { label: body.label, self: true },
+      },
+      async () => {
+        const existing = await ownCredential(id, self.id);
+        const label = body.label.trim();
+        if (label === '')
+          throw new AdminApiError('invalid_request', 'label must not be blank', { field: 'label' });
+        return storage.credentials.update(existing.id, { label });
+      },
+    );
+    return c.json({ data: credentialView(credential) }, 200);
+  });
+
+  api.openapi(routes.deleteMyCredential, async (c) => {
+    const self = me(c);
+    const { id } = c.req.valid('param');
+    await change(
+      c,
+      { action: 'credential.delete', targetType: 'credential', targetId: id, details: { self: true } },
+      async () => {
+        const existing = await ownCredential(id, self.id);
+        try {
+          await storage.credentials.delete(existing.id);
+        } catch (error) {
+          if (error instanceof ConflictError) {
+            throw new AdminApiError(
+              'conflict',
+              'the key is still used by a grant: point the grant at another key first',
+              { field: 'id' },
+            );
+          }
+          throw error;
+        }
+      },
+    );
+    return c.body(null, 204);
+  });
+
+  api.openapi(routes.rotateMyCredential, async (c) => {
+    const self = me(c);
+    const { id } = c.req.valid('param');
+    const body = c.req.valid('json');
+    const result = await change(
+      c,
+      { action: 'credential.rotate', targetType: 'credential', targetId: id, details: { self: true } },
+      async () => {
+        await ownCredential(id, self.id);
+        return rotateCredentialKey(credentialDeps, id, new Secret(body.apiKey));
+      },
+      (r) => ({ details: { warnings: [...r.warnings] } }),
+    );
+    return c.json({ data: credentialView(result.credential), warnings: [...result.warnings] }, 200);
+  });
+
+  api.openapi(routes.revalidateMyCredential, async (c) => {
+    const self = me(c);
+    const { id } = c.req.valid('param');
+    const result = await change(
+      c,
+      { action: 'credential.revalidate', targetType: 'credential', targetId: id, details: { self: true } },
+      async () => {
+        await ownCredential(id, self.id);
+        return revalidateCredential(credentialDeps, id);
+      },
+      (r) => ({ details: { outcome: r.outcome, code: r.code } }),
+    );
+    const credential = await ownCredential(id, self.id);
+    return c.json(
+      {
+        data: {
+          id: result.id,
+          outcome: result.outcome,
+          code: result.code,
+          accountsAdded: [...result.accountsAdded],
+          accountsRemoved: [...result.accountsRemoved],
+        },
+        credential: credentialView(credential),
+      },
+      200,
+    );
+  });
+
+  api.openapi(routes.myGrants, async (c) => {
+    const self = me(c);
+    const q = c.req.valid('query');
+    const rows = (await storage.grants.list({ userId: self.id })).filter((g) => g.userId === self.id);
+    const { page, nextCursor } = paginate(rows, q.limit, q.cursor);
+    return c.json({ data: await Promise.all(page.map(myGrantView)), nextCursor }, 200);
+  });
+
+  api.openapi(routes.setMyGrantCredential, async (c) => {
+    const self = me(c);
+    const { id } = c.req.valid('param');
+    const body = c.req.valid('json');
+    const grant = await change(
+      c,
+      {
+        action: 'grant.set_credential',
+        targetType: 'grant',
+        targetId: id,
+        details: { self: true, credentialId: body.credentialId },
+      },
+      async () => {
+        const existing = await ownGrant(id, self.id);
+        if (existing.revokedAt !== null) {
+          throw new AdminApiError('conflict', 'the grant is revoked', { field: 'id' });
+        }
+        if (body.credentialId !== null) {
+          const credential = await ownCredential(body.credentialId, self.id);
+          if (credential.revokedAt !== null || credential.validationStatus === 'invalid') {
+            throw new AdminApiError(
+              'not_permitted',
+              'that key is revoked or was refused by New Relic: rotate it first',
+              { field: 'credentialId' },
+            );
+          }
+        }
+        return storage.grants.update(existing.id, { credentialId: body.credentialId });
+      },
+      (g) => ({ projectId: g.projectId }),
+    );
+    return c.json({ data: await myGrantView(grant) }, 200);
+  });
+
+  api.openapi(routes.myTokens, async (c) => {
+    const self = me(c);
+    const q = c.req.valid('query');
+    const grants = (await storage.grants.list({ userId: self.id })).filter((g) => g.userId === self.id);
+    // `grantId`, when given, narrows the list; naming someone else's grant is a 404, never an empty page.
+    const wanted = q.grantId === undefined ? grants : grants.filter((g) => g.id === q.grantId);
+    if (q.grantId !== undefined && wanted.length === 0) throw notFound('grant', q.grantId);
+    const rows = (await Promise.all(wanted.map((g) => storage.accessTokens.list({ grantId: g.id })))).flat();
+    const { page, nextCursor } = paginate(rows, q.limit, q.cursor);
+    return c.json({ data: page.map(tokenView), nextCursor }, 200);
+  });
+
+  api.openapi(routes.createMyToken, async (c) => {
+    const self = me(c);
+    const body = c.req.valid('json');
+    const ttl =
+      body.ttlSeconds === undefined
+        ? undefined
+        : body.ttlSeconds === 'never'
+          ? 'never'
+          : body.ttlSeconds * 1000;
+    const issued = await change(
+      c,
+      {
+        action: 'token.create',
+        targetType: 'token',
+        details: {
+          grantId: body.grantId,
+          label: body.label,
+          ttlSeconds: body.ttlSeconds ?? null,
+          self: true,
+        },
+      },
+      async () => {
+        const grant = await ownGrant(body.grantId, self.id);
+        if (grant.revokedAt !== null) {
+          throw new AdminApiError('conflict', 'the grant is revoked', { field: 'grantId' });
+        }
+        const now = clock.now();
+        const live = (await storage.accessTokens.list({ grantId: grant.id })).filter(
+          (t) => t.revokedAt === null && (t.expiresAt === null || t.expiresAt > now),
+        );
+        if (live.length >= MAX_LIVE_TOKENS_PER_GRANT) {
+          throw new AdminApiError(
+            'conflict',
+            `a grant can have at most ${MAX_LIVE_TOKENS_PER_GRANT} live tokens: revoke one you no longer use`,
+            { field: 'grantId' },
+          );
+        }
+        const result = await issueAccessToken(
+          storage,
+          { grantId: grant.id, label: body.label, ...(ttl === undefined ? {} : { ttl }) },
+          now,
+        );
+        return { result, projectId: grant.projectId };
+      },
+      (r) => ({
+        targetId: r.result.record.id,
+        projectId: r.projectId,
+        details: {
+          warnings: [...r.result.warnings],
+          ttlSeconds:
+            r.result.record.expiresAt === null
+              ? 'never'
+              : Math.round((r.result.record.expiresAt - r.result.record.createdAt) / 1000),
+        },
+      }),
+    );
+    return c.json(
+      {
+        data: tokenView(issued.result.record),
+        token: issued.result.token.reveal(),
+        warnings: [...issued.result.warnings],
+      },
+      201,
+    );
+  });
+
+  api.openapi(routes.revokeMyToken, async (c) => {
+    const self = me(c);
+    const { id } = c.req.valid('param');
+    const token = await change(
+      c,
+      { action: 'token.revoke', targetType: 'token', targetId: id, details: { self: true } },
+      async () => {
+        const existing = await storage.accessTokens.get(id);
+        if (existing === null) throw notFound('token', id);
+        const grant = await ownGrant(existing.grantId, self.id).catch(() => {
+          throw notFound('token', id);
+        });
+        const summary = await revokeAccessToken(storage, existing.id, clock.now());
+        return { summary, projectId: grant.projectId };
+      },
+      (r) => ({ projectId: r.projectId }),
+    );
+    return c.json({ data: tokenView(token.summary) }, 200);
+  });
+
   api.openapi(routes.listAudit, async (c) => {
     const q = c.req.valid('query');
     const principal = c.get('principal') as AdminPrincipal | undefined;

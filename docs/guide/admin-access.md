@@ -36,10 +36,30 @@ Sign-in itself (Google, GitHub, Cloudflare Access, OIDC, the first-owner setup l
 |---|---|
 | `owner` | Everything, including master-key rotation (`POST /keys/rotate`), owner setup links (`POST /setup-links`) and managing other owners. |
 | `admin` | Manage users, credentials, projects, grants, tokens; read the audit log. Cannot create an owner, promote anyone to owner, or change or sign out an owner. |
-| `member` | `GET /session`, signing out their own sessions, and `GET /audit` limited to their own entries (the `userId` filter is forced; usage statistics are admin-only). Self-service on their own keys, grants and device tokens arrives in P4-10. |
+| `member` | `GET /session`, signing out their own sessions, and `GET /audit` limited to their own entries (the `userId` filter is forced; usage statistics are admin-only). The self-service namespace `/api/admin/v1/me/*` (below): their own keys, their grants and device tokens. |
+
+### Member self-service (`/api/admin/v1/me/*`)
+
+Any signed-in user (member, admin or owner) can manage what is theirs; the bootstrap admin token cannot (`403`,
+`detail: no_user`). The user always comes from the session: routes take no user id, and a body or query naming
+`ownerUserId` or `userId` is refused (`400`).
+
+| Route | What it does |
+|---|---|
+| `GET /me/credentials`, `POST /me/credentials` | List your New Relic keys (masked); add one (validated first, stored encrypted, always owned by you, at most 10). |
+| `PATCH /me/credentials/{id}`, `DELETE ...`, `POST .../rotate`, `POST .../revalidate` | Rename, delete (`409` while a grant uses it), replace or re-check your key. |
+| `GET /me/grants` | The grants an administrator assigned to you, with the project to connect to (`/p/{slug}/mcp`). |
+| `PATCH /me/grants/{id}` `{"credentialId": "cred_..."}` | Use one of your keys for your grant, or `null` for the project default. Tools, accounts and limits stay as the administrator set them. |
+| `GET /me/tokens`, `POST /me/tokens`, `POST /me/tokens/{id}/revoke` | List, issue (shown once, at most 20 live per grant) and revoke device tokens on your grants. |
+
+BYO-key flow: ask an administrator for a grant on the project, `POST /me/credentials`, `PATCH /me/grants/{id}`, then
+`POST /me/tokens` for each device. A row that belongs to someone else answers `404 not_found`, exactly like a missing
+one. Changes are audited as the usual actions (`credential.create`, `token.create`, ...) with `details.self: true`.
+Members cannot create grants or change a grant's scope; that stays with administrators (the panel screens for this are
+P4-15).
 
 Nobody can change their own role or disable themselves through a session (ask another owner, or use the admin
-token). Refusals are `403` with `"code": "forbidden"` and a `detail` (`role`, `owner`, `self`), and are written to the
+token). Refusals are `403` with `"code": "forbidden"` and a `detail` (`role`, `owner`, `self`, `no_user`), and are written to the
 audit log (`admin.forbidden`, or the refused change as `denied`).
 
 ## CSRF and cross-origin rules (for API clients that use the cookie)

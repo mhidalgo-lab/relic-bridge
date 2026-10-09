@@ -2,7 +2,7 @@
 id: P7-29
 title: "Compare-and-swap on MCP task records"
 phase: 7
-status: todo
+status: review
 priority: low
 depends_on: [P7-23]
 adr: []
@@ -22,8 +22,8 @@ this, and rate limits and quotas still bound it.
   return the current state.
 
 ## Acceptance criteria
-- [ ] Test: two concurrent polls run one step; cancel during a poll stays `cancelled`.
-- [ ] THREAT_MODEL T32 residual updated.
+- [x] Test: two concurrent polls run one step; cancel during a poll stays `cancelled`.
+- [x] THREAT_MODEL T32 residual updated.
 
 ## Docs to update
 - `docs/THREAT_MODEL.md`.

@@ -153,6 +153,11 @@ const rows = new Map<string, string>();
 const store = {
   get: async (k: string) => rows.get(k) ?? null,
   put: async (k: string, v: string) => void rows.set(k, v),
+  compareAndPut: async (k: string, e: string, v: string) => {
+    if (rows.get(k) !== e) return false;
+    rows.set(k, v);
+    return true;
+  },
 };
 
 function setup(budget = 60) {

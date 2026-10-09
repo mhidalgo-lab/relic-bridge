@@ -37,6 +37,12 @@ function memoryStore(): TaskStore & { rows: Map<string, string>; ttls: number[] 
       rows.set(key, value);
       ttls.push(options.expirationTtl);
     },
+    compareAndPut: async (key, expected, value, options) => {
+      if (rows.get(key) !== expected) return false;
+      rows.set(key, value);
+      ttls.push(options.expirationTtl);
+      return true;
+    },
   };
 }
 
@@ -249,6 +255,92 @@ describe('getTask', () => {
     expect(events).toEqual([
       expect.objectContaining({ tool: 'slow', status: 'ok', input: { task: true }, meta: { m: 1 } }),
     ]);
+  });
+});
+
+describe('compare-and-swap on task records (P7-29)', () => {
+  /** `n` readers all see the stored value before any of them may continue (a deterministic race). */
+  function barrier(w: ReturnType<typeof world>, n: number) {
+    const get = w.store.get;
+    let waiting = 0;
+    let release: () => void = () => {};
+    const gate = new Promise<void>((r) => (release = r));
+    let armed = true;
+    w.store.get = async (key) => {
+      const value = await get(key);
+      if (!armed) return value;
+      if (++waiting >= n) {
+        armed = false;
+        release();
+      }
+      await gate;
+      return value;
+    };
+  }
+
+  it('two concurrent polls of one task run one step', async () => {
+    const w = world();
+    let ran = 0;
+    const tool = scripted([
+      async () => {
+        ran++;
+        return working(1);
+      },
+      async () => {
+        ran++;
+        return working(2);
+      },
+    ]);
+    const { taskId } = await createTask(w.ctx(), 'slow', { state: { n: 0 }, pollIntervalMs: 1000 });
+    w.advance(1000);
+    barrier(w, 2);
+    const results = await Promise.all([
+      getTask(w.ctx(), taskId, { tools: [tool] }),
+      getTask(w.ctx(), taskId, { tools: [tool] }),
+    ]);
+    expect(ran).toBe(1);
+    expect(results.map((r) => r.status)).toEqual(['working', 'working']);
+    // The loser answers with what is stored (the claim), and neither poll charged a second step.
+    expect(results[0]?.statusMessage).toBe('step 1');
+    expect(results[1]?.statusMessage).toBeUndefined();
+    w.advance(1000);
+    expect((await getTask(w.ctx(), taskId, { tools: [tool] })).statusMessage).toBe('step 2');
+    expect(ran).toBe(2);
+  });
+
+  it('a cancel during a poll stays cancelled', async () => {
+    const w = world();
+    let release: () => void = () => {};
+    const inStep = new Promise<void>((r) => (release = r));
+    let finish: () => void = () => {};
+    const hold = new Promise<void>((r) => (finish = r));
+    const tool = scripted([
+      async () => {
+        release();
+        await hold;
+        return { text: 'done' };
+      },
+    ]);
+    const { taskId } = await createTask(w.ctx(), 'slow', { state: {}, pollIntervalMs: 1000 });
+    w.advance(1000);
+    const poll = getTask(w.ctx(), taskId, { tools: [tool] });
+    await inStep;
+    await cancelTask(w.ctx(), taskId);
+    finish();
+    expect(await poll).toMatchObject({ status: 'cancelled' });
+    w.advance(5000);
+    expect(await getTask(w.ctx(), taskId, { tools: [tool] })).toMatchObject({ status: 'cancelled' });
+  });
+
+  it('a cancel that races a poll claim still cancels (it retries on the new value)', async () => {
+    const w = world();
+    const tool = scripted([async () => working(1)]);
+    const { taskId } = await createTask(w.ctx(), 'slow', { state: {}, pollIntervalMs: 1000 });
+    w.advance(1000);
+    barrier(w, 2);
+    await Promise.all([getTask(w.ctx(), taskId, { tools: [tool] }), cancelTask(w.ctx(), taskId)]);
+    w.advance(5000);
+    expect((await getTask(w.ctx(), taskId, { tools: [tool] })).status).toBe('cancelled');
   });
 });
 

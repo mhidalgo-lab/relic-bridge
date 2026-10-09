@@ -453,3 +453,12 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   keep it.
 - **Needs:** owner's call on whether admins should be allowed to tighten limits and rotate keys of write-enabled
   projects (would need per-field narrowing rules), and on the user re-enable gap (P7-32).
+
+### P7-29 — Compare-and-swap on MCP task records
+- **Context:** concurrent `tasks/get` polls could both run a step and a poll in flight could overwrite a cancel.
+- **Assumption made:** CAS on the exact sealed value (no schema change): new `KvRepository.compareAndPut` (one conditional
+  `UPDATE` on SQLite and D1, map check in memory) and a required `TaskStore.compareAndPut` (custom stores must add it).
+  A poll claims the step (`polledAt`) before running it and stores the outcome against the claim; losers answer with the
+  stored state, a cancel retries up to 4 times. A step whose outcome loses to a cancel is discarded (its NerdGraph call
+  and budget are spent). The claim adds one uncharged storage write per step.
+- **Needs:** nothing; confirm the extra write per step is acceptable on D1.

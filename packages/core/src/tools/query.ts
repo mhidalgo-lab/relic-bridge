@@ -19,6 +19,7 @@ import {
 } from '../output/format.ts';
 import { nrqlResultSchema, shapeNrqlOutcome } from '../output/nrql.ts';
 import { DETAIL_MODES, type DetailMode } from '../output/summarize.ts';
+import type { TaskJob } from '../tasks.ts';
 import { defineTool, type ToolDefinition } from '../tool.ts';
 import { accountIdSchema as accountId, type ToolDeps, toolClient, UNTRUSTED } from './shared.ts';
 
@@ -104,6 +105,29 @@ const GET_QUERY_RESULT_DESCRIPTION = `Fetch the result of a slow NRQL query that
 
 If it is still running you get the handle back with a new wait time: call again later. New Relic keeps results only until expiresAt. ${UNTRUSTED}`;
 
+/** What a `run_nrql` task keeps between polls (sealed at rest, P7-13). */
+const nrqlTaskState = z.strictObject({
+  queryId: z.string().regex(QUERY_ID_RE),
+  account: accountId,
+  nrql: z
+    .string()
+    .max(MAX_NRQL_CHARS * 2)
+    .optional(),
+  notes: z.array(z.string().max(1000)).max(20),
+  format: z.enum(OUTPUT_FORMATS as [OutputFormat, ...OutputFormat[]]).optional(),
+  detail: z.enum(DETAIL_MODES as [DetailMode, ...DetailMode[]]).optional(),
+  max_rows: z.number().int().min(1).max(MAX_OUTPUT_CAPS.maxRows).optional(),
+});
+type NrqlTaskState = z.infer<typeof nrqlTaskState>;
+
+function nrqlTaskJob(state: NrqlTaskState, retryAfterS: number): TaskJob {
+  return {
+    state,
+    pollIntervalMs: retryAfterS * 1000,
+    statusMessage: `The NRQL query is still running in account ${state.account}.`,
+  };
+}
+
 /**
  * Tools that run agent-written NRQL. When a connection's `limits.rawNrql` is off they must not be registered at all
  * (hidden from `tools/list`, not only refused): stdio `selectTools` and the access resolver (P2-04) both use this.
@@ -128,18 +152,52 @@ export function createQueryTools(deps: ToolDeps = {}): ToolDefinition[] {
     phase: 1,
     ui: { resourceUri: NRQL_CHART_URI },
     handler: async (input, ctx) => {
+      // MCP Tasks (P7-13): with a client that takes a task, a slow single-account query becomes one instead of being
+      // polled inside this request. Cross-account queries are synchronous at New Relic, so they never are.
+      const asTask = ctx.tasks?.accepted === true && (input.accounts?.length ?? 1) === 1;
       const outcome = await runRawNrql(
         ctx,
         {
           nrql: input.nrql,
           ...(input.accounts ? { accounts: input.accounts } : {}),
           ...(input.timeout_seconds === undefined ? {} : { timeoutS: input.timeout_seconds }),
-          mode: 'auto',
+          mode: asTask ? 'async' : 'auto',
           ...(input.cache === undefined ? {} : { cache: input.cache }),
         },
         { client: client(ctx), ...(deps.sleep ? { sleep: deps.sleep } : {}) },
       );
-      return shape(outcome, input);
+      const out = shape(outcome, input);
+      if (!asTask || outcome.status !== 'pending') return out;
+      const state: NrqlTaskState = {
+        queryId: outcome.queryId,
+        account: outcome.account,
+        notes: [...outcome.notes],
+        ...(outcome.nrql === undefined ? {} : { nrql: outcome.nrql }),
+        ...(input.format === undefined ? {} : { format: input.format }),
+        ...(input.detail === undefined ? {} : { detail: input.detail }),
+        ...(input.max_rows === undefined ? {} : { max_rows: input.max_rows }),
+      };
+      // Still a full answer (the handle) if the host can't store the task.
+      return { ...out, task: nrqlTaskJob(state, outcome.retryAfterS) };
+    },
+    resumeTask: async (raw, ctx) => {
+      // Same switch and account checks as get_query_result; the state is re-validated though it comes back sealed.
+      assertRawNrqlAllowed(ctx.limits);
+      const state = nrqlTaskState.parse(raw);
+      const outcome = await getQueryResult(
+        ctx,
+        { queryId: state.queryId, account: state.account },
+        { client: client(ctx) },
+      );
+      const withQuery: NrqlOutcome = {
+        ...outcome,
+        notes: state.notes,
+        ...(state.nrql === undefined ? {} : { nrql: state.nrql }),
+      };
+      const out = shape(withQuery, state);
+      return withQuery.status === 'pending'
+        ? { ...out, task: nrqlTaskJob(state, withQuery.retryAfterS) }
+        : out;
     },
   });
 

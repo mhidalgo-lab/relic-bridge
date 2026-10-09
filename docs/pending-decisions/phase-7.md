@@ -214,3 +214,27 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Needs:** owner's call on fail-open vs fail-closed; whether D1 write cost per call is acceptable (one or two writes per
   New Relic call for a grant with a quota; the shared limiter avoids it) or whether quotas should be Durable Object-only
   on Workers; on a deployment, measure the added latency per call and confirm a cap holds across isolates under load.
+
+### P7-13 — MCP Tasks: hand-rolled on SDK 2.2.0, `run_nrql` only, HTTP project routes only, no real client verified
+- **Context:** The MCP TypeScript SDK 2.2.0 has no Tasks runtime for protocol 2026-07-28 (`tasks/*` answer `-32601`);
+  `@modelcontextprotocol/ext-tasks` 0.2.x is client-side only. No Tasks-capable client could be run (no deployment, no
+  live calls), so "works with at least one client" is verified only against the spec with raw JSON-RPC requests.
+- **Assumption made:** (1) The project MCP route answers `tasks/get|update|cancel` itself (after authentication, rate
+  limits and `beforeMcp`), and a tool result becomes a task through a small wrapper of the SDK's private output check
+  (tests fail if an SDK upgrade breaks it); the task answer also carries an empty `content` array, which the SDK's
+  `tools/call` result check requires and clients ignore. (2) Only `run_nrql` creates tasks (async submit, no in-request polling);
+  composite reports are P7-21. (3) Tasks only on `serve` and the Worker project routes; stdio and pass-through keep the
+  `queryId` handle (P7-22). (4) A task is visible to the creating **device** only (project + grant + token or OAuth
+  device), not to the grant's other devices. (5) Fixed 15-minute TTL, poll interval from New Relic's `retryAfter`
+  clamped to 1-10 s, a poll before the interval does no work; no server-side poller and no `notifications/tasks`
+  (stateless: nothing runs after a response). (6) Records live in the storage `kv` table, sealed under a key derived
+  from the task id (not the master key): the database alone can't open them, and rotation of the master key does not
+  touch them. (7) Transient failures (rate limit, quota, budget, NerdGraph unavailable) keep the task working;
+  everything else completes it with the tool's error result (never `failed`: that status is for JSON-RPC errors).
+  (8) No new dependency, no new setting: on whenever the host passes a task store.
+- **Options:** let every device of a grant see its tasks; a setting to turn Tasks off (`RB_TASKS=off`); longer TTL;
+  adopt the SDK's Tasks support when it ships and drop the hand-rolled route; a Durable Object poller with
+  notifications (P7-22); add the `ext-tasks` client as a dev dependency for an end-to-end conformance test.
+- **Needs:** on a deployment, run one Tasks-capable client (e.g. an `ext-tasks` client session, or a host that lists
+  Tasks support) against `/p/<slug>/mcp` with a slow query, and tick the client criterion in the task file; owner's call
+  on (4) and on an off switch.

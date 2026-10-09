@@ -87,6 +87,18 @@ The text is what most clients show the model. It refers to arguments by their ar
 their output name, so the two never disagree: a paged tool ends with `nextCursor: <value>` and says "call again with
 the same filters and cursor set to the nextCursor below".
 
+## Slow work and MCP Tasks
+
+A tool that may outlive one request (P7-13) returns a complete answer that the agent can continue by itself (a handle
+such as `queryId`), and additionally sets `ToolOutput.task` (`state`, `pollIntervalMs`, `statusMessage`) and defines
+`resumeTask(state, ctx)`. When the client declared the Tasks extension and the host keeps tasks, `buildMcpServer`
+answers with a task instead; each `tasks/get` after the poll interval runs one `resumeTask` step in that request's
+context (budget, limits, quota) and stores what it returns: the final output, or an output with `task` set to keep
+going. Rules: one bounded step per call (no waiting loops), re-check every scope the handler checked (the state comes
+back from sealed storage but parse it with a strict schema anyway), keep `state` small (the sealed record is capped at
+512 KiB including the result), and make `statusMessage` your own words, never New Relic text. Only `run_nrql` does this
+today.
+
 ## Changing a name
 
 Tool names never change (grants store them). Argument and output names are part of the public contract from 1.0: until

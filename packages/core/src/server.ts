@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 import { type CallToolResult, McpServer, type StandardSchemaWithJSON } from '@modelcontextprotocol/server';
 import { toolUiMeta } from './apps/index.ts';
+import { toCallToolResult } from './call-result.ts';
 import type { ToolContext } from './context.ts';
 import { ERROR_META_KEY, toToolErrorResult } from './errors.ts';
 import { type PromptDefinition, promptConfig, renderPrompt, selectPrompts } from './prompts.ts';
 import { withoutDialect } from './registry.ts';
 import { type ResourceDefinition, registerResources, selectResources } from './resources.ts';
+import { clientDeclaresTasks, createTask, TASKS_EXTENSION } from './tasks.ts';
 import { annotationsFor, type ToolDefinition, type ToolOutput } from './tool.ts';
 import { VERSION } from './version.ts';
 
@@ -109,6 +111,36 @@ export function withCachedJsonSchema(schema: StandardSchemaWithJSON): StandardSc
 
 export const DEFAULT_SERVER_INFO: ServerInfo = Object.freeze({ name: 'relic-bridge', version: VERSION });
 
+type ValidateToolOutput = (tool: unknown, result: unknown, toolName: string) => Promise<void>;
+
+/**
+ * One change to the SDK's server for the Tasks extension (P7-13): a `tools/call` answered with a task
+ * (`resultType: "task"`) carries no `structuredContent`, so the output-schema check applies to the final result (served
+ * by `tasks/get`), not to the task handle. SDK 2.2.0 passes a handler's `resultType` through on `tools/call`; its
+ * output check is a private method, so it is wrapped on the instance (covered by the HTTP Tasks tests, which fail if an
+ * SDK upgrade changes this).
+ */
+function allowTaskResults(server: McpServer): void {
+  const target = server as unknown as { validateToolOutput?: ValidateToolOutput };
+  const original = target.validateToolOutput;
+  if (typeof original !== 'function') return;
+  target.validateToolOutput = (tool, result, toolName) =>
+    (result as { resultType?: unknown } | undefined)?.resultType === 'task'
+      ? Promise.resolve()
+      : original.call(server, tool, result, toolName);
+}
+
+/**
+ * The SDK's per-request envelope (`ctx.mcpReq.envelope`), read defensively. Only 2026-07-28 requests have one: a
+ * 2025-era client never gets a task (it could not poll one; `tasks/*` needs the envelope too).
+ */
+function envelopeOf(extra: unknown): unknown {
+  if (extra === null || typeof extra !== 'object') return undefined;
+  const req = (extra as { mcpReq?: unknown }).mcpReq;
+  if (req === null || typeof req !== 'object') return undefined;
+  return (req as { envelope?: unknown }).envelope;
+}
+
 /**
  * Build a fresh MCP server for one request (ADR-0005: stateless, one server per request).
  * Tools not in `tools` are simply not registered, so they are neither listed nor callable.
@@ -122,10 +154,18 @@ export function buildMcpServer({
   prompts,
   resources,
 }: BuildServerOptions): McpServer {
+  // Tasks (P7-13) are offered only where the host bound a task store to the request (HTTP project routes).
+  const offersTasks = typeof context !== 'function' && context.tasks !== undefined;
   const server = new McpServer(
     { name: info.name, version: info.version },
-    { capabilities: { tools: { listChanged: toolsListChanged } } },
+    {
+      capabilities: {
+        tools: { listChanged: toolsListChanged },
+        ...(offersTasks ? { extensions: { [TASKS_EXTENSION]: {} } } : {}),
+      },
+    },
   );
+  if (offersTasks) allowTaskResults(server);
   const allowedTools = new Set(tools.map((t) => t.name));
   const contextFor = typeof context === 'function' ? context : () => context;
 
@@ -175,22 +215,31 @@ export function buildMcpServer({
       ...(def.outputSchema ? { outputSchema: withCachedJsonSchema(def.outputSchema) } : {}),
       ...(ui === undefined ? {} : { _meta: toolUiMeta(ui) }),
     };
-    server.registerTool(def.name, config, async (input: unknown): Promise<CallToolResult> => {
-      const ctx = contextFor();
+    server.registerTool(def.name, config, async (input: unknown, extra: unknown): Promise<CallToolResult> => {
+      const base = contextFor();
+      // A client that declared the Tasks extension on this request may get a task for a tool that can resume one.
+      const ctx =
+        base.tasks !== undefined && def.resumeTask !== undefined && clientDeclaresTasks(envelopeOf(extra))
+          ? Object.freeze({ ...base, tasks: Object.freeze({ ...base.tasks, accepted: true }) })
+          : base;
       try {
         const out = await invoke(def, input, ctx);
-        // Soft quota warning (P7-12): our own line after the result, never inside the untrusted-data envelope.
-        const warning = ctx.quota?.takeWarning();
-        return {
-          content: [
-            { type: 'text', text: out.text },
-            ...(warning === undefined ? [] : [{ type: 'text' as const, text: warning }]),
-          ],
-          ...(out.structured === undefined
-            ? {}
-            : { structuredContent: out.structured as Record<string, unknown> }),
-          ...(out.meta === undefined ? {} : { _meta: out.meta }),
-        };
+        if (out.task !== undefined && ctx.tasks?.accepted === true) {
+          try {
+            const task = await createTask(ctx, def.name, out.task);
+            // The CreateTaskResult of the extension. `content: []` keeps the SDK's tools/call result check satisfied;
+            // clients read the task fields.
+            return { resultType: 'task', ...task, content: [] } as unknown as CallToolResult;
+          } catch (error) {
+            // No task store right now: answer as a client without the extension would get it (the handle).
+            ctx.logger.warn('task not created, answering inline', {
+              requestId: ctx.requestId,
+              tool: def.name,
+              error: error instanceof Error ? error.name : typeof error,
+            });
+          }
+        }
+        return toCallToolResult(out, ctx);
       } catch (error) {
         return toToolErrorResult(error, ctx.requestId);
       }

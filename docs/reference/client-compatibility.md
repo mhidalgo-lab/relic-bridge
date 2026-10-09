@@ -105,6 +105,21 @@ No real host rendered it.
 | Claude Code, Cursor, MCP Inspector | ? (no MCP Apps host documented) | text table (T: results unchanged) |
 | ChatGPT, VS Code | D (listed as hosts by the MCP Apps project), not tested | text table |
 
+## MCP Tasks (P7-13, 2026-10-06)
+
+With the Tasks extension (`io.modelcontextprotocol/tasks`, MCP 2026-07-28) a client gets a task for a slow `run_nrql`
+and polls `tasks/get` instead of calling `get_query_result`. Offered on the project HTTP routes of `serve` and the
+Worker only (not stdio, not pass-through). Evidence: the server side is **T** with raw 2026-07-28 JSON-RPC requests
+(`packages/http-app/test/tasks.test.ts`, authorization on the HTTP app and the Worker in
+`packages/http-app/test/authz/tasks.test.ts`). The MCP TypeScript SDK client 2.2.0 does not declare the extension, so it
+gets the `queryId` handle (T). No real client was run.
+
+| Client | Uses Tasks | Without it |
+|---|---|---|
+| Hosted Claude, Claude mobile, Claude Desktop, Claude Code | ? (no Tasks support documented), **M** | `queryId` handle + `get_query_result` (T) |
+| Cursor, VS Code, ChatGPT, MCP Inspector | ? | same |
+| `@modelcontextprotocol/ext-tasks` client sessions (0.2.x) | D (the extension's reference client), not tested | — |
+
 ## Re-run procedure (each minor release)
 
 1. `pnpm test && pnpm test:workers` (the suite is `packages/http-app/test/authz/client-conformance-suite.ts`, run on

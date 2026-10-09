@@ -3,6 +3,7 @@ import type { QueryCacheBinding } from './cache/query-cache.ts';
 import { ErrorCode, RbError } from './errors.ts';
 import type { Logger } from './logger.ts';
 import type { Secret } from './secret.ts';
+import type { TaskBinding } from './tasks.ts';
 
 /** New Relic data-center regions with a documented NerdGraph endpoint (RESEARCH §6). */
 export type Region = 'US' | 'EU' | 'JP';
@@ -112,6 +113,11 @@ export interface ToolContext {
   readonly queryCache?: QueryCacheBinding;
   /** The grant's usage quota (P7-12). Absent: no quota (stdio, pass-through, grants without one). */
   readonly quota?: QuotaGuard;
+  /**
+   * MCP Tasks (P7-13): where this caller's tasks are kept and who owns them. Absent: tasks are not offered (stdio,
+   * pass-through). `accepted` is set per `tools/call` when the client declared the extension.
+   */
+  readonly tasks?: TaskBinding;
 }
 
 /** Simple counting budget. One instance per request. */

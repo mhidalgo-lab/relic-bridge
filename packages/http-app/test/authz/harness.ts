@@ -219,6 +219,25 @@ export function hostileNerdGraph(tenants: Readonly<Record<string, string>>): Hos
         case 'RbNrql':
         case 'RbNrqlCrossAccount': {
           const nrql = String(variables['nrql'] ?? '');
+          // An async query naming SLOW is still running: a handle (or an MCP task, P7-13) until one progress poll.
+          if (op === 'RbNrql' && variables['async'] === true && nrql.includes('SLOW')) {
+            return ok({
+              actor: {
+                account: {
+                  nrql: {
+                    ...nrqlContainer([]),
+                    results: null,
+                    queryProgress: {
+                      queryId: `slow-${label}`,
+                      completed: false,
+                      retryAfter: 1,
+                      resultExpiration: null,
+                    },
+                  },
+                },
+              },
+            });
+          }
           const results = nrql.startsWith('SHOW EVENT TYPES')
             ? [{ eventType: 'Transaction' }, { eventType: `${label}Event` }]
             : nrql.includes('keyset()')
@@ -769,6 +788,8 @@ export const httpAppHost: AuthzHost = {
           fetch: nerdGraph.fetch,
           accessCacheTtlMs: 0,
           hooks: recorder.hooks,
+          // MCP Tasks (P7-13), as `serve` and the Worker keep them.
+          taskStore: storage.kv,
           admin: {
             token: new Secret(ADMIN_TOKEN),
             storage,

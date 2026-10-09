@@ -241,6 +241,14 @@ before running non-read-only tools (Claude Code, Claude Desktop, VS Code) do. **
 (`permissions.allow` in Claude Code, "always allow" in Desktop, `chat.tools.autoApprove` in VS Code): the client's prompt
 is the one approval the model cannot give itself. Each call also needs `confirm: true`; `dry_run: true` previews.
 
+## Slow queries and MCP Tasks
+
+A NRQL query that is still running after `timeout_seconds` comes back as a handle: the agent calls `get_query_result`
+with the `queryId` later. On a remote server (`serve`, Cloudflare), a client that supports the MCP **Tasks** extension
+(`io.modelcontextprotocol/tasks`, protocol 2026-07-28) gets a task instead and polls it itself; the result is the same
+as a normal call. Task results are kept for 15 minutes, only for the device (token or OAuth sign-in) that started the
+query. Nothing to configure. Which clients support it: [client compatibility](../reference/client-compatibility.md#mcp-tasks-p7-13-2026-10-06).
+
 ## Other clients and MCP Inspector
 
 Any client that can launch a stdio server works: give it the command `npx -y relic-bridge` and the three `env`

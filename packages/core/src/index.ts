@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 export * from './apps/index.ts';
 export * from './cache/query-cache.ts';
+export { toCallToolResult } from './call-result.ts';
 export {
   type AccountScope,
   type Budget,
@@ -73,6 +74,29 @@ export {
   type ToolCallEvent,
   withCachedJsonSchema,
 } from './server.ts';
+export {
+  CLIENT_CAPABILITIES_META_KEY,
+  cancelTask,
+  clientDeclaresTasks,
+  createTask,
+  type DetailedTask,
+  getTask,
+  MAX_TASK_POLL_MS,
+  MAX_TASK_RECORD_BYTES,
+  MIN_TASK_POLL_MS,
+  newTaskId,
+  type ResumeOptions,
+  TASK_ID_RE,
+  TASK_TTL_MS,
+  TASKS_EXTENSION,
+  type Task,
+  type TaskBinding,
+  type TaskJob,
+  TaskNotFoundError,
+  type TaskStatus,
+  type TaskStore,
+  updateTask,
+} from './tasks.ts';
 export * from './time/index.ts';
 export {
   annotationsFor,

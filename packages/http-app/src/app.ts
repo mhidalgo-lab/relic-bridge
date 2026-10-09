@@ -50,6 +50,7 @@ import {
   type Secret,
   silentLogger,
   systemClock,
+  type TaskStore,
   type ToolCallEvent,
   type ToolContext,
   type ToolDefinition,
@@ -120,6 +121,7 @@ import {
   safeMcpHeader,
 } from './security.ts';
 import { createSessionManager, type SessionManager, type SessionPrincipal } from './session.ts';
+import { serveTaskRequest, TASK_METHODS } from './tasks.ts';
 
 /** Largest request body accepted on the MCP route by default (a tool call is a few KiB). */
 export const DEFAULT_MAX_BODY_BYTES: number = 1024 * 1024;
@@ -270,6 +272,8 @@ export interface HttpAppOptions {
   readonly clock?: Clock;
   /** NerdGraph fetch override (tests). */
   readonly fetch?: FetchLike;
+  /** Wait between NRQL polls and retries (tests). Default: `setTimeout`. */
+  readonly sleep?: (ms: number) => Promise<void>;
   /** `Host` allowlist (hostnames, no ports). Default: loopback names. `'*'` disables the check (not recommended). */
   readonly allowedHosts?: readonly string[] | '*';
   /** `Origin` allowlist (hostnames). Default: `allowedHosts` (or loopback names when that is `'*'`). */
@@ -327,6 +331,12 @@ export interface HttpAppOptions {
    * its Durable Object store when `RB_SHARED_LIMITER=on`.
    */
   readonly quotaStore?: QuotaStore;
+  /**
+   * MCP Tasks extension (P7-13): where task records live (the storage `kv`; records are sealed and expire after 15
+   * minutes). Absent: the extension is not offered and slow queries answer with their `queryId` handle, as for clients
+   * without the extension. Project routes only (not pass-through).
+   */
+  readonly taskStore?: TaskStore;
 }
 
 type Env = { Variables: { requestId: string; started: number; log: Record<string, unknown> } };
@@ -524,6 +534,7 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
   const limiters = new LimiterPool(options.concurrencyPerCredential);
   // Per-grant quota counters (P7-12): the host's store, else the storage table (atomic on SQLite and D1).
   const quotaStore: QuotaStore = options.quotaStore ?? options.storage.grantUsage;
+  const taskStore = options.taskStore;
   // The process-local slot first, then the shared one: only calls this process would run anyway compete across them.
   const sharedConcurrency = options.sharedConcurrency;
   const withShared = (local: Limiter, credentialId: string): Limiter => {
@@ -537,7 +548,10 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
       ? undefined
       : (options.queryCache ?? new QueryCache({ macKey: options.keyring.queryCacheKeys().id }));
   // One tool set per app: its caches are keyed by credential id, region and account (never shared across tenants).
-  const toolDeps = options.fetch ? { fetch: options.fetch } : {};
+  const toolDeps = {
+    ...(options.fetch ? { fetch: options.fetch } : {}),
+    ...(options.sleep ? { sleep: options.sleep } : {}),
+  };
   const writeTools = options.writeTools === true;
   const allTools = [...createBuiltinTools(toolDeps), ...(writeTools ? createWriteTools(toolDeps) : [])];
   const catalog = allTools.map((t) => t.name);
@@ -708,6 +722,27 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
       throw error;
     }
     return deadline.bound(response);
+  };
+
+  /** `tasks/*` (P7-13) under the same request deadline as any MCP exchange (one task step at most). */
+  const serveTasks = async (c: Context<Env>, scope: RequestScope): Promise<Response> => {
+    const log = c.get('log');
+    const deadline = new Deadline(timeoutMs, () => {
+      log['timeout'] = true;
+      logger.warn('task request timed out', { requestId: c.get('requestId'), ms: timeoutMs });
+    });
+    try {
+      return await Promise.race([
+        serveTaskRequest(c.req.raw, {
+          ctx: scope.ctx,
+          resume: { tools: scope.tools, ...(scope.onToolCall ? { onToolCall: scope.onToolCall } : {}) },
+          log,
+        }),
+        deadline.expired.then(() => json(504, '{"error":"timeout"}')),
+      ]);
+    } finally {
+      deadline.clear();
+    }
   };
 
   // Admin sessions (P4-02): on whenever sign-in is configured. State lives in storage `kv`, never here (T21); the
@@ -1232,6 +1267,16 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
                   scope: `project:${access.projectId}/grant:${access.grantId}`,
                 }),
               }),
+          // Tasks are visible to the device that created them only: project, grant, token (an OAuth device's token id
+          // is stable across refreshes) and OAuth client (T32).
+          ...(taskStore === undefined
+            ? {}
+            : {
+                tasks: Object.freeze({
+                  store: taskStore,
+                  owner: `project:${access.projectId}/grant:${access.grantId}/token:${tokenId}/client:${clientId ?? '-'}`,
+                }),
+              }),
           connection: Object.freeze({
             project: access.projectSlug,
             allowedTools: access.tools,
@@ -1270,7 +1315,11 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
     };
 
     const started = clock.now();
-    const response = await serveMcp(c, authInfo, mcpMethod, mcpName);
+    // `tasks/*` (P7-13): answered here, the SDK has no Tasks runtime. Same scope, budget and hooks as any MCP request.
+    const response =
+      scope.ctx.tasks !== undefined && mcpMethod !== null && TASK_METHODS.includes(mcpMethod)
+        ? await serveTasks(c, scope)
+        : await serveMcp(c, authInfo, mcpMethod, mcpName);
     if (hooks.afterMcp) {
       const after = hooks.afterMcp;
       const outcome = Object.freeze({ status: response.status, durationMs: clock.now() - started });

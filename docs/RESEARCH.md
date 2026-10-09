@@ -160,6 +160,27 @@ Sources: <https://modelcontextprotocol.io/specification/2026-07-28/basic/authori
   <https://www.ietf.org/archive/id/draft-ietf-oauth-client-id-metadata-document-00.html>.
 - Extensions framework: **MCP Apps** (interactive HTML UIs) and **Tasks** (long-running operations) ship as
   extensions. Logging and sampling were removed from core.
+- **Tasks extension (read 2026-10-06, P7-13)**: identifier `io.modelcontextprotocol/tasks` (SEP-2663, repo
+  `modelcontextprotocol/ext-tasks`, `specification/2026-07-28/tasks.md`). The client declares it per request in
+  `_meta["io.modelcontextprotocol/clientCapabilities"].extensions`, the server in `server/discover` capabilities
+  `extensions`. Server-directed: the server MAY answer a supported request (only `tools/call` today) with
+  `CreateTaskResult` = `resultType: "task"` + `Task { taskId, status (working | input_required | completed | failed |
+  cancelled), statusMessage?, createdAt, lastUpdatedAt (ISO), ttlMs (null = unlimited), pollIntervalMs? }`, and MUST
+  NOT to a request without the capability; the task MUST be durably created before the response. `tasks/get` returns
+  the task with `resultType: "complete"`, `result` (the original `CallToolResult`, `isError` results included) when
+  `completed`, `error` (JSON-RPC error) when `failed`, `inputRequests` when `input_required`; `tasks/update`
+  (`inputResponses`) and `tasks/cancel` (cooperative) answer an empty `resultType: "complete"`. No `tasks/list`.
+  Errors: unknown or expired task `-32602`; client without the capability `-32021` (data `requiredCapabilities`). Over
+  Streamable HTTP, `Mcp-Name` MUST be the `taskId`. Optional `notifications/tasks` via `subscriptions/listen`
+  (`notifications.taskIds`). Security: ids MUST be unguessable (they may act as bearer tokens) and every task request
+  MUST be authorised. The `@modelcontextprotocol/ext-tasks` npm package (0.2.x) is client-side (requester sessions,
+  2025-11-25 receiver), with no server runtime.
+- **SDK 2.2.0 and Tasks (verified locally, P7-13)**: the 2026-07-28 registry has no `tasks/*` methods (`-32601`, HTTP
+  404); `McpServer` accepts `capabilities.extensions` and advertises it in `server/discover`; a `tools/call` handler's
+  `resultType` passes the encoder untouched (`tools/call` is an extended-result method), but the output-schema check
+  (`validateToolOutput`, private) fails a result without `structuredContent`, and the result check needs a `content`
+  array. The handler sees the request envelope (client capabilities) as `ctx.mcpReq.envelope`; 2025-era requests
+  have none.
 - Tool input schemas support full JSON Schema 2020-12.
 - **SDK v2** (`@modelcontextprotocol/server`, 2.1.x) supports both protocol eras:
   - `createMcpHandler(factory, { legacy: 'stateless' })` builds a fresh server per request and serves both 2025-era

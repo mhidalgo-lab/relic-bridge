@@ -11,6 +11,7 @@
 //
 // Connected OAuth clients join this screen with Phase 5.
 import type { Context, Hono } from 'hono';
+import type { JSX } from 'hono/jsx/jsx-runtime';
 import {
   Button,
   DataTable,
@@ -36,6 +37,7 @@ import {
   parseProject,
   parseToken,
   parseUser,
+  type Token,
   validCursor,
 } from './data.ts';
 import { grantFor } from './grants.tsx';
@@ -127,6 +129,62 @@ function newTokenPage(
           </LinkButton>
         </div>
       </Form>
+    </Layout>
+  );
+}
+
+/**
+ * The one-time page of a new device token (shared with the member screens): the token in a secret box, notes, how to use
+ * it and the connect snippets. Rendered only as the answer to the POST that issued the token.
+ */
+export function IssuedTokenPage(props: {
+  readonly viewer: UiPrincipal;
+  readonly current: string;
+  readonly record: Token;
+  readonly token: string;
+  readonly warnings: readonly string[];
+  readonly endpoint: string;
+  readonly slug: string;
+  readonly done: string;
+}): JSX.Element {
+  const { record, token, endpoint } = props;
+  return (
+    <Layout title="Your new device token" viewer={props.viewer} current={props.current}>
+      <div class="flash flash-info" role="status">
+        Copy the token now. It is not stored and cannot be shown again: if you lose it, revoke it and create a
+        new one.
+      </div>
+      <section class="card secret" aria-labelledby="token-label">
+        <SecretOnce id="token" label={`Token for ${record.label}`} value={token} />
+      </section>
+      <Notes title="Notes" items={props.warnings} />
+      <section aria-labelledby="use-heading">
+        <h2 id="use-heading">Use it</h2>
+        <Facts
+          items={[
+            ['MCP endpoint', <code>{endpoint}</code>],
+            ['Header', <code>{'Authorization: Bearer <the token above>'}</code>],
+            ['Expires', <When at={record.expiresAt} none="never" />],
+          ]}
+        />
+        <ul>
+          <li>Paste it only into this device's MCP client configuration or its secret store.</li>
+          <li>Never paste it into a chat, a ticket, a shared document or a repository.</li>
+          <li>This page is shown once: reloading it does not show the token again or create another one.</li>
+        </ul>
+      </section>
+      <section aria-labelledby="snippets-heading">
+        <h2 id="snippets-heading">Connect a client</h2>
+        <p>
+          Pick your client. The commands read the token from an environment variable, so it never lands in
+          your shell history or a file you might commit. Only the Claude Desktop snippet holds the token
+          itself.
+        </p>
+        <SnippetList endpoint={endpoint} slug={props.slug} token={token} idPrefix="connect" />
+      </section>
+      <div class="actions">
+        <LinkButton href={props.done}>Done</LinkButton>
+      </div>
     </Layout>
   );
 }
@@ -334,50 +392,16 @@ export function registerTokens(ui: Hono, kit: UiKit): void {
       const project = (await lookup(c, principal)).projects.get(grant.projectId);
       // The one place a token is ever rendered. The page is `no-store`; the token is not kept anywhere.
       return htmlResponse(
-        <Layout title="Your new device token" viewer={principal} current={BASE}>
-          <div class="flash flash-info" role="status">
-            Copy the token now. It is not stored and cannot be shown again: if you lose it, revoke it and
-            create a new one.
-          </div>
-          <section class="card secret" aria-labelledby="token-label">
-            <SecretOnce id="token" label={`Token for ${record.label}`} value={token} />
-          </section>
-          <Notes title="Notes" items={warnings} />
-          <section aria-labelledby="use-heading">
-            <h2 id="use-heading">Use it</h2>
-            <Facts
-              items={[
-                ['MCP endpoint', <code>{endpointOf(kit.deps.publicUrl, project?.slug ?? '<project>')}</code>],
-                ['Header', <code>{'Authorization: Bearer <the token above>'}</code>],
-                ['Expires', <When at={record.expiresAt} none="never" />],
-              ]}
-            />
-            <ul>
-              <li>Paste it only into this device's MCP client configuration or its secret store.</li>
-              <li>Never paste it into a chat, a ticket, a shared document or a repository.</li>
-              <li>
-                This page is shown once: reloading it does not show the token again or create another one.
-              </li>
-            </ul>
-          </section>
-          <section aria-labelledby="snippets-heading">
-            <h2 id="snippets-heading">Connect a client</h2>
-            <p>
-              Pick your client. The commands read the token from an environment variable, so it never lands in
-              your shell history or a file you might commit. Only the Claude Desktop snippet holds the token
-              itself.
-            </p>
-            <SnippetList
-              endpoint={endpointOf(kit.deps.publicUrl, project?.slug ?? '<project>')}
-              slug={project?.slug ?? 'project'}
-              token={token}
-              idPrefix="connect"
-            />
-          </section>
-          <div class="actions">
-            <LinkButton href={adminPath`/admin/grants/${grant.id}`}>Done</LinkButton>
-          </div>
-        </Layout>,
+        <IssuedTokenPage
+          viewer={principal}
+          current={BASE}
+          record={record}
+          token={token}
+          warnings={warnings}
+          endpoint={endpointOf(kit.deps.publicUrl, project?.slug ?? '<project>')}
+          slug={project?.slug ?? 'project'}
+          done={adminPath`/admin/grants/${grant.id}`}
+        />,
       );
     }),
   );

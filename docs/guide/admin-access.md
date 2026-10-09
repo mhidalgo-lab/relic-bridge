@@ -55,8 +55,7 @@ Any signed-in user (member, admin or owner) can manage what is theirs; the boots
 BYO-key flow: ask an administrator for a grant on the project, `POST /me/credentials`, `PATCH /me/grants/{id}`, then
 `POST /me/tokens` for each device. A row that belongs to someone else answers `404 not_found`, exactly like a missing
 one. Changes are audited as the usual actions (`credential.create`, `token.create`, ...) with `details.self: true`.
-Members cannot create grants or change a grant's scope; that stays with administrators (the panel screens for this are
-P4-15).
+Members cannot create grants or change a grant's scope; that stays with administrators. The panel has screens for all of this: "My access" (below).
 
 Nobody can change their own role or disable themselves through a session (ask another owner, or use the admin
 token). Refusals are `403` with `"code": "forbidden"` and a `detail` (`role`, `owner`, `self`, `no_user`), and are written to the
@@ -104,8 +103,24 @@ whenever sign-in is configured, and uses the same session:
 
 Admins and owners manage New Relic keys, projects, grants, device tokens and users there: see the
 [admin panel guide](admin-panel.md). Moving a user to another sign-in provider (clearing the binding) is an owner-only
-button on the user page, with a confirmation that states the takeover risk. Members see the overview only (self-service is planned, P4-10). Conventions for
+button on the user page, with a confirmation that states the takeover risk. Conventions for
 contributors: [`docs/dev/admin-ui.md`](../dev/admin-ui.md).
+
+### My access (`/admin/me`, every role)
+
+Every signed-in person has a "My access" page in the navigation (phone friendly). It is the browser side of the
+self-service API above and shows only your own rows:
+
+- **My keys**: add a New Relic User key (a password field, checked with New Relic, stored encrypted, never shown again:
+  pages show the last 4 characters), rename it, check it again, replace it or delete it (up to 10 keys). Deleting asks
+  for confirmation and is refused while one of your grants uses the key.
+- **My grants**: the projects an administrator assigned to you. "Change key" points a grant at one of your usable keys
+  or back at the project default. Scope (tools, accounts, limits) stays with administrators.
+- **My device tokens**: "New device token" asks for a grant, a device name and a lifetime, then shows the token once with
+  connect snippets (up to 20 live tokens per grant). Revoking asks for confirmation.
+
+A page or form that names someone else's key, grant or token (a forged link, an edited form) gets the same "Page not
+found" answer as one that does not exist, and changes nothing.
 
 ## What session cookies never do
 

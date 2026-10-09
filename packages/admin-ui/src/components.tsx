@@ -45,6 +45,7 @@ export const NAV_ITEMS: readonly NavItem[] = Object.freeze([
   { href: '/admin/tokens', label: 'Devices', minRole: 'admin' },
   { href: '/admin/connect', label: 'Connect', minRole: 'admin' },
   { href: '/admin/users', label: 'Users', minRole: 'admin' },
+  { href: '/admin/me', label: 'My access', minRole: 'member' },
   { href: '/admin/audit', label: 'Audit', minRole: 'member' },
   { href: '/admin/usage', label: 'Usage', minRole: 'admin' },
 ]);

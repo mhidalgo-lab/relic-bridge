@@ -67,6 +67,17 @@ and for the screens the tool catalogue `tools`, `publicUrl` and the clock `now`)
 wrong value re-renders the form with a fixed message (never the typed value). Gate the entry link by role in the detail
 page too, but treat the API as the decision.
 
+## Member screens (P4-15)
+
+`screens/me.tsx` (`/admin/me/*`, minimum role `member`) is the browser side of the `/me/*` API. It never calls the
+admin lists (`/credentials`, `/grants`, `/tokens`): every read and write goes to `/me/...`, which looks rows up as the
+session user. The pages add one more guard: an id from the URL or a form is looked up in the caller's own `/me` list
+first, and a miss is `errorPage(404)` (also for POSTs), so a forged id is never forwarded as a write. There is no
+read-by-id in `/me`, so a key page is built from the `/me/credentials` list. The one-time token page is the shared
+`IssuedTokenPage` of `tokens.tsx`, and the token form carries the single-use `_once` handle like the admin one. Tests:
+`test/me.test.ts` (scripted `/me` API: `test/me-fixture.ts`) and, on the whole app with storage,
+`packages/http-app/test/authz/ui-member.test.ts` (the BYO flow through the forms, strict IDOR, caps).
+
 ## Audit and usage screens (P4-05)
 
 `screens/audit.tsx` (`/admin/audit`, `/admin/audit.csv`, any role) and `screens/usage.tsx` (`/admin/usage`, admin).

@@ -2,11 +2,11 @@
 id: P8-08
 title: Run CI on the organization's self-hosted runners, with a hosted fallback
 phase: 8
-status: todo
+status: in-progress
 priority: high
 depends_on: []
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P8-08 — Run CI on the organization's self-hosted runners, with a hosted fallback

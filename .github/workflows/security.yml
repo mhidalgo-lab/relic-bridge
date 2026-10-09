@@ -18,7 +18,7 @@ concurrency:
 jobs:
   codeql:
     name: CodeQL
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(vars.CI_RUNS_ON || '["self-hosted","linux","x64"]') }}
     timeout-minutes: 20
     permissions:
       actions: read
@@ -39,7 +39,7 @@ jobs:
 
   gitleaks:
     name: Secret scan (gitleaks)
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(vars.CI_RUNS_ON || '["self-hosted","linux","x64"]') }}
     timeout-minutes: 10
     env:
       GITLEAKS_VERSION: 8.30.1
@@ -61,7 +61,7 @@ jobs:
 
   audit:
     name: Dependency audit
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(vars.CI_RUNS_ON || '["self-hosted","linux","x64"]') }}
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -77,7 +77,7 @@ jobs:
     name: Dependency review
     # Needs a public repo (or GitHub Advanced Security). While private, scripts/check-licenses.ts + pnpm audit cover it.
     if: github.event_name == 'pull_request' && !github.event.repository.private
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(vars.CI_RUNS_ON || '["self-hosted","linux","x64"]') }}
     timeout-minutes: 10
     permissions:
       contents: read

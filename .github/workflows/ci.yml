@@ -16,7 +16,7 @@ concurrency:
 jobs:
   check:
     name: Lint, typecheck, test, build (Node ${{ matrix.node }})
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(vars.CI_RUNS_ON || '["self-hosted","linux","x64"]') }}
     timeout-minutes: 15
     strategy:
       fail-fast: false
@@ -24,6 +24,7 @@ jobs:
         node: ['24', '26']
     steps:
       - uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
+        if: ${{ runner.environment != 'github-hosted' }}
         with:
           egress-policy: audit
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -70,10 +71,11 @@ jobs:
   # `check` (pnpm test); P3-06 adds the same suite under the Workers pool.
   authz:
     name: Authorization suite
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(vars.CI_RUNS_ON || '["self-hosted","linux","x64"]') }}
     timeout-minutes: 10
     steps:
       - uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
+        if: ${{ runner.environment != 'github-hosted' }}
         with:
           egress-policy: audit
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -89,7 +91,7 @@ jobs:
 
   actionlint:
     name: Workflow lint
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(vars.CI_RUNS_ON || '["self-hosted","linux","x64"]') }}
     timeout-minutes: 5
     env:
       ACTIONLINT_VERSION: 1.7.12
@@ -112,10 +114,11 @@ jobs:
   # suites under the Workers pool and makes this job required.
   workers:
     name: Workers runtime tests
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(vars.CI_RUNS_ON || '["self-hosted","linux","x64"]') }}
     timeout-minutes: 10
     steps:
       - uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
+        if: ${{ runner.environment != 'github-hosted' }}
         with:
           egress-policy: audit
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -132,7 +135,7 @@ jobs:
   dco:
     name: DCO sign-off
     if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(vars.CI_RUNS_ON || '["self-hosted","linux","x64"]') }}
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -156,7 +159,7 @@ jobs:
   pr-title:
     name: Conventional PR title
     if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(vars.CI_RUNS_ON || '["self-hosted","linux","x64"]') }}
     timeout-minutes: 5
     permissions:
       pull-requests: read

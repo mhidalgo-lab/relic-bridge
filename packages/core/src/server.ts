@@ -74,6 +74,11 @@ export interface BuildServerOptions {
    * False: write tools never ask.
    */
   elicitWrites?: boolean;
+  /**
+   * Advertise the Tasks extension although `ctx` is a per-call factory (stdio, P7-22). The factory's contexts must
+   * carry a task binding; the host answers `tasks/*` itself (`answerTaskRpc`): the SDK does not dispatch them.
+   */
+  offerTasks?: boolean;
   /** Called after every tool call, success or error. Must not throw; a throw or rejection is swallowed. */
   onToolCall?: (event: ToolCallEvent) => void;
 }
@@ -213,9 +218,10 @@ export function buildMcpServer({
   resources,
   mcpApps = true,
   elicitWrites = true,
+  offerTasks = false,
 }: BuildServerOptions): McpServer {
   // Tasks (P7-13) are offered only where the host bound a task store to the request (HTTP project routes).
-  const offersTasks = typeof context !== 'function' && context.tasks !== undefined;
+  const offersTasks = offerTasks || (typeof context !== 'function' && context.tasks !== undefined);
   const server = new McpServer(
     { name: info.name, version: info.version },
     {

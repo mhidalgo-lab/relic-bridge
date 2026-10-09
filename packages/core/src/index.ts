@@ -88,6 +88,7 @@ export {
   CLIENT_CAPABILITIES_META_KEY,
   cancelTask,
   clientDeclaresTasks,
+  createMemoryTaskStore,
   createTask,
   type DetailedTask,
   getTask,
@@ -107,6 +108,13 @@ export {
   type TaskStore,
   updateTask,
 } from './tasks.ts';
+export {
+  answerTaskRpc,
+  isTaskRequest,
+  TASK_METHODS,
+  type TaskRpcAnswer,
+  type TaskRpcOptions,
+} from './tasks-rpc.ts';
 export * from './time/index.ts';
 export {
   annotationsFor,

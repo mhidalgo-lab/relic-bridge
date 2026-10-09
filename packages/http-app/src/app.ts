@@ -36,6 +36,7 @@ import {
   type Clock,
   createBudget,
   createBuiltinTools,
+  createMemoryTaskStore,
   createSemaphoreLimiter,
   createWriteTools,
   DEFAULT_CONCURRENCY,
@@ -1423,6 +1424,9 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
     const ptGranted = affordable(allTools.filter((t) => t.kind === 'read'));
     const ptTools = Object.freeze(ptGranted.tools);
     const ptToolNames = Object.freeze(ptTools.map((t) => t.name));
+    // Pass-through keeps nothing of the caller's, so its tasks live in the host's task store when it has one, else in a
+    // bounded in-process one (sealed, lost on restart; P7-22).
+    const ptTaskStore = taskStore ?? createMemoryTaskStore();
     const requireTls = pt.requireTls ?? true;
     const concurrency = options.concurrencyPerCredential ?? DEFAULT_CONCURRENCY;
     createSemaphoreLimiter(concurrency); // validate at boot
@@ -1532,6 +1536,9 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
           ...(queryCache === undefined
             ? {}
             : { queryCache: Object.freeze({ cache: queryCache, scope: 'passthrough' }) }),
+          // Tasks belong to the key's fingerprint (T32, T12): never the key. The fingerprint is keyed per app instance, so
+          // a restart (or another replica without a shared `fingerprintSecret`) makes old tasks "not found".
+          tasks: Object.freeze({ store: ptTaskStore, owner: `passthrough:${credentialId}/region:${region}` }),
           connection: Object.freeze({ allowedTools: ptToolNames, unavailableTools: ptGranted.unavailable }),
           logger: logger.child({ requestId, keyId }),
           clock,
@@ -1558,7 +1565,9 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
         scopes: [],
         extra: { [SCOPE_KEY]: scope },
       };
-      return serveMcp(c, authInfo, mcpMethod, mcpName);
+      return mcpMethod !== null && TASK_METHODS.includes(mcpMethod)
+        ? serveTasks(c, scope)
+        : serveMcp(c, authInfo, mcpMethod, mcpName);
     });
   }
 

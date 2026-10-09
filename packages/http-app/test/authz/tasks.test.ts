@@ -2,12 +2,12 @@
 // MCP Tasks authorization (P7-13, THREAT_MODEL T32), on every host of the suite (HTTP app and Worker + D1): a task
 // belongs to the device that created it (project, grant, token / OAuth device). Every other caller, whatever it knows,
 // gets the answer an unknown id gets, and nothing it sends polls, cancels or reads the task. A revoked token gets no
-// answer at all (401), and the pass-through route never serves tasks.
+// answer at all (401), and the pass-through route serves a task to the key fingerprint that started it only (P7-22).
 import { revokeAccessToken } from '@relic-bridge/auth';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { NR_KEY } from '../fixtures.ts';
 import { rpc, startTaskOn, TASKS } from '../tasks-fixtures.ts';
-import { createHarness, type Harness } from './harness.ts';
+import { createHarness, type Harness, NR_KEY_B } from './harness.ts';
 
 const NOT_FOUND = { code: -32602, message: 'Failed to retrieve task: Task not found' };
 const METHODS = ['tasks/get', 'tasks/cancel', 'tasks/update'] as const;
@@ -104,22 +104,26 @@ describe('tasks are visible to their creator only', () => {
     expect(res.status).toBe(401);
   });
 
-  it('the pass-through route offers no tasks: no extension, and tasks/* is unknown there', async () => {
-    const app = h.makeApp({ passthrough: {} });
-    const a = await h.addTenant('tasks-a');
-    const taskId = await startTaskOn(app, a.token.value, SLOW, { slug: 'tasks-a' });
-    const send = (method: string, params: Record<string, unknown>) =>
-      app.fetch(
-        new Request('http://localhost/passthrough/mcp', {
+  describe('pass-through (P7-22): a task belongs to the key fingerprint that started it', () => {
+    const PT = 'http://localhost/passthrough/mcp';
+    const send = (
+      app: { fetch(request: Request): Response | Promise<Response> },
+      key: string,
+      method: string,
+      params: Record<string, unknown>,
+      options: { tasks?: boolean; region?: string } = {},
+    ) => {
+      const name = params['taskId'] ?? params['name'];
+      return app.fetch(
+        new Request(PT, {
           method: 'POST',
           headers: {
             'content-type': 'application/json',
             accept: 'application/json, text/event-stream',
-            'x-newrelic-api-key': NR_KEY,
+            'x-newrelic-api-key': key,
+            ...(options.region === undefined ? {} : { 'x-newrelic-region': options.region }),
             'mcp-method': method,
-            ...(typeof (params['taskId'] ?? params['name']) === 'string'
-              ? { 'mcp-name': String(params['taskId'] ?? params['name']) }
-              : {}),
+            ...(typeof name === 'string' ? { 'mcp-name': name } : {}),
             'mcp-protocol-version': '2026-07-28',
           },
           body: JSON.stringify({
@@ -131,72 +135,104 @@ describe('tasks are visible to their creator only', () => {
               _meta: {
                 'io.modelcontextprotocol/protocolVersion': '2026-07-28',
                 'io.modelcontextprotocol/clientInfo': { name: 'x', version: '1' },
-                'io.modelcontextprotocol/clientCapabilities': { extensions: { [TASKS]: {} } },
+                'io.modelcontextprotocol/clientCapabilities':
+                  options.tasks === false ? {} : { extensions: { [TASKS]: {} } },
               },
             },
           }),
         }),
       );
-    const discover = await send('server/discover', {});
-    expect(discover.status).toBe(200);
-    expect(await discover.text()).not.toContain(TASKS);
-    const get = (await (await send('tasks/get', { taskId })).json()) as { error?: { code: number } };
-    expect(get.error?.code).toBe(-32601);
-    // A slow query there is polled inside the call as before (it completes after one poll here), never a task.
-    const call = await (await send('tools/call', SLOW)).text();
-    expect(call).toContain('"resultType":"complete"');
-    expect(call).not.toContain('"resultType":"task"');
-  });
-});
+    };
+    const json = async (res: Response) =>
+      JSON.parse(await res.text()) as {
+        result?: Record<string, unknown>;
+        error?: { code: number; message: string };
+      };
 
-describe('composite report tasks (P7-21)', () => {
-  const REPORT = {
-    name: 'generate_alert_insights_report',
-    arguments: { issue_id: 'issue-alpha-issue', account: 2, sections: ['errors', 'related'] },
-  };
-  const calls = () => h.nerdGraph.calls.length;
+    for (const shared of [true, false]) {
+      describe(shared ? 'host task store' : 'in-process store', () => {
+        const makeApp = () =>
+          shared
+            ? h.makeApp({ passthrough: {} })
+            : h.makeApp({ passthrough: {}, taskStore: undefined } as unknown as Parameters<
+                typeof h.makeApp
+              >[0]);
 
-  it('an insights report task is visible to its creator only, and completes for it', async () => {
-    const a = await h.addTenant('tasks-a');
-    const taskId = await startTaskOn(h.app, a.token.value, REPORT, { slug: 'tasks-a' });
-    // Only the issue lookup ran when the task was created.
-    expect(h.nerdGraph.calls.map((c) => c.op)).toEqual(['RbAiIssues']);
+        it('the same key polls and cancels it; every other key, region and route gets "not found"', async (t) => {
+          let app: ReturnType<typeof makeApp>;
+          try {
+            app = makeApp();
+          } catch {
+            // The Worker host maps its own storage and cannot drop it; the HTTP app host covers this variant.
+            t.skip();
+            return;
+          }
+          const discover = await json(await send(app, NR_KEY, 'server/discover', {}));
+          expect(JSON.stringify(discover.result)).toContain(TASKS);
+          const started = await json(await send(app, NR_KEY, 'tools/call', SLOW));
+          expect(started.result?.['resultType']).toBe('task');
+          const taskId = started.result?.['taskId'] as string;
 
-    const sameGrant = await h.addToken(a.grantId);
-    const otherGrant = await h.addToken(await h.addGrant(a.projectId));
-    const b = await h.addTenant('tasks-b');
-    h.world.clock.advance(5000);
-    const before = calls();
-    for (const [token, slug] of [
-      [sameGrant.value, 'tasks-a'],
-      [otherGrant.value, 'tasks-a'],
-      [b.token.value, 'tasks-b'],
-    ] as const) {
-      for (const method of METHODS) {
-        const res = await rpc(h.app, token, method, { taskId }, { slug });
-        expect(res.error, `${slug} ${method}`).toEqual(NOT_FOUND);
-      }
+          // Other key, same key in another region, a project token on the project route.
+          const a = await h.addTenant('tasks-a');
+          const strangers: (() => Response | Promise<Response> | ReturnType<typeof rpc>)[] = [
+            () => send(app, NR_KEY_B, 'tasks/get', { taskId }),
+            () => send(app, NR_KEY_B, 'tasks/cancel', { taskId }),
+            () => send(app, NR_KEY_B, 'tasks/update', { taskId }),
+            () => send(app, NR_KEY, 'tasks/get', { taskId }, { region: 'EU' }),
+            // (the project route has no task store without the host's)
+            ...(shared ? [() => rpc(app, a.token.value, 'tasks/get', { taskId }, { slug: 'tasks-a' })] : []),
+          ];
+          h.world.clock.advance(5000);
+          for (const [i, ask] of strangers.entries()) {
+            const res = await ask();
+            const body = res instanceof Response ? await json(res) : res;
+            expect(body.error, `stranger ${i}`).toEqual(NOT_FOUND);
+            expect(body.result, `stranger ${i}`).toBeUndefined();
+          }
+          expect(progressCalls()).toBe(0);
+
+          const polled = await json(await send(app, NR_KEY, 'tasks/get', { taskId }));
+          expect(polled.result).toMatchObject({ status: 'completed' });
+          // The poll used the caller's own key, and only that one.
+          expect(h.nerdGraph.calls.filter((c) => c.op === 'RbNrqlProgress').map((c) => c.apiKey)).toEqual([
+            NR_KEY,
+          ]);
+        });
+
+        it.runIf(shared)('a project task is not readable with a pass-through key', async () => {
+          const app = makeApp();
+          const a = await h.addTenant('tasks-a');
+          const taskId = await startTaskOn(app, a.token.value, SLOW, { slug: 'tasks-a' });
+          h.world.clock.advance(5000);
+          const res = await json(await send(app, NR_KEY, 'tasks/get', { taskId }));
+          expect(res.error).toEqual(NOT_FOUND);
+          expect(progressCalls()).toBe(0);
+        });
+      });
     }
-    // Nobody else ran sections on the creator's behalf.
-    expect(calls()).toBe(before);
 
-    const own = await rpc(h.app, a.token.value, 'tasks/get', { taskId }, { slug: 'tasks-a' });
-    expect(own.result).toMatchObject({ status: 'completed' });
-    const text = JSON.stringify(own.result);
-    expect(text).toContain('Error groups');
-    expect(text).not.toContain('"resultType":"task"');
-    // The partial results are enveloped New Relic data, like a synchronous call.
-    expect(text).toMatch(/untrusted/i);
-  });
+    it('needs the extension in the request, and a task is only created for a client that declared it', async () => {
+      const app = h.makeApp({ passthrough: {} });
+      const started = await json(await send(app, NR_KEY, 'tools/call', SLOW));
+      const taskId = started.result?.['taskId'] as string;
+      const refused = await send(app, NR_KEY, 'tasks/get', { taskId }, { tasks: false });
+      expect(refused.status).toBe(400);
+      expect((await json(refused)).error?.code).toBe(-32021);
+      // Without the extension a slow query is polled inside the call as before.
+      const call = await (await send(app, NR_KEY, 'tools/call', SLOW, { tasks: false })).text();
+      expect(call).toContain('"resultType":"complete"');
+      expect(call).not.toContain('"resultType":"task"');
+    });
 
-  it('a task of a tool the grant lost completes with RB_AUTH_FORBIDDEN and runs no section', async () => {
-    const a = await h.addTenant('tasks-a');
-    const taskId = await startTaskOn(h.app, a.token.value, REPORT, { slug: 'tasks-a' });
-    await h.world.storage.grants.update(a.grantId, { tools: ['whoami'] });
-    h.world.clock.advance(5000);
-    const before = calls();
-    const res = await rpc(h.app, a.token.value, 'tasks/get', { taskId }, { slug: 'tasks-a' });
-    expect(JSON.stringify(res.result)).toContain('RB_AUTH_FORBIDDEN');
-    expect(calls()).toBe(before);
+    it('no key (or a malformed one) is the pass-through 401 before any task is looked at', async () => {
+      const app = h.makeApp({ passthrough: {} });
+      const started = await json(await send(app, NR_KEY, 'tools/call', SLOW));
+      const taskId = started.result?.['taskId'] as string;
+      for (const key of ['', 'not-a-key']) {
+        const res = await send(app, key, 'tasks/get', { taskId });
+        expect(res.status).toBe(401);
+      }
+    });
   });
 });

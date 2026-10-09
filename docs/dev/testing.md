@@ -110,6 +110,10 @@ glibc 2.35+, so the Workers runtime tests and the CPU benchmark run through `scr
 pnpm script in a `node:24-bookworm` container (repository copied in with `docker cp`; no bind mounts). The Docker
 smoke test (`scripts/docker-smoke.sh`) likewise uses no bind mounts or published ports.
 
+The manual **Admin browser E2E** and **Admin ZAP baseline** workflows also use the switch but have not been run on
+self-hosted runners (they are `workflow_dispatch` only). ZAP mounts a directory and uses the host network, which needs a
+Docker daemon on the same machine: if it fails there, set `CI_RUNS_ON` to `["ubuntu-latest"]` for that run.
+
 Stay on GitHub-hosted runners, always: `release.yml` (provenance, OIDC), `docker.yml` `plan` / `publish` and release
 builds, `scorecard.yml`, `live.yml`, `staging-smoke.yml` (secrets) and the macOS/Windows matrix. `scripts/test/ci-runners.test.ts`
 enforces this.

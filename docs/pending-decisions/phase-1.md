@@ -77,7 +77,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   The enum value is from the NerdGraph schema as remembered, not yet verified against a live account.
 - **Options:** `GLOBAL` (accounts in every region); verify live with the P0-09 spike profile.
 - **Needs:** one live check of `IN_REGION` when a key is at hand; swap the `ACCOUNT_SCOPE` constant if rejected.
-- **Decision (2026-10-09):** keep `IN_REGION`; owner action: one live check (see the owner checklist).
+- **Decision (2026-10-09):** keep `IN_REGION`; owner action: one live check (`owner-checklist.md` §2).
 
 ### P1-07 — `time_range` semantics
 - **Context:** the task didn't fix the grammar, time zone or clause format.

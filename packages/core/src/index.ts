@@ -52,6 +52,7 @@ export {
   DEFAULT_SERVER_INFO,
   type ServerInfo,
   type ToolCallEvent,
+  withCachedJsonSchema,
 } from './server.ts';
 export * from './time/index.ts';
 export {

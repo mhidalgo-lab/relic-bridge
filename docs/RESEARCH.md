@@ -344,6 +344,15 @@ Sources: <https://github.com/cloudflare/workers-oauth-provider>, issues #264, #3
   tools read `nrqlQueries[].{accountId, query}` and, for markdown widgets, `text`. **Unverified:** every name above and the shape of
   `rawConfiguration` per visualization (billboard, table, line, markdown, and visualizations with other query keys give no NRQL).
   Widget NRQL is never executed by the tools; `permissions` is PRIVATE / PUBLIC_READ_ONLY / PUBLIC_READ_WRITE.
+- Composite reports (P6-10, not verified against a real account): the issue is looked up with `aiIssues.issues(filter: { ids })`
+  (`ids` is a field of `AiIssuesFilterIssues` in the P0-09 introspection; whether `timeWindow` must still cover the issue is
+  unverified, so the lookup sends a lookback window, default 7 days). User-impact signals read `PageView`/`JavaScriptError`
+  (`entityGuid`, `duration` in seconds, `session`) and `MobileSession`/`MobileCrash` (`entityGuid`, `uuid` as the device/user id)
+  with multi-event `FROM a, b` and `filter(..., WHERE eventType() = '…')`, faceted by `entityGuid`. **Unverified:** `entityGuid` on
+  browser and mobile events (the PageView data dictionary page did not list it when checked on 2026-10-05; New Relic adds it to
+  agent events, but if it is missing every front end reads "no data"), `uuid` as a user proxy, and the related-entity types used to
+  find front ends (`BROWSER/APPLICATION`, `MOBILE/APPLICATION`, `SYNTH/MONITOR`). Impact flags use fixed thresholds: rates 1.5x the
+  window before with at least 10 JS errors / 5 crashes, load time 1.25x, volume drop below 0.75x with at least 30 before.
 - **Trusted publishing** (OIDC from GitHub Actions, no long-lived npm token) needs npm CLI ≥ 11.5.1 and Node ≥ 22.14
   (Node 24 bundles npm 11), job permission `id-token: write`, and a GitHub-hosted runner. Each package has at most one
   trusted publisher (workflow file + optional environment); `npm trust github <pkg> --file release.yml --env release`
@@ -492,6 +501,14 @@ Sources: <https://developers.cloudflare.com/workers/wrangler/configuration/>,
   values are not a prediction for Workers Free.
 - What the numbers say: the D1 round trip is most of a miss (hit 6.7 vs miss 13.0 ms for `tools/list`); decrypting the
   stored key is negligible; the large-result cost scales with payload (about +6 ms from 100 KB to 500 KB).
+- **Tool schemas dominated every MCP request (found 2026-10-05, P6-10).** `@modelcontextprotocol/server` 2.2.0 converts
+  each tool's zod input *and* output schema to JSON Schema in `registerTool`, and again on every `tools/list`
+  (`standardSchemaToJsonSchema`, no cross-instance cache). With one server per request (ADR-0005) that cost grew with the
+  tool count: by P6-09 (~40 tools) `tools/list` (access-cache hit) read 10.5 ms against a 6.7 ms baseline (1.9x relative
+  to calibration), `initialize` 1.8x. Fix: `buildMcpServer` hands the SDK each schema wrapped by `withCachedJsonSchema`
+  (per-isolate `WeakMap`, frozen JSON; validation stays zod's). Tool definitions are static, not request data, so this
+  does not break T21. After: `tools/list` hit 1.6 ms, `initialize` 1.0, `whoami` 1.6, `run_nrql` 10 KB 2.1 (calibration
+  2.7). The baseline was re-taken with the fix so the gain is locked in.
 
 ## 12. Cloudflare D1 facts (P3-02, verified 2026-10-03)
 

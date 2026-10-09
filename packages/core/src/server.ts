@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-import { type CallToolResult, McpServer } from '@modelcontextprotocol/server';
+import { type CallToolResult, McpServer, type StandardSchemaWithJSON } from '@modelcontextprotocol/server';
 import type { ToolContext } from './context.ts';
 import { ERROR_META_KEY, toToolErrorResult } from './errors.ts';
 import { annotationsFor, type ToolDefinition } from './tool.ts';
@@ -42,6 +42,57 @@ export interface BuildServerOptions {
   onToolCall?: (event: ToolCallEvent) => void;
 }
 
+type JsonSchemaOptions = Parameters<StandardSchemaWithJSON['~standard']['jsonSchema']['input']>[0];
+
+/**
+ * Per-isolate memo of tool schemas wrapped so their JSON Schema is computed once (P6-10 perf).
+ *
+ * HTTP builds one MCP server per request (ADR-0005), and the SDK converts every tool's input and output schema to
+ * JSON Schema when a tool is registered and again on every `tools/list`. That cost grows with the tool count and was
+ * paid on every request. Tool schemas are static definitions, never request data, so caching their JSON Schema per
+ * isolate is allowed (T21). Keyed by the zod schema object, so a schema that is garbage collected drops its entry.
+ */
+const cachedSchemas = new WeakMap<object, StandardSchemaWithJSON>();
+
+function deepFreeze<T>(value: T): T {
+  if (value !== null && typeof value === 'object' && !Object.isFrozen(value)) {
+    Object.freeze(value);
+    for (const v of Object.values(value)) deepFreeze(v);
+  }
+  return value;
+}
+
+/** The same schema (validation unchanged) whose `~standard.jsonSchema` answers from a per-isolate cache. */
+export function withCachedJsonSchema(schema: StandardSchemaWithJSON): StandardSchemaWithJSON {
+  const hit = cachedSchemas.get(schema);
+  if (hit !== undefined) return hit;
+  const std = schema['~standard'];
+  const memo = new Map<string, Record<string, unknown>>();
+  const convert =
+    (io: 'input' | 'output') =>
+    (options: JsonSchemaOptions): Record<string, unknown> => {
+      const key = `${io}:${options.target}:${JSON.stringify(options.libraryOptions ?? null)}`;
+      let json = memo.get(key);
+      if (json === undefined) {
+        // Frozen: the same object is handed to every request, so nobody may change it.
+        json = deepFreeze(std.jsonSchema[io](options));
+        memo.set(key, json);
+      }
+      return json;
+    };
+  const wrapped: StandardSchemaWithJSON = {
+    '~standard': {
+      version: std.version,
+      vendor: std.vendor,
+      validate: (value, options) => std.validate(value, options),
+      ...(std.types === undefined ? {} : { types: std.types }),
+      jsonSchema: { input: convert('input'), output: convert('output') },
+    },
+  };
+  cachedSchemas.set(schema, wrapped);
+  return wrapped;
+}
+
 export const DEFAULT_SERVER_INFO: ServerInfo = Object.freeze({ name: 'relic-bridge', version: VERSION });
 
 /**
@@ -65,9 +116,9 @@ export function buildMcpServer({
     const config = {
       title: def.title,
       description: def.description,
-      inputSchema: def.inputSchema,
+      inputSchema: withCachedJsonSchema(def.inputSchema),
       annotations: annotationsFor(def),
-      ...(def.outputSchema ? { outputSchema: def.outputSchema } : {}),
+      ...(def.outputSchema ? { outputSchema: withCachedJsonSchema(def.outputSchema) } : {}),
     };
     server.registerTool(def.name, config, async (input: unknown): Promise<CallToolResult> => {
       const ctx = contextFor();

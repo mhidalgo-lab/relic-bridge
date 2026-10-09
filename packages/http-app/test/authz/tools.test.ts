@@ -154,6 +154,25 @@ export const TOOL_CASES: Readonly<Record<string, readonly ToolCall[]>> = {
     { args: { guid: guidOf(FOREIGN) }, expect: 'refused', offline: true },
     { args: { guid: guidOf(1) }, expect: 'refused' },
   ],
+  generate_alert_insights_report: [
+    { args: { issue_id: 'issue-alpha-issue', account: FOREIGN }, expect: 'refused', offline: true },
+    { args: { issue_id: 'issue-alpha-issue', account: 3 }, expect: 'refused', offline: true },
+    // Issues that name a foreign account, or an entity GUID in one, are refused, never trimmed.
+    { args: { issue_id: `issue-${LEAK}-issue-shared`, account: 1 }, expect: 'refused' },
+    { args: { issue_id: `issue-${LEAK}-issue-forged`, account: 1 }, expect: 'refused' },
+    // NerdGraph answers the entity lookup with an entity in the foreign account: the whole report fails closed.
+    { args: { issue_id: 'issue-alpha-issue', account: 1 }, expect: 'refused' },
+    { args: { issue_id: 'issue-alpha-issue', account: 2, sections: ['errors', 'related'] }, expect: 'ok' },
+  ],
+  generate_user_impact_report: [
+    { args: { entity_guid: guidOf(FOREIGN) }, expect: 'refused', offline: true },
+    { args: { entity_guid: guidOf(3) }, expect: 'refused', offline: true },
+    { args: { issue_id: 'issue-alpha-issue', account: FOREIGN }, expect: 'refused', offline: true },
+    { args: { issue_id: `issue-${LEAK}-issue-shared`, account: 1 }, expect: 'refused' },
+    { args: { entity_guid: guidOf(1, '42', 'BROWSER', 'APPLICATION') }, expect: 'ok' },
+    { args: { entity_guid: guidOf(1) }, expect: 'ok' },
+    { args: { issue_id: 'issue-alpha-issue', account: 2 }, expect: 'ok' },
+  ],
   get_entity: [
     { args: { guid: guidOf(FOREIGN) }, expect: 'refused', offline: true },
     // NerdGraph answers with an entity in the foreign account behind an allowed account's GUID.

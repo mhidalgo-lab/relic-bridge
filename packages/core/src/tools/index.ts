@@ -11,6 +11,7 @@ import { createIdentityTools } from './identity.ts';
 import { createIssueTools } from './issues.ts';
 import { createLogTools } from './logs.ts';
 import { createQueryTools, type ToolDeps } from './query.ts';
+import { createReportTools } from './reports.ts';
 import { createRuntimeTools } from './runtime.ts';
 import { createSchemaTools } from './schema.ts';
 import { createSyntheticTools } from './synthetics.ts';
@@ -42,6 +43,7 @@ export {
   RAW_NRQL_TOOLS,
   type ToolDeps,
 } from './query.ts';
+export { createReportTools, planBudget } from './reports.ts';
 export { createRuntimeTools } from './runtime.ts';
 export {
   createSchemaTools,
@@ -70,5 +72,6 @@ export function createBuiltinTools(deps: ToolDeps = {}): ToolDefinition[] {
     ...createRuntimeTools(deps),
     ...createSyntheticTools(deps),
     ...createDashboardTools(deps),
+    ...createReportTools(deps),
   ];
 }

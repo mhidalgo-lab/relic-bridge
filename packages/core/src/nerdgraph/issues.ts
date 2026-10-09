@@ -50,6 +50,8 @@ export interface AiIncidentData {
 }
 
 export interface AiIssuesFilterVariable {
+  /** Issue ids (P6-10 lookup by id; `AiIssuesFilterIssues.ids`, P0-09 introspection). */
+  ids?: string[];
   states?: string[];
   priority?: string[];
   entityGuids?: string[];

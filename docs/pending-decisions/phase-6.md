@@ -148,3 +148,21 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Assumption made:** left as is; no baseline change in a tool task.
 - **Options:** (a) re-baseline after Phase 6; (b) cache the serialised `tools/list` payload per tool set; (c) lazy tool groups.
 - **Needs:** owner's call.
+- **Update (P6-10):** profiled and fixed. The cause was per-request JSON Schema conversion of every tool schema by the MCP SDK
+  (on `registerTool` and again on `tools/list`), not payload size. Schemas are now converted once per isolate
+  (`withCachedJsonSchema`); `tools/list` hit went from about 10.5 ms to 1.6 ms and the baseline was re-taken. No decision needed
+  unless the owner prefers not to re-baseline inside a task branch.
+
+## P6-10 — Composite reports
+
+### P6-10 — Reports reuse sibling tools; one primary entity; fixed thresholds; front-end attributes unverified
+- **Context:** The reports aggregate up to six tools. No live sample exists for an issue lookup by `ids`, nor for `entityGuid` on
+  browser/mobile events (see RESEARCH). The insights report covers only the issue's first entity.
+- **Assumption made:** `generate_alert_insights_report` (cost 14) and `generate_user_impact_report` (cost 9) call the sibling tools'
+  handlers directly; sections are planned against the remaining budget (golden metrics shrink first, others are all-or-nothing) and
+  run in parallel; any authorization error aborts the whole report (fail closed, like the other multi-part tools). Front ends are
+  found through one-hop relationships only (at most 3 lookups). Impact flags use fixed thresholds. MCP Tasks are not used (P7-13).
+- **Options:** (a) keep as is; (b) cover every issue entity (cost grows per entity); (c) make thresholds arguments; (d) degrade a
+  section on `RB_AUTH_FORBIDDEN` instead of failing the report; (e) live probe (`pnpm test:live`) for the `ids` filter and the
+  browser/mobile attributes.
+- **Needs:** a live run on an account with issues and browser/mobile apps; owner's call on (b) to (d).

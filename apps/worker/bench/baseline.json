@@ -1,19 +1,19 @@
 {
   "schema": 1,
-  "calibrationMs": 3.622,
+  "calibrationMs": 2.667,
   "scenarios": {
     "crypto.decrypt": 0.013,
-    "token.verify.d1": 4.081,
-    "access.resolve.miss.d1": 4.681,
-    "cold.first-request": 35.625,
-    "mcp.initialize": 4.541,
-    "mcp.tools-list.hit": 6.674,
-    "mcp.tools-list.miss": 13.015,
-    "tool.whoami": 5.696,
-    "admin.asset": 0.134,
-    "admin.overview": 9.89,
-    "tool.run_nrql.10kb": 7.256,
-    "tool.run_nrql.100kb": 9.444,
-    "tool.run_nrql.500kb": 15.259
+    "token.verify.d1": 2.156,
+    "access.resolve.miss.d1": 2.881,
+    "cold.first-request": 19,
+    "mcp.initialize": 1.148,
+    "mcp.tools-list.hit": 1.778,
+    "mcp.tools-list.miss": 4.407,
+    "tool.whoami": 1.6,
+    "admin.asset": 0.093,
+    "admin.overview": 8.056,
+    "tool.run_nrql.10kb": 2.311,
+    "tool.run_nrql.100kb": 3.444,
+    "tool.run_nrql.500kb": 6.407
   }
 }

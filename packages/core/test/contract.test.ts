@@ -48,6 +48,8 @@ const SAMPLE_CALLS: Record<string, Record<string, unknown>> = {
   list_synthetic_monitors: {},
   list_dashboards: {},
   get_dashboard: { guid: MOCK_GUID },
+  generate_alert_insights_report: { issue_id: 'issue-1' },
+  generate_user_impact_report: { issue_id: 'issue-1' },
 };
 
 const registry = new ToolRegistry();

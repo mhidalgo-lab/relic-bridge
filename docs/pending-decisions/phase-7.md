@@ -176,3 +176,19 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   (exact limits, one more round trip per request); persist leases (two row writes per NerdGraph call); tune lease/wait.
 - **Needs:** owner's call on the default and the failure policy; on a deployment, measure the added latency per call
   and confirm 429s disappear under a real 20-client load on one key (acceptance criterion left open).
+
+### P7-11 — OS keychain: shell-out backends, no native module; macOS and Windows unverified
+- **Context:** The task asked for a maintained library. `keytar` is archived and `@napi-rs/keyring` is a native addon
+  (per-platform optional dependencies), which conflicts with the one-file package that P1-15 enforces and with `npx`.
+- **Assumption made:** No dependency. `security -i` (macOS), `secret-tool` (Linux) and Windows PowerShell `PasswordVault`
+  (Windows) are run with the secret on stdin. `credential add --keychain` was replaced by `relic-bridge keychain
+  set|delete|status` (`credential add` stores keys in the database, where a keychain entry has no meaning); references
+  are `apiKey: keychain:<name>` and `RB_MASTER_KEY(_PREVIOUS)_KEYCHAIN`. No automatic fallback when the keychain is
+  unavailable (fail closed). WSL2 uses the libsecret backend inside the distro; the Windows store is not bridged.
+- **Options:** adopt `@napi-rs/keyring` as an optional dependency and relax P1-15 for it; bridge WSL2 to the Windows
+  store through `powershell.exe` interop; an encrypted-file fallback; keychain support for the admin token and IdP
+  secrets; `keychain set --generate-master-key` so the master key is never displayed.
+- **Needs:** run `relic-bridge keychain set/status/delete` once on a real macOS, a real Windows and a Linux desktop with
+  gnome-keyring (this machine's WSL2 has no Secret Service, so only the "unavailable" path was exercised live). Confirm
+  `security -i` returns a failing status on a refused add (the code also reads back, so a silent failure is caught), and
+  that macOS prompts acceptably when the keychain entry is read by a node process started by an MCP client.

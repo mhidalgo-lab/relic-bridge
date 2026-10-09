@@ -132,6 +132,9 @@ const SPECS: Readonly<Record<string, Spec>> = {
   'token list': { args: 0, flags: ['grant', 'limit'] },
   'token revoke': { args: 1, flags: [] },
   'keys rotate': { args: 0, flags: ['batch-size'] },
+  'keychain set': { args: 1, flags: [...KEY_SRC] },
+  'keychain delete': { args: 1, flags: [] },
+  'keychain status': { args: 0, flags: [] },
   'config export': { args: 0, flags: ['out', 'with-credentials', 'passphrase-file', 'passphrase-env'] },
   'config import': { args: 1, flags: ['apply', 'passphrase-file', 'passphrase-env'] },
   'audit tail': {
@@ -190,7 +193,7 @@ export function isManageArgv(argv: readonly string[]): boolean {
   const second = words[1];
   if (first === undefined) return false;
   if (first === 'init' || first === 'admin-token' || first === 'user' || first === 'project') return true;
-  if (first === 'setup-link' || first === 'doctor') return true;
+  if (first === 'setup-link' || first === 'doctor' || first === 'keychain') return true;
   if (first === 'grant' || first === 'token' || first === 'config') return true;
   if (first === 'credential') return second !== 'revalidate' || words.length > 2;
   if (first === 'audit') return second === 'tail';
@@ -209,6 +212,7 @@ const WORDS: Readonly<Record<string, readonly string[]>> = {
   token: ['create', 'list', 'revoke'],
   audit: ['tail'],
   keys: ['rotate'],
+  keychain: ['set', 'delete', 'status'],
   config: ['export', 'import'],
 };
 

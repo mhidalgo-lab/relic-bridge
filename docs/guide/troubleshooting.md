@@ -58,6 +58,7 @@ names the reason for every refusal (`"deny":"…"`); the client only ever sees a
 | Message / `code` | Fix |
 |---|---|
 | `RB_MASTER_KEY is not set` (`master_key_missing`) | Set `RB_MASTER_KEY` or `RB_MASTER_KEY_FILE` ([secrets](secrets.md)). |
+| `no keychain entry "…" in the …` / `secret-tool could not reach a Secret Service` | Store the entry with `relic-bridge keychain set <name>`; on Linux/WSL2 install `libsecret-tools` and run a Secret Service, or use a key file ([secrets](secrets.md#os-keychain-optional)). `relic-bridge doctor` shows the `keychain` check. |
 | `RB_MASTER_KEY_FILE: … is readable by other users (mode 644)` | `chmod 600` the file (Docker: owned by uid `65532`, mode `0400`; see [self-hosting](self-hosting.md#docker)). |
 | `Binding 0.0.0.0 (not loopback) needs RB_ALLOWED_HOSTS` | List the hostnames clients use: `RB_ALLOWED_HOSTS=mcp.example.com`. |
 | `the master key given for version 1 does not match…` (`key_mismatch`) | Wrong key for this database. Restore the right key from your backup; a new key needs a new version (`keys generate --key-version 2`, then [rotate](secrets.md#rotate-the-key)). |

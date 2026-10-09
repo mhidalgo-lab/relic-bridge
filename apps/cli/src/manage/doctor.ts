@@ -26,6 +26,7 @@ import { checkHost } from '@relic-bridge/http-app';
 import { openSqliteStorage } from '@relic-bridge/storage-sqlite';
 import { UsageError } from '../args.ts';
 import { ConfigError, type LoadedConfig, loadConfig } from '../config.ts';
+import { createKeychain, KeychainError } from '../keychain.ts';
 import { resolveMasterKeyEnv } from '../keys.ts';
 import { resolveDbPath } from '../serve.ts';
 import { nerdGraphFetch } from '../test-hooks.ts';
@@ -87,7 +88,13 @@ function errText(error: unknown): string {
   return 'unexpected error';
 }
 function errHint(error: unknown): string | undefined {
-  if (isRbError(error) || error instanceof ConfigError || error instanceof CryptoError) return error.hint;
+  if (
+    isRbError(error) ||
+    error instanceof ConfigError ||
+    error instanceof CryptoError ||
+    error instanceof KeychainError
+  )
+    return error.hint;
   return undefined;
 }
 
@@ -133,6 +140,7 @@ export function checkConfig(ctx: ManageContext, args: ManageArgs): ConfigOutcome
       fs: ctx.fs,
       platform: ctx.platform,
       ...(ctx.homeDir === undefined ? {} : { homeDir: ctx.homeDir }),
+      ...(ctx.keychain === undefined ? {} : { keychain: ctx.keychain }),
     });
     const p = loaded.project;
     const title = `${p.source === 'yaml' ? `YAML project ${p.slug ?? ''}`.trim() : 'environment'} config loads (region ${p.region}, default account ${p.accounts.default})`;
@@ -222,6 +230,54 @@ export async function checkNewRelicKey(
   );
 }
 
+/** The OS keychain (P7-11): reported only in terms of the backend and which referenced entries exist. */
+export function checkKeychain(ctx: ManageContext, loaded: LoadedConfig | undefined): CheckResult {
+  const entries: string[] = [];
+  for (const n of [MASTER_KEY_ENV, PREVIOUS_MASTER_KEY_ENV]) {
+    const e = (ctx.env[`${n}_KEYCHAIN`] ?? '').trim();
+    if (e !== '') entries.push(e);
+  }
+  if (loaded?.project.keychainEntry !== undefined) entries.push(loaded.project.keychainEntry);
+  const kc = ctx.keychain ?? createKeychain({ platform: ctx.platform, env: ctx.env });
+  const problem = kc.unavailable();
+  if (entries.length === 0) {
+    return skip(
+      'keychain',
+      problem === undefined
+        ? `not used (${kc.backend} is available; see \`relic-bridge keychain set\`)`
+        : `not used (${kc.backend}: ${problem})`,
+    );
+  }
+  if (problem !== undefined) {
+    return fail(
+      'keychain',
+      `${kc.backend} is not usable: ${problem}`,
+      'Install the OS tool (libsecret-tools on Linux; WSL2 has no keychain of its own) or switch to RB_MASTER_KEY_FILE or environment-variable references.',
+    );
+  }
+  const missing: string[] = [];
+  try {
+    for (const e of entries) if (kc.get(e) === undefined) missing.push(e);
+  } catch (error) {
+    return fail(
+      'keychain',
+      `${kc.backend} could not be read: ${errText(error)}`,
+      errHint(error) ?? 'Unlock the keychain and retry.',
+    );
+  }
+  if (missing.length > 0) {
+    return fail(
+      'keychain',
+      `${kc.backend}: no entry for ${missing.join(', ')}`,
+      `Store each with: relic-bridge keychain set <name>`,
+    );
+  }
+  return ok(
+    'keychain',
+    `${kc.backend}: ${entries.length} referenced entr${entries.length === 1 ? 'y' : 'ies'} present`,
+  );
+}
+
 interface KeyringOutcome {
   readonly result: CheckResult;
   readonly keyring: Keyring | undefined;
@@ -230,7 +286,10 @@ interface KeyringOutcome {
 export async function checkMasterKey(ctx: ManageContext): Promise<KeyringOutcome> {
   const names = [MASTER_KEY_ENV, PREVIOUS_MASTER_KEY_ENV];
   const given = names.some(
-    (n) => (ctx.env[n] ?? '').trim() !== '' || (ctx.env[`${n}_FILE`] ?? '').trim() !== '',
+    (n) =>
+      (ctx.env[n] ?? '').trim() !== '' ||
+      (ctx.env[`${n}_FILE`] ?? '').trim() !== '' ||
+      (ctx.env[`${n}_KEYCHAIN`] ?? '').trim() !== '',
   );
   if (!given) {
     return {
@@ -242,7 +301,9 @@ export async function checkMasterKey(ctx: ManageContext): Promise<KeyringOutcome
     };
   }
   try {
-    const keyring = await loadKeyringFromEnv(resolveMasterKeyEnv(ctx.env, ctx.fs, ctx.platform));
+    const keyring = await loadKeyringFromEnv(
+      resolveMasterKeyEnv(ctx.env, ctx.fs, ctx.platform, ctx.keychain),
+    );
     return {
       result: ok(
         'master-key',
@@ -256,7 +317,7 @@ export async function checkMasterKey(ctx: ManageContext): Promise<KeyringOutcome
         'master-key',
         errText(error),
         errHint(error) ??
-          'Generate one with `relic-bridge keys generate` and set RB_MASTER_KEY or RB_MASTER_KEY_FILE (mode 0600).',
+          'Generate one with `relic-bridge keys generate` and set RB_MASTER_KEY, RB_MASTER_KEY_FILE (mode 0600) or RB_MASTER_KEY_KEYCHAIN.',
       ),
       keyring: undefined,
     };
@@ -669,6 +730,7 @@ export async function doctorCommand(ctx: ManageContext, args: ManageArgs, logger
         : await checkNewRelicKey(ctx, config.loaded, logger),
     );
   }
+  checks.push(checkKeychain(ctx, config.loaded));
   const master = await checkMasterKey(ctx);
   checks.push(master.result);
   checks.push(await checkDatabase(ctx, args, master.keyring, master.result.status === 'fail'));

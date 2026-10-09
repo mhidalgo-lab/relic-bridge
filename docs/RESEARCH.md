@@ -829,3 +829,22 @@ Sources: Cloudflare docs via the Cloudflare docs search, pages updated 2026-09-2
 - **NerdGraph side:** New Relic guarantees 25 concurrent requests per user (§2); P0-09 saw 30 parallel light queries
   queued without a 429, so the 429 the shared limiter prevents was simulated in tests (a mock answering 429 above the
   limit), not observed.
+
+## 28. OS keychain tools (P7-11, from documentation and man pages, macOS and Windows NOT run)
+
+- **Why not a library:** `keytar` is archived (2022); `@napi-rs/keyring` is a maintained native addon shipped as
+  per-platform optional dependencies, which would break the one-file publishable package (P1-15 `EXPECTED_FILES`) and
+  `npx` installs on unlisted platforms. Shelling out adds no dependency.
+- **macOS:** `security add-generic-password -w <pw>` puts the password in argv (visible in `ps`); with `-w` last and no
+  value it prompts on the tty. `security -i` reads commands from stdin, which keeps the value out of the process list.
+  `find-generic-password -s S -a A -w` prints the password; exit 44 is `errSecItemNotFound`. Interactive mode's exit
+  status for a failed command is not documented, so `keychain set` always reads back.
+- **Linux:** `secret-tool store --label=L attr value ...` reads the secret from stdin; `lookup` prints it and exits 1 with
+  no output when nothing matches; `clear` removes. Without a Secret Service on the session bus it prints
+  `The name org.freedesktop.secrets was not provided by any .service files` (seen on WSL2 without gnome-keyring),
+  which the backend reports as "no Secret Service" rather than "no entry".
+- **Windows:** no built-in cmdlet for Credential Manager; the `Windows.Security.Credentials.PasswordVault` WinRT class is
+  reachable from Windows PowerShell 5.1 (not PowerShell 7). The script goes in `-EncodedCommand` (no secret in it) and the
+  value on stdin. PasswordVault entries are per user and readable by that user's processes.
+- **WSL2:** `uname` is Linux, so the libsecret backend is used; the Windows credential store is a different trust
+  domain and is not bridged.

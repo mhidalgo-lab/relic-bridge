@@ -38,7 +38,7 @@ export async function initCommand(ctx: ManageContext, args: ManageArgs, logger: 
 
   // 1. Master key.
   let env = ctx.env;
-  const existing = resolveMasterKeyEnv(ctx.env, ctx.fs, ctx.platform);
+  const existing = resolveMasterKeyEnv(ctx.env, ctx.fs, ctx.platform, ctx.keychain);
   if (existing[MASTER_KEY_ENV] === undefined) {
     if (existsSync(dbPath)) {
       throw new ConfigError(

@@ -22,7 +22,9 @@ The key is printed once on stdout and stored nowhere. Give it to the server as:
 | `RB_MASTER_KEY_FILE` | Path to a file holding it instead (Node only). Refused when group or others can read it (Docker and Kubernetes mount secrets `0444`/`0644` by default: set the mode to `0400`/`0600` and make the file owned by the user that runs the server; for the Docker image that is uid `65532`, see [self-hosting](self-hosting.md#docker)). |
 | `RB_MASTER_KEY_PREVIOUS` / `RB_MASTER_KEY_PREVIOUS_FILE` | The previous key, only while rotating. |
 
-On Cloudflare, store it with `wrangler secret put RB_MASTER_KEY`. Never put it in `wrangler.toml`, a config file, a
+| `RB_MASTER_KEY_KEYCHAIN` / `RB_MASTER_KEY_PREVIOUS_KEYCHAIN` | The name of an [OS keychain](#os-keychain-optional) entry holding it (Node only). |
+
+Set only one of the three forms per key. On Cloudflare, store it with `wrangler secret put RB_MASTER_KEY`. Never put it in `wrangler.toml`, a config file, a
 Docker image, the same volume as the database, or a repository. There is no command-line flag for it on purpose.
 
 The HTTP server (`relic-bridge serve`, [self-hosting](self-hosting.md)) refuses to start without a valid key (missing, wrong
@@ -32,6 +34,43 @@ at once (`key_mismatch`) instead of failing on every request.
 They also refuse to start with a key whose version is lower than one the database already uses
 (`key_version_retired`: after a rotation, the old key must never encrypt new credentials), and a key that is already
 registered under another version number (every version needs its own new key).
+
+## OS keychain (optional)
+
+On a workstation you can keep the master key, or a New Relic key used by stdio mode, in the operating system's
+keychain instead of a file or an environment block. It is opt-in: nothing uses it unless you reference an entry.
+
+```bash
+relic-bridge keys generate | relic-bridge keychain set rb-master        # key from stdin; never printed
+export RB_MASTER_KEY_KEYCHAIN=rb-master                                 # local commands and `serve`
+
+relic-bridge keychain set nr-acme --key-env NEW_RELIC_API_KEY          # or a hidden prompt, stdin, --key-file
+#   relic-bridge.yaml:   apiKey: keychain:nr-acme
+relic-bridge keychain status                                            # which backend, usable or not
+relic-bridge keychain delete nr-acme
+```
+
+| OS | Backend (service `relic-bridge`, account = the name) | Needs |
+|---|---|---|
+| macOS | Keychain, through `security -i` | nothing (built in) |
+| Linux | Secret Service (gnome-keyring, KeePassXC), through `secret-tool` | `libsecret-tools` and a running, unlocked Secret Service |
+| Windows | `PasswordVault` (Credential Manager), through Windows PowerShell | nothing (built in) |
+
+- **No native module.** The tools above are run directly and the value reaches them on **stdin**, never as an argument
+  (a process list would show it), so the single-file `npx relic-bridge` package gains no dependency.
+- Names are lowercase letters, digits, `.`, `-`, `_` (up to 64). Values are limited to `A-Z a-z 0-9 _ + / = . ~ : -`
+  (New Relic keys and `v1:<base64>` master keys fit).
+- **No silent fallback.** A missing entry, a locked keychain or a missing tool is an error with a fix (`doctor` shows the
+  same under `keychain`); relic-bridge never starts with a different key because the keychain was unavailable.
+- `keychain set` reads the entry back to confirm it was stored. There is no command that prints a value.
+- **WSL2** has no keychain of its own, and the Windows credential store is deliberately not bridged into it. Inside WSL
+  use `libsecret-tools` with a Secret Service running in the distro, or keep using `RB_MASTER_KEY_FILE` (mode `0600`)
+  or `${VAR}` references. If you run relic-bridge with Windows Node (an MCP client on Windows), `keychain set` there
+  uses the Windows store.
+- A keychain entry is protected by your login session, but any program running as you can ask the same OS tool for it:
+  this is better than a world-readable file, not a boundary against malware on your account. Back up a master key you
+  store here (a keychain that is reset or lost takes the master key with it).
+- Not covered: the admin token and sign-in client secrets (use their `_FILE` forms).
 
 ## Rotate the key
 

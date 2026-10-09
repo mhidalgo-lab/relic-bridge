@@ -4,6 +4,7 @@ import type { Logger } from '@relic-bridge/core';
 import { StorageError } from '@relic-bridge/storage';
 import { UsageError } from '../args.ts';
 import { ConfigError } from '../config.ts';
+import { KeychainError } from '../keychain.ts';
 import { nerdGraphFetch } from '../test-hooks.ts';
 import type { ManageArgs } from './args.ts';
 import { type AdminClient, ApiError, parseRemoteUrl, remoteClient } from './client.ts';
@@ -11,6 +12,7 @@ import { adminTokenGenerate, HANDLERS, type Rec } from './commands.ts';
 import { doctorCommand } from './doctor.ts';
 import { initCommand } from './init.ts';
 import type { ManageContext } from './io.ts';
+import { keychainCommand } from './keychain.ts';
 import { openLocalClient } from './local.ts';
 import { readAdminToken } from './secrets.ts';
 
@@ -67,6 +69,7 @@ export async function runManage(ctx: ManageContext, args: ManageArgs, logger: Lo
   let client: AdminClient | undefined;
   try {
     if (args.command === 'admin-token generate') return adminTokenGenerate(ctx, json);
+    if (args.command.startsWith('keychain ')) return await keychainCommand(ctx, args);
     if (args.command === 'doctor') return await doctorCommand(ctx, args, logger);
     if (args.command === 'init') return await initCommand(ctx, args, logger);
     client = await connect(ctx, args, logger);
@@ -88,6 +91,9 @@ export async function runManage(ctx: ManageContext, args: ManageArgs, logger: Lo
     }
     if (error instanceof ConfigError) {
       return fail('config', `${error.message}${error.hint ? ` ${error.hint}` : ''}`);
+    }
+    if (error instanceof KeychainError) {
+      return fail('keychain', `${error.message}${error.hint ? ` ${error.hint}` : ''}`);
     }
     if (error instanceof CryptoError) return fail(error.code, error.message);
     if (error instanceof StorageError) return fail(error.code, error.message);

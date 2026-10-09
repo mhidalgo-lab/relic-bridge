@@ -44,6 +44,11 @@ Usage:
   relic-bridge config import <file> [--apply] [--passphrase-file <f> | --passphrase-env <VAR>]
                     Owner only. Dry run by default: prints what would be created, updated or skipped.
                     --apply makes the changes (idempotent; never deletes; never creates owners).
+  relic-bridge keychain set <name> [key source] | keychain delete <name> | keychain status
+                    Opt-in OS keychain (macOS Keychain, libsecret, Windows PasswordVault) for local
+                    secrets. Reference an entry as \`apiKey: keychain:<name>\` in the YAML config, or
+                    set RB_MASTER_KEY_KEYCHAIN=<name>. The value is never printed; \`status\` shows
+                    the backend only.
   relic-bridge keys rotate --remote <url> [--batch-size <1-100>]
                     Re-encrypt every stored key under the server's RB_MASTER_KEY (the server
                     reads old rows with RB_MASTER_KEY_PREVIOUS), in batches, until done.
@@ -63,7 +68,7 @@ Secrets (never accepted as option values):
   Admin token      RB_ADMIN_TOKEN, or RB_ADMIN_TOKEN_FILE (mode 0600), else a hidden prompt.
   Passphrase       Hidden prompt on a terminal, --passphrase-file <file> (mode 0600) or
                    --passphrase-env <VAR> (the variable's name), at least 12 characters.
-  Master key       Local mode: RB_MASTER_KEY or RB_MASTER_KEY_FILE.
+  Master key       Local mode: RB_MASTER_KEY, RB_MASTER_KEY_FILE or RB_MASTER_KEY_KEYCHAIN.
   A new device token is printed once on stdout (snippets for MCP clients go to stderr).
 
 Exit codes: 0 ok, 1 failed, 2 usage error.

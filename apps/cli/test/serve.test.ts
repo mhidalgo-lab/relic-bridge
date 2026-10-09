@@ -73,6 +73,12 @@ describe('serveSettings', () => {
     expect(() => serveSettings({ ...base, env: { ...base.env, RB_OTEL: 'on' } })).toThrow(ConfigError);
   });
 
+  it('MCP Apps (P7-16): on by default, RB_MCP_APPS=off turns the chart view off, other values are refused', () => {
+    expect(serveSettings(base).mcpApps).toBe(true);
+    expect(serveSettings({ ...base, env: { ...base.env, RB_MCP_APPS: 'off' } }).mcpApps).toBe(false);
+    expect(() => serveSettings({ ...base, env: { ...base.env, RB_MCP_APPS: 'maybe' } })).toThrow(ConfigError);
+  });
+
   it('write tools (P7-09): off by default, on with RB_WRITE_TOOLS=on, refused without the audit log', () => {
     expect(serveSettings(base).writeTools).toBe(false);
     const on = serveSettings({ ...base, env: { ...base.env, RB_WRITE_TOOLS: 'on' } });

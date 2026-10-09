@@ -261,3 +261,17 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   and `mcp-publisher publish` (and decide whether the release workflow should do it with GitHub OIDC). Verify with
   a real registry/inspector (e.g. MCP Inspector against a deployment with the catalog on) that discovery works and that
   OAuth-first clients still sign in at the first tool call.
+
+### P7-16 — MCP Apps: unknown capabilities still get the view; per-request getters on SDK objects
+- **Context:** The view should go to clients that declare `io.modelcontextprotocol/ui`. On 2026-07-28 the declaration is
+  in every request; on stdio it is in `initialize`; a stateless 2025-era HTTP request has no capabilities at all (the
+  `initialize` was another request). The SDK's list handlers get no request context.
+- **Assumption made:** (1) Hide the view only when capabilities are present and lack the declaration; when nothing is
+  known (2025-era stateless HTTP) keep offering it, as before P7-16 (clients that ignore it lose nothing, and hiding
+  would remove charts for clients on that path that do support it). (2) Gate per request by defining `_meta` (tool) and
+  `enabled` (resource) as getters on the SDK's registered objects, which relies on SDK 2.2.0 internals (covered by
+  tests on HTTP, Worker and stdio; they fail if an SDK upgrade changes it). (3) A client that did not declare support
+  also cannot read the `ui://` URI. (4) `RB_MCP_APPS` accepts on/off only, default on.
+- **Options:** treat unknown as "no" (strictest, drops charts for 2025-era stateless clients); use only the switch and
+  skip per-client gating; ask the SDK for a per-request list hook and drop the getters.
+- **Needs:** owner's call on (1); verify in a real MCP Apps host (Claude web or Desktop) that charts still render.

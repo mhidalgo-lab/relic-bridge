@@ -19,6 +19,7 @@ import {
   prepareSetupModeServer,
   SETUP_MESSAGE,
   selectTools,
+  stdioMcpApps,
   stdioWriteTools,
 } from '../src/stdio.ts';
 import { FAKE_KEY, identityBody } from './helpers.ts';
@@ -89,6 +90,32 @@ describe('write tools on stdio (P7-09)', () => {
       'whoami',
       'acknowledge_issue',
     ]);
+  });
+
+  it('RB_MCP_APPS (P7-16) parses on/off only, default on; off removes the chart view on stdio', async () => {
+    expect(stdioMcpApps({})).toBe(true);
+    expect(stdioMcpApps({ RB_MCP_APPS: 'on' })).toBe(true);
+    expect(stdioMcpApps({ RB_MCP_APPS: 'off' })).toBe(false);
+    expect(() => stdioMcpApps({ RB_MCP_APPS: 'yes please' })).toThrow(ConfigError);
+    const apps = { 'io.modelcontextprotocol/ui': { mimeTypes: ['text/html;profile=mcp-app'] } };
+    for (const [mcpApps, expected] of [
+      [true, true],
+      [false, false],
+    ] as const) {
+      const { factory } = prepareServer({
+        project: project({ tools: ['run_nrql'] }),
+        logger: createLogger({ level: 'error', sink: () => {} }),
+        mcpApps,
+      });
+      const [clientT, serverT] = InMemoryTransport.createLinkedPair();
+      await factory().connect(serverT);
+      const client = new Client({ name: 'test', version: '0.0.0' }, { capabilities: { extensions: apps } });
+      await client.connect(clientT);
+      const run = (await client.listTools()).tools.find((t) => t.name === 'run_nrql');
+      expect(run?._meta?.['ui'] !== undefined).toBe(expected);
+      expect((await client.listResources()).resources.some((r) => r.uri.startsWith('ui://'))).toBe(expected);
+      await client.close();
+    }
   });
 
   it('RB_WRITE_TOOLS parses on/off only', () => {

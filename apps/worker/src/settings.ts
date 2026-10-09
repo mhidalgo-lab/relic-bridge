@@ -91,6 +91,8 @@ export interface WorkerSettings {
    * `/.well-known/relic-bridge/tools.json`, for registries and inspectors. Off by default.
    */
   readonly publicToolCatalog: boolean;
+  /** `RB_MCP_APPS` (P7-16): the MCP Apps chart view; on by default. */
+  readonly mcpApps: boolean;
   readonly logLevel: LogLevel;
   readonly warnings: readonly string[];
 }
@@ -296,6 +298,7 @@ export function parseWorkerSettings(vars: WorkerVars): WorkerSettings {
     passthrough,
     writeTools,
     publicToolCatalog,
+    mcpApps: onOff(vars, 'RB_MCP_APPS', true),
     logLevel: level,
     warnings,
   };

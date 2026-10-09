@@ -774,7 +774,11 @@ Sources: github.com/modelcontextprotocol/ext-apps `specification/2026-01-26/apps
 - Extension id `io.modelcontextprotocol/ui`; a host declares `capabilities.extensions["io.modelcontextprotocol/ui"]
   .mimeTypes: ["text/html;profile=mcp-app"]`. The spec suggests (SHOULD-level example) registering UI tools only for
   such clients; unknown `_meta` is ignored by others. MCP 2026-07-28 / SDK 2.2 carry client capabilities in request
-  `_meta` (`CLIENT_CAPABILITIES_META_KEY`), which P7-16 can use on the stateless transport (not checked).
+  `_meta` (`CLIENT_CAPABILITIES_META_KEY`), which P7-16 uses on the stateless transport (checked, SDK 2.2.0 with the
+  SDK client in tests): `McpServer.server.getClientCapabilities()` is backfilled per request on 2026-07-28 and holds the
+  `initialize` value on a 2025-era stdio connection; a stateless 2025-era HTTP request has no capabilities at all. The
+  `tools/list` and `resources/list` handlers get no request context, so the view link and resource are switched per
+  request by reading the registered tool's `_meta` and the resource's `enabled` as getters.
 - UI resources use the `ui://` scheme and MIME `text/html;profile=mcp-app`. Content `_meta.ui`: `csp`
   (`connectDomains`, `resourceDomains`, `frameDomains`, `baseUriDomains`; empty or omitted = none),
   `permissions`, `domain`, `prefersBorder`.

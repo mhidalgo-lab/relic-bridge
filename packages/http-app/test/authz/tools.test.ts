@@ -602,11 +602,12 @@ describe('prompts follow the grant (P6-11)', () => {
 
 describe('MCP Apps chart view follows the grant (P7-04)', () => {
   const VIEW = 'ui://relic-bridge/nrql-chart';
+  const APPS = { 'io.modelcontextprotocol/ui': { mimeTypes: ['text/html;profile=mcp-app'] } };
 
   it('a grant with run_nrql gets the view and the tool link, with no New Relic call', async () => {
     const grantId = await h.addGrant(h.world.projectIds.prod, { tools: ['run_nrql', 'get_query_result'] });
     const token = await h.addToken(grantId);
-    const client = await connect(h.app, 'prod', token.value, 'modern');
+    const client = await connect(h.app, 'prod', token.value, 'modern', APPS);
     clients.push(client);
     const before = h.nerdGraph.calls.length;
     const tools = (await client.listTools()).tools;
@@ -631,6 +632,56 @@ describe('MCP Apps chart view follows the grant (P7-04)', () => {
   });
 });
 
+describe('MCP Apps follow the client and the operator switch (P7-16)', () => {
+  const VIEW = 'ui://relic-bridge/nrql-chart';
+  const APPS = { 'io.modelcontextprotocol/ui': { mimeTypes: ['text/html;profile=mcp-app'] } };
+  const linked = (tools: { name: string; _meta?: Record<string, unknown> | undefined }[]): string[] =>
+    tools
+      .filter((t) => t._meta?.['ui'] !== undefined || t._meta?.['ui/resourceUri'] !== undefined)
+      .map((t) => t.name);
+
+  async function grantToken(): Promise<string> {
+    const grantId = await h.addGrant(h.world.projectIds.prod, { tools: ['run_nrql', 'get_query_result'] });
+    return (await h.addToken(grantId)).value;
+  }
+
+  it('a 2026-07-28 client that declares MCP Apps gets the view; one that does not gets neither link nor view', async () => {
+    const token = await grantToken();
+    const yes = await connect(h.app, 'prod', token, 'modern', APPS);
+    clients.push(yes);
+    expect(linked((await yes.listTools()).tools).sort()).toEqual(['get_query_result', 'run_nrql']);
+    expect((await yes.listResources()).resources.map((r) => r.uri)).toContain(VIEW);
+
+    for (const extensions of [undefined, { 'io.modelcontextprotocol/ui': { mimeTypes: ['text/html'] } }]) {
+      const no = await connect(h.app, 'prod', token, 'modern', extensions);
+      clients.push(no);
+      expect(linked((await no.listTools()).tools)).toEqual([]);
+      expect((await no.listResources()).resources.map((r) => r.uri)).not.toContain(VIEW);
+      await expect(no.readResource({ uri: VIEW })).rejects.toThrow();
+    }
+  });
+
+  it('a stateless 2025-era request carries no capabilities, so the view is still offered', async () => {
+    const client = await connect(h.app, 'prod', await grantToken(), 'legacy');
+    clients.push(client);
+    expect(linked((await client.listTools()).tools).sort()).toEqual(['get_query_result', 'run_nrql']);
+  });
+
+  it('with the switch off no request sees a view link or the view, whatever the client declares', async () => {
+    const app = h.makeApp({ mcpApps: false });
+    const token = await grantToken();
+    for (const era of ['modern', 'legacy'] as const) {
+      const client = await connect(app, 'prod', token, era, APPS);
+      clients.push(client);
+      const tools = (await client.listTools()).tools;
+      expect(tools.length).toBeGreaterThan(0);
+      expect(linked(tools)).toEqual([]);
+      expect((await client.listResources()).resources.map((r) => r.uri)).not.toContain(VIEW);
+      await expect(client.readResource({ uri: VIEW })).rejects.toThrow();
+    }
+  });
+});
+
 describe('resources follow the grant (P6-12)', () => {
   const bodyOf = (r: { contents: { text?: string }[] }) => r.contents.map((c) => c.text ?? '').join('\n');
 
@@ -639,7 +690,9 @@ describe('resources follow the grant (P6-12)', () => {
       tools: ['whoami', 'run_nrql', 'list_event_types', 'get_attributes'],
     });
     const token = await h.addToken(grantId);
-    const client = await connect(h.app, 'prod', token.value, 'modern');
+    const client = await connect(h.app, 'prod', token.value, 'modern', {
+      'io.modelcontextprotocol/ui': { mimeTypes: ['text/html;profile=mcp-app'] },
+    });
     clients.push(client);
     const before = h.nerdGraph.calls.length;
     const uris = (await client.listResources()).resources.map((r) => r.uri).sort();

@@ -37,3 +37,22 @@ export const CHART_APP_RESOURCE_META: Readonly<Record<string, unknown>> = Object
 export function toolUiMeta(resourceUri: string): Record<string, unknown> {
   return { ui: { resourceUri, visibility: ['model'] }, 'ui/resourceUri': resourceUri };
 }
+
+/**
+ * Whether a client declared MCP Apps support (P7-16): `capabilities.extensions["io.modelcontextprotocol/ui"].mimeTypes`
+ * lists {@link MCP_APP_MIME_TYPE}.
+ *
+ * - `undefined` capabilities (nothing is known: a stateless 2025-era HTTP request never sees the `initialize` that
+ *   another request carried) answer `'unknown'`.
+ * - Capabilities that are present but lack the declaration answer `'no'`.
+ */
+export function clientAppsSupport(capabilities: unknown): 'yes' | 'no' | 'unknown' {
+  if (capabilities === undefined || capabilities === null || typeof capabilities !== 'object')
+    return 'unknown';
+  const extensions = (capabilities as { extensions?: unknown }).extensions;
+  if (extensions === null || typeof extensions !== 'object') return 'no';
+  const entry = (extensions as Record<string, unknown>)[MCP_APPS_EXTENSION];
+  if (entry === null || typeof entry !== 'object') return 'no';
+  const mimeTypes = (entry as { mimeTypes?: unknown }).mimeTypes;
+  return Array.isArray(mimeTypes) && mimeTypes.includes(MCP_APP_MIME_TYPE) ? 'yes' : 'no';
+}

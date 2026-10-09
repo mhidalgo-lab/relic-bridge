@@ -80,6 +80,8 @@ export interface StdioServerOptions {
   readonly queryCache?: QueryCache | null;
   /** Offer the write tools (P7-09, `RB_WRITE_TOOLS=on`); each still needs its name in the tool allowlist. */
   readonly writeTools?: boolean;
+  /** Offer the MCP Apps chart view (P7-16, `RB_MCP_APPS`); default true. */
+  readonly mcpApps?: boolean;
 }
 
 export interface PreparedServer {
@@ -133,7 +135,10 @@ export function prepareServer(options: StdioServerOptions): PreparedServer {
       write: event.meta?.[WRITE_META_KEY] ?? null,
     });
   };
-  return { tools, factory: () => buildMcpServer({ tools, ctx: contextFor, onToolCall }) };
+  return {
+    tools,
+    factory: () => buildMcpServer({ tools, ctx: contextFor, onToolCall, mcpApps: options.mcpApps !== false }),
+  };
 }
 
 /** Serve MCP over this process's stdin/stdout (dual era). */
@@ -146,6 +151,14 @@ export function serveProjectOverStdio(options: StdioServerOptions): {
     onerror: (error) => options.logger.warn('stdio transport error', { error: error.message }),
   });
   return { handle, tools };
+}
+
+/** `RB_MCP_APPS` for stdio (P7-16): on unless `off`; any other value fails startup. */
+export function stdioMcpApps(env: Readonly<Record<string, string | undefined>>): boolean {
+  const v = env['RB_MCP_APPS']?.trim().toLowerCase();
+  if (v === undefined || v === '' || v === 'on' || v === 'true' || v === '1') return true;
+  if (v === 'off' || v === 'false' || v === '0') return false;
+  throw new ConfigError('RB_MCP_APPS must be on or off.');
 }
 
 /** `RB_WRITE_TOOLS` for stdio (P7-09): off unless `on`; any other value fails startup. */
@@ -205,6 +218,7 @@ export function setupModeTools(all: readonly ToolDefinition[] = createBuiltinToo
 export function prepareSetupModeServer(options: {
   readonly logger: Logger;
   readonly clock?: Clock;
+  readonly mcpApps?: boolean;
 }): PreparedServer {
   const tools = setupModeTools();
   const clock = options.clock ?? systemClock;
@@ -223,11 +237,18 @@ export function prepareSetupModeServer(options: {
     logger: options.logger,
     clock,
   });
-  return { tools, factory: () => buildMcpServer({ tools, ctx: contextFor }) };
+  return {
+    tools,
+    factory: () => buildMcpServer({ tools, ctx: contextFor, mcpApps: options.mcpApps !== false }),
+  };
 }
 
 /** Serve the tool list over stdio without a credential (setup mode). Tool calls answer {@link SETUP_MESSAGE}. */
-export function serveSetupModeOverStdio(options: { readonly logger: Logger; readonly clock?: Clock }): {
+export function serveSetupModeOverStdio(options: {
+  readonly logger: Logger;
+  readonly clock?: Clock;
+  readonly mcpApps?: boolean;
+}): {
   handle: StdioServerHandle;
   tools: readonly ToolDefinition[];
 } {

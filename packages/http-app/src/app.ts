@@ -349,6 +349,11 @@ export interface HttpAppOptions {
    * existence oracle). Everything else still answers the standard 401.
    */
   readonly publicToolCatalog?: boolean;
+  /**
+   * Offer the MCP Apps chart view (P7-16, `RB_MCP_APPS`). Default true: `_meta.ui` and the `ui://` resource go to
+   * clients that declare MCP Apps support. False: neither appears on any request.
+   */
+  readonly mcpApps?: boolean;
 }
 
 type Env = { Variables: { requestId: string; started: number; log: Record<string, unknown> } };
@@ -652,6 +657,7 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
         tools: scope.tools,
         ctx: scope.ctx,
         toolsListChanged: false,
+        mcpApps: options.mcpApps !== false,
         ...(scope.onToolCall ? { onToolCall: scope.onToolCall } : {}),
       });
     },

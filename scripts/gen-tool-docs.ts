@@ -183,7 +183,7 @@ function renderResources(resources: readonly ResourceDefinition[]): string {
         : r.kind === 'attributes'
           ? '- Never listed: build the URI from an event type returned by the event-types resource.'
           : r.kind === 'app'
-            ? '- Self-contained page bundled with the server (no external script, style or URL; no CSP domains). Clients that render MCP Apps show it for the tools whose `_meta.ui.resourceUri` names it, drawing that tool result only; other clients ignore it. See `docs/guide/charts.md`.'
+            ? '- Self-contained page bundled with the server (no external script, style or URL; no CSP domains). Clients that render MCP Apps show it for the tools whose `_meta.ui.resourceUri` names it, drawing that tool result only; other clients ignore it, and `RB_MCP_APPS=off` removes it. See `docs/guide/charts.md`.'
             : '- Original text bundled with the server; no New Relic call.',
       '',
     ].join('\n'),

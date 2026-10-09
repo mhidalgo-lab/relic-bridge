@@ -10,7 +10,7 @@
 // - The MCP Apps view (P7-04) is static HTML that draws the tool result the host hands it; it reads nothing itself.
 // - The URI is client input. `{account}` must be digits; the handlers validate the rest. `resources/list` names only
 //   the connection's effective accounts, and attributes are never enumerated.
-import { type McpServer, ResourceTemplate } from '@modelcontextprotocol/server';
+import { type McpServer, type RegisteredResource, ResourceTemplate } from '@modelcontextprotocol/server';
 import { CHART_APP_HTML, CHART_APP_RESOURCE_META, MCP_APP_MIME_TYPE, NRQL_CHART_URI } from './apps/index.ts';
 import type { ToolContext } from './context.ts';
 import { ErrorCode, isRbError } from './errors.ts';
@@ -103,6 +103,7 @@ function readError(error: unknown): Error {
   return new Error('Internal error while reading the resource.');
 }
 
+/** Registers the offered resources; returns the MCP Apps view resources by URI (their visibility is per client, P7-16). */
 export function registerResources(
   server: McpServer,
   opts: {
@@ -111,7 +112,8 @@ export function registerResources(
     readonly contextFor: () => ToolContext;
     readonly invoke: InvokeTool;
   },
-): void {
+): Map<string, RegisteredResource> {
+  const registered = new Map<string, RegisteredResource>();
   const toolByName = new Map(opts.tools.map((t) => [t.name, t]));
   for (const def of opts.defs) {
     const meta = { title: def.title, description: def.description, mimeType: def.mimeType };
@@ -123,16 +125,19 @@ export function registerResources(
     }
     if (def.kind === 'app') {
       const appMeta = { ...meta, _meta: { ...CHART_APP_RESOURCE_META } };
-      server.registerResource(def.name, def.uri, appMeta, (uri) => ({
-        contents: [
-          {
-            uri: uri.href,
-            mimeType: def.mimeType,
-            text: CHART_APP_HTML,
-            _meta: { ...CHART_APP_RESOURCE_META },
-          },
-        ],
-      }));
+      registered.set(
+        def.uri,
+        server.registerResource(def.name, def.uri, appMeta, (uri) => ({
+          contents: [
+            {
+              uri: uri.href,
+              mimeType: def.mimeType,
+              text: CHART_APP_HTML,
+              _meta: { ...CHART_APP_RESOURCE_META },
+            },
+          ],
+        })),
+      );
       continue;
     }
     const tool = toolByName.get(def.needsTool);
@@ -186,4 +191,5 @@ export function registerResources(
     });
     server.registerResource(def.name, template, meta, (uri, vars) => read(uri, vars));
   }
+  return registered;
 }

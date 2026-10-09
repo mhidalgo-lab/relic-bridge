@@ -95,6 +95,28 @@ describe('public tool catalog: on (RB_PUBLIC_TOOL_CATALOG=on)', () => {
     expect(await h.auditRows()).toEqual([]);
   });
 
+  it('does not depend on what the client declares, and carries no MCP Apps link (P7-16)', async () => {
+    const withApps = {
+      ...INITIALIZE,
+      params: {
+        ...INITIALIZE.params,
+        capabilities: {
+          extensions: { 'io.modelcontextprotocol/ui': { mimeTypes: ['text/html;profile=mcp-app'] } },
+        },
+      },
+    };
+    const listAfter = async (init: unknown, off = false): Promise<string> => {
+      const a = off ? h.makeApp({ publicToolCatalog: true, mcpApps: false }) : app;
+      await h.send(post('prod', init), a);
+      return (await h.send(post('prod', TOOLS_LIST), a)).text;
+    };
+    const plain = await listAfter(INITIALIZE);
+    expect(await listAfter(withApps)).toBe(plain);
+    expect(await listAfter(withApps, true)).toBe(plain);
+    expect(plain).not.toContain('ui://');
+    expect(plain).not.toContain('"_meta"');
+  });
+
   it('lists only static read-only tool definitions: no write tools, no project, grant or account data', async () => {
     const res = await h.send(post('prod', TOOLS_LIST), app);
     const names = toolNames(res);

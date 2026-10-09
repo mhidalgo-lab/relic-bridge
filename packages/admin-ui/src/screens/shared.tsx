@@ -463,13 +463,17 @@ const LIMIT_FIELDS = [
 export function LimitsFields(props: {
   readonly limits: Limits;
   readonly errors: Readonly<Record<string, string>>;
+  /** Replaces the default hint line (a grant form says the project's limits still apply). */
+  readonly hint?: string;
 }): JSX.Element {
   const l = props.limits;
   const raw = l.rawNrql === undefined ? '' : l.rawNrql ? 'on' : 'off';
   return (
     <fieldset class="field">
       <legend>Query limits</legend>
-      <p class="hint">Leave a field blank for the server default. Grants can only narrow these.</p>
+      <p class="hint">
+        {props.hint ?? 'Leave a field blank for the server default. Grants can only narrow these.'}
+      </p>
       {LIMIT_FIELDS.map(([name, label, hint, max]) => (
         <TextField
           name={`limit_${name}`}

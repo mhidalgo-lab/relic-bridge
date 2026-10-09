@@ -416,6 +416,102 @@ describe('grants', () => {
     ]);
   });
 
+  describe('query limits (P4-23)', () => {
+    const base = { projectId: 'prj_us', userId: 'service', label: 'ci', tools_all: '1', accounts_all: '1' };
+
+    it('the form offers the limit fields', async () => {
+      const { html } = await get(setup().app, '/admin/grants/new?project=prj_us');
+      for (const name of ['limit_maxLimit', 'limit_maxWindowDays', 'limit_maxResponseBytes', 'limit_rawNrql'])
+        expect(html).toContain(`name="${name}"`);
+      expect(html).toContain('name="limit_eventAllow"');
+    });
+
+    it('sends the limits with the grant, and notes the ones above the project', async () => {
+      const { app, fake } = setup((call) =>
+        call.method === 'POST'
+          ? { status: 201, body: { data: sample().grants[0], warnings: [] } }
+          : undefined,
+      );
+      const { res } = await post(app, '/admin/grants', {
+        ...base,
+        limit_maxLimit: '500',
+        limit_rawNrql: 'off',
+        limit_eventDeny: 'Log, Span',
+      });
+      expect(res.headers.get('set-cookie')).toMatch(/^rb_flash=created_with_notes;/);
+      expect(changes(fake)[0]?.body).toMatchObject({
+        limits: { maxLimit: 500, rawNrql: false, eventTypes: { deny: ['Log', 'Span'] } },
+      });
+    });
+
+    it('limits within the project add no note and an empty form sends no limits', async () => {
+      const { app, fake } = setup((call) =>
+        call.method === 'POST'
+          ? { status: 201, body: { data: sample().grants[0], warnings: [] } }
+          : undefined,
+      );
+      const { res } = await post(app, '/admin/grants', { ...base, limit_maxLimit: '50' });
+      expect(res.headers.get('set-cookie')).toMatch(/^rb_flash=created;/);
+      await post(app, '/admin/grants', base);
+      expect(changes(fake)[1]?.body).not.toHaveProperty('limits');
+    });
+
+    it('invalid values show field errors and nothing is sent', async () => {
+      const { app, fake } = setup();
+      const bad = await post(app, '/admin/grants', {
+        ...base,
+        limit_maxLimit: '0',
+        limit_maxWindowDays: 'abc',
+        limit_rawNrql: 'maybe',
+      });
+      expect(bad.res.status).toBe(422);
+      expect(bad.html).toContain('Enter a whole number from 1 to 1000000, or leave it blank.');
+      expect(bad.html).toContain('Choose one of the options.');
+      expect(bad.html).toContain('name="limit_maxLimit"');
+      expect(changes(fake)).toEqual([]);
+    });
+
+    it('an API refusal of a limit shows on its field, escaped', async () => {
+      const { app } = setup((call) =>
+        call.method === 'POST'
+          ? {
+              status: 422,
+              body: { error: { code: 'invalid_input', message: 'bad <b>x</b>', field: 'limits.maxLimit' } },
+            }
+          : undefined,
+      );
+      const { res, html } = await post(app, '/admin/grants', { ...base, limit_maxLimit: '5' });
+      expect(res.status).toBe(422);
+      expect(html).toContain('id="limit_maxLimit-error"');
+      expect(html).toContain('bad &lt;b&gt;x&lt;/b&gt;');
+    });
+
+    it('members cannot create a grant with limits: nothing is called', async () => {
+      const { app, fake } = setup();
+      const { res } = await post(app, '/admin/grants', { ...base, limit_maxLimit: '5' }, 'member');
+      expect(res.status).toBe(403);
+      expect(fake.calls).toEqual([]);
+    });
+
+    it('the grant page shows its limits and warns about the ones above the project', async () => {
+      const grant = {
+        ...sample().grants[0],
+        projectId: 'prj_us',
+        limits: { maxLimit: 500, maxWindowDays: 3, rawNrql: true },
+      };
+      const { app } = setup((call) =>
+        call.method === 'GET' && call.path === '/grants/grt_me'
+          ? { status: 200, body: { data: grant } }
+          : undefined,
+      );
+      const { html } = await get(app, '/admin/grants/grt_me');
+      expect(html).toContain('at most 500 rows; windows up to 3 days; arbitrary NRQL on');
+      expect(html).toContain('Most rows per query is above the project&#39;s limit (100)');
+      expect(html).toContain('Arbitrary NRQL is off on the project');
+      expect(html).not.toContain('Longest time window is above');
+    });
+  });
+
   it('a service needs a label; half a rate limit is refused; another person’s key is explained', async () => {
     const { app, fake } = setup((call) =>
       call.method === 'POST'

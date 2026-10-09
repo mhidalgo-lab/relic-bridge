@@ -2,11 +2,11 @@
 id: P7-35
 title: Charge the write rate limit only for the answered elicitation round
 phase: 7
-status: todo
+status: in-progress
 priority: low
 depends_on: [P7-20, P7-24]
 adr: ["0015"]
-owner: ""
+owner: claude-agent
 ---
 
 # P7-35 — Charge the write rate limit only for the answered elicitation round

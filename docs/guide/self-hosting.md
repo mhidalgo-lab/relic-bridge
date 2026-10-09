@@ -76,7 +76,7 @@ relic-bridge serve --port 9000 --db /var/lib/relic-bridge/relic-bridge.db
 - One JSON-RPC message per request: batches (a JSON array body, removed from MCP in 2025-06-18) are refused with `400`.
 - Security headers on every response: `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`,
   `X-Frame-Options: DENY`, `Content-Security-Policy: default-src 'none'; frame-ancestors 'none'`,
-  `Cache-Control: no-store`, and HSTS as configured.
+  `Cross-Origin-Resource-Policy: same-origin`, `Cache-Control: no-store`, and HSTS as configured.
 - **Rate limits** (in memory, per process): `429` with `Retry-After` and a JSON-RPC error telling the agent to slow
   down. Per-IP request and failed-authentication limits apply before authentication and are the same for valid and
   invalid tokens, so a `429` never tells a guesser anything; per-token and per-grant limits apply after. IPv6 clients are
@@ -196,7 +196,8 @@ jq -n --arg k "$NR_KEY" '{label:"main", region:"US", apiKey:$k}' |
 ## Docker
 
 The image is `ghcr.io/matiashidalgo/relic-bridge` (linux/amd64 and linux/arm64), published with each GitHub Release as
-`:<version>` (and `:latest` for stable releases). It is built from distroless Node 24: no shell, no package manager, runs as
+`:<version>` (and `:latest` for stable releases). **No image is published yet**: `0.1.0` in the examples below stands for
+the first published version, so until then build the image yourself (see the end of this section). It is built from distroless Node 24: no shell, no package manager, runs as
 uid/gid `65532`, and works with a read-only root filesystem. Its entrypoint is the CLI, so everything in this guide
 applies: `docker run IMAGE keys generate`, `docker run IMAGE serve`, `docker exec CONTAINER /nodejs/bin/node /app/dist/index.mjs db backup /data/backup.db`.
 

@@ -42,7 +42,7 @@ Everything the admin panel will do is first an API, usable by the CLI and script
   `not_found`, `conflict`, `not_permitted`, `key_rejected`, `upstream_unavailable`, `unsupported_media_type`,
   `payload_too_large`, `read_only`, `unavailable`, `internal_error`). Messages never echo submitted values.
 - **Pagination**: list endpoints take `limit` (1-200, default 50) and an opaque `cursor`, and return
-  `{ items, nextCursor }`.
+  `{ data, nextCursor }`.
 - **OpenAPI 3.1** generated from the route schemas (`@hono/zod-openapi`), served at `/api/admin/v1/openapi.json`
   (auth required); `docs/reference/admin-api.md` generated from it (`pnpm docs:admin-api`; a Vitest file snapshot
   fails `pnpm test` when it is stale).

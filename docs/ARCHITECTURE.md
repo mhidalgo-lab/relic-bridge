@@ -137,7 +137,7 @@ Times are epoch milliseconds, ids are caller-generated text, lists/objects are J
 | `grants` | id, project_id, user_id (null for service grants, which need a label), label, credential_id (null → project default), tools (json, null = project's), account_ids (json, null = project's), limits (json, tightening), rate_limit (json), created_at, updated_at, expires_at, revoked_at |
 | `access_tokens` | id, grant_id, prefix, token_hash (SHA-256 hex, unique), label (device), created_at, expires_at, last_used_at, revoked_at |
 | `oauth_*` | Managed by the OAuth server (KV on Workers; the `kv` table on Node). Token props carry `grant_id` and audience. |
-| `audit_log` | id, ts, kind (`tool_call` \| `admin`), action, status (`ok` \| `error` \| `denied`), request_id, user_id, grant_id, token_id, client_id, project_id, account_ids, nrql (masked), duration_ms, inspected_count, error_code, target_type, target_id, details (json). No foreign keys. |
+| `audit_log` | id, ts, kind (`tool_call` \| `auth` \| `admin`), action, status (`ok` \| `error` \| `denied`), request_id, user_id, grant_id, token_id, key_id (pass-through key fingerprint `pt_…`), client_id, project_id, account_ids, nrql (masked), duration_ms, inspected_count, error_code, target_type, target_id, details (json). No foreign keys. |
 | `settings` | key, value (json), updated_at |
 | `kv` | key, value, expires_at — Workers-KV-compatible store for the OAuth provider on Node (ADR-0009) |
 | `schema_migrations` | version, name, checksum, applied_at (owned by the migration runner) |

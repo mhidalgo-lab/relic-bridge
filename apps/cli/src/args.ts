@@ -263,6 +263,19 @@ HTTP server (serve):
                          A revoked token stops working within this time.
   RB_HSTS                auto (default: when the request is https), true (behind a TLS
                          proxy) or false.
+  RB_TRUSTED_PROXY_HOPS  Reverse proxies in front of the server, 0-5 (default 0). Set it
+                         behind a proxy, or every client shares the proxy's address for
+                         rate limiting.
+  RB_RATE_LIMIT          on (default) or off: all rate limiting.
+  RB_RATE_LIMIT_IP | _AUTH_FAIL | _TOKEN | _GRANT | _PASSTHROUGH_KEY
+                         One limit each, "<requests>/<seconds>" or off (see the self-hosting
+                         guide for the defaults).
+
+Pass-through (serve; off by default):
+  RB_PASSTHROUGH         on enables /passthrough/mcp: the client sends its own New Relic key.
+                         Serve it over HTTPS only.
+  RB_PASSTHROUGH_IDENTITY_TTL
+                         Seconds a key's reachable accounts are cached, 0-300 (default 60).
 
 Audit log (serve):
   RB_AUDIT               on (default) or off.

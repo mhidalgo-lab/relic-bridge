@@ -64,7 +64,7 @@ names the reason for every refusal (`"deny":"…"`); the client only ever sees a
 
 | Answer | Cause and fix |
 |---|---|
-| `401` (`WWW-Authenticate: Bearer`) | Missing or malformed token (`malformed`), unknown, `revoked`, `expired`, a token for another project's URL, a disabled project or user, or an unusable New Relic key. The log line says which. Create a new token if needed; `relic-bridge credential list` shows keys marked `invalid`. In Claude Code an unset `${RELIC_BRIDGE_TOKEN}` stays literal and is `malformed`. |
+| `401` (`WWW-Authenticate: Bearer`) | The log's `deny` field says why: `missing_token` (no `Authorization` header), `malformed_header` (not `Bearer <token>`), `malformed` or `bad_checksum` (not a relic-bridge token: a typo or a guess), `unknown`, `revoked`, `expired`; or, for a good token, `project_not_found` / `project_disabled` / `grant_wrong_project` (a token for another project's URL), `grant_revoked`, `grant_expired`, `user_disabled`, or a `credential_*` reason (the New Relic key is revoked, invalid, not yet validated, ...). Create a new token if needed; `relic-bridge credential list` shows keys marked `invalid`. In Claude Code an unset `${RELIC_BRIDGE_TOKEN}` stays literal and is `malformed`. |
 | `403 forbidden_host` | The `Host` is not in `RB_ALLOWED_HOSTS` (the name in the URL, or the proxy forwards another host). |
 | `403 forbidden_origin` | A browser `Origin` that is not allowed: `RB_ALLOWED_ORIGINS` / `RB_CORS_ORIGINS`. |
 | `403 tls_required` | Pass-through route only: reach it over https. |
@@ -72,6 +72,7 @@ names the reason for every refusal (`"deny":"…"`); the client only ever sees a
 | `413`, `400` | Body over 1 MiB, or a JSON-RPC batch (one message per request). |
 | `429` | A rate limit (`Retry-After` says when). Behind a proxy set `RB_TRUSTED_PROXY_HOPS`, or every client shares the proxy's address. Failed authentications are limited per address and block valid tokens from it too until the bucket refills. |
 | `503` | Storage error (fail closed), or New Relic unreachable on pass-through. See the server log. |
+| `504` (`{"error":"timeout"}`) | The request did not finish within the server's deadline (3 minutes): the body was not delivered in time, or the tool call ran too long. Narrow the query; for a slow client or proxy, check the network between them. |
 | TLS or certificate errors | The reverse proxy, not relic-bridge: check DNS and ports 80/443. |
 
 A revoked or newly created token, grant or project takes effect within `RB_ACCESS_CACHE_TTL` seconds (default 30) on

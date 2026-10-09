@@ -39,6 +39,8 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm test:coverage
       - run: pnpm build
+      - name: Verify the publishable tarball (P1-15)
+        run: node scripts/check-package.ts
       - run: node scripts/check-licenses.ts
 
   actionlint:

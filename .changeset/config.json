@@ -7,5 +7,9 @@
   "access": "public",
   "baseBranch": "main",
   "updateInternalDependencies": "patch",
-  "ignore": ["@relic-bridge/worker"]
+  "ignore": ["@relic-bridge/worker"],
+  "privatePackages": {
+    "version": false,
+    "tag": false
+  }
 }

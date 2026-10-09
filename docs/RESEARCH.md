@@ -184,6 +184,25 @@ Sources: <https://github.com/cloudflare/workers-oauth-provider>, issues #264, #3
   - `entity.goldenMetrics { metrics { title query } }`: returns NRQL to run
   - `account.aiIssues`, `account.alerts.policiesSearch` / `nrqlConditionsSearch`, `actor.errorsInbox`
 
+## 6b. npm publishing (P1-15)
+
+- **Trusted publishing** (OIDC from GitHub Actions, no long-lived npm token) needs npm CLI ≥ 11.5.1 and Node ≥ 22.14
+  (Node 24 bundles npm 11), job permission `id-token: write`, and a GitHub-hosted runner. Each package has at most one
+  trusted publisher (workflow file + optional environment); `npm trust github <pkg> --file release.yml --env release`
+  configures it from the CLI. npm's own example disables the package-manager cache in release jobs
+  (`package-manager-cache: false`). Source: docs.npmjs.com/trusted-publishers, /generating-provenance-statements.
+- `npm publish --provenance --access public` on a tarball packed by `pnpm pack` (pnpm resolves `workspace:` ranges
+  and adds the root `LICENSE`; it does not add `NOTICE` or `README.md`, so `apps/cli` carries copies, checked against
+  the root by `scripts/check-package.ts`). `pnpm pack` tarballs have fixed mtimes (1985-10-26), so they are
+  reproducible for a given build.
+- `pnpm sbom --sbom-format cyclonedx` (pnpm 12) writes a CycloneDX 1.7 SBOM per workspace package.
+- `actions/attest` v4 (successor of `attest-build-provenance`) needs `id-token: write`, `attestations: write` and
+  `artifact-metadata: write`; in **private** repositories attestations need GitHub Enterprise, so release from a public
+  repo.
+- npm staged publishing (`npm stage publish`, `--allow-stage-publish` on the trusted publisher) lets CI upload a
+  version that a maintainer then approves with 2FA; an alternative to environment approval (pending decision P1-15).
+- The name `relic-bridge` is owned by the maintainer (0.0.0 placeholder, 2026-10-03; P0-01).
+
 ## 7. Existing community projects (prior art)
 
 [cloudbring/newrelic-mcp](https://github.com/cloudbring/newrelic-mcp),

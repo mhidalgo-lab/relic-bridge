@@ -1,6 +1,6 @@
 # relic-bridge
 
-> **Status: pre-alpha (Phase 0).** Nothing to install yet — see the [roadmap](docs/ROADMAP.md).
+> **Status: alpha (v0.1, local stdio only).** Hosted and multi-device modes are on the [roadmap](docs/ROADMAP.md).
 
 [![CI](https://github.com/matiashidalgo/relic-bridge/actions/workflows/ci.yml/badge.svg)](https://github.com/matiashidalgo/relic-bridge/actions/workflows/ci.yml)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/matiashidalgo/relic-bridge/badge)](https://scorecard.dev/viewer/?uri=github.com/matiashidalgo/relic-bridge)
@@ -14,6 +14,26 @@ only a **User API key** — no account-level MCP enablement required.
 - **Multiple projects:** each New Relic account/region/key gets its own URL (`/p/{slug}/mcp`).
 - **Fine-grained access:** per-device tokens or OAuth, per-grant tool and account allowlists, bring-your-own-key for teams.
 - **Secure by default:** read-only tools, encrypted keys, query limits, audit log, documented threat model.
+
+## Install
+
+Node.js 24.11 or later and a New Relic **User** API key. relic-bridge v0.1 is a local stdio server that your MCP
+client starts:
+
+```sh
+claude mcp add relic \
+  --env NEW_RELIC_API_KEY=<your User key> \
+  --env NEW_RELIC_ACCOUNT_ID=1234567 \
+  --env NEW_RELIC_REGION=US \
+  -- npx -y relic-bridge
+```
+
+> Until v0.1.0 is on npm (the release is prepared, not yet published), `npx -y relic-bridge` fetches a placeholder:
+> build from a clone as the [quickstart](docs/guide/quickstart-local.md) explains.
+
+Other clients and the multi-project YAML mode: [local quickstart](docs/guide/quickstart-local.md). Releases are
+published from GitHub Actions with npm provenance; each [GitHub Release](https://github.com/matiashidalgo/relic-bridge/releases)
+carries the tarball, an SBOM and checksums with build attestations. Changes: [CHANGELOG](apps/cli/CHANGELOG.md).
 
 ## Documentation
 

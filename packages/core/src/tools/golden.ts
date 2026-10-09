@@ -12,7 +12,7 @@ import { defineTool, type ToolDefinition } from '../tool.ts';
 import { checkGuid, isNonNull, outOfScope, requireField } from './entity-common.ts';
 import { entityRefFields, RESOLVE_COST, refineEntityRef, resolveEntityRef } from './entity-ref.ts';
 import { createEntityResolver } from './entity-resolver.ts';
-import { cleanName } from './identity.ts';
+import { cleanName, errorNote } from './identity.ts';
 import {
   assertWindowWithinLimit,
   NRQL_COST,
@@ -186,6 +186,50 @@ export function withTimeClauses(
   return { nrql: parts.join(' '), timeseries: timeseries || hasSeries };
 }
 
+const SELECT_END = new Set([
+  'FROM',
+  'WHERE',
+  'FACET',
+  'SINCE',
+  'UNTIL',
+  'TIMESERIES',
+  'LIMIT',
+  'COMPARE',
+  'WITH',
+  'ORDER',
+]);
+
+/**
+ * Whether an NRQL text only aggregates: every select item is a function call, no `*`, no sub-select, no JOIN. Golden
+ * metrics can be customised in New Relic, so on a connection with `rawNrql: false` a golden query that could return raw
+ * event rows is refused (review M4). Token-level, like the query limits: a screen, not a parser.
+ */
+export function isAggregateOnlyNrql(query: string): boolean {
+  const tokens = tokenize(query).filter((t) => t.kind !== 'comment');
+  if (
+    tokens.some((t) => t.kind === 'word' && (t.value === 'JOIN' || (t.depth > 0 && t.value === 'SELECT')))
+  ) {
+    return false;
+  }
+  const start = tokens.findIndex((t) => t.kind === 'word' && t.depth === 0 && t.value === 'SELECT');
+  if (start === -1) return false;
+  let itemStart = true;
+  for (let i = start + 1; i < tokens.length; i++) {
+    const t = tokens[i] as (typeof tokens)[number];
+    if (t.depth === 0 && t.kind === 'word' && SELECT_END.has(t.value)) break;
+    if (t.depth === 0 && t.text === '*') return false;
+    if (t.depth === 0 && t.text === ',') {
+      itemStart = true;
+      continue;
+    }
+    if (itemStart) {
+      if (t.kind !== 'word' || tokens[i + 1]?.text !== '(') return false;
+      itemStart = false;
+    }
+  }
+  return !itemStart;
+}
+
 type MetricRow = z.infer<typeof metricRow>;
 
 const emptyMetric = (title: string, status: MetricRow['status'], note: string | null = null): MetricRow => ({
@@ -220,6 +264,13 @@ export function createGoldenMetricTools(deps: ToolDeps = {}): ToolDefinition[] {
       if (query.length > MAX_QUERY_CHARS) {
         return emptyMetric(title, 'error', 'The golden metric query is too long to run.');
       }
+      if (!ctx.limits.rawNrql && !isAggregateOnlyNrql(query)) {
+        return emptyMetric(
+          title,
+          'error',
+          'This golden metric is not a plain aggregate query and raw NRQL is disabled on this connection.',
+        );
+      }
       const prepared = withTimeClauses(query, clause, wantSeries);
       const outcome = await runTrustedNrql(
         ctx,
@@ -251,7 +302,7 @@ export function createGoldenMetricTools(deps: ToolDeps = {}): ToolDefinition[] {
       if (!(e instanceof RbError) || FATAL_CODES.has(e.code)) throw e;
       if (e.code === ErrorCode.BudgetExhausted)
         return emptyMetric(title, 'skipped', 'Request budget exhausted.');
-      return emptyMetric(title, 'error', cleanName(e.message, 300));
+      return emptyMetric(title, 'error', errorNote(e));
     }
   }
 

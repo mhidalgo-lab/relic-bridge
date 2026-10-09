@@ -2,11 +2,11 @@
 id: P6-21
 title: "Untrusted-text and scope hardening follow-ups from the Phase 6 review"
 phase: 6
-status: todo
+status: review
 priority: medium
 depends_on: [P6-19]
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P6-21 — Untrusted-text and scope hardening follow-ups from the Phase 6 review
@@ -32,11 +32,11 @@ scope that the review did not fix in place.
   `resolve_entity` and `get_related_entities` output.
 
 ## Acceptance criteria
-- [ ] Probe tests: a credential-bearing URL in an error message, a synthetic URL and an NR error message are redacted
+- [x] Probe tests: a credential-bearing URL in an error message, a synthetic URL and an NR error message are redacted
       or enveloped in every tool that shows them (extend `packages/core/test/probe-envelope.test.ts`).
-- [ ] `rawNrql: false` decision implemented with a negative test.
-- [ ] Foreign `dataAccountId` NRQL withheld, with a test.
-- [ ] THREAT_MODEL residuals of the Phase 6 review row updated.
+- [x] `rawNrql: false` decision implemented with a negative test.
+- [x] Foreign `dataAccountId` NRQL withheld, with a test.
+- [x] THREAT_MODEL residuals of the Phase 6 review row updated.
 
 ## Security notes
 T6 (prompt injection), T8 (secrets in telemetry), T3 (account scope).

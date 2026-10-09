@@ -68,6 +68,14 @@ export function cleanName(value: string, max: number = MAX_NAME_CHARS): string {
   return truncateText(redact(value).replace(/\s+/g, ' ').trim(), max);
 }
 
+/**
+ * A note for a failed section or sub-query. New Relic error messages are free text a user in that account can shape, and
+ * notes sit outside the untrusted-data envelope, so only the error code is shown; the message goes to the log.
+ */
+export function errorNote(e: { readonly code: string }): string {
+  return `The request failed (${e.code}); run the underlying tool directly for details.`;
+}
+
 /** `m***@example.com`. Anything that is not a plain address is fully hidden. */
 export function maskEmail(email: string): string {
   const at = email.lastIndexOf('@');

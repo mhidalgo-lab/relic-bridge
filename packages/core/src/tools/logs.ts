@@ -14,7 +14,7 @@ import { defineTool, type ToolDefinition } from '../tool.ts';
 import { likePattern } from './apm.ts';
 import { FATAL_CODES } from './changes.ts';
 import { checkGuid } from './entities.ts';
-import { cleanName } from './identity.ts';
+import { cleanName, errorNote } from './identity.ts';
 import {
   accountInput,
   assertWindowWithinLimit,
@@ -64,32 +64,11 @@ const LEVEL_FIELD = z
 // Scrubbing and pattern normalisation (pure)
 // ---------------------------------------------------------------------------------------------------------------------
 
-/** Secret shapes that show up in log lines beyond the central patterns in `redact()`. */
-const LOG_SECRET_PATTERNS: readonly [RegExp, string][] = [
-  // JSON web tokens.
-  [/\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]*/g, '[REDACTED_JWT]'],
-  // AWS access key ids; GitHub, Slack, Stripe and OpenAI-style tokens.
-  [/\b(?:AKIA|ASIA)[A-Z0-9]{16}\b/g, '[REDACTED_AWS_KEY]'],
-  [/\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})/g, '[REDACTED_TOKEN]'],
-  [/\bxox[abprs]-[A-Za-z0-9-]{10,}/g, '[REDACTED_TOKEN]'],
-  [/\b(?:sk|pk|rk)_(?:live|test)_[A-Za-z0-9]{10,}/g, '[REDACTED_TOKEN]'],
-  [/\bsk-[A-Za-z0-9_-]{20,}/g, '[REDACTED_TOKEN]'],
-  // Credentials in URLs: scheme://user:password@host.
-  [/\b([a-z][a-z0-9+.-]*:\/\/)[^\s/:@]+:[^\s/@]+@/gi, '$1[REDACTED]@'],
-  // PEM private key bodies.
-  [
-    /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z ]*PRIVATE KEY-----|$)/g,
-    '[REDACTED_PRIVATE_KEY]',
-  ],
-];
-
 /**
- * A log message made safe to show: only the first characters are examined, secrets are redacted (central patterns plus
- * the log-specific ones above) BEFORE the cut so a secret can't be split by it, then single-lined and capped.
+ * A log message made safe to show: only the first characters are examined, secrets are redacted (the central patterns) BEFORE the cut so a secret can't be split by it, then single-lined and capped.
  */
 export function cleanLogMessage(raw: string, max: number = MAX_MESSAGE_CHARS): string {
-  let text = raw.slice(0, MAX_RAW_CHARS);
-  for (const [re, replacement] of LOG_SECRET_PATTERNS) text = text.replace(re, replacement);
+  const text = raw.slice(0, MAX_RAW_CHARS);
   return cleanName(redact(text), max);
 }
 
@@ -436,7 +415,7 @@ export function createLogTools(deps: ToolDeps = {}): ToolDefinition[] {
       // Credential, authorization and connection-limit errors (e.g. Log not allowed) hit every part alike.
       if (!(e instanceof RbError) || FATAL_CODES.has(e.code) || e.code === ErrorCode.LimitQuery) throw e;
       if (e.code === ErrorCode.BudgetExhausted) return { ok: false, note: 'Request budget exhausted.' };
-      return { ok: false, note: cleanName(e.message, 300) };
+      return { ok: false, note: errorNote(e) };
     }
   }
 

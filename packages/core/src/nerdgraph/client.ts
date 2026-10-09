@@ -85,7 +85,9 @@ export function wrongRegionError(region: Region): RbError {
 export function graphQLErrorToRbError(error: GraphQLFieldError | undefined, region: Region): RbError {
   if (!error) return new RbError(ErrorCode.NerdGraphError, 'NerdGraph returned no data.');
   if (WRONG_REGION_RE.test(error.message)) return wrongRegionError(region);
+  // The message is New Relic free text: it goes in `details`, which tool errors envelope as untrusted data (T6).
   const details = {
+    message: error.message,
     ...(error.errorClass ? { errorClass: error.errorClass } : {}),
     ...(error.errorCode ? { errorCode: error.errorCode } : {}),
   };
@@ -93,20 +95,30 @@ export function graphQLErrorToRbError(error: GraphQLFieldError | undefined, regi
     case 'ACCESS_DENIED':
     case 'FORBIDDEN':
     case 'UNAUTHORIZED':
-      return new RbError(ErrorCode.AuthForbidden, `New Relic denied access: ${error.message}`, {
+      return new RbError(ErrorCode.AuthForbidden, 'New Relic denied access (see the message in details).', {
         hint: 'Check that this key can read the account and that the project region matches it.',
         details,
       });
     case 'INVALID_INPUT':
     case 'BAD_USER_INPUT':
-      return new RbError(ErrorCode.InputInvalid, error.message, { details });
+      return new RbError(
+        ErrorCode.InputInvalid,
+        'New Relic rejected the request as invalid (see the message in details).',
+        {
+          details,
+        },
+      );
     case 'TIMEOUT':
-      return new RbError(ErrorCode.NerdGraphTimeout, error.message, {
+      return new RbError(ErrorCode.NerdGraphTimeout, 'The New Relic query timed out.', {
         hint: 'Narrow the time window or use async mode.',
         details,
       });
     default:
-      return new RbError(ErrorCode.NerdGraphError, `NerdGraph error: ${error.message}`, { details });
+      return new RbError(
+        ErrorCode.NerdGraphError,
+        'NerdGraph returned an error (see the message in details).',
+        { details },
+      );
   }
 }
 

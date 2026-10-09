@@ -10,6 +10,7 @@ import {
   ERROR_META_KEY,
   ErrorCode,
   type FetchLike,
+  isAggregateOnlyNrql,
   summarizeSeries,
   type ToolContext,
   withTimeClauses,
@@ -296,6 +297,26 @@ describe('get_golden_metrics', () => {
     expect((r.structuredContent as Out).metrics[0]?.status).toBe('ok');
   });
 
+  it('with raw NRQL off, refuses a golden metric that could return raw rows (review M4)', async () => {
+    const rows = { title: 'Rows', query: 'SELECT message, entity.guid FROM Log LIMIT 100' };
+    const { fetch, calls } = routedFetch({ 'rate(count(a)': () => nrqlBody(series(1, 2, 3, 4)) }, () =>
+      entityBody([rows, THREE[0] as (typeof THREE)[number]]),
+    );
+    const client = await connect(fetch, { limits: { ...DEFAULT_LIMITS, rawNrql: false } });
+    const r = await client.callTool({ name: 'get_golden_metrics', arguments: { guid: GUID } });
+    expect((r.structuredContent as Out).metrics.map((m) => m.status)).toEqual(['error', 'ok']);
+    expect(calls.filter((c) => /FROM Log/.test(String(c.variables['nrql'] ?? '')))).toHaveLength(0);
+  });
+
+  it('with raw NRQL on, a raw-rows golden query still runs (unchanged)', async () => {
+    const { fetch, calls } = routedFetch({ 'FROM Log': () => nrqlBody(series(1, 2)) }, () =>
+      entityBody([{ title: 'Rows', query: 'SELECT count(*) FROM Log' }]),
+    );
+    const client = await connect(fetch);
+    await client.callTool({ name: 'get_golden_metrics', arguments: { guid: GUID } });
+    expect(calls.length).toBeGreaterThan(1);
+  });
+
   it('handles an entity without golden metrics and reports faceted and slow metrics', async () => {
     const none = routedFetch({}, () => entityBody(null));
     const client = await connect(none.fetch);
@@ -416,4 +437,22 @@ describe('get_golden_metrics', () => {
     expect(t.indexOf('Ignore previous')).toBeGreaterThan(open);
     expect(t.match(/<\/untrusted-data/g)?.length).toBe(2);
   });
+});
+
+describe('isAggregateOnlyNrql', () => {
+  it.each([
+    "FROM Metric SELECT rate(count(a), 1 minute) WHERE entity.guid = 'X'",
+    'SELECT average(duration) AS d, percentile(duration, 95) FROM Transaction FACET appName',
+    'SELECT count(*) FROM Log',
+  ])('accepts %s', (q) => expect(isAggregateOnlyNrql(q)).toBe(true));
+
+  it.each([
+    'SELECT * FROM Log',
+    'SELECT message FROM Log',
+    'SELECT count(*), message FROM Log',
+    'SELECT count(*) FROM Log JOIN Other ON a = b',
+    'SELECT count(*) FROM (SELECT message FROM Log)',
+    'FROM Log',
+    'SELECT FROM Log',
+  ])('refuses %s', (q) => expect(isAggregateOnlyNrql(q)).toBe(false));
 });

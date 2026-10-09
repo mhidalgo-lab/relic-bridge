@@ -31,7 +31,7 @@ The common case: you, two New Relic accounts (one in the US data center, one in 
    own key). Optionally narrow the tools and accounts, add a rate limit and an expiry.
 4. **Devices** → *New device token*. Choose the grant, name the device (`laptop`, `phone`) and a lifetime (90 days by
    default). The next page shows the token **once**: copy it into the device's MCP client right away. It is not
-   stored and cannot be shown again. Do not reload that page: that would create another token.
+   stored and cannot be shown again. Reloading that page creates no second token: it goes back to the token list.
 5. Connect the client: the same page lists copy-paste snippets for Claude Code, Cursor, VS Code and Claude Desktop with
    the endpoint and the token filled in where it must be (see **Connect** below, and [clients](clients.md)). One token
    per device lets you revoke a lost phone alone.
@@ -87,7 +87,8 @@ name, project, user and device; ids are shown with their names (a deleted projec
 the result (error code, time, events inspected, accounts) and the query as stored (literal values are masked unless
 the server is set otherwise). Pages hold 50 rows; *Next page* keeps your filter. *Download CSV* exports the same
 filter, up to 5,000 rows (the newest; the download says nothing if it is cut off, so narrow the time range for
-more), with ids rather than names. Cells that a spreadsheet could take for a formula start with an apostrophe. Members
+more), with ids rather than names. Cells that a spreadsheet could take for a formula start with an apostrophe. The download starts only from the
+panel itself (a link to it from another site opens the audit page instead). Members
 can open this page too, but see only their own entries (their tool calls and the changes they made).
 
 **Usage** (`/admin/usage`, admins and owners). Tool calls over the last 24 hours, 7, 30 or 90 days, grouped by tool,

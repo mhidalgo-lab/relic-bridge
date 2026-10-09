@@ -51,7 +51,7 @@ import {
   type ToolDefinition,
   VERSION,
 } from '@relic-bridge/core';
-import { SLUG_RE, type Storage } from '@relic-bridge/storage';
+import { type KvRepository, SLUG_RE, type Storage } from '@relic-bridge/storage';
 import { type Context, type ExecutionContext, Hono } from 'hono';
 import { cors } from 'hono/cors';
 import {
@@ -858,6 +858,7 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
           adminApi: options.admin !== undefined,
           tools: allTools.map((t) => ({ name: t.name, title: t.title, group: t.group, kind: t.kind })),
           now: () => clock.now(),
+          kv: options.identity.storage.kv,
           onRejected: (c, status) =>
             notifyRejected(c, { requestId: c.get('requestId'), status, reason: rejectReason(c.get('log')) }),
           fetchApp: (request, c) => {
@@ -1212,6 +1213,8 @@ interface AdminUiWiring {
   /** The tool catalogue the project and grant screens choose from (P4-04). */
   readonly tools: readonly UiTool[];
   readonly now: () => number;
+  /** Single-use UI form handles (P4-07). */
+  readonly kv: Pick<KvRepository, 'put' | 'take'>;
   /** The whole app, for in-process admin API calls. */
   readonly fetchApp: (request: Request, c: Context) => Response | Promise<Response>;
 }
@@ -1253,6 +1256,10 @@ function adminUiDeps(w: AdminUiWiring): AdminUiDeps {
     publicUrl: publicOrigin,
     now: w.now,
     clearSessionCookie: sessions.clearCookie,
+    onceStore: {
+      put: (key, ttlSeconds) => w.kv.put(key, '1', { expirationTtl: ttlSeconds }),
+      take: async (key) => (await w.kv.take(key)) !== null,
+    },
     async beforeAuth(c) {
       const stop = await hooks.beforeAuth?.(c, requestId(c), 'admin_session');
       if (stop) w.onRejected(c, stop.status);

@@ -13,7 +13,7 @@ import {
   jwtVerify,
 } from 'jose';
 import { IdentityError } from './errors.ts';
-import { IDP_TIMEOUT_MS } from './http.ts';
+import { IDP_MAX_RESPONSE_BYTES, IDP_TIMEOUT_MS, readCapped } from './http.ts';
 
 export const ASYMMETRIC_ALGORITHMS: readonly string[] = Object.freeze([
   'RS256',
@@ -40,7 +40,16 @@ export type KeySource = JWTVerifyGetKey;
 /** A cached remote JWKS fetched through `fetch` (tests inject a mock IdP). */
 export function remoteKeySource(url: URL, fetch: FetchLike): KeySource {
   return createRemoteJWKSet(url, {
-    [customFetch]: (u: string, init: RequestInit) => fetch(u, init),
+    // The JWKS body goes through the same size cap as every other IdP answer (P4-07): jose reads it whole otherwise.
+    [customFetch]: async (u: string, init: RequestInit) => {
+      const res = await fetch(u, init);
+      const text = await readCapped(res, IDP_MAX_RESPONSE_BYTES);
+      return new Response(res.status === 204 || res.status === 304 ? null : text, {
+        status: res.status,
+        statusText: res.statusText,
+        headers: res.headers,
+      });
+    },
     cacheMaxAge: JWKS_CACHE_MS,
     cooldownDuration: JWKS_COOLDOWN_MS,
     timeoutDuration: IDP_TIMEOUT_MS,

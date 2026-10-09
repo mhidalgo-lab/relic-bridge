@@ -18,7 +18,7 @@ import {
   TextField,
 } from '../src/index.ts';
 import { axeViolations } from './dom.ts';
-import { fakeDeps, ORIGIN, principalFor, same, T, uiApp } from './fixtures.ts';
+import { fakeDeps, ONCE_HANDLE, ORIGIN, principalFor, same, T, uiApp } from './fixtures.ts';
 import { sample, scriptedApi, TOOLS } from './screens-fixture.ts';
 
 const viewer = principalFor('owner');
@@ -206,7 +206,11 @@ describe('axe-core', () => {
             ...same('admin', { origin: ORIGIN }),
             'content-type': 'application/x-www-form-urlencoded',
           },
-          body: new URLSearchParams({ _csrf: principalFor('admin').csrf, ...fields }).toString(),
+          body: new URLSearchParams({
+            _csrf: principalFor('admin').csrf,
+            _once: ONCE_HANDLE,
+            ...fields,
+          }).toString(),
         })
       ).text();
 

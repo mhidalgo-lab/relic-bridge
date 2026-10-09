@@ -14,7 +14,8 @@ export interface IdpResponse {
   readonly body: unknown;
 }
 
-async function readCapped(res: Response, max: number): Promise<string> {
+/** The body as text, refusing (`idp_unavailable`) more than `max` bytes without reading further. */
+export async function readCapped(res: Response, max: number): Promise<string> {
   const declared = res.headers.get('content-length');
   if (declared !== null && Number(declared) > max) {
     await res.body?.cancel().catch(() => undefined);

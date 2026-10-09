@@ -52,6 +52,7 @@ relic-bridge serve --port 9000 --db /var/lib/relic-bridge/relic-bridge.db
 | `RB_RATE_LIMIT_AUTH_FAIL` | `10/300` | Failed authentications per client IP. Past it, further **failures** from that IP get `429` instead of `401` until the bucket refills (one failure per 30 s with the default); a valid token is still served. On the pass-through route every request from that IP is refused (checking a New Relic key costs a NerdGraph call). |
 | `RB_RATE_LIMIT_TOKEN` | `120/60` | Requests per access token. |
 | `RB_RATE_LIMIT_GRANT` | `300/60` | Requests per grant, unless the grant has its own `rateLimit`, which replaces this. |
+| `RB_RATE_LIMIT_SIGN_IN` | `60/300` | Sign-in requests (`/auth/*`: chooser, provider start, callback, logout) per client IP, on top of `RB_RATE_LIMIT_IP`. Every sign-in start stores a short-lived login state, so this bounds what an unauthenticated client can store. On Workers it is counted per isolate. |
 | `RB_RATE_LIMIT_PASSTHROUGH_KEY` | `120/60` | [Pass-through](#pass-through-mode) requests per New Relic key. |
 | `RB_TRUSTED_PROXY_HOPS` | `0` | Reverse proxies in front of the server (0-5). `X-Forwarded-For` is only believed for that many hops, counted from the right; with `0` the socket address is the client. **Set it behind a proxy**, or all clients share the proxy's address and one bad device can lock the others out. |
 | `RB_AUDIT` | `on` | `off` stops recording tool calls, refusals and admin changes. See the [audit log](audit-log.md). |

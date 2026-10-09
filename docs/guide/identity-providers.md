@@ -179,6 +179,8 @@ Put Cloudflare Access in front with that provider behind it, or configure the pr
 | "This sign-in attempt is invalid or has expired" | The login took over 10 minutes, the callback was reloaded, or it opened in another browser or profile (no binding cookie). Start again. |
 | "Sign-in was refused" + `not_allowed` / `not_provisioned` in the audit log | No user for this email and the allowlist or auto-provisioning doesn't admit it. Add the user, or use a setup link for the first owner. |
 | `identity_conflict` | The email belongs to a user bound to another provider account. |
+| `email_missing` | The provider shared no email, or one that is not plain ASCII: internationalised addresses are refused, because case folding could map them onto another user's address. |
+| `429` on `/auth/*` | More than `RB_RATE_LIMIT_SIGN_IN` (default 60 per 5 minutes) sign-in requests from one address. Wait a few minutes. |
 | `email_unverified` | The provider doesn't vouch for the email (GitHub: verify the primary address). |
 | `hd_mismatch` | Google account outside `RB_GOOGLE_HOSTED_DOMAIN`. |
 | Boot error naming `RB_PUBLIC_URL` | Missing, not an origin, plain `http` to a non-loopback host, or its host is not in `RB_ALLOWED_HOSTS`. |

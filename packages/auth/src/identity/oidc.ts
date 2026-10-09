@@ -15,11 +15,12 @@ import { timingSafeEqual, utf8 } from '../crypto/bytes.ts';
 import { IdentityError } from './errors.ts';
 import { asRecord, checkEndpoint, idpJson, isLoopbackHostname } from './http.ts';
 import { ASYMMETRIC_ALGORITHMS, type KeySource, remoteKeySource, verifyJwt } from './jwt.ts';
-import type {
-  AuthorizationRequest,
-  AuthorizationResult,
-  RedirectIdentityProvider,
-  VerifiedIdentity,
+import {
+  type AuthorizationRequest,
+  type AuthorizationResult,
+  canonicalEmail,
+  type RedirectIdentityProvider,
+  type VerifiedIdentity,
 } from './types.ts';
 
 /** Discovery documents are re-read after this long. */
@@ -275,9 +276,12 @@ export function createOidcProvider(options: OidcProviderOptions): RedirectIdenti
       if (typeof source['email'] !== 'string') {
         source = (await userinfo(meta, tokens['access_token'], subject)) ?? source;
       }
-      const email = source['email'];
-      if (typeof email !== 'string' || !/^[^\s@]{1,64}@[^\s@]{1,255}$/.test(email)) {
-        throw new IdentityError('email_missing', 'the identity provider did not share an email address');
+      const email = canonicalEmail(source['email']);
+      if (email === null) {
+        throw new IdentityError(
+          'email_missing',
+          'the identity provider did not share a usable (ASCII) email address',
+        );
       }
       if (!isTrue(source['email_verified'])) {
         throw new IdentityError(
@@ -288,7 +292,7 @@ export function createOidcProvider(options: OidcProviderOptions): RedirectIdenti
       return Object.freeze({
         idp: options.idp,
         subject,
-        email: email.toLowerCase(),
+        email,
         emailVerified: true,
         displayName: displayNameOf(source) ?? displayNameOf(claims as Record<string, unknown>),
       });

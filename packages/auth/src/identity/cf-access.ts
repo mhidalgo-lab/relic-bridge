@@ -7,7 +7,7 @@
 import { type Clock, type FetchLike, systemClock } from '@relic-bridge/core';
 import { IdentityError } from './errors.ts';
 import { type KeySource, remoteKeySource, verifyJwt } from './jwt.ts';
-import type { HeaderIdentityProvider, VerifiedIdentity } from './types.ts';
+import { canonicalEmail, type HeaderIdentityProvider, type VerifiedIdentity } from './types.ts';
 
 export const CF_ACCESS_HEADER = 'cf-access-jwt-assertion';
 const TEAM_RE = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
@@ -66,8 +66,8 @@ export function createCloudflareAccessProvider(options: CloudflareAccessOptions)
         throw new IdentityError('invalid_token', 'not an application assertion');
       }
       const subject = claims['sub'];
-      const email = claims['email'];
-      if (typeof email !== 'string' || !/^[^\s@]{1,64}@[^\s@]{1,255}$/.test(email)) {
+      const email = canonicalEmail(claims['email']);
+      if (email === null) {
         // Service tokens: `common_name`, empty `sub`, no email.
         throw new IdentityError(
           'email_missing',
@@ -81,7 +81,7 @@ export function createCloudflareAccessProvider(options: CloudflareAccessOptions)
       return Object.freeze({
         idp: 'cf-access',
         subject,
-        email: email.toLowerCase(),
+        email,
         emailVerified: true,
         displayName: null,
       });

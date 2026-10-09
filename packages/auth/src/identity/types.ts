@@ -63,3 +63,14 @@ export type IdentityProvider = RedirectIdentityProvider | HeaderIdentityProvider
 
 /** Provider ids double as URL path segments. */
 export const PROVIDER_ID_RE: RegExp = /^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$/;
+
+/**
+ * An IdP-asserted email address in the one form relic-bridge compares: printable ASCII, one `@`, lowercased; null
+ * otherwise. Non-ASCII addresses are refused (P4-07): case folding maps some of them onto ASCII ones (the Kelvin sign
+ * `\u212A` lowercases to `k`), so an IdP account with such an address could claim another user's row.
+ */
+export function canonicalEmail(value: unknown): string | null {
+  if (typeof value !== 'string' || !/^[\x21-\x3f\x41-\x7e]{1,64}@[\x21-\x3f\x41-\x7e]{1,255}$/.test(value))
+    return null;
+  return value.toLowerCase();
+}

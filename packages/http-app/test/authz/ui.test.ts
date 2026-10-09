@@ -96,12 +96,14 @@ describe('admin UI × principals (P4-03)', () => {
     const sent: { requestId: string; reason: string; what: string }[] = [];
     for (const principal of sessionPrincipals) {
       const presented = await principal.present(h);
+      let reason = principal.reason;
       for (const route of UI_ROUTES) {
         const res = await get(route.path, { cookie: presented.headers['cookie'] as string }, route.method);
         const what = `${route.method} ${route.path} ${principal.name}`;
         expectSignInRedirect(res, route.method === 'GET' ? route.path : '/admin', what);
         expect(res.headers.get('set-cookie'), what).toMatch(/^rb_session=; Path=\/; Max-Age=0; HttpOnly/);
-        sent.push({ requestId: res.requestId as string, reason: principal.reason, what });
+        sent.push({ requestId: res.requestId as string, reason, what });
+        reason = principal.reasonAfterFirst ?? principal.reason;
       }
     }
     // Every request wrote its auth.denied row (the last one is awaited; the rest were written before it).

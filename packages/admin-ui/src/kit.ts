@@ -78,6 +78,18 @@ export interface AdminUiDeps {
   onError?(c: Context, error: unknown): void;
   /** Largest form body. Default 16 KiB. */
   readonly maxFormBytes?: number;
+  /**
+   * Server-side store for single-use form handles (P4-07): a form whose effect must not repeat on a re-send (reload or
+   * back button on the one-time token page) carries a handle stored here, and the post takes it. `take` resolves true
+   * for exactly one caller per stored key.
+   */
+  readonly onceStore: OnceStore;
+}
+
+/** Single-use keys with a lifetime (`kv` with `take` on the server). */
+export interface OnceStore {
+  put(key: string, ttlSeconds: number): Promise<void>;
+  take(key: string): Promise<boolean>;
 }
 
 /** A form body that passed the origin and CSRF checks, for this principal only. */
@@ -116,6 +128,24 @@ export interface UiKit {
   ): Promise<AdminCallResult>;
   /** `303` to a same-origin path, optionally with a flash message on the next page. */
   redirect(path: string, flash?: FlashCode): Response;
+  /** A new single-use form handle for `principal` (put in the form as {@link ONCE_FIELD}). */
+  issueOnce(principal: UiPrincipal): Promise<string>;
+  /** Use up the form's handle: true once per issued handle of this principal, false for a re-sent or forged form. */
+  claimOnce(form: VerifiedForm): Promise<boolean>;
+}
+
+/** Form field carrying a single-use handle (P4-07). */
+export const ONCE_FIELD = '_once';
+/** A handle lives as long as a form page may reasonably stay open. */
+export const ONCE_TTL_SECONDS: number = 2 * 60 * 60;
+const ONCE_RE = /^[A-Za-z0-9_-]{22}$/;
+const onceKey = (userId: string, handle: string) => `ui-once:${userId}:${handle}`;
+
+function randomHandle(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  let bin = '';
+  for (const b of bytes) bin += String.fromCharCode(b);
+  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
 export const DEFAULT_MAX_FORM_BYTES: number = 16 * 1024;
@@ -286,6 +316,20 @@ export function createUiKit(deps: AdminUiDeps): UiKit {
         throw new TypeError('admin API paths start with one /');
       }
       return deps.callAdmin(c, principal, call);
+    },
+
+    async issueOnce(principal) {
+      const handle = randomHandle();
+      await deps.onceStore.put(onceKey(principal.userId, handle), ONCE_TTL_SECONDS);
+      return handle;
+    },
+
+    async claimOnce(form) {
+      if (!verified.has(form)) return false;
+      const handles = form.fields.getAll(ONCE_FIELD);
+      const handle = handles[0];
+      if (handles.length !== 1 || handle === undefined || !ONCE_RE.test(handle)) return false;
+      return deps.onceStore.take(onceKey(form.principal.userId, handle));
     },
 
     redirect(path, flash) {

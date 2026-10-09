@@ -126,6 +126,9 @@ function page(
   );
 }
 
+/** One leading `/`, not followed by `/` or `\`: a path on this origin, never scheme-relative. */
+export const isLocalPath = (path: string): boolean => /^\/(?![/\\])/.test(path);
+
 /**
  * A post-login path: same origin, absolute path, no scheme-relative (`//host`) or backslash tricks, no control
  * characters. Anything else is null (the caller falls back to the default), so `next` can never leave the origin.
@@ -138,7 +141,10 @@ export function safeNextPath(next: string | undefined, publicUrl: string): strin
   try {
     const u = new URL(next, publicUrl);
     if (u.origin !== new URL(publicUrl).origin) return null;
-    return `${u.pathname}${u.search}${u.hash}`;
+    const path = `${u.pathname}${u.search}${u.hash}`;
+    // Parsing removes dot segments: `/.//evil.example` becomes `//evil.example`, a scheme-relative URL (P4-07). Check
+    // the result, not only the input.
+    return isLocalPath(path) ? path : null;
   } catch {
     return null;
   }

@@ -362,6 +362,11 @@ export function registerAudit(ui: Hono, kit: UiKit): void {
     CSV_ROUTE,
     kit.page('member', async (c, page) => {
       const { principal } = page;
+      // Pages accept cross-site navigations (a link from mail or chat); a download does not (P4-07): another site's
+      // link must not save the audit log to the visitor's disk. It lands on the audit page instead.
+      const site = c.req.header('sec-fetch-site');
+      if (site !== undefined && site !== 'same-origin' && site !== 'none')
+        return kit.redirect(`${BASE}${new URL(c.req.url).search}`);
       const query = apiQuery(filterFrom(c), now());
       const rows: AuditRow[] = [];
       let cursor: string | undefined;
@@ -426,12 +431,13 @@ export const CSV_COLUMNS = [
 
 /**
  * One CSV cell. Text is always quoted (`"` doubled), and anything a spreadsheet could take for a formula (a leading
- * `=`, `+`, `-`, `@`, tab or carriage return, which a tool name or error message can contain) gets a leading `'`.
+ * `=`, `+`, `-`, `@`, tab, carriage return or line feed, or one of those signs after leading white space, which a
+ * tool name or error message can contain) gets a leading `'`.
  */
 export function csvCell(value: string | number | null): string {
   if (value === null) return '';
   if (typeof value === 'number') return String(value);
-  const safe = /^[=+\-@\t\r]/.test(value) ? `'${value}` : value;
+  const safe = /^(?:[=+\-@\t\r\n]|\s+[=+\-@])/.test(value) ? `'${value}` : value;
   return `"${safe.replaceAll('"', '""')}"`;
 }
 

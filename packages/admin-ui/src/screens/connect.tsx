@@ -10,7 +10,7 @@
 // repeats the snippets with the new token filled in (`no-store`).
 import type { Hono } from 'hono';
 import { Button, Form, Layout, LinkButton, QueryForm, SelectField, TextField } from '../components.tsx';
-import type { UiKit } from '../kit.ts';
+import { ONCE_FIELD, type UiKit } from '../kit.ts';
 import { endpointFor } from '../snippets.ts';
 import { SnippetList } from '../snippets.tsx';
 import { isId, parseGrant, parseProject, parseUser } from './data.ts';
@@ -82,6 +82,7 @@ export function registerConnect(ui: Hono, kit: UiKit): void {
                   </p>
                 ) : (
                   <Form action="/admin/tokens" csrf={principal.csrf} label="Create a device token">
+                    <input type="hidden" name={ONCE_FIELD} value={await kit.issueOnce(principal)} />
                     <SelectField
                       name="grantId"
                       label="Grant"

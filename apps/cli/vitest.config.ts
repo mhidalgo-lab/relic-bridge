@@ -5,6 +5,9 @@ import { defineProject } from 'vitest/config';
 export default defineProject({
   resolve: {
     alias: {
+      '@relic-bridge/admin-ui': fileURLToPath(
+        new URL('../../packages/admin-ui/src/index.ts', import.meta.url),
+      ),
       '@relic-bridge/auth': fileURLToPath(new URL('../../packages/auth/src/index.ts', import.meta.url)),
       '@relic-bridge/core': fileURLToPath(new URL('../../packages/core/src/index.ts', import.meta.url)),
       '@relic-bridge/http-app': fileURLToPath(

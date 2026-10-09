@@ -2,6 +2,7 @@
 // P4-01 on Node: `relic-bridge serve` with a generic OIDC provider served by a local mock IdP over real loopback HTTP
 // (no injected fetch): setup link from the admin API → sign-in through the localhost redirect → owner user. Also the
 // `RB_*` validation of the sign-in settings.
+
 import { randomBytes } from 'node:crypto';
 import { mkdtempSync, rmSync } from 'node:fs';
 import type { Server } from 'node:http';
@@ -9,6 +10,7 @@ import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createAdaptorServer } from '@hono/node-server';
+import { ASSET_CACHE_CONTROL, ASSETS, UI_CSP } from '@relic-bridge/admin-ui';
 import { generateMasterKey } from '@relic-bridge/auth';
 import { createLogger } from '@relic-bridge/core';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -112,6 +114,21 @@ describe('serve: sign-in over a localhost redirect', () => {
         });
       expect((await change({ origin: base })).status).toBe(403);
       expect((await change({ origin: base, 'x-csrf-token': csrf.csrfToken })).status).toBe(201);
+      // The admin UI (P4-03) on the real Node server: the overview, users through the in-process admin API call,
+      // the strict CSP, and the hashed stylesheet.
+      const overview = await fetch(`${base}/admin`, { headers: { cookie: session } });
+      expect(overview.status).toBe(200);
+      expect(overview.headers.get('content-security-policy')).toBe(UI_CSP);
+      const html = await overview.text();
+      expect(html).toContain('<td>second@example.com</td>');
+      expect(html).toContain(`name="_csrf" value="${csrf.csrfToken}"`);
+      const css = await fetch(`${base}/admin/assets/${ASSETS.css.file}`);
+      expect(css.status).toBe(200);
+      expect(css.headers.get('cache-control')).toBe(ASSET_CACHE_CONTROL);
+      expect(await css.text()).toBe(ASSETS.css.body);
+      expect((await fetch(`${base}/admin`, { redirect: 'manual' })).headers.get('location')).toBe(
+        '/auth/login?next=%2Fadmin',
+      );
       const logout = await fetch(`${base}/auth/logout`, {
         method: 'POST',
         redirect: 'manual',

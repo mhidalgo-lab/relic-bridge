@@ -9,6 +9,14 @@ import {
   type McpRequestContext,
 } from '@modelcontextprotocol/server';
 import {
+  ADMIN_UI_BASE,
+  type AdminCall,
+  type AdminCallResult,
+  type AdminUiDeps,
+  createAdminUi,
+  type UiPrincipal,
+} from '@relic-bridge/admin-ui';
+import {
   type AuthenticatedAccess,
   authenticateAccess,
   bearerToken,
@@ -43,7 +51,7 @@ import {
   VERSION,
 } from '@relic-bridge/core';
 import { SLUG_RE, type Storage } from '@relic-bridge/storage';
-import { type Context, Hono } from 'hono';
+import { type Context, type ExecutionContext, Hono } from 'hono';
 import { cors } from 'hono/cors';
 import {
   AccessCache,
@@ -85,7 +93,7 @@ import {
   originHostname,
   safeMcpHeader,
 } from './security.ts';
-import { createSessionManager } from './session.ts';
+import { createSessionManager, type SessionManager, type SessionPrincipal } from './session.ts';
 
 /** Largest request body accepted on the MCP route by default (a tool call is a few KiB). */
 export const DEFAULT_MAX_BODY_BYTES: number = 1024 * 1024;
@@ -135,9 +143,10 @@ export interface AuthFailureInfo {
  * Which credential a route authenticates (P3-13): an MCP access token (`/p/:slug/mcp`), the bootstrap admin token
  * (`/api/admin/*`) or a caller's New Relic key (pass-through). Checking the first two costs no outbound call; checking
  * a New Relic key asks NerdGraph, so hooks may treat it more strictly. `identity` is the sign-in routes (P4-01), which
- * check IdP answers, not a credential of ours.
+ * check IdP answers, not a credential of ours. `admin_session` is the admin UI pages (P4-03), which check the session
+ * cookie.
  */
-export type AuthScope = 'mcp_token' | 'admin_token' | 'passthrough_key' | 'identity';
+export type AuthScope = 'mcp_token' | 'admin_token' | 'passthrough_key' | 'identity' | 'admin_session';
 
 /**
  * Extension points for P2-07 (rate limiting) and P2-08 (audit). Hooks receive the Hono context so runtime-specific
@@ -831,6 +840,37 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
     );
   }
 
+  // Admin UI (P4-03): server-rendered pages under /admin, on whenever sign-in is (they need a session).
+  if (options.identity && sessions) {
+    app.route(
+      ADMIN_UI_BASE,
+      createAdminUi(
+        adminUiDeps({
+          sessions,
+          publicUrl: options.identity.publicUrl,
+          hooks,
+          logger,
+          runInBackground,
+          audit:
+            options.admin?.audit?.admin.bind(options.admin.audit) ??
+            options.identity.audit?.admin?.bind(options.identity.audit),
+          adminApi: options.admin !== undefined,
+          onRejected: (c, status) =>
+            notifyRejected(c, { requestId: c.get('requestId'), status, reason: rejectReason(c.get('log')) }),
+          fetchApp: (request, c) => {
+            let ctx: ExecutionContext | undefined;
+            try {
+              ctx = c.executionCtx;
+            } catch {
+              // Node: no execution context
+            }
+            return app.fetch(request, c.env, ctx);
+          },
+        }),
+      ),
+    );
+  }
+
   app.on(['GET', 'POST', 'DELETE'], '/p/:slug/mcp', async (c) => {
     const requestId = c.get('requestId');
     const log = c.get('log');
@@ -1152,4 +1192,167 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
   });
 
   return app;
+}
+
+/** What `adminUiDeps` needs from `createHttpApp`. */
+interface AdminUiWiring {
+  readonly sessions: SessionManager;
+  readonly publicUrl: string;
+  readonly hooks: HttpAppHooks;
+  readonly logger: Logger;
+  readonly runInBackground: (c: Context, task: Promise<unknown>, what: string) => void;
+  readonly audit: ((event: AdminAuditEvent) => Promise<void>) | undefined;
+  /** A pre-authentication hook refused a page (audit `request.rejected`). */
+  readonly onRejected: (c: Context, status: number) => void;
+  /** The admin API is mounted (else every `callAdmin` is a 404). */
+  readonly adminApi: boolean;
+  /** The whole app, for in-process admin API calls. */
+  readonly fetchApp: (request: Request, c: Context) => Response | Promise<Response>;
+}
+
+/** Headers that carry the client address to the per-IP hooks; copied onto in-process admin API calls. */
+const CLIENT_ADDRESS_HEADERS = ['cf-connecting-ip', 'x-forwarded-for'] as const;
+
+/**
+ * The admin UI's view of the P4-02 sessions. Pages get a `UiPrincipal` (no session secret, only what pages show and
+ * the CSRF token they embed); the session it came from stays here, keyed weakly by that object.
+ */
+function adminUiDeps(w: AdminUiWiring): AdminUiDeps {
+  const { sessions, hooks } = w;
+  const publicOrigin = new URL(w.publicUrl).origin;
+  const origins = new WeakMap<UiPrincipal, SessionPrincipal>();
+  const toUi = (p: SessionPrincipal): UiPrincipal => {
+    const ui: UiPrincipal = Object.freeze({
+      userId: p.user.id,
+      email: p.user.email,
+      displayName: p.user.displayName,
+      role: p.role,
+      csrf: p.session.record.csrf,
+      expiresAt: p.session.record.expiresAt,
+      idleExpiresAt: p.session.idleExpiresAt,
+    });
+    origins.set(ui, p);
+    return ui;
+  };
+  const sessionOf = (ui: UiPrincipal): SessionPrincipal => {
+    const p = origins.get(ui);
+    if (p === undefined) throw new TypeError('unknown admin UI principal');
+    return p;
+  };
+  const requestId = (c: Context) => c.get('requestId') as string;
+
+  return {
+    secureCookies: publicOrigin.startsWith('https:'),
+    clearSessionCookie: sessions.clearCookie,
+    async beforeAuth(c) {
+      const stop = await hooks.beforeAuth?.(c, requestId(c), 'admin_session');
+      if (stop) w.onRejected(c, stop.status);
+      return stop;
+    },
+
+    async authenticate(c) {
+      const auth = await sessions.authenticate(c);
+      if (auth.ok) {
+        (c.get('log') as Record<string, unknown>)['principal'] = 'session';
+        return { ok: true, principal: toUi(auth.principal) };
+      }
+      if (auth.reason === 'none') return { ok: false, presented: false };
+      // A broken, expired or revoked cookie: audited and charged like any failed credential (P3-13 throttle).
+      const info = { requestId: requestId(c), reason: auth.reason };
+      (c.get('log') as Record<string, unknown>)['deny'] = auth.reason;
+      try {
+        hooks.onAuthFailure?.(c, info);
+      } catch {
+        // never changes the answer
+      }
+      let instead: Response | undefined;
+      try {
+        instead = await hooks.refuseAuthFailure?.(c, info);
+      } catch {
+        // as above
+      }
+      return { ok: false, presented: true, ...(instead ? { response: instead } : {}) };
+    },
+
+    checkFetchOrigin: (c, unsafe) => sessions.checkFetchOrigin(c, unsafe),
+    csrfMatches: (ui, presented) => sessions.csrfMatches(sessionOf(ui), presented),
+
+    onForbidden(c, ui, reason) {
+      if (!w.audit) return;
+      w.runInBackground(
+        c,
+        w.audit({
+          actor: { requestId: requestId(c), userId: ui.userId },
+          action: 'admin.forbidden',
+          targetType: 'admin_ui',
+          targetId: null,
+          status: 'denied',
+          errorCode: 'forbidden',
+          refusal: true,
+          details: {
+            via: 'session',
+            reason,
+            method: c.req.method,
+            route: c.req.routePath.slice(0, 100),
+            role: ui.role,
+          },
+        }),
+        'admin_audit',
+      );
+    },
+
+    onError(c, error) {
+      w.logger.error('admin ui error', {
+        requestId: requestId(c),
+        error: error instanceof Error ? error.name : typeof error,
+      });
+    },
+
+    async callAdmin(c, ui, call: AdminCall): Promise<AdminCallResult> {
+      if (!w.adminApi) return { status: 404, body: null };
+      const session = sessionOf(ui);
+      const url = new URL(`${publicOrigin}${ADMIN_API_BASE}${call.path}`);
+      // The path is ours to build, but never let it escape the admin API (`/../`, encoded or not).
+      if (
+        url.origin !== publicOrigin ||
+        !url.pathname.startsWith(`${ADMIN_API_BASE}/`) ||
+        url.search !== ''
+      ) {
+        throw new TypeError('admin UI calls must stay inside the admin API');
+      }
+      for (const [k, v] of Object.entries(call.query ?? {})) url.searchParams.set(k, v);
+      const cookie = sessions.readCookie(c);
+      const headers = new Headers({
+        accept: 'application/json',
+        // Our own page, by construction: the UI checked the form's CSRF token before an unsafe call got here.
+        origin: publicOrigin,
+        'sec-fetch-site': 'same-origin',
+        'x-csrf-token': session.session.record.csrf,
+      });
+      if (typeof cookie === 'string') headers.set('cookie', `${sessions.cookieName}=${cookie}`);
+      for (const name of CLIENT_ADDRESS_HEADERS) {
+        const value = c.req.header(name);
+        if (value !== undefined) headers.set(name, value);
+      }
+      let body: string | undefined;
+      if (call.body !== undefined) {
+        headers.set('content-type', 'application/json');
+        body = JSON.stringify(call.body);
+      }
+      const res = await w.fetchApp(
+        new Request(url, { method: call.method, headers, ...(body === undefined ? {} : { body }) }),
+        c,
+      );
+      const text = await res.text();
+      let parsed: unknown = null;
+      if (text.length > 0) {
+        try {
+          parsed = JSON.parse(text);
+        } catch {
+          parsed = null;
+        }
+      }
+      return { status: res.status, body: parsed };
+    },
+  };
 }

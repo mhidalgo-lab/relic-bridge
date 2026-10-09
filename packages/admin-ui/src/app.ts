@@ -1,0 +1,58 @@
+// SPDX-License-Identifier: Apache-2.0
+// The `/admin` sub-app (P4-03). Mounted by `@relic-bridge/http-app` at `/admin` whenever sign-in is configured.
+//
+//   GET /admin                     overview (any signed-in role)
+//   GET /admin/assets/:file        static assets (public, hashed names, immutable)
+//   ALL /admin/*                   signed-in 404 page (everyone else: sign-in redirect)
+//
+// Screens (P4-04+) register their routes in `registerScreens` with `kit.page` / `kit.form`.
+import { type Context, Hono } from 'hono';
+import { ASSET_CACHE_CONTROL, findAsset } from './assets.ts';
+import { type AdminUiDeps, createUiKit, type UiKit } from './kit.ts';
+import { errorPage } from './pages.tsx';
+import { registerOverview } from './screens/overview.tsx';
+
+/** Where the UI is mounted. */
+export const ADMIN_UI_BASE: '/admin' = '/admin';
+
+const requestIdOf = (c: Context): string | undefined => {
+  const id = c.get('requestId') as unknown;
+  return typeof id === 'string' ? id : undefined;
+};
+
+/** Every screen's routes. Add new screens here, before the catch-all. */
+function registerScreens(ui: Hono, kit: UiKit): void {
+  registerOverview(ui, kit);
+}
+
+export function createAdminUi(deps: AdminUiDeps): Hono {
+  const kit = createUiKit(deps);
+  const ui = new Hono();
+
+  ui.get('/assets/:file', (c) => {
+    const asset = findAsset(c.req.param('file'));
+    if (asset === undefined) return errorPage(404, requestIdOf(c));
+    return new Response(asset.body, {
+      headers: { 'Content-Type': asset.type, 'Cache-Control': ASSET_CACHE_CONTROL },
+    });
+  });
+
+  registerScreens(ui, kit);
+
+  // Anything else under /admin: sign-in first (no page names leak to strangers), then a 404 page.
+  ui.all(
+    '/*',
+    kit.page('member', (c, page) => errorPage(404, requestIdOf(c), page.principal)),
+  );
+
+  ui.onError((error, c) => {
+    try {
+      deps.onError?.(c, error);
+    } catch {
+      // never let logging change the answer
+    }
+    return errorPage(500, requestIdOf(c));
+  });
+
+  return ui;
+}

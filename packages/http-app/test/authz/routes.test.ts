@@ -28,6 +28,8 @@ import {
   type RouteCase,
   requestFor,
   sessionCheck,
+  UI_ASSET_ROUTES,
+  UI_ROUTES,
   WILDCARD_ROUTES,
 } from './matrix.ts';
 
@@ -633,7 +635,7 @@ describe('public routes', () => {
   it('unknown routes are the same 404 for everyone', async () => {
     const answers = new Set<string>();
     for (const headers of [{}, { authorization: `Bearer ${h.world.tokens.prod}` }]) {
-      for (const path of ['/admin', '/p/prod', '/p/prod/mcp/extra', '/api/admin/v2/users', '/.env']) {
+      for (const path of ['/admin-panel', '/p/prod', '/p/prod/mcp/extra', '/api/admin/v2/users', '/.env']) {
         const res = await h.send(new Request(`http://localhost${path}`, { headers }));
         answers.add(`${res.status} ${res.text}`);
       }
@@ -671,7 +673,15 @@ describe.skipIf(authzHostKind() !== 'http-app')('guard: every route is in the ma
   it('fails when the app serves a route the matrix does not list, or the matrix lists a gone route', () => {
     const { handlers, wildcards } = discover();
     const listed = new Set(
-      [...MCP_ROUTES, ...PASSTHROUGH_ROUTES, ...ADMIN_ROUTES, ...IDENTITY_ROUTES, ...PUBLIC_ROUTES]
+      [
+        ...MCP_ROUTES,
+        ...PASSTHROUGH_ROUTES,
+        ...ADMIN_ROUTES,
+        ...IDENTITY_ROUTES,
+        ...UI_ROUTES,
+        ...UI_ASSET_ROUTES,
+        ...PUBLIC_ROUTES,
+      ]
         .filter((r) => !r.pattern.endsWith('/*'))
         .map((r) => `${r.method} ${r.pattern}`),
     );

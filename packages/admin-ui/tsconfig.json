@@ -2,7 +2,9 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "types": [],
-    "lib": ["es2023", "webworker"]
+    "lib": ["es2023", "webworker"],
+    "jsx": "react-jsx",
+    "jsxImportSource": "hono/jsx"
   },
   "include": ["src", "test"]
 }

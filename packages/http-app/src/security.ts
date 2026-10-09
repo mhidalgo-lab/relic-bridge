@@ -5,6 +5,7 @@ import {
   validateHostHeader,
   validateOriginHeader,
 } from '@modelcontextprotocol/server';
+import { ASSET_CACHE_CONTROL, UI_CSP } from '@relic-bridge/admin-ui';
 
 /** One year, the usual HSTS preload minimum. */
 export const HSTS_VALUE = 'max-age=31536000; includeSubDomains';
@@ -22,8 +23,19 @@ export const SECURITY_HEADERS: Readonly<Record<string, string>> = Object.freeze(
   'Cache-Control': 'no-store',
 });
 
+/**
+ * Set the security headers. Two values a response may bring survive (P4-03), compared exactly: the admin UI's page CSP
+ * (`UI_CSP`, HTML pages under `/admin` and `/auth`) and the immutable cache header of the hashed UI assets. Any other
+ * CSP or caching a handler set is replaced.
+ */
 export function applySecurityHeaders(headers: Headers, hsts: boolean): void {
-  for (const [name, value] of Object.entries(SECURITY_HEADERS)) headers.set(name, value);
+  const uiPage = headers.get('content-security-policy') === UI_CSP;
+  const asset = headers.get('cache-control') === ASSET_CACHE_CONTROL;
+  for (const [name, value] of Object.entries(SECURITY_HEADERS)) {
+    if (name === 'Content-Security-Policy' && uiPage) continue;
+    if (name === 'Cache-Control' && asset) continue;
+    headers.set(name, value);
+  }
   if (hsts) headers.set('Strict-Transport-Security', HSTS_VALUE);
   // Never advertise the framework.
   headers.delete('X-Powered-By');

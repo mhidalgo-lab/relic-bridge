@@ -99,3 +99,32 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   through a 5 s per-isolate cache, cleared on that isolate by any admin change.
 - **Options:** no cache (one more D1 read per admin request).
 - **Needs:** nothing unless the owner prefers no cache.
+
+## P4-03 — Admin UI scaffold
+
+### P4-03 — Cross-site links into the panel open the page
+- **Context:** The admin API refuses every cookie request whose `Sec-Fetch-Site` is not `same-origin` (or `none` for
+  reads). Applied to pages, a link to `/admin/...` from mail, chat or another site would fail.
+- **Assumption made:** Pages also accept cross-site **top-level document navigations** (`Sec-Fetch-Mode: navigate`,
+  `Sec-Fetch-Dest: document`, GET/HEAD); any other cross-site or same-site request (subresource, `fetch`, frame) is
+  `403` before the session is read. A navigation only shows the page to the user (no CORS, COOP `same-origin`,
+  `frame-ancestors 'none'`), and forms still need the CSRF token and our `Origin`.
+- **Options:** (a) keep it; (b) same-origin and `none` only (links from elsewhere land on a "continue" page).
+- **Needs:** owner confirmation.
+
+### P4-03 — The UI calls the admin API in-process
+- **Context:** Screens need the same validation, role rules and audit as the API.
+- **Assumption made:** `kit.callAdmin` sends an internal request through the whole app as the signed-in user, with
+  the session cookie, the CSRF token, our own `Origin` and the client-address headers attached. Each page that loads
+  data therefore counts as two requests against the per-IP limit, and the admin call writes its own access-log line.
+- **Options:** (a) keep it; (b) call the domain services directly from the UI (fewer requests, but a second copy of the
+  checks and audit to keep in sync).
+- **Needs:** nothing unless the owner prefers (b).
+
+### P4-03 — No admin panel without sign-in
+- **Context:** The admin API also works with only `RB_ADMIN_TOKEN`; the panel needs a session.
+- **Assumption made:** `/admin` exists only when a sign-in provider is configured. With the token alone, `/admin` is
+  the ordinary 404 and the CLI or the API is the way in. Pasting the admin token into a browser form was not added
+  (it would turn a break-glass secret into a phishable login).
+- **Options:** keep it, or add a token login page with its own session (role `owner`).
+- **Needs:** owner confirmation.

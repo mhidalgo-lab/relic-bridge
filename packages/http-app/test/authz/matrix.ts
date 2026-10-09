@@ -128,6 +128,21 @@ export const IDENTITY_ROUTES: readonly RouteCase[] = [
   { method: 'POST', pattern: '/auth/logout', path: '/auth/logout' },
 ];
 
+/**
+ * Admin UI pages (P4-03): exist when sign-in is configured. Only the admin session cookie authenticates them (bearer
+ * tokens, the admin token, MCP tokens and query credentials are ignored: the answer is the sign-in redirect).
+ */
+export const UI_ROUTES: readonly RouteCase[] = [
+  { method: 'GET', pattern: '/admin', path: '/admin' },
+  // Not a registered route: the signed-in 404 page of the UI catch-all (`ALL /admin/*`).
+  { method: 'GET', pattern: '/admin/*', path: '/admin/no-such-page' },
+];
+
+/** Static UI assets (P4-03): public, hashed, immutable; unknown names are a 404 page. */
+export const UI_ASSET_ROUTES: readonly RouteCase[] = [
+  { method: 'GET', pattern: '/admin/assets/:file', path: '/admin/assets/no-such-asset.css' },
+];
+
 export const PUBLIC_ROUTES: readonly RouteCase[] = [
   { method: 'GET', pattern: '/health', path: '/health' },
   { method: 'GET', pattern: '/version', path: '/version' },
@@ -143,6 +158,8 @@ export const WILDCARD_ROUTES: Readonly<Record<string, string>> = {
   [`${A}/*`]:
     'admin authentication middleware and the authenticated 404 catch-all (matrix row GET /no-such-endpoint)',
   '/auth/*': 'sign-in routes: the pre-authentication hook (per-IP limit) only, no handler of its own',
+  '/admin/*':
+    'admin UI catch-all: session first (sign-in redirect), then the signed-in 404 page (matrix row GET /admin/*)',
 };
 
 // ---------------------------------------------------------------------------------------------------------------

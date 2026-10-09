@@ -20,4 +20,3 @@
 **/*.tsbuildinfo
 **/test
 **/*.test.ts
-packages/admin-ui

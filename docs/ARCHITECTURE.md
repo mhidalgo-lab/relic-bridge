@@ -62,7 +62,7 @@
 | `packages/storage` | `Storage` interface, Drizzle schema, migrations; adapters: `yaml` (read-only, stdio), `sqlite` (Node), `d1` (Workers) | Adapters are the only runtime-specific code. |
 | `packages/auth` | Token hashing and verification, grant resolution, identity providers (Google, GitHub, Cloudflare Access, generic OIDC), admin sessions, OAuth 2.1 server integration | WebCrypto only. |
 | `packages/http-app` | Hono app: routing, middleware (security headers, auth, rate limit, audit), MCP handler per project, admin REST API | Runs under Workers and `@hono/node-server`. |
-| `packages/admin-ui` | Admin panel UI (server-rendered Hono JSX + minimal static JS; see ADR-0004) | No inline scripts; strict CSP. |
+| `packages/admin-ui` | Admin panel UI (server-rendered Hono JSX + minimal static JS; see ADR-0004): layout, components, page/form kit, hashed assets; mounted at `/admin` by `http-app` | No inline scripts or styles; strict CSP; auto-escaping only. |
 | `apps/cli` | `relic-bridge` binary: `stdio` (default), `serve`, `init`, `doctor`, management commands | Node active LTS. |
 | `apps/worker` | Cloudflare entry, bindings, wrangler config, deploy button | Workers runtime. |
 | `apps/docs` | Documentation site (Phase 8) | Static. |
@@ -207,6 +207,22 @@ default `onLogin` (end the browser's previous session, create one, 303 to `next`
 row + user record, ≤ 5 s per-isolate user cache cleared by admin changes; role read per request), and serves
 `POST /auth/logout`. Role changes and disables end the user's sessions (`session.revoke_all`). Guide:
 [admin access](guide/admin-access.md).
+
+### Admin UI (P4-03)
+
+`packages/admin-ui` (web-standard, Hono JSX) renders the panel. `createAdminUi(deps)` is a Hono sub-app that
+`createHttpApp` mounts at `/admin` when sign-in is configured. The deps (`AdminUiDeps`) come from the P4-02 session
+manager, so `admin-ui` does not depend on `http-app`. Pages: `kit.page` (fetch metadata: same-origin, `none` or a
+cross-site top-level navigation only → per-IP hook (`admin_session` scope) → session → role) and forms: `kit.form`
+(Origin / fetch metadata → urlencoded, 16 KiB → `_csrf` token → role). Data and changes go through `kit.callAdmin`, which
+runs the request against the app itself (`app.fetch` with the same env and execution context): it carries the session
+cookie, the CSRF token, the public origin and the client-address headers, so the admin API's validation, roles and
+audit apply unchanged. Unsafe calls need the request's `VerifiedForm`. Rendering is synchronous JSX to a string with
+auto-escaping only (`scripts/check-ui-escaping.ts`). One stylesheet and one script are compiled into the bundle
+(`assets.generated.ts`, content-hashed names, SRI). They are served from `/admin/assets/*` with `immutable` caching, the
+same way on Node and Workers. The security middleware keeps the page CSP (`UI_CSP`) and the asset cache header when a
+response carries exactly those values, and replaces anything else. The sign-in pages (`/auth/*`) render with the same
+layout and CSP. Conventions: [`dev/admin-ui.md`](dev/admin-ui.md).
 
 ### Admin sign-in (P4-01)
 

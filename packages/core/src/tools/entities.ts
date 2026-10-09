@@ -196,7 +196,7 @@ const DECODE_DESCRIPTION = `Decode an entity guid offline: account id, domain, t
 
 No request is sent to New Relic. Use it to tell which account an entity belongs to before querying it.`;
 
-const isNonNull = <T>(v: T | null | undefined): v is T => v !== null && v !== undefined;
+export const isNonNull = <T>(v: T | null | undefined): v is T => v !== null && v !== undefined;
 
 /**
  * A New Relic code (`APM`, `APPLICATION`, `CRITICAL`, `CALLS`…). Restricted to a strict charset, so it is safe to show
@@ -231,13 +231,13 @@ function accountFilter(accounts: readonly number[]): EntitySearchQuery {
 }
 
 /** Offline account check for a GUID, before any request (T3). */
-function checkGuid(ctx: ToolContext, value: string): DecodedEntityGuid {
+export function checkGuid(ctx: ToolContext, value: string): DecodedEntityGuid {
   const decoded = decodeEntityGuid(value);
   if (!ctx.accounts.allowed.includes(decoded.accountId)) throw outOfScope(decoded.accountId);
   return decoded;
 }
 
-function outOfScope(account: number): RbError {
+export function outOfScope(account: number): RbError {
   return new RbError(
     ErrorCode.AuthForbidden,
     `This entity belongs to account ${account}, which is not available on this connection.`,
@@ -252,7 +252,11 @@ function notFound(): RbError {
 }
 
 /** A required field came back null: map the field error if there is one. */
-function requireField<T>(value: T | null | undefined, result: NerdGraphResult<unknown>, ctx: ToolContext): T {
+export function requireField<T>(
+  value: T | null | undefined,
+  result: NerdGraphResult<unknown>,
+  ctx: ToolContext,
+): T {
   if (isNonNull(value)) return value;
   throw result.warnings.length > 0
     ? graphQLErrorToRbError(result.warnings[0], ctx.credential.region)

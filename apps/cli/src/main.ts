@@ -26,7 +26,7 @@ import {
   serveSettings,
   startServer,
 } from './serve.ts';
-import { serveProjectOverStdio, stdioWriteTools } from './stdio.ts';
+import { isUnconfigured, serveProjectOverStdio, serveSetupModeOverStdio, stdioWriteTools } from './stdio.ts';
 import { nerdGraphFetch } from './test-hooks.ts';
 
 /** Everything `main` needs from the process, injected so it can be tested without spawning. */
@@ -201,6 +201,18 @@ export function main(rt: CliRuntime): MainResult {
         ...(fetch === undefined ? {} : { fetch }),
       }),
     };
+  }
+
+  if (isUnconfigured(rt.env, args)) {
+    // Setup mode (P7-14): list the tools so clients, registries and inspectors can see them; every call explains
+    // what to configure. No key, so nothing can reach New Relic.
+    const { handle, tools } = serveSetupModeOverStdio({ logger });
+    logger.warn('no configuration: serving the tool list only (setup mode); tool calls explain what to set', {
+      version: VERSION,
+      tools: tools.length,
+      hint: 'Set NEW_RELIC_API_KEY and NEW_RELIC_ACCOUNT_ID, or pass --config <file>.',
+    });
+    return { kind: 'serving', close: () => handle.close() };
   }
 
   try {

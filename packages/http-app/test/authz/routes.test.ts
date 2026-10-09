@@ -27,6 +27,7 @@ import {
   OAUTH_ROUTES,
   PASSTHROUGH_PRINCIPALS,
   PASSTHROUGH_ROUTES,
+  PUBLIC_CATALOG_ROUTES,
   PUBLIC_ROUTES,
   type RouteCase,
   requestFor,
@@ -730,6 +731,8 @@ describe.skipIf(authzHostKind() !== 'http-app')('guard: every route is in the ma
       },
       // The built-in consent screen (P5-04) adds its routes.
       oauth: {},
+      // The static tool catalog (P7-14) adds its well-known route.
+      publicToolCatalog: true,
     });
     const handlers = new Set<string>();
     const wildcards = new Set<string>();
@@ -751,6 +754,7 @@ describe.skipIf(authzHostKind() !== 'http-app')('guard: every route is in the ma
         ...UI_ROUTES,
         ...UI_ASSET_ROUTES,
         ...PUBLIC_ROUTES,
+        ...PUBLIC_CATALOG_ROUTES,
         ...OAUTH_ROUTES,
         ...CONSENT_ROUTES,
       ]

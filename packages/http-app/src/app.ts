@@ -45,15 +45,19 @@ import {
   LimiterPool,
   type Logger,
   newRequestId,
+  PUBLIC_DISCOVERY_METHODS,
+  publicCatalogTools,
   QueryCache,
   type QueryLimits,
   type Secret,
   silentLogger,
   systemClock,
   type TaskStore,
+  TOOL_CATALOG_PATH,
   type ToolCallEvent,
   type ToolContext,
   type ToolDefinition,
+  toolCatalog,
   VERSION,
 } from '@relic-bridge/core';
 import { type KvRepository, SLUG_RE, type Storage } from '@relic-bridge/storage';
@@ -337,6 +341,14 @@ export interface HttpAppOptions {
    * without the extension. Project routes only (not pass-through).
    */
   readonly taskStore?: TaskStore;
+  /**
+   * Registry-friendly discovery (P7-14, `RB_PUBLIC_TOOL_CATALOG=on`). Default false: every MCP request needs a
+   * credential. On: `GET /.well-known/relic-bridge/tools.json` serves the static read-only tool catalog, and a POST to
+   * `/p/:slug/mcp` without an `Authorization` header that asks only for `initialize`, `server/discover`, `ping` or
+   * `tools/list` is answered from that same catalog, identically for every slug (no storage read: no project
+   * existence oracle). Everything else still answers the standard 401.
+   */
+  readonly publicToolCatalog?: boolean;
 }
 
 type Env = { Variables: { requestId: string; started: number; log: Record<string, unknown> } };
@@ -430,6 +442,10 @@ const UNAUTHORIZED_BODY = '{"error":"unauthorized"}';
 const WWW_AUTHENTICATE = 'Bearer realm="relic-bridge"';
 /** Not `Bearer`: a client must not start OAuth discovery for a route that takes a New Relic key. */
 const PASSTHROUGH_WWW_AUTHENTICATE = 'NewRelic-Api-Key realm="relic-bridge-passthrough"';
+/** Largest unauthenticated discovery body read (P7-14): an `initialize` is well under 2 KiB. */
+const PUBLIC_DISCOVERY_MAX_BYTES = 16 * 1024;
+/** How long an unauthenticated discovery body may take to arrive. */
+const PUBLIC_DISCOVERY_READ_MS = 10_000;
 const BATCH_REFUSED_BODY =
   '{"jsonrpc":"2.0","id":null,"error":{"code":-32600,"message":"Batch requests are not supported: send one JSON-RPC message per request."}}';
 
@@ -646,6 +662,32 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
     },
   );
 
+  // Registry-friendly discovery (P7-14): a separate handler whose server holds the static read-only catalog and no
+  // context at all, so nothing it serves can reach New Relic, storage or a project (a call would fail closed).
+  const publicToolCatalog = options.publicToolCatalog === true;
+  const publicTools = Object.freeze(publicCatalogTools(createBuiltinTools(toolDeps)));
+  const publicMcp = publicToolCatalog
+    ? createMcpHandler(
+        () =>
+          buildMcpServer({
+            tools: publicTools,
+            ctx: () => {
+              throw new Error('the public tool catalog has no tool context');
+            },
+            toolsListChanged: false,
+            prompts: [],
+            resources: [],
+          }),
+        {
+          legacy: 'stateless',
+          maxRequestBodySize: PUBLIC_DISCOVERY_MAX_BYTES,
+          onerror: (error) =>
+            logger.debug('mcp transport (public catalog)', { error: error.message.slice(0, 200) }),
+        },
+      )
+    : undefined;
+  const publicCatalogBody = publicToolCatalog ? JSON.stringify(toolCatalog(publicTools)) : undefined;
+
   /** `413` for a declared body length over the limit (or an unparseable one), before any authentication work. */
   const refuseDeclaredBody = (c: Context<Env>): Response | undefined => {
     const declared = c.req.header('content-length');
@@ -702,9 +744,10 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
    */
   const serveMcp = async (
     c: Context<Env>,
-    authInfo: AuthInfo,
+    authInfo: AuthInfo | undefined,
     mcpMethod: string | null,
     mcpName: string | null,
+    handler: typeof mcp = mcp,
   ): Promise<Response> => {
     const requestId = c.get('requestId');
     const deadline = new Deadline(timeoutMs, () => {
@@ -714,7 +757,7 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
     let response: Response;
     try {
       response = await Promise.race([
-        mcp.fetch(c.req.raw, { authInfo }),
+        handler.fetch(c.req.raw, authInfo === undefined ? {} : { authInfo }),
         deadline.expired.then(() => json(504, '{"error":"timeout"}')),
       ]);
     } catch (error) {
@@ -936,6 +979,10 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
 
   app.get('/health', (c) => c.json({ status: 'ok' }));
   app.get('/version', (c) => c.json({ name: 'relic-bridge', version: VERSION }));
+  if (publicCatalogBody !== undefined) {
+    const body = publicCatalogBody;
+    app.get(TOOL_CATALOG_PATH, () => json(200, body));
+  }
 
   if (options.admin) {
     const admin = options.admin;
@@ -1130,6 +1177,29 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
     // so every denial on one URL is still byte-identical and an unknown slug answers like a known one (T19).
     const refused = oauth === undefined ? unauthorized : () => unauthorized(oauth.challenge(slug));
     const deny = (reason: string): Promise<Response> => denyWith(c, { requestId, reason }, log, refused);
+
+    // Registry-friendly discovery (P7-14, opt-in): no `Authorization` header at all, and a body that only asks what the
+    // server offers. Decided from the body (never the `Mcp-Method` header) and before the slug is looked at, so every
+    // slug, known or not, gets the same answer; anything else is the same 401 as without the catalog.
+    if (publicMcp !== undefined && c.req.header('authorization') === undefined) {
+      if (c.req.method !== 'POST') return deny('missing_token');
+      const peek = await peekWithin(c.req.raw, PUBLIC_DISCOVERY_MAX_BYTES, PUBLIC_DISCOVERY_READ_MS);
+      if (
+        peek === 'timeout' ||
+        peek.kind !== 'message' ||
+        peek.method === null ||
+        !PUBLIC_DISCOVERY_METHODS.includes(peek.method)
+      ) {
+        // Refused without reading the rest: release the unread original (never awaited, it may be stalled).
+        if (peek === 'timeout' || peek.kind === 'too_large')
+          void c.req.raw.body?.cancel().catch(() => undefined);
+        return deny('missing_token');
+      }
+      const method = safeMcpHeader(peek.method);
+      log['publicCatalog'] = true;
+      if (method !== null) log['mcpMethod'] = method;
+      return serveMcp(c, undefined, method, null, publicMcp);
+    }
 
     // 6. Authenticate, then authorise for this slug. The token is checked before the slug is looked at, so slugs
     // can't be probed without a valid token (T19); every denial is the same 401.

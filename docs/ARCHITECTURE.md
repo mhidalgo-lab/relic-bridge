@@ -152,6 +152,10 @@ Implemented by `createHttpApp` in `packages/http-app` (P2-06); `relic-bridge ser
 
 1. `POST /p/{slug}/mcp` reaches the Hono app: request id, security headers (on every response), `Host` / `Origin`
    allowlists (DNS rebinding, T24), CORS only when configured, declared body size ≤ 1 MiB.
+   *Optional public discovery (P7-14, `RB_PUBLIC_TOOL_CATALOG=on`, off by default):* after the per-IP limit and
+   before step 2, a POST with no `Authorization` header whose body asks only for `initialize`, `server/discover`,
+   `ping` or `tools/list` is answered by a second MCP handler holding the static read-only catalog and no context, the
+   same for every slug (no storage read); anything else continues to step 2 and gets the usual 401.
 2. **Authenticate**: bearer token (format and checksum offline, then hash lookup, constant-time compare, revoked,
    expired) or, with OAuth on (P5-01), a provider-issued access token: validated for this slug's resource only
    (RFC 8707 audience), props cross-checked (slug, user, client), then its grant goes through the same `resolveAccess`

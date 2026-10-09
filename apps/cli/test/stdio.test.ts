@@ -13,7 +13,14 @@ import {
 } from '@relic-bridge/core';
 import { afterEach, describe, expect, it } from 'vitest';
 import { ConfigError, type ResolvedProject } from '../src/config.ts';
-import { prepareServer, selectTools, stdioWriteTools } from '../src/stdio.ts';
+import {
+  isUnconfigured,
+  prepareServer,
+  prepareSetupModeServer,
+  SETUP_MESSAGE,
+  selectTools,
+  stdioWriteTools,
+} from '../src/stdio.ts';
 import { FAKE_KEY, identityBody } from './helpers.ts';
 
 function project(overrides: Partial<ResolvedProject> = {}): ResolvedProject {
@@ -223,5 +230,48 @@ describe('prepareServer', () => {
       .catch((e: unknown) => ({ isError: true, error: String(e) }));
     expect(r.isError).toBe(true);
     expect(calls).toBe(0);
+  });
+});
+
+describe('setup mode (P7-14)', () => {
+  it('starts only when nothing at all is configured', () => {
+    expect(isUnconfigured({}, {})).toBe(true);
+    expect(isUnconfigured({ NEW_RELIC_API_KEY: '  ' }, {})).toBe(true);
+    expect(isUnconfigured({ NEW_RELIC_API_KEY: FAKE_KEY }, {})).toBe(false);
+    expect(isUnconfigured({ NEW_RELIC_ACCOUNT_ID: '1' }, {})).toBe(false);
+    expect(isUnconfigured({ RB_CONFIG: '/x.yaml' }, {})).toBe(false);
+    expect(isUnconfigured({}, { config: '/x.yaml' })).toBe(false);
+    expect(isUnconfigured({}, { project: 'acme' })).toBe(false);
+  });
+
+  it('lists the read-only tools; tools, resources and prompts never reach New Relic', async () => {
+    const lines: string[] = [];
+    const logger = createLogger({ level: 'debug', sink: (l) => lines.push(l) });
+    const { factory, tools } = prepareSetupModeServer({ logger });
+    expect(tools.every((t) => t.kind === 'read')).toBe(true);
+    const [clientT, serverT] = InMemoryTransport.createLinkedPair();
+    await factory().connect(serverT);
+    const client = new Client({ name: 'test', version: '0.0.0' });
+    await client.connect(clientT);
+    try {
+      const listed = await client.listTools();
+      expect(listed.tools.map((t) => t.name).sort()).toEqual(tools.map((t) => t.name).sort());
+      expect(listed.tools.map((t) => t.name)).toContain('run_nrql');
+      for (const name of ['whoami', 'run_nrql', 'list_accounts']) {
+        const r = await client.callTool({ name, arguments: name === 'run_nrql' ? { nrql: 'SELECT 1' } : {} });
+        expect(r.isError, name).toBe(true);
+        const text = (r.content as { text: string }[])[0]?.text ?? '';
+        expect(text).toContain(`RB_AUTH_UNAUTHORIZED: ${SETUP_MESSAGE}`);
+        expect(text).toContain('NEW_RELIC_API_KEY');
+      }
+      // A resource that needs New Relic (schema snapshots) fails; the static NRQL reference may still be read.
+      const { resources } = await client.listResources();
+      for (const r of resources) {
+        const read = await client.readResource({ uri: r.uri }).catch((e: unknown) => e);
+        if (read instanceof Error) expect(read.message).not.toContain(FAKE_KEY);
+      }
+    } finally {
+      await client.close();
+    }
   });
 });

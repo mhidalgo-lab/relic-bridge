@@ -1,0 +1,60 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.matiashidalgo/relic-bridge",
+  "title": "relic-bridge",
+  "description": "Unofficial MCP server for New Relic: query NerdGraph and NRQL with your own User API key.",
+  "version": "0.1.0",
+  "websiteUrl": "https://github.com/matiashidalgo/relic-bridge#readme",
+  "repository": {
+    "url": "https://github.com/matiashidalgo/relic-bridge",
+    "source": "github",
+    "subfolder": "apps/cli"
+  },
+  "packages": [
+    {
+      "registryType": "npm",
+      "registryBaseUrl": "https://registry.npmjs.org",
+      "identifier": "relic-bridge",
+      "version": "0.1.0",
+      "runtimeHint": "npx",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "NEW_RELIC_API_KEY",
+          "description": "New Relic User API key. Without it the server only lists its tools.",
+          "isRequired": true,
+          "isSecret": true,
+          "format": "string"
+        },
+        {
+          "name": "NEW_RELIC_ACCOUNT_ID",
+          "description": "Account id that queries run against by default.",
+          "isRequired": true,
+          "format": "number"
+        },
+        {
+          "name": "NEW_RELIC_REGION",
+          "description": "Data center of the account.",
+          "isRequired": false,
+          "format": "string",
+          "default": "US",
+          "choices": ["US", "EU", "JP"]
+        },
+        {
+          "name": "RB_ACCOUNTS",
+          "description": "Extra account ids this connection may query, comma-separated.",
+          "isRequired": false,
+          "format": "string"
+        },
+        {
+          "name": "RB_TOOLS",
+          "description": "Tool allowlist, comma-separated tool names (default: every read-only tool).",
+          "isRequired": false,
+          "format": "string"
+        }
+      ]
+    }
+  ]
+}

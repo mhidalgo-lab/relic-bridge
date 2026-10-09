@@ -14,6 +14,7 @@ the [CLI reference](../reference/cli.md#doctor).
 | Message / symptom | Cause and fix |
 |---|---|
 | `NEW_RELIC_API_KEY is not set.` / `NEW_RELIC_ACCOUNT_ID is not set.` | The variable isn't in the client's `env` block for this server. Exporting it in your shell isn't enough. |
+| Tools are listed, but every call answers `RB_AUTH_UNAUTHORIZED: relic-bridge is not configured yet` (stderr: `setup mode`) | Neither `NEW_RELIC_API_KEY` nor `NEW_RELIC_ACCOUNT_ID` nor a config file reached the server, so it only lists its tools. Add both variables to the client's `env` block (or `--config`) and restart the server. |
 | `apiKey refers to ${NAME}, which is not set.` | YAML mode: set `NAME` in the client's `env` block. |
 | `<file> has N projects; choose one with --project.` | Add `--project <slug>` to the args. |
 | `Unknown tool name(s) in the tool allowlist` | A typo in `tools` / `RB_TOOLS`; the message lists valid names (see the [tool reference](../reference/tools.md)). |
@@ -46,7 +47,7 @@ Tool errors carry a stable code and usually a hint.
 | `RB_BUDGET_EXHAUSTED` | One tool call needed too many NerdGraph requests (limit 1000). | Ask for a narrower request. |
 | `RB_NERDGRAPH_ERROR` | NerdGraph returned another error; the (redacted) message is included. | Read the message; for NRQL errors, correct the query. |
 | `RB_LIMIT_QUOTA` | The grant's usage quota for the day or month is used up (the error says which and when it starts again). | An administrator can raise or remove it: [Quotas](admin-guide.md#quotas-per-grant). |
-| `RB_AUTH_UNAUTHORIZED`, `RB_LIMIT_RATE` | Used by the hosted modes (tokens, rate limits). stdio never returns them. | See [hosted server](#hosted-self-hosted-server) above. |
+| `RB_AUTH_UNAUTHORIZED`, `RB_LIMIT_RATE` | Used by the hosted modes (tokens, rate limits). On stdio, `RB_AUTH_UNAUTHORIZED` only means setup mode (no configuration at all, see above). | See [hosted server](#hosted-self-hosted-server) above. |
 | `RB_INTERNAL` | A bug. The message includes a reference, and details are in the stderr log. | Report an issue with the log line (check it for secrets first). |
 
 ## Hosted (self-hosted server)

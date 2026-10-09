@@ -893,3 +893,30 @@ Sources: SQLite [UPSERT](https://www.sqlite.org/lang_upsert.html) and [RETURNING
   also reaches the runtime as an unhandled error, so the quota methods return refusals instead of throwing.
 - UTC period keys (`d2026-10-06`, `m2026-10`) sort lexicographically in time order, which is how the object's cleanup alarm
   tells ended periods from current ones.
+
+## 30. MCP Registry metadata and unauthenticated discovery (P7-14, from documentation 2026-10-06, nothing published)
+
+Sources: [server.json format](https://github.com/modelcontextprotocol/registry/blob/main/docs/reference/server-json/generic-server-json.md),
+[server.schema.json 2025-12-11](https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json),
+[2026-07-28 authorization](https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization),
+[SEP-1649 / SEP-2127 server cards](https://github.com/modelcontextprotocol/modelcontextprotocol/issues/1649).
+
+- The newest registry schema is still `2025-12-11` (no 2026 version found). Required: `name` (reverse DNS
+  `^[a-zA-Z0-9.-]+/[a-zA-Z0-9._-]+$`, 3-200 characters), `description` (≤ 100 characters), `version` (a specific
+  version: ranges, `1.x` and `latest` are rejected). Optional: `title` (≤ 100), `websiteUrl`, `repository`
+  (`url`, `source`, optional `subfolder`, `id`), `packages`, `remotes`, `_meta` under
+  `io.modelcontextprotocol.registry/publisher-provided`.
+- A package needs `registryType` (`npm`, `pypi`, `nuget`, `oci`, `mcpb`, …), `identifier` and `transport`
+  (`stdio`; `streamable-http` / `sse` need a `url`); `environmentVariables` entries take `name`, `description`,
+  `isRequired`, `isSecret`, `format`, `default`, `choices`. npm packages prove the namespace with `mcpName` in
+  `package.json` equal to `name`; `io.github.<user>/…` names are verified by GitHub sign-in in `mcp-publisher`.
+- `remotes` URLs may hold `{variables}`, but a self-hosted server has no single URL, so relic-bridge lists only the npm
+  package.
+- The 2026-07-28 authorization page says authorization is optional for MCP implementations, that clients MUST send the
+  token on every HTTP request, and that invalid or missing tokens get `401`; it neither requires nor forbids serving
+  `initialize` / `tools/list` without a token. Partial unauthenticated access is therefore a server choice, which is why
+  relic-bridge keeps it opt-in and limited to the static catalog. Stdio servers take credentials from the environment
+  and do not follow the HTTP authorization flow.
+- MCP Server Cards (`/.well-known/mcp/server-card(s).json`) are still a draft SEP (SEP-2127 superseding SEP-1649) with
+  no settled path; not implemented. relic-bridge's own `/.well-known/relic-bridge/tools.json` is project-specific and can
+  be replaced once a card format is ratified.

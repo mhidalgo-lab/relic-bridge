@@ -34,7 +34,9 @@ JSON lines on **stderr**; stdout is reserved for MCP messages.
 
 ## Env mode
 
-Used when no config file is given.
+Used when no config file is given. When neither `NEW_RELIC_API_KEY` nor `NEW_RELIC_ACCOUNT_ID` is set either, the
+server starts in **setup mode** (P7-14): it lists the read-only tools and every call answers `RB_AUTH_UNAUTHORIZED`
+with what to configure. Setting only one of the two is a configuration error (exit code 1).
 
 | Variable | Required | Default | Meaning |
 |---|---|---|---|

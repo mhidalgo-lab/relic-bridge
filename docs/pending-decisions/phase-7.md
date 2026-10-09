@@ -238,3 +238,26 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Needs:** on a deployment, run one Tasks-capable client (e.g. an `ext-tasks` client session, or a host that lists
   Tasks support) against `/p/<slug>/mcp` with a slow query, and tick the client criterion in the task file; owner's call
   on (4) and on an off switch.
+
+### P7-14 — Lazy auth: stdio setup mode on by default, remote public catalog opt-in, registry not published
+- **Context:** The task wants registries and OAuth-first clients to list tools before authenticating, without a project
+  existence oracle. The 2026-07-28 spec neither requires nor forbids unauthenticated `initialize` / `tools/list`.
+  Publishing to the MCP Registry needs the maintainer's GitHub sign-in and a published npm package.
+- **Assumption made:** (1) **stdio setup mode is the default** when nothing at all is configured (no key, no account id,
+  no config file): the tools are listed and every call answers `RB_AUTH_UNAUTHORIZED` with a setup hint; a partial
+  configuration still exits 1. Previously a bare `npx relic-bridge` exited 1 with `NEW_RELIC_API_KEY is not set`, which
+  clients show in their logs only; now they show a connected server whose calls explain the setup. (2) **Remote: opt-in
+  `RB_PUBLIC_TOOL_CATALOG`** (off by default) instead of a separate endpoint: discovery methods without an
+  `Authorization` header are answered on `/p/<any>/mcp` from the static read-only catalog, identical for every slug, plus
+  `/.well-known/relic-bridge/tools.json`. The list is the built-in read-only tools, not the deployment's affordable
+  subset (the Workers Free plan budget may hide a few tools after sign-in) and never write tools. (3) `server.json`
+  lists the npm package only (no `remotes`, no OCI image: the image is a self-hosted HTTP server that needs a master key
+  and a URL, which the registry cannot describe usefully), under `io.github.matiashidalgo/relic-bridge`. (4) No MCP
+  Server Card (SEP-2127 is a draft with no settled path).
+- **Options:** keep stdio failing fast (setup mode behind a flag such as `--list-only`); serve the public catalog on a
+  separate path (e.g. `/mcp`) instead of the project routes; include the deployment's affordable subset; add the OCI
+  image and a templated `remotes` entry (`https://{host}/p/{project}/mcp`); publish a server card once ratified.
+- **Needs:** owner's call on (1) and (2); then, after the first npm release, publish with `mcp-publisher login github`
+  and `mcp-publisher publish` (and decide whether the release workflow should do it with GitHub OIDC). Verify with
+  a real registry/inspector (e.g. MCP Inspector against a deployment with the catalog on) that discovery works and that
+  OAuth-first clients still sign in at the first tool call.

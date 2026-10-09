@@ -47,6 +47,8 @@ export interface WorkerVars {
   readonly RB_PASSTHROUGH?: string;
   /** Opt-in write tools (P7-09, docs/adr/0015-opt-in-write-tools.md): `on` / `off` (default off); needs RB_AUDIT=on. */
   readonly RB_WRITE_TOOLS?: string;
+  /** `on`: registries and inspectors may list the static read-only tool catalog without a credential (P7-14). */
+  readonly RB_PUBLIC_TOOL_CATALOG?: string;
   /** OAuth for MCP clients (P5-04, docs/guide/oauth.md): `on` / `off` (default off); needs sign-in. */
   readonly RB_OAUTH?: string;
   /** Dynamic client registration: `on` (default) / `off`. */

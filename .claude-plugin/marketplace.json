@@ -1,0 +1,14 @@
+{
+  "name": "relic-bridge",
+  "owner": { "name": "relic-bridge contributors" },
+  "metadata": { "description": "relic-bridge: New Relic investigation tools for Claude Code" },
+  "plugins": [
+    {
+      "name": "relic-bridge",
+      "source": "./plugins/relic-bridge",
+      "description": "Investigate New Relic with relic-bridge: MCP config, investigation skills and slash commands.",
+      "version": "0.1.0",
+      "category": "monitoring"
+    }
+  ]
+}

@@ -34,6 +34,7 @@ claude mcp add relic \
   key.
 - Check it: `claude mcp list`, or `/mcp` inside a session. Remove it with `claude mcp remove relic`.
 - Debug output: `claude --debug` shows the server's stderr.
+- Prefer a bundle? The [Claude Code plugin](claude-code-plugin.md) adds investigation skills and slash commands.
 
 ## Claude Desktop
 

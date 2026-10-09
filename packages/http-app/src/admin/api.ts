@@ -21,6 +21,7 @@ import {
   revalidateCredential,
   revokeAccessToken,
   rotateCredentialKey,
+  rotateCredentialKeysBatch,
   type toTokenSummary,
   type UpdateProjectInput,
   updateProject,
@@ -64,7 +65,7 @@ export const ADMIN_TOKEN_ACTOR: 'admin_token' = 'admin_token';
 
 export type StorageForAdmin = Pick<
   Storage,
-  'users' | 'credentials' | 'projects' | 'grants' | 'accessTokens' | 'auditLog'
+  'users' | 'credentials' | 'projects' | 'grants' | 'accessTokens' | 'auditLog' | 'settings'
 >;
 
 type Vars = { requestId: string; started: number; log: Record<string, unknown> };
@@ -543,6 +544,22 @@ const routes = {
     responses: { 200: json(S.TokenOne, 'Revoked'), ...errors(404) },
   }),
 
+  rotateKeys: route({
+    method: 'post',
+    path: '/keys/rotate',
+    tags: ['keys'],
+    summary: 'Re-encrypt stored keys under the current master key (one batch)',
+    description:
+      'Master-key rotation for hosts without local database access (a Worker on D1). Start the server with the new ' +
+      'key as `RB_MASTER_KEY` and the old one as `RB_MASTER_KEY_PREVIOUS`, then call this until `nextCursor` is ' +
+      '`null` (`relic-bridge keys rotate --remote` does). Each row is re-encrypted with a compare-and-swap, so every ' +
+      'row stays readable, an interrupted run resumes, and a repeated run changes nothing. A wrong or retired master ' +
+      'key answers `503 unavailable` (`detail`: `key_mismatch`, `key_version_retired`) before any row is touched. ' +
+      'The previous key can be removed once `pending` is 0. Never returns key material.',
+    request: BODY(S.RotateKeysBody),
+    responses: { 200: json(S.KeyRotationOne, 'What this batch did'), ...errors(413, 415) },
+  }),
+
   listAudit: route({
     method: 'get',
     path: '/audit',
@@ -567,6 +584,7 @@ const REFUSAL_ROUTES: readonly (readonly [string, RegExp, string, string])[] = [
   ['PATCH', /^\/projects\/([^/]+)$/, 'project.update', 'project'],
   ['POST', /^\/grants$/, 'grant.create', 'grant'],
   ['POST', /^\/tokens$/, 'token.create', 'token'],
+  ['POST', /^\/keys\/rotate$/, 'keys.rotate', 'master_key'],
 ];
 
 function validationError(error: z.ZodError): AdminApiError {
@@ -1125,6 +1143,48 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
       (r) => ({ projectId: r.projectId }),
     );
     return c.json({ data: tokenView(token.summary) }, 200);
+  });
+
+  // ------------------------------------------------------------------------------------------------ master key
+  api.openapi(routes.rotateKeys, async (c) => {
+    const body = c.req.valid('json');
+    const batchSize = body.batchSize ?? S.DEFAULT_ROTATION_BATCH;
+    const report = await change(
+      c,
+      { action: 'keys.rotate', targetType: 'master_key', details: { batchSize } },
+      () =>
+        rotateCredentialKeysBatch(storage, deps.keyring, {
+          limit: batchSize,
+          ...(body.after == null ? {} : { after: body.after }),
+        }),
+      (r) => ({
+        targetId: `v${r.currentVersion}`,
+        // Counts and ids only (credential ids are not secret); failures capped so the row stays small.
+        details: {
+          reencrypted: r.reencrypted.length,
+          failed: r.failed.slice(0, 20).map((f) => ({ id: f.id, code: f.code })),
+          failedCount: r.failed.length,
+          pending: r.pending,
+          complete: r.nextCursor === null,
+          versionsInUse: [...r.versionsInUse],
+        },
+      }),
+    );
+    return c.json(
+      {
+        data: {
+          currentVersion: report.currentVersion,
+          total: report.total,
+          reencrypted: [...report.reencrypted],
+          alreadyCurrent: report.alreadyCurrent,
+          failed: report.failed.map((f) => ({ id: f.id, code: f.code })),
+          nextCursor: report.nextCursor,
+          pending: report.pending,
+          versionsInUse: [...report.versionsInUse],
+        },
+      },
+      200,
+    );
   });
 
   // ---------------------------------------------------------------------------------------------------- audit

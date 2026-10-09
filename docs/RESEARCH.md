@@ -411,4 +411,10 @@ database.
   verified (pending decision).
 - `wrangler deploy --var NAME:value` overrides a `vars` entry at deploy time; `wrangler secret list --format json` lists
   secret names only. A missing Worker is assumed to answer with API code 10007 (not verified).
+- **Changing several secrets atomically** (P3-11, checked 2026-10-03): `wrangler secret put` creates and deploys a new
+  version per call, so two calls deploy an intermediate version. `wrangler secret bulk` (JSON on stdin) creates, updates
+  or (wrangler >= 4.97, `null` values) deletes up to 100 secrets in one request and one version; secrets not named are
+  kept ([secret bulk](https://developers.cloudflare.com/workers/wrangler/commands/workers/#secret-bulk),
+  [bulk secrets API](https://developers.cloudflare.com/changelog/post/2026-06-03-bulk-secrets-api/)). The master-key
+  rotation runbook sets `RB_MASTER_KEY` and `RB_MASTER_KEY_PREVIOUS` this way.
 

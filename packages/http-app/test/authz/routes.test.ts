@@ -205,6 +205,8 @@ describe('admin routes × principals', () => {
         (route.path.endsWith('/grants') || route.path.endsWith('/tokens')) &&
         route.body !== undefined);
     if (dangling) return 404;
+    // Actions on an existing resource answer 200; only creates answer 201.
+    if (route.path.endsWith('/keys/rotate')) return 200;
     return route.method === 'POST' ? 201 : 200;
   };
 

@@ -15,7 +15,7 @@ with Workers bindings. Private package; it is deployed with Wrangler, not publis
 | `OAUTH_KV` | KV | OAuth provider state (Phase 5). |
 | `RATE_LIMITER` | Rate Limiting | Shared coarse rate-limit ceiling (P3-04); exact rules stay per isolate. |
 | `RB_MASTER_KEY` | secret, required | Encrypts stored New Relic keys (`relic-bridge keys generate`). Back it up. |
-| `RB_MASTER_KEY_PREVIOUS` | secret, optional | The previous master key while rotating. |
+| `RB_MASTER_KEY_PREVIOUS` | secret, optional | The previous master key while rotating ([runbook](../../docs/guide/cloudflare-deploy.md#rotate-the-master-key)). |
 | `RB_FINGERPRINT_SECRET` | secret, optional | Required only with `RB_PASSTHROUGH=on` (`pnpm cf:setup --passthrough` generates it). |
 | `RB_ADMIN_TOKEN` | secret | Enables the admin API (`/api/admin/v1`); 32-512 printable characters. |
 

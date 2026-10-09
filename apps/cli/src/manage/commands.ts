@@ -8,6 +8,7 @@ import { intList, intOption, type ManageArgs, type ManageValues, nameList } from
 import { type AdminClient, ApiError, api } from './client.ts';
 import { assertClient, printClientConfigs } from './configs.ts';
 import type { ManageContext } from './io.ts';
+import { keysRotateRemote } from './keys.ts';
 import { iso, plain, table } from './render.ts';
 import { readNewRelicKey } from './secrets.ts';
 
@@ -531,4 +532,5 @@ export const HANDLERS: Readonly<Record<string, (run: Run) => Promise<number>>> =
   'token list': tokenList,
   'token revoke': tokenRevoke,
   'audit tail': auditTail,
+  'keys rotate': (run) => keysRotateRemote(run),
 };

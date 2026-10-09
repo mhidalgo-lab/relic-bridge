@@ -456,3 +456,56 @@ export const AuditQuerySchema = z.strictObject({
   cursor: cursorQuery,
 });
 export const AuditPage = page(AuditSchema, 'AuditPage');
+
+// ---------------------------------------------------------------------------------------------------------------
+// Master key (P3-11)
+// ---------------------------------------------------------------------------------------------------------------
+
+/** Rows re-encrypted per call by default: about 30 storage calls, well inside a Worker invocation's limits. */
+export const DEFAULT_ROTATION_BATCH = 25;
+
+export const RotateKeysBody = z
+  .strictObject({
+    batchSize: z
+      .number()
+      .int()
+      .min(1)
+      .max(100)
+      .optional()
+      .openapi({ description: 'Rows to re-encrypt in this call, 1-100 (default 25).' }),
+    after: idRef('`nextCursor` of the previous call; omit to start from the first row.')
+      .nullable()
+      .optional(),
+  })
+  .openapi('RotateKeys');
+
+export const KeyRotationSchema = z
+  .object({
+    currentVersion: z.number().int().openapi({ description: 'The version rows are re-encrypted under.' }),
+    total: z.number().int().openapi({ description: 'Credentials with an encrypted key (whole table).' }),
+    reencrypted: z.array(z.string()).openapi({ description: 'Credential ids re-encrypted by this call.' }),
+    alreadyCurrent: z
+      .number()
+      .int()
+      .openapi({ description: 'Rows of the range this call scanned that were already current.' }),
+    failed: z.array(z.object({ id: z.string(), code: z.string() })).openapi({
+      description:
+        'Rows left unchanged: `conflict` (changed meanwhile; run again), `key_version_unknown` (its key is not ' +
+        'loaded: set RB_MASTER_KEY_PREVIOUS), `decrypt_failed` (damaged or tampered row).',
+    }),
+    nextCursor: z
+      .string()
+      .nullable()
+      .openapi({ description: 'Send as `after` to continue; `null` once every row was visited.' }),
+    pending: z
+      .number()
+      .int()
+      .openapi({ description: 'Rows (whole table) not on the current version after this call.' }),
+    versionsInUse: z.array(z.number().int()).openapi({
+      description:
+        'Key versions stored after this call. `[currentVersion]` (or `[]`): the previous key can go.',
+    }),
+  })
+  .openapi('KeyRotation');
+
+export const KeyRotationOne = z.object({ data: KeyRotationSchema }).openapi('KeyRotationResponse');

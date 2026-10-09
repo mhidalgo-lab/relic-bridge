@@ -267,6 +267,11 @@ export interface AccessEquivalenceOptions {
   readonly open: () => Promise<Storage>;
   readonly runs: number;
   readonly timeout?: number;
+  /**
+   * fast-check seed. Allowed outcomes are rare in the generated worlds (a few percent of runs), so a short random run
+   * can miss them and fail the "reaches both outcomes" check; a fixed seed makes that check deterministic.
+   */
+  readonly seed?: number;
 }
 
 export function runAccessEquivalence(options: AccessEquivalenceOptions): void {
@@ -322,7 +327,7 @@ export function runAccessEquivalence(options: AccessEquivalenceOptions): void {
           }
           await base.close();
         }),
-        { numRuns: options.runs },
+        { numRuns: options.runs, ...(options.seed === undefined ? {} : { seed: options.seed }) },
       );
       // The generator reaches both outcomes (otherwise the property says little).
       expect(allowed).toBeGreaterThan(0);

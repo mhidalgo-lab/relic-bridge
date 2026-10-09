@@ -4,7 +4,13 @@ import { describe, expect, it } from 'vitest';
 import { loadKeyringFromEnv } from '../src/crypto/env.ts';
 import type { CryptoError } from '../src/crypto/errors.ts';
 import { generateMasterKey, Keyring } from '../src/crypto/keyring.ts';
-import { keyCheckSettingKey, rotateCredentialKeys, verifyKeyChecks } from '../src/crypto/rotate.ts';
+import {
+  keyCheckSettingKey,
+  MAX_ROTATION_BATCH,
+  rotateCredentialKeys,
+  rotateCredentialKeysBatch,
+  verifyKeyChecks,
+} from '../src/crypto/rotate.ts';
 
 const K1 = generateMasterKey(1);
 const K2 = generateMasterKey(2);
@@ -246,5 +252,130 @@ describe('rotateCredentialKeys', () => {
       rotateCredentialKeys(broken, await Keyring.create({ current: K2, previous: K1 })),
     ).rejects.toThrow('disk full');
     expect(await versions(base)).toEqual([1]);
+  });
+});
+
+describe('rotateCredentialKeysBatch (P3-11)', () => {
+  it('visits every row once in bounded batches, each row readable after every batch', async () => {
+    const s = createMemoryStorage();
+    const r1 = await Keyring.create({ current: K1 });
+    await seed(s, r1, 7);
+    const r21 = await Keyring.create({ current: K2, previous: K1 });
+    const cursors: (string | null)[] = [];
+    let after: string | null = null;
+    const rotated: string[] = [];
+    for (let i = 0; i < 10; i++) {
+      const report = await rotateCredentialKeysBatch(s, r21, { after, limit: 3 });
+      expect(report.reencrypted.length).toBeLessThanOrEqual(3);
+      expect(report.failed).toEqual([]);
+      rotated.push(...report.reencrypted);
+      expect(await readAll(s, r21)).toEqual([0, 1, 2, 3, 4, 5, 6].map(nrKey));
+      expect(report.pending).toBe(7 - rotated.length);
+      cursors.push(report.nextCursor);
+      if (report.nextCursor === null) break;
+      after = report.nextCursor;
+    }
+    expect(cursors).toEqual(['cred_2', 'cred_5', null]);
+    expect(rotated).toEqual([0, 1, 2, 3, 4, 5, 6].map((i) => `cred_${i}`));
+    expect(await versions(s)).toEqual([2, 2, 2, 2, 2, 2, 2]);
+    // Idempotent: a new run changes nothing and finishes in one call.
+    const again = await rotateCredentialKeysBatch(s, r21, { limit: 3 });
+    expect(again).toMatchObject({
+      reencrypted: [],
+      alreadyCurrent: 7,
+      nextCursor: null,
+      pending: 0,
+      versionsInUse: [2],
+    });
+  });
+
+  it('resumes from the start after an interruption, skipping finished rows without counting them', async () => {
+    const s = createMemoryStorage();
+    await seed(s, await Keyring.create({ current: K1 }), 5);
+    const r21 = await Keyring.create({ current: K2, previous: K1 });
+    const first = await rotateCredentialKeysBatch(s, r21, { limit: 2 });
+    expect(first).toMatchObject({ reencrypted: ['cred_0', 'cred_1'], nextCursor: 'cred_1', pending: 3 });
+    // The client lost the cursor: start over.
+    const second = await rotateCredentialKeysBatch(s, r21, { limit: 2 });
+    expect(second).toMatchObject({
+      reencrypted: ['cred_2', 'cred_3'],
+      alreadyCurrent: 2,
+      nextCursor: 'cred_3',
+      pending: 1,
+    });
+    const third = await rotateCredentialKeysBatch(s, r21, { after: 'cred_3', limit: 2 });
+    expect(third).toMatchObject({
+      reencrypted: ['cred_4'],
+      nextCursor: null,
+      pending: 0,
+      versionsInUse: [2],
+    });
+  });
+
+  it('moves past rows it cannot rotate instead of retrying them forever', async () => {
+    const s = createMemoryStorage();
+    await seed(s, await Keyring.create({ current: K1 }), 3);
+    const r2 = await Keyring.create({ current: K2 });
+    // No previous key: nothing can be decrypted, every row is reported and the cursor still advances.
+    const a = await rotateCredentialKeysBatch(s, r2, { limit: 2 });
+    expect(a.failed).toEqual([
+      { id: 'cred_0', code: 'key_version_unknown' },
+      { id: 'cred_1', code: 'key_version_unknown' },
+    ]);
+    expect(a.nextCursor).toBe('cred_1');
+    const b = await rotateCredentialKeysBatch(s, r2, { after: a.nextCursor, limit: 2 });
+    expect(b).toMatchObject({ failed: [{ id: 'cred_2', code: 'key_version_unknown' }], nextCursor: null });
+    expect(b.pending).toBe(3);
+    expect(await versions(s)).toEqual([1, 1, 1]);
+  });
+
+  it('reports a concurrent change as a conflict and never overwrites it', async () => {
+    const base = createMemoryStorage();
+    await seed(base, await Keyring.create({ current: K1 }), 2);
+    const r21 = await Keyring.create({ current: K2, previous: K1 });
+    const replaced = await r21.encryptCredentialKey('cred_0', 'NRAK-REPLACEDDURINGROTATION000');
+    const racing: Storage = {
+      ...base,
+      credentials: {
+        ...base.credentials,
+        async update(id, patch) {
+          if (id === 'cred_0' && patch.ifKey !== undefined)
+            await base.credentials.update(id, { key: replaced });
+          return base.credentials.update(id, patch);
+        },
+      },
+    };
+    const report = await rotateCredentialKeysBatch(racing, r21, { limit: 10 });
+    expect(report.failed).toEqual([{ id: 'cred_0', code: 'conflict' }]);
+    expect(report.reencrypted).toEqual(['cred_1']);
+    expect(await readAll(base, r21)).toEqual(['NRAK-REPLACEDDURINGROTATION000', nrKey(1)]);
+  });
+
+  it('verifies key checks first: wrong previous key or a retired current key touches nothing', async () => {
+    const s = createMemoryStorage();
+    const r1 = await Keyring.create({ current: K1 });
+    await seed(s, r1, 2);
+    await verifyKeyChecks(s, r1);
+    const wrong = await Keyring.create({ current: K2, previous: generateMasterKey(1) });
+    await expect(rotateCredentialKeysBatch(s, wrong, { limit: 5 })).rejects.toMatchObject({
+      code: 'key_mismatch',
+    });
+    expect(await versions(s)).toEqual([1, 1]);
+    // Rotate to v2, then try to run on the retired v1 key (SR-1).
+    await rotateCredentialKeysBatch(s, await Keyring.create({ current: K2, previous: K1 }), { limit: 5 });
+    await expect(rotateCredentialKeysBatch(s, r1, { limit: 5 })).rejects.toMatchObject({
+      code: 'key_version_retired',
+    });
+    expect(await versions(s)).toEqual([2, 2]);
+  });
+
+  it('refuses a batch size out of bounds', async () => {
+    const s = createMemoryStorage();
+    const r1 = await Keyring.create({ current: K1 });
+    for (const limit of [0, -1, 1.5, MAX_ROTATION_BATCH + 1, Number.NaN]) {
+      await expect(rotateCredentialKeysBatch(s, r1, { limit })).rejects.toMatchObject({
+        code: 'invalid_input',
+      });
+    }
   });
 });

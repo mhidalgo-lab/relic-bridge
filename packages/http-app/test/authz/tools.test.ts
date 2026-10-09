@@ -51,6 +51,12 @@ export const TOOL_CASES: Readonly<Record<string, readonly ToolCall[]>> = {
     { args: {}, expect: 'ok' },
     { args: { account: 2 }, expect: 'ok' },
   ],
+  resolve_entity: [
+    { args: { query: 'x', account: FOREIGN }, expect: 'refused', offline: true },
+    { args: { query: guidOf(FOREIGN) }, expect: 'refused', offline: true },
+    { args: { query: 'x' }, expect: 'ok' },
+    { args: { query: 'x', account: 2 }, expect: 'ok' },
+  ],
   list_entity_types: [
     { args: { account: FOREIGN }, expect: 'refused', offline: true },
     { args: {}, expect: 'ok' },

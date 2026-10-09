@@ -195,3 +195,18 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   event types; (e) richer NRQL reference (functions list) once a licence-safe source is agreed.
 - **Needs:** owner's call on (b) to (e); a client check that real MCP clients surface templated resources.
 
+
+## P6-14 — Fuzzy entity-name resolution
+
+### P6-14 — Resolver ships as a tool; other entity tools do not take names yet; fallback scan is capped
+- **Context:** The task asked for a resolver "used by every tool that takes an entity". Changing the input schema of every
+  guid-taking tool (and their authz/contract cases) is a wide change.
+- **Assumption made:** this task adds the shared `createEntityResolver` and a `resolve_entity` tool; the model resolves a name
+  first, then passes the guid. Name lookup is a server-side `name LIKE` search, and only when it finds nothing a catalogue scan
+  of at most 600 entities per call is matched locally (normalised names such as "shipping service" vs "shipping-service").
+  Cache TTL 5 minutes, 64 entries, keyed by credential, region, effective accounts, filters and query. A bare guid is
+  accepted offline without checking it exists.
+- **Options:** (a) keep as is; (b) follow-up P6-17: accept `name` (via the resolver) in `get_entity`,
+  `get_related_entities`, `get_golden_metrics` and report tools; (c) raise the scan cap or page it for very large accounts;
+  (d) verify a pasted guid with one `get_entity` call.
+- **Needs:** owner's call on (b) to (d).

@@ -2,7 +2,7 @@
 
 # Tool reference
 
-32 tools. Cost is the expected number of NerdGraph calls per tool call (ADR-0010). Annotations are derived from the tool kind, never hand-written.
+33 tools. Cost is the expected number of NerdGraph calls per tool call (ADR-0010). Annotations are derived from the tool kind, never hand-written.
 
 | Tool | Group | Kind | Cost | Phase |
 | --- | --- | --- | --- | --- |
@@ -19,6 +19,7 @@
 | [`get_related_entities`](#get_related_entities) | entities | read | 1 | 1 |
 | [`list_dashboards`](#list_dashboards) | entities | read | 1 | 6 |
 | [`list_entity_types`](#list_entity_types) | entities | read | 1 | 1 |
+| [`resolve_entity`](#resolve_entity) | entities | read | 1 | 6 |
 | [`search_entities`](#search_entities) | entities | read | 1 | 1 |
 | [`get_golden_metrics`](#get_golden_metrics) | health | read | 11 | 1 |
 | [`list_accounts`](#list_accounts) | identity | read | 1 | 1 |
@@ -458,6 +459,40 @@ Use it to learn which domain/type values to pass to search_entities. Results are
 | `types` | `object[]` | yes |  |
 | `accounts` | `integer[]` | yes |  |
 | `cached` | `boolean` | yes |  |
+
+### Annotations
+
+readOnly: `true` · destructive: `false` · idempotent: `true` · openWorld: `true`
+
+## `resolve_entity`
+
+**Resolve entity name** · group `entities` · phase 6 · kind `read` · cost 1 NerdGraph call
+
+Resolve a loose entity name to one entity guid, or list the candidates when the name is ambiguous.
+
+Use it before get_entity, get_related_entities or get_golden_metrics when you only know a name like "shippingservice". Matching order: exact guid, exact name, case-insensitive name, name ignoring case, spaces and punctuation, then substring. The best matching group decides: one entity resolves, several come back as candidates (never a guess), none says not_found. Only accounts of this connection are searched; results are cached for 5 minutes. Names come from New Relic and are inside an untrusted-data block.
+
+### Input
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `query` | `string` | yes | Entity name (loose is fine: "shippingservice" finds "Shipping-Service") or an exact guid. |
+| `domain` | `string` | no | Only this domain, e.g. APM, BROWSER, INFRA. See list_entity_types. |
+| `type` | `string` | no | Only this type, e.g. APPLICATION, HOST. |
+| `account` | `integer` | no | Only this account (must be one of list_accounts). Default: every account of this connection. |
+
+### Output
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `status` | `"resolved" \| "ambiguous" \| "not_found"` | yes |  |
+| `matchedBy` | `"guid" \| "exact" \| "case_insensitive" \| "normalised" \| "substring" \| null` | yes |  |
+| `entity` | `object \| null` | yes |  |
+| `candidates` | `object[]` | yes |  |
+| `totalCandidates` | `integer` | yes |  |
+| `incomplete` | `boolean` | yes |  |
+| `cached` | `boolean` | yes |  |
+| `accounts` | `integer[]` | yes |  |
 
 ### Annotations
 

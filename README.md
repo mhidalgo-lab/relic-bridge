@@ -30,9 +30,14 @@ only a **User API key** — no account-level MCP enablement required.
 - A [management CLI](docs/reference/cli.md) and an [admin API](docs/reference/admin-api.md), plus an optional
   [pass-through mode](docs/guide/self-hosting.md#pass-through-mode) where callers bring their own key.
 
+**Available on the development branch, not released yet** (Phase 3, in review):
+
+- A Cloudflare Worker deployment on D1, one setup command or a Deploy button
+  ([guide](docs/guide/cloudflare-deploy.md), [limits and costs](docs/guide/cloudflare-limits.md)). The guide has not yet
+  been validated on a clean Cloudflare account.
+
 **Planned** (see the [roadmap](docs/ROADMAP.md); none of this exists yet):
 
-- A Cloudflare Worker deployment ([guide](docs/guide/cloudflare-deploy.md)).
 - OAuth 2.1, which claude.ai on the web and Claude on your phone need (static tokens work in Claude Code, Cursor and
   VS Code on your computers today).
 - Sign-in (Google, GitHub, Cloudflare Access) and an admin panel.
@@ -60,7 +65,7 @@ carries the tarball, an SBOM and checksums with build attestations. Changes: [CH
 ## Documentation
 
 - **Guides:** [local quickstart](docs/guide/quickstart-local.md) · [client setup](docs/guide/clients.md) ·
-  [self-hosting](docs/guide/self-hosting.md) · [deploy to Cloudflare](docs/guide/cloudflare-deploy.md) · [multi-device setup](docs/guide/multi-device.md) ·
+  [self-hosting](docs/guide/self-hosting.md) · [deploy to Cloudflare](docs/guide/cloudflare-deploy.md) · [Cloudflare limits and costs](docs/guide/cloudflare-limits.md) · [multi-device setup](docs/guide/multi-device.md) ·
   [access model](docs/guide/access-model.md) · [secrets](docs/guide/secrets.md) ·
   [configuration](docs/guide/configuration.md) · [security basics](docs/guide/security-basics.md) ·
   [troubleshooting](docs/guide/troubleshooting.md) · [tool reference](docs/reference/tools.md) · [CLI reference](docs/reference/cli.md)

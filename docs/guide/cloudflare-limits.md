@@ -2,7 +2,7 @@
 
 On Cloudflare Workers, relic-bridge adapts to the plan you run on. Set `RB_PLAN=free` (default) or `RB_PLAN=paid`
 in `vars`; each plan is a preset you can override one number at a time. Sources and measurements:
-[RESEARCH §1](../RESEARCH.md), [ADR-0010](adr/0010-platform-limits-strategy.md).
+[RESEARCH §1](../RESEARCH.md), [ADR-0010](../adr/0010-platform-limits-strategy.md).
 
 ## Presets
 
@@ -54,6 +54,61 @@ workerd, so its absolute numbers are higher than production and only the trend m
 
 Move to Workers Paid for large result sets, shared teams or heavy use; it also lifts the 100,000 requests per day
 and 10 ms CPU limits.
+
+## Costs
+
+Prices from Cloudflare's pricing pages, **checked 2026-10-03** (they change; confirm before you rely on them):
+[Workers](https://developers.cloudflare.com/workers/platform/pricing/) (page updated 2026-10-02),
+[D1](https://developers.cloudflare.com/workers/platform/pricing/#d1), [KV](https://developers.cloudflare.com/workers/platform/pricing/#workers-kv).
+There are no egress or bandwidth charges on either plan.
+
+| Resource | Workers Free ($0) | Workers Paid ($5 per month per account) |
+|---|---|---|
+| Worker requests | 100,000 per day | 10 M per month included, then $0.30 per million |
+| Worker CPU | 10 ms per request | 30 M CPU-ms per month included, then $0.02 per million CPU-ms |
+| D1 rows read | 5 M per day | 25 B per month included, then $0.001 per million |
+| D1 rows written | 100,000 per day | 50 M per month included, then $1.00 per million |
+| D1 storage | 5 GB total | 5 GB included, then $0.75 per GB-month |
+| KV (used by Phase 5 only) | 100,000 reads, 1,000 writes per day | 10 M reads, 1 M writes per month included, then $0.50 and $5.00 per million |
+| Rate Limiting binding | no separate charge listed on the pricing page | same |
+
+Free-plan quotas reset at 00:00 UTC. Subrequests (the NerdGraph calls) are not billed.
+
+### What a personal or small-team deployment costs (estimates)
+
+The figures below are **estimates** from the P0-06 CPU measurements and the D1 call pattern, not measurements of a
+billed account. Assumptions: 10 ms billed CPU and 3 requests (initialize, tools/list, tool call) per tool call; one D1
+read batch per cache miss, and an audit row per call (each indexed row counts as more than one row written).
+
+| Usage | Requests per month | Plan | Estimated cost |
+|---|---|---|---|
+| One person, 200 tool calls a day | about 18,000 | Free | $0 |
+| Three devices, 1,000 tool calls a day | about 90,000 | Free (about 3,000 requests per day, 3% of the quota) | $0 |
+| A team of 10, 20,000 tool calls a day | about 1.8 M | Paid | $5 (inside the included 10 M requests and 30 M CPU-ms: 1.8 M x 10 ms = 18 M) |
+| Heavy automation, 500,000 tool calls a day | about 45 M | Paid | $5 + (45 M - 10 M) x $0.30/M + (450 M - 30 M) x $0.02/M = about $24 |
+
+D1 stays far inside the allowances: audit rows are the main writes (several rows written per call once indexes count, so the
+100,000 per day on Free is tens of thousands of calls, not hundreds of thousands), and the hourly purge bounds storage (90 days by default). Cron-trigger invocations are a handful per day.
+The Free-plan D1 write quota is the first limit a busy Free deployment reaches, not requests: if audit writes fail, they
+are logged and skipped and the calls still work (see "What happens at the limits"). To see your real usage, use the
+Workers and D1 metrics in the dashboard (D1: Metrics, Row Metrics).
+
+To cap a surprise bill on Paid, set a CPU limit (`limits.cpu_ms` in `wrangler.jsonc`, or Settings, CPU Limits) and keep
+the rate limits on ([Cloudflare: custom limits](https://developers.cloudflare.com/workers/platform/pricing/)); T20 in the
+[threat model](../THREAT_MODEL.md) covers abuse of a public instance.
+
+### When to upgrade to Workers Paid
+
+| Sign | Why it matters on Free | Paid |
+|---|---|---|
+| Queries return `RB_LIMIT_RESPONSE_TOO_LARGE` and narrowing is not an option | Free keeps responses at 512 KiB because parsing costs CPU against a 10 ms limit | 8 MiB ceiling |
+| Calls fail with D1 "daily row write limit" errors | 100,000 rows written per day, mostly audit rows | 50 M per month included |
+| More than about 100,000 requests a day (several people, automation, scripts) | Hard daily quota | 10 M per month included |
+| Requests are killed with `exceededCpu` | 10 ms CPU limit per request | 30 s default |
+| A tool needs more than 45 NerdGraph calls | 50 external subrequests per request | 1,000 (up to 10,000) |
+
+Upgrading is an account change: set `RB_PLAN=paid` (`pnpm cf:setup --plan paid`) afterwards so the Worker uses the larger
+limits. Without that, the Worker keeps behaving as on Free.
 
 ## Rate limiting on Workers
 

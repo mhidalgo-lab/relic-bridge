@@ -3,8 +3,9 @@
 The Cloudflare Worker host for relic-bridge: the same HTTP app as `relic-bridge serve` (`@relic-bridge/http-app`),
 with Workers bindings. Private package; it is deployed with Wrangler, not published to npm.
 
-> **Status (Phase 3, in progress).** The entry, bindings and per-isolate runtime (P3-01) and the D1 storage (P3-02) and the setup script (P3-05) are
-> in place: the Worker serves MCP, the admin API and `/health` on D1. Deploy with `pnpm cf:setup` (see the [deployment guide](../../docs/guide/cloudflare-deploy.md)).
+> **Status (Phase 3, in review; not released).** The Worker serves MCP, the admin API and `/health` on D1, with plan
+> presets, rate limiting, the audit purge cron and a setup script. Deploy with `pnpm cf:setup` (see the
+> [deployment guide](../../docs/guide/cloudflare-deploy.md); costs and limits: [Cloudflare limits](../../docs/guide/cloudflare-limits.md)).
 
 ## Bindings
 
@@ -35,9 +36,9 @@ first deploy.
 | `RB_CORS_ORIGINS` | off | Full origins allowed by CORS. |
 | `RB_ACCESS_CACHE_TTL` | `30` | Seconds a resolved token/grant stays cached per isolate (0-60, 0 disables). |
 | `RB_AUDIT`, `RB_AUDIT_NRQL`, `RB_AUDIT_CLIENT_IP` | `on`, `mask`, `on` | As for `serve`. Audit rows are written with `ctx.waitUntil`. |
-| `RB_AUDIT_RETENTION_DAYS` | `90` | Days to keep audit rows (`0` = forever). An hourly cron trigger (`triggers.crons`) deletes older rows, up to 10,000 per run; a larger backlog is finished by the next run. |
-| `RB_RATE_LIMIT` | `on` | `off` disables rate limiting. Per-rule tuning comes with P3-04. |
-| `RB_PASSTHROUGH` | `off` | `on` is refused until P3-04 (pass-through needs a fingerprint secret and a limiter shared by all isolates). |
+| `RB_AUDIT_RETENTION_DAYS` | `90` | Days to keep audit rows (`0` = forever). An hourly cron trigger (`triggers.crons`) deletes older rows, in batches of 500 (up to 10,000 per run); a larger backlog is finished by the next run. |
+| `RB_RATE_LIMIT` | `on` | `off` disables rate limiting (isolate buckets and the `RATE_LIMITER` binding). The binding's own limit (default 600 per 60 s per key) is set in `wrangler.jsonc`. |
+| `RB_PASSTHROUGH` | `off` | `on` enables `/passthrough/mcp`; it needs `RB_FINGERPRINT_SECRET` and the `RATE_LIMITER` binding, otherwise the boot fails (503). |
 | `RB_LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error`. Logs go to Workers Logs, redacted. |
 
 An invalid value (or a missing/wrong master key) fails closed: every request answers 503 and one log line names the

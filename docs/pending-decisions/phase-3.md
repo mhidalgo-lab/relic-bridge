@@ -206,3 +206,16 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   the variance across runners is known (the baseline was taken on a WSL2 dev machine, not a CI runner).
 - **Needs (owner):** after the first runs on GitHub, check the table's ratios; if CI ratios sit far from 1.0, refresh
   the baseline from a CI run (download the summary numbers, or run `pnpm bench:cpu --update` in a workflow_dispatch).
+
+### P3-07 — docs delivered without a clean-account validation; master-key rotation gap on D1
+- **Context:** the task asks for a fresh deployment on a clean account and release v0.3.0; neither is possible
+  unattended (no deploys, no releases).
+- **Assumption made:** guides were checked against the code and by running the CLI and `pnpm cf:setup --dry-run`;
+  restore from a `wrangler d1 export` and the Deploy button are marked "not exercised". Cloudflare Access is documented
+  for the future admin panel only (it would block MCP clients and the CLI's `--remote` on `/p/*/mcp` and
+  `/api/admin/v1`). Costs are estimates from P0-06 CPU data and Cloudflare's prices of 2026-10-03.
+  `keys rotate` is SQLite-only, so a Worker's master key can be rotated only credential by credential
+  (`credential rotate`); new task P3-11 covers a proper D1 rotation.
+- **Options:** ship the Worker guide only after a validation run; make P3-11 a Phase 3 release blocker.
+- **Needs (owner):** deploy to a clean account following `cloudflare-deploy.md`, fix whatever differs, tick the first
+  acceptance criterion, then release v0.3.0; decide whether P3-11 blocks it.

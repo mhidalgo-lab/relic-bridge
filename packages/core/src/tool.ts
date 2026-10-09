@@ -40,6 +40,11 @@ export interface ToolDefinition<I extends InputSchema = InputSchema, O = unknown
   readonly group: string;
   /** Roadmap phase that introduced the tool. */
   readonly phase: number;
+  /**
+   * MCP Apps view for this tool's results (P7-04). Advertised in `tools/list` as `_meta.ui` only when the resource is
+   * offered on the connection. Never changes the result itself.
+   */
+  readonly ui?: { readonly resourceUri: string };
   readonly handler: (input: z.infer<I>, ctx: ToolContext) => Promise<ToolOutput<O>>;
 }
 

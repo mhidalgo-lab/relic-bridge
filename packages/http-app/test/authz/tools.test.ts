@@ -600,6 +600,37 @@ describe('prompts follow the grant (P6-11)', () => {
   });
 });
 
+describe('MCP Apps chart view follows the grant (P7-04)', () => {
+  const VIEW = 'ui://relic-bridge/nrql-chart';
+
+  it('a grant with run_nrql gets the view and the tool link, with no New Relic call', async () => {
+    const grantId = await h.addGrant(h.world.projectIds.prod, { tools: ['run_nrql', 'get_query_result'] });
+    const token = await h.addToken(grantId);
+    const client = await connect(h.app, 'prod', token.value, 'modern');
+    clients.push(client);
+    const before = h.nerdGraph.calls.length;
+    const tools = (await client.listTools()).tools;
+    for (const t of tools) {
+      expect((t._meta?.['ui'] as { resourceUri?: string } | undefined)?.resourceUri, t.name).toBe(VIEW);
+    }
+    const read = await client.readResource({ uri: VIEW });
+    expect(read.contents[0]?.mimeType).toBe('text/html;profile=mcp-app');
+    expect(h.nerdGraph.calls.length).toBe(before);
+  });
+
+  it('a grant without run_nrql sees neither the view nor a tool link to it', async () => {
+    const grantId = await h.addGrant(h.world.projectIds.prod, { tools: ['whoami', 'get_query_result'] });
+    const token = await h.addToken(grantId);
+    const client = await connect(h.app, 'prod', token.value, 'modern');
+    clients.push(client);
+    const tools = (await client.listTools()).tools;
+    expect(tools.length).toBeGreaterThan(0);
+    for (const t of tools) expect(t._meta?.['ui'], t.name).toBeUndefined();
+    expect((await client.listResources()).resources.map((r) => r.uri)).not.toContain(VIEW);
+    await expect(client.readResource({ uri: VIEW })).rejects.toThrow();
+  });
+});
+
 describe('resources follow the grant (P6-12)', () => {
   const bodyOf = (r: { contents: { text?: string }[] }) => r.contents.map((c) => c.text ?? '').join('\n');
 
@@ -616,6 +647,7 @@ describe('resources follow the grant (P6-12)', () => {
       'relic://accounts/1/event-types',
       'relic://accounts/2/event-types',
       'relic://nrql/reference',
+      'ui://relic-bridge/nrql-chart',
     ]);
     for (const account of [3, FOREIGN]) {
       await expect(client.readResource({ uri: `relic://accounts/${account}/event-types` })).rejects.toThrow(
@@ -642,6 +674,7 @@ describe('resources follow the grant (P6-12)', () => {
     expect((await client.listResources()).resources).toEqual([]);
     await expect(client.readResource({ uri: 'relic://accounts/1/event-types' })).rejects.toThrow();
     await expect(client.readResource({ uri: 'relic://nrql/reference' })).rejects.toThrow();
+    await expect(client.readResource({ uri: 'ui://relic-bridge/nrql-chart' })).rejects.toThrow();
   });
 
   it('a grant with only get_attributes sees the attributes template but lists no account', async () => {

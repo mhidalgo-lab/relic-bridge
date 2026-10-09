@@ -151,13 +151,15 @@ function renderResources(resources: readonly ResourceDefinition[]): string {
       '',
       `**${r.title}**. ${r.description}`,
       '',
-      `- Kind: ${r.kind === 'static' ? 'static resource' : 'resource template'}; MIME type \`${r.mimeType}\``,
+      `- Kind: ${r.kind === 'static' ? 'static resource' : r.kind === 'app' ? 'MCP Apps view (static HTML)' : 'resource template'}; MIME type \`${r.mimeType}\``,
       `- Offered when the connection can use \`${r.needsTool}\`.`,
       r.kind === 'event_types'
         ? '- `resources/list` names one URI per account of the connection (and no other account).'
         : r.kind === 'attributes'
           ? '- Never listed: build the URI from an event type returned by the event-types resource.'
-          : '- Original text bundled with the server; no New Relic call.',
+          : r.kind === 'app'
+            ? '- Self-contained page bundled with the server (no external script, style or URL; no CSP domains). Clients that render MCP Apps show it for the tools whose `_meta.ui.resourceUri` names it, drawing that tool result only; other clients ignore it. See `docs/guide/charts.md`.'
+            : '- Original text bundled with the server; no New Relic call.',
       '',
     ].join('\n'),
   );

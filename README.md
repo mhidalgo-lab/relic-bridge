@@ -87,7 +87,7 @@ carries the tarball, an SBOM and checksums with build attestations. Changes: [CH
   [self-hosting](docs/guide/self-hosting.md) · [deploy to Cloudflare](docs/guide/cloudflare-deploy.md) · [Cloudflare limits and costs](docs/guide/cloudflare-limits.md) · [multi-device setup](docs/guide/multi-device.md) · [admin guide](docs/guide/admin-guide.md) ·
   [admin panel](docs/guide/admin-panel.md) · [sign-in providers](docs/guide/identity-providers.md) · [use it from your phone and claude.ai](docs/guide/oauth-phone.md) · [OAuth settings](docs/guide/oauth.md) · [how OAuth works](docs/guide/oauth-how-it-works.md) · [client compatibility](docs/reference/client-compatibility.md) · [admin access](docs/guide/admin-access.md) ·
   [access model](docs/guide/access-model.md) · [secrets](docs/guide/secrets.md) ·
-  [configuration](docs/guide/configuration.md) · [security basics](docs/guide/security-basics.md) ·
+  [configuration](docs/guide/configuration.md) · [charts (MCP Apps)](docs/guide/charts.md) · [security basics](docs/guide/security-basics.md) ·
   [troubleshooting](docs/guide/troubleshooting.md) · [tool reference](docs/reference/tools.md) · [CLI reference](docs/reference/cli.md)
 - [Roadmap & task index](docs/ROADMAP.md)
 - [Architecture](docs/ARCHITECTURE.md) · [Decisions (ADRs)](docs/adr/) · [Research & platform limits](docs/RESEARCH.md)

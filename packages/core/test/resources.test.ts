@@ -81,6 +81,12 @@ describe('resources catalogue', () => {
   it('names only tools that exist', () => {
     const known = new Set(createBuiltinTools().map((t) => t.name));
     for (const r of RESOURCES) expect(known.has(r.needsTool), r.name).toBe(true);
+    // every tool view names an offered resource of kind app, offered under that tool
+    for (const t of createBuiltinTools()) {
+      if (t.ui === undefined) continue;
+      const r = RESOURCES.find((x) => x.uri === t.ui?.resourceUri);
+      expect(r?.kind, t.name).toBe('app');
+    }
   });
 
   it('keeps the static reference short and free of secrets-like text', () => {
@@ -108,6 +114,7 @@ describe('resources over MCP', () => {
       `relic://accounts/${A}/event-types`,
       `relic://accounts/${B}/event-types`,
       'relic://nrql/reference',
+      'ui://relic-bridge/nrql-chart',
     ]);
     const { resourceTemplates } = await client.listResourceTemplates();
     expect(resourceTemplates.map((t) => t.uriTemplate).sort()).toEqual([

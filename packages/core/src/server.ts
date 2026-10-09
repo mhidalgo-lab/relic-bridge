@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import { type CallToolResult, McpServer, type StandardSchemaWithJSON } from '@modelcontextprotocol/server';
+import { toolUiMeta } from './apps/index.ts';
 import type { ToolContext } from './context.ts';
 import { ERROR_META_KEY, toToolErrorResult } from './errors.ts';
 import { type PromptDefinition, promptConfig, renderPrompt, selectPrompts } from './prompts.ts';
@@ -161,13 +162,18 @@ export function buildMcpServer({
     }
   };
 
+  const offeredResources = selectResources(allowedTools, resources);
+  // A tool links to its MCP Apps view only when that view is offered on this connection (P7-04).
+  const appUris = new Set(offeredResources.filter((r) => r.kind === 'app').map((r) => r.uri));
   for (const def of tools) {
+    const ui = def.ui !== undefined && appUris.has(def.ui.resourceUri) ? def.ui.resourceUri : undefined;
     const config = {
       title: def.title,
       description: def.description,
       inputSchema: withCachedJsonSchema(def.inputSchema),
       annotations: annotationsFor(def),
       ...(def.outputSchema ? { outputSchema: withCachedJsonSchema(def.outputSchema) } : {}),
+      ...(ui === undefined ? {} : { _meta: toolUiMeta(ui) }),
     };
     server.registerTool(def.name, config, async (input: unknown): Promise<CallToolResult> => {
       const ctx = contextFor();
@@ -200,7 +206,7 @@ export function buildMcpServer({
     }));
   }
   registerResources(server, {
-    defs: selectResources(allowedTools, resources),
+    defs: offeredResources,
     tools,
     contextFor,
     invoke: (def, input) => invoke(def, input, contextFor()),

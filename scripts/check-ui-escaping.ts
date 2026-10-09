@@ -49,6 +49,8 @@ export const CHECKED_DIRS: readonly string[] = [
   'packages/admin-ui/src',
   'packages/admin-ui/assets',
   'packages/http-app/src',
+  'packages/core/assets',
+  'packages/core/src/apps',
 ];
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

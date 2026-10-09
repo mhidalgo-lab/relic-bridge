@@ -176,7 +176,7 @@ describe('relic-bridge serve (built CLI)', () => {
         expect((await full.listTools()).tools.map((t) => t.name).sort()).toEqual([...CATALOG].sort());
         const r = await full.callTool({ name: 'whoami', arguments: {} });
         expect(r.isError).toBeFalsy();
-        expect(r.structuredContent).toMatchObject({ project: 'prod', defaultAccount: 1000001 });
+        expect(r.structuredContent).toMatchObject({ project: 'prod', defaultAccountId: 1000001 });
         await full.close();
 
         const limited = await client(base, 'prod', tokens.limited, modern);
@@ -270,7 +270,7 @@ describe('relic-bridge serve (built CLI)', () => {
         expect(names).toContain('run_nrql');
         const r = await c.callTool({ name: 'whoami', arguments: {} });
         expect(r.isError).toBeFalsy();
-        expect(r.structuredContent).toMatchObject({ defaultAccount: 1000001 });
+        expect(r.structuredContent).toMatchObject({ defaultAccountId: 1000001 });
         await c.close();
       }
       // Only the caller's key went to NerdGraph.

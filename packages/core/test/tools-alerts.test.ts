@@ -10,6 +10,7 @@ import {
   ErrorCode,
   type ToolContext,
 } from '../src/index.ts';
+import { bindingOf, decodePageCursor, encodePageCursor } from '../src/tools/paging.ts';
 import { testContext } from './helpers/context.ts';
 import { json, scriptedFetch } from './helpers/nerdgraph.ts';
 
@@ -102,23 +103,58 @@ const conditionsBody = (conds: unknown[], nextCursor: string | null = null) =>
 describe('list_alert_policies', () => {
   it('lists policies of the default account, sends every value as a variable and passes the cursor on', async () => {
     const { client, calls } = await setup([policiesBody([policy(A, '1', 'checkout')], 'CUR_2', 3)]);
+    const filter = "o'; } query { evil";
+    const cursor = encodePageCursor(await bindingOf('list_alert_policies', A, filter), { u: 'abc', o: 0 });
     const r = await client.callTool({
       name: 'list_alert_policies',
-      arguments: { name: "o'; } query { evil", cursor: 'abc' },
+      arguments: { name_contains: filter, cursor },
     });
     expect(r.isError ?? false).toBe(false);
     expect(calls[0]?.body.variables).toEqual({
       accountId: A,
       cursor: 'abc',
-      criteria: { nameLike: "o'; } query { evil" },
+      criteria: { nameLike: filter },
     });
     expect(calls[0]?.body.query).not.toContain('evil');
     const s = r.structuredContent as { policies: { name: string }[]; nextCursor: string; total: number };
     expect(s.policies.map((p) => p.name)).toEqual(['checkout']);
-    expect(s.nextCursor).toBe('CUR_2');
+    // The upstream cursor comes back wrapped: opaque, and bound to this tool, account and filters.
+    expect(decodePageCursor(await bindingOf('list_alert_policies', A, filter), s.nextCursor)).toEqual({
+      u: 'CUR_2',
+      o: 0,
+    });
     expect(s.total).toBe(3);
-    expect(text(r)).toContain('next_cursor: CUR_2');
+    expect(text(r)).toContain(`nextCursor: ${s.nextCursor}`);
     expect(text(r)).toContain('<untrusted-data');
+  });
+
+  it('takes limit below the upstream page size and resumes inside that page', async () => {
+    const page = () =>
+      policiesBody([policy(A, '1', 'one'), policy(A, '2', 'two'), policy(A, '3', 'three')], 'UP_2', 3);
+    const { client, calls } = await setup([page(), page(), policiesBody([policy(A, '4', 'four')])]);
+    const names = (r: { structuredContent?: unknown }) =>
+      (r.structuredContent as { policies: { name: string }[] }).policies.map((p) => p.name);
+    const cursorOf = (r: { structuredContent?: unknown }) =>
+      (r.structuredContent as { nextCursor: string | null }).nextCursor as string;
+    const r1 = await client.callTool({ name: 'list_alert_policies', arguments: { limit: 2 } });
+    expect(names(r1)).toEqual(['one', 'two']);
+    const r2 = await client.callTool({
+      name: 'list_alert_policies',
+      arguments: { limit: 2, cursor: cursorOf(r1) },
+    });
+    expect(names(r2)).toEqual(['three']);
+    // The rest of the upstream page is used up: the next call asks NerdGraph for its next page.
+    const r3 = await client.callTool({
+      name: 'list_alert_policies',
+      arguments: { limit: 2, cursor: cursorOf(r2) },
+    });
+    expect(names(r3)).toEqual(['four']);
+    expect(calls.map((c) => c.body.variables['cursor'])).toEqual([null, null, 'UP_2']);
+    expect(cursorOf(r3)).toBeNull();
+    // limit is bounded like the other lists (T5).
+    expect((await client.callTool({ name: 'list_alert_policies', arguments: { limit: 201 } })).isError).toBe(
+      true,
+    );
   });
 
   it('wraps names in the untrusted-data envelope (prompt injection, T6)', async () => {
@@ -192,7 +228,7 @@ describe('list_alert_conditions', () => {
     const { client, calls } = await setup([conditionsBody([condition(A, '9', 'High error rate')])]);
     const r = await client.callTool({
       name: 'list_alert_conditions',
-      arguments: { policy_id: '8000026', name: 'error', query_contains: 'Transaction' },
+      arguments: { policy_id: '8000026', name_contains: 'error', query_contains: 'Transaction' },
     });
     expect(r.isError ?? false).toBe(false);
     expect(calls[0]?.body.variables).toEqual({
@@ -248,6 +284,28 @@ describe('list_alert_conditions', () => {
     expect(s.conditions.map((c) => c.name)).toEqual(['mine']);
     expect(s.hiddenOutsideScope).toBe(true);
     expect(JSON.stringify(r)).not.toContain('LEAK');
+  });
+
+  it('withholds the NRQL and data account of a condition that reads an account outside the connection', async () => {
+    const { client } = await setup([
+      conditionsBody([
+        condition(A, '1', 'mine'),
+        condition(A, '2', 'foreign', {
+          nrql: { query: 'FROM Log SELECT count(*) /* LEAKQ */', dataAccountId: OTHER },
+        }),
+      ]),
+    ]);
+    const r = await client.callTool({ name: 'list_alert_conditions', arguments: {} });
+    const s = r.structuredContent as {
+      conditions: { name: string; query: string; dataAccountId: number | null; queryWithheld: boolean }[];
+    };
+    expect(s.conditions.map((c) => [c.name, c.queryWithheld])).toEqual([
+      ['mine', false],
+      ['foreign', true],
+    ]);
+    expect(s.conditions[1]?.dataAccountId).toBeNull();
+    expect(JSON.stringify(r)).not.toContain('LEAKQ');
+    expect(JSON.stringify(r)).not.toContain(String(OTHER));
   });
 
   it('minimal_output drops description, signal and runbook', async () => {

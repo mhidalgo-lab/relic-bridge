@@ -95,4 +95,15 @@ describe('redactValue', () => {
       message: `bad key NRAK-${REDACTED}`,
     });
   });
+
+  it('redacts free-text secret shapes: URL credentials, JWT, tokens, PEM', () => {
+    expect(redact('connect failed postgres://app:S3cret@db:5432/x')).toBe(
+      'connect failed postgres://[REDACTED]@db:5432/x',
+    );
+    expect(redact('t eyJhbGciOiJIUzI1.eyJzdWIiOiIxMjM0NTY.abc123 x')).toContain('[REDACTED_JWT]');
+    expect(redact('ghp_abcdefghijklmnopqrstuvwxyz0123')).toBe('[REDACTED_TOKEN]');
+    expect(redact('-----BEGIN PRIVATE KEY-----\nMIIB\n-----END PRIVATE KEY-----')).toBe(
+      '[REDACTED_PRIVATE_KEY]',
+    );
+  });
 });

@@ -10,6 +10,7 @@ import {
   ErrorCode,
   type ToolContext,
 } from '../src/index.ts';
+import { bindingOf, decodePageCursor, encodePageCursor } from '../src/tools/paging.ts';
 import { testContext } from './helpers/context.ts';
 import { json, scriptedFetch } from './helpers/nerdgraph.ts';
 
@@ -99,15 +100,23 @@ const incidentsBody = (incidents: unknown[], nextCursor: string | null = null) =
 describe('list_recent_issues', () => {
   it('sends the opt-in header, every filter as a variable, and a 24 hour window by default', async () => {
     const { client, calls } = await setup([issuesBody([issue(A, 'i1', 'High error rate')], 'CUR_2')]);
+    const filter = {
+      states: ['ACTIVATED'],
+      priority: ['CRITICAL', 'HIGH'],
+      policyIds: [8000026],
+      isAcknowledged: false,
+      contains: "o'; } query { evil",
+    };
+    const binding = await bindingOf('list_recent_issues', A, filter);
     const r = await client.callTool({
       name: 'list_recent_issues',
       arguments: {
         states: ['ACTIVATED'],
         priority: ['CRITICAL', 'HIGH'],
-        policy_id: 8000026,
+        policy_id: '8000026',
         acknowledged: false,
         contains: "o'; } query { evil",
-        cursor: 'abc',
+        cursor: encodePageCursor(binding, { u: 'abc', o: 0, s: NOW - 86_400_000, e: NOW }),
       },
     });
     expect(r.isError ?? false).toBe(false);
@@ -127,8 +136,9 @@ describe('list_recent_issues', () => {
     expect(calls[0]?.body.query).not.toContain('evil');
     const s = r.structuredContent as { issues: { id: string; title: string; entities: string[] }[] };
     expect(s.issues[0]).toMatchObject({ id: 'i1', title: 'High error rate', entities: ['checkout'] });
-    expect((r.structuredContent as { nextCursor: string }).nextCursor).toBe('CUR_2');
-    expect(text(r)).toContain('next_cursor: CUR_2');
+    const next = (r.structuredContent as { nextCursor: string }).nextCursor;
+    expect(decodePageCursor(binding, next)).toEqual({ u: 'CUR_2', o: 0, s: NOW - 86_400_000, e: NOW });
+    expect(text(r)).toContain(`nextCursor: ${next}`);
   });
 
   it('entity_guid filters and implies its account; a conflicting account is refused', async () => {

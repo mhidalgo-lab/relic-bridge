@@ -286,7 +286,7 @@ describe('NerdGraphClient: auth and GraphQL errors (P0-09 fixtures)', () => {
     const res = fixtureResponse('error_missing_variable');
     const error = await failure(setup(scriptedFetch(res).fetch).client.query(NRQL, VARS));
     expect(error.code).toBe(ErrorCode.NerdGraphError);
-    expect(error.message).toContain('Expected type');
+    expect(JSON.stringify(error.details)).toContain('Expected type');
   });
 });
 

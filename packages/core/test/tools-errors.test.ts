@@ -10,6 +10,7 @@ import {
   ErrorCode,
   type ToolContext,
 } from '../src/index.ts';
+import { bindingOf, decodePageCursor, encodePageCursor } from '../src/tools/paging.ts';
 import { testContext } from './helpers/context.ts';
 import { json, scriptedFetch } from './helpers/nerdgraph.ts';
 
@@ -71,15 +72,21 @@ const body = (results: unknown[], nextCursor: string | null = null, totalCount =
 describe('list_error_groups', () => {
   it('sends every filter as a variable with a 24 hour default window', async () => {
     const { client, calls } = await setup([body([group(A, 'g1', 'TypeError')], 'CUR_2', 40)]);
+    const contains = "o'; } query { evil";
+    const cursor = encodePageCursor(
+      await bindingOf(
+        'list_error_groups',
+        A,
+        undefined,
+        { accountIds: [A], states: ['UNRESOLVED'], isAssigned: false },
+        contains,
+        'occurrences',
+      ),
+      { u: 'abc', o: 0, s: NOW - 86_400_000, e: NOW },
+    );
     const r = await client.callTool({
       name: 'list_error_groups',
-      arguments: {
-        states: ['UNRESOLVED'],
-        assigned: false,
-        contains: "o'; } query { evil",
-        sort_by: 'occurrences',
-        cursor: 'abc',
-      },
+      arguments: { states: ['UNRESOLVED'], assigned: false, contains, sort_by: 'occurrences', cursor },
     });
     expect(r.isError ?? false).toBe(false);
     expect(calls[0]?.body.variables).toEqual({
@@ -94,12 +101,24 @@ describe('list_error_groups', () => {
     const s = r.structuredContent as {
       errorGroups: { id: string; occurrences: number; state: string }[];
       nextCursor: string;
-      totalCount: number;
+      total: number;
     };
     expect(s.errorGroups[0]).toMatchObject({ id: 'g1', occurrences: 12, state: 'UNRESOLVED' });
-    expect(s.nextCursor).toBe('CUR_2');
-    expect(s.totalCount).toBe(40);
-    expect(text(r)).toContain('next_cursor: CUR_2');
+    expect(
+      decodePageCursor(
+        await bindingOf(
+          'list_error_groups',
+          A,
+          undefined,
+          { accountIds: [A], states: ['UNRESOLVED'], isAssigned: false },
+          contains,
+          'occurrences',
+        ),
+        s.nextCursor,
+      ),
+    ).toEqual({ u: 'CUR_2', o: 0, s: NOW - 86_400_000, e: NOW });
+    expect(s.total).toBe(40);
+    expect(text(r)).toContain(`nextCursor: ${s.nextCursor}`);
   });
 
   it('entity_guid filters and implies its account; a conflicting account is refused', async () => {

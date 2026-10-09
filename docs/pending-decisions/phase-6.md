@@ -166,3 +166,236 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   section on `RB_AUTH_FORBIDDEN` instead of failing the report; (e) live probe (`pnpm test:live`) for the `ids` filter and the
   browser/mobile attributes.
 - **Needs:** a live run on an account with issues and browser/mobile apps; owner's call on (b) to (d).
+
+## P6-11 — MCP prompts
+
+### P6-11 — Prompt set, "any of" gating, no k8s tools, no completion or resources
+- **Context:** Seven prompts ship as static templates. There is no Kubernetes tool (no task covers one), and prompt arguments
+  are strings only in MCP.
+- **Assumption made:** a prompt is listed when at least one of its tools is allowed, and steps for other tools are dropped (a
+  prompt with fewer steps is still useful). The Kubernetes prompt uses `run_nrql`, `list_event_types` and `get_attributes` and
+  assumes the standard `K8s*Sample` event types (unverified live). Values are quoted JSON strings, 200 characters at most,
+  one line. No argument completion and no per-project custom prompts.
+- **Options:** (a) keep as is; (b) require all tools of a prompt (hide more prompts); (c) add a Kubernetes tool task;
+  (d) `completion/complete` for entity guids and issue ids; (e) owner-defined prompts per project.
+- **Needs:** a live check of the Kubernetes prompt; owner's call on (b) to (e).
+
+## P6-12 — MCP resources
+
+### P6-12 — Schema resources reuse the tools; fixed 24 h window; original NRQL cheat sheet; no completion or subscriptions
+- **Context:** The task asked for a per-project schema resource. Resources are per connection (grant), not per project, and the
+  server has no resource subscription or completion support.
+- **Assumption made:** three resources (static NRQL reference, event types per account, attributes per event type) that call the
+  `list_event_types` / `get_attributes` handlers (so authz, limits, cache, budget and audit are shared). Fixed last-24-hours
+  window. `resources/list` shows one event-types URI per effective account; attributes are never listed. The NRQL reference is
+  original text of about 3 KB with a link to the official docs (nothing copied). Reads show in the audit as `list_event_types` /
+  `get_attributes` tool calls, and a resource is hidden when its tool is not allowed.
+- **Options:** (a) keep as is; (b) own audit action `resource.read`; (c) a `since` query parameter or a combined
+  "schema snapshot" resource with attributes of the top event types (costs one call per type); (d) `completion/complete` for
+  event types; (e) richer NRQL reference (functions list) once a licence-safe source is agreed.
+- **Needs:** owner's call on (b) to (e); a client check that real MCP clients surface templated resources.
+
+
+## P6-14 — Fuzzy entity-name resolution
+
+### P6-14 — Resolver ships as a tool; other entity tools do not take names yet; fallback scan is capped
+- **Context:** The task asked for a resolver "used by every tool that takes an entity". Changing the input schema of every
+  guid-taking tool (and their authz/contract cases) is a wide change.
+- **Assumption made:** this task adds the shared `createEntityResolver` and a `resolve_entity` tool; the model resolves a name
+  first, then passes the guid. Name lookup is a server-side `name LIKE` search, and only when it finds nothing a catalogue scan
+  of at most 600 entities per call is matched locally (normalised names such as "shipping service" vs "shipping-service").
+  Cache TTL 5 minutes, 64 entries, keyed by credential, region, effective accounts, filters and query. A bare guid is
+  accepted offline without checking it exists.
+- **Options:** (a) keep as is; (b) follow-up P6-17: accept `name` (via the resolver) in `get_entity`,
+  `get_related_entities`, `get_golden_metrics` and report tools; (c) raise the scan cap or page it for very large accounts;
+  (d) verify a pasted guid with one `get_entity` call.
+- **Needs:** owner's call on (b) to (d).
+
+## P6-15 — Raw NerdGraph tool decision
+
+### P6-15 — No raw NerdGraph tool (ADR-0014); opt-in design parked as P7-15 (blocked)
+- **Context:** Several community servers ship an ungated GraphQL passthrough (prior-art S2); the official server does not.
+  A raw document bypasses read-only annotations and the OAuth `mcp:read` consent (mutations), the account allowlist and
+  GUID checks (`actor.account(id:)`, `entitySearch`, `accounts`), and can select key-revealing fields
+  (`actor.apiAccess ... key`) or side-effecting ones (`embeddedChartUrl`). A safe validator needs the `graphql` parser,
+  schema-aware argument checks and per-row result filtering: large, and costly on Workers.
+- **Assumption made:** ADR-0014 accepted as "no raw tool"; missing NerdGraph reads become typed tools. Implemented only
+  guards: `defineDocument` refuses subscriptions and requires `{ mutation: true }` for mutations (none use it), plus tests
+  that fail on a passthrough-shaped tool or any non-query request. The safest opt-in form is specified in
+  P7-15 (`status: blocked`), not built.
+- **Options:** (a) keep "no raw tool" (recommended); (b) build P7-15 (off by default, separate grant, never on OAuth or
+  pass-through, parsed query-only, allow-listed root paths, account and field checks) after a new ADR; (c) build P7-15 for
+  stdio/self-hosted bearer connections only; (d) drop P7-15 entirely.
+- **Needs:** owner's confirmation of ADR-0014 (or a concrete NerdGraph read that justifies (b)/(c)); then unblock or drop P7-15.
+
+
+## P6-16 — Investigation workflow tools
+
+### P6-16 — All three candidate tools ship; two attribute names are unverified; no `around` for logs
+- **Context:** The task listed `trace_error`, `dependency_health` and `entity_health` as candidates. `generate_alert_insights_report`
+  already covers an issue's entity, but nothing gave a one-call health view for an arbitrary entity.
+- **Assumption made:** ship all three (module `investigations.ts`, reusing sibling handlers, planned against the budget).
+  `trace_error` finds an error group's trace through `TransactionError.error.group.guid` and drops synthetic traffic with
+  `nr.syntheticsMonitorId IS NULL`; both attribute names are unverified (see RESEARCH). Spans are read from the one account
+  queried, so a trace that crosses accounts shows only that account's part. The `around` timestamp for logs was not added: logs
+  are matched by `trace.id`, which already pins them to the request. P6-13 evals get a note to cover the tools.
+- **Options:** (a) keep as is; (b) verify the two attribute names against a real account and adjust; (c) add `around` plus a
+  fallback "logs near the error time" when the trace has no logs; (d) cross-account trace stitching (one query per allowed
+  account); (e) fold `entity_health` into `generate_alert_insights_report` (entity_guid input) and drop it.
+- **Needs:** owner's call on (b) to (e); a check against a real account.
+
+
+## P6-17 — Name input on entity tools
+
+### P6-17 — Name input only on three tools; resolution cost is charged to every call
+- **Context:** Scope said "get_entity, get_related_entities, get_golden_metrics and the entity-based report tools".
+- **Assumption made:** shipped the three entity tools; the report, investigation and `entity_guid` tools split into P6-18
+  (composites need resolve-once and budget planning). Each tool's `cost` includes the worst case of a resolution (4 requests),
+  so budget planning is conservative even for guid calls. Only `account` narrows a name (no `domain`/`type`); ambiguity is
+  an `RB_INPUT_INVALID` error with the candidates in `details`, not a successful result.
+- **Options:** (a) keep as is; (b) also add `domain`/`type` to the name path; (c) make ambiguity a normal result with a
+  `candidates` field (needs output-schema changes); (d) charge the resolution cost only when `name` is given (needs
+  per-call cost).
+- **Needs:** owner's call on (b) to (d); whether P6-18 is wanted.
+
+
+## P6-18 — Name input on report, investigation and signal tools
+
+### P6-18 — Adapter instead of per-tool edits; resolution cost charged to every call
+- **Context:** 16 tools take an entity guid with different shapes (required/optional, some already have `account`).
+- **Assumption made:** one adapter (`withEntityName`) wraps them in `createBuiltinTools`; tools called directly from
+  `createXTools` (outside the registry) do not get `name`. Cost is raised by `RESOLVE_COST` (4) for all calls, as in P6-17.
+  APM tools search only `APM` entities and `get_dashboard` only dashboards (fewer false ambiguities). `generate_alert_insights_report`
+  is unchanged (issue id input only).
+- **Options:** (a) keep; (b) charge the cost only when `name` is given; (c) fold the P6-17 tools into the adapter too.
+- **Needs:** owner's call on (b), (c).
+
+
+## P6-13 — Tool description quality and agent evals
+
+### P6-13 — LLM eval not run: no API key; baseline and release gate pending
+- **Context:** The LLM tool-choice eval (`pnpm eval:tools`) needs a paid `ANTHROPIC_API_KEY`; none was available and no
+  external LLM API was called. The acceptance criterion "baseline pass rate recorded" is met offline only (description lint
+  + BM25 router baseline in `pnpm test`, top-1 30/44, top-3 38/44).
+- **Assumption made:** default model `claude-opus-5-5`, effort `medium`, server-side refusal fallback on; the release gate is
+  `--min 0.9` plus every injection case passing. `@anthropic-ai/sdk` 0.131.0 added as a root dev dependency (script only,
+  never bundled). v0.6.0 is not cut by this task.
+- **Options:** (a) run `ANTHROPIC_API_KEY=... pnpm eval:tools --out eval-report.json` once, record the result in
+  `docs/dev/evals.md` § Baseline and pick the gate from it; (b) also run it with `--model claude-sonnet-5-5` / `claude-haiku-4-5`
+  to see how the descriptions hold up on smaller models; (c) run it in CI on release tags with a budgeted key (secret +
+  billing decision).
+- **Needs:** owner runs (a) (about 47 requests); decision on the gate threshold and on (c).
+
+### P6-13 — Untrusted-data sentence shortened in descriptions
+- **Context:** Each description had its own one- or two-sentence untrusted-data warning (~130 chars × 33 tools).
+- **Assumption made:** one fixed sentence (`UNTRUSTED`) on every open-world tool, enforced by the lint; the per-result
+  envelope notice (the actual control, T6) is unchanged. Catalogue size went from 65 683 to 61 267 characters.
+- **Options:** (a) keep; (b) drop the sentence from descriptions entirely and rely on the result notice plus a server
+  `instructions` field.
+- **Needs:** owner's call; (b) only after the LLM eval shows injection cases still pass without it.
+
+
+## P6-19 — Trim tool input schema text
+
+### P6-19 — `$schema` keyword dropped from listed tool schemas; LLM eval not re-run
+- **Context:** `tools/list` went from 61 267 to 51 980 characters (descriptions plus input schemas). Besides shorter and
+  shared field wording, the `$schema` keyword (55 characters per tool, also on output schemas) is no longer emitted.
+  MCP says JSON Schema 2020-12 applies when none is declared. No `$ref`/`$defs` sharing was used: many clients do not
+  resolve `$ref`. Validation is unchanged (the zod schemas are the same). Enum value lists were dropped from a few
+  descriptions where the input schema already lists them (issue and error-group states, entity alert severity, log levels).
+- **Assumption made:** no client needs an explicit `$schema`. `pnpm eval:tools` was not run (no API key), so the
+  tool-choice rate after trimming is unmeasured; only the lint and the offline router baseline hold.
+- **Options:** (a) keep; (b) restore `$schema` (about 2 000 characters); (c) run `pnpm eval:tools` and compare with the
+  P6-13 baseline before merging the stack.
+- **Needs:** owner runs (c) with the P6-13 decision; (b) only if a client rejects schemas without `$schema`.
+
+
+## Phase 6 review
+
+### REVIEW — A composite's grant no longer implies its sibling tools
+- **Context:** `generate_alert_insights_report`, `generate_user_impact_report`, `entity_health` and `dependency_health`
+  called sibling handlers directly, so a grant with only the composite returned log patterns, error groups, issues,
+  deployments and neighbours that the grant did not list (review H1).
+- **Assumption made:** fixed by requiring the sibling's grant (`grantedSibling`): a section whose tool is not granted is
+  `skipped` with the reason; `dependency_health` without `get_related_entities` fails with `RB_TOOL_DISABLED`. The
+  composite's own queries (issue lookup, `trace_error` spans/errors/trace logs, user-impact front-end queries) stay part
+  of its grant. Stdio and pass-through list every tool, so nothing changes there.
+- **Options:** (a) keep (least privilege); (b) a composite grant implies its parts, documented in the admin UI (the
+  grant editor could auto-add them); (c) the admin UI warns when a composite is granted without its parts.
+- **Needs:** owner's call; (c) is cheap with (a).
+
+### REVIEW — CPU benchmark gate
+- **Context:** agents reported `pnpm bench:cpu` as noisy during Phase 6. See the review's Local CI section for the
+  measurements and what changed in `scripts/bench-cpu.ts`.
+- **Needs:** nothing unless the owner prefers a different gate.
+
+### P6-20 — Cost rule: count polls, retries not counted
+- **Context:** declared costs undercounted real NerdGraph calls (review M2).
+- **Assumption made:** one rule: every NRQL costs 2 (`maxPolls: 1` means submit + one poll, or async attempt + sync
+  fallback); retries are not in the declared cost (the per-request budget still caps them); `RESOLVE_COST` stays a flat 4
+  on the entity tools whether or not `name` is given (a static cost cannot see the arguments), so `affordable` is
+  conservative for guid callers. `generate_user_impact_report` now runs at most 5 queries (cost 14) instead of planning
+  against the whole remaining budget. `run_nrql` keeps cost 1 + default polls (the caller can raise `max_polls`).
+  The "Runs ..." hint threshold in the description lint moved from 6 to 8 (name resolution made most entity tools 5 to 8).
+- **Options:** (a) keep; (b) `maxPolls: 0` inside composites (cost 1 per NRQL, pending results reported more often);
+  (c) charge the resolver only when `name` is given, via a per-call cost.
+- **Needs:** owner's call; none blocks Phase 7.
+
+### P6-21 — Untrusted-text and scope hardening decisions
+- **Context:** Phase 6 review M3, M4, L1-L3.
+- **Assumption made:** (M3) the log secret patterns moved into the central `redact()` (this also settles the P6-06 (c)
+  question: every `cleanName` now gets them); (L3) `Note:` lines for failed sections show only the error code, since
+  the message is New Relic free text outside the envelope; `structuredContent` stays un-enveloped, residual documented;
+  (M4) with `rawNrql: false` golden metrics still run but only as aggregate-only queries (every select item a function
+  call, no `*`, sub-select or JOIN), a token-level screen rather than honouring the switch, which would disable
+  `get_golden_metrics` and the composites; (L1) foreign `dataAccountId` conditions keep their row but withhold NRQL and
+  account (`queryWithheld`); (L2) an undecodable GUID is not vouched for.
+- **Options:** (a) keep; (b) honour `rawNrql` strictly for golden metrics; (c) add an `_untrusted` marker to
+  `structuredContent`.
+- **Needs:** owner's call; none blocks Phase 7.
+
+
+### P6-22 — One naming convention, applied as a breaking change without aliases
+- **Context:** review M6: the same concept had several argument and output names (`guid` / `entity_guid`, `since` /
+  `time_range`, `name` as a filter or as an entity, `account` / `accountId`, `hasMore` / `maybeMore`, ...).
+- **Assumption made:** tool names stay (grants store them, so no storage migration); arguments and output fields were
+  renamed in place with no deprecated aliases, listed as breaking in `.changeset/tool-naming-convention.md`, because
+  nothing has been released. `entity_guid` everywhere (also on single-entity tools such as `get_entity`), `name` only as
+  the entity name to resolve, `name_contains` for substring filters, `time_range` for the window (`lookback` /
+  `lookback_days` kept as the second window of the reports, `entity_health` and `analyze_deployment_impact`),
+  `accountId` / `...AccountId(s)` in output. `resolve_entity` keeps `query` (it also takes a guid). The structured
+  `_meta` of NRQL results keeps `accounts` (diagnostic metadata, not part of the output schema). Paging behaviour gaps
+  (no cursor on bounded lists, no `limit` on cursor-only lists) became P6-24. The tools/list catalogue stayed under its
+  52 000-character budget by shortening the shared entity `name` description.
+- **Options:** (a) keep; (b) add deprecated aliases for the old argument names until 1.1 (costs schema size on every
+  tools/list and needs the strict schemas to accept both); (c) `guid` instead of `entity_guid` on single-entity tools.
+- **Needs:** owner's call before 1.0; `pnpm eval:tools` with the owner's key to confirm tool choice did not regress.
+
+### P6-23 — Live probes for LIKE escaping and identifier comment markers not run
+- **Context:** review L6 (`\_` in `LIKE`) and L7 (`--`, `//`, `/*` inside backticked identifiers) need real NerdGraph.
+- **Assumption made:** both are accepted as open and low risk (L6 can only widen or empty a match; L7 reaches only
+  `get_attributes` `event_type`, and a rejected identifier fails closed). Probes were added to `pnpm test:live` and
+  `docs/RESEARCH.md` section 22 says they are unmeasured. `analyze_kafka_metrics` got no foreign-rows assertion: it reads
+  NRQL rows of one allowed account, with no per-row entities to drop.
+- **Options:** (a) run `pnpm test:live` with a key and record the result; (b) tighten `nrql.identifier` to refuse
+  comment markers now, without measuring.
+- **Needs:** owner runs the live suite once.
+
+### P6-24 — Paging parity: unsigned bound cursors, default page sizes, tools/list budget
+- **Context:** every list now takes `limit` and pages (or says it is bounded). Lists without a page size upstream need a
+  composite cursor (upstream cursor + offset), and lists without a cursor (`list_change_events`, `list_recent_logs`) a
+  time cursor.
+- **Assumption made:** (1) cursors are bound to tool + account + filters by a SHA-256 hash checked on use, not signed with
+  a secret: scope never comes from a cursor, so a forged cursor only picks a start position in the caller's own list, and
+  there is no key to manage on Workers or stdio. (2) Defaults: 25 (conditions, issues, incidents, error groups, change
+  events), 50 (policies), 100 (accounts), 200 (entity kinds, event types), max 200 (1000 for the two catalogues), so
+  a call returns less text than the whole upstream page did. (3) `search_entities`, `list_dashboards` and
+  `list_synthetic_monitors` moved to the same bound cursors (a raw NerdGraph cursor is no longer accepted anywhere).
+  (4) The offline `tools/list` budget grew from 52 000 to 53 500 characters (about 110 characters per list tool for
+  `limit` and `cursor`; descriptions were kept unchanged where the router baseline would move). (5) `list_top_transactions`
+  and `get_attributes` stay bounded, not paged. (6) Breaking, listed in `.changeset/paging-limit-parity.md`
+  (`truncated` removed from the paged tools).
+- **Options:** (a) keep; (b) HMAC-sign cursors with a per-deployment secret (stops a client crafting a start offset, adds
+  key handling); (c) keep the 52 000 budget by dropping the `limit` description text or the `cursor` argument on the
+  small catalogue lists; (d) page `list_top_transactions` through a second NRQL with `OFFSET`.
+- **Needs:** owner's call; `pnpm eval:tools` with the owner's key to confirm tool choice did not regress.

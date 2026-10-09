@@ -8,22 +8,25 @@
 // Adding a tool: add its entry to TOOL_CASES (the guard below fails until you do), with at least one call that names
 // a foreign account when the tool takes an account or a GUID.
 import type { Client } from '@modelcontextprotocol/client';
-import { ERROR_META_KEY, ErrorCode } from '@relic-bridge/core';
+import { bindingOf, ERROR_META_KEY, ErrorCode, encodePageCursor } from '@relic-bridge/core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CATALOG, connect, NR_KEY } from '../fixtures.ts';
-import { accountsNamed, createHarness, FOREIGN, guidOf, type Harness, LEAK } from './harness.ts';
+import { accountsNamed, createHarness, FOREIGN, guidOf, type Harness, HONEST_ID, LEAK } from './harness.ts';
 
-/** `ok`: answered; `refused`: RB_AUTH_FORBIDDEN. `offline`: must not reach NerdGraph at all. */
+/** `ok`: answered; `refused`: RB_AUTH_FORBIDDEN; `invalid`: RB_INPUT_INVALID (ambiguous, unknown or out-of-scope name). `offline`: must not reach NerdGraph at all. */
 interface ToolCall {
   readonly args: Record<string, unknown>;
-  readonly expect: 'ok' | 'refused';
+  readonly expect: 'ok' | 'refused' | 'invalid';
   readonly offline?: boolean;
 }
 
 const NRQL = 'SELECT count(*) FROM Transaction SINCE 1 hour ago';
 const ALLOWED = [1, 2] as const;
+/** An entity this NerdGraph answers honestly: the only way to reach the success path of the composite tools. */
+const honest = (account: number, domain = 'APM', type = 'APPLICATION') =>
+  guidOf(account, HONEST_ID, domain, type);
 
-export const TOOL_CASES: Readonly<Record<string, readonly ToolCall[]>> = {
+const GUID_CASES: Readonly<Record<string, readonly ToolCall[]>> = {
   whoami: [{ args: {}, expect: 'ok' }],
   list_accounts: [{ args: {}, expect: 'ok' }],
   time_range: [{ args: { expression: 'last 2 hours' }, expect: 'ok', offline: true }],
@@ -51,6 +54,12 @@ export const TOOL_CASES: Readonly<Record<string, readonly ToolCall[]>> = {
     { args: {}, expect: 'ok' },
     { args: { account: 2 }, expect: 'ok' },
   ],
+  resolve_entity: [
+    { args: { query: 'x', account: FOREIGN }, expect: 'refused', offline: true },
+    { args: { query: guidOf(FOREIGN) }, expect: 'refused', offline: true },
+    { args: { query: 'x' }, expect: 'ok' },
+    { args: { query: 'x', account: 2 }, expect: 'ok' },
+  ],
   list_entity_types: [
     { args: { account: FOREIGN }, expect: 'refused', offline: true },
     { args: {}, expect: 'ok' },
@@ -59,7 +68,7 @@ export const TOOL_CASES: Readonly<Record<string, readonly ToolCall[]>> = {
     { args: { account: FOREIGN }, expect: 'refused', offline: true },
     { args: { account: 3 }, expect: 'refused', offline: true }, // reachable by the key, not allowed
     { args: {}, expect: 'ok' },
-    { args: { account: 2, name: 'x' }, expect: 'ok' },
+    { args: { account: 2, name_contains: 'x' }, expect: 'ok' },
   ],
   list_alert_conditions: [
     { args: { account: FOREIGN }, expect: 'refused', offline: true },
@@ -101,6 +110,7 @@ export const TOOL_CASES: Readonly<Record<string, readonly ToolCall[]>> = {
     { args: { entity_guid: guidOf(FOREIGN) }, expect: 'refused', offline: true },
     { args: { entity_guid: guidOf(3) }, expect: 'refused', offline: true },
     { args: { entity_guid: guidOf(1) }, expect: 'refused' },
+    { args: { entity_guid: honest(1) }, expect: 'ok' },
   ],
   list_top_transactions: [
     { args: { entity_guid: guidOf(FOREIGN) }, expect: 'refused', offline: true },
@@ -143,16 +153,19 @@ export const TOOL_CASES: Readonly<Record<string, readonly ToolCall[]>> = {
   list_synthetic_monitors: [
     { args: { account: FOREIGN }, expect: 'refused', offline: true },
     { args: { account: 3 }, expect: 'refused', offline: true },
-    { args: { account: 1, name: "a'b" }, expect: 'ok' },
+    { args: { account: 1, name_contains: "a'b" }, expect: 'ok' },
   ],
   list_dashboards: [
     { args: { account: FOREIGN }, expect: 'refused', offline: true },
     { args: { account: 3 }, expect: 'refused', offline: true },
-    { args: { account: 1, name: "a'b" }, expect: 'ok' },
+    { args: { account: 1, name_contains: "a'b" }, expect: 'ok' },
   ],
   get_dashboard: [
-    { args: { guid: guidOf(FOREIGN) }, expect: 'refused', offline: true },
-    { args: { guid: guidOf(1) }, expect: 'refused' },
+    { args: { entity_guid: guidOf(FOREIGN) }, expect: 'refused', offline: true },
+    { args: { entity_guid: guidOf(FOREIGN, 'x', 'VIZ', 'DASHBOARD') }, expect: 'refused', offline: true },
+    { args: { entity_guid: guidOf(3, 'x', 'VIZ', 'DASHBOARD') }, expect: 'refused', offline: true },
+    { args: { entity_guid: guidOf(1) }, expect: 'refused' },
+    { args: { entity_guid: honest(1, 'VIZ', 'DASHBOARD') }, expect: 'ok' },
   ],
   generate_alert_insights_report: [
     { args: { issue_id: 'issue-alpha-issue', account: FOREIGN }, expect: 'refused', offline: true },
@@ -173,21 +186,119 @@ export const TOOL_CASES: Readonly<Record<string, readonly ToolCall[]>> = {
     { args: { entity_guid: guidOf(1) }, expect: 'ok' },
     { args: { issue_id: 'issue-alpha-issue', account: 2 }, expect: 'ok' },
   ],
+  trace_error: [
+    { args: { trace_id: 'abcdef0123456789', account: FOREIGN }, expect: 'refused', offline: true },
+    { args: { trace_id: 'abcdef0123456789', account: 3 }, expect: 'refused', offline: true },
+    { args: { error_group_id: 'eg-1', entity_guid: guidOf(FOREIGN) }, expect: 'refused', offline: true },
+    { args: { error_group_id: 'eg-1', entity_guid: guidOf(3) }, expect: 'refused', offline: true },
+    { args: { trace_id: 'abcdef0123456789', account: 1 }, expect: 'ok' },
+  ],
+  dependency_health: [
+    { args: { entity_guid: guidOf(FOREIGN) }, expect: 'refused', offline: true },
+    { args: { entity_guid: guidOf(3) }, expect: 'refused', offline: true },
+    // NerdGraph answers the entity's own golden metrics with an entity in the foreign account: fails closed.
+    { args: { entity_guid: guidOf(1) }, expect: 'refused' },
+    { args: { entity_guid: honest(1) }, expect: 'ok' },
+  ],
+  entity_health: [
+    { args: { entity_guid: guidOf(FOREIGN) }, expect: 'refused', offline: true },
+    { args: { entity_guid: guidOf(3) }, expect: 'refused', offline: true },
+    { args: { entity_guid: guidOf(1) }, expect: 'refused' },
+    { args: { entity_guid: honest(1) }, expect: 'ok' },
+  ],
   get_entity: [
-    { args: { guid: guidOf(FOREIGN) }, expect: 'refused', offline: true },
+    { args: { entity_guid: guidOf(FOREIGN) }, expect: 'refused', offline: true },
     // NerdGraph answers with an entity in the foreign account behind an allowed account's GUID.
-    { args: { guid: guidOf(1) }, expect: 'refused' },
+    { args: { entity_guid: guidOf(1) }, expect: 'refused' },
+    // Name path (P6-17): an unavailable account is refused offline; the resolver never picks among several matches,
+    // never resolves into an account outside the grant, and what it resolves is still checked against NerdGraph.
+    { args: { name: 'entity', account: FOREIGN }, expect: 'refused', offline: true },
+    { args: { name: 'entity', account: 3 }, expect: 'refused', offline: true },
+    { args: { name: 'entity' }, expect: 'invalid' }, // matches accounts 1 and 2: ambiguous
+    { args: { name: 'entity-3' }, expect: 'invalid' }, // only in account 3 (not allowed): not found
+    { args: { name: 'entity-1' }, expect: 'refused' },
+    { args: { name: 'entity-1', entity_guid: guidOf(1) }, expect: 'invalid' },
+    { args: {}, expect: 'invalid' },
   ],
   get_related_entities: [
-    { args: { guid: guidOf(FOREIGN) }, expect: 'refused', offline: true },
-    { args: { guid: guidOf(1) }, expect: 'ok' },
+    { args: { entity_guid: guidOf(FOREIGN) }, expect: 'refused', offline: true },
+    { args: { entity_guid: guidOf(1) }, expect: 'ok' },
+    // Name path (P6-17): an unavailable account is refused offline; the resolver never picks among several matches,
+    // never resolves into an account outside the grant, and what it resolves is still checked against NerdGraph.
+    { args: { name: 'entity', account: FOREIGN }, expect: 'refused', offline: true },
+    { args: { name: 'entity', account: 3 }, expect: 'refused', offline: true },
+    { args: { name: 'entity' }, expect: 'invalid' }, // matches accounts 1 and 2: ambiguous
+    { args: { name: 'entity-3' }, expect: 'invalid' }, // only in account 3 (not allowed): not found
+    { args: { name: 'entity-1' }, expect: 'ok' },
+    { args: { name: 'entity-1', entity_guid: guidOf(1) }, expect: 'invalid' },
+    { args: {}, expect: 'invalid' },
   ],
   get_golden_metrics: [
-    { args: { guid: guidOf(FOREIGN) }, expect: 'refused', offline: true },
-    { args: { guid: guidOf(1) }, expect: 'refused' },
+    { args: { entity_guid: guidOf(FOREIGN) }, expect: 'refused', offline: true },
+    { args: { entity_guid: guidOf(1) }, expect: 'refused' },
+    // Name path (P6-17): an unavailable account is refused offline; the resolver never picks among several matches,
+    // never resolves into an account outside the grant, and what it resolves is still checked against NerdGraph.
+    { args: { name: 'entity', account: FOREIGN }, expect: 'refused', offline: true },
+    { args: { name: 'entity', account: 3 }, expect: 'refused', offline: true },
+    { args: { name: 'entity' }, expect: 'invalid' }, // matches accounts 1 and 2: ambiguous
+    { args: { name: 'entity-3' }, expect: 'invalid' }, // only in account 3 (not allowed): not found
+    { args: { name: 'entity-1' }, expect: 'refused' },
+    { args: { name: 'entity-1', entity_guid: guidOf(1) }, expect: 'invalid' },
+    { args: {}, expect: 'invalid' },
   ],
   // Offline decoding of the caller's own input: says the account is not available, fetches nothing.
-  decode_entity_guid: [{ args: { guid: guidOf(FOREIGN) }, expect: 'ok', offline: true }],
+  decode_entity_guid: [{ args: { entity_guid: guidOf(FOREIGN) }, expect: 'ok', offline: true }],
+};
+
+/**
+ * Name path (P6-17, P6-18), the same for every tool that takes an entity: an unavailable account is refused offline;
+ * the resolver never picks among several matches, never resolves into an account outside the grant, and what it
+ * resolves is still checked like the guid. `resolved` is what `entity-1` (account 1) ends in for that tool.
+ */
+const NAME_TOOLS: Readonly<
+  Record<string, { field: string; resolved: ToolCall['expect']; optional?: boolean }>
+> = {
+  list_top_transactions: { field: 'entity_guid', resolved: 'ok' },
+  analyze_transactions: { field: 'entity_guid', resolved: 'ok' },
+  analyze_threads: { field: 'entity_guid', resolved: 'ok' },
+  list_gc_metrics: { field: 'entity_guid', resolved: 'ok' },
+  analyze_deployment_impact: { field: 'entity_guid', resolved: 'refused' },
+  analyze_entity_logs: { field: 'entity_guid', resolved: 'ok' },
+  list_recent_logs: { field: 'entity_guid', resolved: 'ok', optional: true },
+  list_error_groups: { field: 'entity_guid', resolved: 'ok', optional: true },
+  list_change_events: { field: 'entity_guid', resolved: 'refused', optional: true },
+  list_recent_issues: { field: 'entity_guid', resolved: 'ok', optional: true },
+  search_incidents: { field: 'entity_guid', resolved: 'ok', optional: true },
+  get_dashboard: { field: 'entity_guid', resolved: 'refused' },
+  dependency_health: { field: 'entity_guid', resolved: 'refused' },
+  entity_health: { field: 'entity_guid', resolved: 'refused' },
+  generate_user_impact_report: { field: 'entity_guid', resolved: 'ok', optional: true },
+};
+
+function nameCases(tool: string, o: { field: string; resolved: ToolCall['expect']; optional?: boolean }) {
+  const cases: ToolCall[] = [
+    { args: { name: 'entity', account: FOREIGN }, expect: 'refused', offline: true },
+    { args: { name: 'entity', account: 3 }, expect: 'refused', offline: true },
+    { args: { name: 'entity' }, expect: 'invalid' }, // matches accounts 1 and 2: ambiguous
+    { args: { name: 'entity-3' }, expect: 'invalid' }, // only in account 3 (not allowed): not found
+    { args: { name: 'entity-1' }, expect: o.resolved },
+    { args: { name: 'entity-1', [o.field]: guidOf(1) }, expect: 'invalid' },
+  ];
+  if (!o.optional) cases.push({ args: {}, expect: 'invalid' });
+  return [...(GUID_CASES[tool] ?? []), ...cases];
+}
+
+export const TOOL_CASES: Readonly<Record<string, readonly ToolCall[]>> = {
+  ...GUID_CASES,
+  ...Object.fromEntries(Object.entries(NAME_TOOLS).map(([t, o]) => [t, nameCases(t, o)])),
+  trace_error: [
+    ...(GUID_CASES['trace_error'] ?? []),
+    // A name needs an error group to scope: refused before any lookup.
+    { args: { name: 'entity-1' }, expect: 'invalid' },
+    { args: { name: 'entity', error_group_id: 'eg-1' }, expect: 'invalid' },
+    { args: { name: 'entity-3', error_group_id: 'eg-1' }, expect: 'invalid' },
+    { args: { name: 'entity-1', entity_guid: guidOf(1), error_group_id: 'eg-1' }, expect: 'invalid' },
+  ],
 };
 
 let h: Harness;
@@ -229,6 +340,10 @@ describe('tool isolation against a hostile NerdGraph', () => {
         if (call.expect === 'refused') {
           expect(result.isError, what).toBe(true);
           expect(code, what).toBe(ErrorCode.AuthForbidden);
+        } else if (call.expect === 'invalid') {
+          expect(result.isError, what).toBe(true);
+          // Schema-level rejections (guid and name, neither) carry no tool error code.
+          if (code !== undefined) expect(code, what).toBe(ErrorCode.InputInvalid);
         } else {
           expect(result.isError ?? false, `${what}: ${dump.slice(0, 300)}`).toBe(false);
         }
@@ -241,6 +356,80 @@ describe('tool isolation against a hostile NerdGraph', () => {
       }
     });
   }
+
+  // P6-24: a cursor is client input. It is bound to the tool, the account and the filters of the call that is
+  // resumed, so it cannot be replayed on another account, another tool or a different filter set, and a bare upstream
+  // (NerdGraph) cursor is refused instead of being handed to NerdGraph.
+  describe('cursors cannot be forged into another account, tool or filter set', () => {
+    const PAGED_TOOLS = [
+      'search_entities',
+      'list_entity_types',
+      'list_event_types',
+      'list_accounts',
+      'list_alert_policies',
+      'list_alert_conditions',
+      'list_recent_issues',
+      'search_incidents',
+      'list_error_groups',
+      'list_change_events',
+      'list_recent_logs',
+      'list_synthetic_monitors',
+      'list_dashboards',
+    ] as const;
+
+    it('refuses a bare upstream cursor and a cursor minted for another binding, on every paged tool', async () => {
+      const client = await isoClient();
+      for (const tool of PAGED_TOOLS) {
+        const foreign = encodePageCursor(await bindingOf('other_tool', 2, 'x'), { u: 'abc', o: 0 });
+        for (const cursor of ['NEXT_PAGE_FROM_ANOTHER_ACCOUNT', foreign, 'not base64 at all!']) {
+          const args = tool === 'list_accounts' ? { cursor } : { account: 1, cursor };
+          const r = await client.callTool({ name: tool, arguments: args });
+          const code = (r._meta?.[ERROR_META_KEY] as { code?: string } | undefined)?.code;
+          expect(r.isError, `${tool} with ${cursor.slice(0, 20)}`).toBe(true);
+          // Our own refusal, not a schema error about some other argument.
+          expect(code, `${tool} with ${cursor.slice(0, 20)}`).toBe(ErrorCode.InputInvalid);
+        }
+      }
+    });
+
+    it('a cursor minted for account 1 works there and is refused on account 2 and with other filters', async () => {
+      const client = await isoClient();
+      const mint = async (account: number, filter?: string) =>
+        encodePageCursor(await bindingOf('list_alert_policies', account, filter), { u: 'abc', o: 0 });
+      const call = (args: Record<string, unknown>) =>
+        client.callTool({ name: 'list_alert_policies', arguments: args });
+      const before = h.nerdGraph.calls.length;
+      expect((await call({ account: 1, cursor: await mint(1) })).isError ?? false).toBe(false);
+      expect(h.nerdGraph.calls.length).toBeGreaterThan(before);
+      const mid = h.nerdGraph.calls.length;
+      const onOtherAccount = await call({ account: 2, cursor: await mint(1) });
+      const withOtherFilter = await call({ account: 1, name_contains: 'x', cursor: await mint(1) });
+      for (const r of [onOtherAccount, withOtherFilter]) {
+        expect(r.isError).toBe(true);
+        expect((r._meta?.[ERROR_META_KEY] as { code?: string } | undefined)?.code).toBe(
+          ErrorCode.InputInvalid,
+        );
+      }
+      expect(h.nerdGraph.calls.length, 'refused before any NerdGraph call').toBe(mid);
+    });
+
+    it('a time cursor cannot widen the window past the connection limit', async () => {
+      const client = await isoClient();
+      const now = Date.now();
+      const cursor = encodePageCursor(
+        await bindingOf('list_recent_logs', 1, undefined, undefined, undefined),
+        {
+          t: now,
+          k: 0,
+          s: now - 400 * 86_400_000,
+        },
+      );
+      const before = h.nerdGraph.calls.length;
+      const r = await client.callTool({ name: 'list_recent_logs', arguments: { account: 1, cursor } });
+      expect(r.isError).toBe(true);
+      expect(h.nerdGraph.calls.length).toBe(before);
+    });
+  });
 
   it('alert tools drop rows of other accounts and say so', async () => {
     const client = await isoClient();
@@ -286,6 +475,22 @@ describe('tool isolation against a hostile NerdGraph', () => {
     expect(JSON.stringify(r)).not.toContain(LEAK);
   });
 
+  it('monitors and dashboards of other accounts or with a forged GUID are dropped and flagged', async () => {
+    const client = await isoClient();
+    const monitors = await client.callTool({
+      name: 'list_synthetic_monitors',
+      arguments: { account: 1 },
+    });
+    const m = monitors.structuredContent as { monitors: { name: string }[]; hiddenOutsideScope: boolean };
+    expect(m.monitors.map((x) => x.name)).toEqual(['alpha-monitor-1']);
+    expect(m.hiddenOutsideScope).toBe(true);
+    const dashboards = await client.callTool({ name: 'list_dashboards', arguments: { account: 1 } });
+    const d = dashboards.structuredContent as { dashboards: { name: string }[]; hiddenOutsideScope: boolean };
+    expect(d.dashboards.map((x) => x.name)).toEqual(['alpha-dash-1']);
+    expect(d.hiddenOutsideScope).toBe(true);
+    expect(JSON.stringify([monitors, dashboards])).not.toContain(LEAK);
+  });
+
   it('list tools return only allowed accounts and entities, and say what was left out', async () => {
     const client = await isoClient();
     const accounts = await client.callTool({ name: 'list_accounts', arguments: {} });
@@ -296,7 +501,10 @@ describe('tool isolation against a hostile NerdGraph', () => {
     const rows = (search.structuredContent as { entities: { accountId: number; name: string }[] }).entities;
     expect(rows.map((r) => r.name)).toEqual(['alpha-entity-1', 'alpha-entity-2']);
     expect(JSON.stringify(search.content)).toContain('left out');
-    const related = await client.callTool({ name: 'get_related_entities', arguments: { guid: guidOf(1) } });
+    const related = await client.callTool({
+      name: 'get_related_entities',
+      arguments: { entity_guid: guidOf(1) },
+    });
     const rel = related.structuredContent as { related: { name: string }[]; hiddenOutsideScope: boolean };
     expect(rel.related.map((r) => r.name)).toEqual(['alpha-rel']);
     expect(rel.hiddenOutsideScope).toBe(true);
@@ -344,5 +552,91 @@ describe('ungranted tools', () => {
 describe('guard: every tool has an isolation case', () => {
   it('fails when a tool is added to the catalog without a case here, or a case names a gone tool', () => {
     expect(Object.keys(TOOL_CASES).sort()).toEqual([...CATALOG].sort());
+  });
+});
+
+describe('prompts follow the grant (P6-11)', () => {
+  const promptText = (r: { messages: { content: { type: string; text?: string } }[] }) =>
+    r.messages[0]?.content.text ?? '';
+
+  it('lists only prompts whose tools the grant allows, and leaves out steps naming other tools', async () => {
+    const grantId = await h.addGrant(h.world.projectIds.prod, { tools: ['whoami', 'list_recent_issues'] });
+    const token = await h.addToken(grantId);
+    const client = await connect(h.app, 'prod', token.value, 'modern');
+    clients.push(client);
+    const before = h.nerdGraph.calls.length;
+    const listed = (await client.listPrompts()).prompts.map((p) => p.name).sort();
+    expect(listed).toEqual(['investigate_incident', 'triage_alerts']);
+    const got = await client.getPrompt({ name: 'investigate_incident', arguments: { issue_id: 'i-1' } });
+    expect(promptText(got as never)).toContain('`list_recent_issues`');
+    expect(promptText(got as never)).not.toMatch(
+      /run_nrql|generate_alert_insights_report|get_related_entities/,
+    );
+    // not listed means not callable
+    await expect(client.getPrompt({ name: 'investigate_kubernetes_pods', arguments: {} })).rejects.toThrow();
+    // prompts are text: they never reach New Relic
+    expect(h.nerdGraph.calls.length).toBe(before);
+  });
+
+  it('a grant without any investigation tool lists no prompts', async () => {
+    const grantId = await h.addGrant(h.world.projectIds.prod, { tools: ['whoami', 'time_range'] });
+    const token = await h.addToken(grantId);
+    const client = await connect(h.app, 'prod', token.value, 'modern');
+    clients.push(client);
+    expect((await client.listPrompts()).prompts).toEqual([]);
+  });
+});
+
+describe('resources follow the grant (P6-12)', () => {
+  const bodyOf = (r: { contents: { text?: string }[] }) => r.contents.map((c) => c.text ?? '').join('\n');
+
+  it('lists only the effective accounts and reads nothing from others, without a New Relic call', async () => {
+    const grantId = await h.addGrant(h.world.projectIds.prod, {
+      tools: ['whoami', 'run_nrql', 'list_event_types', 'get_attributes'],
+    });
+    const token = await h.addToken(grantId);
+    const client = await connect(h.app, 'prod', token.value, 'modern');
+    clients.push(client);
+    const before = h.nerdGraph.calls.length;
+    const uris = (await client.listResources()).resources.map((r) => r.uri).sort();
+    expect(uris).toEqual([
+      'relic://accounts/1/event-types',
+      'relic://accounts/2/event-types',
+      'relic://nrql/reference',
+    ]);
+    for (const account of [3, FOREIGN]) {
+      await expect(client.readResource({ uri: `relic://accounts/${account}/event-types` })).rejects.toThrow(
+        /RB_AUTH_FORBIDDEN/,
+      );
+      await expect(
+        client.readResource({ uri: `relic://accounts/${account}/event-types/Transaction/attributes` }),
+      ).rejects.toThrow(/RB_AUTH_FORBIDDEN/);
+    }
+    expect(bodyOf((await client.readResource({ uri: 'relic://nrql/reference' })) as never)).toContain('NRQL');
+    expect(h.nerdGraph.calls.length).toBe(before);
+    // an allowed account goes through the tool path and only names allowed accounts
+    await client.readResource({ uri: 'relic://accounts/1/event-types' });
+    for (const c of h.nerdGraph.calls.slice(before)) {
+      for (const account of accountsNamed(c)) expect(ALLOWED).toContain(account);
+    }
+  });
+
+  it('a grant without the tools sees no resources', async () => {
+    const grantId = await h.addGrant(h.world.projectIds.prod, { tools: ['whoami', 'time_range'] });
+    const token = await h.addToken(grantId);
+    const client = await connect(h.app, 'prod', token.value, 'modern');
+    clients.push(client);
+    expect((await client.listResources()).resources).toEqual([]);
+    await expect(client.readResource({ uri: 'relic://accounts/1/event-types' })).rejects.toThrow();
+    await expect(client.readResource({ uri: 'relic://nrql/reference' })).rejects.toThrow();
+  });
+
+  it('a grant with only get_attributes sees the attributes template but lists no account', async () => {
+    const grantId = await h.addGrant(h.world.projectIds.prod, { tools: ['get_attributes'] });
+    const token = await h.addToken(grantId);
+    const client = await connect(h.app, 'prod', token.value, 'modern');
+    clients.push(client);
+    expect((await client.listResources()).resources).toEqual([]);
+    await expect(client.readResource({ uri: 'relic://accounts/1/event-types' })).rejects.toThrow();
   });
 });

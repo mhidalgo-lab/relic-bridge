@@ -215,7 +215,7 @@ describe('analyze_threads', () => {
 
   it('supports minimal_output and returns partial when the budget stops', async () => {
     const { fetch, calls } = recording(respond);
-    const client = await connect(fetch, { budget: createBudget(1) });
+    const client = await connect(fetch, { budget: createBudget(2) });
     const r = await client.callTool({
       name: 'analyze_threads',
       arguments: { entity_guid: guidOf(A), minimal_output: true },
@@ -265,8 +265,8 @@ describe('list_gc_metrics', () => {
     const r = await client.callTool({ name: 'list_gc_metrics', arguments: { entity_guid: guidOf(B) } });
     expect(calls).toHaveLength(1);
     expect(calls[0]?.variables['accountIds'] ?? calls[0]?.variables['accountId']).toBeDefined();
-    const s = r.structuredContent as { hasData: boolean; gc: unknown[]; heap: unknown[]; account: number };
-    expect(s.account).toBe(B);
+    const s = r.structuredContent as { hasData: boolean; gc: unknown[]; heap: unknown[]; accountId: number };
+    expect(s.accountId).toBe(B);
     expect(s.gc).toHaveLength(2);
     expect(s.heap).toHaveLength(1);
   });
@@ -323,14 +323,14 @@ describe('analyze_kafka_metrics', () => {
     expect(calls).toHaveLength(3);
     expect(calls.map((c) => String(c.variables['nrql'])).join('\n')).toContain(`clusterName\` = 'prod\\'1'`);
     const s = r.structuredContent as {
-      account: number;
+      accountId: number;
       lag: { totalLag: number; imbalance: number; topic: string }[];
       topics: unknown[];
       brokers: unknown[];
       noData: string[];
       partial: boolean;
     };
-    expect(s.account).toBe(A);
+    expect(s.accountId).toBe(A);
     expect(s.lag[0]).toMatchObject({ totalLag: 100, imbalance: 2 });
     expect(s.lag[0]?.topic).not.toContain('\n');
     expect(s.topics).toHaveLength(1);
@@ -361,7 +361,7 @@ describe('analyze_kafka_metrics', () => {
 
   it('is partial when the budget stops later parts or a part fails', async () => {
     const one = recording(respond);
-    const client = await connect(one.fetch, { budget: createBudget(1) });
+    const client = await connect(one.fetch, { budget: createBudget(2) });
     const r = await client.callTool({ name: 'analyze_kafka_metrics', arguments: {} });
     const s = r.structuredContent as { partial: boolean; lag: unknown[]; notes: string[] };
     expect(one.calls).toHaveLength(1);

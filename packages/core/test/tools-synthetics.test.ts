@@ -162,7 +162,10 @@ describe('list_synthetic_monitors', () => {
   it('lists monitors with results per location and sends variables only', async () => {
     const { fetch, calls } = recording(standard);
     const client = await connect(fetch);
-    const r = await client.callTool({ name: 'list_synthetic_monitors', arguments: { name: "o'brien" } });
+    const r = await client.callTool({
+      name: 'list_synthetic_monitors',
+      arguments: { name_contains: "o'brien" },
+    });
     expect(r.isError ?? false).toBe(false);
     expect(calls).toHaveLength(2);
     expect(calls[0]?.query).not.toContain("o'brien");
@@ -170,7 +173,7 @@ describe('list_synthetic_monitors', () => {
     expect(String(calls[0]?.variables['query'])).toContain(`accountId = ${A}`);
     expect(String(calls[1]?.variables['nrql'])).toContain(G1);
     const s = r.structuredContent as {
-      account: number;
+      accountId: number;
       partial: boolean;
       monitors: {
         name: string;
@@ -179,7 +182,7 @@ describe('list_synthetic_monitors', () => {
         locations: { location: string; failurePercent: number }[];
       }[];
     };
-    expect(s.account).toBe(A);
+    expect(s.accountId).toBe(A);
     expect(s.partial).toBe(false);
     expect(s.monitors).toHaveLength(2);
     expect(s.monitors[0]).toMatchObject({ checks: 20, failurePercent: 20 });
@@ -214,9 +217,11 @@ describe('list_synthetic_monitors', () => {
         : nrqlBody([]),
     );
     const client = await connect(fetch);
+    const first = await client.callTool({ name: 'list_synthetic_monitors', arguments: { status: 'MUTED' } });
+    const cursor = (first.structuredContent as { nextCursor: string }).nextCursor;
     const r = await client.callTool({
       name: 'list_synthetic_monitors',
-      arguments: { status: 'MUTED', cursor: 'CURSOR_1' },
+      arguments: { status: 'MUTED', cursor },
     });
     const s = r.structuredContent as {
       monitors: { name: string }[];
@@ -224,8 +229,8 @@ describe('list_synthetic_monitors', () => {
       notes: string[];
     };
     expect(s.monitors.map((x) => x.name)).toEqual(['a']);
-    expect(s.nextCursor).toBe('CURSOR_2');
-    expect(text(r)).toContain('next_cursor: CURSOR_2');
+    expect(s.nextCursor).toEqual(expect.any(String));
+    expect(text(r)).toContain(`nextCursor: ${s.nextCursor}`);
     expect(s.notes.join(' ')).toContain('did not match');
   });
 

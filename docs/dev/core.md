@@ -32,15 +32,15 @@ export const whoami = defineTool({
   description:                          // written for agents: when to use it, what it returns, pitfalls
     'Shows which New Relic project, region and default account this connection uses. Use it to debug setup.',
   inputSchema: z.object({}),            // zod v4; clients see JSON Schema 2020-12
-  outputSchema: z.object({ region: z.string(), defaultAccount: z.number() }),
+  outputSchema: z.object({ region: z.string(), defaultAccountId: z.number() }),
   kind: 'read',                         // read | write | destructive → MCP annotations are derived, not hand-written
   openWorld: false,                     // true when the tool calls New Relic
   cost: 0,                              // expected subrequests (budget planning, ADR-0010)
   group: 'discovery',
   phase: 1,
   handler: async (_input, ctx) => {
-    const out = { region: ctx.credential.region, defaultAccount: ctx.accounts.default };
-    return { text: `Region ${out.region}, account ${out.defaultAccount}`, structured: out };
+    const out = { region: ctx.credential.region, defaultAccountId: ctx.accounts.default };
+    return { text: `Region ${out.region}, account ${out.defaultAccountId}`, structured: out };
   },
 });
 ```
@@ -54,6 +54,9 @@ Then `registry.register(whoami)`.
 | Unique snake_case names, real descriptions, non-negative integer `cost` | Stable contract, good agent behaviour, budget planning |
 | No input property that looks like a secret (`apiKey`, `token`, `password`, `secret`, …), anywhere in the schema | T23: secrets never travel through the model |
 | `write` / `destructive` tools only with `new ToolRegistry({ allowNonRead: true })` | Read-only by default (P7-09 makes writes opt-in) |
+
+Argument and output names (`entity_guid`, `time_range`, `limit`, `cursor` / `nextCursor`, `accountId`, ...) follow
+[tool-conventions.md](tool-conventions.md); `pnpm test` checks every built-in tool against it.
 
 ### Errors
 

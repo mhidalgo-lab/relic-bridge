@@ -2,7 +2,14 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { parse } from 'yaml';
-import { type Baseline, compare, type Measured, renderTable, toBaseline } from '../bench-cpu.ts';
+import {
+  type Baseline,
+  compare,
+  type Measured,
+  persistentRegressions,
+  renderTable,
+  toBaseline,
+} from '../bench-cpu.ts';
 
 const m = (typical: number): Measured => ({ typical, p50: typical, p95: typical * 2, mean: typical, n: 100 });
 const baseline: Baseline = { schema: 1, calibrationMs: 4, scenarios: { big: 8, tiny: 0.05 } };
@@ -40,6 +47,25 @@ describe('compare', () => {
   it('refuses a run whose clock did not advance', () => {
     expect(() => compare({ calibration: m(0), big: m(8) }, baseline)).toThrow(/calibration/);
     expect(() => compare({ big: m(8) }, baseline)).toThrow(/calibration/);
+  });
+});
+
+describe('persistentRegressions (phase 6 review: confirm before failing)', () => {
+  const slow = compare({ calibration: m(4), big: m(20), tiny: m(0.05) }, baseline);
+  const fine = compare({ calibration: m(4), big: m(9), tiny: m(0.05) }, baseline);
+
+  it('a regression in one run only is noise', () => {
+    expect(persistentRegressions([slow, fine])).toEqual([]);
+    expect(persistentRegressions([slow, slow, fine])).toEqual([]);
+  });
+
+  it('a regression in every run fails', () => {
+    expect(persistentRegressions([slow])).toEqual(['big']);
+    expect(persistentRegressions([slow, slow, slow])).toEqual(['big']);
+  });
+
+  it('no runs, no regressions', () => {
+    expect(persistentRegressions([])).toEqual([]);
   });
 });
 

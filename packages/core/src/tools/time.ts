@@ -10,8 +10,7 @@ const timeRangeInput = z.strictObject({
     .min(1)
     .max(200)
     .describe(
-      'A time expression, e.g. "last 2 hours", "past 30 minutes", "today", "yesterday", "this week", "last month", ' +
-        '"2026-10-01T08:00:00Z to 2026-10-01T10:00:00Z" or "2026-10-01 to 2026-10-03". Times are UTC.',
+      'A time expression, e.g. "last 2 hours", "yesterday", "this week", "2026-10-01T08:00:00Z to 2026-10-01T10:00:00Z" or "2026-10-01 to 2026-10-03". UTC.',
     ),
 });
 
@@ -25,9 +24,9 @@ const timeRangeOutput = z.object({
   exceedsWindowLimit: z.boolean(),
 });
 
-const TIME_RANGE_DESCRIPTION = `Convert a human time expression into exact UTC timestamps and the NRQL time clause for it.
+const TIME_RANGE_DESCRIPTION = `Convert a time expression ("yesterday", "last 2 hours", an ISO range) into exact UTC bounds (epoch ms and ISO) and a ready SINCE/UNTIL clause. Offline: nothing is sent to New Relic.
 
-Use it when you need absolute bounds (incident windows, "yesterday", an ISO range) or want the clause to append to a query. No request is sent to New Relic. Returns epoch milliseconds (sinceMs / untilMs), ISO forms, the window length, and a ready SINCE/UNTIL clause. "last week" and "last month" are rolling 7 and 30 days; "this week", "previous week", "this month", "previous month" are calendar periods (weeks start on Monday); a date without a time is midnight UTC, and a date-only range end includes that whole day. A warning is added when the window is longer than this connection allows.`;
+Use it for absolute incident windows or to build the time clause of a run_nrql query. "last week" and "last month" are rolling 7 and 30 days; "this week", "previous week", "this month", "previous month" are calendar periods (weeks start on Monday); a date without a time is midnight UTC and a date-only range end includes that whole day. Warns when the window is longer than this connection allows.`;
 
 /** `time_range`: pure, no subrequest. */
 export function createTimeTools(): ToolDefinition[] {

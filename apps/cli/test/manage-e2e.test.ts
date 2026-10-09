@@ -196,7 +196,7 @@ describe('relic-bridge management (built CLI)', () => {
         const c = await mcpClient(base, slug, tokens[slug] ?? '');
         const r = await c.callTool({ name: 'whoami', arguments: {} });
         expect(r.isError).toBeFalsy();
-        expect(r.structuredContent).toMatchObject({ project: slug, defaultAccount: account });
+        expect(r.structuredContent).toMatchObject({ project: slug, defaultAccountId: account });
         await c.close();
       }
       expect(seenKeys.has(US_KEY) && seenKeys.has(EU_KEY)).toBe(true);

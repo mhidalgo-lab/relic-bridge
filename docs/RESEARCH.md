@@ -341,7 +341,8 @@ Sources: <https://github.com/cloudflare/workers-oauth-provider>, issues #264, #3
 - Dashboards (P6-09, not verified against a real account): dashboards are entities `domain = 'VIZ' AND type = 'DASHBOARD'`
   (`... on DashboardEntityOutline { permissions }` in search). The detail is `... on DashboardEntity { description permissions pages
   { guid name description widgets { id title visualization { id } rawConfiguration } } }`. `rawConfiguration` is a JSON scalar; the
-  tools read `nrqlQueries[].{accountId, query}` and, for markdown widgets, `text`. **Unverified:** every name above and the shape of
+  tools read `nrqlQueries[].{accountId, accountIds, query}` (multi-account widgets carry an `accountIds` array; every account named
+  must be allowed, phase 6 review) and, for markdown widgets, `text`. **Unverified:** every name above and the shape of
   `rawConfiguration` per visualization (billboard, table, line, markdown, and visualizations with other query keys give no NRQL).
   Widget NRQL is never executed by the tools; `permissions` is PRIVATE / PUBLIC_READ_ONLY / PUBLIC_READ_WRITE.
 - Composite reports (P6-10, not verified against a real account): the issue is looked up with `aiIssues.issues(filter: { ids })`
@@ -353,6 +354,13 @@ Sources: <https://github.com/cloudflare/workers-oauth-provider>, issues #264, #3
   agent events, but if it is missing every front end reads "no data"), `uuid` as a user proxy, and the related-entity types used to
   find front ends (`BROWSER/APPLICATION`, `MOBILE/APPLICATION`, `SYNTH/MONITOR`). Impact flags use fixed thresholds: rates 1.5x the
   window before with at least 10 JS errors / 5 crashes, load time 1.25x, volume drop below 0.75x with at least 30 before.
+- Investigation tools (P6-16, not verified against a real account): `trace_error` reads `Span` (`trace.id`, `id`, `parent.id`,
+  `name`, `entity.name`, `duration.ms`, `error.class`, `error.message`, `category`), `TransactionError` (`traceId`,
+  `error.group.guid`, `entityGuid`, `request.uri`, `request.method`, `httpResponseCode`, `transactionName`, `appName`) and `Log`
+  (`trace.id`). **Unverified:** `error.group.guid` on `TransactionError` as the link from an Errors Inbox group id, and
+  `nr.syntheticsMonitorId` as the marker of synthetic traffic on `TransactionError` (if either is wrong the group lookup finds
+  nothing and says so; `trace_id` still works). Spans are sampled: a missing trace is reported as `spans_missing`, not an error.
+  `dependency_health` signal thresholds are fixed (25% change between the two halves of the window, as in P1-09 trends).
 - **Trusted publishing** (OIDC from GitHub Actions, no long-lived npm token) needs npm CLI ≥ 11.5.1 and Node ≥ 22.14
   (Node 24 bundles npm 11), job permission `id-token: write`, and a GitHub-hosted runner. Each package has at most one
   trusted publisher (workflow file + optional environment); `npm trust github <pkg> --file release.yml --env release`
@@ -693,3 +701,14 @@ Source: <https://docs.github.com/en/rest/apps/oauth-applications#delete-an-app-t
   sessions under concurrent `/token` requests (<https://github.com/PrefectHQ/fastmcp/issues/4901>).
 - relic-bridge (ADR-0013) is narrower than both: the replay returns the **same** successor pair (no new token per
   reuse), only while that successor is still current, only for the same client, ≤ 120 s.
+
+## 22. NRQL LIKE escapes and comment markers in identifiers (P6-23, NOT measured)
+
+Two facts the code relies on were not verified live because the run had no New Relic key:
+
+- `likePattern` (`tools/apm.ts`) escapes `%` and `_` with a backslash. Whether NRQL `LIKE` treats `\_` / `\%` as literals
+  is unconfirmed; if it does not, a value with `_` matches by wildcard (wider, never a leak) or nothing.
+- `nrql.identifier` allows `--`, `//` and `/*` inside backticks. Only `get_attributes` `event_type` takes a user value.
+
+`pnpm test:live` now carries one probe for each (`packages/core/test/live/nerdgraph.live.ts`). Run it with
+`RB_LIVE_API_KEY` / `RB_LIVE_ACCOUNT_ID`, then replace this section with the measured result.

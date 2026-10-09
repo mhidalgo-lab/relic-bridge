@@ -1,25 +1,53 @@
 // SPDX-License-Identifier: Apache-2.0
 import { z } from 'zod';
-import type { ToolContext } from '../context.ts';
 import { ErrorCode, RbError } from '../errors.ts';
-import { graphQLErrorToRbError, type NerdGraphResult } from '../nerdgraph/client.ts';
 import {
   ENTITY_QUERY,
   ENTITY_SEARCH_QUERY,
   ENTITY_TYPES_QUERY,
-  type EntityOutlineData,
   RELATED_ENTITIES_QUERY,
+  type RelatedEntitiesData,
   type RelatedEntitiesVariables,
 } from '../nerdgraph/entities.ts';
-import { type DecodedEntityGuid, decodeEntityGuid } from '../nerdgraph/entity-guid.ts';
-import { type EntitySearchQuery, entityQuery, MAX_ENTITY_QUERY_LIST } from '../nerdgraph/entity-query.ts';
-import { resolveAccounts } from '../nrql/engine.ts';
+import { decodeEntityGuid } from '../nerdgraph/entity-guid.ts';
+import { type EntitySearchQuery, entityQuery } from '../nerdgraph/entity-query.ts';
 import { flattenTags } from '../output/compact.ts';
 import { envelope } from '../output/envelope.ts';
 import { shapeRows } from '../output/format.ts';
 import { defineTool, type ToolDefinition } from '../tool.ts';
+import {
+  accountFilter,
+  checkGuid,
+  type EntityRow,
+  guidAgrees,
+  isNonNull,
+  kind,
+  label,
+  outOfScope,
+  requireField,
+  scopeAccounts,
+  toRow,
+} from './entity-common.ts';
+import { entityRefFields, RESOLVE_COST, refineEntityRef, resolveEntityRef } from './entity-ref.ts';
+import { createEntityResolver } from './entity-resolver.ts';
 import { cleanName } from './identity.ts';
-import { accountIdSchema as accountId, type ToolDeps, toolClient } from './shared.ts';
+
+export {
+  accountFilter,
+  checkGuid,
+  type EntityRow,
+  guidAgrees,
+  isNonNull,
+  kind,
+  label,
+  outOfScope,
+  requireField,
+  scopeAccounts,
+  toRow,
+};
+
+import { bindingOf, listLimit, pageList, pageUpstream } from './paging.ts';
+import { accountIdSchema as accountId, cursorInput, type ToolDeps, toolClient, UNTRUSTED } from './shared.ts';
 
 /** Most entities per search call: NerdGraph's page size (P0-09). */
 export const MAX_ENTITY_RESULTS = 200;
@@ -29,26 +57,20 @@ const DEFAULT_RELATED_RESULTS = 50;
 const MAX_TAG_FILTERS = 10;
 const MAX_TAGS_SHOWN = 100;
 const MAX_TAG_CHARS = 300;
-/** Domain, type, severity and relationship names are New Relic codes; anything else is dropped (shown as unknown). */
-const CODE_RE = /^[A-Za-z0-9_]{1,64}$/;
 /** `list_entity_types` cache (THREAT_MODEL T21: keyed by credential, region and account set; never shared across). */
 export const ENTITY_TYPES_TTL_MS: number = 10 * 60_000;
 const ENTITY_TYPES_CACHE_MAX = 64;
 
-const guid = z.string().min(8).max(512).describe('Entity guid, exactly as returned by search_entities.');
+const guid = z.string().min(8).max(512).describe('Entity guid.');
 // Upper-cased by the handlers (no zod transforms: input schemas must convert to JSON Schema).
 const domainField = z.string().regex(/^[A-Za-z][A-Za-z0-9_]{0,31}$/);
 const typeField = z.string().regex(/^[A-Za-z][A-Za-z0-9_]{0,63}$/);
 const TAG_KEY_RE = /^[A-Za-z_][A-Za-z0-9_.]{0,127}$/;
-/** NerdGraph cursors are opaque base64-like text. */
-const CURSOR_RE = /^[A-Za-z0-9+/=_.:-]{1,2048}$/;
 
-const accountInput = accountId
-  .optional()
-  .describe('Only this account (must be one of list_accounts). Default: every account of this connection.');
+const accountInput = accountId.optional().describe('Only this account (one of list_accounts). Default: all.');
 
 const searchInput = z.strictObject({
-  name: z
+  name_contains: z
     .string()
     .min(1)
     .max(256)
@@ -66,7 +88,7 @@ const searchInput = z.strictObject({
       message: `At most ${MAX_TAG_FILTERS} tag filters.`,
     })
     .optional()
-    .describe('Exact tag matches, e.g. {"environment": "production", "team": "checkout"}. All must match.'),
+    .describe('Exact tag matches, e.g. {"environment": "production"}. All must match.'),
   account: accountInput,
   limit: z
     .number()
@@ -75,11 +97,7 @@ const searchInput = z.strictObject({
     .max(MAX_ENTITY_RESULTS)
     .optional()
     .describe(`Most entities to return (default ${DEFAULT_ENTITY_RESULTS}, max ${MAX_ENTITY_RESULTS}).`),
-  cursor: z
-    .string()
-    .regex(CURSOR_RE)
-    .optional()
-    .describe('next_cursor from a previous call with the same filters, for the next page.'),
+  cursor: cursorInput,
 });
 
 const entityRow = z.object({
@@ -97,11 +115,14 @@ const searchOutput = z.object({
   /** Matches NerdGraph reported for the filter (before account filtering). */
   total: z.number().int().nullable(),
   nextCursor: z.string().nullable(),
+  /** Rows NerdGraph returned outside this connection's accounts were left out. */
+  hiddenOutsideScope: z.boolean(),
   /** The entity-search filter that was sent. */
   query: z.string(),
 });
 
-const getEntityInput = z.strictObject({ guid });
+const GUID_HINT = 'Entity guid.';
+const getEntityInput = refineEntityRef(z.strictObject(entityRefFields(GUID_HINT)));
 
 const getEntityOutput = entityRow.extend({
   entityType: z.string().nullable(),
@@ -112,30 +133,23 @@ const getEntityOutput = entityRow.extend({
   goldenMetricTitles: z.array(z.string()).nullable(),
 });
 
-const relatedInput = z.strictObject({
-  guid,
-  direction: z
-    .enum(['INBOUND', 'OUTBOUND', 'BOTH'])
-    .optional()
-    .describe(
-      'INBOUND (entities pointing at this one, e.g. callers), OUTBOUND (what it calls/hosts…), BOTH (default).',
-    ),
-  types: z
-    .array(z.strictObject({ domain: domainField, type: typeField }))
-    .min(1)
-    .max(10)
-    .optional()
-    .describe('Only related entities of these kinds, e.g. [{"domain": "APM", "type": "APPLICATION"}].'),
-  limit: z
-    .number()
-    .int()
-    .min(1)
-    .max(MAX_RELATED_RESULTS)
-    .optional()
-    .describe(
-      `Most relationships to return (default ${DEFAULT_RELATED_RESULTS}, max ${MAX_RELATED_RESULTS}).`,
-    ),
-});
+const relatedInput = refineEntityRef(
+  z.strictObject({
+    ...entityRefFields(GUID_HINT),
+    direction: z
+      .enum(['INBOUND', 'OUTBOUND', 'BOTH'])
+      .optional()
+      .describe('INBOUND (callers), OUTBOUND (what it calls or runs on) or BOTH (default).'),
+    types: z
+      .array(z.strictObject({ domain: domainField, type: typeField }))
+      .min(1)
+      .max(10)
+      .optional()
+      .describe('Only related entities of these kinds, e.g. [{"domain": "APM", "type": "APPLICATION"}].'),
+    limit: listLimit('relationships', DEFAULT_RELATED_RESULTS, MAX_RELATED_RESULTS),
+    cursor: cursorInput,
+  }),
+);
 
 const relatedOutput = z.object({
   entity: z.object({ guid: z.string(), name: z.string().nullable() }),
@@ -147,10 +161,17 @@ const relatedOutput = z.object({
   ),
   /** Some relationships pointed to accounts this connection does not allow and were left out. */
   hiddenOutsideScope: z.boolean(),
-  hasMore: z.boolean(),
+  /** More relationships exist: pass this as cursor (same filters) to read them. */
+  nextCursor: z.string().nullable(),
 });
 
-const listTypesInput = z.strictObject({ account: accountInput });
+const MAX_TYPES_LIMIT = 1000;
+const DEFAULT_TYPES_LIMIT = 200;
+const listTypesInput = z.strictObject({
+  account: accountInput,
+  limit: listLimit('entity kinds', DEFAULT_TYPES_LIMIT, MAX_TYPES_LIMIT),
+  cursor: cursorInput,
+});
 
 const listTypesOutput = z.object({
   types: z.array(
@@ -161,11 +182,13 @@ const listTypesOutput = z.object({
       count: z.number().int().nullable(),
     }),
   ),
-  accounts: z.array(z.number().int()),
+  accountIds: z.array(z.number().int()),
   cached: z.boolean(),
+  /** More kinds exist: pass this as cursor (same account) to read them. */
+  nextCursor: z.string().nullable(),
 });
 
-const decodeInput = z.strictObject({ guid });
+const decodeInput = z.strictObject({ entity_guid: guid });
 
 const decodeOutput = z.object({
   accountId: z.number().int(),
@@ -175,120 +198,25 @@ const decodeOutput = z.object({
   allowed: z.boolean(),
 });
 
-const SEARCH_DESCRIPTION = `Find New Relic entities (services, hosts, browser and mobile apps, monitors, dashboards…) by name, domain, type and tags.
+const SEARCH_DESCRIPTION = `Find New Relic entities (services, hosts, browser and mobile apps, monitors, dashboards...) by name substring, domain, type and tags: a paged list.
 
-Use it to get an entity's guid before calling get_entity, get_related_entities or get_golden_metrics. All filters are optional and combined with AND: name is a case-insensitive substring, domain/type are exact (see list_entity_types), tags are exact key/value matches. Results only include accounts of this connection. If next_cursor is returned, call again with the same filters and that cursor for more. Names come from New Relic and are inside an untrusted-data block.`;
+Use it to browse or filter, e.g. every APM service tagged env:prod. To turn one known name into one guid use resolve_entity (most entity tools also take the name directly). Filters combine with AND: name_contains is a case-insensitive substring, domain and type are exact (see list_entity_types), tags are exact key/value matches. If nextCursor is returned, pass it as cursor with the same filters. ${UNTRUSTED}`;
 
-const GET_ENTITY_DESCRIPTION = `Get one entity by guid: name, account, domain/type, alert severity (CRITICAL, WARNING, NOT_ALERTING, NOT_CONFIGURED), whether it is reporting, its tags, a New Relic link and the titles of its golden metrics.
+const GET_ENTITY_DESCRIPTION = `Get one entity's details (guid or name): name, account, domain/type, alert severity, whether it is reporting, tags, a link and its golden metric titles. No metric values.
 
-Use it after search_entities to inspect an entity. For metric values use get_golden_metrics or run_nrql. Names and tags come from New Relic and are inside an untrusted-data block.`;
+For metric values use get_golden_metrics; for a full health check (metrics, issues, errors, deployments) use entity_health. ${UNTRUSTED}`;
 
-const RELATED_DESCRIPTION = `List the entities directly related to one entity (one hop): the services it calls or is called by, the hosts it runs on, its containers, monitors and so on.
+const RELATED_DESCRIPTION = `List the entities directly related to one entity (guid or name), one hop: services it calls or is called by, hosts it runs on, containers, monitors...
 
-Use it to map dependencies during an investigation (e.g. which upstream service is failing). Each relationship shows its direction relative to the entity (incoming/outgoing) and its type (CALLS, HOSTS, CONTAINS…). Relationships into accounts this connection does not allow are left out. Names come from New Relic and are inside an untrusted-data block.`;
+Use it to map dependencies. Each relationship has a direction (incoming/outgoing) and a type (CALLS, HOSTS, CONTAINS...). Relationships into accounts outside this connection are left out. Page with cursor. To measure whether the neighbours are healthy use dependency_health. ${UNTRUSTED}`;
 
-const LIST_TYPES_DESCRIPTION = `List the kinds of entities present in this connection's accounts: domain, type and how many entities of each.
+const LIST_TYPES_DESCRIPTION = `List the entity domain/type pairs present in this connection's accounts, with how many entities of each.
 
-Use it to learn which domain/type values to pass to search_entities. Results are cached for 10 minutes. Values come from New Relic and are inside an untrusted-data block.`;
+Use it to learn the domain and type values search_entities accepts. Cached for 10 minutes. ${UNTRUSTED}`;
 
-const DECODE_DESCRIPTION = `Decode an entity guid offline: account id, domain, type and domain id, and whether the account is available on this connection.
+const DECODE_DESCRIPTION = `Decode an entity guid offline: account id, domain, type and domain id, and whether this connection can read that account. Nothing is sent to New Relic.
 
-No request is sent to New Relic. Use it to tell which account an entity belongs to before querying it.`;
-
-export const isNonNull = <T>(v: T | null | undefined): v is T => v !== null && v !== undefined;
-
-/**
- * A New Relic code (`APM`, `APPLICATION`, `CRITICAL`, `CALLS`…). Restricted to a strict charset, so it is safe to show
- * outside the untrusted-data envelope; anything else becomes null.
- */
-function label(value: string | null | undefined): string | null {
-  return typeof value === 'string' && CODE_RE.test(value) ? value : null;
-}
-
-/** Accounts a search or catalogue covers: the requested one (checked) or every allowed account. */
-function scopeAccounts(ctx: ToolContext, account: number | undefined): number[] {
-  const accounts =
-    account === undefined ? [...new Set(ctx.accounts.allowed)] : resolveAccounts(ctx, [account]);
-  if (accounts.length === 0) {
-    throw new RbError(ErrorCode.AuthForbidden, 'This connection has no accounts.');
-  }
-  if (accounts.length > MAX_ENTITY_QUERY_LIST) {
-    throw new RbError(
-      ErrorCode.InputInvalid,
-      `This connection has more than ${MAX_ENTITY_QUERY_LIST} accounts.`,
-      {
-        hint: 'Pass "account" to search one account at a time.',
-      },
-    );
-  }
-  return accounts;
-}
-
-/** `accountId IN ('1', '2')`. Quoted like the P0-09 probe (`accountId = '…'`), escaped by the tag anyway. */
-function accountFilter(accounts: readonly number[]): EntitySearchQuery {
-  return entityQuery`accountId IN ${accounts.map(String)}`;
-}
-
-/** Offline account check for a GUID, before any request (T3). */
-export function checkGuid(ctx: ToolContext, value: string): DecodedEntityGuid {
-  const decoded = decodeEntityGuid(value);
-  if (!ctx.accounts.allowed.includes(decoded.accountId)) throw outOfScope(decoded.accountId);
-  return decoded;
-}
-
-/**
- * Whether a returned entity's GUID agrees with the account NerdGraph reported for it. A GUID encodes its account, so a
- * mismatch is inconsistent data and the row can't be vouched for (T3). GUIDs that don't decode are judged by the
- * reported account alone.
- */
-export function guidAgrees(guid: string, account: number): boolean {
-  try {
-    return decodeEntityGuid(guid).accountId === account;
-  } catch {
-    return true;
-  }
-}
-
-export function outOfScope(account: number): RbError {
-  return new RbError(
-    ErrorCode.AuthForbidden,
-    `This entity belongs to account ${account}, which is not available on this connection.`,
-    { hint: 'Use list_accounts to see the accounts you can query.', details: { account } },
-  );
-}
-
-function notFound(): RbError {
-  return new RbError(ErrorCode.InputInvalid, 'No entity with this guid is visible to this key.', {
-    hint: 'Check the guid (use search_entities), and that the key can read its account.',
-  });
-}
-
-/** A required field came back null: map the field error if there is one. */
-export function requireField<T>(
-  value: T | null | undefined,
-  result: NerdGraphResult<unknown>,
-  ctx: ToolContext,
-): T {
-  if (isNonNull(value)) return value;
-  throw result.warnings.length > 0
-    ? graphQLErrorToRbError(result.warnings[0], ctx.credential.region)
-    : notFound();
-}
-
-function toRow(e: EntityOutlineData, fallback?: { guid?: string | null; accountId?: number | null }) {
-  return {
-    guid: e.guid ?? fallback?.guid ?? '',
-    name: cleanName(e.name ?? ''),
-    accountId: e.accountId ?? fallback?.accountId ?? null,
-    domain: label(e.domain),
-    type: label(e.type),
-    alertSeverity: label(e.alertSeverity),
-    reporting: typeof e.reporting === 'boolean' ? e.reporting : null,
-  };
-}
-
-const kind = (r: { domain: string | null; type: string | null }) =>
-  [r.domain, r.type].filter(isNonNull).join('/') || 'unknown';
+Use it to tell which account a guid belongs to; for the entity's details use get_entity.`;
 
 interface TypesCacheEntry {
   readonly at: number;
@@ -298,6 +226,7 @@ interface TypesCacheEntry {
 /** `search_entities`, `get_entity`, `get_related_entities`, `list_entity_types`, `decode_entity_guid`. */
 export function createEntityTools(deps: ToolDeps = {}): ToolDefinition[] {
   const client = toolClient(deps);
+  const resolver = deps.resolver ?? createEntityResolver(deps);
   // Per tool-set instance (≈ per isolate). Holds no credentials; the key includes the credential id and account set.
   const typesCache = new Map<string, TypesCacheEntry>();
 
@@ -317,20 +246,30 @@ export function createEntityTools(deps: ToolDeps = {}): ToolDefinition[] {
       const parts: EntitySearchQuery[] = [accountFilter(accounts)];
       if (input.domain) parts.push(entityQuery`domain = ${input.domain.toUpperCase()}`);
       if (input.type) parts.push(entityQuery`type = ${input.type.toUpperCase()}`);
-      if (input.name) parts.push(entityQuery`name LIKE ${`%${input.name}%`}`);
+      if (input.name_contains) parts.push(entityQuery`name LIKE ${`%${input.name_contains}%`}`);
       for (const [key, value] of Object.entries(input.tags ?? {})) {
         parts.push(entityQuery`${entityQuery.tag(key)} = ${value}`);
       }
       const query = entityQuery.and(parts);
       const limit = input.limit ?? DEFAULT_ENTITY_RESULTS;
-      const result = await client(ctx).query(ENTITY_SEARCH_QUERY, {
-        query: query.text,
-        cursor: input.cursor ?? null,
-        options: { limit },
+      let count: unknown;
+      const page = await pageUpstream({
+        binding: await bindingOf('search_entities', ctx.accounts.default, query.text),
+        cursor: input.cursor,
+        limit,
+        fetchPage: async (upstream) => {
+          const result = await client(ctx).query(ENTITY_SEARCH_QUERY, {
+            query: query.text,
+            cursor: upstream,
+            options: { limit },
+          });
+          const es = requireField(result.data.actor.entitySearch, result, ctx);
+          count = es.count;
+          return { items: (es.results?.entities ?? []).filter(isNonNull), next: es.results?.nextCursor };
+        },
       });
-      const es = requireField(result.data.actor.entitySearch, result, ctx);
+      const all = page.items;
       const scope = new Set(accounts);
-      const all = (es.results?.entities ?? []).filter(isNonNull);
       const inScope = (e: (typeof all)[number]) =>
         typeof e.accountId === 'number' &&
         scope.has(e.accountId) &&
@@ -343,10 +282,8 @@ export function createEntityTools(deps: ToolDeps = {}): ToolDefinition[] {
         .map((e) => toRow(e));
       // Only scope drops count: NerdGraph may legitimately return more than `limit` rows.
       const hidden = all.some((e) => !inScope(e));
-      // Echoed in the text outside the envelope: only an opaque cursor-shaped value is passed back.
-      const rawCursor = es.results?.nextCursor;
-      const nextCursor = typeof rawCursor === 'string' && CURSOR_RE.test(rawCursor) ? rawCursor : null;
-      const total = typeof es.count === 'number' ? es.count : null;
+      const nextCursor = page.nextCursor;
+      const total = typeof count === 'number' ? count : null;
 
       const shaped = shapeRows(
         entities.map((e) => ({
@@ -365,12 +302,13 @@ export function createEntityTools(deps: ToolDeps = {}): ToolDefinition[] {
           `in ${accounts.length === 1 ? `account ${accounts[0]}` : `${accounts.length} accounts`}.`,
       ];
       if (hidden) lines.push("Note: results outside this connection's accounts were left out.");
-      if (nextCursor) lines.push('More results: call again with the same filters and the next_cursor below.');
+      if (nextCursor)
+        lines.push('More results: call again with the same filters and cursor set to the nextCursor below.');
       if (entities.length > 0) lines.push(shaped.text);
-      if (nextCursor) lines.push(`next_cursor: ${nextCursor}`);
+      if (nextCursor) lines.push(`nextCursor: ${nextCursor}`);
       return {
         text: lines.join('\n'),
-        structured: { entities, total, nextCursor, query: query.text },
+        structured: { entities, total, nextCursor, hiddenOutsideScope: hidden, query: query.text },
       };
     },
   });
@@ -383,10 +321,13 @@ export function createEntityTools(deps: ToolDeps = {}): ToolDefinition[] {
     outputSchema: getEntityOutput,
     kind: 'read',
     openWorld: true,
-    cost: 1,
+    // One entity lookup, plus a name resolution when `name` is given.
+    cost: 1 + RESOLVE_COST,
     group: 'entities',
     phase: 1,
-    handler: async (input, ctx) => {
+    handler: async (rawInput, ctx) => {
+      const ref = await resolveEntityRef(resolver, ctx, rawInput);
+      const input = { guid: ref.guid };
       const decoded = checkGuid(ctx, input.guid);
       const result = await client(ctx).query(ENTITY_QUERY, { guid: input.guid });
       const e = requireField(result.data.actor.entity, result, ctx);
@@ -439,7 +380,7 @@ export function createEntityTools(deps: ToolDeps = {}): ToolDefinition[] {
         `golden metrics: ${(goldenMetricTitles ?? []).join('; ')}`,
       ];
       lines.push(envelope(body.join('\n'), { source: 'New Relic entity' }));
-      return { text: lines.join('\n'), structured };
+      return { text: [...(ref.note ? [ref.note] : []), ...lines].join('\n'), structured };
     },
   });
 
@@ -451,10 +392,12 @@ export function createEntityTools(deps: ToolDeps = {}): ToolDefinition[] {
     outputSchema: relatedOutput,
     kind: 'read',
     openWorld: true,
-    cost: 1,
+    cost: 1 + RESOLVE_COST,
     group: 'entities',
     phase: 1,
-    handler: async (input, ctx) => {
+    handler: async (rawInput, ctx) => {
+      const ref = await resolveEntityRef(resolver, ctx, rawInput);
+      const input = { ...rawInput, guid: ref.guid };
       const decoded = checkGuid(ctx, input.guid);
       const limit = input.limit ?? DEFAULT_RELATED_RESULTS;
       const filter: RelatedEntitiesVariables['filter'] = {
@@ -470,8 +413,27 @@ export function createEntityTools(deps: ToolDeps = {}): ToolDefinition[] {
             }
           : {}),
       };
-      const result = await client(ctx).query(RELATED_ENTITIES_QUERY, { guid: input.guid, filter, limit });
-      const entity = requireField(result.data.actor.entity, result, ctx);
+      let entity = undefined as NonNullable<RelatedEntitiesData['actor']['entity']> | undefined;
+      const page = await pageUpstream({
+        binding: await bindingOf('get_related_entities', decoded.accountId, input.guid, filter),
+        cursor: input.cursor,
+        limit,
+        fetchPage: async (upstream) => {
+          const result = await client(ctx).query(RELATED_ENTITIES_QUERY, {
+            guid: input.guid,
+            filter,
+            limit,
+            cursor: upstream,
+          });
+          const found = requireField(result.data.actor.entity, result, ctx);
+          entity = found;
+          return {
+            items: (found.relatedEntities?.results ?? []).filter(isNonNull),
+            next: found.relatedEntities?.nextCursor,
+          };
+        },
+      });
+      if (entity === undefined) throw new RbError(ErrorCode.NerdGraphError, 'NerdGraph returned no entity.');
       // No account, or a different one than the GUID's, means we can't vouch for the scope: refuse (T3).
       if (typeof entity.accountId !== 'number') {
         throw new RbError(ErrorCode.NerdGraphError, 'NerdGraph returned the entity without an account.', {
@@ -482,9 +444,8 @@ export function createEntityTools(deps: ToolDeps = {}): ToolDefinition[] {
         throw outOfScope(entity.accountId);
       }
       const self = entity.guid ?? input.guid;
-      const edges = (entity.relatedEntities?.results ?? []).filter(isNonNull);
+      const edges = page.items;
       let hiddenOutsideScope = false;
-      let cut = false;
       const rows: z.infer<typeof relatedOutput>['related'] = [];
       for (const edge of edges) {
         const outgoing = edge.source?.guid === self;
@@ -506,12 +467,8 @@ export function createEntityTools(deps: ToolDeps = {}): ToolDefinition[] {
           direction: outgoing ? 'outgoing' : 'incoming',
           relationship: label(edge.type),
         });
-        if (rows.length >= limit) {
-          cut = edges.indexOf(edge) < edges.length - 1;
-          break;
-        }
       }
-      const hasMore = cut || Boolean(entity.relatedEntities?.nextCursor);
+      const nextCursor = page.nextCursor;
       const shaped = shapeRows(
         rows.map((r) => ({
           direction: r.direction,
@@ -528,15 +485,19 @@ export function createEntityTools(deps: ToolDeps = {}): ToolDefinition[] {
       if (hiddenOutsideScope) {
         lines.push('Note: relationships into accounts this connection does not allow were left out.');
       }
-      if (hasMore) lines.push('More relationships exist: narrow with direction or types.');
+      if (nextCursor)
+        lines.push(
+          'More relationships exist: call again with the same filters and cursor set to the nextCursor below.',
+        );
       if (rows.length > 0) lines.push(shaped.text);
+      if (nextCursor) lines.push(`nextCursor: ${nextCursor}`);
       return {
-        text: lines.join('\n'),
+        text: [...(ref.note ? [ref.note] : []), ...lines].join('\n'),
         structured: {
           entity: { guid: self, name: typeof entity.name === 'string' ? cleanName(entity.name) : null },
           related: rows,
           hiddenOutsideScope,
-          hasMore,
+          nextCursor,
         },
       };
     },
@@ -580,17 +541,27 @@ export function createEntityTools(deps: ToolDeps = {}): ToolDefinition[] {
           typesCache.delete(oldest);
         }
       }
+      const paged = pageList(
+        entry.types,
+        await bindingOf('list_entity_types', ctx.accounts.default, accounts),
+        input.cursor,
+        input.limit ?? DEFAULT_TYPES_LIMIT,
+      );
       const shaped = shapeRows(
-        entry.types.map((t) => ({ domain: t.domain, type: t.type, count: t.count ?? '' })),
-        { format: 'table', source: 'New Relic entity types', maxRows: 1000 },
+        paged.items.map((t) => ({ domain: t.domain, type: t.type, count: t.count ?? '' })),
+        { format: 'table', source: 'New Relic entity types', maxRows: MAX_TYPES_LIMIT },
       );
       const lines = [
-        `${entry.types.length} entity kind${entry.types.length === 1 ? '' : 's'} in ` +
+        `${paged.items.length} of ${entry.types.length} entity kind${entry.types.length === 1 ? '' : 's'} in ` +
           `${accounts.length === 1 ? `account ${accounts[0]}` : `${accounts.length} accounts`}` +
           `${cached ? ' (cached)' : ''}. Pass domain and type to search_entities.`,
       ];
-      if (entry.types.length > 0) lines.push(shaped.text);
-      return { text: lines.join('\n'), structured: { types: entry.types, accounts, cached } };
+      if (paged.items.length > 0) lines.push(shaped.text);
+      if (paged.nextCursor) lines.push(`nextCursor: ${paged.nextCursor}`);
+      return {
+        text: lines.join('\n'),
+        structured: { types: paged.items, accountIds: accounts, cached, nextCursor: paged.nextCursor },
+      };
     },
   });
 
@@ -606,7 +577,7 @@ export function createEntityTools(deps: ToolDeps = {}): ToolDefinition[] {
     group: 'entities',
     phase: 1,
     handler: async (input, ctx) => {
-      const d = decodeEntityGuid(input.guid);
+      const d = decodeEntityGuid(input.entity_guid);
       const allowed = ctx.accounts.allowed.includes(d.accountId);
       // The domain id is free text from the guid, and a guid can come from telemetry: keep it in the envelope (T6).
       return {

@@ -88,6 +88,7 @@ export interface RelatedEntitiesData {
 export interface RelatedEntitiesVariables extends Record<string, unknown> {
   guid: string;
   limit: number;
+  cursor: string | null;
   filter: {
     direction: RelationshipDirection;
     entityDomainTypes?: { include: { domain: string; type: string }[] };
@@ -97,8 +98,8 @@ export interface RelatedEntitiesVariables extends Record<string, unknown> {
 /** One hop of `relatedEntities` (`EntityRelationshipEdgeFilter`: direction, domain/type include list). */
 export const RELATED_ENTITIES_QUERY: GraphQLDocument<RelatedEntitiesData, RelatedEntitiesVariables> =
   defineDocument(
-    'query RbRelatedEntities($guid: EntityGuid!, $filter: EntityRelationshipEdgeFilter, $limit: Int) { actor { ' +
-      'entity(guid: $guid) { guid accountId name relatedEntities(filter: $filter, limit: $limit) { nextCursor ' +
+    'query RbRelatedEntities($guid: EntityGuid!, $filter: EntityRelationshipEdgeFilter, $limit: Int, $cursor: String) { actor { ' +
+      'entity(guid: $guid) { guid accountId name relatedEntities(cursor: $cursor, filter: $filter, limit: $limit) { nextCursor ' +
       'results { type source { guid accountId entity { name domain type alertSeverity reporting } } ' +
       'target { guid accountId entity { name domain type alertSeverity reporting } } } } } } }',
   );

@@ -108,28 +108,44 @@ describe('list_change_events', () => {
     expect(r.isError ?? false).toBe(false);
     expect(calls).toHaveLength(1);
     expect(calls[0]?.variables).toEqual({
-      filter: { accountIds: [A], limit: 10, timeWindow: { startTime: NOW - 7 * 86_400_000, endTime: NOW } },
+      filter: { accountIds: [A], limit: 11, timeWindow: { startTime: NOW - 7 * 86_400_000, endTime: NOW } },
     });
     const s = r.structuredContent as {
       events: { id: string; user: string; version: string }[];
-      maybeMore: boolean;
+      nextCursor: string | null;
     };
     expect(s.events.map((e) => e.id)).toEqual(['c2', 'c1']);
     expect(s.events[0]?.user).toBe('j***@example.com');
     expect(s.events[0]?.version).toBe('v1.2.3');
-    expect(s.maybeMore).toBe(false);
+    expect(s.nextCursor).toBeNull();
     expect(text(r)).not.toContain('jane.doe');
   });
 
-  it('flags a full page and honours minimal_output', async () => {
-    const { fetch } = recording(() => eventsBody([event(A, 'c1', NOW - MIN), event(A, 'c2', NOW - 2 * MIN)]));
+  it('pages older events with a cursor and honours minimal_output', async () => {
+    const all = [event(A, 'c1', NOW - MIN), event(A, 'c2', NOW - 2 * MIN), event(A, 'c3', NOW - 3 * MIN)];
+    const { fetch, calls } = recording((body) => {
+      const end = (body.variables['filter'] as { timeWindow: { endTime: number } }).timeWindow.endTime;
+      return eventsBody(all.filter((e) => e.timestamp < end));
+    });
     const client = await connect(fetch);
     const r = await client.callTool({
       name: 'list_change_events',
       arguments: { limit: 2, minimal_output: true },
     });
-    const s = r.structuredContent as { events: Record<string, unknown>[]; maybeMore: boolean };
-    expect(s.maybeMore).toBe(true);
+    const s = r.structuredContent as { events: Record<string, unknown>[]; nextCursor: string | null };
+    expect(s.nextCursor).toEqual(expect.any(String));
+    expect(text(r)).toContain(`nextCursor: ${s.nextCursor}`);
+    const r2 = await client.callTool({
+      name: 'list_change_events',
+      arguments: { limit: 2, cursor: s.nextCursor as string },
+    });
+    // The window of the first call is kept: same start, ends right after the last event shown.
+    expect(calls[1]?.variables['filter']).toMatchObject({
+      timeWindow: { startTime: NOW - 7 * 86_400_000, endTime: NOW - 2 * MIN + 1 },
+    });
+    const s2 = r2.structuredContent as { events: { id: string }[]; nextCursor: string | null };
+    expect(s2.events.map((e) => e.id)).toEqual(['c3']);
+    expect(s2.nextCursor).toBeNull();
     expect(Object.keys(s.events[0] ?? {})).toEqual([
       'id',
       'time',
@@ -138,7 +154,7 @@ describe('list_change_events', () => {
       'version',
       'shortDescription',
     ]);
-    expect(text(r)).toContain('older events may exist');
+    expect(text(r)).toContain('Older events exist');
   });
 
   it('drops events whose entity is outside the requested account and says so', async () => {
@@ -193,15 +209,15 @@ describe('list_change_events', () => {
     });
     expect(calls[0]?.variables).toEqual({
       guid: guidOf(B),
-      filter: { limit: 25, timeWindow: { startTime: NOW - 86_400_000, endTime: NOW } },
+      filter: { limit: 26, timeWindow: { startTime: NOW - 86_400_000, endTime: NOW } },
     });
     const s = r.structuredContent as {
-      account: number;
+      accountId: number;
       scope: string;
       events: { id: string; version: string }[];
       hiddenOutsideScope: boolean;
     };
-    expect(s).toMatchObject({ account: B, scope: 'entity_deployments', hiddenOutsideScope: true });
+    expect(s).toMatchObject({ accountId: B, scope: 'entity_deployments', hiddenOutsideScope: true });
     expect(s.events.map((e) => e.id)).toEqual(['d1']);
     const bad = await client.callTool({
       name: 'list_change_events',
@@ -432,7 +448,7 @@ describe('analyze_deployment_impact', () => {
   it('returns a partial result when the request budget covers only one window', async () => {
     const { fetch, calls } = impactFetch(stats(3000, 1, 0.2, 0.4), stats(3000, 1, 0.2, 0.4));
     // One request for the entity lookup leaves one for the two windows.
-    const client = await connect(fetch, { budget: createBudget(2) });
+    const client = await connect(fetch, { budget: createBudget(3) });
     const r = await client.callTool({
       name: 'analyze_deployment_impact',
       arguments: { entity_guid: guidOf(A) },

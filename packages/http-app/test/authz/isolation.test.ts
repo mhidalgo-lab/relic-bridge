@@ -88,6 +88,27 @@ describe('caches never cross credentials, account sets or limits', () => {
     ).toBe(true);
   });
 
+  it('resolve_entity: another credential or a narrower account set never reuses a cached lookup', async () => {
+    const a = await tenantClient('res-a', { key: NR_KEY });
+    const b = await tenantClient('res-b', { key: NR_KEY_B });
+    await a.client.callTool({ name: 'resolve_entity', arguments: { query: 'checkout' } });
+    const before = h.nerdGraph.calls.length;
+    await b.client.callTool({ name: 'resolve_entity', arguments: { query: 'checkout' } });
+    const made = h.nerdGraph.calls.slice(before);
+    expect(made.length).toBeGreaterThan(0);
+    expect(made.every((c) => c.apiKey === NR_KEY_B)).toBe(true);
+
+    const credentialId = await h.addCredential({ reachable: [1, 2, 3] });
+    const both = await tenantClient('res-both', { allowed: [1, 2], credentialId });
+    const one = await tenantClient('res-one', { allowed: [1], credentialId });
+    await both.client.callTool({ name: 'resolve_entity', arguments: { query: 'checkout' } });
+    const mark = h.nerdGraph.calls.length;
+    await one.client.callTool({ name: 'resolve_entity', arguments: { query: 'checkout' } });
+    const asked = h.nerdGraph.calls.slice(mark);
+    expect(asked.length).toBeGreaterThan(0);
+    expect(asked.flatMap((c) => accountsNamed(c)).every((acct) => acct === 1)).toBe(true);
+  });
+
   it('event-type limits are re-checked on a cache hit', async () => {
     const open = await tenantClient('limits-open');
     const closed = await tenantClient('limits-closed', {

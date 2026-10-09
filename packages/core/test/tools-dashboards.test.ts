@@ -131,6 +131,17 @@ describe('documents and readers', () => {
     expect(mixed.withheld).toBe(true);
     expect(mixed.queries).toEqual([]);
   });
+
+  it('checks every account of a multi-account widget (accountIds), not just accountId (phase 6 review)', () => {
+    const allowed = new Set([A]);
+    const cfg = (q: Record<string, unknown>) => ({ title: 'm', rawConfiguration: { nrqlQueries: [q] } });
+    const both = readWidget(cfg({ accountId: A, accountIds: [A, OTHER], query: 'SELECT x' }), allowed, true);
+    expect(both).toMatchObject({ withheld: true, queries: [] });
+    const modern = readWidget(cfg({ accountIds: [A], query: 'SELECT y' }), allowed, true);
+    expect(modern).toMatchObject({ withheld: false, queries: [{ accountId: A, nrql: 'SELECT y' }] });
+    const foreign = readWidget(cfg({ accountIds: [OTHER], query: 'SELECT z' }), allowed, true);
+    expect(foreign.withheld).toBe(true);
+  });
 });
 
 describe('list_dashboards', () => {
@@ -143,7 +154,7 @@ describe('list_dashboards', () => {
       ]),
     );
     const client = await connect(fetch);
-    const r = await client.callTool({ name: 'list_dashboards', arguments: { name: "o'brien" } });
+    const r = await client.callTool({ name: 'list_dashboards', arguments: { name_contains: "o'brien" } });
     expect(r.isError ?? false).toBe(false);
     expect(calls).toHaveLength(1);
     expect(calls[0]?.query).not.toContain("o'brien");
@@ -159,15 +170,18 @@ describe('list_dashboards', () => {
   it('paginates and supports minimal output', async () => {
     const { fetch, calls } = recording(() => searchBody([outline(A, G1, 'Ops')], 'abc123'));
     const client = await connect(fetch);
+    const first = await client.callTool({ name: 'list_dashboards', arguments: { limit: 1 } });
+    const c1 = (first.structuredContent as { nextCursor: string }).nextCursor;
     const r = await client.callTool({
       name: 'list_dashboards',
-      arguments: { limit: 1, cursor: 'zzz', minimal_output: true },
+      arguments: { limit: 1, cursor: c1, minimal_output: true },
     });
-    expect(calls[0]?.variables['cursor']).toBe('zzz');
+    // The upstream cursor of the first page is what the second request carries.
+    expect(calls[1]?.variables['cursor']).toBe('abc123');
     const s = r.structuredContent as { nextCursor: string; dashboards: Record<string, unknown>[] };
-    expect(s.nextCursor).toBe('abc123');
+    expect(s.nextCursor).toEqual(expect.any(String));
     expect(s.dashboards[0]).not.toHaveProperty('permalink');
-    expect(text(r)).toContain('next_cursor: abc123');
+    expect(text(r)).toContain(`nextCursor: ${s.nextCursor}`);
   });
 
   it('refuses a foreign account before any request', async () => {
@@ -204,7 +218,7 @@ describe('get_dashboard', () => {
       ]),
     );
     const client = await connect(fetch);
-    const r = await client.callTool({ name: 'get_dashboard', arguments: { guid: G1 } });
+    const r = await client.callTool({ name: 'get_dashboard', arguments: { entity_guid: G1 } });
     expect(r.isError ?? false).toBe(false);
     expect(calls).toHaveLength(1);
     expect(calls[0]?.variables).toEqual({ guid: G1 });
@@ -227,7 +241,10 @@ describe('get_dashboard', () => {
       detail([{ guid: 'p', name: 'P', widgets: [widget('T', A, 'SELECT 1 FROM X')] }]),
     );
     const client = await connect(fetch);
-    const r = await client.callTool({ name: 'get_dashboard', arguments: { guid: G1, minimal_output: true } });
+    const r = await client.callTool({
+      name: 'get_dashboard',
+      arguments: { entity_guid: G1, minimal_output: true },
+    });
     expect(text(r)).not.toContain('SELECT 1');
     expect(
       (r.structuredContent as { pages: { widgets: { queries: unknown[] }[] }[] }).pages[0]?.widgets[0]
@@ -240,7 +257,7 @@ describe('get_dashboard', () => {
     const pages = Array.from({ length: 25 }, (_, i) => ({ guid: `p${i}`, name: `P${i}`, widgets }));
     const { fetch } = recording(() => detail(pages));
     const client = await connect(fetch);
-    const r = await client.callTool({ name: 'get_dashboard', arguments: { guid: G1 } });
+    const r = await client.callTool({ name: 'get_dashboard', arguments: { entity_guid: G1 } });
     const s = r.structuredContent as { truncated: boolean; pages: { widgets: unknown[] }[] };
     expect(s.truncated).toBe(true);
     expect(s.pages).toHaveLength(20);
@@ -250,11 +267,11 @@ describe('get_dashboard', () => {
   it('refuses a foreign guid offline and a forged account answer', async () => {
     const { fetch, calls } = recording(() => detail([], OTHER));
     const client = await connect(fetch);
-    const r1 = await client.callTool({ name: 'get_dashboard', arguments: { guid: guidOf(OTHER) } });
+    const r1 = await client.callTool({ name: 'get_dashboard', arguments: { entity_guid: guidOf(OTHER) } });
     expect(r1.isError).toBe(true);
     expect(errorCode(r1)).toBe(ErrorCode.AuthForbidden);
     expect(calls).toHaveLength(0);
-    const r2 = await client.callTool({ name: 'get_dashboard', arguments: { guid: G1 } });
+    const r2 = await client.callTool({ name: 'get_dashboard', arguments: { entity_guid: G1 } });
     expect(r2.isError).toBe(true);
     expect(text(r2)).not.toContain('Ops board');
   });

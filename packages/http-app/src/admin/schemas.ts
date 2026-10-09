@@ -160,6 +160,20 @@ export const UpdateUserBody = z
   })
   .openapi('UpdateUser');
 
+export const UnbindUserBody = z
+  .strictObject({
+    confirm: z
+      .string()
+      .min(3)
+      .max(320)
+      .openapi({
+        description:
+          "The user's current email address, typed again as a confirmation. Anyone who then signs in with a provider " +
+          'that asserts this verified email takes over the account.',
+      }),
+  })
+  .openapi('UnbindUser');
+
 export const UserPage = page(UserSchema, 'UserPage');
 export const UserOne = one(UserSchema, 'UserResponse');
 

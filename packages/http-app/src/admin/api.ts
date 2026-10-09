@@ -403,6 +403,20 @@ const routes = {
     responses: { 200: json(S.UserOne, 'Updated'), ...errors(404, 409, 413, 415) },
   }),
 
+  unbindUser: route({
+    method: 'post',
+    path: '/users/{id}/unbind',
+    tags: ['users'],
+    summary: "Clear a user's sign-in identity so they can sign in with another provider",
+    description:
+      'Owners only (the admin token counts as owner). Clears the provider and subject the user is bound to and signs ' +
+      'them out everywhere. The next verified sign-in whose email matches binds the user again, to whichever provider ' +
+      'it came from, so anyone who controls that email at a configured provider can take the account: confirm the ' +
+      "move with the user first. `confirm` must repeat the user's email address. Audited as `user.unbind`.",
+    request: { params: S.IdParam, ...BODY(S.UnbindUserBody) },
+    responses: { 200: json(S.UserOne, 'Unbound'), ...errors(404, 409, 413, 415) },
+  }),
+
   revokeUserSessions: route({
     method: 'post',
     path: '/users/{id}/sessions/revoke',
@@ -676,6 +690,7 @@ const BODYLESS_ACTION = /\/(?:revoke|revalidate)\/?$/;
 const REFUSAL_ROUTES: readonly (readonly [string, RegExp, string, string])[] = [
   ['POST', /^\/users$/, 'user.create', 'user'],
   ['PATCH', /^\/users\/([^/]+)$/, 'user.update', 'user'],
+  ['POST', /^\/users\/([^/]+)\/unbind$/, 'user.unbind', 'user'],
   ['POST', /^\/credentials$/, 'credential.create', 'credential'],
   ['PATCH', /^\/credentials\/([^/]+)$/, 'credential.update', 'credential'],
   ['POST', /^\/credentials\/([^/]+)\/rotate$/, 'credential.rotate', 'credential'],
@@ -719,6 +734,7 @@ const viaOf = (principal: AdminPrincipal | undefined): string =>
   principal?.kind === 'session' ? SESSION_ACTOR : ADMIN_TOKEN_ACTOR;
 
 const SELF_SESSIONS = /^\/users\/[^/]+\/sessions\/revoke$/;
+const UNBIND = /^\/users\/[^/]+\/unbind$/;
 
 /**
  * The least role a cookie session needs for a route (P4-02). Owner-only: master-key rotation and owner setup links.
@@ -729,7 +745,8 @@ const SELF_SESSIONS = /^\/users\/[^/]+\/sessions\/revoke$/;
 export function requiredRole(method: string, rel: string): 'owner' | 'admin' | 'member' {
   if (method === 'GET' && (rel === '/session' || rel === '/audit')) return 'member';
   if (method === 'POST' && SELF_SESSIONS.test(rel)) return 'member';
-  if (method === 'POST' && (rel === '/keys/rotate' || rel === '/setup-links')) return 'owner';
+  if (method === 'POST' && (rel === '/keys/rotate' || rel === '/setup-links' || UNBIND.test(rel)))
+    return 'owner';
   return 'admin';
 }
 
@@ -1120,6 +1137,36 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
       },
     );
     return c.json({ data: userView(user) }, 200);
+  });
+
+  api.openapi(routes.unbindUser, async (c) => {
+    const { id } = c.req.valid('param');
+    const body = c.req.valid('json');
+    const user = await change(
+      c,
+      // Never the subject or the typed confirmation: the previous provider id only.
+      { action: 'user.unbind', targetType: 'user', targetId: id },
+      async () => {
+        if (!actsAsOwner(c)) throw denied('role');
+        const principal = c.get('principal') as AdminPrincipal | undefined;
+        if (principal?.kind === 'session' && principal.user.id === id) throw denied('self');
+        const existing = await must('user', id, (x) => storage.users.get(x));
+        if (existing.idp === null && existing.idpSubject === null) {
+          throw new AdminApiError('conflict', 'the user has no sign-in identity to clear');
+        }
+        if (normalizeEmail(body.confirm) !== existing.email) {
+          throw new AdminApiError('invalid_request', "confirm must repeat the user's email address", {
+            field: 'confirm',
+          });
+        }
+        // Sessions first: if the update then fails, the user is only signed out, never left signed in and unbound.
+        await endSessions(c, existing.id, 'unbind');
+        const updated = await storage.users.update(existing.id, { idp: null, idpSubject: null });
+        return { updated, previousIdp: existing.idp };
+      },
+      (r) => ({ details: { previousIdp: r.previousIdp } }),
+    );
+    return c.json({ data: userView(user.updated) }, 200);
   });
 
   api.openapi(routes.revokeUserSessions, async (c) => {

@@ -49,6 +49,9 @@ const OPTIONS = {
   client: { type: 'string' },
   'no-config': { type: 'boolean' },
   'batch-size': { type: 'string' },
+  provider: { type: 'string' },
+  ttl: { type: 'string' },
+  confirm: { type: 'string' },
 } as const;
 
 export type ManageOptionName = keyof typeof OPTIONS;
@@ -86,6 +89,8 @@ const SPECS: Readonly<Record<string, Spec>> = {
   'admin-token generate': { args: 0, flags: [] },
   'user add': { args: 0, flags: ['email', 'name', 'role'] },
   'user list': { args: 0, flags: ['limit'] },
+  'user unbind': { args: 1, flags: ['confirm'] },
+  'setup-link': { args: 0, flags: ['provider', 'ttl'] },
   'credential add': { args: 0, flags: ['label', 'region', 'owner', ...KEY_SRC] },
   'credential list': { args: 0, flags: ['owner', 'limit'] },
   'credential rotate': { args: 1, flags: [...KEY_SRC] },
@@ -172,6 +177,7 @@ export function isManageArgv(argv: readonly string[]): boolean {
   const second = words[1];
   if (first === undefined) return false;
   if (first === 'init' || first === 'admin-token' || first === 'user' || first === 'project') return true;
+  if (first === 'setup-link') return true;
   if (first === 'grant' || first === 'token') return true;
   if (first === 'credential') return second !== 'revalidate' || words.length > 2;
   if (first === 'audit') return second === 'tail';
@@ -183,7 +189,7 @@ export function isManageArgv(argv: readonly string[]): boolean {
 
 const WORDS: Readonly<Record<string, readonly string[]>> = {
   'admin-token': ['generate'],
-  user: ['add', 'list'],
+  user: ['add', 'list', 'unbind'],
   credential: ['add', 'list', 'rotate', 'revalidate', 'remove'],
   project: ['add', 'list', 'update'],
   grant: ['create', 'list', 'revoke'],
@@ -205,8 +211,8 @@ export function parseManageArgs(argv: readonly string[]): ManageArgs {
   const first = positionals[0] ?? '';
   let command: string;
   let rest: string[];
-  if (first === 'init') {
-    command = 'init';
+  if (first === 'init' || first === 'setup-link') {
+    command = first;
     rest = positionals.slice(1);
   } else {
     const sub = positionals[1];

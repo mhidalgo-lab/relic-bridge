@@ -240,6 +240,7 @@ export function runStorageContract(options: StorageContractOptions): void {
             s.kv.put('k', 'v'),
             s.kv.delete('k'),
             s.kv.take('k'),
+            s.kv.purgeExpired(),
           ];
           for (const w of writes) await rejects(w, ReadOnlyStorageError);
           expect((await s.projects.list()).length).toBe(CONTRACT_FIXTURE.projects.length);
@@ -1090,6 +1091,22 @@ export function runStorageContract(options: StorageContractOptions): void {
         clock.advance(60_000);
         expect(await s.kv.get('abs')).toBeNull();
         expect((await s.kv.list()).keys.map((k) => k.name)).toEqual(['forever']);
+        await s.close();
+      });
+
+      it('purgeExpired removes only expired rows, in bounded batches (P4-09)', async () => {
+        const { s, clock } = await fresh();
+        for (const k of ['e1', 'e2', 'e3']) await s.kv.put(`login:${k}`, 'x', { expirationTtl: 60 });
+        await s.kv.put('live', 'y', { expirationTtl: 600 });
+        await s.kv.put('forever', 'z');
+        expect(await s.kv.purgeExpired()).toBe(0);
+        clock.advance(60_000);
+        expect(await s.kv.purgeExpired(2)).toBe(2);
+        expect(await s.kv.purgeExpired(2)).toBe(1);
+        expect(await s.kv.purgeExpired(2)).toBe(0);
+        expect((await s.kv.list()).keys.map((k) => k.name)).toEqual(['forever', 'live']);
+        for (const bad of [Number.NaN, Number.POSITIVE_INFINITY])
+          await rejects(s.kv.purgeExpired(bad), InvalidInputError);
         await s.close();
       });
 

@@ -896,6 +896,15 @@ export async function createD1Storage(
         const exp = numOrNull(r['expires_at']);
         return exp !== null && exp <= now() ? null : str(r['value']);
       }),
+    purgeExpired: (limit) =>
+      call(async () => {
+        checkLimit(limit, 'kv.limit');
+        const max = Math.min(Math.max(1, Math.trunc(limit ?? KV_MAX_LIST)), KV_MAX_LIST);
+        return run(
+          'DELETE FROM kv WHERE key IN (SELECT key FROM kv WHERE expires_at IS NOT NULL AND expires_at <= ? ORDER BY expires_at LIMIT ?)',
+          [now(), max],
+        );
+      }),
     list: (opts = {}) =>
       call(async (): Promise<KvListResult> => {
         checkLimit(opts.limit, 'kv.limit');

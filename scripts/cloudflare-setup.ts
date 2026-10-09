@@ -5,6 +5,9 @@
 //   2. sends them to `wrangler secret bulk` on STDIN (never as arguments, never written to a repo file),
 //   3. deploys with a git-ignored copy of wrangler.jsonc, so Wrangler's automatic provisioning creates the D1 database
 //      and the KV namespace and writes their ids into the copy, not into the committed file,
+//   3b. with --sign-in (P4-09): asks for RB_PUBLIC_URL and the sign-in provider settings. Client ids and issuer go to the
+//      deploy as `--var`; client SECRETS go through the same `wrangler secret bulk` stdin call (read from the environment
+//      or a hidden prompt, never from an argument, never written to a file),
 //   4. prints the next steps (credential, project, grant and token through `relic-bridge ... --remote`).
 //
 // Migrations are not a step: the Worker migrates D1 itself when it boots (ADR-0006 update, P3-02).
@@ -25,6 +28,10 @@ export interface SetupOptions {
   assumeNew: boolean;
   /** Also write the generated secrets to this file (created 0600, never overwritten). Off by default. */
   backupFile: string | undefined;
+  /** Ask for RB_PUBLIC_URL and the sign-in provider settings (P4-09). */
+  signIn: boolean;
+  /** `--public-url`: not a secret; otherwise RB_PUBLIC_URL from the environment, else a prompt. */
+  publicUrl: string | undefined;
   /** Allow generating a new RB_MASTER_KEY although the Worker already has RB_ADMIN_TOKEN (orphans stored keys). */
   replaceMasterKey: boolean;
 }
@@ -43,6 +50,12 @@ export interface SetupDeps {
   /** CSPRNG; defaults to node:crypto. */
   random: (bytes: number) => Uint8Array;
   log: (line: string) => void;
+  /** Environment for `--sign-in`: `RB_<PROVIDER>_CLIENT_ID` / `_CLIENT_SECRET` skip the prompts. Defaults to none. */
+  env?: Readonly<Record<string, string | undefined>>;
+  /** Ask on the terminal (echoed). Present only when stdin is a terminal. */
+  prompt?: (question: string) => Promise<string>;
+  /** Ask on the terminal without echo. Present only when stdin is a terminal. */
+  promptSecret?: (question: string) => Promise<string>;
   /** The secrets text shown once (stdout). Separate from `log` so tests can assert what is printed where. */
   reveal: (line: string) => void;
   /** Worker directory (holds wrangler.jsonc). */
@@ -113,6 +126,8 @@ export function parseArgs(argv: readonly string[]): SetupOptions | 'help' {
     dryRun: false,
     assumeNew: false,
     backupFile: undefined,
+    signIn: false,
+    publicUrl: undefined,
     replaceMasterKey: false,
   };
   for (let i = 0; i < argv.length; i++) {
@@ -133,6 +148,8 @@ export function parseArgs(argv: readonly string[]): SetupOptions | 'help' {
     else if (a === '--assume-new') o.assumeNew = true;
     else if (a === '--replace-master-key') o.replaceMasterKey = true;
     else if (a === '--backup-file') o.backupFile = value();
+    else if (a === '--sign-in') o.signIn = true;
+    else if (a === '--public-url') o.publicUrl = value();
     else throw new SetupError(`unknown option ${a}`);
   }
   if (!WORKER_NAME_RE.test(o.name)) {
@@ -152,8 +169,124 @@ Deploys relic-bridge to your Cloudflare account (run \`wrangler login\` first).
   --assume-new         First deploy: treat an unreadable secret list as "no Worker yet" (refused if the Worker exists)
   --replace-master-key Generate a new RB_MASTER_KEY although the Worker already has RB_ADMIN_TOKEN. DESTRUCTIVE:
                        every stored New Relic key becomes undecryptable. Rarely what you want.
+  --sign-in            Also set up sign-in (P4-09): asks for the public URL and, per provider (Google, GitHub, generic
+                       OIDC), the client id and secret. Answers can come from RB_PUBLIC_URL and
+                       RB_<GOOGLE|GITHUB|OIDC>_CLIENT_ID / _CLIENT_SECRET (and RB_OIDC_ISSUER) in your environment, so
+                       it also works without a terminal. Client secrets are sent as Worker secrets, never as arguments.
+  --public-url <url>   The https origin people use for this Worker (with --sign-in); not a secret.
   --dry-run            Print what would happen; generates and sends nothing, calls no Cloudflare API
 `;
+
+const SIGN_IN_PROVIDERS = [
+  { key: 'GOOGLE', id: 'google', label: 'Google' },
+  { key: 'GITHUB', id: 'github', label: 'GitHub' },
+  { key: 'OIDC', id: 'oidc', label: 'a generic OIDC provider' },
+] as const;
+const CLIENT_ID_RE = /^[\x21-\x7e]{1,512}$/;
+
+/** `https://host` only, no path or credentials (a Worker is always served over https). */
+export function checkPublicUrl(raw: string): string {
+  let u: URL;
+  try {
+    u = new URL(raw.trim());
+  } catch {
+    throw new SetupError(
+      'the public URL is not a valid URL (example: https://relic-bridge.acme.workers.dev)',
+    );
+  }
+  if (
+    u.protocol !== 'https:' ||
+    u.username !== '' ||
+    u.password !== '' ||
+    u.search !== '' ||
+    u.hash !== '' ||
+    (u.pathname !== '/' && u.pathname !== '')
+  ) {
+    throw new SetupError(
+      'the public URL must be an https origin only (https://host), with no path or credentials',
+    );
+  }
+  return u.origin;
+}
+
+export interface SignInConfig {
+  readonly publicUrl: string;
+  /** Not secret: sent as `--var` on deploy. */
+  readonly vars: Readonly<Record<string, string>>;
+  /** Client secrets: sent through `wrangler secret bulk` on stdin only. */
+  readonly secrets: Readonly<Record<string, string>>;
+  /** Provider ids, for the redirect URLs printed afterwards (`oidc` is replaced by RB_OIDC_NAME or `oidc`). */
+  readonly providers: readonly string[];
+}
+
+/**
+ * Collect the sign-in settings (P4-09) before anything is sent: from the environment first, then prompts (when stdin is
+ * a terminal). A provider whose secret already exists on the Worker keeps it when none is given now.
+ */
+export async function collectSignIn(
+  opts: SetupOptions,
+  deps: SetupDeps,
+  have: ReadonlySet<string>,
+): Promise<SignInConfig> {
+  const env = deps.env ?? {};
+  const ask = async (question: string): Promise<string> =>
+    deps.prompt === undefined ? '' : (await deps.prompt(question)).trim();
+  const askSecret = async (question: string): Promise<string> =>
+    deps.promptSecret === undefined ? '' : (await deps.promptSecret(question)).trim();
+  const fromEnv = (name: string): string => (env[name] ?? '').trim();
+
+  let publicUrl = opts.publicUrl ?? fromEnv('RB_PUBLIC_URL');
+  if (publicUrl === '') publicUrl = await ask('Public URL of this Worker (https://...): ');
+  if (publicUrl === '') {
+    throw new SetupError(
+      '--sign-in needs the public URL: pass --public-url, set RB_PUBLIC_URL, or run in a terminal.',
+    );
+  }
+  publicUrl = checkPublicUrl(publicUrl);
+
+  const vars: Record<string, string> = { RB_PUBLIC_URL: publicUrl };
+  const secrets: Record<string, string> = {};
+  const providers: string[] = [];
+  for (const p of SIGN_IN_PROVIDERS) {
+    let clientId = fromEnv(`RB_${p.key}_CLIENT_ID`);
+    if (clientId === '') clientId = await ask(`${p.label} client id (empty to skip): `);
+    if (clientId === '') continue;
+    if (!CLIENT_ID_RE.test(clientId)) throw new SetupError(`the ${p.label} client id has invalid characters`);
+    const secretName = `RB_${p.key}_CLIENT_SECRET`;
+    let secret = fromEnv(secretName);
+    if (secret === '' && deps.promptSecret !== undefined) {
+      const kept = have.has(secretName) ? ' (empty keeps the stored one)' : '';
+      secret = await askSecret(`${p.label} client secret (hidden)${kept}: `);
+    }
+    if (secret === '' && !have.has(secretName)) {
+      throw new SetupError(
+        `${p.label}: a client id needs its secret (${secretName} in the environment, or a terminal).`,
+      );
+    }
+    vars[`RB_${p.key}_CLIENT_ID`] = clientId;
+    if (secret !== '') secrets[secretName] = secret;
+    if (p.key === 'OIDC') {
+      let issuer = fromEnv('RB_OIDC_ISSUER');
+      if (issuer === '') issuer = await ask('OIDC issuer URL (https://...): ');
+      if (!/^https:\/\/[^\s?#]+$/.test(issuer)) throw new SetupError('the OIDC issuer must be an https URL');
+      vars['RB_OIDC_ISSUER'] = issuer;
+      const name = fromEnv('RB_OIDC_NAME');
+      if (name !== '') {
+        if (!/^[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?$/.test(name)) {
+          throw new SetupError('RB_OIDC_NAME must be 1-32 lowercase letters, digits or dashes');
+        }
+        vars['RB_OIDC_NAME'] = name;
+      }
+      providers.push(name === '' ? 'oidc' : name);
+    } else providers.push(p.id);
+  }
+  if (providers.length === 0) {
+    throw new SetupError(
+      '--sign-in found no provider: give a client id for Google, GitHub or OIDC (prompt or RB_<PROVIDER>_CLIENT_ID).',
+    );
+  }
+  return Object.freeze({ publicUrl, vars, secrets, providers });
+}
 
 const b64 = (bytes: Uint8Array): string => Buffer.from(bytes).toString('base64');
 const b64url = (bytes: Uint8Array): string => Buffer.from(bytes).toString('base64url');
@@ -243,6 +376,12 @@ export async function runSetup(opts: SetupOptions, deps: SetupDeps): Promise<{ u
     log(
       `  3. wrangler deploy --keep-vars (Wrangler provisions the D1 and KV resources; RB_PLAN=${opts.plan}${opts.passthrough ? ', RB_PASSTHROUGH=on' : ''})`,
     );
+    if (opts.signIn) {
+      log(
+        "     with --sign-in: ask for the public URL and each provider's client id and secret (nothing is asked in a dry run);",
+      );
+      log('     ids and URLs go to the deploy as --var, client secrets into the same secret bulk call');
+    }
     log('  4. print next steps (the Worker applies its D1 migrations when it first boots)');
     return { url: undefined };
   }
@@ -299,15 +438,18 @@ export async function runSetup(opts: SetupOptions, deps: SetupDeps): Promise<{ u
       'WARNING: --replace-master-key: stored New Relic keys will be undecryptable; re-add them with `credential add`.',
     );
   }
+  // Asked before anything is generated or sent, so a mistyped answer costs nothing.
+  const signIn = opts.signIn ? await collectSignIn(opts, deps, have) : undefined;
   const generated = generateSecrets(missing, deps.random);
-  if (missing.length > 0) {
-    const r = await deps.wrangler(['secret', 'bulk', ...cfg], JSON.stringify(generated));
+  const toSend: Record<string, string> = { ...generated, ...(signIn?.secrets ?? {}) };
+  if (Object.keys(toSend).length > 0) {
+    const r = await deps.wrangler(['secret', 'bulk', ...cfg], JSON.stringify(toSend));
     if (r.code !== 0) {
       throw new SetupError(
         `wrangler secret bulk failed (exit ${r.code}); nothing was deployed. ${firstLine(r.stderr)}`,
       );
     }
-    log(`Set secrets: ${missing.join(', ')}.`);
+    log(`Set secrets: ${Object.keys(toSend).join(', ')}.`);
   }
   for (const n of wanted.filter((x) => have.has(x))) log(`Kept existing secret ${n} (not regenerated).`);
 
@@ -339,6 +481,7 @@ export async function runSetup(opts: SetupOptions, deps: SetupDeps): Promise<{ u
   // silently resetting an operator's security settings on each re-run.
   const deployArgs = ['deploy', ...cfg, '--keep-vars', '--var', `RB_PLAN:${opts.plan}`];
   if (opts.passthrough) deployArgs.push('--var', 'RB_PASSTHROUGH:on');
+  for (const [k, v] of Object.entries(signIn?.vars ?? {})) deployArgs.push('--var', `${k}:${v}`);
   const dep = await deps.wrangler(deployArgs);
   if (dep.code !== 0)
     throw new SetupError(`wrangler deploy failed (exit ${dep.code}). ${firstLine(dep.stderr)}`);
@@ -357,6 +500,18 @@ export async function runSetup(opts: SetupOptions, deps: SetupDeps): Promise<{ u
   log('  relic-bridge project add ...  &&  relic-bridge grant create ...  &&  relic-bridge token create ...');
   log('  (details: docs/guide/cloudflare-deploy.md and docs/guide/multi-device.md)');
   log(`  curl ${remote}/health`);
+  if (signIn !== undefined) {
+    log('');
+    log('Sign-in: register these redirect URLs with each provider (docs/guide/identity-providers.md):');
+    for (const id of signIn.providers) log(`  ${signIn.publicUrl}/auth/callback/${id}`);
+    log('Then issue the first owner link and open it in a browser:');
+    log('  relic-bridge setup-link --remote $RB_REMOTE');
+    if (url !== undefined && signIn.publicUrl !== new URL(url).origin) {
+      log(
+        `  (RB_PUBLIC_URL is ${signIn.publicUrl}, not the workers.dev URL: it must be the address browsers use.)`,
+      );
+    }
+  }
   return { url };
 }
 
@@ -389,6 +544,43 @@ export function realWrangler(workerDir: string): WranglerRunner {
     });
 }
 
+/** A terminal question on stderr (stdout stays for the revealed secrets); `hidden` turns echo off. */
+function ttyPrompt(hidden: boolean): (question: string) => Promise<string> {
+  return (question) =>
+    new Promise((resolveAnswer, reject) => {
+      const stdin = process.stdin;
+      process.stderr.write(question);
+      let buf = '';
+      const wasRaw = stdin.isRaw;
+      if (hidden) stdin.setRawMode(true);
+      stdin.resume();
+      stdin.setEncoding('utf8');
+      const done = (answer: string | Error): void => {
+        stdin.off('data', onData);
+        if (hidden) stdin.setRawMode(wasRaw);
+        stdin.pause();
+        if (hidden) process.stderr.write('\n');
+        if (answer instanceof Error) reject(answer);
+        else resolveAnswer(answer);
+      };
+      const onData = (chunk: string): void => {
+        for (const ch of chunk) {
+          if (ch === '\u0003') {
+            done(new SetupError('cancelled'));
+            return;
+          }
+          if (ch === '\r' || ch === '\n') {
+            done(buf);
+            return;
+          }
+          if (hidden && (ch === '\u007f' || ch === '\b')) buf = buf.slice(0, -1);
+          else buf += ch;
+        }
+      };
+      stdin.on('data', onData);
+    });
+}
+
 async function main(): Promise<number> {
   try {
     const opts = parseArgs(process.argv.slice(2));
@@ -402,6 +594,8 @@ async function main(): Promise<number> {
       random: (n) => randomBytes(n),
       log: (l) => process.stderr.write(`${l}\n`),
       reveal: (l) => process.stdout.write(`${l}\n`),
+      env: process.env,
+      ...(process.stdin.isTTY ? { prompt: ttyPrompt(false), promptSecret: ttyPrompt(true) } : {}),
       workerDir,
       repoRoot: resolve(workerDir, '..', '..'),
       fs: {

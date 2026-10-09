@@ -194,6 +194,8 @@ pnpm cf:setup --plan free          # same plan as before; existing secrets and r
 - **Rolling back code** (`wrangler rollback`, or deploying an older commit) is safe only while the database schema is the
   same: once a newer version migrated D1, an older build refuses to start (503). Take an export first
   ([backups](#backups-and-the-master-key)) before upgrading across a release that adds migrations (see the changelog).
+- Sign-in variables set by `cf:setup --sign-in` are deployed with `--var` and kept by later runs because of
+  `--keep-vars`; check Settings, Variables after the first run, and re-run with `--sign-in` to change them.
 - Settings and secrets set in the dashboard survive redeploys: `pnpm cf:setup` deploys with `--keep-vars` and only
   overwrites `RB_PLAN` (and `RB_PASSTHROUGH` with `--passthrough`). A plain `wrangler deploy` without `--keep-vars`
   **deletes** dashboard variables such as `RB_ALLOWED_HOSTS`.
@@ -279,6 +281,34 @@ curl -s -o /dev/null -w '%{http_code}\n' -X POST "$RB_REMOTE/p/prod/mcp"        
 The repository ships the same check as a nightly workflow, `.github/workflows/staging-smoke.yml`, for a **separate
 staging Worker**: it needs the `staging` environment with the variable `STAGING_URL` and the secret `STAGING_ADMIN_TOKEN`,
 and skips cleanly when they are unset ([testing](../dev/testing.md#staging-smoke-optional-nightly)).
+
+## Sign-in on the Worker
+
+Admin sign-in (Google, GitHub, OIDC; [guide](identity-providers.md)) needs `RB_PUBLIC_URL`, a client id and a client
+secret per provider. The script can set them:
+
+```sh
+pnpm cf:setup --sign-in --public-url https://relic-bridge.acme.workers.dev
+```
+
+It asks, per provider, for the client id (empty skips the provider) and the client secret (hidden). Without a terminal,
+put the answers in your shell instead: `RB_GOOGLE_CLIENT_ID` and `RB_GOOGLE_CLIENT_SECRET` (the same for `GITHUB` and
+`OIDC`, plus `RB_OIDC_ISSUER` and optionally `RB_OIDC_NAME`). The client **secrets** go to Wrangler on stdin in the same
+`secret bulk` call as the other secrets: never as arguments, never in `wrangler.local.jsonc`, never printed (the script
+lists only their names). Ids, the issuer and the public URL are not secret and are deployed as variables. A provider
+whose secret already exists keeps it when you leave the secret empty. Everything is asked before anything is sent, and
+`--dry-run` asks nothing.
+
+Cloudflare Access is not part of the prompts: set `RB_CF_ACCESS_TEAM` and `RB_CF_ACCESS_AUD` as variables in the dashboard.
+When it finishes, the script prints the redirect URL to register with each provider
+(`<RB_PUBLIC_URL>/auth/callback/<provider>`) and the next step, the first owner's link:
+
+```sh
+relic-bridge setup-link --remote https://relic-bridge.acme.workers.dev   # admin token from RB_ADMIN_TOKEN
+```
+
+The hourly cron trigger also deletes expired sign-in rows (abandoned logins, unused setup links, ended sessions) from D1,
+in batches of 500 (at most 10 statements per run), whatever `RB_AUDIT_RETENTION_DAYS` is.
 
 ## Harden the admin API
 

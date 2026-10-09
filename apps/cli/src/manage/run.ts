@@ -18,6 +18,8 @@ import { readAdminToken } from './secrets.ts';
 // ---------------------------------------------------------------------------------------------------------------
 
 const NEEDS_KEY = new Set(['credential add', 'credential rotate', 'credential revalidate']);
+/** Local commands that need the sign-in settings (RB_PUBLIC_URL and the providers) from the environment. */
+const NEEDS_SETUP_LINKS = new Set(['setup-link']);
 
 /** Remote when `--remote` / `RB_REMOTE` is given, otherwise the local database. */
 export async function connect(
@@ -40,6 +42,7 @@ export async function connect(
     logger,
     ...(args.values.db === undefined ? {} : { db: args.values.db }),
     needsKey: NEEDS_KEY.has(args.command),
+    needsSetupLinks: NEEDS_SETUP_LINKS.has(args.command),
     ...(fetch === undefined ? {} : { nerdGraphFetch: fetch }),
   });
 }

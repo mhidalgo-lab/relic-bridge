@@ -49,6 +49,13 @@ export const ADMIN_ROUTES: readonly RouteCase[] = [
   { method: 'PATCH', pattern: `${A}/users/:id`, path: `${A}/users/usr_none`, body: { disabled: true } },
   // Sessions (P4-02): sign a user out everywhere; who is calling.
   { method: 'POST', pattern: `${A}/users/:id/sessions/revoke`, path: `${A}/users/usr_none/sessions/revoke` },
+  // Identity re-binding (P4-09): owner only; the control call on an unknown user changes nothing.
+  {
+    method: 'POST',
+    pattern: `${A}/users/:id/unbind`,
+    path: `${A}/users/usr_none/unbind`,
+    body: { confirm: 'nobody@example.test' },
+  },
   { method: 'GET', pattern: `${A}/session`, path: `${A}/session` },
   { method: 'GET', pattern: `${A}/credentials`, path: `${A}/credentials` },
   {

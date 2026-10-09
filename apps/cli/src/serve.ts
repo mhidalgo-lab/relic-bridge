@@ -40,12 +40,12 @@ import {
   type RateLimitRules,
   resolveClientIp,
 } from '@relic-bridge/http-app';
-import { StorageError } from '@relic-bridge/storage';
+import { purgeExpiredKv, StorageError } from '@relic-bridge/storage';
 import { openSqliteStorage } from '@relic-bridge/storage-sqlite';
 import type { Context } from 'hono';
 import { parseRetentionDays } from './audit.ts';
 import { ConfigError, type ConfigFs, type Env } from './config.ts';
-import { resolveAdminToken, resolveMasterKeyEnv } from './keys.ts';
+import { resolveAdminToken, resolveIdpSecretEnv, resolveMasterKeyEnv } from './keys.ts';
 
 export const DEFAULT_PORT = 8787;
 export const DEFAULT_HOST = '127.0.0.1';
@@ -277,6 +277,8 @@ export function serveSettings(input: {
   readonly env: Env;
   readonly platform: string;
   readonly homeDir?: string;
+  /** Needed to read `RB_*_CLIENT_SECRET_FILE`; without it a `_FILE` variable is ignored. */
+  readonly fs?: ConfigFs;
 }): ServeSettings {
   const { env } = input;
   const warnings: string[] = [];
@@ -358,7 +360,11 @@ export function serveSettings(input: {
     trustedProxyHops: Number(hopsRaw),
     audit: auditSettings(env, warnings),
     passthrough: passthroughSettings(env, warnings),
-    identity: identitySettings(env, allowedHosts, warnings),
+    identity: identitySettings(
+      input.fs === undefined ? env : resolveIdpSecretEnv(env, input.fs, input.platform),
+      allowedHosts,
+      warnings,
+    ),
     warnings,
   };
 }
@@ -461,8 +467,28 @@ export async function startServer(options: StartServerOptions): Promise<RunningS
         logger.warn('audit purge failed', { error: error instanceof Error ? error.name : typeof error }),
     );
   };
-  purgeAudit();
-  const purgeTimer = setInterval(purgeAudit, AUDIT_PURGE_INTERVAL_MS);
+  // Expired `kv` rows (P4-09): abandoned logins, unused setup links, ended sessions. Always on, whatever the audit retention.
+  let kvPurging = false;
+  const purgeKv = (): void => {
+    if (kvPurging) return;
+    kvPurging = true;
+    purgeExpiredKv(storage.kv).then(
+      (result) => {
+        kvPurging = false;
+        if (result.removed > 0) logger.info('expired kv rows purged', { ...result });
+      },
+      (error: unknown) => {
+        kvPurging = false;
+        logger.warn('kv purge failed', { error: error instanceof Error ? error.name : typeof error });
+      },
+    );
+  };
+  const purgeHousekeeping = (): void => {
+    purgeAudit();
+    purgeKv();
+  };
+  purgeHousekeeping();
+  const purgeTimer = setInterval(purgeHousekeeping, AUDIT_PURGE_INTERVAL_MS);
   purgeTimer.unref();
   const hooks =
     rateLimitHooks === undefined && audit === undefined

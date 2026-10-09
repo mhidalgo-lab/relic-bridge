@@ -259,6 +259,9 @@ query. Nothing to configure. Which clients support it: [client compatibility](..
 On a Tasks-declaring client, `generate_alert_insights_report` is also a task: the call looks the issue up and returns the task, and each poll
 runs up to three report sections inside its own request budget and quota. The finished report is the same as the synchronous one;
 you get it from the last poll. Clients without Tasks get the report in one call as before.
+`generate_user_impact_report`, `entity_health` and `dependency_health` work the same way: the creating call does the cheap
+preparation and each poll runs a few lookups, queries or sections inside its own request budget and quota, so a big check no
+longer has to fit one request. The finished answer equals the synchronous one.
 
 Tasks are also served on **stdio** (a 2026-07-28 client that declares the extension; records live in the process only
 and are lost when it exits) and on the **pass-through** route (a task is visible only to the same New Relic key and

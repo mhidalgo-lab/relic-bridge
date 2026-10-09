@@ -10,8 +10,9 @@ import { runNrql } from '../nrql/engine.ts';
 import { type NrqlQuery, nrql } from '../nrql/template.ts';
 import { envelope } from '../output/envelope.ts';
 import { shapeRows } from '../output/format.ts';
+import type { TaskJob } from '../tasks.ts';
 import { parseTimeRange } from '../time/range.ts';
-import { defineTool, type ToolDefinition } from '../tool.ts';
+import { defineTool, type ToolDefinition, type ToolOutput } from '../tool.ts';
 import { createChangeTools, FATAL_CODES } from './changes.ts';
 import { checkGuid, createEntityTools } from './entities.ts';
 import { createErrorTools } from './errors.ts';
@@ -21,12 +22,16 @@ import { createIssueTools } from './issues.ts';
 import { cleanLogMessage } from './logs.ts';
 import {
   BUDGET_NOTE,
+  MAX_TASK_STATE_CHARS,
   notRun,
   type PlanItem,
   planBudget,
   runSection,
+  runSectionStep,
+  SECTION_STATUSES,
   type SectionResult,
   type SectionStatus,
+  SIZE_NOTE,
   sectionSchema,
 } from './reports.ts';
 import {
@@ -399,6 +404,72 @@ const HEALTH_DESCRIPTION = `One-call health check of an entity (guid or name): a
 
 Start here for "is this service healthy?". Runs about ${HEALTH_COST} requests in that priority order; a section that does not fit or fails is marked skipped or error (partial: true). time_range (default ${DEFAULT_HEALTH_WINDOW}) applies to metrics and error counts, lookback_days (default ${DEFAULT_LOOKBACK_DAYS}) to issues and deployments. Reads the entity's account only. For metric values alone use get_golden_metrics; to check what it depends on use dependency_health; for one alert issue use generate_alert_insights_report. ${UNTRUSTED}`;
 
+/** Sections / entities run per `tasks/get` of a health task (P7-23). */
+const STEP_HEALTH_SECTIONS = 3;
+const STEP_DEP_ENTITIES = 2;
+
+/** What an entity_health task keeps between polls (sealed at rest): the call, the window and the sections done. */
+const healthTaskState = z.strictObject({
+  args: healthInput,
+  account: z.number().int(),
+  since: z.string().max(100),
+  until: z.string().max(100),
+  lookback: z.string().max(100),
+  notes: z.array(z.string().max(2000)).max(20),
+  sections: z
+    .array(
+      z.strictObject({
+        name: z.enum(HEALTH_SECTIONS),
+        status: z.enum(SECTION_STATUSES),
+        note: z.string().max(5000).nullable(),
+        data: z.record(z.string(), z.unknown()).nullable(),
+        text: z.string().nullable(),
+      }),
+    )
+    .max(HEALTH_SECTIONS.length),
+});
+type HealthTaskState = z.infer<typeof healthTaskState>;
+
+/** What a dependency_health task keeps between polls (sealed at rest): the neighbours chosen and the golden metrics done. */
+const depTaskState = z.strictObject({
+  args: depInput,
+  account: z.number().int(),
+  since: z.string().max(100),
+  until: z.string().max(100),
+  selfName: z.string().max(1000).nullable(),
+  chosen: z
+    .array(
+      z.strictObject({
+        guid: z.string().max(1000),
+        name: z.string().max(1000),
+        accountId: z.number().int(),
+        domain: z.string().max(200).nullable(),
+        type: z.string().max(200).nullable(),
+        alertSeverity: z.string().max(200).nullable(),
+        reporting: z.boolean().nullable(),
+        direction: z.enum(['outgoing', 'incoming']),
+        relationship: z.string().max(200).nullable(),
+      }),
+    )
+    .max(MAX_DEPENDENCIES),
+  notMeasured: z.number().int(),
+  hidden: z.boolean(),
+  notes: z.array(z.string().max(2000)).max(20),
+  entries: z
+    .array(
+      z.strictObject({
+        guid: z.string().max(1000),
+        /** Requests granted to its golden metrics; 0 when it was not run (budget or size). */
+        granted: z.number().int(),
+        status: z.enum(SECTION_STATUSES),
+        note: z.string().max(5000).nullable(),
+        data: z.record(z.string(), z.unknown()).nullable(),
+      }),
+    )
+    .max(MAX_DEPENDENCIES + 1),
+});
+type DepTaskState = z.infer<typeof depTaskState>;
+
 // ---------------------------------------------------------------------------------------------------------------------
 
 /** `trace_error`, `dependency_health`, `entity_health` (read-only composites). */
@@ -661,6 +732,268 @@ export function createInvestigationTools(deps: ToolDeps = {}): ToolDefinition[] 
   // ------------------------------------------------------------------------------------------- dependency_health
   type Entity = z.infer<typeof depEntity>;
   type GoldenOut = { metrics?: MetricLike[] & Record<string, unknown>[] };
+  type DepEntry = DepTaskState['entries'][number];
+
+  interface DepBase {
+    account: number;
+    since: string;
+    until: string;
+    selfName: string | null;
+    chosen: DepTaskState['chosen'];
+    notMeasured: number;
+    hidden: boolean;
+    /** Notes of the prepare step. */
+    notes: string[];
+  }
+
+  /** The relationship lookup (one request): the base of everything, so its errors are the tool's errors. */
+  const prepareDep = async (args: z.infer<typeof depInput>, ctx: ToolContext): Promise<DepBase> => {
+    const decoded = checkGuid(ctx, args.entity_guid);
+    const range = parseTimeRange(args.time_range ?? 'last 30 minutes', ctx.clock.now());
+    assertWindowWithinLimit(range, ctx.limits);
+    const maxDeps = args.max_dependencies ?? DEFAULT_DEPENDENCIES;
+    const notes: string[] = [];
+    const relatedTool = tool('get_related_entities');
+    const rel = await relatedTool.handler(
+      relatedTool.inputSchema.parse({
+        entity_guid: args.entity_guid,
+        limit: RELATED_FETCH,
+        ...(args.direction ? { direction: args.direction } : {}),
+      }),
+      ctx,
+    );
+    const relData = rel.structured as {
+      entity: { guid: string; name: string | null };
+      related: {
+        guid: string;
+        accountId: number;
+        name: string;
+        domain: string | null;
+        type: string | null;
+        alertSeverity: string | null;
+        reporting: boolean | null;
+        direction: 'outgoing' | 'incoming';
+        relationship: string | null;
+      }[];
+      hiddenOutsideScope: boolean;
+      nextCursor: string | null;
+    };
+    const seen = new Set<string>([args.entity_guid]);
+    const candidates = relData.related
+      .filter((r) => {
+        if (seen.has(r.guid)) return false;
+        seen.add(r.guid);
+        return true;
+      })
+      .sort((a, b) => severityRank(a.alertSeverity) - severityRank(b.alertSeverity));
+    const chosen = candidates.slice(0, maxDeps);
+    if (relData.hiddenOutsideScope)
+      notes.push('Relationships into accounts this connection does not allow were left out.');
+    if (relData.nextCursor) notes.push(`Only the first ${RELATED_FETCH} relationships were read.`);
+    return {
+      account: decoded.accountId,
+      since: range.since,
+      until: range.until,
+      selfName: relData.entity.name,
+      chosen: chosen.map((c) => ({
+        guid: c.guid,
+        name: c.name,
+        accountId: c.accountId,
+        domain: c.domain,
+        type: c.type,
+        alertSeverity: c.alertSeverity,
+        reporting: c.reporting,
+        direction: c.direction,
+        relationship: c.relationship,
+      })),
+      notMeasured: candidates.length - chosen.length,
+      hidden: relData.hiddenOutsideScope,
+      notes,
+    };
+  };
+
+  /** The entity itself first, then neighbours in priority order (alerting first). Pure. */
+  const depItems = (args: z.infer<typeof depInput>, base: DepBase): PlanItem<string>[] =>
+    [args.entity_guid, ...base.chosen.map((c) => c.guid)].map((guid) => ({
+      name: guid,
+      cost: goldenCost(args.max_metrics ?? DEFAULT_METRICS),
+      minCost: goldenCost(1),
+    }));
+
+  const runDepEntry = async (
+    guid: string,
+    granted: number,
+    base: DepBase,
+    ctx: ToolContext,
+  ): Promise<DepEntry> => {
+    const s = await runSection(
+      guid,
+      tool('get_golden_metrics'),
+      {
+        entity_guid: guid,
+        time_range: `${base.since} to ${base.until}`,
+        max_metrics: goldenMetricsFor(granted),
+      },
+      ctx,
+    );
+    return { guid, granted, status: s.status, note: s.note, data: s.data };
+  };
+
+  const notRunDep = (guid: string, note: string): DepEntry => ({
+    guid,
+    granted: 0,
+    status: 'skipped',
+    note,
+    data: null,
+  });
+
+  const assembleDep = (
+    args: z.infer<typeof depInput>,
+    base: DepBase,
+    entries: readonly DepEntry[],
+  ): ToolOutput => {
+    const metricsEach = args.max_metrics ?? DEFAULT_METRICS;
+    const notes = [...base.notes];
+    const { notMeasured } = base;
+    const entryOf = (guid: string) => entries.find((e) => e.guid === guid);
+    const build = (
+      guid: string,
+      meta: Pick<Entity, 'name' | 'domain' | 'type' | 'accountId' | 'relationship' | 'direction'> &
+        Pick<Entity, 'alertSeverity' | 'reporting'>,
+    ): Entity => {
+      const e = entryOf(guid);
+      const ran = e !== undefined && e.granted > 0;
+      const data = (e?.data ?? null) as
+        | (GoldenOut & { entity?: { name?: string | null; domain?: string | null; type?: string | null } })
+        | null;
+      const metrics = (data?.metrics ?? []) as MetricLike[] & Record<string, unknown>[];
+      const status: Entity['status'] = !ran
+        ? 'skipped'
+        : e.status === 'error'
+          ? 'error'
+          : e.status === 'partial' || e.status === 'skipped'
+            ? 'partial'
+            : 'ok';
+      return {
+        guid,
+        ...meta,
+        status,
+        note: !ran ? (e?.note ?? BUDGET_NOTE) : e.note,
+        signals: healthSignals(metrics, meta.alertSeverity, meta.reporting),
+        metrics: (metrics as Record<string, unknown>[]).map(({ nrql: _n, ...m }) => m),
+      };
+    };
+    const selfEntity = build(args.entity_guid, {
+      name: base.selfName,
+      domain: null,
+      type: null,
+      accountId: base.account,
+      relationship: null,
+      direction: 'self',
+      alertSeverity: null,
+      reporting: null,
+    });
+    const goldenSelf = entryOf(args.entity_guid)?.data as
+      | { entity?: { domain?: string | null; type?: string | null } }
+      | null
+      | undefined;
+    selfEntity.domain = goldenSelf?.entity?.domain ?? null;
+    selfEntity.type = goldenSelf?.entity?.type ?? null;
+    const deps2 = base.chosen.map((c) =>
+      build(c.guid, {
+        name: c.name,
+        domain: c.domain,
+        type: c.type,
+        accountId: c.accountId,
+        relationship: c.relationship,
+        direction: c.direction,
+        alertSeverity: c.alertSeverity,
+        reporting: c.reporting,
+      }),
+    );
+    const all = [selfEntity, ...deps2];
+    const partial = all.some((e) => e.status !== 'ok') || notMeasured > 0;
+    const targets = [args.entity_guid, ...base.chosen.map((c) => c.guid)];
+    const notRun = targets.map(entryOf).filter((e) => e === undefined || e.granted === 0);
+    const bySize = notRun.filter((e) => e?.note === SIZE_NOTE).length;
+    if (notRun.length - bySize > 0) notes.push('Some entities were skipped: the request budget ran out.');
+    if (bySize > 0) notes.push('Some entities were skipped: the task size limit was reached.');
+    if (notMeasured > 0)
+      notes.push(
+        `${notMeasured} more related entit${notMeasured === 1 ? 'y was' : 'ies were'} not measured: raise max_dependencies.`,
+      );
+    if (entries.some((e) => e.granted > 0 && goldenMetricsFor(e.granted) < metricsEach))
+      notes.push('Golden metrics were reduced to fit the request budget.');
+
+    const flagged = deps2.filter((d) => d.signals.length > 0);
+    const lines = [
+      `${deps2.length} related entit${deps2.length === 1 ? 'y' : 'ies'} measured next to the entity, ${base.since} to ${base.until} (UTC): ` +
+        `${flagged.length} with signals.${partial ? ' Partial result: see the notes and the status column.' : ''}`,
+    ];
+    for (const n of notes) lines.push(`Note: ${n}`);
+    lines.push(
+      shapeRows(
+        all.map((e) => ({
+          entity: e.name ?? e.guid,
+          role: e.direction === 'self' ? 'self' : `${e.direction} ${e.relationship ?? ''}`.trim(),
+          kind: [e.domain, e.type].filter(Boolean).join('/'),
+          alert: e.alertSeverity ?? '',
+          status: e.status,
+          signals: e.signals.join('; '),
+        })),
+        { format: 'table', source: 'New Relic related entities', maxRows: MAX_DEPENDENCIES + 1 },
+      ).text,
+    );
+    const metricRows = all.flatMap((e) =>
+      e.metrics.map((m) => ({
+        entity: e.name ?? e.guid,
+        metric: String(m['title'] ?? ''),
+        value:
+          m['value'] === null || m['value'] === undefined
+            ? ''
+            : String(Number(Number(m['value']).toPrecision(4))),
+        trend: String(m['trend'] ?? ''),
+        status: String(m['status'] ?? ''),
+      })),
+    );
+    if (metricRows.length > 0)
+      lines.push(
+        shapeRows(metricRows, {
+          format: 'table',
+          source: 'New Relic golden metrics',
+          maxRows: (MAX_DEPENDENCIES + 1) * MAX_METRICS,
+        }).text,
+      );
+    return {
+      text: lines.join('\n'),
+      structured: {
+        entity: selfEntity,
+        dependencies: deps2,
+        notMeasured,
+        hiddenOutsideScope: base.hidden,
+        since: base.since,
+        until: base.until,
+        partial,
+        notes,
+      },
+    };
+  };
+
+  const runDepInline = async (
+    args: z.infer<typeof depInput>,
+    base: DepBase,
+    ctx: ToolContext,
+  ): Promise<ToolOutput> => {
+    const plan = planBudget(depItems(args, base), ctx.budget.remaining);
+    const ran = await Promise.all(plan.run.map(({ name, granted }) => runDepEntry(name, granted, base, ctx)));
+    return assembleDep(args, base, [...ran, ...plan.skipped.map((g) => notRunDep(g, BUDGET_NOTE))]);
+  };
+
+  const depJob = (state: DepTaskState): TaskJob => ({
+    state,
+    pollIntervalMs: 1000,
+    statusMessage: `Checking the dependencies: ${state.entries.length} of ${1 + state.chosen.length} entities measured.`,
+  });
 
   const dependency = defineTool({
     name: 'dependency_health',
@@ -675,205 +1008,248 @@ export function createInvestigationTools(deps: ToolDeps = {}): ToolDefinition[] 
     group: 'incident-response',
     phase: 6,
     handler: async (args, ctx) => {
-      const decoded = checkGuid(ctx, args.entity_guid);
-      const range = parseTimeRange(args.time_range ?? 'last 30 minutes', ctx.clock.now());
-      assertWindowWithinLimit(range, ctx.limits);
-      const maxDeps = args.max_dependencies ?? DEFAULT_DEPENDENCIES;
-      const metricsEach = args.max_metrics ?? DEFAULT_METRICS;
-      const notes: string[] = [];
-
-      // The relationship lookup is the base of everything: its errors are the tool's errors.
-      const relatedTool = tool('get_related_entities');
-      const rel = await relatedTool.handler(
-        relatedTool.inputSchema.parse({
-          entity_guid: args.entity_guid,
-          limit: RELATED_FETCH,
-          ...(args.direction ? { direction: args.direction } : {}),
-        }),
-        ctx,
-      );
-      const relData = rel.structured as {
-        entity: { guid: string; name: string | null };
-        related: {
-          guid: string;
-          accountId: number;
-          name: string;
-          domain: string | null;
-          type: string | null;
-          alertSeverity: string | null;
-          reporting: boolean | null;
-          direction: 'outgoing' | 'incoming';
-          relationship: string | null;
-        }[];
-        hiddenOutsideScope: boolean;
-        nextCursor: string | null;
-      };
-      const seen = new Set<string>([args.entity_guid]);
-      const candidates = relData.related
-        .filter((r) => {
-          if (seen.has(r.guid)) return false;
-          seen.add(r.guid);
-          return true;
-        })
-        .sort((a, b) => severityRank(a.alertSeverity) - severityRank(b.alertSeverity));
-      const chosen = candidates.slice(0, maxDeps);
-      const notMeasured = candidates.length - chosen.length;
-      if (relData.hiddenOutsideScope)
-        notes.push('Relationships into accounts this connection does not allow were left out.');
-      if (relData.nextCursor) notes.push(`Only the first ${RELATED_FETCH} relationships were read.`);
-
-      // Plan: the entity itself first, then neighbours in priority order (alerting first).
-      const targets = [
-        { guid: args.entity_guid, who: 'self' as const },
-        ...chosen.map((c) => ({ guid: c.guid, who: c })),
-      ];
-      const planItems: PlanItem<string>[] = targets.map((t) => ({
-        name: t.guid,
-        cost: goldenCost(metricsEach),
-        minCost: goldenCost(1),
-      }));
-      const plan = planBudget(planItems, ctx.budget.remaining);
-      const granted = new Map(plan.run.map((r) => [r.name, r.granted]));
-      const golden = tool('get_golden_metrics');
-      const sections = new Map<string, SectionResult>();
-      await Promise.all(
-        plan.run.map(async ({ name, granted: g }) => {
-          sections.set(
-            name,
-            await runSection(
-              name,
-              golden,
-              {
-                entity_guid: name,
-                time_range: range.since + ' to ' + range.until,
-                max_metrics: goldenMetricsFor(g),
-              },
-              ctx,
-            ),
-          );
-        }),
-      );
-
-      const build = (
-        guid: string,
-        meta: Pick<Entity, 'name' | 'domain' | 'type' | 'accountId' | 'relationship' | 'direction'> &
-          Pick<Entity, 'alertSeverity' | 'reporting'>,
-      ): Entity => {
-        const s = sections.get(guid);
-        const data = (s?.data ?? null) as
-          | (GoldenOut & { entity?: { name?: string | null; domain?: string | null; type?: string | null } })
-          | null;
-        const metrics = (data?.metrics ?? []) as MetricLike[] & Record<string, unknown>[];
-        const status: Entity['status'] = !granted.has(guid)
-          ? 'skipped'
-          : s?.status === 'error'
-            ? 'error'
-            : s?.status === 'partial' || s?.status === 'skipped'
-              ? 'partial'
-              : 'ok';
-        return {
-          guid,
-          ...meta,
-          status,
-          note: !granted.has(guid) ? BUDGET_NOTE : (s?.note ?? null),
-          signals: healthSignals(metrics, meta.alertSeverity, meta.reporting),
-          metrics: (metrics as Record<string, unknown>[]).map(({ nrql: _n, ...m }) => m),
+      const base = await prepareDep(args, ctx);
+      // MCP Tasks (P7-23): the golden metrics of a few entities per `tasks/get`, each inside its own budget.
+      if (ctx.tasks?.accepted === true) {
+        const state: DepTaskState = {
+          args,
+          account: base.account,
+          since: base.since,
+          until: base.until,
+          selfName: base.selfName,
+          chosen: base.chosen,
+          notMeasured: base.notMeasured,
+          hidden: base.hidden,
+          notes: base.notes,
+          entries: [],
         };
+        return {
+          text: 'The check continues as a task.',
+          task: depJob(state),
+          taskFallback: () => runDepInline(args, base, ctx),
+        };
+      }
+      return runDepInline(args, base, ctx);
+    },
+    resumeTask: async (raw, ctx) => {
+      const state = depTaskState.parse(raw);
+      checkGuid(ctx, state.args.entity_guid);
+      const base: DepBase = {
+        account: state.account,
+        since: state.since,
+        until: state.until,
+        selfName: state.selfName,
+        chosen: state.chosen,
+        notMeasured: state.notMeasured,
+        hidden: state.hidden,
+        notes: [...state.notes],
       };
-      const selfEntity = build(args.entity_guid, {
-        name: relData.entity.name,
-        domain: null,
-        type: null,
-        accountId: decoded.accountId,
-        relationship: null,
-        direction: 'self',
-        alertSeverity: null,
-        reporting: null,
-      });
-      const goldenSelf = sections.get(args.entity_guid)?.data as
-        | { entity?: { domain?: string | null; type?: string | null } }
-        | null
-        | undefined;
-      selfEntity.domain = goldenSelf?.entity?.domain ?? null;
-      selfEntity.type = goldenSelf?.entity?.type ?? null;
-      const deps2 = chosen.map((c) =>
-        build(c.guid, {
-          name: c.name,
-          domain: c.domain,
-          type: c.type,
-          accountId: c.accountId,
-          relationship: c.relationship,
-          direction: c.direction,
-          alertSeverity: c.alertSeverity,
-          reporting: c.reporting,
-        }),
-      );
-      const all = [selfEntity, ...deps2];
-      const partial = all.some((e) => e.status !== 'ok') || notMeasured > 0;
-      if (plan.skipped.length > 0) notes.push('Some entities were skipped: the request budget ran out.');
-      if (notMeasured > 0)
-        notes.push(
-          `${notMeasured} more related entit${notMeasured === 1 ? 'y was' : 'ies were'} not measured: raise max_dependencies.`,
-        );
-      if (granted.size > 0 && [...granted.values()].some((g) => goldenMetricsFor(g) < metricsEach))
-        notes.push('Golden metrics were reduced to fit the request budget.');
-
-      const flagged = deps2.filter((d) => d.signals.length > 0);
-      const lines = [
-        `${deps2.length} related entit${deps2.length === 1 ? 'y' : 'ies'} measured next to the entity, ${range.since} to ${range.until} (UTC): ` +
-          `${flagged.length} with signals.${partial ? ' Partial result: see the notes and the status column.' : ''}`,
-      ];
-      for (const n of notes) lines.push(`Note: ${n}`);
-      lines.push(
-        shapeRows(
-          all.map((e) => ({
-            entity: e.name ?? e.guid,
-            role: e.direction === 'self' ? 'self' : `${e.direction} ${e.relationship ?? ''}`.trim(),
-            kind: [e.domain, e.type].filter(Boolean).join('/'),
-            alert: e.alertSeverity ?? '',
-            status: e.status,
-            signals: e.signals.join('; '),
-          })),
-          { format: 'table', source: 'New Relic related entities', maxRows: MAX_DEPENDENCIES + 1 },
-        ).text,
-      );
-      const metricRows = all.flatMap((e) =>
-        e.metrics.map((m) => ({
-          entity: e.name ?? e.guid,
-          metric: String(m['title'] ?? ''),
-          value:
-            m['value'] === null || m['value'] === undefined
-              ? ''
-              : String(Number(Number(m['value']).toPrecision(4))),
-          trend: String(m['trend'] ?? ''),
-          status: String(m['status'] ?? ''),
-        })),
-      );
-      if (metricRows.length > 0)
-        lines.push(
-          shapeRows(metricRows, {
-            format: 'table',
-            source: 'New Relic golden metrics',
-            maxRows: (MAX_DEPENDENCIES + 1) * MAX_METRICS,
-          }).text,
-        );
-      return {
-        text: lines.join('\n'),
-        structured: {
-          entity: selfEntity,
-          dependencies: deps2,
-          notMeasured,
-          hiddenOutsideScope: relData.hiddenOutsideScope,
-          since: range.since,
-          until: range.until,
-          partial,
-          notes,
+      const items = depItems(state.args, base);
+      const pending = items.filter((i) => !state.entries.some((e) => e.guid === i.name));
+      const entries: DepEntry[] = [...state.entries];
+      const { plan, ran } = await runSectionStep({
+        pending,
+        max: STEP_DEP_ENTITIES,
+        remaining: ctx.budget.remaining,
+        run: async (name, granted) => {
+          const e = await runDepEntry(name, granted, base, ctx);
+          return { name, status: e.status, note: e.note, data: e.data, text: null };
         },
-      };
+      });
+      // The entry keeps what the section ran with (`granted`), so rebuild it from the result.
+      for (const { name, granted } of plan.run) {
+        const r = ran.find((x) => x.name === name) as SectionResult;
+        entries.push({ guid: name, granted, status: r.status, note: r.note, data: r.data });
+      }
+      for (const g of plan.skipped) entries.push(notRunDep(g, BUDGET_NOTE));
+      let remaining = items.filter((i) => !entries.some((e) => e.guid === i.name));
+      // The sealed record is capped: past the cap the rest is skipped and the check completes with what it has.
+      if (remaining.length > 0 && JSON.stringify({ ...state, entries }).length > MAX_TASK_STATE_CHARS) {
+        for (const i of remaining) entries.push(notRunDep(i.name, SIZE_NOTE));
+        remaining = [];
+      }
+      if (remaining.length > 0)
+        return { text: 'The check continues as a task.', task: depJob({ ...state, entries }) };
+      return assembleDep(state.args, base, entries);
     },
   });
 
   // ------------------------------------------------------------------------------------------------ entity_health
+  interface HealthBase {
+    account: number;
+    since: string;
+    until: string;
+    lookback: string;
+    notes: string[];
+  }
+
+  /** Validation and the window (no request). */
+  const prepareHealth = (args: z.infer<typeof healthInput>, ctx: ToolContext): HealthBase => {
+    const decoded = checkGuid(ctx, args.entity_guid);
+    const account = singleAccount(ctx, decoded.accountId);
+    const range = parseTimeRange(args.time_range ?? DEFAULT_HEALTH_WINDOW, ctx.clock.now());
+    assertWindowWithinLimit(range, ctx.limits);
+    const days = Math.max(
+      1,
+      Math.min(args.lookback_days ?? DEFAULT_LOOKBACK_DAYS, Math.floor(ctx.limits.maxWindowDays)),
+    );
+    const notes: string[] = [];
+    if (days < (args.lookback_days ?? DEFAULT_LOOKBACK_DAYS))
+      notes.push(`Issues and deployments cover ${days} days: this connection's window limit.`);
+    // Fixed at the call (a task polls later): the lookback is an absolute range, like the window.
+    const back = parseTimeRange(`last ${days} days`, ctx.clock.now());
+    return {
+      account,
+      since: range.since,
+      until: range.until,
+      lookback: `${back.since} to ${back.until}`,
+      notes,
+    };
+  };
+
+  const healthItems = (args: z.infer<typeof healthInput>): PlanItem<HealthSection>[] => [
+    { name: 'entity', cost: 1 },
+    { name: 'golden_metrics', cost: goldenCost(args.max_metrics ?? HEALTH_METRICS), minCost: goldenCost(1) },
+    { name: 'issues', cost: 1 },
+    { name: 'errors', cost: 1 },
+    { name: 'changes', cost: 1 },
+  ];
+
+  const runHealthSection = (
+    args: z.infer<typeof healthInput>,
+    base: HealthBase,
+    name: HealthSection,
+    granted: number,
+    ctx: ToolContext,
+  ): Promise<SectionResult> => {
+    const window = `${base.since} to ${base.until}`;
+    const [toolName, toolArgs]: [string, Record<string, unknown>] = (() => {
+      switch (name) {
+        case 'entity':
+          return ['get_entity', { entity_guid: args.entity_guid }];
+        case 'golden_metrics':
+          return [
+            'get_golden_metrics',
+            { entity_guid: args.entity_guid, time_range: window, max_metrics: goldenMetricsFor(granted) },
+          ];
+        case 'issues':
+          return [
+            'list_recent_issues',
+            {
+              entity_guid: args.entity_guid,
+              states: ['CREATED', 'ACTIVATED'],
+              time_range: base.lookback,
+              minimal_output: true,
+            },
+          ];
+        case 'errors':
+          return [
+            'list_error_groups',
+            {
+              entity_guid: args.entity_guid,
+              states: ['UNRESOLVED'],
+              sort_by: 'occurrences',
+              time_range: window,
+              minimal_output: true,
+            },
+          ];
+        case 'changes':
+          return [
+            'list_change_events',
+            { entity_guid: args.entity_guid, time_range: base.lookback, limit: 5, minimal_output: true },
+          ];
+      }
+    })();
+    return runSection(name, tool(toolName), toolArgs, ctx);
+  };
+
+  /** The summary from the sections that ran; the others are skipped (budget). */
+  const assembleHealth = (
+    args: z.infer<typeof healthInput>,
+    base: HealthBase,
+    ran: readonly SectionResult[],
+    extraNotes: readonly string[],
+  ): ToolOutput => {
+    const notes = [...base.notes, ...extraNotes];
+    const sections: SectionResult[] = HEALTH_SECTIONS.map(
+      (name) => ran.find((s) => s.name === name) ?? notRun(name, 'skipped', BUDGET_NOTE),
+    );
+    const partial = sections.some((s) => s.status !== 'ok');
+    const entityData = sections.find((s) => s.name === 'entity')?.data as
+      | { alertSeverity?: string | null; reporting?: boolean | null }
+      | null
+      | undefined;
+    const goldenData = sections.find((s) => s.name === 'golden_metrics')?.data as
+      | { metrics?: MetricLike[] }
+      | null
+      | undefined;
+    const signals = healthSignals(
+      goldenData?.metrics ?? [],
+      entityData?.alertSeverity ?? null,
+      entityData?.reporting ?? null,
+    );
+    const count = (s: SectionStatus) => sections.filter((x) => x.status === s).length;
+    const lines = [
+      `Health of ${args.entity_guid} in account ${base.account}, ${base.since} to ${base.until} (UTC): ` +
+        `${count('ok')} section(s) complete` +
+        `${count('partial') ? `, ${count('partial')} partial` : ''}` +
+        `${count('error') ? `, ${count('error')} failed` : ''}` +
+        `${count('skipped') ? `, ${count('skipped')} skipped (budget or grant, see the section notes)` : ''}.` +
+        `${signals.length ? ` ${signals.length} signal(s), below.` : ''}` +
+        `${partial ? ' Partial summary: see the section notes.' : ''}`,
+    ];
+    // Signals quote golden-metric titles, which New Relic users can customise: untrusted data (T6).
+    if (signals.length)
+      lines.push(envelope(`Signals: ${signals.join('; ')}.`, { source: 'New Relic signals' }));
+    for (const n of notes) lines.push(`Note: ${n}`);
+    for (const s of sections) {
+      lines.push(`## ${SECTION_TITLES[s.name as HealthSection]} [${s.status}]`);
+      if (s.note) lines.push(`Note: ${s.note}`);
+      if (s.text) lines.push(s.text);
+    }
+    return {
+      text: lines.join('\n'),
+      structured: {
+        entityGuid: args.entity_guid,
+        accountId: base.account,
+        since: base.since,
+        until: base.until,
+        sections: sections.map(({ text: _text, ...s }) => s),
+        signals,
+        partial,
+        notes,
+      },
+    };
+  };
+
+  const reducedNote = (
+    args: z.infer<typeof healthInput>,
+    plan: { run: { name: string; granted: number }[] },
+  ): string[] => {
+    const golden = plan.run.find((r) => r.name === 'golden_metrics');
+    return golden && goldenMetricsFor(golden.granted) < (args.max_metrics ?? HEALTH_METRICS)
+      ? [`Golden metrics reduced to ${goldenMetricsFor(golden.granted)} to fit the request budget.`]
+      : [];
+  };
+
+  const healthJob = (state: HealthTaskState): TaskJob => ({
+    state,
+    pollIntervalMs: 1000,
+    statusMessage: `Checking the entity health: ${state.sections.length} of ${HEALTH_SECTIONS.length} sections done.`,
+  });
+
+  const runHealthInline = async (
+    args: z.infer<typeof healthInput>,
+    base: HealthBase,
+    ctx: ToolContext,
+  ): Promise<ToolOutput> => {
+    const plan = planBudget(healthItems(args), ctx.budget.remaining);
+    const ran = await Promise.all(
+      plan.run.map(({ name, granted }) => runHealthSection(args, base, name, granted, ctx)),
+    );
+    return assembleHealth(args, base, ran, reducedNote(args, plan));
+  };
+
   const health = defineTool({
     name: 'entity_health',
     title: 'Summarise entity health',
@@ -886,129 +1262,54 @@ export function createInvestigationTools(deps: ToolDeps = {}): ToolDefinition[] 
     group: 'health',
     phase: 6,
     handler: async (args, ctx) => {
-      const decoded = checkGuid(ctx, args.entity_guid);
-      const account = singleAccount(ctx, decoded.accountId);
-      const range = parseTimeRange(args.time_range ?? DEFAULT_HEALTH_WINDOW, ctx.clock.now());
-      assertWindowWithinLimit(range, ctx.limits);
-      const days = Math.max(
-        1,
-        Math.min(args.lookback_days ?? DEFAULT_LOOKBACK_DAYS, Math.floor(ctx.limits.maxWindowDays)),
-      );
-      const lookback = `last ${days} days`;
-      const metrics = args.max_metrics ?? HEALTH_METRICS;
-      const notes: string[] = [];
-      if (days < (args.lookback_days ?? DEFAULT_LOOKBACK_DAYS))
-        notes.push(`Issues and deployments cover ${days} days: this connection's window limit.`);
-
-      const items: PlanItem<HealthSection>[] = [
-        { name: 'entity', cost: 1 },
-        { name: 'golden_metrics', cost: goldenCost(metrics), minCost: goldenCost(1) },
-        { name: 'issues', cost: 1 },
-        { name: 'errors', cost: 1 },
-        { name: 'changes', cost: 1 },
-      ];
-      const plan = planBudget(items, ctx.budget.remaining);
-      const argsFor = (name: HealthSection, granted: number): [string, Record<string, unknown>] => {
-        switch (name) {
-          case 'entity':
-            return ['get_entity', { entity_guid: args.entity_guid }];
-          case 'golden_metrics':
-            return [
-              'get_golden_metrics',
-              {
-                entity_guid: args.entity_guid,
-                time_range: range.since + ' to ' + range.until,
-                max_metrics: goldenMetricsFor(granted),
-              },
-            ];
-          case 'issues':
-            return [
-              'list_recent_issues',
-              {
-                entity_guid: args.entity_guid,
-                states: ['CREATED', 'ACTIVATED'],
-                time_range: lookback,
-                minimal_output: true,
-              },
-            ];
-          case 'errors':
-            return [
-              'list_error_groups',
-              {
-                entity_guid: args.entity_guid,
-                states: ['UNRESOLVED'],
-                sort_by: 'occurrences',
-                time_range: range.since + ' to ' + range.until,
-                minimal_output: true,
-              },
-            ];
-          case 'changes':
-            return [
-              'list_change_events',
-              { entity_guid: args.entity_guid, time_range: lookback, limit: 5, minimal_output: true },
-            ];
-        }
-      };
-      const ran = await Promise.all(
-        plan.run.map(({ name, granted }) => {
-          const [toolName, toolArgs] = argsFor(name, granted);
-          return runSection(name, tool(toolName), toolArgs, ctx);
-        }),
-      );
-      const golden = plan.run.find((r) => r.name === 'golden_metrics');
-      if (golden && goldenMetricsFor(golden.granted) < metrics)
-        notes.push(
-          `Golden metrics reduced to ${goldenMetricsFor(golden.granted)} to fit the request budget.`,
-        );
-      const sections: SectionResult[] = HEALTH_SECTIONS.map(
-        (name) => ran.find((s) => s.name === name) ?? notRun(name, 'skipped', BUDGET_NOTE),
-      );
-      const partial = sections.some((s) => s.status !== 'ok');
-      const entityData = sections.find((s) => s.name === 'entity')?.data as
-        | { alertSeverity?: string | null; reporting?: boolean | null }
-        | null
-        | undefined;
-      const goldenData = sections.find((s) => s.name === 'golden_metrics')?.data as
-        | { metrics?: MetricLike[] }
-        | null
-        | undefined;
-      const signals = healthSignals(
-        goldenData?.metrics ?? [],
-        entityData?.alertSeverity ?? null,
-        entityData?.reporting ?? null,
-      );
-      const count = (s: SectionStatus) => sections.filter((x) => x.status === s).length;
-      const lines = [
-        `Health of ${args.entity_guid} in account ${account}, ${range.since} to ${range.until} (UTC): ` +
-          `${count('ok')} section(s) complete` +
-          `${count('partial') ? `, ${count('partial')} partial` : ''}` +
-          `${count('error') ? `, ${count('error')} failed` : ''}` +
-          `${count('skipped') ? `, ${count('skipped')} skipped (budget or grant, see the section notes)` : ''}.` +
-          `${signals.length ? ` ${signals.length} signal(s), below.` : ''}` +
-          `${partial ? ' Partial summary: see the section notes.' : ''}`,
-      ];
-      // Signals quote golden-metric titles, which New Relic users can customise: untrusted data (T6).
-      if (signals.length)
-        lines.push(envelope(`Signals: ${signals.join('; ')}.`, { source: 'New Relic signals' }));
-      for (const n of notes) lines.push(`Note: ${n}`);
-      for (const s of sections) {
-        lines.push(`## ${SECTION_TITLES[s.name as HealthSection]} [${s.status}]`);
-        if (s.note) lines.push(`Note: ${s.note}`);
-        if (s.text) lines.push(s.text);
+      const base = prepareHealth(args, ctx);
+      // MCP Tasks (P7-23): up to three sections per `tasks/get`, each inside its own budget.
+      if (ctx.tasks?.accepted === true) {
+        const state: HealthTaskState = {
+          args,
+          account: base.account,
+          since: base.since,
+          until: base.until,
+          lookback: base.lookback,
+          notes: base.notes,
+          sections: [],
+        };
+        return {
+          text: 'The check continues as a task.',
+          task: healthJob(state),
+          taskFallback: async () => runHealthInline(args, base, ctx),
+        };
       }
-      return {
-        text: lines.join('\n'),
-        structured: {
-          entityGuid: args.entity_guid,
-          accountId: account,
-          since: range.since,
-          until: range.until,
-          sections: sections.map(({ text: _text, ...s }) => s),
-          signals,
-          partial,
-          notes,
-        },
-      };
+      return runHealthInline(args, base, ctx);
+    },
+    resumeTask: async (raw, ctx) => {
+      const state = healthTaskState.parse(raw);
+      // Re-checks the scope; the window of the call is kept, not recomputed.
+      const base = prepareHealth(state.args, ctx);
+      const fixed: HealthBase = { ...base, since: state.since, until: state.until, lookback: state.lookback };
+      const done = new Set(state.sections.map((s) => s.name));
+      const pending = healthItems(state.args).filter((i) => !done.has(i.name));
+      const { plan, ran } = await runSectionStep({
+        pending,
+        max: STEP_HEALTH_SECTIONS,
+        remaining: ctx.budget.remaining,
+        run: (name, granted) => runHealthSection(state.args, fixed, name, granted, ctx),
+      });
+      const notes = [...state.notes, ...reducedNote(state.args, plan)];
+      const sections: SectionResult[] = [
+        ...state.sections,
+        ...ran,
+        ...plan.skipped.map((name) => notRun(name, 'skipped', BUDGET_NOTE)),
+      ];
+      let remaining = HEALTH_SECTIONS.filter((n) => !sections.some((s) => s.name === n));
+      const next: HealthTaskState = { ...state, notes, sections: sections as HealthTaskState['sections'] };
+      // The sealed record is capped: past the cap the rest is skipped and the check completes with what it has.
+      if (remaining.length > 0 && JSON.stringify(next).length > MAX_TASK_STATE_CHARS) {
+        for (const n of remaining) sections.push(notRun(n, 'skipped', SIZE_NOTE));
+        remaining = [];
+      }
+      if (remaining.length > 0) return { text: 'The check continues as a task.', task: healthJob(next) };
+      return assembleHealth(state.args, { ...fixed, notes }, sections, []);
     },
   });
 

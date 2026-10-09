@@ -364,3 +364,13 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   Workers without a host store; requiring `fingerprintSecret` for pass-through tasks so they survive a restart.
 - **Needs:** owner's call on (3) once a real client wants pushes; a check on a real stdio client (Claude Code,
   Desktop) that it declares the extension at all.
+
+### P7-23 — Other composite reports as tasks: same pattern, trace_error left alone
+- **Context:** Follow-up of P7-21. Nothing ran against a real Tasks client.
+- **Assumption made:** (1) Impact, entity_health and dependency_health are tasks for any Tasks-declaring client, like the
+  insights report (1 s poll). Steps: 3 lookups then 2 queries (impact), 3 sections (entity_health), 2 entities
+  (dependency_health). (2) `trace_error` is not converted (one lookup then three parallel queries; no gain). (3) The
+  health window and lookback are fixed at the call, so a later poll measures the same window. (4) The P7-21 authz
+  report-task tests, dropped by the P7-22 rewrite of the file, were restored and extended to all four tools.
+- **Options:** inline answer when the budget fits the whole report; larger or smaller steps; a task for `trace_error`.
+- **Needs:** owner's call on (1) and (2), and a real Tasks client check.

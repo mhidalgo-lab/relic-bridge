@@ -239,7 +239,7 @@ function makeApp(hooks: HttpAppHooks, over: Partial<HttpAppOptions> = {}) {
   });
 }
 
-const post = (token: string | undefined, headers: Record<string, string> = {}) =>
+const post = (token: string | undefined, headers: Record<string, string> = {}, body?: unknown) =>
   new Request('http://localhost/p/prod/mcp', {
     method: 'POST',
     headers: {
@@ -248,12 +248,14 @@ const post = (token: string | undefined, headers: Record<string, string> = {}) =
       ...(token === undefined ? {} : { authorization: `Bearer ${token}` }),
       ...headers,
     },
-    body: JSON.stringify({
-      jsonrpc: '2.0',
-      id: 1,
-      method: 'initialize',
-      params: { protocolVersion: '2025-11-25', capabilities: {}, clientInfo: { name: 't', version: '0' } },
-    }),
+    body: JSON.stringify(
+      body ?? {
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'initialize',
+        params: { protocolVersion: '2025-11-25', capabilities: {}, clientInfo: { name: 't', version: '0' } },
+      },
+    ),
   });
 
 /** The client IP of a test request comes from a header (the host would use the socket). */
@@ -415,10 +417,57 @@ describe('per-token and per-grant limits', () => {
 
   it('does not count subscriptions/listen', async () => {
     const app = makeApp(hooksFor({ ...none, token: { requests: 1, perSeconds: 60 } }).hooks);
-    const listen = () => app.fetch(post(world.tokens.prod, { 'mcp-method': 'subscriptions/listen' }));
+    const listen = () =>
+      app.fetch(
+        post(
+          world.tokens.prod,
+          { 'mcp-method': 'subscriptions/listen' },
+          { jsonrpc: '2.0', id: 1, method: 'subscriptions/listen', params: {} },
+        ),
+      );
     for (let i = 0; i < 5; i++) expect((await listen()).status).not.toBe(429);
     expect((await app.fetch(post(world.tokens.prod))).status).toBe(200);
     expect((await app.fetch(post(world.tokens.prod))).status).toBe(429);
+  });
+
+  it('counts a request whose header claims subscriptions/listen but whose body is a tool call (P2-12)', async () => {
+    const ng = mockNerdGraph();
+    const app = makeApp(hooksFor({ ...none, token: { requests: 1, perSeconds: 60 } }).hooks, {
+      fetch: ng.fetch,
+    });
+    const spoofed = () =>
+      app.fetch(
+        post(
+          world.tokens.prod,
+          { 'mcp-method': 'subscriptions/listen', 'mcp-protocol-version': '2025-11-25' },
+          { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'whoami', arguments: {} } },
+        ),
+      );
+    expect((await spoofed()).status).toBe(200);
+    for (let i = 0; i < 3; i++) expect((await spoofed()).status).toBe(429);
+    const calls = ng.calls.length;
+    expect(calls).toBeGreaterThan(0);
+    expect((await spoofed()).status).toBe(429);
+    expect(ng.calls.length).toBe(calls);
+  });
+
+  it('refuses JSON-RPC batches (one request is one call for the limits and the audit)', async () => {
+    const ng = mockNerdGraph();
+    const app = makeApp(hooksFor({ ...none, token: { requests: 5, perSeconds: 60 } }).hooks, {
+      fetch: ng.fetch,
+    });
+    const call = (id: number) => ({
+      jsonrpc: '2.0',
+      id,
+      method: 'tools/call',
+      params: { name: 'whoami', arguments: {} },
+    });
+    const res = await app.fetch(
+      post(world.tokens.prod, { 'mcp-protocol-version': '2025-03-26' }, [call(1), call(2), call(3)]),
+    );
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ jsonrpc: '2.0', id: null, error: { code: -32600 } });
+    expect(ng.calls).toEqual([]);
   });
 
   it('a 429 never reaches the credential or NerdGraph', async () => {

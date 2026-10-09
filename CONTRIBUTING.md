@@ -114,7 +114,17 @@ Check the tarball locally at any time: `pnpm build && pnpm check:package` (`--sk
 - **Live suite** (`pnpm test:live`, optional, read-only): set `RB_LIVE_API_KEY` (a User key), `RB_LIVE_ACCOUNT_ID` and
   optionally `RB_LIVE_REGION` (`US` default, `EU`, `JP`). Without them every test is skipped. It never prints the key.
   It is not part of `pnpm test` or PR CI; the manual `Live` workflow runs it from a protected `live` environment.
-- A new tool or route also needs negative authorization tests.
+- **Authorization and isolation suite** (`packages/http-app/test/authz/`, `pnpm test:authz`, its own CI job): a
+  route × principal matrix (`matrix.ts`) over every MCP, admin and public route, a tool isolation case per built-in tool
+  against a hostile NerdGraph (`tools.test.ts`), and cache / two-tenant / per-request-server isolation
+  (`isolation.test.ts`). **A new route or tool needs its cases there, and the suite fails until it has them**: guard
+  tests compare the matrix with Hono's route table and `TOOL_CASES` with the tool catalog.
+  - New route: add it to `MCP_ROUTES`, `ADMIN_ROUTES` or `PUBLIC_ROUTES` with the pattern exactly as Hono registers it,
+    a sample path and a body valid enough to reach authentication. Every listed principal is then tried against it.
+  - New tool: add `TOOL_CASES[name]` with at least one call naming a foreign account (or a GUID in one) when the tool
+    takes an account, and extend `hostileNerdGraph` if it sends a new NerdGraph operation (unknown operations fail).
+  - New way to authenticate (OAuth, sessions): add principals that misuse it, with the deny reason the audit row carries.
+  - Keep the suite web-standard (no `node:*`): P3-06 runs it under the Workers pool.
 
 ## License
 

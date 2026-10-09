@@ -13,6 +13,7 @@
     "typecheck": "tsc -p scripts && pnpm -r run typecheck",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
+    "test:authz": "vitest run --project http-app test/authz",
     "test:live": "vitest run --config vitest.live.config.ts",
     "test:watch": "vitest",
     "lint": "biome check . && node scripts/check-runtime-imports.ts && node scripts/check-nrql-templates.ts && node scripts/check-spdx.ts && node scripts/tasks.ts check && node scripts/gen-tool-docs.ts --check && node scripts/gen-migrations.ts --check && node scripts/release.ts sync-version --check",

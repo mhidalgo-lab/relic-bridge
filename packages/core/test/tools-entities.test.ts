@@ -157,6 +157,20 @@ describe('search_entities', () => {
     expect(text(r)).toContain('left out');
   });
 
+  it('drops an entity whose GUID names another account than the one reported (P2-12)', async () => {
+    const { client } = await setup([
+      searchBody([
+        entity(A, 'mine'),
+        { ...entity(A, 'forged'), guid: guidOf(OTHER, 'APM', 'APPLICATION', '9') },
+      ]),
+    ]);
+    const r = await client.callTool({ name: 'search_entities', arguments: {} });
+    const s = r.structuredContent as { entities: { name: string }[] };
+    expect(s.entities.map((e) => e.name)).toEqual(['mine']);
+    expect(text(r)).not.toContain('forged');
+    expect(text(r)).toContain('left out');
+  });
+
   it('shows the scope note only for scope drops, not when NerdGraph returns more than limit', async () => {
     const { client } = await setup([
       searchBody([
@@ -388,6 +402,24 @@ describe('get_related_entities', () => {
     expect(s.hiddenOutsideScope).toBe(true);
     expect(text(r)).not.toContain('secret-other');
     expect(text(r)).not.toContain(String(OTHER));
+  });
+
+  it('drops a related entity whose GUID names another account than the one reported (P2-12)', async () => {
+    const { client } = await setup([
+      relatedBody([
+        {
+          type: 'CALLS',
+          source: self,
+          target: { ...vertex(B, 'forged'), guid: guidOf(OTHER, 'APM', 'APPLICATION', '9') },
+        },
+        { type: 'HOSTS', source: vertex(B, 'host-1'), target: self },
+      ]),
+    ]);
+    const r = await client.callTool({ name: 'get_related_entities', arguments: { guid: GUID_A } });
+    const s = r.structuredContent as { related: { name: string }[]; hiddenOutsideScope: boolean };
+    expect(s.related.map((x) => x.name)).toEqual(['host-1']);
+    expect(s.hiddenOutsideScope).toBe(true);
+    expect(text(r)).not.toContain('forged');
   });
 
   it('refuses a mismatching or missing returned account', async () => {

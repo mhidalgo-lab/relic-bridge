@@ -378,3 +378,21 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   bumps the digest-pinned base image). Secrets scanning is on as well.
 - **Options:** as assumed; fail on unfixed too and maintain a `.trivyignore` with expiry dates.
 - **Needs:** nothing.
+
+### P2-12 — JSON-RPC batches refused on the MCP endpoint
+- **Context:** SDK 2.2.0's legacy (2025-era) stateless path still accepts a JSON array of requests and runs every call
+  in it within one HTTP request, so a batch of N tool calls cost one rate-limit charge (the per-request call budget
+  still bounded NerdGraph work). Batching was removed from MCP in 2025-06-18; no current client sends batches.
+- **Assumption made:** refuse any array body with `400` and a JSON-RPC `-32600` error before the MCP handler. Tested;
+  documented in the self-hosting guide.
+- **Options:** as assumed; accept batches and charge the rate limiter once per element (needs a hook interface change).
+- **Needs:** owner OK; revisit only if a supported client turns out to batch.
+
+### P2-12 — Make the "Authorization suite" CI job a required check
+- **Context:** the acceptance criterion asks for the suite to be required; branch protection is a repository setting
+  the agents don't change.
+- **Assumption made:** the suite runs as its own CI job (`Authorization suite`, `pnpm test:authz`) and inside
+  `pnpm test`; nothing in the repository settings was changed.
+- **Options:** add `Authorization suite` to the required status checks of `main`; rely on the `check` job (already
+  runs it) being required.
+- **Needs:** the owner to add the required check once the stack is merged.

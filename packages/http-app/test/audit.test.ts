@@ -212,6 +212,26 @@ describe('tool calls', () => {
       }),
     ]);
   });
+  it('records an ungranted call from a legacy client (no headers) or behind a spoofed Mcp-Name (P2-12)', async () => {
+    const { app } = makeApp();
+    const body = {
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'tools/call',
+      params: { name: 'run_nrql', arguments: { nrql: 'SELECT 1 FROM Log' } },
+    };
+    for (const headers of [
+      { 'mcp-protocol-version': '2025-11-25' },
+      { 'mcp-protocol-version': '2025-11-25', 'mcp-method': 'tools/call', 'mcp-name': 'whoami' },
+    ]) {
+      const r = await app.fetch(post(world.tokens.limited, headers, body));
+      expect(await r.text()).toContain('not found');
+    }
+    await waitForRows(2);
+    const denied = (await rows()).filter((r) => r.action === 'tool.not_granted');
+    expect(denied).toHaveLength(2);
+    for (const row of denied) expect(row.details).toEqual({ project: 'prod', tool: 'run_nrql' });
+  });
 });
 
 describe('refusals', () => {

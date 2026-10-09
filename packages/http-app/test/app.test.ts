@@ -372,6 +372,27 @@ describe('request hardening', () => {
     expect(chunked.status).toBe(413);
   });
 
+  it('bounds a body that never ends: 504 at the deadline, before any tool runs (P2-12)', async () => {
+    const app = makeApp({ requestTimeoutMs: 1000 });
+    const stalled = new ReadableStream<Uint8Array>({
+      start(c) {
+        c.enqueue(new TextEncoder().encode('{"jsonrpc":"2.0",'));
+      },
+    });
+    const started = Date.now();
+    const res = await app.fetch(
+      new Request(`${URL_BASE}/p/prod/mcp`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${world.tokens.prod}`, 'content-type': 'application/json' },
+        body: stalled,
+        duplex: 'half',
+      } as RequestInit),
+    );
+    expect(res.status).toBe(504);
+    expect(Date.now() - started).toBeLessThan(4000);
+    expect(nerdGraph.calls).toEqual([]);
+  });
+
   it('bounds a stuck MCP exchange: the response stream ends at the deadline', async () => {
     const app = makeApp({ requestTimeoutMs: 1000, fetch: () => new Promise<Response>(() => undefined) });
     const started = Date.now();

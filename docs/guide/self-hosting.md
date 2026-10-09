@@ -62,6 +62,7 @@ relic-bridge serve --port 9000 --db /var/lib/relic-bridge/relic-bridge.db
 - Each request gets a fresh MCP server with **only the tools its grant allows**; others are neither listed nor
   callable. `run_nrql` / `get_query_result` are hidden when raw NRQL is off.
 - Request bodies over 1 MiB are refused (`413`); a request (including its response stream) is cut off after 180 s.
+- One JSON-RPC message per request: batches (a JSON array body, removed from MCP in 2025-06-18) are refused with `400`.
 - Security headers on every response: `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`,
   `X-Frame-Options: DENY`, `Content-Security-Policy: default-src 'none'; frame-ancestors 'none'`,
   `Cache-Control: no-store`, and HSTS as configured.

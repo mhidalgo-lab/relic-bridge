@@ -331,6 +331,13 @@ Sources: <https://github.com/cloudflare/workers-oauth-provider>, issues #264, #3
   `broker.bytesOutPerSecond`, `broker.messagesInPerSecond`, facet `entityName`), cluster filter `clusterName`. **Unverified:** every
   name above (a wrong one yields null aggregates, which the tools report as "no data"), timeslice units, `entity.guid` on `Metric`, and
   Kafka via OpenTelemetry or cloud integrations (MSK/Confluent), which use other event/metric names and are not read.
+- Synthetic monitors (P6-08, not verified against a real account): monitors come from `entitySearch` with `domain = 'SYNTH' AND
+  type = 'MONITOR'` and the inline fragment `... on SyntheticMonitorEntityOutline { monitorId monitorType monitoredUrl period status }`
+  (`monitorType` SIMPLE/BROWSER/SCRIPT_API/SCRIPT_BROWSER/STEP_MONITOR, `status` ENABLED/MUTED/DISABLED, `period` in minutes). Results
+  are read from `SyntheticCheck` (`entityGuid`, `location`, `result` = SUCCESS/FAILED, `duration` in ms, `error` for failures,
+  `timestamp`) faceted by `entityGuid, location`. `monitorType`/`status` are filtered client-side because their entity-search field
+  names are not confirmed. **Unverified:** every field above, `entityGuid` on `SyntheticCheck`, `error` holding the failure message,
+  and the units of `period`. The monitor script, secure credentials and headers are deliberately never selected.
 - **Trusted publishing** (OIDC from GitHub Actions, no long-lived npm token) needs npm CLI ≥ 11.5.1 and Node ≥ 22.14
   (Node 24 bundles npm 11), job permission `id-token: write`, and a GitHub-hosted runner. Each package has at most one
   trusted publisher (workflow file + optional environment); `npm trust github <pkg> --file release.yml --env release`

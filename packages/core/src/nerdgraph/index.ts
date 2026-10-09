@@ -75,3 +75,7 @@ export {
   LimiterPool,
   MAX_CONCURRENCY,
 } from './limiter.ts';
+export {
+  SYNTHETIC_MONITORS_QUERY,
+  type SyntheticMonitorOutline,
+} from './synthetics.ts';

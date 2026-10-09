@@ -31,6 +31,8 @@ cleanup() {
   if [[ "$status" -ne 0 ]]; then
     echo "--- logs of the NerdGraph stand-in ($fake) ---" >&2
     docker logs "$fake" >&2 2>&1 || true
+    echo "--- diagnostics ---" >&2
+    docker exec "$name" /nodejs/bin/node -e "console.log(require('fs').readdirSync('/data'), process.env.NODE_EXTRA_CA_CERTS); fetch('https://api.newrelic.com/').then(r=>console.log('status',r.status),e=>console.log('fetch failed',e.cause||e))" >&2 2>&1 || true
     echo "--- logs of the image under test ($name) ---" >&2
     docker logs "$name" >&2 2>&1 || true
   fi

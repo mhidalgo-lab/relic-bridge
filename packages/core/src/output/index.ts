@@ -36,3 +36,12 @@ export {
   type ShapeNrqlOptions,
   shapeNrqlOutcome,
 } from './nrql.ts';
+export {
+  type AnomalyHint,
+  type ColumnStats,
+  DETAIL_MODES,
+  type DetailMode,
+  type ResultSummary,
+  SUMMARY_MIN_ROWS,
+  summarizeRows,
+} from './summarize.ts';

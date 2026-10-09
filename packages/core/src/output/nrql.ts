@@ -4,6 +4,7 @@ import type { NrqlComplete, NrqlOutcome, NrqlPending } from '../nrql/engine.ts';
 import { redact, redactValue } from '../redact.ts';
 import type { ToolOutput } from '../tool.ts';
 import { estimateTokens, type ShapeRowsOptions, shapeRows } from './format.ts';
+import { type DetailMode, type ResultSummary, SUMMARY_MIN_ROWS, summarizeRows } from './summarize.ts';
 
 /** `_meta` key carrying result metadata (format, truncation, NRQL actually run…), next to `relic-bridge/error`. */
 export const RESULT_META_KEY = 'relic-bridge/result';
@@ -36,6 +37,8 @@ export interface NrqlResult {
   nrql?: string | undefined;
   notes: string[];
   messages?: string[] | undefined;
+  /** Present when a large result was summarized (P7-01): exact stats over all rows, anomaly hints, what was cut. */
+  summary?: ResultSummary | undefined;
 }
 
 /** Output schema for tools returning `shapeNrqlOutcome` results (P1-06). */
@@ -59,6 +62,36 @@ export const nrqlResultSchema: z.ZodType<NrqlResult> = z.object({
   nrql: z.string().optional(),
   notes: z.array(z.string()),
   messages: z.array(z.string()).optional(),
+  summary: z
+    .object({
+      mode: z.enum(['downsampled', 'top-n']),
+      totalRows: z.number().int(),
+      shownRows: z.number().int(),
+      stats: z.array(
+        z.object({
+          column: z.string(),
+          count: z.number().int(),
+          min: z.number(),
+          max: z.number(),
+          avg: z.number(),
+          p50: z.number(),
+          p95: z.number(),
+          othersSum: z.number().optional(),
+        }),
+      ),
+      anomalies: z.array(
+        z.object({
+          column: z.string(),
+          series: z.string().optional(),
+          beginTimeSeconds: z.number().optional(),
+          value: z.number(),
+          median: z.number(),
+        }),
+      ),
+      omittedSeries: z.number().int(),
+      ignoredRows: z.number().int(),
+    })
+    .optional(),
 });
 
 export interface NrqlResultMeta {
@@ -70,13 +103,17 @@ export interface NrqlResultMeta {
   readonly totalRows?: number;
   readonly returnedRows?: number;
   readonly truncated: boolean;
+  readonly summarized?: 'downsampled' | 'top-n';
   readonly inspectedCount?: number;
   readonly polls: number;
   readonly notes: readonly string[];
   readonly tokenEstimate: number;
 }
 
-export type ShapeNrqlOptions = Omit<ShapeRowsOptions, 'totalRows' | 'columns' | 'trailer'>;
+export type ShapeNrqlOptions = Omit<ShapeRowsOptions, 'totalRows' | 'columns' | 'trailer'> & {
+  /** `auto` (default) summarizes big timeseries / faceted results, `summary` always, `full` never (P7-01). */
+  readonly detail?: DetailMode;
+};
 
 const accountsText = (accounts: readonly number[]) =>
   accounts.length === 1 ? `account ${accounts[0]}` : `accounts ${accounts.join(', ')}`;
@@ -123,7 +160,33 @@ function shapePending(outcome: NrqlPending): ToolOutput<NrqlResult> {
   });
 }
 
-function shapeComplete(outcome: NrqlComplete, options: ShapeNrqlOptions): ToolOutput<NrqlResult> {
+const fmt = (n: number) => String(Math.round(n * 1000) / 1000);
+
+function summaryLines(s: ResultSummary): string[] {
+  const lines = s.stats.map(
+    (c) =>
+      `Stats ${JSON.stringify(c.column)} over ${c.count.toLocaleString('en-US')} values: min ${fmt(c.min)}, max ${fmt(c.max)}, avg ${fmt(c.avg)}, p50 ${fmt(c.p50)}, p95 ${fmt(c.p95)}` +
+      (c.othersSum === undefined ? '' : `; sum of rows not shown ${fmt(c.othersSum)}`),
+  );
+  for (const a of s.anomalies) {
+    const at =
+      a.beginTimeSeconds === undefined ? '' : ` at ${new Date(a.beginTimeSeconds * 1000).toISOString()}`;
+    lines.push(
+      `Anomaly hint: ${JSON.stringify(a.column)}${a.series === undefined ? '' : ` ${a.series}`}${at} = ${fmt(a.value)} (median ${fmt(a.median)})`,
+    );
+  }
+  return lines;
+}
+
+function shapeComplete(outcome: NrqlComplete, allOptions: ShapeNrqlOptions): ToolOutput<NrqlResult> {
+  const { detail = 'auto', ...options } = allOptions;
+  const wanted =
+    outcome.results.length > 0 &&
+    (detail === 'summary' ||
+      (detail === 'auto' &&
+        outcome.results.length >= SUMMARY_MIN_ROWS &&
+        (outcome.metadata.timeseries || outcome.metadata.facets.length > 0)));
+  const reduced = wanted ? summarizeRows(outcome.results, outcome.metadata.timeseries) : undefined;
   // totalResult / otherResult come from the data as well, so they go inside the envelope with the rows.
   const trailer: string[] = [];
   if (outcome.totalResult) trailer.push(`Total: ${JSON.stringify(outcome.totalResult)}`);
@@ -135,7 +198,8 @@ function shapeComplete(outcome: NrqlComplete, options: ShapeNrqlOptions): ToolOu
     ...outcome.messages.map((m) => `New Relic: ${m}`),
     ...outcome.warnings.map((w) => `Warning: ${w}`),
   );
-  const shaped = shapeRows(outcome.results, {
+  if (reduced) trailer.push(...summaryLines(reduced.summary));
+  const shaped = shapeRows(reduced ? reduced.rows : outcome.results, {
     narrowHint: NRQL_NARROW_HINT,
     source: 'NRQL results',
     ...options,
@@ -145,12 +209,24 @@ function shapeComplete(outcome: NrqlComplete, options: ShapeNrqlOptions): ToolOu
   const summary =
     `NRQL returned ${total.toLocaleString('en-US')} ${total === 1 ? 'row' : 'rows'} from ${accountsText(outcome.accounts)}` +
     `${seconds(outcome.durationMs)}` +
-    (shaped.stats.returnedRows < total ? `; showing ${shaped.stats.returnedRows}` : '') +
+    (shaped.stats.returnedRows < total && !reduced ? `; showing ${shaped.stats.returnedRows}` : '') +
     (outcome.stats?.inspectedCount === undefined
       ? '.'
       : `; ${outcome.stats.inspectedCount.toLocaleString('en-US')} events inspected.`);
 
-  const lines = [summary, ...outcome.notes.map((n) => `Note: ${n}`), shaped.text];
+  const summaryNotice = reduced
+    ? `Summarized: ${total.toLocaleString('en-US')} rows reduced to ${shaped.stats.returnedRows} (${
+        reduced.summary.mode === 'downsampled' ? 'timeseries downsampled per series' : 'first rows kept'
+      }); statistics are exact over all rows${
+        reduced.summary.omittedSeries > 0 ? `; ${reduced.summary.omittedSeries} more series not shown` : ''
+      }. For every row, call again with detail "full" (max_rows up to 1000).`
+    : undefined;
+  const lines = [
+    summary,
+    ...outcome.notes.map((n) => `Note: ${n}`),
+    ...(summaryNotice ? [summaryNotice] : []),
+    shaped.text,
+  ];
   const clean = (v: Record<string, unknown>) =>
     (options.redactSecrets ?? true) ? (redactValue(v) as Record<string, unknown>) : v;
   const scrub = (v: string) => ((options.redactSecrets ?? true) ? redact(v) : v);
@@ -167,10 +243,23 @@ function shapeComplete(outcome: NrqlComplete, options: ShapeNrqlOptions): ToolOu
     timeseries: md.timeseries,
     totalRows: total,
     returnedRows: shaped.stats.returnedRows,
-    truncated: shaped.stats.truncated,
+    truncated: shaped.stats.truncated || reduced !== undefined,
     ...(outcome.nrql === undefined ? {} : { nrql: outcome.nrql }),
     notes: [...outcome.notes],
     messages: outcome.messages.map(scrub),
+    ...(reduced
+      ? {
+          summary: {
+            ...reduced.summary,
+            stats: reduced.summary.stats.map((c) => ({ ...c, column: scrub(c.column) })),
+            anomalies: reduced.summary.anomalies.map((a) => ({
+              ...a,
+              column: scrub(a.column),
+              ...(a.series === undefined ? {} : { series: scrub(a.series).slice(0, 200) }),
+            })),
+          },
+        }
+      : {}),
   };
   return finish(lines.join('\n'), structured, {
     status: 'complete',
@@ -180,7 +269,8 @@ function shapeComplete(outcome: NrqlComplete, options: ShapeNrqlOptions): ToolOu
     format: shaped.format,
     totalRows: total,
     returnedRows: shaped.stats.returnedRows,
-    truncated: shaped.stats.truncated,
+    truncated: shaped.stats.truncated || reduced !== undefined,
+    ...(reduced ? { summarized: reduced.summary.mode } : {}),
     ...(outcome.stats?.inspectedCount === undefined ? {} : { inspectedCount: outcome.stats.inspectedCount }),
     polls: outcome.polls,
     notes: outcome.notes,

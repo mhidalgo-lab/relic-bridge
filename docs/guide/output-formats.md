@@ -47,6 +47,30 @@ attributes, or aggregate (FACET … LIMIT n).
 This is separate from the [query limits](query-limits.md), which change the NRQL before it runs (for example a lowered
 `LIMIT`). Those changes appear as `Note:` lines under the summary.
 
+## Summaries of large results (`detail`)
+
+`run_nrql` and `get_query_result` take `detail`:
+
+| Value | Behaviour |
+|---|---|
+| `auto` (default) | A result of 50 rows or more that is a `TIMESERIES` or has a `FACET` is summarized. Raw-event lists (no facet, no timeseries) are shown as rows, as before. |
+| `summary` | Always summarize. |
+| `full` | Never summarize: rows up to `max_rows` (default 100, max 1000). |
+
+A summary replaces the rows with:
+
+- **Timeseries**: each series (facet value) downsampled by averaging consecutive points, in time order, to at most 24
+  points (10 series at most; the text says how many more exist).
+- **Faceted tables**: the first 25 rows (New Relic already ranks them) and the sum of the rows not shown.
+- **Stats** per numeric column, exact over every row read (up to 5000): count, min, max, avg, p50, p95.
+- **Anomaly hints** (timeseries): points far from the series median (robust z-score above 3.5), at most 5.
+
+The text starts with `Summarized: ... rows reduced to ...`, and `structuredContent.summary` has the same numbers
+(`truncated` is true). To see every row, call again with `detail: "full"` and a larger `max_rows`. On typical large
+results this uses less than half the tokens of the default output; the statistics lose no accuracy, the point detail is
+what is dropped. Stats, series names and column names come from your data, so they sit inside the untrusted-data
+envelope in the text.
+
 ## The untrusted-data envelope
 
 Telemetry is written by your applications, your users and anyone who can reach them: a log line, an error message, a
@@ -91,7 +115,8 @@ not log secrets in the first place; this only stops them from spreading into an 
 | `durationMs` | Wall time of the call, including polls |
 | `format` | Format rendered (`table`, `csv`, `json`) |
 | `totalRows` / `returnedRows` | Rows New Relic returned / rows shown |
-| `truncated` | Whether anything was cut |
+| `truncated` | Whether anything was cut or summarized |
+| `summarized` | `downsampled` or `top-n` when the result was summarized |
 | `inspectedCount` | Events inspected, when cost stats were requested |
 | `polls` | Async polls made |
 | `notes` | Query-limit adjustments |

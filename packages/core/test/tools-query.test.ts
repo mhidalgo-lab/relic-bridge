@@ -181,6 +181,7 @@ describe('query tools: catalogue', () => {
       'accounts',
       'timeout_seconds',
       'format',
+      'detail',
       'max_rows',
     ]);
     expect(run?.inputSchema.required).toEqual(['nrql']);

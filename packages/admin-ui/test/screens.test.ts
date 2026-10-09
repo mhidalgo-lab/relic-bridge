@@ -143,6 +143,12 @@ describe('screen pages', () => {
     expect(html).toContain('>expired<');
   });
 
+  it('warns on the project page only when the default key is personal (P4-18)', async () => {
+    const warning = 'The default key is personal';
+    expect((await get(setup().app, '/admin/projects/prj_us')).html).not.toContain(warning);
+    expect((await get(setup().app, '/admin/projects/prj_eu')).html).toContain(warning);
+  });
+
   it('strings from the admin API are escaped', async () => {
     const { html } = await get(setup(undefined, '<script>alert(1)</script>').app, '/admin/projects/prj_us');
     expect(html).not.toContain('<script>alert(1)</script>');

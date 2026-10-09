@@ -758,7 +758,7 @@ Grants assigned to you (an administrator creates them), with the project to conn
 
 Use one of my keys for my grant
 
-Points one of your live grants at one of your own keys, or back at the project default (`null`). The key must be yours and valid; the grant's scope (tools, accounts, limits) does not change.
+Points one of your live grants at one of your own keys, or back at the project default (`null`, refused with 422 when an administrator pinned a key you do not own). The key must be yours and valid; the grant's scope (tools, accounts, limits) does not change.
 
 | Parameter | In | Type | Required | Description |
 | --- | --- | --- | --- | --- |

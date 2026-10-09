@@ -391,6 +391,14 @@ function detailPage(
   return (
     <Layout title={`Project: ${p.slug}`} viewer={viewer} current={BASE} flash={opts.flash ?? null}>
       <Notes title="Notes about this change" items={opts.notes ?? []} />
+      {cred !== null && cred.ownerUserId !== null ? (
+        <Notes
+          title="Warning"
+          items={[
+            'The default key is personal: its owner can rotate, rename or delete the key every user of this project queries through. Prefer a shared key.',
+          ]}
+        />
+      ) : null}
       <section class="card" aria-labelledby="facts-heading">
         <h2 id="facts-heading">Summary</h2>
         <Facts

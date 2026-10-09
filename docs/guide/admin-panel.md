@@ -52,7 +52,7 @@ URL or a log. Keys that come from the environment or a config file are listed bu
 
 **Projects** (`/admin/projects`). Each project is one MCP endpoint. Its page shows the full endpoint URL, its grants
 (with *New grant*), and the edit form. Narrowing a project (fewer accounts or tools, tighter limits) narrows every
-grant on it at once. If you remove the default key, the page lists the grants that relied on it (they stop). *Disable*
+grant on it at once. A personal key can be a project's default only when its owner makes the change (an administrator cannot pick a member's key, `422`); the project page warns when the default is personal, because its owner can then rotate, rename or delete the key everyone on the project uses. If you remove the default key, the page lists the grants that relied on it (they stop). *Disable*
 refuses every request until you enable it again. *Delete* removes the project with its grants and tokens.
 
 **Grants** (`/admin/grants`). Filter by project or person. A grant page shows its key, tools, accounts, rate limit,

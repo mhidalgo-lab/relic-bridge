@@ -114,7 +114,7 @@ export function sample(text = ''): Sample {
         allowedAccountIds: [3],
         enabledTools: ['whoami', 'run_nrql'],
         limits: {},
-        defaultCredentialId: null,
+        defaultCredentialId: 'cred_eu',
         createdAt: T,
         updatedAt: T,
         disabledAt: T,

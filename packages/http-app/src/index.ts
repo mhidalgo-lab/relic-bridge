@@ -176,3 +176,20 @@ export {
   type SessionOptions,
   type SessionPrincipal,
 } from './session.ts';
+export {
+  createTelemetry,
+  DEFAULT_TELEMETRY_MAX_IN_FLIGHT,
+  DEFAULT_TELEMETRY_TIMEOUT_MS,
+  DURATION_BUCKETS_MS,
+  parseOtlpEndpoint,
+  parseOtlpHeaders,
+  parseSampleRate,
+  TELEMETRY_BACKOFF_MS,
+  TELEMETRY_NAMES,
+  TELEMETRY_SERVICE_NAME,
+  type Telemetry,
+  TelemetryConfigError,
+  type TelemetryOptions,
+  type TelemetrySettings,
+  telemetrySettingsFromEnv,
+} from './telemetry.ts';

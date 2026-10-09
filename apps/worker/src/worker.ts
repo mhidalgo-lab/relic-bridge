@@ -35,6 +35,7 @@ import {
   createAuditRecorder,
   createHttpApp,
   createRateLimitHooks,
+  createTelemetry,
   DEFAULT_RATE_LIMITS,
   describeAdminTokenProblem,
   mergeHooks,
@@ -43,6 +44,8 @@ import {
   type OAuthOptions,
   oauthSettingsFromEnv,
   SECURITY_HEADERS,
+  TelemetryConfigError,
+  telemetrySettingsFromEnv,
 } from '@relic-bridge/http-app';
 import { type KvPurgeBudget, purgeExpiredKv, type Storage, StorageError } from '@relic-bridge/storage';
 import { createD1Storage } from '@relic-bridge/storage/d1';
@@ -98,6 +101,8 @@ export interface WorkerOptions {
   readonly logSink?: LogSink;
   /** Cap on refusal rows per minute (tests that provoke thousands of refusals). Default: the recorder's. */
   readonly auditMaxAuthRowsPerMinute?: number;
+  /** Fetch for the OTLP self-monitoring exporter (tests: a mock receiver). */
+  readonly telemetryFetch?: FetchLike;
   /** Epoch-ms clock for the boot backoff (tests). */
   readonly now?: () => number;
   /** How long a request waits for the boot in flight before it boots itself (tests). Default: `BOOT_WAIT_MS`. */
@@ -333,10 +338,29 @@ async function boot(env: WorkerEnv, options: WorkerOptions): Promise<Runtime> {
         ...(settings.audit.clientIp ? { getClientIp: workersClientIp } : {}),
       })
     : undefined;
-  const hooks =
-    rateLimitHooks === undefined && audit === undefined
+  // Self-monitoring (P7-08): off unless RB_OTEL=on; the endpoint and headers (license key) come from env/secrets only.
+  let telemetryConfig: ReturnType<typeof telemetrySettingsFromEnv>;
+  try {
+    telemetryConfig = telemetrySettingsFromEnv(env as Record<string, unknown>);
+  } catch (error) {
+    if (error instanceof TelemetryConfigError) throw new WorkerConfigError('RB_OTEL', error.message);
+    throw error;
+  }
+  const telemetry =
+    telemetryConfig === null
       ? undefined
-      : mergeHooks(rateLimitHooks, audit?.hooks);
+      : createTelemetry({
+          endpoint: telemetryConfig.endpoint,
+          headers: telemetryConfig.headers,
+          traceSampleRate: telemetryConfig.traceSampleRate,
+          runtime: 'workers',
+          logger: log,
+          ...(options.telemetryFetch === undefined ? {} : { fetch: options.telemetryFetch }),
+        });
+  const hooks =
+    rateLimitHooks === undefined && audit === undefined && telemetry === undefined
+      ? undefined
+      : mergeHooks(rateLimitHooks, audit?.hooks, telemetry?.hooks);
 
   const identityProviders =
     identity === null

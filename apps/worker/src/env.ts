@@ -31,6 +31,12 @@ export interface WorkerVars {
   /** Whole days to keep audit rows (default 90; `0` keeps everything). The cron trigger deletes older rows. */
   readonly RB_AUDIT_RETENTION_DAYS?: string;
   readonly RB_RATE_LIMIT?: string;
+  /** Self-monitoring via OTLP (P7-08, docs/guide/observability.md): `on` / `off` (default off). */
+  readonly RB_OTEL?: string;
+  /** OTLP base URL, e.g. https://otlp.nr-data.net:4318 (`/v1/traces`, `/v1/metrics` are appended). */
+  readonly RB_OTEL_ENDPOINT?: string;
+  /** Share of tool calls exported as traces, 0-1 (default 1). */
+  readonly RB_OTEL_SAMPLE?: string;
   readonly RB_PASSTHROUGH?: string;
   /** OAuth for MCP clients (P5-04, docs/guide/oauth.md): `on` / `off` (default off); needs sign-in. */
   readonly RB_OAUTH?: string;
@@ -80,6 +86,8 @@ export interface WorkerSecrets {
   readonly RB_MASTER_KEY_PREVIOUS?: string;
   /** Bootstrap admin token; the admin API is off without it. */
   readonly RB_ADMIN_TOKEN?: string;
+  /** OTLP export headers, `api-key=<New Relic license key>` (P7-08). A secret: it never goes in `vars`. */
+  readonly RB_OTEL_HEADERS?: string;
   /** HMAC secret (at least 32 bytes) for pass-through key fingerprints, shared by all isolates (P3-04). */
   readonly RB_FINGERPRINT_SECRET?: string;
   /** OAuth client secrets of the sign-in providers (P4-01). */

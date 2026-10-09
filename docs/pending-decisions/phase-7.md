@@ -121,3 +121,17 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Needs:** owner decides whether/where to publish (after the v0.1 npm release), the GitHub owner/repo name in
   `plugin.json` (`homepage` assumes `matiashidalgo/relic-bridge`), and whether to sync the plugin version in releases.
   Also a real `/plugin install` smoke test with a live key, which this run could not do.
+
+### P7-08 — Self-monitoring: exporter design and Free-plan cost chosen without an owner
+- **Context:** The task asks for OTLP export of traces, metrics and logs, including budget usage, on Workers and Node.
+- **Assumption made:** A hand-written OTLP/HTTP **JSON** exporter (no OpenTelemetry SDK; web-standard, no bundle growth)
+  for traces and metrics only, one export per tool call run through `waitUntil`, delta metrics, no batching. Logs, budget
+  usage (not on the tool call event), stdio and client trace context are deferred to P7-18. The exported attribute set
+  includes the project slug and tool name. Each export is 1 to 2 subrequests, which count against the Workers Free
+  50-subrequest limit (not the NerdGraph budget); documented, and `RB_OTEL_SAMPLE` lowers it.
+- **Options:** adopt `@opentelemetry/*` (heavier, Node-centric); batch per isolate with periodic flush (fewer subrequests,
+  but data lost on eviction); drop the `project` attribute; protobuf encoding.
+- **Needs:** owner confirms the attribute set (project slug) is acceptable to send to a third party, whether Free-plan
+  users should be warned or capped, and a real check against New Relic's OTLP endpoint with a license key, which this run
+  could not do.
+

@@ -3,6 +3,8 @@
 // on the HTTP app and on the Worker (`pnpm test:workers`). Mutations only reach the hostile NerdGraph stand-in.
 //   - every admin path that writes a project, grant, token or key: an admin session that widens what a write-enabled
 //     project or grant can reach gets 403; an owner and the admin token pass; narrowing stays open to admins
+//   - re-enabling a user whose live grant writes (P7-32): admin session 403, owner and admin token pass; a user without
+//     write grants stays an admin's to re-enable
 //   - the write intent row is stored before the mutation, and an audit store failure sends no mutation
 //   - a revoked write grant stops the next write at once, even with the access cache on
 import type { Client } from '@modelcontextprotocol/client';
@@ -222,6 +224,79 @@ describe('admin API: only owners widen a write-enabled project or grant (P7-28)'
     expect((await call(app, 'PUT', `/grants/${grantId}/quota`, admin.headers, { quota: null })).status).toBe(
       200,
     );
+  });
+});
+
+describe('admin API: only owners re-enable a user whose grants write (P7-32)', () => {
+  async function disabledUser(tools: readonly string[] | null) {
+    const userId = await h.addUser(`${Math.random().toString(36).slice(2, 8)}@example.com`, 'member');
+    const projectId = await h.addProject(`ru-${Math.random().toString(36).slice(2, 8)}`, {
+      credentialId: shared,
+      enabledTools: [...CATALOG, ...WRITES],
+    });
+    const grantId = await h.addGrant(projectId, { userId, tools: tools === null ? null : [...tools] });
+    await h.world.storage.users.update(userId, { disabledAt: h.world.clock.now() });
+    return { userId, grantId };
+  }
+
+  it('re-enabling a user with a write grant: admin session 403, owner and admin token allowed', async () => {
+    const app = h.makeApp({ writeTools: true });
+    const admin = await h.addSession({ role: 'admin' });
+    const owner = await h.addSession({ role: 'owner' });
+    const bearer = { authorization: `Bearer ${ADMIN_TOKEN}` };
+    const { userId } = await disabledUser([...CATALOG, 'close_issue']);
+    const enable = (headers: Record<string, string>) =>
+      call(app, 'PATCH', `/users/${userId}`, headers, { disabled: false });
+
+    const refused = await enable(admin.headers);
+    expect(refused.status, refused.text).toBe(403);
+    expect(refused.text).toMatch(/write_scope/);
+    expect((await h.world.storage.users.get(userId))?.disabledAt).not.toBeNull();
+    const rows = await h.auditRows();
+    expect(
+      rows.some(
+        (r) =>
+          r.kind === 'admin' &&
+          r.action === 'user.update' &&
+          r.status === 'denied' &&
+          r.userId === admin.userId &&
+          r.targetId === userId,
+      ),
+    ).toBe(true);
+
+    const byOwner = await enable(owner.headers);
+    expect(byOwner.status, byOwner.text).toBe(200);
+    expect((await h.world.storage.users.get(userId))?.disabledAt).toBeNull();
+
+    await h.world.storage.users.update(userId, { disabledAt: h.world.clock.now() });
+    const byToken = await enable(bearer);
+    expect(byToken.status, byToken.text).toBe(200);
+    expect((await h.world.storage.users.get(userId))?.disabledAt).toBeNull();
+  });
+
+  it('re-enabling a user without write grants, or with a revoked one, stays open to an admin session', async () => {
+    const app = h.makeApp({ writeTools: true });
+    const admin = await h.addSession({ role: 'admin' });
+    const reader = await disabledUser([...CATALOG]);
+    const everyTool = await disabledUser(null);
+    const revoked = await disabledUser([...CATALOG, ...WRITES]);
+    await h.world.storage.grants.update(revoked.grantId, { revokedAt: h.world.clock.now() });
+    for (const u of [reader, everyTool, revoked]) {
+      const r = await call(app, 'PATCH', `/users/${u.userId}`, admin.headers, { disabled: false });
+      expect(r.status, r.text).toBe(200);
+    }
+  });
+
+  it('disabling a user with a write grant, and other edits, stay open to an admin session', async () => {
+    const app = h.makeApp({ writeTools: true });
+    const admin = await h.addSession({ role: 'admin' });
+    const { userId } = await disabledUser([...CATALOG, ...WRITES]);
+    await h.world.storage.users.update(userId, { disabledAt: null });
+    const patch = (body: unknown) => call(app, 'PATCH', `/users/${userId}`, admin.headers, body);
+    expect((await patch({ displayName: 'Renamed' })).status).toBe(200);
+    expect((await patch({ disabled: true })).status).toBe(200);
+    // Already disabled: disabling again changes nothing, and a rename of a disabled user is not a re-enable.
+    expect((await patch({ disabled: true, displayName: 'Again' })).status).toBe(200);
   });
 });
 

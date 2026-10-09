@@ -9,9 +9,16 @@
 // write tools; and, on a project that writes and keeps writing, more allowed accounts, another default account or
 // default key, any change of limits (`rawNrql`, windows, event types: compared as a whole) or re-enabling it; on a grant
 // that writes, raising or removing its quota and issuing it a token; on a key, rotating it while a project or grant
-// that writes uses it.
+// that writes uses it; on a user, re-enabling them while one of their live grants writes (P7-32).
 import { WRITE_TOOL_NAMES } from '@relic-bridge/core';
-import type { GrantRecord, ProjectRecord, Storage, StoredLimits, StoredQuota } from '@relic-bridge/storage';
+import type {
+  GrantRecord,
+  ProjectRecord,
+  Storage,
+  StoredLimits,
+  StoredQuota,
+  UserRecord,
+} from '@relic-bridge/storage';
 
 /** True when `tools` names a write tool explicitly. */
 export function namesWriteTools(tools: readonly string[] | null | undefined): boolean {
@@ -138,4 +145,22 @@ export async function credentialWriteScope(
     return { addsWriteTools: false, widened: ['apiKey'] };
   }
   return NONE;
+}
+
+/**
+ * Re-enabling a user brings back their grants and the tokens on them (P7-32): a widening when one of their live (not
+ * revoked) grants names a write tool. Only the user's own grants count: a write never runs on somebody else's personal
+ * key (`resolveAccess`), so grants of other users on this user's key never write, and a service grant has no user.
+ * Disabling, and every other user field, never widens write scope.
+ */
+export async function userWriteScope(
+  storage: Pick<Storage, 'grants'>,
+  current: UserRecord,
+  input: { readonly disabled?: boolean | undefined },
+): Promise<WriteScopeChange> {
+  if (input.disabled !== false || current.disabledAt === null) return NONE;
+  const grants = await storage.grants.list({ userId: current.id });
+  return grants.some((g) => g.revokedAt === null && namesWriteTools(g.tools))
+    ? { addsWriteTools: false, widened: ['disabled'] }
+    : NONE;
 }

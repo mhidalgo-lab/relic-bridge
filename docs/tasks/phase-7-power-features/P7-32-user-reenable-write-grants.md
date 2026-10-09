@@ -2,11 +2,11 @@
 id: P7-32
 title: "Owner-only re-enable of users who hold write grants"
 phase: 7
-status: todo
+status: review
 priority: low
 depends_on: [P7-28]
 adr: [ADR-0015]
-owner: ""
+owner: claude-agent
 ---
 
 # P7-32 — Owner-only re-enable of users who hold write grants
@@ -21,9 +21,12 @@ P7-28 made widening a write-enabled project or grant owner-only. An admin can st
 - Check any other user change that restores write access (none known today).
 
 ## Acceptance criteria
-- [ ] Negative authz test: admin session re-enabling a user with a write grant gets 403; owner and admin token pass.
-- [ ] Re-enabling a user without write grants stays open to admins.
-- [ ] THREAT_MODEL T31 updated.
+- [x] Negative authz test: admin session re-enabling a user with a write grant gets 403; owner and admin token pass.
+- [x] Re-enabling a user without write grants stays open to admins.
+- [x] THREAT_MODEL T31 updated.
+
+Checked other user changes: role and display name do not reach tools, unbinding is owner-only, revoked grants and
+keys cannot be restored, config import never re-enables users. Only `disabled: false` needed the guard.
 
 ## Security notes
 T31, T14.

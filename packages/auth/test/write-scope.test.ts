@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// What widens write scope (P7-28, THREAT_MODEL T31): pure rules the admin API's one owner guard applies.
+// What widens write scope (P7-28, P7-32, THREAT_MODEL T31): pure rules the admin API's one owner guard applies.
 import { createMemoryStorage, type GrantRecord, type ProjectRecord } from '@relic-bridge/storage';
 import { fakeEncryptedKey } from '@relic-bridge/storage/testing';
 import { describe, expect, it } from 'vitest';
@@ -10,6 +10,7 @@ import {
   projectWriteScope,
   quotaWidens,
   tokenWriteScope,
+  userWriteScope,
 } from '../src/index.ts';
 
 const project = (over: Partial<ProjectRecord> = {}): ProjectRecord =>
@@ -162,5 +163,51 @@ describe('grant, token and key scope', () => {
     expect((await credentialWriteScope(storage, 'c1')).widened).toEqual(['apiKey']);
     expect((await credentialWriteScope(storage, 'c2')).widened).toEqual(['apiKey']);
     expect((await credentialWriteScope(storage, 'c3')).widened).toEqual([]);
+  });
+
+  it('userWriteScope: re-enabling a user with a live grant that writes (P7-32)', async () => {
+    const storage = createMemoryStorage();
+    const user = async (id: string, disabled: boolean) => {
+      const u = await storage.users.create({
+        id,
+        email: `${id}@example.com`,
+        displayName: null,
+        role: 'member',
+      });
+      return disabled ? storage.users.update(u.id, { disabledAt: 1 }) : u;
+    };
+    await storage.projects.create({
+      id: 'pw',
+      slug: 'pw',
+      defaultAccountId: 1,
+      allowedAccountIds: [1],
+      enabledTools: ['close_issue'],
+    });
+    const writer = await user('usr_w', true);
+    const reader = await user('usr_r', true);
+    const revoked = await user('usr_x', true);
+    const active = await user('usr_a', false);
+    for (const [id, userId, tools] of [
+      ['g1', 'usr_w', ['whoami', 'close_issue']],
+      ['g2', 'usr_r', null],
+      ['g3', 'usr_x', ['close_issue']],
+      ['g4', 'usr_a', ['close_issue']],
+    ] as const) {
+      await storage.grants.create({
+        id,
+        projectId: 'pw',
+        userId,
+        label: null,
+        tools: tools === null ? null : [...tools],
+      });
+    }
+    await storage.grants.update('g3', { revokedAt: 1 });
+    expect((await userWriteScope(storage, writer, { disabled: false })).widened).toEqual(['disabled']);
+    // Disabling, other fields, a grant without write tools, a revoked grant, an already active user: nothing widens.
+    expect((await userWriteScope(storage, writer, { disabled: true })).widened).toEqual([]);
+    expect((await userWriteScope(storage, writer, {})).widened).toEqual([]);
+    expect((await userWriteScope(storage, reader, { disabled: false })).widened).toEqual([]);
+    expect((await userWriteScope(storage, revoked, { disabled: false })).widened).toEqual([]);
+    expect((await userWriteScope(storage, active, { disabled: false })).widened).toEqual([]);
   });
 });

@@ -526,6 +526,29 @@ export function oauthSuite(): void {
       expect(consent.seen).toEqual([]);
     });
 
+    it('review: a code_verifier outside RFC 7636 (43-128 unreserved) is refused and the code stays usable', async () => {
+      await client.register();
+      // A client that hashed a one-character verifier: its challenge looks like any other S256 challenge.
+      const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode('a')));
+      const challenge = btoa(String.fromCharCode(...digest))
+        .replaceAll('+', '-')
+        .replaceAll('/', '_')
+        .replace(/=+$/, '');
+      const weak = await client.authorize('prod', { code_challenge: challenge });
+      expect(weak.code).not.toBeNull();
+      const refused = await client.exchange(weak.code as string, 'a', resourceOf('prod'));
+      expect(refused.status).toBe(400);
+      expect(JSON.parse(refused.text)).toMatchObject({ error: 'invalid_request' });
+      // Refused before the single-use marker is taken: a proper exchange of a proper code still works.
+      const good = await client.authorize('prod');
+      expect((await client.exchange(good.code as string, 'x'.repeat(129), resourceOf('prod'))).status).toBe(
+        400,
+      );
+      expect((await client.exchange(good.code as string, good.verifier, resourceOf('prod'))).status).toBe(
+        200,
+      );
+    });
+
     it('resource is required and must be one of our MCP endpoints (refused before any redirect)', async () => {
       await client.register();
       const cases = [

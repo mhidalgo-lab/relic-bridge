@@ -605,6 +605,61 @@ export function consentSuite(): void {
       expect(actions).toEqual(['oauth.consent.approve', 'oauth.consent.approve', 'oauth.consent.forget']);
     });
 
+    it('review H1: a silent re-authorization disconnects nothing; redeeming its code replaces the earlier device', async () => {
+      await browser.register();
+      const first = await approve(owner, { remember: '1' });
+      const tok = await browser.exchange(codeOf(first.res) as string, first.verifier);
+      expect(tok.status, tok.text).toBe(200);
+      const old = JSON.parse(tok.text) as { access_token: string; refresh_token: string };
+      const call = (bearer: string) =>
+        browser.send(
+          requestFor(MCP_ROUTES[0] as RouteCase, {
+            headers: { authorization: `Bearer ${bearer}` },
+            slug: 'prod',
+          }),
+        );
+      const refresh = (token: string) =>
+        browser.send(
+          new Request(`${ISSUER}/oauth/token`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/x-www-form-urlencoded' },
+            body: new URLSearchParams({
+              grant_type: 'refresh_token',
+              refresh_token: token,
+              client_id: browser.clientId,
+              resource: resourceOf('prod'),
+            }).toString(),
+          }),
+        );
+      const pastAccessCache = () => {
+        h.world.clock.advance(61_000);
+        vi.setSystemTime(h.world.clock.now());
+      };
+      // Any page can navigate the user's browser to the authorize URL: with a remembered approval that issues a code
+      // at once (to the client's redirect URI, not to the page). It must not end the connected device.
+      const silent = await browser.open(owner);
+      expect(silent.res.status).toBe(303);
+      const code = codeOf(silent.res) as string;
+      expect(code).not.toBeNull();
+      secrets.push(code);
+      pastAccessCache();
+      expect((await call(old.access_token)).status).toBe(200);
+      const rotated = await refresh(old.refresh_token);
+      expect(rotated.status, rotated.text).toBe(200);
+      const current = JSON.parse(rotated.text) as { access_token: string; refresh_token: string };
+      secrets.push(current.access_token, current.refresh_token);
+      // The app itself redeeming the new code (it holds the PKCE verifier) is a reconnect: the earlier device goes,
+      // tombstoned and audited.
+      expect((await browser.exchange(code, silent.verifier)).status).toBe(200);
+      pastAccessCache();
+      expect((await call(current.access_token)).status).toBe(401);
+      expect((await refresh(current.refresh_token)).status).toBe(400);
+      await settle();
+      const replaced = (await h.auditRows()).filter((r) => r.action === 'oauth.device.replace');
+      expect(replaced.length).toBe(1);
+      expect(replaced[0]).toMatchObject({ status: 'ok', userId: 'usr_a' });
+    });
+
     it('a remembered approval whose grant was revoked is dropped and the page is shown', async () => {
       await browser.register();
       await approve(owner, { remember: '1' });

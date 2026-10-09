@@ -234,6 +234,8 @@ const CODE_MARKER_PREFIX = 'oauth-code:';
  */
 const REFRESH_MARKER_PREFIX = 'oauth-refresh:';
 const REFRESH_LIVE = 'live';
+/** RFC 7636 §4.1 `code-verifier = 43*128unreserved`. */
+const PKCE_VERIFIER_RE = /^[A-Za-z0-9._~-]{43,128}$/;
 /**
  * Revoked device tombstones, `oauth-revoked:<userId>:<grantId>`: written before a device is revoked, so a token
  * request the provider was answering at that moment (it reads the grant, then writes it back) can't bring the device
@@ -768,6 +770,51 @@ export function createOAuthRuntime(deps: OAuthRuntimeDeps): OAuthRuntime {
   /** A marker outlives every refresh token it can describe (the absolute refresh lifetime). */
   const markerTtl = Math.max(refreshTtl, 60);
   /** Mark the refresh token of a successful token response as the device's one live refresh token. */
+  /**
+   * After a code was redeemed: the same app connecting again (same user, client and resource, and for a metadata
+   * document client the same redirect URI, as the provider's own rule) replaces its earlier devices, tombstoned like
+   * any revocation. Done at redemption, not issuance (review H1), so only the client that holds the code and its PKCE
+   * verifier can end an earlier connection.
+   */
+  const replaceEarlierDevices = async (c: Context, code: string, helpers: OAuthHelpers): Promise<void> => {
+    const m = PROVIDER_TOKEN_RE.exec(code);
+    if (m === null) return;
+    const [, userId, grantId] = m as unknown as [string, string, string];
+    const current = (await env.OAUTH_KV.get(`grant:${userId}:${grantId}`, { type: 'json' })) as {
+      readonly clientId?: unknown;
+      readonly resource?: unknown;
+      readonly redirectUri?: unknown;
+      readonly createdAt?: unknown;
+    } | null;
+    if (current === null || typeof current.clientId !== 'string' || typeof current.resource !== 'string')
+      return;
+    const metadataDocument = looksLikeClientIdUrl(current.clientId);
+    const requestId = c.get('requestId') as unknown;
+    for (const { id, grant } of await userGrants(userId)) {
+      const g = grant as StoredGrant & { readonly redirectUri?: unknown };
+      if (id === grantId || g.clientId !== current.clientId || g.resource !== current.resource) continue;
+      if (metadataDocument && g.redirectUri !== current.redirectUri) continue;
+      // Only earlier authorizations: a newer one (another tab) is replaced when its own code is redeemed.
+      if (typeof g.createdAt !== 'number' || typeof current.createdAt !== 'number') continue;
+      if (g.createdAt > current.createdAt) continue;
+      await revokeFamily(userId, id, helpers);
+      logger.info('oauth device replaced by a new authorization of the same app', { oauthGrant: id });
+      await deps.audit?.({
+        actor: {
+          requestId: typeof requestId === 'string' ? requestId : null,
+          userId,
+          clientId: current.clientId.slice(0, 200),
+          tokenId: `oauth_${grantId}`,
+        },
+        action: 'oauth.device.replace',
+        targetType: 'oauth_device',
+        targetId: `oauth_${id}`,
+        status: 'ok',
+        details: { replacedBy: `oauth_${grantId}` },
+      });
+    }
+  };
+
   const markIssued = async (response: Response): Promise<void> => {
     if (!response.ok) return;
     const issued = ((await response.clone().json()) as { readonly refresh_token?: unknown }).refresh_token;
@@ -1384,6 +1431,11 @@ export function createOAuthRuntime(deps: OAuthRuntimeDeps): OAuthRuntime {
       }
       const as = await allProjects();
       if (grantType === 'authorization_code') {
+        // RFC 7636 §4.1: a verifier is 43-128 unreserved characters. Refused before the code is consumed, so a short,
+        // guessable verifier (a client bug) never redeems a code (review L-PKCE).
+        if (!PKCE_VERIFIER_RE.test(form?.get('code_verifier') ?? '')) {
+          return jsonError(400, 'invalid_request', 'code_verifier must be 43-128 characters (RFC 7636).');
+        }
         const code = form?.get('code') ?? '';
         // Single use, atomically: of concurrent exchanges at most one finds the marker (P4 review note, T9).
         const fresh = looksLikeOAuthToken(code) && (await deps.kv.take(await codeMarker(code))) !== null;
@@ -1439,6 +1491,7 @@ export function createOAuthRuntime(deps: OAuthRuntimeDeps): OAuthRuntime {
           return jsonError(400, 'invalid_grant', 'Invalid authorization code');
         }
         await markIssued(response);
+        await replaceEarlierDevices(c, form?.get('code') ?? '', as.getOAuthApi(env));
       }
       // RFC 7009 revocation shares this endpoint (no grant_type): drop cached decisions here at once, and when the
       // device is gone (a refresh token was revoked) leave a tombstone so a refresh in flight can't bring it back.
@@ -1568,6 +1621,11 @@ export function createOAuthRuntime(deps: OAuthRuntimeDeps): OAuthRuntime {
             metadata: storedLabel === null ? { grant: grantId } : { label: storedLabel, grant: grantId },
             scope,
             props,
+            // Review H1: the provider's default revokes the user's other devices of this client and resource as soon
+            // as a code is *issued*. With a remembered approval that is one cross-site GET: any page could disconnect
+            // a live app, and the provider's revocation leaves no tombstone. Earlier devices are replaced only once
+            // the new code is redeemed ({@link replaceEarlierDevices}).
+            revokeExistingGrants: false,
           });
           const code = new URL(redirectTo).searchParams.get('code');
           if (code === null) throw new Error('the provider returned no authorization code');

@@ -169,7 +169,9 @@ asks first.
 3. The provider parses the request: client known, redirect URI registered (exact match; loopback ports are flexible
    per RFC 8252), response type. Errors with a validated redirect go back to the client with `state` and `iss`;
    others are a 400 JSON page.
-4. PKCE `S256` is required for **every** client (the provider insists only for public ones).
+4. PKCE `S256` is required for **every** client (the provider insists only for public ones). At the token endpoint
+   the `code_verifier` must be 43-128 unreserved characters (RFC 7636 §4.1), checked before the code is consumed
+   (review L1).
 5. The **consent handler** (`OAuthConsentHandler`) gets the validated request (`clientId`, `clientName` — untrusted
    text, `redirectUri`, `redirectHost`, `scope`, `resource`, `projectSlug`) and an API:
    - `approve({ userId, grantId, label? })` runs `resolveAccess` for this slug with that user as principal: another user's
@@ -319,6 +321,13 @@ warning at boot). A programmatic `createWorker({ oauth })` wins over the variabl
   (`grant:<userId>:` rows; pending code exchanges and expired grants left out; at most 100) and revoke one, or all of a
   user's devices for one access grant or project. Revoking also deletes the user's remembered approvals for that client
   and project (`forgetApprovals` in `remembered.ts`; approvals now store the `clientId`).
+- **Replacement (Phase 5 review H1).** `approve()` passes `revokeExistingGrants: false`: the provider's default revoked
+  the user's other grants of the same client and resource when a code was *issued*, so with a remembered approval any
+  page could disconnect a live app with one cross-site navigation (and without a tombstone). Instead, after a
+  successful code exchange, `replaceEarlierDevices` revokes (tombstoned, `revokeFamily`) the user's earlier grants of
+  the same client and resource (for a metadata-document client, also the same redirect URI: the provider's rule),
+  audited `oauth.device.replace` (`details.replacedBy`). Only the holder of the code and its verifier can end a
+  connection this way. Whether installations that share a client id should be one device is open (P5-11).
 - **Revoke-all.** The admin API revokes the devices of a revoked or deleted grant, of a user it disables (re-enabling
   does not restore them) and, for every user with a grant on it, of a deleted project (`details.oauthDevicesRevoked` on
   the audit row). Best effort: a failure is logged and the next refresh is refused by the access check anyway.

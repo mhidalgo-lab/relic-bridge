@@ -88,6 +88,10 @@ Set `RB_OAUTH_REFRESH_REUSE_WINDOW=0` for the strictest behaviour (any second us
 trigger in normal use). Renewals never push the end of the approval back: after `RB_OAUTH_REFRESH_TTL` (30 days by
 default) the app asks you again.
 
+Connecting the **same app** to the same project again (same app registration and, for apps identified by a web
+address, the same return address) replaces its earlier connection once the app has finished signing in (audit
+`oauth.device.replace`). Merely opening the approval link, even with a remembered approval, disconnects nothing.
+
 Apps can also give their tokens back (RFC 7009 revocation, as when you sign out in the app): giving back a refresh token
 disconnects the app.
 
@@ -132,5 +136,5 @@ itself when its grant stops working (revoked, expired, key removed): you are ask
   issuer (`iss`). Codes are single use.
 - Approvals and denials are in the audit log (`oauth.consent.approve`, `oauth.consent.deny`, `oauth.consent.forget`),
   as are disconnects (`oauth_device.revoke`), refused renewals (`oauth.token.refused`) and reused refresh tokens
-  (`oauth.token.reuse`), and renewals answered again inside the reuse window (`oauth.token.replay`). Each row's token id is `oauth_…`, the same for every request of that connected app.
+  (`oauth.token.reuse`), renewals answered again inside the reuse window (`oauth.token.replay`), and earlier connections replaced by a new one of the same app (`oauth.device.replace`). Each row's token id is `oauth_…`, the same for every request of that connected app.
 - Developers: [docs/dev/oauth.md](../dev/oauth.md).

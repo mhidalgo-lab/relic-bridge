@@ -3,7 +3,7 @@
 // secrets from bindings, `ctx.waitUntil` for background writes, the client address from `CF-Connecting-IP`, and a
 // per-isolate runtime (keyring with its imported CryptoKeys, access cache, rate-limit buckets, the app) built lazily
 // on the first request. The runtime holds configuration and caches only, never request data (THREAT_MODEL T21).
-import type { ExecutionContext } from '@cloudflare/workers-types';
+import type { ExecutionContext, ScheduledController } from '@cloudflare/workers-types';
 import { CryptoError, loadKeyringFromEnv, verifyKeyChecks } from '@relic-bridge/auth';
 import { createLogger, type FetchLike, type Logger, type LogSink, Secret, VERSION } from '@relic-bridge/core';
 import {
@@ -57,11 +57,36 @@ export interface WorkerOptions {
   readonly auditMaxAuthRowsPerMinute?: number;
   /** Epoch-ms clock for the boot retry window (tests). */
   readonly now?: () => number;
+  /** Retention purge budget per run (tests). Default: `PURGE_BATCH_ROWS`, `PURGE_MAX_BATCHES`, `PURGE_BUDGET_MS`. */
+  readonly purge?: Partial<PurgeBudget>;
 }
+
+/** What one scheduled run may spend on deleting audit rows. */
+export interface PurgeBudget {
+  /** Rows per DELETE statement (keeps each statement small for D1). */
+  readonly batchRows: number;
+  /** Statements per run. */
+  readonly maxBatches: number;
+  /** Wall-clock budget; no new batch starts after it. */
+  readonly budgetMs: number;
+}
+
+/**
+ * Defaults: 500-row batches, 20 per run (10,000 rows), 10 s. Each DELETE is one D1 query (the Free plan allows 50 D1
+ * queries per invocation); a backlog beyond the budget is finished by the next run, so an hourly trigger clears
+ * 240,000 rows a day at most, far above what the audit caps allow.
+ */
+export const DEFAULT_PURGE_BUDGET: PurgeBudget = Object.freeze({
+  batchRows: 500,
+  maxBatches: 20,
+  budgetMs: 10_000,
+});
 
 /** The module Worker's `fetch` handler (typed with the web `Request`/`Response` the shared app uses). */
 export interface WorkerHandler {
   fetch(request: Request, env: WorkerEnv, ctx: ExecutionContext): Promise<Response>;
+  /** Cron trigger (P3-08): deletes audit rows past the retention period. Never rejects. */
+  scheduled(controller: ScheduledController, env: WorkerEnv, ctx: ExecutionContext): Promise<void>;
 }
 
 /** What one isolate keeps between requests: configuration and caches, no request data. */
@@ -241,7 +266,57 @@ export function createWorker(options: WorkerOptions = {}): WorkerHandler {
     return runtime;
   };
 
+  /**
+   * Audit retention (P3-08), the same policy as `relic-bridge audit purge` (`recorder.purge`, `RB_AUDIT_RETENTION_DAYS`).
+   * Needs no master key, so it does not boot the runtime (a bad key must not stop the cleanup). Deletes oldest rows
+   * first in bounded batches and stops at the budget; the next run resumes. Failures are logged, never thrown.
+   */
+  const purgeAudit = async (env: WorkerEnv): Promise<void> => {
+    try {
+      const settings = parseWorkerSettings(env);
+      const log = createLogger({
+        level: settings.logLevel,
+        ...(options.logSink === undefined ? {} : { sink: options.logSink }),
+      });
+      const days = settings.audit.retentionDays;
+      if (days <= 0) {
+        log.info('audit purge skipped', { reason: 'retention is 0 (keep everything)' });
+        return;
+      }
+      const budget = { ...DEFAULT_PURGE_BUDGET, ...options.purge };
+      const storage = await (options.openStorage ?? openD1Storage)(env);
+      const recorder = createAuditRecorder({ storage, logger: log });
+      const started = now();
+      let removed = 0;
+      let batches = 0;
+      let complete = false;
+      while (batches < budget.maxBatches && now() - started < budget.budgetMs) {
+        const n = await recorder.purge(days, { limit: budget.batchRows });
+        batches++;
+        removed += n;
+        if (n < budget.batchRows) {
+          complete = true;
+          break;
+        }
+      }
+      if (removed > 0) {
+        await recorder.admin({
+          actor: {},
+          action: 'audit.purge',
+          targetType: 'audit_log',
+          details: { removed, olderThanDays: days, source: 'cron' },
+        });
+      }
+      log.info('audit purge finished', { removed, batches, retentionDays: days, complete });
+    } catch (error) {
+      logger.error('audit purge failed', bootFailure(error));
+    }
+  };
+
   return {
+    async scheduled(_controller, env) {
+      await purgeAudit(env);
+    },
     async fetch(request, env, ctx) {
       const runtime = await runtimeFor(env);
       if (runtime === null) return unavailable();

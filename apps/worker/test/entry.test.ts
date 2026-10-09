@@ -14,6 +14,7 @@ const MASTER_KEY = env.RB_MASTER_KEY as string;
 
 /** The deployed entry as a handler (it reads its own `env`; ours is ignored). */
 const deployed: WorkerHandler = {
+  scheduled: async () => {},
   fetch: (request) => exports.default.fetch(request),
 };
 

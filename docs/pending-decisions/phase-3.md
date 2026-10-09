@@ -175,3 +175,10 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
      the GitHub environment `staging` (required reviewers), set variable `STAGING_URL` and secret `STAGING_ADMIN_TOKEN`.
   3. Decide whether the nightly job should also deploy (needs a scoped `CLOUDFLARE_API_TOKEN` in `staging`); it only
      smoke-tests an already deployed Worker today.
+
+### P3-08 — audit purge cadence and budget
+- **Context:** the task allowed hourly or daily; D1 limits rows per statement and queries per invocation.
+- **Assumption made:** hourly (`17 * * * *`, like `serve`), 500-row batches, at most 20 batches (10,000 rows) and 10 s per
+  run; the purge writes an `audit.purge` admin row only when it removed something. Purge runs even with `RB_AUDIT=off`.
+- **Options:** daily trigger (fewer invocations), larger batches on the paid plan, a `RB_AUDIT_PURGE_*` setting.
+- **Needs:** owner's call only if the hourly trigger conflicts with the Free plan's cron-trigger count in their account.

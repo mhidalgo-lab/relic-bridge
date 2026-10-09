@@ -35,6 +35,7 @@ first deploy.
 | `RB_CORS_ORIGINS` | off | Full origins allowed by CORS. |
 | `RB_ACCESS_CACHE_TTL` | `30` | Seconds a resolved token/grant stays cached per isolate (0-60, 0 disables). |
 | `RB_AUDIT`, `RB_AUDIT_NRQL`, `RB_AUDIT_CLIENT_IP` | `on`, `mask`, `on` | As for `serve`. Audit rows are written with `ctx.waitUntil`. |
+| `RB_AUDIT_RETENTION_DAYS` | `90` | Days to keep audit rows (`0` = forever). An hourly cron trigger (`triggers.crons`) deletes older rows, up to 10,000 per run; a larger backlog is finished by the next run. |
 | `RB_RATE_LIMIT` | `on` | `off` disables rate limiting. Per-rule tuning comes with P3-04. |
 | `RB_PASSTHROUGH` | `off` | `on` is refused until P3-04 (pass-through needs a fingerprint secret and a limiter shared by all isolates). |
 | `RB_LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error`. Logs go to Workers Logs, redacted. |

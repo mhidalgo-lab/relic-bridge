@@ -490,11 +490,19 @@ export function createMemoryStorage(options: MemoryStorageOptions = {}): Storage
       }
       return out(rows);
     },
-    async purgeBefore(before) {
-      const keep = audit.filter((r) => r.ts >= before);
-      const removed = audit.length - keep.length;
+    async purgeBefore(before, limit) {
+      const cap = limit ?? Number.POSITIVE_INFINITY;
+      // Oldest first, like the SQL adapters (`ORDER BY ts`).
+      const doomed = new Set(
+        audit
+          .filter((r) => r.ts < before)
+          .sort((a, b) => a.ts - b.ts || a.id - b.id)
+          .slice(0, cap),
+      );
+      if (doomed.size === 0) return 0;
+      const keep = audit.filter((r) => !doomed.has(r));
       audit.splice(0, audit.length, ...keep);
-      return removed;
+      return doomed.size;
     },
   };
 

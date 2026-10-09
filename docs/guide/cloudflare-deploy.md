@@ -80,6 +80,10 @@ Settings are Worker variables (see the [worker README](../../apps/worker/README.
 `RB_ALLOWED_HOSTS`, budget overrides. Pass them at deploy time with `wrangler deploy --var NAME:value`, or set them in the
 dashboard (Worker, Settings, Variables); `pnpm cf:setup` sets `RB_PLAN` from `--plan`.
 
+Audit history is trimmed by an hourly cron trigger (`triggers.crons` in `wrangler.jsonc`, registered at deploy): rows
+older than `RB_AUDIT_RETENTION_DAYS` (default 90, `0` keeps everything) are deleted. See the
+[audit log guide](audit-log.md#retention).
+
 To use your own hostname: add a Custom Domain to the Worker in the dashboard (Workers & Pages, your Worker, Settings,
 Domains & Routes; the zone must be on Cloudflare) and set `RB_ALLOWED_HOSTS` to that hostname. To turn off the
 `workers.dev` address afterwards, set `workers_dev` to `false` in `wrangler.local.jsonc`.

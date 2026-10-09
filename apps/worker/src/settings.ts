@@ -5,6 +5,7 @@ import type { LogLevel } from '@relic-bridge/core';
 import {
   AUDIT_NRQL_MODES,
   type AuditNrqlMode,
+  DEFAULT_AUDIT_RETENTION_DAYS,
   MAX_ACCESS_CACHE_TTL_MS,
   originHostname,
 } from '@relic-bridge/http-app';
@@ -61,7 +62,13 @@ export interface WorkerSettings {
   readonly allowedOrigins?: readonly string[];
   readonly corsOrigins: readonly string[];
   readonly accessCacheTtlMs?: number;
-  readonly audit: { readonly enabled: boolean; readonly nrql: AuditNrqlMode; readonly clientIp: boolean };
+  readonly audit: {
+    readonly enabled: boolean;
+    readonly nrql: AuditNrqlMode;
+    readonly clientIp: boolean;
+    /** Days of audit history to keep; `0` keeps everything. */
+    readonly retentionDays: number;
+  };
   readonly rateLimit: boolean;
   /** `RB_PASSTHROUGH=on`: `/passthrough/mcp` (needs `RB_FINGERPRINT_SECRET` and the rate-limit binding, checked at boot). */
   readonly passthrough: boolean;
@@ -184,6 +191,16 @@ export function parseWorkerSettings(vars: WorkerVars): WorkerSettings {
   }
   const auditClientIp = onOff(vars, 'RB_AUDIT_CLIENT_IP', true);
 
+  // Same rule as the CLI's `parseRetentionDays`: whole days, `0` keeps everything.
+  const retentionRaw = text(vars, 'RB_AUDIT_RETENTION_DAYS');
+  if (retentionRaw !== undefined && !/^\d{1,5}$/.test(retentionRaw)) {
+    throw new WorkerConfigError(
+      'RB_AUDIT_RETENTION_DAYS',
+      'RB_AUDIT_RETENTION_DAYS must be a whole number of days (0 keeps everything)',
+    );
+  }
+  const retentionDays = retentionRaw === undefined ? DEFAULT_AUDIT_RETENTION_DAYS : Number(retentionRaw);
+
   const rateLimit = onOff(vars, 'RB_RATE_LIMIT', true);
   if (!rateLimit) {
     warnings.push('RB_RATE_LIMIT=off disables all rate limiting (brute-force and abuse protection).');
@@ -210,7 +227,7 @@ export function parseWorkerSettings(vars: WorkerVars): WorkerSettings {
     ...(allowedOrigins === undefined ? {} : { allowedOrigins }),
     corsOrigins,
     ...(accessCacheTtlMs === undefined ? {} : { accessCacheTtlMs }),
-    audit: { enabled: auditEnabled, nrql: nrql as AuditNrqlMode, clientIp: auditClientIp },
+    audit: { enabled: auditEnabled, nrql: nrql as AuditNrqlMode, clientIp: auditClientIp, retentionDays },
     rateLimit,
     passthrough,
     logLevel: level,

@@ -374,8 +374,11 @@ export interface AuditLogRepository {
   append(entry: AuditEntry): Promise<void>;
   /** Newest first. */
   list(query?: AuditQuery): Promise<readonly AuditRecord[]>;
-  /** Retention job only: deletes rows with `ts` < `before`; returns the count. */
-  purgeBefore(before: number): Promise<number>;
+  /**
+   * Retention job only: deletes rows with `ts` < `before` (oldest first, at most `limit` when given, so a job with a
+   * time or row budget can work in batches); returns the count.
+   */
+  purgeBefore(before: number, limit?: number): Promise<number>;
 }
 
 // ---------------------------------------------------------------------------------------------------------------

@@ -6,6 +6,7 @@ export const SAMPLE_CALLS: Readonly<Record<string, Record<string, unknown>>> = {
   whoami: {},
   list_accounts: {},
   time_range: { expression: 'last 1 hour' },
+  get_ui_link: { nrql: 'SELECT count(*) FROM Transaction SINCE 1 hour ago' },
   run_nrql: { nrql: 'SELECT count(*) FROM Transaction SINCE 1 hour ago' },
   get_query_result: { query_id: 'q-123e4567-e89b', account: MOCK_ACCOUNT },
   search_entities: { name_contains: 'checkout' },

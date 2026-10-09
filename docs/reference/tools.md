@@ -2,7 +2,7 @@
 
 # Tool reference
 
-36 tools. Cost is the expected number of NerdGraph calls per tool call (ADR-0010). Annotations are derived from the tool kind, never hand-written.
+37 tools. Cost is the expected number of NerdGraph calls per tool call (ADR-0010). Annotations are derived from the tool kind, never hand-written.
 
 | Tool | Group | Kind | Cost | Phase |
 | --- | --- | --- | --- | --- |
@@ -32,6 +32,7 @@
 | [`list_change_events`](#list_change_events) | incident-response | read | 5 | 6 |
 | [`list_error_groups`](#list_error_groups) | incident-response | read | 5 | 6 |
 | [`trace_error`](#trace_error) | incident-response | read | 12 | 6 |
+| [`get_ui_link`](#get_ui_link) | links | read | 0 | 7 |
 | [`analyze_entity_logs`](#analyze_entity_logs) | performance | read | 10 | 6 |
 | [`analyze_kafka_metrics`](#analyze_kafka_metrics) | performance | read | 6 | 6 |
 | [`analyze_threads`](#analyze_threads) | performance | read | 8 | 6 |
@@ -954,6 +955,35 @@ Use it for "follow this error" or "where did this request fail?". Runs 3 queries
 ### Annotations
 
 readOnly: `true` · destructive: `false` · idempotent: `true` · openWorld: `true`
+
+## `get_ui_link`
+
+**Get New Relic UI link** · group `links` · phase 7 · kind `read` · cost 0 NerdGraph calls
+
+Build a link that opens an entity, dashboard, NRQL query (query builder) or issue in the New Relic UI, for the connection's region. Offline: nothing is sent to New Relic.
+
+Give exactly one of entity_guid, nrql or issue_id. Links are private (the reader logs in). Query and issue formats are unverified.
+
+### Input
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `entity_guid` | `string` | no | Entity or dashboard guid. |
+| `nrql` | `string` | no | NRQL to open. |
+| `issue_id` | `string` | no | Issue id. |
+| `account` | `integer` | no | Account id (list_accounts). Default: the default. |
+
+### Output
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `url` | `string` | yes |  |
+| `kind` | `"entity" \| "nrql" \| "issue"` | yes |  |
+| `verified` | `boolean` | yes |  |
+
+### Annotations
+
+readOnly: `true` · destructive: `false` · idempotent: `true` · openWorld: `false`
 
 ## `analyze_entity_logs`
 

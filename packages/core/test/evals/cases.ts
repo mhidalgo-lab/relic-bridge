@@ -47,6 +47,13 @@ export const EVAL_CASES: readonly EvalCase[] = [
     question: 'Give me the exact UTC start and end timestamps of yesterday so I can paste them into a query.',
     expect: ['time_range'],
   },
+  {
+    id: 'ui-link',
+    topic: 'links',
+    question:
+      'Give me a link I can click to open this query in the New Relic UI: SELECT count(*) FROM Transaction SINCE 1 hour ago.',
+    expect: ['get_ui_link'],
+  },
   // NRQL and schema discovery
   {
     id: 'nrql-percentile',

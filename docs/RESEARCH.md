@@ -734,3 +734,13 @@ Sources: developers.cloudflare.com/workers/runtime-apis/cache/, /workers/platfor
   separate mechanism; relic-bridge does not use it (MCP responses are per caller and never cacheable).
 - workerd in `@cloudflare/vitest-plugin` implements `caches.open` / `match` / `put` locally (used by
   `apps/worker/test/query-cache.test.ts`).
+
+## 24. New Relic UI link formats (P7-03, NOT verified in a browser)
+
+- Entity permalink `https://one.newrelic.com/redirect/entity/<guid>` (EU: `one.eu.newrelic.com`): the documented
+  entity permalink; works for dashboards. Used for `entity_guid`.
+- Query builder: `/launcher/data-exploration.query-builder?pane=<base64 JSON>` with
+  `{"nerdletId":"data-exploration.query-builder","initialActiveInterface":"nrqlEditor","initialQueries":[{"accountId":N,"nrql":"..."}]}`,
+  recalled from New Relic launcher links, not checked.
+- Issue page `/alerts-ai/issues/<issueId>?account=<id>`: a best guess, not checked.
+- No UI host is documented for the JP region, so JP gets no links.

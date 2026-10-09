@@ -30,6 +30,19 @@ const GUID_CASES: Readonly<Record<string, readonly ToolCall[]>> = {
   whoami: [{ args: {}, expect: 'ok' }],
   list_accounts: [{ args: {}, expect: 'ok' }],
   time_range: [{ args: { expression: 'last 2 hours' }, expect: 'ok', offline: true }],
+  get_ui_link: [
+    { args: { entity_guid: guidOf(FOREIGN) }, expect: 'refused', offline: true },
+    { args: { entity_guid: guidOf(3) }, expect: 'refused', offline: true },
+    { args: { nrql: NRQL, account: FOREIGN }, expect: 'refused', offline: true },
+    { args: { nrql: NRQL, account: 3 }, expect: 'refused', offline: true },
+    {
+      args: { issue_id: '3f1c2a52-0000-4000-8000-000000000001', account: FOREIGN },
+      expect: 'refused',
+      offline: true,
+    },
+    { args: { entity_guid: guidOf(1) }, expect: 'ok', offline: true },
+    { args: { nrql: NRQL }, expect: 'ok', offline: true },
+  ],
   run_nrql: [
     { args: { nrql: NRQL, accounts: [FOREIGN] }, expect: 'refused', offline: true },
     { args: { nrql: NRQL, accounts: [1, FOREIGN] }, expect: 'refused', offline: true },

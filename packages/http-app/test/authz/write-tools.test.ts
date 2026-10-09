@@ -42,11 +42,39 @@ const GOOD: Readonly<Record<string, Record<string, unknown>>> = {
   create_change_event: { entity_guid: honest(1), change_type: 'DEPLOYMENT__BASIC', version: '1.2.3', ...ok },
   acknowledge_issue: { issue_id: ISSUE, account: 1, ...ok },
   close_issue: { issue_id: ISSUE, account: 2, ...ok },
+  create_dashboard: {
+    name: 'Checkout',
+    account: 1,
+    pages: [
+      {
+        name: 'Main',
+        widgets: [
+          {
+            title: 'Rate',
+            visualization: 'line',
+            queries: [{ nrql: 'SELECT count(*) FROM Transaction TIMESERIES' }],
+          },
+          {
+            title: 'Errors',
+            visualization: 'billboard',
+            queries: [{ nrql: 'SELECT count(*) FROM TransactionError', account: 2 }],
+          },
+        ],
+      },
+    ],
+    ...ok,
+  },
 };
+
+/** `create_dashboard` arguments with one widget query replaced. */
+const dashboardWith = (query: Record<string, unknown>): Record<string, unknown> => ({
+  ...GOOD['create_dashboard'],
+  pages: [{ name: 'Main', widgets: [{ title: 'W', visualization: 'table', queries: [query] }] }],
+});
 
 interface WriteCase {
   readonly args: Record<string, unknown>;
-  readonly expect: 'ok' | 'refused' | 'invalid';
+  readonly expect: 'ok' | 'refused' | 'invalid' | 'limit';
   /** Must not reach NerdGraph at all. */
   readonly offline?: boolean;
   /** Must not send a mutation (a read of the target is allowed). */
@@ -109,9 +137,44 @@ const CASES: Readonly<Record<string, readonly WriteCase[]>> = {
     { args: { issue_id: ISSUE, dry_run: true }, expect: 'ok', noMutation: true },
     { args: GOOD['close_issue'] as Record<string, unknown>, expect: 'ok' },
   ],
+  // P7-19: the dashboard's account and every widget query's account must be on the connection (no cross-account
+  // widget); widget NRQL gets the run_nrql limits; nothing is ever shared.
+  create_dashboard: [
+    { args: { ...GOOD['create_dashboard'], account: FOREIGN }, expect: 'refused', offline: true },
+    { args: { ...GOOD['create_dashboard'], account: 3 }, expect: 'refused', offline: true },
+    {
+      args: dashboardWith({ nrql: 'SELECT count(*) FROM Transaction', account: FOREIGN }),
+      expect: 'refused',
+      offline: true,
+    },
+    {
+      args: dashboardWith({ nrql: 'SELECT count(*) FROM Log', account: 3 }),
+      expect: 'refused',
+      offline: true,
+    },
+    {
+      args: dashboardWith({ nrql: 'SELECT count(*) FROM Transaction SINCE 400 days ago' }),
+      expect: 'limit',
+      offline: true,
+    },
+    {
+      args: { ...GOOD['create_dashboard'], permissions: 'PUBLIC_READ_WRITE' },
+      expect: 'invalid',
+      offline: true,
+    },
+    { args: { ...GOOD['create_dashboard'], confirm: undefined }, expect: 'invalid', offline: true },
+    { args: { ...GOOD['create_dashboard'], name: `dash ${NR_KEY}` }, expect: 'invalid', offline: true },
+    {
+      args: { ...GOOD['create_dashboard'], confirm: undefined, dry_run: true },
+      expect: 'ok',
+      offline: true,
+      noMutation: true,
+    },
+    { args: GOOD['create_dashboard'] as Record<string, unknown>, expect: 'ok' },
+  ],
 };
 
-const MUTATIONS = new Set(['RbCreateChangeEvent', 'RbAckIssue', 'RbResolveIssue']);
+const MUTATIONS = new Set(['RbCreateChangeEvent', 'RbAckIssue', 'RbResolveIssue', 'RbCreateDashboard']);
 const codeOfResult = (r: { _meta?: Record<string, unknown> | undefined }) =>
   (r._meta?.[ERROR_META_KEY] as { code?: string } | undefined)?.code;
 
@@ -211,7 +274,9 @@ describe('write tools are off unless every layer opts in (P7-09)', () => {
       expect(t, name).toBeDefined();
       expect(t?.annotations?.readOnlyHint, name).toBe(false);
       expect(t?.annotations?.destructiveHint, name).toBe(name === 'close_issue');
-      expect(t?.annotations?.idempotentHint, name).toBe(name !== 'create_change_event');
+      expect(t?.annotations?.idempotentHint, name).toBe(
+        name !== 'create_change_event' && name !== 'create_dashboard',
+      );
       expect(t?.description, name).toMatch(/changes New Relic/);
       expect(JSON.stringify(t?.inputSchema), name).toContain('"confirm"');
     }
@@ -258,6 +323,34 @@ describe('write tools are off unless every layer opts in (P7-09)', () => {
     ]);
     await expectUncallable(app, 'w-one', token.value, 'close_issue');
     await expectUncallable(app, 'w-one', token.value, 'create_change_event');
+    await expectUncallable(app, 'w-one', token.value, 'create_dashboard');
+  });
+
+  it('raw NRQL off: create_dashboard (widget NRQL) is never listed, even when project and grant name it', async () => {
+    const app = h.makeApp({ writeTools: true });
+    const projectId = await h.addProject('w-raw', {
+      credentialId: shared,
+      allowed: [...ALLOWED],
+      enabledTools: [...CATALOG, ...WRITES],
+      limits: { rawNrql: false },
+    });
+    const token = await h.addToken(await h.addGrant(projectId, { tools: [...CATALOG, ...WRITES] }));
+    const names = await listed(await open(app, 'w-raw', token.value));
+    expect(names).toContain('acknowledge_issue');
+    expect(names).not.toContain('run_nrql');
+    expect(names).not.toContain('create_dashboard');
+    await expectUncallable(app, 'w-raw', token.value, 'create_dashboard');
+  });
+
+  it('a project that does not name create_dashboard never gets it, whatever the grant says', async () => {
+    const app = h.makeApp({ writeTools: true });
+    const { token } = await setup('w-nodash', {
+      projectTools: [...CATALOG, ...WRITES.filter((t) => t !== 'create_dashboard')],
+    });
+    const names = await listed(await open(app, 'w-nodash', token.value));
+    expect(names).toContain('close_issue');
+    expect(names).not.toContain('create_dashboard');
+    await expectUncallable(app, 'w-nodash', token.value, 'create_dashboard');
   });
 
   it("key boundary: never with another user's personal key (a project default), with one's own key only", async () => {
@@ -328,6 +421,9 @@ describe('write tool isolation and confirmation against a hostile NerdGraph', ()
         if (call.expect === 'refused') {
           expect(result.isError, what).toBe(true);
           expect(code, what).toBe(ErrorCode.AuthForbidden);
+        } else if (call.expect === 'limit') {
+          expect(result.isError, what).toBe(true);
+          expect(code, what).toBe(ErrorCode.LimitQuery);
         } else if (call.expect === 'invalid') {
           expect(result.isError, what).toBe(true);
           if (code !== undefined) expect(code, what).toBe(ErrorCode.InputInvalid);
@@ -453,6 +549,42 @@ describe('audit and rate limit', () => {
     const refused = rows.find((r) => r.action === 'close_issue' && r.status === 'error');
     expect(refused?.errorCode).toBe(ErrorCode.InputInvalid);
     expect(refused?.details).toMatchObject({ write: { input: { issue_id: ISSUE } } });
+  });
+
+  it('create_dashboard: the row keeps a bounded summary and masks widget NRQL literals', async () => {
+    const app = h.makeApp({ writeTools: true });
+    const { token } = await setup('w-audit-dash');
+    const client = await open(app, 'w-audit-dash', token.value);
+    const args = dashboardWith({
+      nrql: "SELECT count(*) FROM Transaction WHERE appName = 'private-app-name'",
+    });
+    const r = await client.callTool({ name: 'create_dashboard', arguments: args });
+    expect(r.isError ?? false, JSON.stringify(r).slice(0, 300)).toBe(false);
+    await vi.waitFor(async () => {
+      const rows = (await h.auditRows()).filter((x) => x.action === 'create_dashboard');
+      expect(rows.length).toBe(1);
+    });
+    const row = (await h.auditRows()).find((x) => x.action === 'create_dashboard');
+    expect(row?.status).toBe('ok');
+    expect(row?.accountIds).toEqual([1]);
+    expect(JSON.stringify(row)).not.toContain('private-app-name');
+    expect(row?.details).toMatchObject({
+      write: {
+        // Deep argument nesting is cut by the row's redaction; the record's digest pins the exact dashboard.
+        input: { name: 'Checkout', account: 1 },
+        record: {
+          action: 'dashboard.create',
+          target: { type: 'dashboard' },
+          applied: true,
+          after: {
+            permissions: 'PRIVATE',
+            widgets: 1,
+            queries: 1,
+            content: expect.stringMatching(/^sha256:/),
+          },
+        },
+      },
+    });
   });
 
   it.skipIf(authzHostKind() !== 'http-app')(

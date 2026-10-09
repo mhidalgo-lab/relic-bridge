@@ -170,22 +170,50 @@ export interface AuditRecorder {
 /** Longest string kept from a write tool's arguments in `details.write.input`. */
 const AUDIT_MAX_WRITE_ARG_CHARS = 120;
 
+/** Deepest nesting and most array items kept from a write tool's arguments (`create_dashboard` pages, P7-19). */
+const AUDIT_MAX_WRITE_ARG_DEPTH = 8;
+const AUDIT_MAX_WRITE_ARG_ITEMS = 20;
+
+/**
+ * A write tool's arguments for the row: strings capped, nesting and arrays bounded, and NRQL nested in them
+ * (`create_dashboard` widget queries) stored the way the NRQL column is (`mask` and `hash` mask literals, `off` drops
+ * it, `full` keeps it), so literals in a widget's query never land in the row unmasked.
+ */
+function capWriteArg(value: unknown, key: string, mode: AuditNrqlMode, depth: number): unknown {
+  if (typeof value === 'string') {
+    let v = value;
+    if (key === 'nrql') {
+      if (mode === 'off') return '(omitted)';
+      if (mode !== 'full') v = maskNrql(v);
+    }
+    return v.length > AUDIT_MAX_WRITE_ARG_CHARS ? `${v.slice(0, AUDIT_MAX_WRITE_ARG_CHARS)}…` : v;
+  }
+  if (value === null || typeof value !== 'object') return value;
+  if (depth >= AUDIT_MAX_WRITE_ARG_DEPTH) return '…';
+  if (Array.isArray(value)) {
+    const items = value.slice(0, AUDIT_MAX_WRITE_ARG_ITEMS).map((v) => capWriteArg(v, key, mode, depth + 1));
+    return value.length > AUDIT_MAX_WRITE_ARG_ITEMS
+      ? [...items, `… ${value.length - AUDIT_MAX_WRITE_ARG_ITEMS} more`]
+      : items;
+  }
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(value)) out[k] = capWriteArg(v, k, mode, depth + 1);
+  return out;
+}
+
 /**
  * What a write tool call did (P7-09, ADR-0015), for `details.write`: the tool's own record (action, account, target,
- * dry run, applied, before/after) when it got that far, and always the arguments it was called with (strings capped;
- * `sanitizeDetails` redacts the whole row). Never the result rows.
+ * dry run, applied, before/after) when it got that far, and always the arguments it was called with (strings capped,
+ * nested NRQL stored per `nrqlMode`; `sanitizeDetails` redacts the whole row). Never the result rows.
  */
-export function writeDetails(event: ToolCallEvent): Record<string, unknown> | undefined {
+export function writeDetails(
+  event: ToolCallEvent,
+  nrqlMode: AuditNrqlMode = 'mask',
+): Record<string, unknown> | undefined {
   if (!WRITE_TOOL_NAMES.includes(event.tool)) return undefined;
-  const input: Record<string, unknown> = {};
   const raw =
     typeof event.input === 'object' && event.input !== null ? (event.input as Record<string, unknown>) : {};
-  for (const [k, v] of Object.entries(raw)) {
-    input[k] =
-      typeof v === 'string' && v.length > AUDIT_MAX_WRITE_ARG_CHARS
-        ? `${v.slice(0, AUDIT_MAX_WRITE_ARG_CHARS)}…`
-        : v;
-  }
+  const input = capWriteArg(raw, '', nrqlMode, 0) as Record<string, unknown>;
   const record = event.meta?.[WRITE_META_KEY];
   return { input, ...(typeof record === 'object' && record !== null ? { record } : {}) };
 }
@@ -308,7 +336,7 @@ export function createAuditRecorder(options: AuditRecorderOptions): AuditRecorde
         typeof inspected === 'number' && Number.isFinite(inspected) ? Math.trunc(inspected) : null,
       errorCode: event.errorCode,
       details: (() => {
-        const write = writeDetails(event);
+        const write = writeDetails(event, mode);
         if (write === undefined) return details;
         // Too large with the arguments: keep the record (account, target, diff) and drop the argument text.
         const full = sanitizeDetails({ ...details, write });

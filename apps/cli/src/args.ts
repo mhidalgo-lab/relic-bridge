@@ -291,9 +291,9 @@ Audit log (serve):
 
 Write tools (stdio and serve, off by default; see docs/adr/0015-opt-in-write-tools.md):
   RB_WRITE_TOOLS         off (default) or on: offer the write tools (create_change_event,
-                         acknowledge_issue, close_issue). Even then a tool works only when it is
-                         named explicitly (stdio: RB_TOOLS or the YAML tools list; serve: the
-                         project and the grant). serve needs RB_AUDIT=on.
+                         acknowledge_issue, close_issue, create_dashboard). Even then a tool works
+                         only when it is named explicitly (stdio: RB_TOOLS or the YAML tools list;
+                         serve: the project and the grant). serve needs RB_AUDIT=on.
 
 MCP Apps (stdio and serve; see docs/guide/charts.md):
   RB_MCP_APPS            on (default) or off: offer the chart view (_meta.ui on run_nrql and

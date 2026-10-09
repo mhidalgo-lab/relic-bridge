@@ -581,6 +581,22 @@ export function hostileNerdGraph(tenants: Readonly<Record<string, string>>): Hos
             },
           });
         }
+        // create_dashboard (P7-19): a hostile answer names a foreign-looking dashboard with a leaky name; the tool must
+        // neither echo New Relic's name nor trust what it says.
+        case 'RbCreateDashboard': {
+          const account = Number(variables['accountId']);
+          return ok({
+            dashboardCreate: {
+              entityResult: {
+                guid: guidOf(account, 'dash-created'),
+                accountId: account,
+                name: `${LEAK}-dashboard`,
+                permissions: 'PRIVATE',
+              },
+              errors: [],
+            },
+          });
+        }
         default:
           throw new Error(`hostileNerdGraph: no reply for ${op}`);
       }
@@ -605,6 +621,21 @@ export function accountsNamed(call: NerdGraphCall): number[] {
   if (typeof search === 'string') {
     const m = /id = '([^']*)'/.exec(search);
     if (m?.[1]) out.push(decodeEntityGuid(m[1]).accountId);
+  }
+  // create_dashboard (P7-19): the dashboard's account variable is above; every widget query names its own account.
+  const dashboard = v['dashboard'] as
+    | {
+        pages?: {
+          widgets?: { configuration?: Record<string, { nrqlQueries?: { accountId?: unknown }[] }> }[];
+        }[];
+      }
+    | undefined;
+  for (const page of dashboard?.pages ?? []) {
+    for (const widget of page.widgets ?? []) {
+      for (const config of Object.values(widget.configuration ?? {})) {
+        for (const q of config.nrqlQueries ?? []) if (typeof q.accountId === 'number') out.push(q.accountId);
+      }
+    }
   }
   return out;
 }

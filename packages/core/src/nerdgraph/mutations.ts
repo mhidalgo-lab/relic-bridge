@@ -77,3 +77,59 @@ export const RESOLVE_ISSUE_MUTATION: GraphQLDocument<
     'result { accountId action issueId } error } }',
   { mutation: true, headers: AI_ISSUES_HEADERS },
 );
+
+/** Widget visualizations `create_dashboard` offers, keyed by the `DashboardWidgetConfigurationInput` field (P0-09). */
+export type DashboardChartKind = 'area' | 'bar' | 'billboard' | 'line' | 'pie' | 'table';
+
+/** `DashboardWidgetNrqlQueryInput` (P0-09 introspection): one account per query. */
+export interface DashboardNrqlQueryVariable {
+  accountId: number;
+  query: string;
+}
+
+/** `DashboardWidgetInput`, restricted to typed configuration (no `rawConfiguration`, links or linked entities). */
+export interface DashboardWidgetVariable {
+  title: string;
+  layout: { column: number; row: number; width: number; height: number };
+  visualization: { id: string };
+  configuration:
+    | { [K in DashboardChartKind]?: { nrqlQueries: DashboardNrqlQueryVariable[] } }
+    | { markdown: { text: string } };
+}
+
+/** `DashboardInput`, restricted to what relic-bridge sets: never variables, always `PRIVATE`. */
+export interface DashboardInputVariable {
+  name: string;
+  description?: string;
+  permissions: 'PRIVATE';
+  pages: { name: string; description?: string; widgets: DashboardWidgetVariable[] }[];
+}
+
+/** `DashboardCreateResult` (P0-09 introspection). */
+export interface CreateDashboardData {
+  readonly dashboardCreate?: {
+    readonly entityResult?: {
+      readonly guid?: string | null;
+      readonly accountId?: number | null;
+      readonly name?: string | null;
+      readonly permissions?: string | null;
+    } | null;
+    readonly errors?:
+      | ({ readonly description?: string | null; readonly type?: string | null } | null)[]
+      | null;
+  } | null;
+}
+
+/**
+ * `dashboardCreate(accountId: Int!, dashboard: DashboardInput!): DashboardCreateResult` (P7-19). The field, its
+ * arguments and every input type are in the P0-09 introspection's mutation type; not run live.
+ */
+export const CREATE_DASHBOARD_MUTATION: GraphQLDocument<
+  CreateDashboardData,
+  { accountId: number; dashboard: DashboardInputVariable }
+> = defineDocument(
+  'mutation RbCreateDashboard($accountId: Int!, $dashboard: DashboardInput!) { ' +
+    'dashboardCreate(accountId: $accountId, dashboard: $dashboard) { ' +
+    'entityResult { guid accountId name permissions } errors { description type } } }',
+  { mutation: true },
+);

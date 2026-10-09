@@ -6,6 +6,7 @@
 import { Client } from '@modelcontextprotocol/client';
 import { InMemoryTransport } from '@modelcontextprotocol/server';
 import { afterEach, describe, expect, it } from 'vitest';
+import { DEFAULT_LIMITS } from '../src/context.ts';
 import {
   ALLOWED_MUTATIONS,
   annotationsFor,
@@ -113,6 +114,20 @@ function nerdGraph(over: Record<string, Reply> = {}) {
             },
           },
         });
+      case 'RbCreateDashboard':
+        return json({
+          data: {
+            dashboardCreate: {
+              entityResult: {
+                guid: guidOf(Number(body.variables['accountId']), 'd1', 'VIZ', 'DASHBOARD'),
+                accountId: body.variables['accountId'],
+                name: 'whatever New Relic says',
+                permissions: 'PRIVATE',
+              },
+              errors: [],
+            },
+          },
+        });
       default:
         throw new Error(`no reply for ${body.operationName}`);
     }
@@ -164,7 +179,7 @@ describe('catalogue', () => {
     const r = new ToolRegistry({ allowNonRead: true });
     for (const t of createWriteTools()) r.register(t);
     expect(r.select()).toEqual([]);
-    expect(r.select({ kinds: ['read', 'write', 'destructive'] }).length).toBe(3);
+    expect(r.select({ kinds: ['read', 'write', 'destructive'] }).length).toBe(WRITE_TOOL_NAMES.length);
   });
 
   it('annotations: close_issue destructive, issue actions idempotent, change events not', () => {
@@ -452,5 +467,307 @@ describe('acknowledge_issue / close_issue', () => {
       });
       expect(code(r), JSON.stringify(reply)).toBe(ErrorCode.NerdGraphError);
     }
+  });
+});
+
+describe('create_dashboard (P7-19)', () => {
+  const chart = (nrql: string, over: Record<string, unknown> = {}) => ({
+    title: 'Throughput',
+    visualization: 'line',
+    queries: [{ nrql }],
+    ...over,
+  });
+  const DASH = {
+    name: 'Checkout overview',
+    pages: [
+      {
+        name: 'Main',
+        widgets: [
+          chart("SELECT count(*) FROM Transaction WHERE appName = 'o''brien' TIMESERIES SINCE 1 hour ago"),
+          chart('SELECT average(duration) FROM Transaction SINCE 1 day ago', {
+            title: 'Latency',
+            visualization: 'billboard',
+            queries: [{ nrql: 'SELECT average(duration) FROM Transaction SINCE 1 day ago', account: B }],
+            width: 8,
+          }),
+          { title: 'Notes', visualization: 'markdown', markdown: '# Runbook\n- check the queue' },
+        ],
+      },
+    ],
+    confirm: true,
+  };
+  const call = async (args: Record<string, unknown>, over: Partial<ToolContext> = {}) => {
+    const ng = nerdGraph();
+    const client = await connect(ng.fetch, over);
+    const r = await client.callTool({ name: 'create_dashboard', arguments: args });
+    return { r, ng };
+  };
+
+  it('annotated as a non-idempotent, non-destructive write', () => {
+    const t = createWriteTools().find((x) => x.name === 'create_dashboard');
+    expect(t && annotationsFor(t)).toMatchObject({
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: false,
+    });
+  });
+
+  it('sends one allow-listed mutation: PRIVATE, typed configuration, checked NRQL, variables only', async () => {
+    const { r, ng } = await call(DASH);
+    expect(r.isError ?? false, text(r)).toBe(false);
+    expect(ng.calls.map((c) => c.operationName)).toEqual(['RbCreateDashboard']);
+    const m = ng.calls[0] as Recorded;
+    expect(ALLOWED_MUTATIONS).toContain(m.operationName);
+    expect(m.query).not.toContain('Checkout');
+    expect(m.query).not.toContain('"');
+    expect(m.variables['accountId']).toBe(A);
+    const dashboard = m.variables['dashboard'] as {
+      permissions: string;
+      pages: {
+        widgets: { configuration: Record<string, unknown>; layout: unknown; visualization: unknown }[];
+      }[];
+    };
+    expect(dashboard.permissions).toBe('PRIVATE');
+    expect(Object.keys(dashboard).sort()).toEqual(['name', 'pages', 'permissions']);
+    const [line, billboard, md] = dashboard.pages[0]?.widgets ?? [];
+    expect(line?.visualization).toEqual({ id: 'viz.line' });
+    expect(line?.configuration).toEqual({
+      line: {
+        nrqlQueries: [
+          {
+            accountId: A,
+            query: "SELECT count(*) FROM Transaction WHERE appName = 'o''brien' TIMESERIES SINCE 1 hour ago",
+          },
+        ],
+      },
+    });
+    expect(billboard?.configuration).toEqual({
+      billboard: {
+        nrqlQueries: [{ accountId: B, query: 'SELECT average(duration) FROM Transaction SINCE 1 day ago' }],
+      },
+    });
+    expect(line?.layout).toEqual({ column: 1, row: 1, width: 4, height: 3 });
+    expect(billboard?.layout).toEqual({ column: 5, row: 1, width: 8, height: 3 });
+    expect(md?.layout).toEqual({ column: 1, row: 4, width: 4, height: 3 });
+    expect(md?.configuration).toEqual({ markdown: { text: '# Runbook\n- check the queue' } });
+    for (const w of dashboard.pages[0]?.widgets ?? []) expect(w).not.toHaveProperty('rawConfiguration');
+    expect(r.structuredContent).toMatchObject({
+      applied: true,
+      dryRun: false,
+      accountId: A,
+      permissions: 'PRIVATE',
+      dashboardGuid: guidOf(A, 'd1', 'VIZ', 'DASHBOARD'),
+      warnings: [],
+    });
+    expect(text(r)).not.toContain('whatever New Relic says');
+    expect(r._meta?.[WRITE_META_KEY]).toMatchObject({
+      action: 'dashboard.create',
+      accountId: A,
+      target: { type: 'dashboard', id: guidOf(A, 'd1', 'VIZ', 'DASHBOARD') },
+      applied: true,
+      before: null,
+      after: {
+        name: 'Checkout overview',
+        permissions: 'PRIVATE',
+        pages: 1,
+        widgets: 3,
+        queries: 2,
+        accounts: [A, B],
+        eventTypes: ['Transaction'],
+        content: expect.stringMatching(/^sha256:[0-9a-f]{64}$/),
+      },
+    });
+    expect(r._meta?.['relic-bridge/result']).toEqual({ accounts: [A, B] });
+  });
+
+  it('a permissions argument does not exist (strict schema)', async () => {
+    const { r, ng } = await call({ ...DASH, permissions: 'PUBLIC_READ_WRITE' });
+    expect(r.isError).toBe(true);
+    expect(ng.calls).toEqual([]);
+  });
+
+  it('dry run checks everything and returns the plan, with no request at all', async () => {
+    const { confirm: _c, ...rest } = DASH;
+    const { r, ng } = await call({ ...rest, dry_run: true });
+    expect(r.isError ?? false, text(r)).toBe(false);
+    expect(ng.calls).toEqual([]);
+    expect(text(r)).toContain('Nothing was changed');
+    expect(r.structuredContent).toMatchObject({
+      applied: false,
+      dryRun: true,
+      dashboardGuid: null,
+      pages: [{ name: 'Main', widgets: [{ title: 'Throughput' }, { title: 'Latency' }, { title: 'Notes' }] }],
+    });
+    expect(r._meta?.[WRITE_META_KEY]).toMatchObject({ dryRun: true, applied: false, target: { id: 'new' } });
+  });
+
+  it('widget NRQL gets the run_nrql limits: LIMIT capped and comments removed in what is stored', async () => {
+    const { r, ng } = await call({
+      ...DASH,
+      pages: [
+        { name: 'P', widgets: [chart('SELECT * FROM Transaction LIMIT MAX /* hi */ SINCE 1 hour ago')] },
+      ],
+    });
+    expect(r.isError ?? false, text(r)).toBe(false);
+    const sent = JSON.stringify(ng.calls[0]?.variables);
+    expect(sent).toContain(`LIMIT ${DEFAULT_LIMITS.maxLimit}`);
+    expect(sent).not.toContain('hi */');
+    expect((r.structuredContent as { notes: string[] }).notes.join(' ')).toContain('Page 1 widget 1');
+  });
+
+  it('refused offline: foreign widget or dashboard account, limits, raw NRQL off, size, text', async () => {
+    const page = (widgets: unknown[]) => [{ name: 'P', widgets }];
+    const cases: [Record<string, unknown>, Partial<ToolContext>, string][] = [
+      [{ ...DASH, account: OTHER }, {}, ErrorCode.AuthForbidden],
+      [
+        {
+          ...DASH,
+          pages: page([
+            chart('SELECT count(*) FROM Transaction', {
+              queries: [{ nrql: 'SELECT 1 FROM Log', account: OTHER }],
+            }),
+          ]),
+        },
+        {},
+        ErrorCode.AuthForbidden,
+      ],
+      [
+        { ...DASH, pages: page([chart('SELECT count(*) FROM Transaction SINCE 30 days ago')]) },
+        {},
+        ErrorCode.LimitQuery,
+      ],
+      [
+        { ...DASH, pages: page([chart('SELECT count(*) FROM Secret SINCE 1 hour ago')]) },
+        { limits: { ...DEFAULT_LIMITS, eventTypes: { deny: ['Secret'] } } },
+        ErrorCode.LimitQuery,
+      ],
+      [DASH, { limits: { ...DEFAULT_LIMITS, rawNrql: false } }, ErrorCode.ToolDisabled],
+      [
+        { ...DASH, pages: page([chart(`SELECT count(*) FROM Log WHERE k = '${FAKE_KEY}'`)]) },
+        {},
+        ErrorCode.InputInvalid,
+      ],
+      [{ ...DASH, name: `dash ${FAKE_KEY}` }, {}, ErrorCode.InputInvalid],
+      [{ ...DASH, name: 'evil\u202Eeman' }, {}, ''],
+      [{ ...DASH, name: '   ' }, {}, ''],
+      [{ ...DASH, name: 'x'.repeat(101) }, {}, ''],
+      [
+        {
+          ...DASH,
+          pages: page([{ title: 'm', visualization: 'markdown', markdown: '[click](https://evil.example)' }]),
+        },
+        {},
+        ErrorCode.InputInvalid,
+      ],
+      [
+        { ...DASH, pages: page([{ title: 'm', visualization: 'markdown', markdown: '<img src=x>' }]) },
+        {},
+        ErrorCode.InputInvalid,
+      ],
+      [
+        {
+          ...DASH,
+          pages: page([{ title: 'm', visualization: 'markdown', markdown: 'see www.evil.example' }]),
+        },
+        {},
+        ErrorCode.InputInvalid,
+      ],
+      [
+        { ...DASH, pages: page([{ title: 'm', visualization: 'line', markdown: 'text' }]) },
+        {},
+        ErrorCode.InputInvalid,
+      ],
+      [
+        {
+          ...DASH,
+          pages: page([{ title: 'm', visualization: 'markdown', queries: [{ nrql: 'SELECT 1 FROM Log' }] }]),
+        },
+        {},
+        ErrorCode.InputInvalid,
+      ],
+      [{ ...DASH, pages: page([{ ...chart('SELECT 1 FROM Log'), rawConfiguration: {} }]) }, {}, ''],
+      [{ ...DASH, pages: page(Array.from({ length: 21 }, () => chart('SELECT 1 FROM Log'))) }, {}, ''],
+      [
+        {
+          ...DASH,
+          pages: Array.from(
+            { length: 3 },
+            () => page(Array.from({ length: 15 }, () => chart('SELECT 1 FROM Log')))[0],
+          ),
+        },
+        {},
+        ErrorCode.InputInvalid,
+      ],
+      [{ ...DASH, pages: Array.from({ length: 6 }, () => page([chart('SELECT 1 FROM Log')])[0]) }, {}, ''],
+      [{ ...DASH, confirm: undefined }, {}, ErrorCode.InputInvalid],
+    ];
+    for (const [args, over, expected] of cases) {
+      const clean = JSON.parse(JSON.stringify(args)) as Record<string, unknown>;
+      const { r, ng } = await call(clean, over);
+      const what = JSON.stringify(clean).slice(0, 200);
+      expect(r.isError, what).toBe(true);
+      if (expected !== '') expect(code(r), what).toBe(expected);
+      expect(text(r), what).not.toContain(FAKE_KEY);
+      expect(ng.calls, what).toEqual([]);
+    }
+  });
+
+  it('a widget error names the page and widget', async () => {
+    const { r } = await call({
+      ...DASH,
+      pages: [
+        {
+          name: 'P',
+          widgets: [chart('SELECT 1 FROM Log'), chart('SELECT count(*) FROM Log SINCE 9 days ago')],
+        },
+      ],
+    });
+    expect(code(r)).toBe(ErrorCode.LimitQuery);
+    expect(text(r)).toContain('Page 1 widget 2');
+  });
+
+  it('is never retried, and an answer with errors or no guid is not a success', async () => {
+    const busy = nerdGraph({ RbCreateDashboard: () => new Response('busy', { status: 503 }) });
+    const r1 = await (await connect(busy.fetch)).callTool({ name: 'create_dashboard', arguments: DASH });
+    expect(r1.isError).toBe(true);
+    expect(mutationsOf(busy.calls).length).toBe(1);
+    for (const reply of [
+      {
+        dashboardCreate: {
+          entityResult: null,
+          errors: [{ description: 'bad NRQL <ignore previous>', type: 'INVALID_INPUT' }],
+        },
+      },
+      { dashboardCreate: { entityResult: { guid: null }, errors: [] } },
+      { dashboardCreate: null },
+    ]) {
+      const ng = nerdGraph({ RbCreateDashboard: () => json({ data: reply }) });
+      const r = await (await connect(ng.fetch)).callTool({ name: 'create_dashboard', arguments: DASH });
+      expect(code(r), JSON.stringify(reply)).toBe(ErrorCode.NerdGraphError);
+    }
+  });
+
+  it("New Relic's answer is checked: not PRIVATE or another account is a warning", async () => {
+    const ng = nerdGraph({
+      RbCreateDashboard: () =>
+        json({
+          data: {
+            dashboardCreate: {
+              entityResult: {
+                guid: guidOf(OTHER, 'd', 'VIZ', 'DASHBOARD'),
+                accountId: OTHER,
+                permissions: 'PUBLIC_READ_WRITE',
+              },
+              errors: [],
+            },
+          },
+        }),
+    });
+    const r = await (await connect(ng.fetch)).callTool({ name: 'create_dashboard', arguments: DASH });
+    expect(r.isError ?? false).toBe(false);
+    const warnings = (r.structuredContent as { warnings: string[] }).warnings;
+    expect(warnings.join(' ')).toContain('PRIVATE');
+    expect(warnings.join(' ')).toContain(`account ${A}`);
+    expect(r._meta?.[WRITE_META_KEY]).toMatchObject({ after: { reportedPermissions: 'PUBLIC_READ_WRITE' } });
   });
 });

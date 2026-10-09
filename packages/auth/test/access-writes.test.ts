@@ -35,6 +35,23 @@ describe('computeAccess: write tools', () => {
     ).toEqual(['close_issue']);
   });
 
+  it('create_dashboard (P7-19) stores raw NRQL: hidden when raw NRQL is off on either side, even when named', () => {
+    const named = { project: project({ enabledTools: WITH_WRITES }), grant: grant({ tools: WITH_WRITES }) };
+    expect(writesOf(named)).toContain('create_dashboard');
+    for (const [p, g] of [
+      [{ rawNrql: false }, {}],
+      [{}, { rawNrql: false }],
+    ] as const) {
+      const writes = writesOf({
+        project: project({ enabledTools: WITH_WRITES, limits: p }),
+        grant: grant({ tools: WITH_WRITES, limits: g }),
+      });
+      expect(writes).not.toContain('create_dashboard');
+      // The other write tools take no NRQL and stay.
+      expect(writes).toContain('acknowledge_issue');
+    }
+  });
+
   it('not when the server flag is off (the catalog lacks them)', () => {
     const d = computeAccess(
       input({

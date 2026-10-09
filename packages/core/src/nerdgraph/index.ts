@@ -87,7 +87,10 @@ export {
   ACK_ISSUE_MUTATION,
   type ChangeEventInputVariable,
   CREATE_CHANGE_EVENT_MUTATION,
+  CREATE_DASHBOARD_MUTATION,
   type CreateChangeEventData,
+  type CreateDashboardData,
+  type DashboardInputVariable,
   type IssueActionData,
   RESOLVE_ISSUE_MUTATION,
 } from './mutations.ts';

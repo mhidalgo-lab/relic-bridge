@@ -99,3 +99,36 @@ allow-list to exactly the documents in `nerdgraph/mutations.ts`. The raw NerdGra
 - With writes on, the protected resource metadata lists `mcp:write`; the `WWW-Authenticate` challenge still names
   `mcp:read` only, so a client that follows the challenge asks for read access unless it chooses otherwise.
 - Reversible: turning the flag off removes every write tool at once, everywhere, including from existing tokens.
+
+## Addendum: `create_dashboard` (P7-19, 2026-10-06)
+
+A fourth write tool, split out of P7-09 because its blast radius is larger: a dashboard is shown to other people and
+its widgets hold NRQL that New Relic runs whenever someone opens it.
+
+| Tool | Mutation | Kind | Idempotent | Why it is acceptable |
+|---|---|---|---|---|
+| `create_dashboard` | `dashboardCreate` (`RbCreateDashboard`) | `write` | no | Adds a new dashboard and changes nothing that exists; always `PRIVATE`; widget NRQL limited like `run_nrql`; removable in the UI. |
+
+Every layer above applies unchanged (it is in `WRITE_TOOL_NAMES`). In addition:
+
+- **Never shared:** `permissions` is always `PRIVATE` and is not an argument; an answer reporting anything else, or
+  another account, is returned as a warning (the dashboard exists; relic-bridge cannot change or delete it).
+- **Widget NRQL is raw NRQL:** the tool is in `RAW_NRQL_TOOLS`, so a connection with `rawNrql: false` never sees it
+  (resolver and stdio), and the handler re-checks the switch. Each query goes through `enforceQueryLimits` (event-type
+  allow/deny, window, LIMIT, comments removed) and the checked text is what is stored.
+- **No cross-account widgets:** the dashboard's account and every widget query's account must be allowed accounts of
+  the connection; the default is the dashboard's account.
+- **Typed input only:** typed widget `configuration` (area, bar, billboard, line, pie, table, markdown); never
+  `rawConfiguration`, widget links, linked entities, variables, live or snapshot URLs. Layout is computed.
+- **Bounded and sanitised:** 5 pages, 20 widgets per page, 40 in all, 3 queries per widget, NRQL 4096 characters;
+  names and descriptions without control or format characters (no bidi tricks), secret-looking text refused, markdown
+  without links, URLs, images or HTML.
+- **No target to read first:** nothing existing is touched, so there is no "before"; the dry run returns the full
+  planned dashboard without any request.
+- **Audit:** the record is a summary (name, pages, widgets, queries, accounts, event types) plus `content`, a SHA-256 of
+  the exact `dashboard` variable sent, because rows are capped at 2000 characters; NRQL nested in the stored arguments
+  is masked like the NRQL column (`RB_AUDIT_NRQL`).
+
+Still never: editing or deleting dashboards, sharing them, or any other dashboard mutation. Residual: once created, a
+widget's query runs in the New Relic UI under the viewer's own permissions and time picker, outside relic-bridge's
+limits; the stored window is only the initial one.

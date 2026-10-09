@@ -820,6 +820,17 @@ are verified there, and the **root fields and argument names** come from New Rel
   header like the reads.
 - To verify (owner, P7-09 pending decision): one `dry_run` and one real call of each tool on a test entity / issue, in
   US and EU.
+- `dashboardCreate(accountId: Int!, dashboard: DashboardInput!)` → `DashboardCreateResult { entityResult { guid
+  accountId name permissions … } errors { description type } }` (P7-19). Unlike the notes above, the P0-09
+  introspection **does** hold `RootMutationType` (396 fields; re-checked 2026-10-06), and this field, its arguments and
+  every input type are verified there: `DashboardInput { name! description permissions! pages! variables }`,
+  `DashboardPermissions` = `PRIVATE | PUBLIC_READ_ONLY | PUBLIC_READ_WRITE`, `DashboardPageInput { name! description
+  guid widgets! }`, `DashboardWidgetInput { title layout { column row width height } visualization { id }
+  configuration rawConfiguration link linkedEntityGuids … }`, `DashboardWidgetConfigurationInput { area bar billboard
+  line pie table { nrqlQueries: [DashboardWidgetNrqlQueryInput { accountId: Int!, query: Nrql! }] } markdown { text! }
+  }`, `DashboardCreateErrorType` = `INVALID_INPUT`. **Unverified:** the `viz.<type>` visualization ids (from New
+  Relic's dashboard JSON docs), whether typed `configuration` alone renders without `rawConfiguration`, the 12-column
+  grid, and whether a dashboard created with an API key is owned by (and private to) the key's user. Not run live.
 
 ## 27. Durable Objects for the shared limiter (P7-10, from documentation 2026-10-06, not measured on a deployment)
 

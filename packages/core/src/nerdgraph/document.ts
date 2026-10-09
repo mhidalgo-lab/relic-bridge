@@ -39,6 +39,7 @@ export const ALLOWED_MUTATIONS: readonly string[] = Object.freeze([
   'RbCreateChangeEvent',
   'RbAckIssue',
   'RbResolveIssue',
+  'RbCreateDashboard',
 ]);
 
 const OPERATION_RE = /^\s*(query|mutation|subscription)\s+([A-Za-z_][A-Za-z0-9_]*)/;

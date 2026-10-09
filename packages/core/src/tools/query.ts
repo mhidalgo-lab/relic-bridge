@@ -129,10 +129,15 @@ function nrqlTaskJob(state: NrqlTaskState, retryAfterS: number): TaskJob {
 }
 
 /**
- * Tools that run agent-written NRQL. When a connection's `limits.rawNrql` is off they must not be registered at all
+ * Tools that take agent-written NRQL. When a connection's `limits.rawNrql` is off they must not be registered at all
  * (hidden from `tools/list`, not only refused): stdio `selectTools` and the access resolver (P2-04) both use this.
+ * `create_dashboard` (P7-19, a write tool) stores agent-written NRQL in widgets, so the same switch applies.
  */
-export const RAW_NRQL_TOOLS: readonly string[] = Object.freeze(['run_nrql', 'get_query_result']);
+export const RAW_NRQL_TOOLS: readonly string[] = Object.freeze([
+  'run_nrql',
+  'get_query_result',
+  'create_dashboard',
+]);
 
 /** `run_nrql` and `get_query_result`. Both need raw NRQL enabled on the connection (`limits.rawNrql`). */
 export function createQueryTools(deps: ToolDeps = {}): ToolDefinition[] {

@@ -32,7 +32,6 @@ import {
 } from '@relic-bridge/http-app';
 import {
   checkPeriod,
-  checkPeriods,
   periodResetsAt,
   QUOTA_OBJECT_ADD_SQL,
   QUOTA_OBJECT_CLEANUP_SQL,

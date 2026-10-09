@@ -57,9 +57,10 @@ only a **User API key** — no account-level MCP enablement required.
 - Tested with SDK clients shaped like the real ones; the real claude.ai and mobile apps are still to be checked
   ([client compatibility](docs/reference/client-compatibility.md)).
 
-**Planned** (see the [roadmap](docs/ROADMAP.md); none of this exists yet):
+**In review, not released** (see the [roadmap](docs/ROADMAP.md)):
 
-- More tools (Phase 6) and power features (Phase 7).
+- Phases 6 (more tools) and 7 (power features: write tools, Tasks, doctor, config import/export, OS keychain, quotas,
+  OTLP export, the Claude Code plugin) are built and in review as stacked PRs; they are not released yet.
 
 ## Install
 

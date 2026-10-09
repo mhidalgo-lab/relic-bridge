@@ -1,10 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 export {
-  decodeCursor,
-  encodeCursor,
   flattenTags,
-  type Page,
-  paginate,
   pickFields,
   type TagGroup,
   type TagInput,

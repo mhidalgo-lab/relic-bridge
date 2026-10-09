@@ -346,6 +346,58 @@ export function mockNerdGraph(): { fetch: FetchLike; calls: RecordedCall[] } {
         },
       });
     }
+    if (has('RbDashboards')) {
+      return json({
+        data: {
+          actor: {
+            entitySearch: {
+              count: 1,
+              results: {
+                nextCursor: null,
+                entities: [{ ...entity, domain: 'VIZ', type: 'DASHBOARD', permissions: 'PUBLIC_READ_WRITE' }],
+              },
+            },
+          },
+        },
+      });
+    }
+    if (has('RbDashboard')) {
+      return json({
+        data: {
+          actor: {
+            entity: {
+              ...entity,
+              domain: 'VIZ',
+              type: 'DASHBOARD',
+              description: 'Service overview',
+              permissions: 'PUBLIC_READ_WRITE',
+              pages: [
+                {
+                  guid: 'page-1',
+                  name: 'Overview',
+                  description: null,
+                  widgets: [
+                    {
+                      id: 'w1',
+                      title: 'Throughput',
+                      visualization: { id: 'viz.line' },
+                      rawConfiguration: {
+                        nrqlQueries: [
+                          {
+                            accountId: entity.accountId,
+                            query: 'SELECT count(*) FROM Transaction TIMESERIES',
+                          },
+                        ],
+                      },
+                    },
+                  ],
+                },
+              ],
+            },
+          },
+        },
+      });
+    }
     if (has('RbEntitySearch')) {
       return json({
         data: { actor: { entitySearch: { count: 1, results: { nextCursor: null, entities: [entity] } } } },

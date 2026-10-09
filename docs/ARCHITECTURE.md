@@ -285,7 +285,7 @@ environment variable (`secrets.ts`); the node-only terminal pieces live in `host
 | Alerting | `list_alert_policies` (done), `list_alert_conditions` (done), `list_recent_issues` (done), `search_incidents` (done), `list_synthetic_monitors` (done) | 6 |
 | Incident response | `list_error_groups` (done), `list_change_events` (done), `analyze_deployment_impact` (done) | 6 |
 | Performance | `analyze_transactions` (done), `list_top_transactions` (done), `list_recent_logs` (done), `analyze_entity_logs` (done), `analyze_threads` (done), `list_gc_metrics` (done), `analyze_kafka_metrics` (done) | 6 |
-| Dashboards | `list_dashboards`, `get_dashboard` | 6 |
+| Dashboards | `list_dashboards` (done), `get_dashboard` (done) | 6 |
 | Reports | `generate_alert_insights_report`, `generate_user_impact_report` | 6 |
 | Write (opt-in) | `acknowledge_issue`, `close_issue`, `create_change_event`, `create_dashboard` | 7 |
 

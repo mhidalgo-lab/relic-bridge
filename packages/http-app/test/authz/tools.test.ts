@@ -145,6 +145,15 @@ export const TOOL_CASES: Readonly<Record<string, readonly ToolCall[]>> = {
     { args: { account: 3 }, expect: 'refused', offline: true },
     { args: { account: 1, name: "a'b" }, expect: 'ok' },
   ],
+  list_dashboards: [
+    { args: { account: FOREIGN }, expect: 'refused', offline: true },
+    { args: { account: 3 }, expect: 'refused', offline: true },
+    { args: { account: 1, name: "a'b" }, expect: 'ok' },
+  ],
+  get_dashboard: [
+    { args: { guid: guidOf(FOREIGN) }, expect: 'refused', offline: true },
+    { args: { guid: guidOf(1) }, expect: 'refused' },
+  ],
   get_entity: [
     { args: { guid: guidOf(FOREIGN) }, expect: 'refused', offline: true },
     // NerdGraph answers with an entity in the foreign account behind an allowed account's GUID.

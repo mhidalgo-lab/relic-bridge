@@ -128,10 +128,12 @@ Check the tarball locally at any time: `pnpm build && pnpm check:package` (`--sk
   - New tool: add `TOOL_CASES[name]` with at least one call naming a foreign account (or a GUID in one) when the tool
     takes an account, and extend `hostileNerdGraph` if it sends a new NerdGraph operation (unknown operations fail).
   - New way to authenticate (OAuth, sessions): add principals that misuse it, with the deny reason the audit row carries.
-  - Keep the suite web-standard (no `node:*`): P3-06 runs it under the Workers pool.
+  - Keep the suite web-standard (no `node:*`): the Workers pool runs the same files against the Worker (below). A test
+    that needs HTTP app internals skips itself with `authzHostKind()`.
 - **Workers runtime tests** (`apps/worker/test/`, `pnpm test:workers`, its own CI job): run inside workerd with
   `@cloudflare/vitest-plugin` and the bindings from `apps/worker/wrangler.jsonc`. They are part of `pnpm test` but not
-  of `pnpm test:coverage` (V8 coverage cannot attach to workerd). See [docs/dev/testing.md](docs/dev/testing.md).
+  of `pnpm test:coverage` (V8 coverage cannot attach to workerd). The authorization suite above also runs here, against
+  the Worker on local D1, so **its cases cover both hosts**: no second copy to keep in step. See [docs/dev/testing.md](docs/dev/testing.md).
 
 ## License
 

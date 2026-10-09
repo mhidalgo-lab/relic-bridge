@@ -8,7 +8,7 @@ import { Secret } from '@relic-bridge/core';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createHttpApp } from '../../src/index.ts';
 import { NR_KEY } from '../fixtures.ts';
-import { ADMIN_TOKEN, type Captured, createHarness, type Harness } from './harness.ts';
+import { ADMIN_TOKEN, authzHostKind, type Captured, createHarness, type Harness } from './harness.ts';
 import {
   ADMIN_PRINCIPALS,
   ADMIN_ROUTES,
@@ -217,16 +217,20 @@ describe('admin routes × principals', () => {
     }
   });
 
-  it('every admin route is 404 when the admin API is off, whatever the caller presents', async () => {
-    const off = createHttpApp({ storage: h.world.storage, keyring: h.world.keyring, clock: h.world.clock });
-    for (const route of ADMIN_ROUTES) {
-      for (const headers of [{}, { authorization: `Bearer ${ADMIN_TOKEN}` }]) {
-        const res = await h.send(requestFor(route, { headers }), off);
-        expect(res.status).toBe(404);
-        expect(res.text).toBe('{"error":"not_found"}');
+  // The Worker's admin switch (`RB_ADMIN_TOKEN` unset) is tested in apps/worker/test/worker.test.ts.
+  it.skipIf(authzHostKind() !== 'http-app')(
+    'every admin route is 404 when the admin API is off, whatever the caller presents',
+    async () => {
+      const off = createHttpApp({ storage: h.world.storage, keyring: h.world.keyring, clock: h.world.clock });
+      for (const route of ADMIN_ROUTES) {
+        for (const headers of [{}, { authorization: `Bearer ${ADMIN_TOKEN}` }]) {
+          const res = await h.send(requestFor(route, { headers }), off);
+          expect(res.status).toBe(404);
+          expect(res.text).toBe('{"error":"not_found"}');
+        }
       }
-    }
-  });
+    },
+  );
 });
 
 describe('public routes', () => {
@@ -264,7 +268,8 @@ describe('public routes', () => {
   });
 });
 
-describe('guard: every route is in the matrix', () => {
+// Hono's route table belongs to the HTTP app; the Worker mounts that same app, so the guard runs once there.
+describe.skipIf(authzHostKind() !== 'http-app')('guard: every route is in the matrix', () => {
   /** Hono's route table of a fully configured app (admin API and CORS on). */
   function discover(): { handlers: Set<string>; wildcards: Set<string> } {
     const app = createHttpApp({

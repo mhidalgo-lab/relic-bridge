@@ -164,3 +164,14 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Options:** never print and always require `--backup-file`; integrate with a password manager CLI.
 - **Needs:** owner's call whether a printed secret is acceptable (scrollback), or the backup file should be mandatory.
 
+
+### P3-06 — staging smoke and the required check need the owner
+- **Context:** this run has no Cloudflare account, and repo settings are out of bounds.
+- **Done:** the whole P2-12 suite runs against the Worker on local D1 in the existing "Workers runtime tests" job;
+  `.github/workflows/staging-smoke.yml` (nightly + manual) skips cleanly without its configuration.
+- **Needs (owner):**
+  1. Branch protection: add **Workers runtime tests** (and **Authorization suite**) to the required checks (repo setting).
+  2. Staging: deploy a second Worker (`wrangler deploy --name relic-bridge-staging`, own D1/KV via `pnpm cf:setup`), create
+     the GitHub environment `staging` (required reviewers), set variable `STAGING_URL` and secret `STAGING_ADMIN_TOKEN`.
+  3. Decide whether the nightly job should also deploy (needs a scoped `CLOUDFLARE_API_TOKEN` in `staging`); it only
+     smoke-tests an already deployed Worker today.

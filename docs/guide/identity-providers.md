@@ -41,7 +41,8 @@ Access is **denied by default**. Sign-in succeeds when one of these is true:
    addresses), `RB_LOGIN_ALLOW_DOMAINS` (exact email domains: `example.com` does not match `sub.example.com`) and
    `RB_LOGIN_ALLOW_GITHUB_ORGS` (active members of these GitHub organizations; GitHub sign-in only). When
    `RB_LOGIN_AUTO_PROVISION` is `member` or `admin`, the user is created with that role on the first sign-in. It is
-   never `owner`. With auto-provisioning `off` (the default), the allowlist alone does not let anyone in.
+   never `owner`. With auto-provisioning `off` (the default), the allowlist alone does not let anyone in. The server logs a startup warning when an allowlist is set
+   with auto-provisioning `off`, since only users who already exist can sign in then.
 3. **The sign-in came through a setup link** (see below). The identity becomes `owner`.
 
 Always refused:

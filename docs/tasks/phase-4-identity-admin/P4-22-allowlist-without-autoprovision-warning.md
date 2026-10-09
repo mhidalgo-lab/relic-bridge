@@ -2,11 +2,11 @@
 id: P4-22
 title: Warn at startup when an allowlist is set but auto-provisioning is off
 phase: 4
-status: todo
+status: review
 priority: low
 depends_on: [P4-08]
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P4-22 — Warn at startup when an allowlist is set but auto-provisioning is off
@@ -20,7 +20,7 @@ Owner decision (pending-decisions phase 4, P4-08, 2026-10-09): `RB_LOGIN_ALLOW_*
   explaining that only users who already exist can sign in.
 
 ## Acceptance criteria
-- [ ] Warning emitted for that combination, not for the others; unit test.
+- [x] Warning emitted for that combination, not for the others; unit test.
 
 ## Security notes
 None (diagnostic only; no behaviour change).

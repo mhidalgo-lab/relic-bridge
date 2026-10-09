@@ -878,6 +878,15 @@ export async function createD1Storage(
       call(async () => {
         await run('DELETE FROM kv WHERE key = ?', [key]);
       }),
+    // One statement: SQLite deletes and returns the row atomically, so concurrent takes can't both see it. An expired
+    // row is deleted too but not returned.
+    take: (key) =>
+      call(async () => {
+        const r = await one('DELETE FROM kv WHERE key = ? RETURNING value, expires_at', [key]);
+        if (r === null) return null;
+        const exp = numOrNull(r['expires_at']);
+        return exp !== null && exp <= now() ? null : str(r['value']);
+      }),
     list: (opts = {}) =>
       call(async (): Promise<KvListResult> => {
         checkLimit(opts.limit, 'kv.limit');

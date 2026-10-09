@@ -426,3 +426,28 @@ database.
   Source: https://developers.cloudflare.com/waf/rate-limiting-rules/ (availability table) and
   https://developers.cloudflare.com/use-cases/solutions/stop-account-takeover-attacks/.
 
+
+## 16. Identity providers for admin sign-in (P4-01, checked 2026-10-03)
+
+- **GitHub** supports PKCE (S256 only) for OAuth apps and GitHub Apps since 2025-07-14; not required, but used when
+  `code_challenge` is sent. GitHub does not distinguish public and confidential clients.
+  Source: https://github.blog/changelog/2025-07-14-pkce-support-for-oauth-and-github-app-authentication/.
+  Token endpoint `POST https://github.com/login/oauth/access_token` answers OAuth errors with **HTTP 200** and an
+  `error` field (`Accept: application/json`). `GET /user/emails` (scope `user:email`) returns `primary` and `verified`
+  per address; `GET /user/memberships/orgs/{org}` (scope `read:org`) returns `state: active | pending`, 404 when not a
+  member. Organization OAuth app access restrictions can hide memberships until an org owner approves the app.
+- **Google** OIDC: discovery at `https://accounts.google.com/.well-known/openid-configuration`; ID token `iss` is
+  `https://accounts.google.com` **or** `accounts.google.com` (both documented); `hd` request parameter is only a hint,
+  the `hd` claim must be checked. Supports PKCE S256, `client_secret_basic` and `client_secret_post`.
+  Source: https://developers.google.com/identity/openid-connect/openid-connect.
+- **Cloudflare Access**: the application token is in the `Cf-Access-Jwt-Assertion` header (also the `CF_Authorization`
+  cookie, which we ignore); keys at `https://<team>.cloudflareaccess.com/cdn-cgi/access/certs`, RS256, `iss` = team
+  domain, `aud` = array containing the application's AUD tag; service-token JWTs carry `common_name` and an empty
+  `sub`, no `email`. Source: https://developers.cloudflare.com/cloudflare-one/identity/authorization-cookie/validating-json/.
+- **jose 6.2.12** (`panva/jose`, zero dependencies, WebCrypto; runs on Node and workerd): `createRemoteJWKSet` caches
+  10 min by default, refetches for an unmatched `kid` only after `cooldownDuration` (30 s) and accepts a `[customFetch]`
+  (used to inject the mock IdP); `jwtVerify` never accepts `alg: none`, and an `algorithms` allowlist excludes HMAC
+  (key confusion). Already in the lockfile through `@modelcontextprotocol/client`, published 2026-09-05 (beyond the
+  3-day `minimumReleaseAge`).
+- **RFC 9207** (`iss` in the authorization response) is advertised by `authorization_response_iss_parameter_supported`;
+  when advertised it must be present, when present it must equal the issuer.

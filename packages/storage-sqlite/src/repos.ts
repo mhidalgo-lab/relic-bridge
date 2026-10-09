@@ -679,6 +679,14 @@ export function createRepositories(
       call(() => {
         run('DELETE FROM kv WHERE key = ?', [key]);
       }),
+    // One statement: the row is deleted and returned atomically (an expired row is deleted, not returned).
+    take: (key) =>
+      call(() => {
+        const r = one('DELETE FROM kv WHERE key = ? RETURNING value, expires_at', [key]);
+        if (r === null) return null;
+        const exp = numOrNull(r['expires_at']);
+        return exp !== null && exp <= now() ? null : str(r['value']);
+      }),
     list: (opts = {}) =>
       call((): KvListResult => {
         checkLimit(opts.limit, 'kv.limit');

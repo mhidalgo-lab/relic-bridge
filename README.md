@@ -35,12 +35,15 @@ only a **User API key** — no account-level MCP enablement required.
 - A Cloudflare Worker deployment on D1, one setup command or a Deploy button
   ([guide](docs/guide/cloudflare-deploy.md), [limits and costs](docs/guide/cloudflare-limits.md)). The guide has not yet
   been validated on a clean Cloudflare account.
+- Admin sign-in with Google, GitHub, Cloudflare Access or any OpenID Connect provider, with a one-time setup link for
+  the first owner ([guide](docs/guide/identity-providers.md); Phase 4, in review). Sessions and the admin panel that
+  use it are still planned.
 
 **Planned** (see the [roadmap](docs/ROADMAP.md); none of this exists yet):
 
 - OAuth 2.1, which claude.ai on the web and Claude on your phone need (static tokens work in Claude Code, Cursor and
   VS Code on your computers today).
-- Sign-in (Google, GitHub, Cloudflare Access) and an admin panel.
+- Admin sessions and an admin panel on top of sign-in.
 
 ## Install
 

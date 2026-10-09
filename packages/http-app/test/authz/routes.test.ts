@@ -12,6 +12,7 @@ import { ADMIN_TOKEN, authzHostKind, type Captured, createHarness, type Harness 
 import {
   ADMIN_PRINCIPALS,
   ADMIN_ROUTES,
+  IDENTITY_ROUTES,
   MCP_PRINCIPALS,
   MCP_ROUTES,
   PASSTHROUGH_PRINCIPALS,
@@ -235,6 +236,83 @@ describe('admin routes × principals', () => {
   );
 });
 
+describe('sign-in routes (P4-01)', () => {
+  const route = (pattern: string) => IDENTITY_ROUTES.find((r) => r.pattern === pattern) as RouteCase;
+  /** What a client sees, with the request id (also printed on the failure page) taken out. */
+  const seen = (r: Captured) =>
+    observable(r)
+      .replaceAll(r.requestId ?? '<none>', '<request-id>')
+      .replace(/"x-request-id","[^"]*"/, '');
+  /** Every credential the app knows, presented every way: none of them is an identity. */
+  const callers = (): { headers: Record<string, string>; query?: string }[] => [
+    { headers: { authorization: `Bearer ${ADMIN_TOKEN}` } },
+    { headers: { authorization: `Bearer ${h.world.tokens.prod}` } },
+    { headers: { cookie: `rb_admin=${ADMIN_TOKEN}; rb_login=${'A'.repeat(43)}` } },
+    { headers: { cookie: `CF_Authorization=${h.world.tokens.prod}` } },
+    { headers: {}, query: `token=${ADMIN_TOKEN}&state=${'A'.repeat(43)}&code=x` },
+    { headers: { 'cf-access-jwt-assertion': '' } },
+  ];
+
+  it('confer nothing on bearer tokens, cookies or query credentials', async () => {
+    const users = (await h.world.storage.users.list()).length;
+    for (const pattern of ['/auth/callback/:provider', '/auth/cf-access']) {
+      const r = route(pattern);
+      const reference = await h.send(requestFor(r, { headers: {} }));
+      expect(reference.status, pattern).toBe(pattern === '/auth/cf-access' ? 403 : 400);
+      for (const caller of callers()) {
+        const res = await h.send(requestFor(r, caller));
+        expect(res.status, `${pattern} ${JSON.stringify(caller)}`).toBe(reference.status);
+        if (caller.query === undefined) expect(seen(res)).toBe(seen(reference));
+      }
+    }
+    expect((await h.world.storage.users.list()).length).toBe(users);
+    expect(h.idpCalls).toEqual([]);
+    const rows = await h.auditRows();
+    expect(rows.filter((r) => r.action === 'login.ok')).toEqual([]);
+    const denied = rows.filter((r) => r.action === 'login.denied');
+    expect(denied.length).toBeGreaterThanOrEqual(2 * (callers().length + 1));
+    for (const row of denied) {
+      expect(row).toMatchObject({
+        kind: 'auth',
+        status: 'denied',
+        userId: null,
+        grantId: null,
+        tokenId: null,
+      });
+      expect(['invalid_callback', 'unknown_state', 'missing_assertion']).toContain(row.errorCode);
+    }
+    expect(rows.filter((r) => r.kind === 'admin')).toEqual([]);
+  });
+
+  it('positive control: the chooser lists the providers; starting a login redirects to the IdP with PKCE', async () => {
+    const chooser = await h.send(requestFor(route('/auth/login'), { headers: {} }));
+    expect(chooser.status).toBe(200);
+    expect(chooser.text).toContain('href="/auth/login/github"');
+    expect(chooser.text).toContain('href="/auth/cf-access"');
+    const start = await h.send(requestFor(route('/auth/login/:provider'), { headers: {} }));
+    expect(start.status).toBe(302);
+    const location = new URL(start.headers.get('location') as string);
+    expect(`${location.origin}${location.pathname}`).toBe('https://github.com/login/oauth/authorize');
+    expect(location.searchParams.get('redirect_uri')).toBe('http://localhost/auth/callback/github');
+    expect(location.searchParams.get('code_challenge_method')).toBe('S256');
+    expect(start.headers.get('set-cookie')).toMatch(
+      /^rb_login=[A-Za-z0-9_-]{43}; Path=\/; Max-Age=600; HttpOnly/,
+    );
+    // Unknown providers are the ordinary 404.
+    const unknown = await h.send(new Request('http://localhost/auth/login/nope'));
+    expect(`${unknown.status} ${unknown.text}`).toBe('404 {"error":"not_found"}');
+    expect(h.idpCalls).toEqual([]);
+  });
+
+  it.skipIf(authzHostKind() !== 'http-app')('do not exist unless sign-in is configured', async () => {
+    const off = createHttpApp({ storage: h.world.storage, keyring: h.world.keyring, clock: h.world.clock });
+    for (const r of IDENTITY_ROUTES) {
+      const res = await h.send(requestFor(r, { headers: {} }), off);
+      expect(`${res.status} ${res.text}`).toBe('404 {"error":"not_found"}');
+    }
+  });
+});
+
 describe('public routes', () => {
   it('answer the same to everyone and reveal nothing about callers or projects', async () => {
     const callers = [
@@ -280,6 +358,12 @@ describe.skipIf(authzHostKind() !== 'http-app')('guard: every route is in the ma
       corsOrigins: ['https://app.example.com'],
       admin: { token: new Secret(ADMIN_TOKEN), storage: h.world.storage },
       passthrough: {},
+      identity: {
+        publicUrl: 'http://localhost',
+        providers: [],
+        policy: { emails: [], domains: [], githubOrgs: [], autoProvision: 'off' },
+        storage: h.world.storage,
+      },
     });
     const handlers = new Set<string>();
     const wildcards = new Set<string>();
@@ -293,7 +377,7 @@ describe.skipIf(authzHostKind() !== 'http-app')('guard: every route is in the ma
   it('fails when the app serves a route the matrix does not list, or the matrix lists a gone route', () => {
     const { handlers, wildcards } = discover();
     const listed = new Set(
-      [...MCP_ROUTES, ...PASSTHROUGH_ROUTES, ...ADMIN_ROUTES, ...PUBLIC_ROUTES]
+      [...MCP_ROUTES, ...PASSTHROUGH_ROUTES, ...ADMIN_ROUTES, ...IDENTITY_ROUTES, ...PUBLIC_ROUTES]
         .filter((r) => !r.pattern.endsWith('/*'))
         .map((r) => `${r.method} ${r.pattern}`),
     );

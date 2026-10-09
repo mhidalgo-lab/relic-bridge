@@ -28,6 +28,7 @@
   },
   "dependencies": {
     "@relic-bridge/core": "workspace:*",
-    "@relic-bridge/storage": "workspace:*"
+    "@relic-bridge/storage": "workspace:*",
+    "jose": "6.2.12"
   }
 }

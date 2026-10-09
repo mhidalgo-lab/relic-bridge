@@ -514,3 +514,38 @@ export const KeyRotationSchema = z
   .openapi('KeyRotation');
 
 export const KeyRotationOne = z.object({ data: KeyRotationSchema }).openapi('KeyRotationResponse');
+
+// ---------------------------------------------------------------------------------------------------------------
+// Setup links (P4-01)
+// ---------------------------------------------------------------------------------------------------------------
+
+export const CreateSetupLinkBody = z
+  .strictObject({
+    ttlMinutes: z
+      .number()
+      .int()
+      .min(1)
+      .max(7 * 24 * 60)
+      .optional()
+      .openapi({ description: 'Lifetime in minutes, 1-10080 (default 60).' }),
+    provider: z
+      .string()
+      .regex(/^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$/)
+      .optional()
+      .openapi({
+        description: 'Link straight to one sign-in provider (`google`, `github`, `cf-access`, …).',
+      }),
+  })
+  .openapi('CreateSetupLink');
+
+export const SetupLinkSchema = z
+  .object({
+    url: z.string().openapi({
+      description: 'Open it in a browser and sign in: that identity becomes `owner`. Shown once; single use.',
+    }),
+    expiresAt: z.number().int().openapi({ description: 'Epoch milliseconds.' }),
+    provider: z.string().nullable(),
+  })
+  .openapi('SetupLink');
+
+export const SetupLinkOne = z.object({ data: SetupLinkSchema }).openapi('SetupLinkResponse');

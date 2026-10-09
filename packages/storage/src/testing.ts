@@ -239,6 +239,7 @@ export function runStorageContract(options: StorageContractOptions): void {
             s.settings.delete('k'),
             s.kv.put('k', 'v'),
             s.kv.delete('k'),
+            s.kv.take('k'),
           ];
           for (const w of writes) await rejects(w, ReadOnlyStorageError);
           expect((await s.projects.list()).length).toBe(CONTRACT_FIXTURE.projects.length);
@@ -971,6 +972,26 @@ export function runStorageContract(options: StorageContractOptions): void {
         await s.kv.delete('a');
         await s.kv.delete('a');
         expect(await s.kv.get('a')).toBeNull();
+        await s.close();
+      });
+
+      it('take returns a live value once and removes it (P4-01 single-use state)', async () => {
+        const { s, clock } = await fresh();
+        await s.kv.put('once', 'v1', { expirationTtl: 60 });
+        expect(await s.kv.take('once')).toBe('v1');
+        expect(await s.kv.take('once')).toBeNull();
+        expect(await s.kv.get('once')).toBeNull();
+        expect(await s.kv.take('never-written')).toBeNull();
+        // Concurrent takes of one key: exactly one wins.
+        await s.kv.put('race', 'v2');
+        const results = await Promise.all([1, 2, 3, 4, 5].map(() => s.kv.take('race')));
+        expect(results.filter((r) => r === 'v2')).toHaveLength(1);
+        expect(results.filter((r) => r === null)).toHaveLength(4);
+        // An expired value is not returned (and is gone afterwards).
+        await s.kv.put('stale', 'v3', { expirationTtl: 60 });
+        clock.advance(60_000);
+        expect(await s.kv.take('stale')).toBeNull();
+        expect((await s.kv.list({ prefix: 'stale' })).keys).toEqual([]);
         await s.close();
       });
 

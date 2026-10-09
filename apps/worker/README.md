@@ -18,6 +18,7 @@ with Workers bindings. Private package; it is deployed with Wrangler, not publis
 | `RB_MASTER_KEY_PREVIOUS` | secret, optional | The previous master key while rotating ([runbook](../../docs/guide/cloudflare-deploy.md#rotate-the-master-key)). |
 | `RB_FINGERPRINT_SECRET` | secret, optional | Required only with `RB_PASSTHROUGH=on` (`pnpm cf:setup --passthrough` generates it). |
 | `RB_ADMIN_TOKEN` | secret | Enables the admin API (`/api/admin/v1`); 32-512 printable characters. |
+| `RB_GOOGLE_CLIENT_SECRET`, `RB_GITHUB_CLIENT_SECRET`, `RB_OIDC_CLIENT_SECRET` | secret, optional | OAuth client secrets of the [sign-in providers](../../docs/guide/identity-providers.md) you enable. |
 
 Secrets go through `wrangler secret put` (or `.dev.vars` locally), never `vars` and never D1. `wrangler.jsonc` holds no
 account or resource ids: local dev uses local resources, and Wrangler's automatic provisioning creates D1/KV on the
@@ -40,6 +41,7 @@ first deploy.
 | `RB_RATE_LIMIT` | `on` | `off` disables rate limiting (isolate buckets and the `RATE_LIMITER` binding). The binding's own limit (default 600 per 60 s per key) is set in `wrangler.jsonc`. |
 | `RB_PASSTHROUGH` | `off` | `on` enables `/passthrough/mcp`; it needs `RB_FINGERPRINT_SECRET` and the `RATE_LIMITER` binding, otherwise the boot fails (503). |
 | `RB_LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error`. Logs go to Workers Logs, redacted. |
+| `RB_PUBLIC_URL`, `RB_GOOGLE_CLIENT_ID`, `RB_GOOGLE_HOSTED_DOMAIN`, `RB_GITHUB_CLIENT_ID`, `RB_OIDC_*`, `RB_CF_ACCESS_TEAM`, `RB_CF_ACCESS_AUD`, `RB_LOGIN_*` | off | Admin sign-in (P4-01): see the [identity providers guide](../../docs/guide/identity-providers.md). A half-configured provider fails the boot. |
 
 An invalid value (or a missing/wrong master key) fails closed: every request answers 503 and one log line names the
 problem, never a secret value. Failed boots back off (5 s, then 15 s, then 60 s between attempts; a success resets it)

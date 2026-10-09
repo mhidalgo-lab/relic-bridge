@@ -104,8 +104,22 @@ export const ADMIN_ROUTES: readonly RouteCase[] = [
   { method: 'GET', pattern: `${A}/audit`, path: `${A}/audit` },
   // Master-key rotation (P3-11): every row is already current in the fixture, so the control call changes nothing.
   { method: 'POST', pattern: `${A}/keys/rotate`, path: `${A}/keys/rotate`, body: {} },
+  // Owner setup link (P4-01): the control call issues one (a single-use code in `kv`, nothing else changes).
+  { method: 'POST', pattern: `${A}/setup-links`, path: `${A}/setup-links`, body: {} },
   // Not a registered route: the admin catch-all (`ALL /api/admin/v1/*`) must authenticate before saying 404.
   { method: 'GET', pattern: `${A}/*`, path: `${A}/no-such-endpoint` },
+];
+
+/**
+ * Sign-in routes (P4-01): reachable without credentials by design (a browser that is not signed in yet). They must
+ * confer nothing on bearer tokens, cookies or query credentials: only a verified IdP answer or Access assertion counts,
+ * and they only exist when sign-in is configured.
+ */
+export const IDENTITY_ROUTES: readonly RouteCase[] = [
+  { method: 'GET', pattern: '/auth/login', path: '/auth/login' },
+  { method: 'GET', pattern: '/auth/login/:provider', path: '/auth/login/github' },
+  { method: 'GET', pattern: '/auth/callback/:provider', path: '/auth/callback/github' },
+  { method: 'GET', pattern: '/auth/cf-access', path: '/auth/cf-access' },
 ];
 
 export const PUBLIC_ROUTES: readonly RouteCase[] = [
@@ -122,6 +136,7 @@ export const WILDCARD_ROUTES: Readonly<Record<string, string>> = {
   '/*': 'global middleware: request id, security headers, Host/Origin checks (no handler of its own)',
   [`${A}/*`]:
     'admin authentication middleware and the authenticated 404 catch-all (matrix row GET /no-such-endpoint)',
+  '/auth/*': 'sign-in routes: the pre-authentication hook (per-IP limit) only, no handler of its own',
 };
 
 // ---------------------------------------------------------------------------------------------------------------

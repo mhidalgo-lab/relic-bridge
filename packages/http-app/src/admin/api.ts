@@ -15,6 +15,7 @@ import {
   createCredential,
   createGrant,
   createProject,
+  createSetupLink,
   issueAccessToken,
   type Keyring,
   type KeyValidator,
@@ -34,6 +35,7 @@ import {
   ConflictError,
   type CredentialRecord,
   type GrantRecord,
+  type KvRepository,
   newId,
   normalizeEmail,
   type ProjectRecord,
@@ -101,6 +103,12 @@ export interface AdminApiDeps {
   readonly runInBackground: (c: Context, task: Promise<unknown>, what: string) => void;
   /** After every successful change (clears the access cache). */
   readonly onChange?: () => void;
+  /** First-owner setup links (P4-01); absent when sign-in is not configured. */
+  readonly setupLinks?: {
+    readonly publicUrl: string;
+    readonly kv: Pick<KvRepository, 'get' | 'put' | 'take'>;
+    readonly providers: readonly { readonly id: string; readonly kind: 'redirect' | 'header' }[];
+  };
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -568,6 +576,20 @@ const routes = {
     responses: { 200: json(S.KeyRotationOne, 'What this batch did'), ...errors(413, 415) },
   }),
 
+  createSetupLink: route({
+    method: 'post',
+    path: '/setup-links',
+    tags: ['identity'],
+    summary: 'Issue a single-use owner setup link',
+    description:
+      'First-owner bootstrap (P4-01): the identity that signs in through this link becomes `owner` (the sign-in ' +
+      'allowlist does not apply; email verification and identity conflicts still do). Single use; expires after ' +
+      '`ttlMinutes` (default 60). The link is shown once, only its hash is stored. Needs sign-in to be configured ' +
+      '(`RB_PUBLIC_URL` and an identity provider), else `422 not_permitted`.',
+    request: BODY(S.CreateSetupLinkBody),
+    responses: { 201: json(S.SetupLinkOne, 'Issued'), ...errors(413, 415, 422) },
+  }),
+
   listAudit: route({
     method: 'get',
     path: '/audit',
@@ -593,6 +615,7 @@ const REFUSAL_ROUTES: readonly (readonly [string, RegExp, string, string])[] = [
   ['POST', /^\/grants$/, 'grant.create', 'grant'],
   ['POST', /^\/tokens$/, 'token.create', 'token'],
   ['POST', /^\/keys\/rotate$/, 'keys.rotate', 'master_key'],
+  ['POST', /^\/setup-links$/, 'setup_link.create', 'setup_link'],
 ];
 
 function validationError(error: z.ZodError): AdminApiError {
@@ -1209,6 +1232,43 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
       },
       200,
     );
+  });
+
+  // -------------------------------------------------------------------------------------------- setup links
+  api.openapi(routes.createSetupLink, async (c) => {
+    const body = c.req.valid('json');
+    const setup = deps.setupLinks;
+    if (setup === undefined) {
+      throw new AdminApiError(
+        'not_permitted',
+        'sign-in is not configured: set RB_PUBLIC_URL and an identity provider first',
+      );
+    }
+    const provider = body.provider === undefined ? null : setup.providers.find((p) => p.id === body.provider);
+    if (provider === undefined) {
+      throw new AdminApiError('invalid_request', 'provider is not a configured sign-in provider', {
+        field: 'provider',
+      });
+    }
+    const ttlMinutes = body.ttlMinutes ?? 60;
+    const link = await change(
+      c,
+      {
+        action: 'setup_link.create',
+        targetType: 'setup_link',
+        // Never the code: lifetime and provider only.
+        details: { ttlMinutes, provider: provider?.id ?? null },
+      },
+      () => createSetupLink(setup.kv, ttlMinutes * 60_000, clock),
+    );
+    const path =
+      provider === null
+        ? '/auth/login'
+        : provider.kind === 'header'
+          ? '/auth/cf-access'
+          : `/auth/login/${provider.id}`;
+    const url = `${setup.publicUrl}${path}?setup=${link.code}`;
+    return c.json({ data: { url, expiresAt: link.expiresAt, provider: provider?.id ?? null } }, 201);
   });
 
   // ---------------------------------------------------------------------------------------------------- audit

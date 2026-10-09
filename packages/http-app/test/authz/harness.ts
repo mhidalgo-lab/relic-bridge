@@ -3,15 +3,23 @@
 // (revoked, disabled, unvalidated, …), the app under test with the admin API and the audit recorder, a hostile
 // NerdGraph stand-in and a leak scan. Web-standard only (no `node:*`): P3-06 runs the same suite under the Workers pool
 // by swapping `makeApp` for the Worker's fetch.
-import { createCredential, issueAccessToken, type Keyring } from '@relic-bridge/auth';
+import {
+  createCloudflareAccessProvider,
+  createCredential,
+  createGitHubProvider,
+  issueAccessToken,
+  type Keyring,
+} from '@relic-bridge/auth';
 import { createLogger, decodeEntityGuid, type FetchLike, type Identity, Secret } from '@relic-bridge/core';
 import { type AuditRecord, newId, type Storage, type StoredLimits } from '@relic-bridge/storage';
 import { vi } from 'vitest';
+import { CF_AUD, CF_TEAM, GITHUB_CLIENT_ID, MOCK_CLIENT_SECRET } from '../../../auth/test/mock-idp.ts';
 import {
   createAuditRecorder,
   createHttpApp,
   type HttpAppHooks,
   type HttpAppOptions,
+  type IdentityOptions,
 } from '../../src/index.ts';
 import { type ManualClock, NR_KEY, randomAdminToken, seedWorld, T0, type World } from '../fixtures.ts';
 
@@ -236,6 +244,8 @@ export interface Harness {
   readonly app: AuthzApp;
   /** The audit recorder's hooks (compose with others via `mergeHooks`). */
   readonly recorderHooks: HttpAppHooks;
+  /** Calls the app made to identity providers (sign-in routes, P4-01); a stand-in that answers 503. */
+  readonly idpCalls: string[];
   makeApp(over?: Partial<HttpAppOptions>): { fetch(request: Request): Response | Promise<Response> };
   send(request: Request, app?: { fetch(request: Request): Response | Promise<Response> }): Promise<Captured>;
   /** A validated credential reaching `reachable` (default 1, 2, 3 and FOREIGN). */
@@ -302,9 +312,23 @@ export interface HostDeps {
   readonly nerdGraph: HostileNerdGraph;
   /** Log sink; the leak scan reads every line. */
   readonly log: (line: string) => void;
+  /** Identity provider stand-in (sign-in routes): records the URL, answers 503. */
+  readonly idpFetch: FetchLike;
 }
 
-/** The app under test with the admin API (token `ADMIN_TOKEN`) and the audit recorder on. */
+/**
+ * Sign-in configuration of every host (P4-01): GitHub (a redirect provider that needs no discovery, so starting a
+ * login makes no IdP call) and Cloudflare Access, public URL `http://localhost`, nobody allowlisted.
+ */
+export const IDENTITY_ENV: Readonly<Record<string, string>> = Object.freeze({
+  RB_PUBLIC_URL: 'http://localhost',
+  RB_GITHUB_CLIENT_ID: GITHUB_CLIENT_ID,
+  RB_GITHUB_CLIENT_SECRET: MOCK_CLIENT_SECRET,
+  RB_CF_ACCESS_TEAM: CF_TEAM,
+  RB_CF_ACCESS_AUD: CF_AUD,
+});
+
+/** The app under test with the admin API (token `ADMIN_TOKEN`), sign-in and the audit recorder on. */
 export interface HostApp {
   makeApp(over?: Partial<HttpAppOptions>): AuthzApp;
   /** The recorder's hooks, for tests composing their own hooks (the HTTP app host only). */
@@ -322,7 +346,7 @@ export interface AuthzHost {
 
 const httpAppHost: AuthzHost = {
   kind: 'http-app',
-  create({ world, nerdGraph, log }) {
+  create({ world, nerdGraph, log, idpFetch }) {
     const { storage, keyring, clock } = world;
     const logger = createLogger({ level: 'debug', sink: log, now: () => clock.now() });
     const recorder = createAuditRecorder({
@@ -334,10 +358,27 @@ const httpAppHost: AuthzHost = {
       maxAuthRowsPerMinute: 1_000_000,
       getClientIp: () => '203.0.113.7',
     });
+    const identityOptions: IdentityOptions = {
+      publicUrl: 'http://localhost',
+      providers: [
+        createGitHubProvider({
+          clientId: GITHUB_CLIENT_ID,
+          clientSecret: new Secret(MOCK_CLIENT_SECRET),
+          fetch: idpFetch,
+        }),
+        createCloudflareAccessProvider({ team: CF_TEAM, audience: CF_AUD, fetch: idpFetch, clock }),
+      ],
+      policy: { emails: [], domains: [], githubOrgs: [], autoProvision: 'off' },
+      storage,
+      audit: recorder,
+    };
     return {
       recorderHooks: recorder.hooks,
-      makeApp: (over = {}) =>
-        createHttpApp({
+      makeApp: (over = {}) => {
+        // Sign-in comes back to http://localhost; a test that narrows the Host allowlist elsewhere goes without it.
+        const hosts = over.allowedHosts;
+        const signIn = hosts === undefined || hosts === '*' || hosts.includes('localhost');
+        return createHttpApp({
           storage,
           keyring,
           clock,
@@ -351,8 +392,10 @@ const httpAppHost: AuthzHost = {
             validateKey: stub([1, 2, 3]),
             audit: recorder,
           },
+          ...(signIn ? { identity: identityOptions } : {}),
           ...over,
-        }),
+        });
+      },
     };
   },
 };
@@ -387,8 +430,13 @@ export async function createHarness(opts: { tenants?: Record<string, string> } =
   const logLines: string[] = [];
   const responses: string[] = [];
   const issued: string[] = [];
+  const idpCalls: string[] = [];
+  const idpFetch: FetchLike = async (url) => {
+    idpCalls.push(String(url));
+    return new Response('{"error":"unavailable"}', { status: 503 });
+  };
   const mainCredential = (await storage.projects.get(world.projectIds.prod))?.defaultCredentialId as string;
-  const hosted = host.create({ world, nerdGraph, log: (l) => logLines.push(l) });
+  const hosted = host.create({ world, nerdGraph, log: (l) => logLines.push(l), idpFetch });
   const makeApp = hosted.makeApp;
   const app = makeApp();
 
@@ -400,6 +448,7 @@ export async function createHarness(opts: { tenants?: Record<string, string> } =
     app,
     makeApp,
     recorderHooks: hosted.recorderHooks,
+    idpCalls,
     async send(request, target = app) {
       const res = await target.fetch(request);
       const text = await res.text();

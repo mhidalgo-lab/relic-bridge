@@ -139,7 +139,7 @@ Times are epoch milliseconds, ids are caller-generated text, lists/objects are J
 | `oauth_*` | Managed by the OAuth server (KV on Workers; the `kv` table on Node). Token props carry `grant_id` and audience. |
 | `audit_log` | id, ts, kind (`tool_call` \| `auth` \| `admin`), action, status (`ok` \| `error` \| `denied`), request_id, user_id, grant_id, token_id, key_id (pass-through key fingerprint `pt_…`), client_id, project_id, account_ids, nrql (masked), duration_ms, inspected_count, error_code, target_type, target_id, details (json). No foreign keys. |
 | `settings` | key, value (json), updated_at |
-| `kv` | key, value, expires_at — Workers-KV-compatible store for the OAuth provider on Node (ADR-0009) |
+| `kv` | key, value, expires_at — Workers-KV-compatible store for the OAuth provider on Node (ADR-0009); also sign-in transactions (`login:<sha256(state)>`) and setup links (`setup:<sha256(code)>`) on every runtime, consumed atomically with `take` (P4-01) |
 | `schema_migrations` | version, name, checksum, applied_at (owned by the migration runner) |
 
 Deleting a project removes its grants and their tokens; deleting a grant removes its tokens; a credential that a
@@ -191,7 +191,25 @@ strict zod validation → handler. Handlers call the same domain services as the
 `rotateCredentialKey`, `revalidateCredential`, `createProject`, `updateProject`, `createGrant`, `issueAccessToken`,
 `revokeAccessToken`), write one `admin` audit row per change (in the background) and clear the access cache. The
 OpenAPI 3.1 document is generated from the route schemas and served at `/api/admin/v1/openapi.json`;
-`docs/reference/admin-api.md` is generated from it. Phase 4 adds IdP sessions next to the bootstrap token.
+`docs/reference/admin-api.md` is generated from it. Phase 4 adds IdP sessions next to the bootstrap token (P4-02).
+
+### Admin sign-in (P4-01)
+
+`packages/auth/src/identity` (web-standard, `jose` on WebCrypto) defines `IdentityProvider`: **redirect** providers
+(generic OIDC by discovery, Google = OIDC preset with the `hd` check, GitHub = OAuth app + REST API) and the **header**
+provider (Cloudflare Access, `Cf-Access-Jwt-Assertion` verified against the team JWKS and AUD). Each yields a
+`VerifiedIdentity { idp, subject, email (verified, lowercase), displayName, orgs? }` or a stable `IdentityError` code.
+`identitySettingsFromEnv` reads the `RB_*` variables for both `serve` and the Worker.
+
+`packages/http-app/src/identity.ts` mounts `/auth/*` only when providers are configured:
+`GET /auth/login` (chooser) → `GET /auth/login/:provider` (transaction in storage `kv` keyed by SHA-256(state): PKCE
+verifier, nonce, provider, target path, setup-link hash, SHA-256 of the browser binding cookie; 10 min TTL; 302 to the
+IdP) → `GET /auth/callback/:provider` (transaction consumed once with `kv.take`; binding cookie and provider must match;
+code exchanged; ID token verified) or `GET /auth/cf-access` → setup link consumed (if any) → `resolveLoginUser`
+(existing binding → bind an unbound user by verified email → allowlist + auto-provisioning; email never moves an
+account between identities; deny by default) → audit `login.ok` / `login.denied` → `onLogin(c, CompletedLogin)`, the
+seam P4-02 fills with the session. `POST /api/admin/v1/setup-links` (admin token) issues the single-use owner
+bootstrap link. Guide: [identity providers](guide/identity-providers.md).
 
 ### Management CLI (P2-10)
 

@@ -190,6 +190,7 @@ describe('serve: sign-in over a localhost redirect', () => {
     expect(settings({ ...signIn, RB_OAUTH: 'on' }).oauth).toEqual({
       registration: true,
       registrationLimit: { requests: 30, perSeconds: 3600 },
+      registrationIpLimit: { requests: 10, perSeconds: 3600 },
     });
     expect(
       settings({
@@ -197,11 +198,13 @@ describe('serve: sign-in over a localhost redirect', () => {
         RB_OAUTH: 'on',
         RB_OAUTH_DCR: 'off',
         RB_OAUTH_DCR_LIMIT: 'off',
+        RB_OAUTH_DCR_IP_LIMIT: 'off',
         RB_OAUTH_DCR_REDIRECT_HOSTS: 'claude.ai, Example.COM',
       }).oauth,
     ).toEqual({
       registration: false,
       registrationLimit: null,
+      registrationIpLimit: null,
       registrationRedirectHosts: ['claude.ai', 'example.com'],
     });
     expect(settings({ ...signIn, RB_OAUTH: 'on', RB_OAUTH_DCR_LIMIT: '5' }).oauth?.registrationLimit).toEqual(
@@ -241,6 +244,7 @@ describe('serve: sign-in over a localhost redirect', () => {
       { RB_OAUTH_DCR_LIMIT: '0' },
       { RB_OAUTH_DCR_LIMIT: '-1' },
       { RB_OAUTH_DCR_LIMIT: 'lots' },
+      { RB_OAUTH_DCR_IP_LIMIT: '0' },
       { RB_OAUTH_DCR_REDIRECT_HOSTS: 'https://claude.ai' },
       { RB_OAUTH_DCR_REDIRECT_HOSTS: 'localhost' },
       { RB_OAUTH_DCR: 'sometimes' },

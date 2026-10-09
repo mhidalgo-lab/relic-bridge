@@ -515,7 +515,10 @@ export const OAuthClientList = z
     data: z.array(OAuthClientSchema),
     nextCursor: z
       .null()
-      .openapi({ description: 'Always null: the list is one page of at most 500 clients.' }),
+      .openapi({ description: 'Always null: the list is one page of the newest 500 clients.' }),
+    truncated: z.boolean().openapi({
+      description: 'True when more clients exist than the page shows (the oldest are left out).',
+    }),
   })
   .openapi('OAuthClientList');
 

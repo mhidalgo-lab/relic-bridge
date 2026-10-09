@@ -29,8 +29,11 @@ header. Each project is one protected resource, `{issuer}/p/{slug}/mcp`, and a t
 
 The five protocol endpoints are unauthenticated; the consent routes take the admin session cookie only. All of them: `beforeAuth` runs with scope `oauth` (per-IP `oauth` rule, default 60 per 5 minutes, on
 top of the per-IP flood limit), declared bodies above 16 KiB are a 413 and streamed bodies are cut at 16 KiB. On
-Workers the `oauth:` buckets are per isolate; the shared Rate Limiting binding still counts every request under `ip:`
-(600/min). Registrations also count against one deployment-wide cap kept in storage (P5-03).
+Workers the `oauth:` buckets are per isolate (best effort, like `signin:`): the shared Rate Limiting binding has one
+fixed rule and still counts every request under `ip:` (600/min). What anonymous callers can make the server *store or
+fetch* is bounded by storage counters shared by every isolate and process instead (P5-03, P5-10): registrations (a
+deployment-wide cap and a per-address cap) and metadata-document fetches (a per-address budget and a cap on stored
+document clients). The address is the host's `getClientIp` (`oauth.clientIp`); without it all callers share one bucket.
 
 ## Discovery (MCP 2026-07-28, RFC 9728)
 
@@ -73,6 +76,11 @@ The provider's own CIMD is off; relic-bridge resolves the URL before the provide
 `/oauth/authorize`, at `/oauth/token` (code, refresh, revocation) and again in `approve()`, and stores the validated
 document as the provider's client record `oauth:client:<url>`.
 
+Anonymous callers choose the URLs, so on a cache miss (P5-10) the resolver first refuses when
+`MAX_OAUTH_CIMD_CLIENTS` (200) document clients are stored (`too_many_clients`), then counts the fetch against the
+caller's budget (`oauth-cimd-ip:<address>:<window>`, `kv.increment`, 20 per hour, `fetch_budget`; failed fetches
+count because failures are not cached). Cached documents never cost budget.
+
 - **On only with a guarded fetcher** — `oauth.clientMetadataDocuments.fetch`. Node: `createCimdFetch()`
   (`apps/cli/src/cimd-fetch.ts`, connect-time address check). Workers: `strictlyPublicCimdFetch()`
   (`apps/worker/src/cimd-fetch.ts`, needs the `global_fetch_strictly_public` flag in `wrangler.jsonc`, null without it).
@@ -108,12 +116,18 @@ On by default (`oauth.registration`, `false` turns it off; owners can also turn 
    (`cursor://…`) may be listed next to a usable one (the provider never sends codes to them); `client_name` under
    the CIMD rules. `oauth.registrationRedirectHosts` (optional) restricts https redirect hosts to a list (loopback
    always allowed). Refusals: `400 invalid_redirect_uri` / `invalid_client_metadata`, reason in the log.
-2. **Deployment-wide cap**: an atomic fixed-window counter in storage (`kv.increment`, key
+2. **Per-address cap** (P5-10): one address may complete 10 registrations per hour (`oauth.registrationIpLimit`,
+   `RB_OAUTH_DCR_IP_LIMIT`, `null`/`off` = off), counted in `oauth-dcr-ip:<address>:<window>` only after the provider
+   accepted the registration, and checked first, so one source cannot use up the deployment-wide cap below. The check
+   reads and the count increments afterwards: a concurrent burst may overshoot by its concurrency (the per-address
+   `oauth` rule bounds that). `429` with `Retry-After`. Redirects of a loopback or `RB_OAUTH_DCR_REDIRECT_HOSTS`
+   client change nothing: they are checked by the policy before.
+3. **Deployment-wide cap**: an atomic fixed-window counter in storage (`kv.increment`, key
    `oauth-dcr-count:<window>`), shared by every isolate and process. Default 30 registrations per hour
    (`oauth.registrationLimit`, `null` = off); over it `429 temporarily_unavailable` with `Retry-After` to the end of
    the window. Every request that passed the policy counts.
-3. The provider stores the client (`client_id`: 16 random characters, never a URL).
-4. **Unused registrations die young**: the record is rewritten to expire in 24 h. The first successful token exchange
+4. The provider stores the client (`client_id`: 16 random characters, never a URL).
+5. **Unused registrations die young**: the record is rewritten to expire in 24 h. The first successful token exchange
    renews it (the provider renews at half-life) to the registration TTL, `max(90 days, 2 × refresh TTL)`, so a client
    that keeps refreshing never loses its registration and a flood of registrations nobody completes is gone in a day.
 
@@ -127,7 +141,7 @@ routes (`requiredRole`: every method under `/oauth/`) and the `/admin/oauth-clie
 
 | Route | What |
 |---|---|
-| `GET /oauth/clients` | The stored `client:*` records (dynamic registrations and cached CIMD documents), newest first, at most 500 (`MAX_OAUTH_CLIENTS_LISTED`): id, kind, name (untrusted), vouching host, redirect hosts, registered and expiry time. Never the secret hash or the redirect URIs themselves. |
+| `GET /oauth/clients` | The stored `client:*` records (dynamic registrations and cached CIMD documents), newest first, at most 500 (`MAX_OAUTH_CLIENTS_LISTED`; all records are scanned up to `MAX_OAUTH_CLIENTS_SCANNED` = 5000 and sorted before the cut, `truncated: true` when older ones are left out): id, kind, name (untrusted), vouching host, redirect hosts, registered and expiry time. Never the secret hash or the redirect URIs themselves. |
 | `POST /oauth/clients/remove` | Body `{clientId}`. Audited `oauth_client.remove` (kind, host, counts; never the name). |
 | `GET` / `POST /oauth/registration` | State `{enabled, deployment, setting}`; `{enabled}` sets the switch. Audited `oauth_registration.set`. |
 
@@ -238,7 +252,7 @@ the resolver's reason or `grant_not_offered`), `oauth.consent.deny`, `oauth.cons
 `state` or PKCE values.
 
 **Host switch.** `oauthSettingsFromEnv` (`settings.ts`) reads `RB_OAUTH` (off by default; needs sign-in, else a boot
-error), `RB_OAUTH_DCR`, `RB_OAUTH_DCR_LIMIT` (per hour or `off`), `RB_OAUTH_DCR_REDIRECT_HOSTS`. `serve` adds
+error), `RB_OAUTH_DCR`, `RB_OAUTH_DCR_LIMIT` (per hour or `off`), `RB_OAUTH_DCR_IP_LIMIT` (per address, default 10), `RB_OAUTH_DCR_REDIRECT_HOSTS`. `serve` adds
 `createCimdFetch()`; the Worker adds `strictlyPublicCimdFetch()` (null without the compatibility flag: CIMD off, a
 warning at boot). A programmatic `createWorker({ oauth })` wins over the variables (tests).
 

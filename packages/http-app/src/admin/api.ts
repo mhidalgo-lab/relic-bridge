@@ -2389,9 +2389,12 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
   });
 
   api.openapi(routes.listOAuthClients, async (c) => {
-    const rows = deps.oauthClients === undefined ? [] : await deps.oauthClients.list();
-    const sorted = [...rows].sort((a, b) => (b.registeredAt ?? 0) - (a.registeredAt ?? 0));
-    return c.json({ data: sorted.map(clientView), nextCursor: null }, 200);
+    const listed =
+      deps.oauthClients === undefined ? { clients: [], truncated: false } : await deps.oauthClients.list();
+    return c.json(
+      { data: listed.clients.map(clientView), nextCursor: null, truncated: listed.truncated },
+      200,
+    );
   });
 
   api.openapi(routes.removeOAuthClient, async (c) => {

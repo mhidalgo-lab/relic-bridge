@@ -562,6 +562,7 @@ export async function startServer(options: StartServerOptions): Promise<RunningS
       : {
           oauth: {
             ...settings.oauth,
+            clientIp: getClientIp,
             clientMetadataDocuments: { fetch: options.cimdFetch ?? createCimdFetch() },
           },
         }),

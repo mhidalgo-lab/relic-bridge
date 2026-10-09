@@ -34,6 +34,7 @@ export interface WorkerVars {
   readonly RB_OAUTH_DCR?: string;
   /** Dynamic registrations per hour for the whole deployment (default 30), or `off`. */
   readonly RB_OAUTH_DCR_LIMIT?: string;
+  readonly RB_OAUTH_DCR_IP_LIMIT?: string;
   /** Comma-separated https redirect hosts dynamic clients may use (default: any). */
   readonly RB_OAUTH_DCR_REDIRECT_HOSTS?: string;
   /** OAuth access token lifetime (default 1h, 60s-24h). */

@@ -69,16 +69,17 @@ describe('security review (P2-03)', () => {
     const mine = await Keyring.create({ current: generateMasterKey(1) });
     const theirs = await Keyring.create({ current: generateMasterKey(1) });
     // Another process registers its key between our read and our write.
-    const realSet = s.settings.set.bind(s.settings);
+    const realSetIfAbsent = s.settings.setIfAbsent.bind(s.settings);
     let raced = false;
-    s.settings.set = async (key, value) => {
-      await realSet(key, value);
+    s.settings.setIfAbsent = async (key, value) => {
       if (!raced && key === keyCheckSettingKey(1)) {
         raced = true;
-        await verifyKeyChecks(s, theirs).catch(() => undefined);
-        await realSet(key, toBase64(theirs.keyCheckValue(1)));
+        await verifyKeyChecks(s, theirs);
       }
+      return realSetIfAbsent(key, value);
     };
     await expect(verifyKeyChecks(s, mine)).rejects.toMatchObject({ code: 'key_mismatch' });
+    // The first registration stays: the other process's key is the one on record.
+    expect(await s.settings.get(keyCheckSettingKey(1))).toBe(toBase64(theirs.keyCheckValue(1)));
   });
 });

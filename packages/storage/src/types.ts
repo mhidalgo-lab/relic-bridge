@@ -382,6 +382,11 @@ export type JsonValue =
 export interface SettingsRepository {
   get(key: string): Promise<JsonValue | undefined>;
   set(key: string, value: JsonValue): Promise<void>;
+  /**
+   * Atomic insert-if-absent: writes `value` only when `key` has no value yet. Resolves `true` when this call wrote
+   * it, `false` when a value was already there (left untouched). Used for write-once values such as key check values.
+   */
+  setIfAbsent(key: string, value: JsonValue): Promise<boolean>;
   delete(key: string): Promise<void>;
   list(): Promise<Readonly<Record<string, JsonValue>>>;
 }

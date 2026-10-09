@@ -2,7 +2,7 @@
 import { parseArgs } from 'node:util';
 import { type LogLevel, redact } from '@relic-bridge/core';
 
-export type Command = 'stdio' | 'db' | 'keys' | 'credential' | 'help' | 'version';
+export type Command = 'stdio' | 'serve' | 'db' | 'keys' | 'credential' | 'help' | 'version';
 
 export interface CliArgs {
   readonly command: Command;
@@ -20,6 +20,9 @@ export interface CliArgs {
   readonly keysAction?: 'generate' | 'rotate';
   /** `keys generate --key-version <n>` (default 1). */
   readonly keyVersion?: number;
+  /** `serve --port <n>` / `--host <addr>` (validated by `serveSettings`). */
+  readonly port?: string;
+  readonly host?: string;
 }
 
 /** Bad command line: printed with the usage text, exit code 2. */
@@ -30,7 +33,7 @@ export class UsageError extends Error {
   }
 }
 
-const COMMANDS: readonly Command[] = ['stdio', 'db', 'keys', 'credential', 'help', 'version'];
+const COMMANDS: readonly Command[] = ['stdio', 'serve', 'db', 'keys', 'credential', 'help', 'version'];
 export const LOG_LEVELS: readonly LogLevel[] = ['debug', 'info', 'warn', 'error'];
 
 export function isLogLevel(value: string): value is LogLevel {
@@ -112,6 +115,15 @@ export function parseCliArgs(argv: readonly string[]): CliArgs {
   if (values.db !== undefined && command === 'keys' && keysAction !== 'rotate') {
     throw new UsageError('--db only applies to keys rotate.');
   }
+  for (const flag of ['port', 'host'] as const) {
+    const v = values[flag];
+    if (v === undefined) continue;
+    if (command !== 'serve') throw new UsageError(`--${flag} only applies to serve.`);
+    if (v.trim() === '') throw new UsageError(`--${flag} needs a value.`);
+  }
+  if (command === 'serve' && (values.config !== undefined || values.project !== undefined)) {
+    throw new UsageError('serve reads projects from the database (--db), not --config / --project.');
+  }
   return {
     command,
     ...(dbAction === undefined || file === undefined ? {} : { dbAction, file }),
@@ -122,6 +134,8 @@ export function parseCliArgs(argv: readonly string[]): CliArgs {
     ...(values.config === undefined ? {} : { config: values.config }),
     ...(values.project === undefined ? {} : { project: values.project }),
     ...(logLevel === undefined ? {} : { logLevel }),
+    ...(values.port === undefined ? {} : { port: values.port }),
+    ...(values.host === undefined ? {} : { host: values.host }),
   };
 }
 
@@ -134,6 +148,8 @@ function parse(argv: readonly string[]) {
       config: { type: 'string' },
       project: { type: 'string' },
       db: { type: 'string' },
+      port: { type: 'string' },
+      host: { type: 'string' },
       'key-version': { type: 'string' },
       'log-level': { type: 'string' },
       help: { type: 'boolean', short: 'h' },
@@ -146,6 +162,7 @@ export const HELP_TEXT = `relic-bridge: unofficial MCP server for New Relic (Ner
 
 Usage:
   relic-bridge [stdio] [--config <file> [--project <slug>]] [--log-level <level>]
+  relic-bridge serve [--port <n>] [--host <addr>] [--db <path>]
   relic-bridge db backup <file> [--db <path>]
   relic-bridge keys generate [--key-version <n>]
   relic-bridge keys rotate [--db <path>]
@@ -154,6 +171,9 @@ Usage:
 
 Commands:
   stdio              Serve MCP over stdin/stdout (default). Logs go to stderr.
+  serve              Serve MCP over HTTP at /p/<project>/mcp for remote devices, with
+                     projects, grants and device tokens from the SQLite database.
+                     Needs RB_MASTER_KEY. Binds 127.0.0.1:8787 by default.
   db backup <file>   Write a consistent snapshot of the SQLite database to <file> (mode 0600,
                      never overwrites). Safe while the server is running.
   keys generate      Print a new random master key (v<n>:<base64>) once, on stdout.
@@ -172,7 +192,12 @@ Options:
   --config <file>    YAML config with one or more projects (or RB_CONFIG).
   --project <slug>   Project to serve from the config file (or RB_PROJECT).
                      Optional when the file has a single project.
-  --db <path>        SQLite database for db / keys rotate / credential (or RB_DB_PATH).
+  --db <path>        SQLite database (or RB_DB_PATH). serve defaults to
+                     <data dir>/relic-bridge.db (RB_DATA_DIR, else ~/.local/share/relic-bridge,
+                     ~/Library/Application Support/relic-bridge or %LOCALAPPDATA%\relic-bridge).
+  --port <n>         serve: TCP port (or RB_PORT; default 8787, 0 = any free port).
+  --host <addr>      serve: address to bind (or RB_HOST; default 127.0.0.1). A non-loopback
+                     address also needs RB_ALLOWED_HOSTS.
   --key-version <n>  Version written into a generated key (default 1).
   --log-level <lvl>  debug | info | warn | error (or RB_LOG_LEVEL; default info).
   -h, --help         Show this help.
@@ -186,6 +211,16 @@ Env mode (no config file):
   RB_TOOLS               Tool allowlist (comma-separated). Default: all read-only tools.
   RB_LIMITS_*            MAX_LIMIT, MAX_WINDOW_DAYS, RAW_NRQL, MAX_RESPONSE_BYTES,
                          EVENT_TYPES_ALLOW, EVENT_TYPES_DENY.
+
+HTTP server (serve):
+  RB_ALLOWED_HOSTS       Hostnames clients use to reach the server (Host check against DNS
+                         rebinding). Default: localhost, 127.0.0.1, [::1].
+  RB_ALLOWED_ORIGINS     Browser Origin hostnames allowed (default: RB_ALLOWED_HOSTS).
+  RB_CORS_ORIGINS        Origins allowed cross-origin (CORS); off by default.
+  RB_ACCESS_CACHE_TTL    Seconds a token's resolved access is cached, 0-60 (default 30).
+                         A revoked token stops working within this time.
+  RB_HSTS                auto (default: when the request is https), true (behind a TLS
+                         proxy) or false.
 
 Master key (serve / keys rotate / credential revalidate):
   RB_MASTER_KEY            Current master key, v<n>:<base64> (or RB_MASTER_KEY_FILE).

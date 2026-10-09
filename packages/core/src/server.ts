@@ -20,6 +20,11 @@ export interface BuildServerOptions {
    */
   ctx: ToolContext | (() => ToolContext);
   info?: ServerInfo;
+  /**
+   * Advertise `tools.listChanged` (default true, the SDK default). HTTP passes false: a per-request server never
+   * pushes a list change, so a `subscriptions/listen` is acknowledged with nothing to deliver and closed at once.
+   */
+  toolsListChanged?: boolean;
 }
 
 export const DEFAULT_SERVER_INFO: ServerInfo = Object.freeze({ name: 'relic-bridge', version: VERSION });
@@ -32,8 +37,12 @@ export function buildMcpServer({
   tools,
   ctx: context,
   info = DEFAULT_SERVER_INFO,
+  toolsListChanged = true,
 }: BuildServerOptions): McpServer {
-  const server = new McpServer({ name: info.name, version: info.version });
+  const server = new McpServer(
+    { name: info.name, version: info.version },
+    { capabilities: { tools: { listChanged: toolsListChanged } } },
+  );
   const contextFor = typeof context === 'function' ? context : () => context;
 
   for (const def of tools) {

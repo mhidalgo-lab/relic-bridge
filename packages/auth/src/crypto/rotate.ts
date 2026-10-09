@@ -32,8 +32,9 @@ const KEY_CHECK_RE = /^crypto\.key_check\.v([1-9][0-9]{0,5})$/;
  *
  * A version with no stored value is registered only when it is provably right: rows already encrypted under it must
  * decrypt with it (up to three are tried, so one tampered row doesn't block), and with no such rows only the current
- * version is registered (it is the one that will write). A previous key is never registered on trust. After writing,
- * the stored values are read back, so a concurrent registration of a different key is caught by at least one side.
+ * version is registered (it is the one that will write). A previous key is never registered on trust. Values are
+ * written with an atomic insert-if-absent, so when another process registers a different key for the same version
+ * first, its value stays and this call fails with `key_mismatch`.
  */
 export async function verifyKeyChecks(
   storage: Pick<Storage, 'settings' | 'credentials'>,
@@ -76,17 +77,15 @@ export async function verifyKeyChecks(
     if (sample.length > 0 && !(await anyDecrypts(keyring, sample))) throw mismatch(version, keyring);
     registered.push(version);
   }
-  // Write only after every version checked out, so a bad key registers nothing.
+  // Write only after every version checked out, so a bad key registers nothing. Insert-if-absent (atomic in every
+  // adapter): when another process registered this version between our read and our write, its value stays and is
+  // compared with ours, so two processes with different keys under one version can never both pass.
   for (const version of registered) {
-    await storage.settings.set(keyCheckSettingKey(version), toBase64(keyring.keyCheckValue(version)));
-  }
-  // Read back: another process may have registered a different key for the same version meanwhile (the settings
-  // repository has no insert-if-absent; see docs/pending-decisions/phase-2.md).
-  for (const version of registered) {
+    const expected = keyring.keyCheckValue(version);
+    if (await storage.settings.setIfAbsent(keyCheckSettingKey(version), toBase64(expected))) continue;
     const back = await storage.settings.get(keyCheckSettingKey(version));
     const bytes = typeof back === 'string' ? fromBase64(back) : null;
-    if (bytes === null || !timingSafeEqual(bytes, keyring.keyCheckValue(version)))
-      throw mismatch(version, keyring);
+    if (bytes === null || !timingSafeEqual(bytes, expected)) throw mismatch(version, keyring);
   }
   return { registered };
 }

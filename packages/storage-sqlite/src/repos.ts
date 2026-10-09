@@ -608,6 +608,15 @@ export function createRepositories(
           [key, JSON.stringify(value), now()],
         );
       }),
+    setIfAbsent: (key, value) =>
+      call(
+        () =>
+          run('INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO NOTHING', [
+            key,
+            JSON.stringify(value),
+            now(),
+          ]) === 1,
+      ),
     delete: (key) =>
       call(() => {
         run('DELETE FROM settings WHERE key = ?', [key]);

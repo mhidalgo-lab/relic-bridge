@@ -134,6 +134,20 @@ Sources: <https://modelcontextprotocol.io/specification/2026-07-28/basic/authori
   - 2026-07-28 output is opt-in, so dual-era serving must be configured explicitly
 - **Verified (P0-07, local):** SDK 2.2.0's handler runs unchanged under Hono on Node and workerd, plus stdio, for both eras
   (see ADR-0005). Real clients (Claude Desktop, claude.ai, mobile, Cursor, VS Code) are still pending deployment approval (P5-06).
+- **SDK 2.2.0 details used by P2-06** (read from the package source, 2026-10-03):
+  - `createMcpHandler` serves `subscriptions/listen` itself: it acknowledges with the *honoured* subset of the requested
+    filter, where `toolsListChanged` is honoured only if the server advertises `tools.listChanged: true`. With nothing
+    honoured, it writes the ack plus the empty (graceful) listen result and closes the stream at once. `McpServer`
+    advertises `listChanged: true` by default unless the constructor's `capabilities` already set it.
+  - Modern-era requests must carry `Mcp-Method` (and `Mcp-Name` for named methods) matching the body, or the handler
+    rejects them, so these headers are trustworthy for routing and rate-limit keys once the handler accepts the request.
+  - 2025-era (stateless) `tools/call` answers with an SSE response whose headers arrive before the tool finishes; a
+    request deadline must bound the body, not only the time to headers.
+  - `maxRequestBodySize` (default 4 MiB) bounds bodies read by the handler, checking `Content-Length` first;
+    `validateHostHeader` / `validateOriginHeader` are port-agnostic hostname allowlists (missing `Origin` passes, `null`
+    is refused).
+  - `@hono/node-server` 2.1.3 builds the request URL from the `Host` header; a `Request` built in-process carries no
+    `Host` header (it is a forbidden header for `fetch`), so the app falls back to the URL's host.
 
 ## 5. Cloudflare OAuth tooling
 

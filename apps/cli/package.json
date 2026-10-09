@@ -45,7 +45,9 @@
     "runtime": "node"
   },
   "dependencies": {
+    "@hono/node-server": "2.1.3",
     "@modelcontextprotocol/server": "2.2.0",
+    "hono": "4.13.11",
     "yaml": "2.9.1",
     "zod": "4.6.5"
   },
@@ -53,6 +55,7 @@
     "@modelcontextprotocol/client": "2.2.0",
     "@relic-bridge/auth": "workspace:*",
     "@relic-bridge/core": "workspace:*",
+    "@relic-bridge/http-app": "workspace:*",
     "@relic-bridge/storage": "workspace:*",
     "@relic-bridge/storage-sqlite": "workspace:*",
     "tsdown": "0.23.0"

@@ -141,8 +141,8 @@ A token looks like `rb_live_<43 random characters>_<6-character checksum>`:
   token itself is shown **once**, when it is created, and can't be recovered: lose it and create a new one.
 - **Expiry**: 90 days by default; any other lifetime, or `never` (allowed, with a warning; prefer rotating). A token
   never outlives its grant in practice: the grant's own expiry and revocation are checked on every request too.
-- **Revocation** is immediate in storage; a server that caches access for speed honours it within its cache TTL
-  (at most 60 s, P2-06).
+- **Revocation** is immediate in storage; `serve` caches resolved access for `RB_ACCESS_CACHE_TTL` seconds (default
+  30, at most 60, `0` disables), so a revocation takes effect within that time.
 - **Last used** is recorded at most once every 5 minutes per token, so a busy client doesn't turn every call into a
   database write.
 - Send it as `Authorization: Bearer rb_live_…`. A token for another project's URL is refused like a wrong token.
@@ -154,5 +154,6 @@ committed config file.
 
 Today the domain services exist in `@relic-bridge/auth` (`createCredential`, `createProject`, `createGrant`,
 `listEffectivePermissions`, `revalidateCredentials`, and for tokens `issueAccessToken`, `listAccessTokens`,
-`revokeAccessToken`, `verifyAccessToken`) and the CLI has `credential revalidate`. The HTTP server (P2-06), the admin
-API (P2-09) and the full management CLI with `token create|list|revoke` (P2-10) build on them.
+`revokeAccessToken`, `verifyAccessToken`) and the CLI has `credential revalidate` and `serve`
+([self-hosting](self-hosting.md)). The admin API (P2-09) and the full management CLI with `token create|list|revoke`
+(P2-10) build on them.

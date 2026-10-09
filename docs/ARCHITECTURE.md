@@ -147,21 +147,31 @@ project or grant still references can't be deleted (revoke it instead).
 
 ## 5. Request flow (remote MCP call)
 
-1. `POST /p/{slug}/mcp` reaches the Hono app. Security headers, body-size limit, request id.
-2. **Authenticate**: bearer token (hash lookup, constant-time compare) or OAuth access token (provider validation;
-   audience must equal this slug's resource URL).
-3. **Resolve grant**: effective tools, accounts and credential (isolate cache ≤ 60 s).
-4. **Rate limit**: per grant/token (Workers Rate Limiting binding or in-memory on Node).
-5. **Build MCP server**: `createMcpHandler(factory, { legacy: 'stateless' })`. The factory registers only allowed tools,
-   with a `ToolContext { credential, accounts, budget, limiter, limits, logger }`.
+Implemented by `createHttpApp` in `packages/http-app` (P2-06); `relic-bridge serve` hosts it on Node.
+
+1. `POST /p/{slug}/mcp` reaches the Hono app: request id, security headers (on every response), `Host` / `Origin`
+   allowlists (DNS rebinding, T24), CORS only when configured, declared body size ≤ 1 MiB.
+2. **Authenticate**: bearer token (format and checksum offline, then hash lookup, constant-time compare, revoked,
+   expired) or, from Phase 5, an OAuth access token (audience must equal this slug's resource URL). The token is
+   checked before the slug is looked at.
+3. **Resolve grant**: effective tools, accounts, limits and credential (`resolveAccess`), cached per isolate for
+   0-60 s (default 30 s), never past the token's or grant's expiry, keyed by token hash + slug, holding no plaintext
+   key. Every denial in steps 2-3 is the same 401; storage errors are 503.
+4. **Rate limit**: per grant/token (P2-07, `beforeMcp` hook; Workers Rate Limiting binding or in-memory on Node).
+   `subscriptions/listen` is flagged so it isn't counted as a tool call.
+5. **Build MCP server**: one `createMcpHandler(factory, { legacy: 'stateless' })` per app; the per-request scope
+   (granted tool definitions + `ToolContext { credential (decrypted for this request), accounts, budget, limiter,
+   limits, connection, logger }`) travels in `authInfo.extra`. The factory registers only allowed tools and
+   advertises `tools.listChanged: false`, so a `subscriptions/listen` is acknowledged and closed at once.
 6. **Tool execution** in core:
    - validate input (JSON Schema)
    - build NRQL with escaped values
    - apply query limits
    - NerdGraph call(s) with explicit timeout and backoff on 429
    - async polling within budget
-7. **Shape output**: format, caps, truncation notice, "untrusted telemetry" envelope.
-8. **Audit**: write a redacted record (async, `waitUntil` on Workers).
+7. **Shape output**: format, caps, truncation notice, "untrusted telemetry" envelope. The whole exchange, including a
+   streamed response, is bounded by a request deadline (180 s).
+8. **Audit**: write a redacted record (P2-08, `afterMcp` hook, run with `waitUntil` on Workers).
 
 ## 6. Cross-cutting concerns
 

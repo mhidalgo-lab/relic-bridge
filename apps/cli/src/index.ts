@@ -49,6 +49,40 @@ if (result.kind === 'exit') {
       process.exitCode = 1;
     },
   );
+} else if (result.kind === 'server') {
+  result.started.then(
+    (server) => {
+      if (typeof server === 'number') {
+        process.exitCode = server;
+        return;
+      }
+      let closing = false;
+      const shutdown = (reason: string): void => {
+        if (closing) return;
+        closing = true;
+        stderr(JSON.stringify({ ts: new Date().toISOString(), level: 'info', msg: 'shutting down', reason }));
+        // Open streams get a few seconds; never hang on exit.
+        setTimeout(() => process.exit(0), 8000).unref();
+        server.close().then(
+          () => process.exit(0),
+          () => process.exit(1),
+        );
+      };
+      process.once('SIGINT', () => shutdown('SIGINT'));
+      process.once('SIGTERM', () => shutdown('SIGTERM'));
+    },
+    (error: unknown) => {
+      stderr(
+        JSON.stringify({
+          ts: new Date().toISOString(),
+          level: 'error',
+          msg: 'server failed to start',
+          name: error instanceof Error ? error.name : typeof error,
+        }),
+      );
+      process.exitCode = 1;
+    },
+  );
 } else {
   const { close } = result;
   let closing = false;

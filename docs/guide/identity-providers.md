@@ -1,14 +1,15 @@
 # Admin sign-in: Google, GitHub, Cloudflare Access, OpenID Connect
 
 relic-bridge lets people sign in to its admin side with an identity they already have. This is for **administration**
-(the admin panel from Phase 4). MCP clients keep using device tokens until OAuth for MCP clients arrives in Phase 5.
+(the [admin panel](admin-panel.md)). MCP clients keep using device tokens until OAuth for MCP clients arrives in Phase 5.
+For the whole path (providers, allow-lists, roles, a team) start with the [admin guide](admin-guide.md).
 
-What you get today (P4-01, P4-02):
+What you get:
 
 - `/auth/login`: a page that lists the configured providers.
 - Sign-in that ends at a verified, allowed **user record** and then an **admin session** (cookie `__Host-rb_session`)
   that the admin API accepts with the user's role. Sessions, roles, CSRF and sign-out are described in
-  [admin access](admin-access.md). The admin panel that uses them comes with P4-03 and later.
+  [admin access](admin-access.md). The [admin panel](admin-panel.md) uses them.
 - **Setup links**: a single-use, expiring link that makes the first person who signs in through it the `owner`.
 
 Sign-in is **off** until at least one provider is configured. Each provider is one block of variables. The same names

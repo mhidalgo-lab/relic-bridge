@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { parseCliArgs, UsageError } from '../src/args.ts';
 import { ConfigError } from '../src/config.ts';
 import { main } from '../src/main.ts';
-import { defaultDataDir, resolveDbPath, serveSettings, startServer } from '../src/serve.ts';
+import { defaultConfigDir, defaultDataDir, resolveDbPath, serveSettings, startServer } from '../src/serve.ts';
 import { memoryFs } from './helpers.ts';
 
 describe('serve arguments', () => {
@@ -191,6 +191,21 @@ describe('serveSettings', () => {
     expect(defaultDataDir({ LOCALAPPDATA: 'C:\\L' }, 'win32', 'C:\\h')).toBe(join('C:\\L', 'relic-bridge'));
     expect(defaultDataDir({}, 'linux', undefined)).toBeNull();
     expect(() => resolveDbPath(undefined, {}, 'linux', undefined)).toThrow(ConfigError);
+  });
+
+  it('picks a config directory for the master key that is never the data directory (P2-review)', () => {
+    for (const [env, platform] of [
+      [{}, 'linux'],
+      [{ XDG_DATA_HOME: '/x', XDG_CONFIG_HOME: '/c' }, 'linux'],
+      [{}, 'darwin'],
+      [{ LOCALAPPDATA: 'C:\\L', APPDATA: 'C:\\R' }, 'win32'],
+    ] as const) {
+      const config = defaultConfigDir(env, platform, '/h');
+      expect(config).not.toBeNull();
+      expect(config).not.toBe(defaultDataDir(env, platform, '/h'));
+    }
+    expect(defaultConfigDir({}, 'linux', '/h')).toBe(join('/h', '.config', 'relic-bridge'));
+    expect(defaultConfigDir({}, 'linux', undefined)).toBeNull();
   });
 });
 

@@ -3,7 +3,7 @@
 > relic-bridge — an unofficial, open-source MCP server that gives AI agents access to New Relic through **NerdGraph**
 > using only a User API key. Runs locally (stdio / Node / Docker) or as a **Cloudflare Worker** reachable from all your devices.
 
-Status: **planning** (2026-10-01). Architecture: [ARCHITECTURE.md](ARCHITECTURE.md) · Decisions: [adr/](adr/) ·
+Status: **Phase 2 in review** (2026-10-03; Phases 1-2 built as stacked PRs, not yet merged). Architecture: [ARCHITECTURE.md](ARCHITECTURE.md) · Decisions: [adr/](adr/) ·
 Facts & limits: [RESEARCH.md](RESEARCH.md) · Security: [THREAT_MODEL.md](THREAT_MODEL.md) · Task rules: [tasks/README.md](tasks/README.md)
 
 ## Guiding principles
@@ -53,6 +53,7 @@ flowchart LR
 | 2026-10-01 | Phone requires OAuth → Phase 5; laptops served by bearer tokens from Phase 2/3 | RESEARCH §3 |
 | 2026-10-01 | BYO-key recommended for teams (NerdGraph concurrency is per NR user) | RESEARCH §2, ADR-0008 |
 | 2026-10-03 | Phase 0 spikes complete. **GO for Phase 1.** claude.ai / mobile client checks deferred to P5-06 | P0-11 |
+| 2026-10-03 | Phase 1 (core + stdio) and Phase 2 (access model + HTTP) built; open owner questions in `pending-decisions/` | [reviews](reviews/) |
 
 ## Task index
 
@@ -117,6 +118,9 @@ Generated from task front matter (`pnpm tasks index` once P0-05 lands). Status l
 | P2-14 | [Core tool consistency and envelope coverage clean-up](tasks/phase-2-access-http/P2-14-core-output-consistency.md) | low | — | review |
 | P2-15 | [Pass-through mode (client-supplied New Relic key)](tasks/phase-2-access-http/P2-15-passthrough-mode.md) | low | P2-06, P2-07 | review |
 | P2-16 | [Audit tool calls on the pass-through route](tasks/phase-2-access-http/P2-16-passthrough-audit.md) | low | P2-08, P2-15 | review |
+| P2-17 | [Admin API audit and error-model follow-ups](tasks/phase-2-access-http/P2-17-admin-audit-followups.md) | medium | P2-09 | todo |
+| P2-18 | [Phase 2 docs accuracy sweep](tasks/phase-2-access-http/P2-18-docs-accuracy-sweep.md) | medium | P2-13 | todo |
+| P2-19 | [Docker release hardening and an end-to-end image smoke test](tasks/phase-2-access-http/P2-19-docker-release-hardening.md) | medium | P2-11 | todo |
 
 ### Phase 3
 

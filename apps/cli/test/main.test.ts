@@ -119,6 +119,19 @@ describe('main', () => {
       expect(again.stderr).toContain('overwrite');
     });
 
+    it('finds the database in RB_DATA_DIR like serve does (the Docker image sets only that, P2-review)', async () => {
+      const dataDir = join(dir, 'data');
+      const s = await openSqliteStorage({ path: join(dataDir, 'relic-bridge.db') });
+      await s.settings.set('k', 'docker');
+      await s.close();
+      const dest = join(dir, 'docker-backup.db');
+      const ok = run(['db', 'backup', dest], { RB_DATA_DIR: dataDir });
+      expect(ok.result).toEqual({ kind: 'exit', code: 0 });
+      const copy = await openSqliteStorage({ path: dest, migrate: false });
+      expect(await copy.settings.get('k')).toBe('docker');
+      await copy.close();
+    });
+
     it('needs a database and does not create one', () => {
       const none = run(['db', 'backup', join(dir, 'c.db')]);
       expect(none.result).toEqual({ kind: 'exit', code: 2 });

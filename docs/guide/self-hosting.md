@@ -139,7 +139,7 @@ both; full list in the [CLI reference](../reference/cli.md).
 ```bash
 # First run on the server: master key file + database + first key, project and device token.
 relic-bridge init --label main --region US --slug prod --url https://mcp.example.com   # key on stdin or hidden prompt
-export RB_MASTER_KEY_FILE=~/.local/share/relic-bridge/master.key                       # back this file up
+export RB_MASTER_KEY_FILE=~/.config/relic-bridge/master.key                            # back this file up
 relic-bridge credential add --label eu --region EU --key-file ./eu.key
 relic-bridge project add --slug eu --default-account 2000002 --default-credential <credential id>
 relic-bridge grant create --project eu --label phone
@@ -211,7 +211,7 @@ applies: `docker run IMAGE keys generate`, `docker run IMAGE serve`, `docker exe
 docker run -d --name relic-bridge --read-only --cap-drop ALL --security-opt no-new-privileges:true \
   -v relic-bridge-data:/data -p 127.0.0.1:8787:8787 \
   -e RB_MASTER_KEY_FILE=/run/secrets/master_key -v "$PWD/master.key:/run/secrets/master_key:ro" \
-  -e RB_ALLOWED_HOSTS=mcp.example.com -e RB_TRUSTED_PROXY_HOPS=1 \
+  -e RB_ALLOWED_HOSTS=mcp.example.com -e RB_TRUSTED_PROXY_HOPS=1 -e RB_HSTS=true \
   ghcr.io/matiashidalgo/relic-bridge:0.1.0
 ```
 
@@ -225,7 +225,8 @@ become group-readable and are refused. In Kubernetes (or whenever you cannot own
 
 **TLS.** [`deploy/docker-compose.example.yml`](../../deploy/docker-compose.example.yml) puts Caddy in front (automatic
 certificates), with the settings this guide requires: the server is not published on the host, `RB_ALLOWED_HOSTS` is your
-hostname and `RB_TRUSTED_PROXY_HOPS=1`.
+hostname, `RB_TRUSTED_PROXY_HOPS=1` and `RB_HSTS=true` (the app sees plain HTTP from Caddy; without it no HSTS header
+is sent and pass-through requests are refused with `403 tls_required`).
 
 **Verify before you run it.** Images are signed with cosign keyless signing (GitHub OIDC), carry an SBOM (syft,
 CycloneDX) and a build provenance attestation. Pin what you verified by digest.

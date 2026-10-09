@@ -336,8 +336,10 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 
 ### P2-10 — Wizard is flag-driven with prompts only on a terminal; master key written to a file
 - **Context:** `init` must work on a headless server and on a laptop.
-- **Assumption made:** `init` generates the master key into `<data dir>/master.key` (mode 0600, never overwritten) when
-  none is configured, refuses an existing database without its key, and creates the first credential/project/grant/token
+- **Assumption made:** `init` generates the master key into a file (mode 0600, never overwritten) when
+  none is configured (**changed by the Phase 2 review:** the default moved from `<data dir>/master.key` to
+  `~/.config/relic-bridge/master.key`, and a path in the database's directory is refused, because the security guide
+  says the key must never sit next to the database), refuses an existing database without its key, and creates the first credential/project/grant/token
   only when asked (flags, or answers on a terminal); otherwise it skips the step and prints the command to run.
   The service grant for the first device is named `<slug>-devices`. Device tokens use the server default (90 days).
 - **Options:** as assumed; print the master key instead of writing it; always run all steps.
@@ -461,3 +463,32 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   API today. The guide says so.
 - **Options:** new task to add `--max-window-days` / `--max-limit` / `--rate-limit` to `project add|update` and `grant create`.
 - **Needs:** owner priority.
+
+## Phase 2 consolidation review (2026-10-03)
+
+Questions raised by `docs/reviews/phase-2-review.md`. Nothing here blocks Phase 3.
+
+### REVIEW — Auth-failure throttle also refuses valid tokens from the same IP
+- **Context:** after 10 failed authentications in 5 minutes from one IP, *every* request from that IP gets `429`,
+  valid token or not (so a 429 never tells a guesser it was right, T1/T19). Accepted in THREAT_MODEL (P2-07 row), but
+  it means anyone sharing your IP (office NAT, mobile CGNAT, a misconfigured proxy with `RB_TRUSTED_PROXY_HOPS=0`)
+  can lock your devices out for minutes, and one laptop retrying a revoked token locks out its neighbours.
+- **Assumption made:** keep it (documented in `self-hosting.md`).
+- **Options:** keep; let a request whose token *verifies* through the throttle (tokens are 256-bit, so "valid vs
+  invalid" is not a useful oracle) and keep refusing only failures; per-IP + per-token-prefix buckets.
+- **Needs:** owner choice before Phase 3 (P3-04 implements the same hooks on Workers).
+
+### REVIEW — Pass-through key ids change on every restart
+- **Context:** `/passthrough/mcp` fingerprints keys with an HMAC secret drawn at random per process, so `pt_…` ids in
+  the audit log and rate-limit buckets don't survive a restart and differ between replicas.
+- **Assumption made:** fine for a single personal server.
+- **Options:** keep; add `RB_PASSTHROUGH_FINGERPRINT_SECRET` (`_FILE`, ≥ 32 bytes) wired to the existing
+  `PassthroughOptions.fingerprintSecret` (Workers will need it for a shared limiter anyway).
+- **Needs:** owner choice; small task if yes.
+
+### REVIEW — "Is this request HTTPS?" behind a proxy
+- **Context:** the app decides HSTS and the pass-through `tls_required` check from the request URL or `RB_HSTS=true`;
+  it never reads `X-Forwarded-Proto`. The review added `RB_HSTS=true` to the compose example and the Docker docs.
+- **Assumption made:** an explicit `RB_HSTS=true` is clearer than trusting a header.
+- **Options:** keep; trust `X-Forwarded-Proto` only when `RB_TRUSTED_PROXY_HOPS > 0`.
+- **Needs:** nothing unless the owner prefers the header.

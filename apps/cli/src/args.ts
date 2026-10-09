@@ -232,7 +232,7 @@ Options:
   --config <file>    YAML config with one or more projects (or RB_CONFIG).
   --project <slug>   Project to serve from the config file (or RB_PROJECT).
                      Optional when the file has a single project.
-  --db <path>        SQLite database (or RB_DB_PATH). serve defaults to
+  --db <path>        SQLite database (or RB_DB_PATH). Defaults to
                      <data dir>/relic-bridge.db (RB_DATA_DIR, else ~/.local/share/relic-bridge,
                      ~/Library/Application Support/relic-bridge or %LOCALAPPDATA%\\relic-bridge).
   --port <n>         serve: TCP port (or RB_PORT; default 8787, 0 = any free port).

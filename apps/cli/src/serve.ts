@@ -62,6 +62,21 @@ export function defaultDataDir(env: Env, platform: string, homeDir: string | und
   return join(xdg ? xdg : join(homeDir, '.local', 'share'), 'relic-bridge');
 }
 
+/**
+ * Per-user configuration directory, where `init` writes the master key by default: `%APPDATA%\relic-bridge`
+ * (Windows), else `$XDG_CONFIG_HOME/relic-bridge` or `~/.config/relic-bridge`. Deliberately not the data directory:
+ * the master key must never sit next to the database it decrypts (a copy or backup of one must not contain the other).
+ */
+export function defaultConfigDir(env: Env, platform: string, homeDir: string | undefined): string | null {
+  if (platform === 'win32') {
+    const roaming = env['APPDATA']?.trim();
+    if (roaming) return join(roaming, 'relic-bridge');
+  }
+  if (homeDir === undefined || homeDir === '') return null;
+  const xdg = env['XDG_CONFIG_HOME']?.trim();
+  return join(xdg ? xdg : join(homeDir, '.config'), 'relic-bridge');
+}
+
 /** The database file: `--db`, `RB_DB_PATH`, else `<data dir>/relic-bridge.db`. */
 export function resolveDbPath(
   flag: string | undefined,

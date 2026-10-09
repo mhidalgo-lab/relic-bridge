@@ -15,6 +15,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Options:** merge the stack bottom-up (retarget each PR to `main` after its parent merges), or squash-merge the
   tip into `main` in one go.
 - **Needs:** owner's merge strategy; then mark merged tasks `done` and run `pnpm tasks index`.
+- **Decision (2026-10-09):** merge one phase at a time, bottom-up into `main` (see phase-1.md, same entry).
 
 ## P6-01 — Alert tools
 
@@ -27,6 +28,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Options:** (a) keep as is; (b) add a live probe for `nrqlConditionsSearch` when a key is available; (c) fan out over all
   allowed accounts with a composite cursor (only worth it if agents ask for it).
 - **Needs:** a live run with a User key to confirm shapes and page size (`pnpm test:live`).
+- **Decision (2026-10-09):** assumption accepted; owner action (live verification) tracked in `docs/pending-decisions/owner-checklist.md`.
 
 ## P6-02 — Issue and incident tools
 
@@ -40,6 +42,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Options:** (a) keep as is; (b) a live probe with real issues to confirm shapes (`pnpm test:live`); (c) show cross-account
   issues with the foreign parts removed; (d) add the NRQL fallback if a field turns out missing.
 - **Needs:** a live run on an account with issues; owner's call on (c).
+- **Decision (2026-10-09):** assumption accepted; owner action (live verification) tracked in `docs/pending-decisions/owner-checklist.md`. Keep cross-account issues hidden.
 
 ## P6-03 — Errors Inbox tool
 
@@ -52,6 +55,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Options:** (a) keep as is; (b) live probe with real error groups (`pnpm test:live`); (c) show GUID-less groups on the
   strength of `accountIds` filtering alone; (d) add assignee display (masked) if wanted.
 - **Needs:** a live run on an account with errors; owner's call on (c) and (d).
+- **Decision (2026-10-09):** assumption accepted; owner action (live verification) tracked in `docs/pending-decisions/owner-checklist.md`. Keep GUID-less groups hidden and assignee emails out.
 
 ## P6-04 — Change tracking and deployment impact tools
 
@@ -67,6 +71,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Options:** (a) keep as is; (b) live probe with real deployments (`pnpm test:live`); (c) use `query` to filter other change
   kinds per entity once its syntax is verified; (d) support browser/mobile/OTel services; (e) make thresholds arguments.
 - **Needs:** a live run on an account with recorded deployments; owner's call on (c) to (e).
+- **Decision (2026-10-09):** assumption accepted; owner action (live verification) tracked in `docs/pending-decisions/owner-checklist.md`.
 
 ## P6-05 — APM transaction tools
 
@@ -80,6 +85,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Options:** (a) keep as is; (b) live probe on an APM account (`pnpm test:live`); (c) add an entity lookup (cost +1) to refuse
   non-APM entities with a clear error; (d) minimum-requests filter for the slowest sort; (e) a time series per transaction.
 - **Needs:** a live run on an APM account; owner's call on (c) to (e).
+- **Decision (2026-10-09):** assumption accepted; owner action (live verification) tracked in `docs/pending-decisions/owner-checklist.md`.
 
 ## P6-06 — Log tools
 
@@ -96,6 +102,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   lines; (e) server-side patterns with `FACET message` or `aggregationEndpoint`-style sampling; (f) per-connection default
   `Log` deny.
 - **Needs:** a live run on an account with logs; owner's call on (c) to (f).
+- **Decision (2026-10-09):** assumption accepted; owner action (live verification) tracked in `docs/pending-decisions/owner-checklist.md`. Masking emails/IPs in log lines is reconsidered at P8-01.
 
 ## P6-07 — Runtime tools
 
@@ -111,6 +118,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   (`apm.service.*`) instead of timeslices; (d) OpenTelemetry Kafka metrics and MSK/Confluent integrations; (e) entity-GUID scoping for Kafka
   (cluster entity); (f) thread dumps from the profiler (separate, heavier tool).
 - **Needs:** a live run on both account types; owner's call on (c) to (f).
+- **Decision (2026-10-09):** assumption accepted; owner action (live verification) tracked in `docs/pending-decisions/owner-checklist.md`.
 
 ## P6-08 — Synthetics tool
 
@@ -127,6 +135,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   the field names are confirmed; (d) time series per monitor; (e) include the script's last-run error steps for scripted browser
   monitors (needs a separate, secret-aware design); (f) private-location health.
 - **Needs:** a live run on an account with synthetics; owner's call on (c) to (f).
+- **Decision (2026-10-09):** assumption accepted; owner action (live verification) tracked in `docs/pending-decisions/owner-checklist.md`.
 
 ## P6-09 — Dashboard tools
 
@@ -141,6 +150,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   `TIMESERIES`/variable substitution); (c) live probe on an account with dashboards (`pnpm test:live`); (d) dashboard variables and
   time-picker substitution in returned NRQL.
 - **Needs:** a live run; owner's call on (b) and (d).
+- **Decision (2026-10-09):** keep: widgets return NRQL only; no `run_dashboard_widget`.
 
 ### P6-09 — `pnpm bench:cpu` flags `mcp.tools-list.hit` (about 2.05x, threshold 2x), also on the P6-08 base
 - **Context:** Measured on the unmodified base branch (P6-08) and with P6-09: both report about 2.0x versus the stored baseline, so the
@@ -152,6 +162,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   (on `registerTool` and again on `tools/list`), not payload size. Schemas are now converted once per isolate
   (`withCachedJsonSchema`); `tools/list` hit went from about 10.5 ms to 1.6 ms and the baseline was re-taken. No decision needed
   unless the owner prefers not to re-baseline inside a task branch.
+- **Decision (2026-10-09):** resolved by P6-10 (cached JSON Schema conversion, baseline re-taken).
 
 ## P6-10 — Composite reports
 
@@ -166,6 +177,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   section on `RB_AUTH_FORBIDDEN` instead of failing the report; (e) live probe (`pnpm test:live`) for the `ids` filter and the
   browser/mobile attributes.
 - **Needs:** a live run on an account with issues and browser/mobile apps; owner's call on (b) to (d).
+- **Decision (2026-10-09):** assumption accepted; owner action (live verification) tracked in `docs/pending-decisions/owner-checklist.md`.
 
 ## P6-11 — MCP prompts
 
@@ -179,6 +191,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Options:** (a) keep as is; (b) require all tools of a prompt (hide more prompts); (c) add a Kubernetes tool task;
   (d) `completion/complete` for entity guids and issue ids; (e) owner-defined prompts per project.
 - **Needs:** a live check of the Kubernetes prompt; owner's call on (b) to (e).
+- **Decision (2026-10-09):** confirmed as assumed.
 
 ## P6-12 — MCP resources
 
@@ -194,6 +207,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   "schema snapshot" resource with attributes of the top event types (costs one call per type); (d) `completion/complete` for
   event types; (e) richer NRQL reference (functions list) once a licence-safe source is agreed.
 - **Needs:** owner's call on (b) to (e); a client check that real MCP clients surface templated resources.
+- **Decision (2026-10-09):** confirmed as assumed.
 
 
 ## P6-14 — Fuzzy entity-name resolution
@@ -210,6 +224,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   `get_related_entities`, `get_golden_metrics` and report tools; (c) raise the scan cap or page it for very large accounts;
   (d) verify a pasted guid with one `get_entity` call.
 - **Needs:** owner's call on (b) to (d).
+- **Decision (2026-10-09):** resolved: name inputs shipped via P6-17 / P6-18.
 
 ## P6-15 — Raw NerdGraph tool decision
 
@@ -227,6 +242,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   pass-through, parsed query-only, allow-listed root paths, account and field checks) after a new ADR; (c) build P7-15 for
   stdio/self-hosted bearer connections only; (d) drop P7-15 entirely.
 - **Needs:** owner's confirmation of ADR-0014 (or a concrete NerdGraph read that justifies (b)/(c)); then unblock or drop P7-15.
+- **Decision (2026-10-09):** ADR-0014 confirmed (no raw NerdGraph tool). P7-15 stays `blocked`, not dropped.
 
 
 ## P6-16 — Investigation workflow tools
@@ -243,6 +259,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   fallback "logs near the error time" when the trace has no logs; (d) cross-account trace stitching (one query per allowed
   account); (e) fold `entity_health` into `generate_alert_insights_report` (entity_guid input) and drop it.
 - **Needs:** owner's call on (b) to (e); a check against a real account.
+- **Decision (2026-10-09):** assumption accepted; owner action (live verification) tracked in `docs/pending-decisions/owner-checklist.md`.
 
 
 ## P6-17 — Name input on entity tools
@@ -257,6 +274,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   `candidates` field (needs output-schema changes); (d) charge the resolution cost only when `name` is given (needs
   per-call cost).
 - **Needs:** owner's call on (b) to (d); whether P6-18 is wanted.
+- **Decision (2026-10-09):** confirmed as assumed.
 
 
 ## P6-18 — Name input on report, investigation and signal tools
@@ -269,6 +287,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   is unchanged (issue id input only).
 - **Options:** (a) keep; (b) charge the cost only when `name` is given; (c) fold the P6-17 tools into the adapter too.
 - **Needs:** owner's call on (b), (c).
+- **Decision (2026-10-09):** confirmed as assumed.
 
 
 ## P6-13 — Tool description quality and agent evals
@@ -285,6 +304,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   to see how the descriptions hold up on smaller models; (c) run it in CI on release tags with a budgeted key (secret +
   billing decision).
 - **Needs:** owner runs (a) (about 47 requests); decision on the gate threshold and on (c).
+- **Decision (2026-10-09):** assumption accepted; owner action (live verification) tracked in `docs/pending-decisions/owner-checklist.md`.
 
 ### P6-13 — Untrusted-data sentence shortened in descriptions
 - **Context:** Each description had its own one- or two-sentence untrusted-data warning (~130 chars × 33 tools).
@@ -293,6 +313,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Options:** (a) keep; (b) drop the sentence from descriptions entirely and rely on the result notice plus a server
   `instructions` field.
 - **Needs:** owner's call; (b) only after the LLM eval shows injection cases still pass without it.
+- **Decision (2026-10-09):** confirmed as assumed.
 
 
 ## P6-19 — Trim tool input schema text
@@ -308,6 +329,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Options:** (a) keep; (b) restore `$schema` (about 2 000 characters); (c) run `pnpm eval:tools` and compare with the
   P6-13 baseline before merging the stack.
 - **Needs:** owner runs (c) with the P6-13 decision; (b) only if a client rejects schemas without `$schema`.
+- **Decision (2026-10-09):** assumption accepted; owner action (live verification) tracked in `docs/pending-decisions/owner-checklist.md`.
 
 
 ## Phase 6 review
@@ -323,11 +345,13 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Options:** (a) keep (least privilege); (b) a composite grant implies its parts, documented in the admin UI (the
   grant editor could auto-add them); (c) the admin UI warns when a composite is granted without its parts.
 - **Needs:** owner's call; (c) is cheap with (a).
+- **Decision (2026-10-09):** keep least privilege (composite does not imply siblings) and add a grant-editor warning: P6-25.
 
 ### REVIEW — CPU benchmark gate
 - **Context:** agents reported `pnpm bench:cpu` as noisy during Phase 6. See the review's Local CI section for the
   measurements and what changed in `scripts/bench-cpu.ts`.
 - **Needs:** nothing unless the owner prefers a different gate.
+- **Decision (2026-10-09):** confirmed as assumed.
 
 ### P6-20 — Cost rule: count polls, retries not counted
 - **Context:** declared costs undercounted real NerdGraph calls (review M2).
@@ -340,6 +364,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Options:** (a) keep; (b) `maxPolls: 0` inside composites (cost 1 per NRQL, pending results reported more often);
   (c) charge the resolver only when `name` is given, via a per-call cost.
 - **Needs:** owner's call; none blocks Phase 7.
+- **Decision (2026-10-09):** confirmed as assumed.
 
 ### P6-21 — Untrusted-text and scope hardening decisions
 - **Context:** Phase 6 review M3, M4, L1-L3.
@@ -353,6 +378,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Options:** (a) keep; (b) honour `rawNrql` strictly for golden metrics; (c) add an `_untrusted` marker to
   `structuredContent`.
 - **Needs:** owner's call; none blocks Phase 7.
+- **Decision (2026-10-09):** keep the aggregate-only screen for golden metrics and composites when `rawNrql` is off.
 
 
 ### P6-22 — One naming convention, applied as a breaking change without aliases
@@ -370,6 +396,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Options:** (a) keep; (b) add deprecated aliases for the old argument names until 1.1 (costs schema size on every
   tools/list and needs the strict schemas to accept both); (c) `guid` instead of `entity_guid` on single-entity tools.
 - **Needs:** owner's call before 1.0; `pnpm eval:tools` with the owner's key to confirm tool choice did not regress.
+- **Decision (2026-10-09):** confirmed as assumed.
 
 ### P6-23 — Live probes for LIKE escaping and identifier comment markers not run
 - **Context:** review L6 (`\_` in `LIKE`) and L7 (`--`, `//`, `/*` inside backticked identifiers) need real NerdGraph.
@@ -380,6 +407,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Options:** (a) run `pnpm test:live` with a key and record the result; (b) tighten `nrql.identifier` to refuse
   comment markers now, without measuring.
 - **Needs:** owner runs the live suite once.
+- **Decision (2026-10-09):** assumption accepted; owner action (live verification) tracked in `docs/pending-decisions/owner-checklist.md`.
 
 ### P6-24 — Paging parity: unsigned bound cursors, default page sizes, tools/list budget
 - **Context:** every list now takes `limit` and pages (or says it is bounded). Lists without a page size upstream need a
@@ -399,3 +427,4 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   key handling); (c) keep the 52 000 budget by dropping the `limit` description text or the `cursor` argument on the
   small catalogue lists; (d) page `list_top_transactions` through a second NRQL with `OFFSET`.
 - **Needs:** owner's call; `pnpm eval:tools` with the owner's key to confirm tool choice did not regress.
+- **Decision (2026-10-09):** keep unsigned, hash-checked cursors.

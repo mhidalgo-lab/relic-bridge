@@ -10,14 +10,17 @@ Worker serve the same pages. This page is for people adding screens (P4-04 and l
 |---|---|
 | `src/app.ts` | `createAdminUi(deps)`: the `/admin` sub-app. `registerScreens` lists every screen; the catch-all comes last. |
 | `src/kit.ts` | `kit.page`, `kit.form`, `kit.callAdmin`, `kit.redirect`, `adminPath`, `pageFetchProblem`. |
-| `src/components.tsx` | `Layout`, `Nav` (`NAV_ITEMS`), `Flash`, `Form`, `TextField`, `SelectField`, `Checkbox`, `Button`, `ConfirmAction`, `SecretOnce`, `DataTable`, `Facts`, `Time`, `localHref`. |
+| `src/components.tsx` | `Layout`, `Nav` (`NAV_ITEMS`), `Flash`, `Form`, `QueryForm`, `TextField`, `SelectField`, `Checkbox`, `Button`, `LinkButton`, `ConfirmAction` (`CONFIRM_FIELD`), `SecretOnce`, `DataTable`, `Pager`, `Badge`, `Facts`, `Time`, `localHref`. |
 | `src/pages.tsx` | `htmlResponse`, `renderDocument`, `LoginPage`, `MessagePage`, `errorPage`. |
 | `src/flash.ts` | The flash catalogue (`FLASH_MESSAGES`, `FlashCode`). |
 | `src/headers.ts` | `UI_CSP`, `PERMISSIONS_POLICY`, `UI_PAGE_HEADERS`. |
-| `src/screens/*.tsx` | One file per screen, exporting `register<Screen>(ui, kit)`. `overview.tsx` is the reference. |
+| `src/screens/*.tsx` | One file per screen, exporting `register<Screen>(ui, kit)`. `overview.tsx` is the smallest; `tokens.tsx` shows lists, two-step forms, confirmations and the one-time secret page. |
+| `src/screens/data.ts` | Parsers for admin API rows (users, keys, projects, grants, tokens) and lists, `isId`, `validCursor`. |
+| `src/screens/shared.tsx` | Screen helpers: `listOne` / `listAll`, `problemOf`, `loadFailed`, `flashFor`, `formMessage`, `confirmed` / `confirmPage` / `RowAction`, `ToolChecklist` / `toolsFrom`, `AccountChecklist` / `accountsFrom`, `LimitsFields` / `limitsFrom`, `Notes`, `When`, `withQuery`. |
 | `assets/admin.css`, `assets/admin.js` | The only stylesheet and script. Compiled into `src/assets.generated.ts`. |
 
-What the UI needs from the server comes through `AdminUiDeps` (sessions, the in-process admin API call, audit hooks).
+What the UI needs from the server comes through `AdminUiDeps` (sessions, the in-process admin API call, audit hooks,
+and for the screens the tool catalogue `tools`, `publicUrl` and the clock `now`).
 `@relic-bridge/http-app` builds it from the P4-02 session manager (`adminUiDeps` in `app.ts`); `admin-ui` never imports
 `http-app`.
 
@@ -25,7 +28,9 @@ What the UI needs from the server comes through `AdminUiDeps` (sessions, the in-
 
 1. Create `src/screens/<name>.tsx` with `/** @jsxImportSource hono/jsx */` under the SPDX line, and export
    `register<Name>(ui: Hono, kit: UiKit)`.
-2. Pages: `ui.get('/things', kit.page('admin', async (c, page) => page.html(<Layout …>…</Layout>)))`.
+2. Pages: `ui.get('/things', kit.page('admin', async (c, page) => page.html(<Layout …>…</Layout>)))`. Route paths
+   are relative to the `/admin` mount (`/things`); links and form actions are absolute (`/admin/things`). Keep both
+   as constants (`ROUTE`, `BASE`) like the P4-04 screens do.
    - `kit.page(minRole, …)` checks fetch metadata, runs the per-IP hook, loads the session (no session: `303` to
      `/auth/login?next=<path>`), checks the role (`403` page, audited) and gives you `page.principal`, `page.flash` and
      `page.html(node, status?)`, which also clears a shown flash.
@@ -46,8 +51,13 @@ What the UI needs from the server comes through `AdminUiDeps` (sessions, the in-
 5. After a change, Post/Redirect/Get: `return kit.redirect('/admin/things', 'saved')`. Flash codes come from the
    catalogue in `flash.ts`. Add new codes there (the cookie carries the code, never text). For validation errors,
    render the form again with `error=` on the fields and status `422`.
-6. Navigation: add an entry to `NAV_ITEMS` (`href`, `label`, `minRole`).
-7. Register the screen in `registerScreens` (`app.ts`), and add each route to the P2-12 matrix
+6. Destructive actions (revoke, delete, disable, replacing a key) must check `confirmed(form)` (`confirm=yes`). On the
+   detail page use `ConfirmAction` (it sends the field); in list rows use `RowAction`, whose post comes back without
+   it, and answer with `confirmPage(…)`. Nothing may change before the confirmation.
+7. Lists: `listOne(kit, c, principal, path, parse, query)` for a table page (50 rows, `Pager` with the next cursor),
+   `listAll` for pickers and lookups (≤ 1000 rows). Pass only `validCursor(c.req.query('cursor'))`.
+8. Navigation: add an entry to `NAV_ITEMS` (`href`, `label`, `minRole`).
+9. Register the screen in `registerScreens` (`app.ts`), and add each route to the P2-12 matrix
    (`packages/http-app/test/authz/matrix.ts`, `UI_ROUTES`). The guard test fails until you do.
 
 ## Rules
@@ -73,10 +83,20 @@ What the UI needs from the server comes through `AdminUiDeps` (sessions, the in-
 - **Role checks.** `kit.page` / `kit.form` gate the page. The admin API checks again on every call, which also makes
   it the source of truth for fine-grained rules (admins vs owners, self-changes).
 
+- **Secrets.** A New Relic key is read only from a POST body (`type=password`, `autocomplete="off"`) and passed to the
+  admin API. Never give a key field a `value`, never copy it into the values of a form shown again, a hidden field, a
+  URL, a flash or a log. A new secret (device token) is rendered once, with `SecretOnce`, on the answer to the POST
+  that created it: never redirect with it. Pages are `no-store`.
+- **API errors.** Show only the API's `error.message` (redacted, never echoing input) or fixed text (`formMessage`);
+  map `error.field` to the form field. `502` means New Relic could not be asked and nothing changed.
+
 ## Tests
 
 - `packages/admin-ui/test`: components (DOM via jsdom, snapshots, hostile strings), the kit (forms, CSRF, flash,
-  `callAdmin`), axe-core on every page, token contrast.
+  `callAdmin`), the screens against a scripted admin API (`screens-fixture.ts`: what each page asks for and each form
+  sends, gating, confirmations, error mapping, secrets), axe-core on every page and state, token contrast.
+- `packages/http-app/test/authz/ui-screens.test.ts`: the screens on the whole app with storage (HTTP app and Worker):
+  a personal setup through the forms, member gating, CSRF/origin refusals, confirmations, the leak scan.
 - `packages/http-app/test/authz/ui.test.ts`: the pages in the authorization matrix, on the HTTP app and in workerd.
   Every UI route must send strangers to sign-in and carry the full header set.
 - `apps/cli/test/serve-identity.test.ts`: the overview and an asset on a real `serve`.

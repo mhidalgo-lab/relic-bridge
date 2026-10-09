@@ -39,6 +39,11 @@ export interface NavItem {
 
 export const NAV_ITEMS: readonly NavItem[] = Object.freeze([
   { href: '/admin', label: 'Overview', minRole: 'member' },
+  { href: '/admin/credentials', label: 'Keys', minRole: 'admin' },
+  { href: '/admin/projects', label: 'Projects', minRole: 'admin' },
+  { href: '/admin/grants', label: 'Grants', minRole: 'admin' },
+  { href: '/admin/tokens', label: 'Devices', minRole: 'admin' },
+  { href: '/admin/users', label: 'Users', minRole: 'admin' },
 ]);
 
 /**
@@ -206,6 +211,10 @@ export interface FieldProps {
   readonly autocomplete?: string;
   readonly inputmode?: 'text' | 'numeric' | 'email' | 'url';
   readonly maxlength?: number;
+  readonly min?: number;
+  readonly max?: number;
+  /** Off for secrets and identifiers (no spelling suggestions sent anywhere). */
+  readonly spellcheck?: boolean;
 }
 
 const describedBy = (name: string, hint: unknown, error: unknown): string | undefined => {
@@ -236,6 +245,9 @@ export function TextField(props: FieldProps): JSX.Element {
         autocomplete={props.autocomplete}
         inputmode={props.inputmode}
         maxlength={props.maxlength}
+        min={props.min}
+        max={props.max}
+        spellcheck={props.spellcheck === undefined ? undefined : props.spellcheck ? 'true' : 'false'}
         aria-invalid={props.error ? 'true' : undefined}
         aria-describedby={describedBy(props.name, props.hint, props.error)}
       />
@@ -244,7 +256,10 @@ export function TextField(props: FieldProps): JSX.Element {
 }
 
 export interface SelectFieldProps
-  extends Omit<FieldProps, 'type' | 'autocomplete' | 'inputmode' | 'maxlength'> {
+  extends Omit<
+    FieldProps,
+    'type' | 'autocomplete' | 'inputmode' | 'maxlength' | 'min' | 'max' | 'spellcheck'
+  > {
   readonly options: readonly { readonly value: string; readonly label: string }[];
 }
 
@@ -283,17 +298,32 @@ export interface CheckboxProps {
   readonly name: string;
   /** Distinguishes several boxes with one `name`. */
   readonly id?: string;
-  readonly label: string;
+  /** Text, or text with a badge. */
+  readonly label: Child;
   readonly value?: string;
   readonly checked?: boolean;
+  /** Hint under the label, tied with `aria-describedby`. */
+  readonly hint?: string;
 }
 
 export function Checkbox(props: CheckboxProps): JSX.Element {
   const id = props.id ?? props.name;
   return (
     <div class="check">
-      <input type="checkbox" id={id} name={props.name} value={props.value ?? '1'} checked={props.checked} />
+      <input
+        type="checkbox"
+        id={id}
+        name={props.name}
+        value={props.value ?? '1'}
+        checked={props.checked}
+        aria-describedby={props.hint ? `${id}-hint` : undefined}
+      />
       <label for={id}>{props.label}</label>
+      {props.hint ? (
+        <span class="hint" id={`${id}-hint`}>
+          {props.hint}
+        </span>
+      ) : null}
     </div>
   );
 }
@@ -314,9 +344,12 @@ export function Button(props: {
   );
 }
 
+/** Field a destructive form must carry (`confirm=yes`); the handler checks it and asks again without it. */
+export const CONFIRM_FIELD = 'confirm';
+
 /**
  * A destructive action behind a disclosure: the first activation only reveals the explanation and the real button.
- * Works without JavaScript and with the keyboard (`<details>`/`<summary>`).
+ * Works without JavaScript and with the keyboard (`<details>`/`<summary>`). The form carries `confirm=yes`.
  */
 export function ConfirmAction(props: {
   readonly action: string;
@@ -329,6 +362,7 @@ export function ConfirmAction(props: {
     <details class="confirm">
       <summary>{props.summary}</summary>
       <Form action={props.action} csrf={props.csrf}>
+        <input type="hidden" name={CONFIRM_FIELD} value="yes" />
         {props.children}
         <Button variant="danger">{props.confirm}</Button>
       </Form>
@@ -357,6 +391,68 @@ export function SecretOnce(props: {
         Copy
       </button>
     </div>
+  );
+}
+
+/**
+ * A GET form (filters, pickers): no CSRF token, because it changes nothing. Its fields end up in the URL, so never
+ * put a secret in one.
+ */
+export function QueryForm(props: {
+  readonly action: string;
+  readonly label: string;
+  readonly children?: Child;
+}): JSX.Element {
+  return (
+    <form method="get" action={localHref(props.action)} aria-label={props.label} class="query-form">
+      {props.children}
+    </form>
+  );
+}
+
+export type BadgeTone = 'ok' | 'info' | 'error' | 'muted';
+
+/** A short status word (`valid`, `revoked`, `read`); colour is never the only signal (the word is the content). */
+export function Badge(props: { readonly tone: BadgeTone; readonly children?: Child }): JSX.Element {
+  return <span class={`badge badge-${props.tone}`}>{props.children}</span>;
+}
+
+/** "Next page" for cursor lists (`href` is the next page's same-origin URL, or null at the end). */
+export function Pager(props: {
+  readonly next: string | null;
+  readonly first?: string | undefined;
+  readonly label: string;
+}): JSX.Element | null {
+  if (props.next === null && props.first === undefined) return null;
+  return (
+    <nav class="pager" aria-label={props.label}>
+      {props.first === undefined ? null : (
+        <a class="button button-secondary" href={localHref(props.first)}>
+          First page
+        </a>
+      )}
+      {props.next === null ? null : (
+        <a class="button button-secondary" href={localHref(props.next)}>
+          Next page
+        </a>
+      )}
+    </nav>
+  );
+}
+
+/** A link styled as a button (navigation, not an action). */
+export function LinkButton(props: {
+  readonly href: string;
+  readonly variant?: 'primary' | 'secondary';
+  readonly children?: Child;
+}): JSX.Element {
+  return (
+    <a
+      class={props.variant === 'secondary' ? 'button button-secondary' : 'button'}
+      href={localHref(props.href)}
+    >
+      {props.children}
+    </a>
   );
 }
 

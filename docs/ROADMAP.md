@@ -149,13 +149,14 @@ Generated from task front matter (`pnpm tasks index` once P0-05 lands). Status l
 | P4-01 | [Identity providers: Google, GitHub, Cloudflare Access, generic OIDC](tasks/phase-4-identity-admin/P4-01-identity-providers.md) | high | P3-07 | review |
 | P4-02 | [Admin sessions, CSRF and roles](tasks/phase-4-identity-admin/P4-02-admin-sessions.md) | high | P4-01 | review |
 | P4-03 | [Admin UI scaffold (Hono JSX, strict CSP)](tasks/phase-4-identity-admin/P4-03-admin-ui-scaffold.md) | high | P4-02 | review |
-| P4-04 | [Admin screens: credentials, projects, grants, tokens, users](tasks/phase-4-identity-admin/P4-04-admin-screens.md) | high | P4-03 | todo |
+| P4-04 | [Admin screens: credentials, projects, grants, tokens, users](tasks/phase-4-identity-admin/P4-04-admin-screens.md) | high | P4-03 | review |
 | P4-05 | [Audit log viewer and usage stats](tasks/phase-4-identity-admin/P4-05-audit-viewer.md) | medium | P4-04, P2-08 | todo |
 | P4-06 | [Connect page: client config snippets](tasks/phase-4-identity-admin/P4-06-connect-page.md) | high | P4-04 | todo |
 | P4-07 | [Admin panel security review](tasks/phase-4-identity-admin/P4-07-admin-security-review.md) | high | P4-04 | todo |
 | P4-08 | [Docs — admin guide and release v0.4](tasks/phase-4-identity-admin/P4-08-docs-admin.md) | medium | P4-05, P4-06, P4-07 | todo |
 | P4-09 | [Sign-in operations: identity re-binding, setup-link CLI, Worker setup for IdP secrets](tasks/phase-4-identity-admin/P4-09-sign-in-operations.md) | medium | P4-01 | todo |
 | P4-10 | [Member self-service API: own credentials, grants and device tokens](tasks/phase-4-identity-admin/P4-10-member-self-service.md) | medium | P4-02 | todo |
+| P4-11 | [Admin panel in a real browser: Playwright E2E and guide screenshots](tasks/phase-4-identity-admin/P4-11-admin-browser-e2e.md) | medium | P4-04 | todo |
 
 ### Phase 5
 

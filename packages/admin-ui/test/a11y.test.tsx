@@ -18,7 +18,8 @@ import {
   TextField,
 } from '../src/index.ts';
 import { axeViolations } from './dom.ts';
-import { fakeDeps, ORIGIN, principalFor, same, uiApp } from './fixtures.ts';
+import { fakeDeps, ORIGIN, principalFor, same, T, uiApp } from './fixtures.ts';
+import { sample, scriptedApi, TOOLS } from './screens-fixture.ts';
 
 const viewer = principalFor('owner');
 
@@ -125,5 +126,111 @@ describe('axe-core', () => {
       </Layout>
     );
     await expectAccessible('components', renderDocument(page));
+  });
+
+  describe('P4-04 screens', () => {
+    const app = (other?: Parameters<typeof scriptedApi>[1], empty = false) => {
+      const fake = fakeDeps({ tools: TOOLS, now: () => T, publicUrl: 'https://bridge.example' });
+      fake.adminAnswer = scriptedApi(
+        empty ? { users: [], credentials: [], projects: [], grants: [], tokens: [] } : sample(),
+        other,
+      );
+      return uiApp(fake);
+    };
+    const page = async (a: ReturnType<typeof app>, path: string, role = 'admin') =>
+      (await a.request(`${ORIGIN}${path}`, { headers: same(role) })).text();
+    const post = async (a: ReturnType<typeof app>, path: string, fields: Record<string, string>) =>
+      (
+        await a.request(`${ORIGIN}${path}`, {
+          method: 'POST',
+          headers: {
+            ...same('admin', { origin: ORIGIN }),
+            'content-type': 'application/x-www-form-urlencoded',
+          },
+          body: new URLSearchParams({ _csrf: principalFor('admin').csrf, ...fields }).toString(),
+        })
+      ).text();
+
+    const PAGES = [
+      '/admin/credentials',
+      '/admin/credentials/new',
+      '/admin/credentials/cred_us',
+      '/admin/credentials/cred_eu',
+      '/admin/credentials/cred_us/rotate',
+      '/admin/projects',
+      '/admin/projects/new',
+      '/admin/projects/new?credential=cred_us',
+      '/admin/projects/new?credential=none',
+      '/admin/projects/prj_us',
+      '/admin/projects/prj_eu',
+      '/admin/grants',
+      '/admin/grants/new',
+      '/admin/grants/new?project=prj_us',
+      '/admin/grants/grt_me',
+      '/admin/grants/grt_ci',
+      '/admin/tokens',
+      '/admin/tokens/new',
+      '/admin/tokens/new?grant=grt_me',
+      '/admin/users',
+      '/admin/users/new',
+      '/admin/users/usr_m',
+      '/admin/users/usr_admin',
+    ];
+
+    it.each(PAGES)('%s', async (path) => {
+      await expectAccessible(path, await page(app(), path));
+    });
+
+    it('users/new as an owner', async () => {
+      await expectAccessible('users/new as owner', await page(app(), '/admin/users/new', 'owner'));
+    });
+
+    it('empty lists and empty pickers', { timeout: 60_000 }, async () => {
+      const a = app(undefined, true);
+      for (const path of [
+        '/admin/credentials',
+        '/admin/projects',
+        '/admin/projects/new',
+        '/admin/grants',
+        '/admin/grants/new',
+        '/admin/tokens',
+        '/admin/tokens/new',
+        '/admin/users',
+      ]) {
+        await expectAccessible(`empty ${path}`, await page(a, path));
+      }
+    });
+
+    const answers = (call: { method: string; path: string }) => {
+      if (call.method === 'POST' && call.path === '/tokens') {
+        return {
+          status: 201,
+          body: { data: sample().tokens[0], token: 'rb_live_x', warnings: ['never expires'] },
+        };
+      }
+      if (call.method === 'POST' && call.path === '/credentials') {
+        return { status: 422, body: { error: { code: 'key_rejected', message: 'x', field: 'apiKey' } } };
+      }
+      return undefined;
+    };
+    const POSTS: [string, Record<string, string>][] = [
+      ['/admin/credentials', { label: '', region: 'US', apiKey: 'NRAK-x' }],
+      ['/admin/credentials', { label: 'a', region: 'US', apiKey: 'NRAK-x' }],
+      ['/admin/credentials/cred_us/rotate', { apiKey: '' }],
+      ['/admin/credentials/cred_us/delete', {}],
+      ['/admin/projects', { slug: 'BAD', credentialId: 'cred_us', limit_maxLimit: 'x' }],
+      ['/admin/projects/prj_us', { slug: '' }],
+      ['/admin/projects/prj_us/delete', {}],
+      ['/admin/grants', { projectId: 'prj_us', userId: 'service', rate_requests: '1' }],
+      ['/admin/grants/grt_me/revoke', {}],
+      ['/admin/tokens', { grantId: 'grt_me', label: '', lifetime: '1' }],
+      ['/admin/tokens', { grantId: 'grt_me', label: 'phone', lifetime: '90' }],
+      ['/admin/tokens/tok_laptop/revoke', {}],
+      ['/admin/users', { email: 'nope', role: 'x' }],
+      ['/admin/users/usr_m/disable', {}],
+    ];
+    it.each(POSTS)('POST %s %j (errors, confirmation, one-time token)', async (path, fields) => {
+      await expectAccessible(`POST ${path}`, await post(app(answers), path, fields));
+    });
   });
 });

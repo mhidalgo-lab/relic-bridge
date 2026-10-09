@@ -31,9 +31,13 @@ export const PERMISSIONS_POLICY: string = [
   'usb=()',
 ].join(', ');
 
-/** Headers an HTML page sets itself (the app adds `nosniff`, `X-Frame-Options`, `no-store`, HSTS, …). */
+/**
+ * Headers an HTML page sets itself (the app adds `nosniff`, `X-Frame-Options`, HSTS, …). `no-store` is set here too,
+ * not only by the app: pages carry CSRF tokens and the one-time device token page (P4-04) must never be cached.
+ */
 export const UI_PAGE_HEADERS: Readonly<Record<string, string>> = Object.freeze({
   'Content-Type': 'text/html; charset=utf-8',
+  'Cache-Control': 'no-store',
   'Content-Security-Policy': UI_CSP,
   'Cross-Origin-Opener-Policy': 'same-origin',
   'Permissions-Policy': PERMISSIONS_POLICY,

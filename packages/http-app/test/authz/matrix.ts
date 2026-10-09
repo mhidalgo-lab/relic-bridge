@@ -128,12 +128,50 @@ export const IDENTITY_ROUTES: readonly RouteCase[] = [
   { method: 'POST', pattern: '/auth/logout', path: '/auth/logout' },
 ];
 
+const ui = (method: string, pattern: string, path = pattern): RouteCase => ({ method, pattern, path });
+
 /**
  * Admin UI pages (P4-03): exist when sign-in is configured. Only the admin session cookie authenticates them (bearer
  * tokens, the admin token, MCP tokens and query credentials are ignored: the answer is the sign-in redirect).
  */
 export const UI_ROUTES: readonly RouteCase[] = [
   { method: 'GET', pattern: '/admin', path: '/admin' },
+  // P4-04 screens (admin and owner). Ids that don't exist: a positive control must not change anything.
+  ui('GET', '/admin/credentials'),
+  ui('GET', '/admin/credentials/new'),
+  ui('POST', '/admin/credentials'),
+  ui('GET', '/admin/credentials/:id', '/admin/credentials/cred_none'),
+  ui('POST', '/admin/credentials/:id/rename', '/admin/credentials/cred_none/rename'),
+  ui('POST', '/admin/credentials/:id/revalidate', '/admin/credentials/cred_none/revalidate'),
+  ui('GET', '/admin/credentials/:id/rotate', '/admin/credentials/cred_none/rotate'),
+  ui('POST', '/admin/credentials/:id/rotate', '/admin/credentials/cred_none/rotate'),
+  ui('POST', '/admin/credentials/:id/delete', '/admin/credentials/cred_none/delete'),
+  ui('GET', '/admin/projects'),
+  ui('GET', '/admin/projects/new'),
+  ui('POST', '/admin/projects'),
+  ui('GET', '/admin/projects/:id', '/admin/projects/prj_none'),
+  ui('POST', '/admin/projects/:id', '/admin/projects/prj_none'),
+  ui('POST', '/admin/projects/:id/disable', '/admin/projects/prj_none/disable'),
+  ui('POST', '/admin/projects/:id/enable', '/admin/projects/prj_none/enable'),
+  ui('POST', '/admin/projects/:id/delete', '/admin/projects/prj_none/delete'),
+  ui('GET', '/admin/grants'),
+  ui('GET', '/admin/grants/new'),
+  ui('POST', '/admin/grants'),
+  ui('GET', '/admin/grants/:id', '/admin/grants/grt_none'),
+  ui('POST', '/admin/grants/:id/revoke', '/admin/grants/grt_none/revoke'),
+  ui('POST', '/admin/grants/:id/delete', '/admin/grants/grt_none/delete'),
+  ui('GET', '/admin/tokens'),
+  ui('GET', '/admin/tokens/new'),
+  ui('POST', '/admin/tokens'),
+  ui('POST', '/admin/tokens/:id/revoke', '/admin/tokens/tok_none/revoke'),
+  ui('GET', '/admin/users'),
+  ui('GET', '/admin/users/new'),
+  ui('POST', '/admin/users'),
+  ui('GET', '/admin/users/:id', '/admin/users/usr_none'),
+  ui('POST', '/admin/users/:id', '/admin/users/usr_none'),
+  ui('POST', '/admin/users/:id/disable', '/admin/users/usr_none/disable'),
+  ui('POST', '/admin/users/:id/enable', '/admin/users/usr_none/enable'),
+  ui('POST', '/admin/users/:id/signout', '/admin/users/usr_none/signout'),
   // Not a registered route: the signed-in 404 page of the UI catch-all (`ALL /admin/*`).
   { method: 'GET', pattern: '/admin/*', path: '/admin/no-such-page' },
 ];

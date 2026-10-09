@@ -2,27 +2,33 @@
 // The `/admin` sub-app (P4-03). Mounted by `@relic-bridge/http-app` at `/admin` whenever sign-in is configured.
 //
 //   GET /admin                     overview (any signed-in role)
+//   /admin/credentials, /admin/projects, /admin/grants, /admin/tokens, /admin/users   P4-04 screens (admin, owner)
 //   GET /admin/assets/:file        static assets (public, hashed names, immutable)
 //   ALL /admin/*                   signed-in 404 page (everyone else: sign-in redirect)
 //
 // Screens (P4-04+) register their routes in `registerScreens` with `kit.page` / `kit.form`.
-import { type Context, Hono } from 'hono';
+import { Hono } from 'hono';
 import { ASSET_CACHE_CONTROL, findAsset } from './assets.ts';
-import { type AdminUiDeps, createUiKit, type UiKit } from './kit.ts';
+import { type AdminUiDeps, createUiKit, requestIdOf, type UiKit } from './kit.ts';
 import { errorPage } from './pages.tsx';
+import { registerCredentials } from './screens/credentials.tsx';
+import { registerGrants } from './screens/grants.tsx';
 import { registerOverview } from './screens/overview.tsx';
+import { registerProjects } from './screens/projects.tsx';
+import { registerTokens } from './screens/tokens.tsx';
+import { registerUsers } from './screens/users.tsx';
 
 /** Where the UI is mounted. */
 export const ADMIN_UI_BASE: '/admin' = '/admin';
 
-const requestIdOf = (c: Context): string | undefined => {
-  const id = c.get('requestId') as unknown;
-  return typeof id === 'string' ? id : undefined;
-};
-
 /** Every screen's routes. Add new screens here, before the catch-all. */
 function registerScreens(ui: Hono, kit: UiKit): void {
   registerOverview(ui, kit);
+  registerCredentials(ui, kit);
+  registerProjects(ui, kit);
+  registerGrants(ui, kit);
+  registerTokens(ui, kit);
+  registerUsers(ui, kit);
 }
 
 export function createAdminUi(deps: AdminUiDeps): Hono {

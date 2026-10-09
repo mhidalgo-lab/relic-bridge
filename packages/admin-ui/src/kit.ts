@@ -40,8 +40,24 @@ export interface AdminCallResult {
   readonly body: unknown;
 }
 
+/** One tool of the catalogue, as the project and grant screens list it (P4-04). */
+export interface UiTool {
+  readonly name: string;
+  readonly title: string;
+  /** Catalogue group (`query`, `entities`, …): the checklist is grouped by it. */
+  readonly group: string;
+  /** `read` tools have no side effects in New Relic; `write` and `destructive` ones do. */
+  readonly kind: 'read' | 'write' | 'destructive';
+}
+
 /** What the admin UI needs from the server (`@relic-bridge/http-app` provides it from the P4-02 sessions). */
 export interface AdminUiDeps {
+  /** Every built-in tool (projects and grants choose from it). Default: none (tool lists are then all-or-nothing). */
+  readonly tools?: readonly UiTool[];
+  /** `RB_PUBLIC_URL`, to show full MCP endpoint URLs. Without it, pages show paths. */
+  readonly publicUrl?: string;
+  /** The server clock (epoch ms) for "expired" labels. Default `Date.now`. */
+  readonly now?: () => number;
   /** https public URL: `__Host-` cookie names and `Secure`. */
   readonly secureCookies: boolean;
   /** Load and check the admin session of this request. Never looks at `Authorization`. */
@@ -167,7 +183,7 @@ async function readCapped(request: Request, max: number): Promise<string | null>
   return new TextDecoder().decode(all);
 }
 
-const requestIdOf = (c: Context): string | undefined => {
+export const requestIdOf = (c: Context): string | undefined => {
   const id = c.get('requestId') as unknown;
   return typeof id === 'string' ? id : undefined;
 };

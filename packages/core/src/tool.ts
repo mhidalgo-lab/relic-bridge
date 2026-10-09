@@ -68,6 +68,12 @@ export interface ToolDefinition<I extends InputSchema = InputSchema, O = unknown
    * offered on the connection. Never changes the result itself.
    */
   readonly ui?: { readonly resourceUri: string };
+  /**
+   * For composite tools (P6-25): the sibling tools it calls for its sections. A grant does not imply them (least
+   * privilege, T3): a section whose tool the connection lacks comes back `skipped`. The admin UI and `POST /grants` read
+   * this to warn at grant time; a test keeps it in step with the `grantedSibling` calls.
+   */
+  readonly siblingTools?: readonly string[];
   readonly handler: (input: z.infer<I>, ctx: ToolContext) => Promise<ToolOutput<O>>;
   /**
    * One step of a task this tool created (P7-13), run inside a `tasks/get` request with that request's context. The
@@ -98,4 +104,35 @@ export function annotationsFor(
     idempotentHint: def.kind === 'read' || def.idempotent === true,
     openWorldHint: def.openWorld,
   };
+}
+
+/** Composite tool name to the sibling tools it calls (from `ToolDefinition.siblingTools`); tools without any are left out. */
+export function compositeSiblings(
+  tools: readonly Pick<ToolDefinition, 'name' | 'siblingTools'>[],
+): Readonly<Record<string, readonly string[]>> {
+  const out: Record<string, readonly string[]> = {};
+  for (const t of tools)
+    if (t.siblingTools !== undefined && t.siblingTools.length > 0) out[t.name] = t.siblingTools;
+  return Object.freeze(out);
+}
+
+/**
+ * Warnings for a grant's tool list: each composite it names whose siblings it does not (P6-25). `null` (every read tool)
+ * lacks none. Informational only: authorization is unchanged.
+ */
+export function siblingWarnings(
+  siblings: Readonly<Record<string, readonly string[]>>,
+  tools: readonly string[] | null,
+): string[] {
+  if (tools === null) return [];
+  const out: string[] = [];
+  for (const name of tools) {
+    const missing = (siblings[name] ?? []).filter((s) => !tools.includes(s));
+    if (missing.length > 0) {
+      out.push(
+        `${name} calls tools this grant does not include (those sections come back skipped): ${missing.join(', ')}`,
+      );
+    }
+  }
+  return out;
 }

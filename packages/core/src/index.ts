@@ -121,8 +121,10 @@ export {
 export * from './time/index.ts';
 export {
   annotationsFor,
+  compositeSiblings,
   defineTool,
   type InputSchema,
+  siblingWarnings,
   type ToolDefinition,
   type ToolKind,
   type ToolOutput,

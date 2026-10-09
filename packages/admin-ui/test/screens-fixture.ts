@@ -9,6 +9,13 @@ export const TOOLS: readonly UiTool[] = [
   { name: 'get_query_result', title: 'Get a query result', group: 'query', kind: 'read' },
   { name: 'whoami', title: 'Who am I', group: 'identity', kind: 'read' },
   { name: 'list_accounts', title: 'List accounts', group: 'identity', kind: 'read' },
+  {
+    name: 'entity_health',
+    title: 'Check entity health',
+    group: 'incident-response',
+    kind: 'read',
+    siblings: ['whoami', 'list_accounts'],
+  },
   { name: 'create_change_event', title: 'Record a deployment', group: 'changes', kind: 'write' },
 ];
 

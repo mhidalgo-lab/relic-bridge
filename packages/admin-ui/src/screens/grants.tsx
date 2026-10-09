@@ -74,6 +74,7 @@ import {
   problemOf,
   RowAction,
   StatusBadge,
+  siblingNotes,
   ToolChecklist,
   toolsFrom,
   When,
@@ -564,7 +565,8 @@ export function registerGrants(ui: Hono, kit: UiKit): void {
         const warnings = (res.body as { warnings?: unknown } | null)?.warnings;
         const noted =
           (Array.isArray(warnings) && warnings.length > 0) ||
-          limitNotes(values.limits, project.limits).length > 0;
+          limitNotes(values.limits, project.limits).length > 0 ||
+          siblingNotes(values.tools, catalog).length > 0;
         return kit.redirect(
           grant ? `${BASE}${adminPath`/${grant.id}`}` : BASE,
           noted ? 'created_with_notes' : 'created',
@@ -628,6 +630,10 @@ export function registerGrants(ui: Hono, kit: UiKit): void {
           flash={page.flash}
         >
           {project === null ? null : <Notes title="Parts with no effect" items={noEffect(grant, project)} />}
+          <Notes
+            title="Composite tools without their sibling tools"
+            items={siblingNotes(grant.tools, catalog)}
+          />
           <section class="card" aria-labelledby="facts-heading">
             <h2 id="facts-heading">Summary</h2>
             <Facts

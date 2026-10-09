@@ -249,6 +249,24 @@ export function Notes(props: {
   );
 }
 
+/**
+ * Composites in a tool list whose sibling tools are not in it (P6-25): the grant stores fine, but those sections come
+ * back skipped. `null` (every tool the project enables) lacks none.
+ */
+export function siblingNotes(selected: readonly string[] | null, tools: readonly UiTool[]): string[] {
+  if (selected === null) return [];
+  const out: string[] = [];
+  for (const name of selected) {
+    const missing = (tools.find((t) => t.name === name)?.siblings ?? []).filter((s) => !selected.includes(s));
+    if (missing.length > 0) {
+      out.push(
+        `${name} calls tools this grant does not include (those sections come back skipped): ${missing.join(', ')}.`,
+      );
+    }
+  }
+  return out;
+}
+
 /** A point in time, or a dash. */
 export function When(props: { readonly at: number | null; readonly none?: string }): JSX.Element {
   return props.at === null ? <span>{props.none ?? '—'}</span> : <Time at={props.at} />;
@@ -347,6 +365,13 @@ export function ToolChecklist(props: ToolChecklistProps): JSX.Element {
                   <>
                     {t.title} <code>{t.name}</code> <Badge tone={KIND_TONE[t.kind]}>{t.kind}</Badge>
                     {props.outside?.has(t.name) ? <Badge tone="muted">not on the project</Badge> : null}
+                    {t.siblings === undefined || t.siblings.length === 0 ? null : (
+                      <span class="hint">
+                        {' '}
+                        Runs these tools for its sections; ticking it does not grant them, and a section whose
+                        tool is not granted comes back skipped: {t.siblings.join(', ')}.
+                      </span>
+                    )}
                   </>
                 }
               />

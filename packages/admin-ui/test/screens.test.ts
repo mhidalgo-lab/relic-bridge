@@ -143,6 +143,44 @@ describe('screen pages', () => {
     expect(html).toContain('>expired<');
   });
 
+  it('a grant warns when a composite tool lacks its siblings, and not once they are granted (P6-25)', async () => {
+    const grantWith = (tools: string[] | null) =>
+      setup((call) =>
+        call.method === 'GET' && call.path === '/grants/grt_me'
+          ? { status: 200, body: { data: { ...sample().grants[0], tools } } }
+          : undefined,
+      ).app;
+    const note = 'entity_health calls tools this grant does not include';
+    const missing = await get(grantWith(['entity_health', 'whoami']), '/admin/grants/grt_me');
+    expect(missing.html).toContain(note);
+    expect(missing.html).toContain('list_accounts');
+    for (const tools of [['entity_health', 'whoami', 'list_accounts'], null]) {
+      expect((await get(grantWith(tools), '/admin/grants/grt_me')).html).not.toContain(note);
+    }
+  });
+
+  it('the tool checklist says which tools a composite runs (P6-25)', async () => {
+    const { html } = await get(setup().app, '/admin/grants/new?project=prj_us');
+    expect(html).toContain('does not grant them');
+    expect(html).toMatch(/entity_health.*whoami, list_accounts/s);
+  });
+
+  it('creating a grant for a composite without its siblings redirects with the notes flash (P6-25)', async () => {
+    const { app } = setup((call) =>
+      call.method === 'POST' ? { status: 201, body: { data: sample().grants[0], warnings: [] } } : undefined,
+    );
+    const { res } = await post(app, '/admin/grants', {
+      projectId: 'prj_us',
+      userId: 'service',
+      label: 'ci',
+      credentialId: '',
+      tools: ['entity_health'],
+      accounts_all: 'on',
+      expires_days: '30',
+    });
+    expect(res.headers.get('set-cookie')).toMatch(/^rb_flash=created_with_notes;/);
+  });
+
   it('warns on the project page only when the default key is personal (P4-18)', async () => {
     const warning = 'The default key is personal';
     expect((await get(setup().app, '/admin/projects/prj_us')).html).not.toContain(warning);

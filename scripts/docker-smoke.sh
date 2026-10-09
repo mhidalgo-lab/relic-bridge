@@ -31,11 +31,6 @@ cleanup() {
   if [[ "$status" -ne 0 ]]; then
     echo "--- logs of the NerdGraph stand-in ($fake) ---" >&2
     docker logs "$fake" >&2 2>&1 || true
-    docker inspect --format '{{.State.Status}} {{.NetworkSettings.Networks}}' "$fake" >&2 2>&1 || true
-    openssl x509 -in "$certs/cert.pem" -noout -subject -fingerprint -sha256 >&2 2>&1 || true
-    openssl version >&2
-    echo "--- diagnostics ---" >&2
-    docker exec "$name" /nodejs/bin/node -e "require('dns').lookup('api.newrelic.com',(e,a)=>console.log('dns',e&&e.code,a)); const c=require('tls').connect({host:'api.newrelic.com',port:443,rejectUnauthorized:false},()=>{const x=c.getPeerCertificate();console.log('peer',x.subject,x.issuer,x.fingerprint256);c.end()});c.on('error',e=>console.log('tls err',e.message));console.log(require('fs').readdirSync('/data'), process.env.NODE_EXTRA_CA_CERTS); fetch('https://api.newrelic.com/').then(r=>console.log('status',r.status),e=>console.log('fetch failed',e.cause||e))" >&2 2>&1 || true
     echo "--- logs of the image under test ($name) ---" >&2
     docker logs "$name" >&2 2>&1 || true
   fi
@@ -50,8 +45,20 @@ key="$(docker run --rm "$image" keys generate 2>/dev/null)"
 [[ -n "$key" ]] || { echo "could not generate a master key" >&2; exit 1; }
 
 # A throwaway self-signed certificate for api.newrelic.com, trusted by the image under test as an extra CA.
-openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj '/CN=api.newrelic.com' \
-  -addext 'subjectAltName=DNS:api.newrelic.com' -addext 'basicConstraints=critical,CA:TRUE' \
+# An explicit config: OpenSSL 1.1.1 appends -addext extensions to its default CA ones, which makes duplicates that
+# Node refuses.
+cat > "$certs/openssl.cnf" <<'CNF'
+[req]
+distinguished_name = dn
+x509_extensions = ext
+prompt = no
+[dn]
+CN = api.newrelic.com
+[ext]
+subjectAltName = DNS:api.newrelic.com
+basicConstraints = critical,CA:TRUE
+CNF
+openssl req -x509 -newkey rsa:2048 -nodes -days 1 -config "$certs/openssl.cnf" \
   -keyout "$certs/key.pem" -out "$certs/cert.pem" >/dev/null 2>&1
 chmod 0755 "$certs"; chmod 0644 "$certs"/*.pem
 

@@ -2,12 +2,17 @@
 
 Self-hosted mode (Phase 2) serves MCP over HTTP to your other devices with `relic-bridge serve`, and keeps projects,
 encrypted credentials, grants, device tokens, the audit log and OAuth state in one SQLite file. The Docker image is
-described [below](#docker); the multi-device walkthrough is added by P2-13.
+described [below](#docker). For a complete walkthrough (server, one token per device, revoking a lost one) read the
+[multi-device guide](multi-device.md).
 
 stdio mode does not use a database: it reads `relic-bridge.yaml` or environment variables
 ([configuration](configuration.md)).
 
 ## Run the server
+
+> **TLS for anything beyond this machine.** The server speaks plain HTTP. Bind it to loopback and put a TLS reverse
+> proxy in front, or keep it on your machine: device tokens and query results must never cross a network unencrypted
+> (this includes a home LAN). [multi-device guide](multi-device.md#tls-is-required).
 
 ```bash
 export RB_MASTER_KEY_FILE=~/.config/relic-bridge/master.key   # 0600; see secrets.md
@@ -28,6 +33,9 @@ relic-bridge serve --port 9000 --db /var/lib/relic-bridge/relic-bridge.db
   **and** list the hostnames clients use, so requests for any other `Host` are refused (DNS rebinding protection):
   `RB_HOST=0.0.0.0 RB_ALLOWED_HOSTS=mcp.example.com relic-bridge serve`. Put it behind a TLS reverse proxy before it
   leaves your LAN, and set `RB_HSTS=true` there.
+- **As a service**: run `relic-bridge serve` under systemd (unit example in the
+  [multi-device guide](multi-device.md#option-b-node-and-a-service)), launchd or a Windows service manager, as a
+  dedicated unprivileged user that owns the data directory and the key file.
 - `GET /health` answers `{"status":"ok"}` (for health checks; it reveals nothing else). `GET /version` names the
   version.
 

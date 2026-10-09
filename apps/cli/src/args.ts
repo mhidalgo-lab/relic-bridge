@@ -234,7 +234,7 @@ Options:
                      Optional when the file has a single project.
   --db <path>        SQLite database (or RB_DB_PATH). serve defaults to
                      <data dir>/relic-bridge.db (RB_DATA_DIR, else ~/.local/share/relic-bridge,
-                     ~/Library/Application Support/relic-bridge or %LOCALAPPDATA%\relic-bridge).
+                     ~/Library/Application Support/relic-bridge or %LOCALAPPDATA%\\relic-bridge).
   --port <n>         serve: TCP port (or RB_PORT; default 8787, 0 = any free port).
   --host <addr>      serve: address to bind (or RB_HOST; default 127.0.0.1). A non-loopback
                      address also needs RB_ALLOWED_HOSTS.

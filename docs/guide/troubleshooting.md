@@ -40,8 +40,42 @@ Tool errors carry a stable code and usually a hint.
 | `RB_NERDGRAPH_UNAVAILABLE` | New Relic had a server or network error. | Retry shortly; check New Relic's status page. |
 | `RB_BUDGET_EXHAUSTED` | One tool call needed too many NerdGraph requests (limit 1000). | Ask for a narrower request. |
 | `RB_NERDGRAPH_ERROR` | NerdGraph returned another error; the (redacted) message is included. | Read the message; for NRQL errors, correct the query. |
-| `RB_AUTH_UNAUTHORIZED`, `RB_LIMIT_RATE` | Reserved for the hosted modes (tokens, OAuth, per-token rate limits). v0.1 stdio never returns them. | Not applicable in v0.1. |
+| `RB_AUTH_UNAUTHORIZED`, `RB_LIMIT_RATE` | Used by the hosted modes (tokens, rate limits). stdio never returns them. | See [hosted server](#hosted-self-hosted-server) above. |
 | `RB_INTERNAL` | A bug. The message includes a reference, and details are in the stderr log. | Report an issue with the log line (check it for secrets first). |
+
+## Hosted (self-hosted server)
+
+For `relic-bridge serve` ([self-hosting](self-hosting.md), [multi-device setup](multi-device.md)). The server's log
+names the reason for every refusal (`"deny":"…"`); the client only ever sees a generic answer.
+
+**The server won't start** (the error is one JSON line on stderr, with a `hint`):
+
+| Message / `code` | Fix |
+|---|---|
+| `RB_MASTER_KEY is not set` (`master_key_missing`) | Set `RB_MASTER_KEY` or `RB_MASTER_KEY_FILE` ([secrets](secrets.md)). |
+| `RB_MASTER_KEY_FILE: … is readable by other users (mode 644)` | `chmod 600` the file (Docker: owned by uid `65532`, mode `0400`; see [self-hosting](self-hosting.md#docker)). |
+| `Binding 0.0.0.0 (not loopback) needs RB_ALLOWED_HOSTS` | List the hostnames clients use: `RB_ALLOWED_HOSTS=mcp.example.com`. |
+| `the master key given for version 1 does not match…` (`key_mismatch`) | Wrong key for this database. Restore the right key from your backup; a new key needs a new version (`keys generate --key-version 2`, then [rotate](secrets.md#rotate-the-key)). |
+| `key_version_retired` | The key's version is older than one the database already uses: start with the current key. |
+| `Cannot listen on 127.0.0.1:8787 (EADDRINUSE)` | Another process uses the port: `--port`. |
+| `Database not found` (a management command) | The database is created by `init` or the first `serve`; check `--db` / `RB_DB_PATH` / `RB_DATA_DIR`. |
+
+**A client can't connect:**
+
+| Answer | Cause and fix |
+|---|---|
+| `401` (`WWW-Authenticate: Bearer`) | Missing or malformed token (`malformed`), unknown, `revoked`, `expired`, a token for another project's URL, a disabled project or user, or an unusable New Relic key. The log line says which. Create a new token if needed; `relic-bridge credential list` shows keys marked `invalid`. In Claude Code an unset `${RELIC_BRIDGE_TOKEN}` stays literal and is `malformed`. |
+| `403 forbidden_host` | The `Host` is not in `RB_ALLOWED_HOSTS` (the name in the URL, or the proxy forwards another host). |
+| `403 forbidden_origin` | A browser `Origin` that is not allowed: `RB_ALLOWED_ORIGINS` / `RB_CORS_ORIGINS`. |
+| `403 tls_required` | Pass-through route only: reach it over https. |
+| `404` on `/passthrough/mcp` | Pass-through is off: `RB_PASSTHROUGH=on`. |
+| `413`, `400` | Body over 1 MiB, or a JSON-RPC batch (one message per request). |
+| `429` | A rate limit (`Retry-After` says when). Behind a proxy set `RB_TRUSTED_PROXY_HOPS`, or every client shares the proxy's address. Failed authentications are limited per address and block valid tokens from it too until the bucket refills. |
+| `503` | Storage error (fail closed), or New Relic unreachable on pass-through. See the server log. |
+| TLS or certificate errors | The reverse proxy, not relic-bridge: check DNS and ports 80/443. |
+
+A revoked or newly created token, grant or project takes effect within `RB_ACCESS_CACHE_TTL` seconds (default 30) on
+a running server, immediately when changed with `--remote`.
 
 ## Empty or surprising results
 

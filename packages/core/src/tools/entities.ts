@@ -585,10 +585,13 @@ export function createEntityTools(deps: ToolDeps = {}): ToolDefinition[] {
     handler: async (input, ctx) => {
       const d = decodeEntityGuid(input.guid);
       const allowed = ctx.accounts.allowed.includes(d.accountId);
+      // The domain id is free text from the guid, and a guid can come from telemetry: keep it in the envelope (T6).
       return {
-        text:
+        text: [
           `Account ${d.accountId} (${allowed ? 'available on this connection' : 'NOT available on this connection'}), ` +
-          `domain ${d.domain}, type ${d.type}, domain id ${d.domainId}.`,
+            `domain ${d.domain}, type ${d.type}.`,
+          envelope(`domain id: ${d.domainId}`, { source: 'Entity guid' }),
+        ].join('\n'),
         structured: { ...d, allowed },
       };
     },

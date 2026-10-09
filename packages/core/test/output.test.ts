@@ -285,6 +285,16 @@ describe('secret redaction in data', () => {
     expect(JSON.stringify(out.rows)).not.toContain('NRAK-ABCDEFGH');
     expect(shapeRows(rows, { redactSecrets: false }).text).toContain('NRAK-ABCDEFGH');
   });
+
+  it('redacts secret-shaped column names too (review P1-R)', () => {
+    const rows = [{ 'NRAK-ABCDEFGHIJKLMNOPQRSTUVWXYZ0': 1 }];
+    for (const format of ['table', 'csv', 'json'] as const) {
+      const out = shapeRows(rows, { format });
+      expect(out.text).not.toContain('NRAK-ABCDEFGH');
+      expect(out.columns.join()).not.toContain('NRAK-ABCDEFGH');
+      expect(JSON.stringify(out.rows)).not.toContain('NRAK-ABCDEFGH');
+    }
+  });
 });
 
 describe('compaction helpers', () => {

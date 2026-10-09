@@ -248,7 +248,12 @@ function pending(container: NrdbContainer, account: number, polls: number): Nrql
     queryId: p.queryId,
     account,
     retryAfterS: Math.max(MIN_POLL_WAIT_S, Math.ceil(p.retryAfter ?? MIN_POLL_WAIT_S)),
-    ...(p.resultExpiration ? { expiresAt: new Date(p.resultExpiration).toISOString() } : {}),
+    // Ignore an unreadable expiration rather than failing the whole call with RB_INTERNAL.
+    ...(typeof p.resultExpiration === 'number' &&
+    Number.isFinite(p.resultExpiration) &&
+    Math.abs(p.resultExpiration) < 8.64e15
+      ? { expiresAt: new Date(p.resultExpiration).toISOString() }
+      : {}),
     polls,
     notes: [],
   };

@@ -151,6 +151,18 @@ const aiIncident = (accountIds: number[], title: string, guid: string) => ({
   entityNames: title,
 });
 
+const errorGroup = (guid: string | null, name: string) => ({
+  id: `eg-${name}`,
+  name,
+  message: 'boom',
+  state: 'UNRESOLVED',
+  issueType: 'ERROR',
+  entityGuid: guid,
+  firstSeenAt: 1790338648000,
+  lastSeenAt: 1790338700000,
+  occurrences: { totalCount: 3, firstSeenAt: 1790338648000, lastSeenAt: 1790338700000 },
+});
+
 /** `tenants`: API key → label shown in that tenant's replies. Unknown keys get an authentication error. */
 export function hostileNerdGraph(tenants: Readonly<Record<string, string>>): HostileNerdGraph {
   const calls: NerdGraphCall[] = [];
@@ -278,6 +290,26 @@ export function hostileNerdGraph(tenants: Readonly<Record<string, string>>): Hos
                       },
                     ],
                   },
+                },
+              },
+            },
+          });
+        }
+        case 'RbErrorGroups': {
+          const filter = variables['filter'] as { accountIds: number[] };
+          const account = Number(filter.accountIds[0]);
+          return ok({
+            actor: {
+              errorsInbox: {
+                errorGroups: {
+                  nextCursor: null,
+                  totalCount: 4,
+                  results: [
+                    errorGroup(guidOf(account), `${label}-error`),
+                    errorGroup(guidOf(FOREIGN), `${LEAK}-error`),
+                    errorGroup(null, `${LEAK}-error-noguid`),
+                    errorGroup('not-a-guid', `${LEAK}-error-badguid`),
+                  ],
                 },
               },
             },

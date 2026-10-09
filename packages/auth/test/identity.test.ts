@@ -30,6 +30,7 @@ import {
   startLogin,
   type VerifiedIdentity,
 } from '../src/identity/index.ts';
+import { runLoginRace } from './login-race.ts';
 import {
   CF_AUD,
   CF_TEAM,
@@ -582,6 +583,16 @@ describe('login transactions', () => {
   });
 });
 
+describe('first sign-in race (memory)', () => {
+  runLoginRace({
+    name: 'memory',
+    open: async () => {
+      const s = createMemoryStorage();
+      return { a: s, b: s, close: () => s.close() };
+    },
+  });
+});
+
 describe('sign-in policy', () => {
   let storage: Storage;
   const policy = (over: Partial<LoginPolicy> = {}): LoginPolicy => ({
@@ -643,7 +654,7 @@ describe('sign-in policy', () => {
     await storage.users.create({
       id: 'usr_1',
       email: 'owner@example.com',
-      role: 'owner',
+      role: 'admin',
       idp: 'google',
       idpSubject: 'g-1',
     });
@@ -680,6 +691,41 @@ describe('sign-in policy', () => {
       },
     );
     expect(p.ok && p.user.role).toBe('owner');
+    // P4-16: the role it had before is reported for the audit row; a new owner has none.
+    expect(p.ok && p.previousRole).toBe('member');
+    expect(r.ok && 'previousRole' in r).toBe(false);
+  });
+
+  it('refuses a first sign-in whose binding lost a race, instead of binding twice (P4-16)', async () => {
+    await storage.users.create({ id: 'usr_1', email: 'owner@example.com', role: 'member' });
+    // Another sign-in binds the row between this one's read and its write.
+    const users = {
+      ...storage.users,
+      getByEmail: async (email: string) => {
+        const row = await storage.users.getByEmail(email);
+        await storage.users.bind('usr_1', 'github', '42');
+        return row;
+      },
+    };
+    expect(await resolveLoginUser(users, who(), policy())).toEqual({
+      ok: false,
+      reason: 'identity_conflict',
+    });
+    expect(await storage.users.get('usr_1')).toMatchObject({ idp: 'github', idpSubject: '42' });
+    // Disabled between the read and the write: not bound either.
+    await storage.users.create({ id: 'usr_2', email: 'two@example.com', role: 'member' });
+    const disabling = {
+      ...storage.users,
+      getByEmail: async (email: string) => {
+        const row = await storage.users.getByEmail(email);
+        await storage.users.update('usr_2', { disabledAt: 1 });
+        return row;
+      },
+    };
+    expect(
+      await resolveLoginUser(disabling, who({ subject: 'g-2', email: 'two@example.com' }), policy()),
+    ).toEqual({ ok: false, reason: 'identity_conflict' });
+    expect((await storage.users.get('usr_2'))?.idp).toBeNull();
   });
 });
 

@@ -416,3 +416,22 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   sessions per user are unbounded.
 - **Assumption made:** tasks P4-16 (last-owner guard, atomic binding) and P4-17 (session cap, batched revoke).
 - **Needs:** owner: the session cap value (20 proposed).
+
+## P4-16 — Atomic binding and last owner
+
+### P4-16 — No CLI command to change a role or disable a user
+- **Context:** The task asks the CLI to refuse leaving zero enabled owners. The CLI has no role-change or disable
+  command (P2-10 left user disable to the Admin API), so there is nothing to refuse there.
+- **Assumption made:** The guard lives in storage (`users.update`), so every path, including any future CLI command and
+  local mode (which runs the admin handlers in-process), gets the same `409 last_owner`. No CLI command was added.
+- **Options:** (a) keep it; (b) add `relic-bridge user update <id> [--role] [--disable|--enable] [--name]` as a new task.
+- **Needs:** owner choice.
+
+### P4-16 — The audit identity hash is keyed by the current master key
+- **Context:** `login.*` rows carry `identityHash`, an HMAC keyed by a key derived from the current master key version.
+- **Assumption made:** Rotating the master key changes every hash (the `v<N>.` prefix says which compare). No separate
+  secret was added, so nothing new to provision on `serve` or the Worker.
+- **Options:** (a) keep it; (b) a dedicated `RB_AUDIT_HASH_KEY` secret that survives master-key rotation (one more secret
+  to manage and back up).
+- **Needs:** owner choice; (a) is fine unless long-lived correlation across rotations matters.
+

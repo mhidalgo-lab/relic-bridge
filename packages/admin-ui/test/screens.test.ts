@@ -2,7 +2,7 @@
 // The P4-04 screens against a scripted admin API: what each page asks for, what it shows, what each form sends, role
 // gating, confirmations, error mapping, escaping, and that secrets never come back (keys) or come back once (tokens).
 import { describe, expect, it } from 'vitest';
-import type { AdminCall, AdminCallResult } from '../src/index.ts';
+import { type AdminCall, type AdminCallResult, FLASH_MESSAGES } from '../src/index.ts';
 import { type Fake, fakeDeps, ONCE_HANDLE, ORIGIN, same, T, uiApp } from './fixtures.ts';
 import { sample, scriptedApi, TOOLS } from './screens-fixture.ts';
 
@@ -718,6 +718,31 @@ describe('users', () => {
     const { res } = await post(app, '/admin/users/usr_owner', { displayName: 'x' });
     expect(res.headers.get('location')).toBe('/admin/users/usr_owner');
     expect(res.headers.get('set-cookie')).toMatch(/^rb_flash=not_allowed;/);
+  });
+
+  it('the last enabled owner: the role form and disable say so (P4-16)', async () => {
+    const lastOwner = {
+      status: 409,
+      body: {
+        error: {
+          code: 'conflict',
+          message: 'the last enabled owner cannot be demoted or disabled',
+          detail: 'last_owner',
+        },
+      },
+    };
+    const { app } = setup((call) => (call.method === 'PATCH' ? lastOwner : undefined));
+    const demote = await post(
+      app,
+      '/admin/users/usr_owner',
+      { displayName: 'Owner', role: 'admin' },
+      'owner',
+    );
+    expect(demote.res.headers.get('location')).toBe('/admin/users/usr_owner');
+    expect(demote.res.headers.get('set-cookie')).toMatch(/^rb_flash=last_owner;/);
+    const disable = await post(app, '/admin/users/usr_owner/disable', { confirm: 'yes' }, 'owner');
+    expect(disable.res.headers.get('set-cookie')).toMatch(/^rb_flash=last_owner;/);
+    expect(FLASH_MESSAGES.last_owner.text).toContain('last enabled owner');
   });
 });
 

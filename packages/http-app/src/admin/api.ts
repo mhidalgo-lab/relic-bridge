@@ -399,6 +399,8 @@ const routes = {
     path: '/users/{id}',
     tags: ['users'],
     summary: 'Update or disable a user',
+    description:
+      'Demoting or disabling the last enabled owner is refused with `409 conflict`, `detail: last_owner` (P4-16).',
     request: { params: S.IdParam, ...BODY(S.UpdateUserBody) },
     responses: { 200: json(S.UserOne, 'Updated'), ...errors(404, 409, 413, 415) },
   }),

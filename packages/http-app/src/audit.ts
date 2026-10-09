@@ -386,6 +386,8 @@ export function createAuditRecorder(options: AuditRecorderOptions): AuditRecorde
         details: {
           idp: event.idp,
           ...(event.outcome ? { outcome: event.outcome } : {}),
+          ...(event.identityHash ? { identityHash: event.identityHash } : {}),
+          ...(event.previousRole ? { previousRole: event.previousRole } : {}),
           ...ipDetails(c),
         },
       };

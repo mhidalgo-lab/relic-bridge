@@ -821,6 +821,7 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
         clock,
         logger,
         runInBackground,
+        identityHash: (idp, subject) => options.keyring.identityHash(idp, subject),
         ...(sessions ? { sessions } : {}),
         ...(hooks.beforeAuth
           ? {

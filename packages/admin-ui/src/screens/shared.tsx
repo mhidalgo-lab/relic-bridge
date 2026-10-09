@@ -71,6 +71,7 @@ export function flashFor(problem: ApiProblem): FlashCode {
   if (problem.status === 404) return 'not_found';
   if (problem.status === 403) return 'not_allowed';
   if (problem.code === 'read_only') return 'read_only';
+  if (problem.detail === 'last_owner') return 'last_owner';
   if (problem.status === 409) return 'changed_meanwhile';
   if (problem.status === 502) return 'key_check_failed';
   return 'failed';

@@ -9,7 +9,14 @@
 //    `owner`).
 // 4. A setup link (first-owner bootstrap, checked and consumed by the caller) makes the identity `owner`, skipping the
 //    allowlist but not 1-2's conflict and disabled checks.
-import { ConflictError, newId, type UserRecord, type UsersRepository } from '@relic-bridge/storage';
+import {
+  ConflictError,
+  newId,
+  type UserBindPatch,
+  type UserRecord,
+  type UserRole,
+  type UsersRepository,
+} from '@relic-bridge/storage';
 import type { VerifiedIdentity } from './types.ts';
 
 export type AutoProvision = 'off' | 'member' | 'admin';
@@ -58,7 +65,13 @@ export type LoginDenyReason =
 export type LoginOutcome = 'existing' | 'linked' | 'provisioned' | 'owner_bootstrap';
 
 export type LoginDecision =
-  | { readonly ok: true; readonly user: UserRecord; readonly outcome: LoginOutcome }
+  | {
+      readonly ok: true;
+      readonly user: UserRecord;
+      readonly outcome: LoginOutcome;
+      /** Set when a setup link made an existing user the owner: the role it had before (audited, P4-16). */
+      readonly previousRole?: UserRole;
+    }
   | { readonly ok: false; readonly reason: LoginDenyReason };
 
 export interface ResolveLoginOptions {
@@ -89,18 +102,27 @@ export async function resolveLoginUser(
 
   try {
     if (user !== null) {
-      const patch = {
-        ...(bound === null ? { idp: identity.idp, idpSubject: identity.subject } : {}),
+      const patch: UserBindPatch = {
         ...(user.displayName === null && identity.displayName !== null
           ? { displayName: identity.displayName }
           : {}),
         ...(options.ownerBootstrap && user.role !== 'owner' ? { role: 'owner' as const } : {}),
       };
-      const updated = Object.keys(patch).length > 0 ? await users.update(user.id, patch) : user;
+      let updated: UserRecord;
+      if (bound === null) {
+        // Compare-and-set (P4-16): only while the row is still unbound and enabled. A concurrent first sign-in with
+        // another identity that bound it first wins; this one is refused, never a second binding.
+        const linked = await users.bind(user.id, identity.idp, identity.subject, patch);
+        if (linked === null) return deny('identity_conflict');
+        updated = linked;
+      } else {
+        updated = Object.keys(patch).length > 0 ? await users.update(user.id, patch) : user;
+      }
       return {
         ok: true,
         user: updated,
         outcome: options.ownerBootstrap ? 'owner_bootstrap' : bound === null ? 'linked' : 'existing',
+        ...(options.ownerBootstrap ? { previousRole: user.role } : {}),
       };
     }
     if (options.ownerBootstrap) {

@@ -25,6 +25,7 @@ import {
   ConflictError,
   InvalidInputError,
   keyChangedError,
+  lastOwnerError,
   MigrationError,
   NotFoundError,
   StorageError,
@@ -54,6 +55,7 @@ import type {
   UserRecord,
   UsersRepository,
 } from './types.ts';
+import { lastOwnerGuardSql, UNBOUND_ENABLED_SQL } from './user-guards.ts';
 import {
   checkEncryptedKey,
   checkGrantPrincipal,
@@ -383,9 +385,39 @@ export async function createD1Storage(
           .set('role', patch.role === undefined ? undefined : checkRole(patch.role))
           .set('disabled_at', patch.disabledAt)
           .set('updated_at', now());
-        const r = await one(`UPDATE users SET ${a.sql} WHERE id = ? RETURNING *`, [...a.params, id]);
-        if (!r) throw new NotFoundError('user', id);
-        return userOf(r);
+        const role = patch.role === undefined ? undefined : checkRole(patch.role);
+        const guard = lastOwnerGuardSql(
+          role === undefined ? 'role' : '?',
+          patch.disabledAt === undefined ? 'disabled_at' : '?',
+        );
+        const guardParams = [
+          ...(role === undefined ? [] : [role]),
+          ...(patch.disabledAt === undefined ? [] : [patch.disabledAt]),
+        ];
+        const r = await one(`UPDATE users SET ${a.sql} WHERE id = ? AND ${guard} RETURNING *`, [
+          ...a.params,
+          id,
+          ...guardParams,
+        ]);
+        if (r) return userOf(r);
+        // Nothing written: the row is gone, or the guard held it back (one statement, so no partial write).
+        if ((await one('SELECT id FROM users WHERE id = ?', [id])) === null)
+          throw new NotFoundError('user', id);
+        throw lastOwnerError();
+      }),
+    bind: (id, idp, idpSubject, patch = {}) =>
+      call(async () => {
+        const a = new Assignments()
+          .set('idp', idp)
+          .set('idp_subject', idpSubject)
+          .set('display_name', patch.displayName)
+          .set('role', patch.role === undefined ? undefined : checkRole(patch.role))
+          .set('updated_at', now());
+        const r = await one(`UPDATE users SET ${a.sql} WHERE id = ? AND ${UNBOUND_ENABLED_SQL} RETURNING *`, [
+          ...a.params,
+          id,
+        ]);
+        return r ? userOf(r) : null;
       }),
   };
 

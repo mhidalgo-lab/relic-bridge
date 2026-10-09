@@ -52,6 +52,8 @@ beforeEach(async () => {
   validate = fakeValidator(world);
   await storage.users.create({ id: 'usr_a', email: 'a@example.com', role: 'owner' });
   await storage.users.create({ id: 'usr_b', email: 'b@example.com', role: 'member' });
+  // A second owner, so tests may disable usr_a (the last enabled owner cannot be disabled, P4-16).
+  await storage.users.create({ id: 'usr_root', email: 'root@example.com', role: 'owner' });
 });
 
 const deps = () => ({ storage, keyring, validate, clock });

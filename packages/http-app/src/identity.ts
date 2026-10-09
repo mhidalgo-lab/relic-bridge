@@ -31,7 +31,7 @@ import {
   type VerifiedIdentity,
 } from '@relic-bridge/auth';
 import type { Clock, Logger } from '@relic-bridge/core';
-import type { Storage, UserRecord } from '@relic-bridge/storage';
+import type { Storage, UserRecord, UserRole } from '@relic-bridge/storage';
 import { type Context, Hono } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import type { AdminAuditEvent } from './audit.ts';
@@ -64,6 +64,13 @@ export interface LoginAuditEvent {
   /** Stable deny reason (`IdentityErrorCode` or `LoginDenyReason`). */
   readonly reason?: string | null;
   readonly outcome?: LoginOutcome | null;
+  /**
+   * Keyed hash of `(idp, subject)` (`Keyring.identityHash`, P4-16) once the provider verified an identity: correlates
+   * repeated attempts by one identity. Never the subject or the email.
+   */
+  readonly identityHash?: string | null;
+  /** A setup link made an existing user the owner: the role it had before. */
+  readonly previousRole?: UserRole | null;
 }
 
 export interface IdentityOptions {
@@ -96,6 +103,8 @@ export interface IdentityRouteDeps {
   readonly runInBackground: (c: Context, task: Promise<unknown>, what: string) => void;
   /** Admin sessions (P4-02): the default `onLogin` and `POST /logout`. */
   readonly sessions?: SessionManager;
+  /** Keyed identity hash for sign-in audit rows (P4-16; `keyring.identityHash`). Omit to record none. */
+  readonly identityHash?: (idp: string, subject: string) => Promise<string>;
 }
 
 /** Largest logout form body (it carries a CSRF token and a flag). */
@@ -200,9 +209,10 @@ export function createIdentityRoutes(
     idp: string | null,
     reason: IdentityErrorCode | string,
     extra: Record<string, string> = {},
+    identityHash: string | null = null,
   ): Response => {
     (c.get('log') as Record<string, unknown>)['deny'] = reason;
-    audit(c, { status: 'denied', provider, idp, reason });
+    audit(c, { status: 'denied', provider, idp, reason, ...(identityHash === null ? {} : { identityHash }) });
     const status = FAILURE_STATUS[reason] ?? 403;
     const text =
       status === 400
@@ -219,6 +229,17 @@ export function createIdentityRoutes(
     });
   };
 
+  /** The keyed identity hash, or null (not configured, or the keyring failed: the row is still written). */
+  const hashIdentity = async (identity: VerifiedIdentity): Promise<string | null> => {
+    if (deps.identityHash === undefined) return null;
+    try {
+      return await deps.identityHash(identity.idp, identity.subject);
+    } catch {
+      deps.logger.warn('identity hash failed', { event: 'login_identity_hash_failed' });
+      return null;
+    }
+  };
+
   /** Shared tail of both login kinds: setup link, user mapping, audit, hand-off. */
   const complete = async (
     c: Context,
@@ -228,19 +249,22 @@ export function createIdentityRoutes(
     next: string,
     extra: Record<string, string>,
   ): Promise<Response> => {
+    const hash = await hashIdentity(identity);
     if (setup !== null && !(await consumeSetupLink(storage.kv, setup, clock))) {
-      return fail(c, provider.id, provider.idp, 'setup_invalid', extra);
+      return fail(c, provider.id, provider.idp, 'setup_invalid', extra, hash);
     }
     const decision = await resolveLoginUser(storage.users, identity, policy, {
       ownerBootstrap: setup !== null,
     });
-    if (!decision.ok) return fail(c, provider.id, provider.idp, decision.reason, extra);
+    if (!decision.ok) return fail(c, provider.id, provider.idp, decision.reason, extra, hash);
     audit(c, {
       status: 'ok',
       provider: provider.id,
       idp: provider.idp,
       userId: decision.user.id,
       outcome: decision.outcome,
+      ...(hash === null ? {} : { identityHash: hash }),
+      ...(decision.previousRole === undefined ? {} : { previousRole: decision.previousRole }),
     });
     (c.get('log') as Record<string, unknown>)['login'] = decision.outcome;
     const login: CompletedLogin = {

@@ -31,6 +31,7 @@ export type FlashCode =
   | 'key_in_use'
   | 'key_not_checkable'
   | 'changed_meanwhile'
+  | 'last_owner'
   | 'read_only'
   | 'token_form_used'
   | 'not_found'
@@ -85,6 +86,10 @@ export const FLASH_MESSAGES: Readonly<Record<FlashCode, FlashMessage>> = Object.
   changed_meanwhile: {
     kind: 'error',
     text: 'Someone changed this at the same time. Check it and try again.',
+  },
+  last_owner: {
+    kind: 'error',
+    text: 'This is the last enabled owner. Make another user owner first. Nothing changed.',
   },
   read_only: { kind: 'error', text: 'The storage is read-only right now. Nothing changed.' },
   token_form_used: {

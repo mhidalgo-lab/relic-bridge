@@ -96,6 +96,8 @@ Get a user
 
 Update or disable a user
 
+Demoting or disabling the last enabled owner is refused with `409 conflict`, `detail: last_owner` (P4-16).
+
 | Parameter | In | Type | Required | Description |
 | --- | --- | --- | --- | --- |
 | `id` | path | `string` | yes |  |

@@ -43,13 +43,26 @@ export type UserPatch = Partial<
   Pick<UserRecord, 'email' | 'displayName' | 'idp' | 'idpSubject' | 'role' | 'disabledAt'>
 >;
 
+/** What a first sign-in may change besides the identity (P4-16). */
+export type UserBindPatch = Partial<Pick<UserRecord, 'displayName' | 'role'>>;
+
 export interface UsersRepository {
   get(id: string): Promise<UserRecord | null>;
   getByEmail(email: string): Promise<UserRecord | null>;
   getByIdentity(idp: string, idpSubject: string): Promise<UserRecord | null>;
   list(): Promise<readonly UserRecord[]>;
   create(input: NewUser): Promise<UserRecord>;
+  /**
+   * Apply `patch`. Refuses (`lastOwnerError()`, constraint `LAST_OWNER_CONSTRAINT`) to demote or disable the last enabled
+   * owner: the check and the write are one statement, so two owners demoting each other at once leave one (P4-16).
+   */
   update(id: string, patch: UserPatch): Promise<UserRecord>;
+  /**
+   * Compare-and-set first binding (P4-16, THREAT_MODEL T14): set `(idp, idpSubject)` (and `patch`) only while the row
+   * exists, is enabled and has **no** identity, in one conditional write. `null` when that no longer holds (a
+   * concurrent sign-in bound it first); `ConflictError` when another user already has this identity.
+   */
+  bind(id: string, idp: string, idpSubject: string, patch?: UserBindPatch): Promise<UserRecord | null>;
 }
 
 // ---------------------------------------------------------------------------------------------------------------

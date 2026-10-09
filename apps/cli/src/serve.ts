@@ -15,12 +15,16 @@ import {
   createAuditRecorder,
   createHttpApp,
   createRateLimitHooks,
+  DEFAULT_PASSTHROUGH_IDENTITY_TTL_MS,
   DEFAULT_RATE_LIMITS,
   defaultAllowedHostnames,
   MAX_ACCESS_CACHE_TTL_MS,
+  MAX_PASSTHROUGH_IDENTITY_TTL_MS,
   MemoryRateLimiter,
   mergeHooks,
   originHostname,
+  PASSTHROUGH_KEY_HEADER,
+  PASSTHROUGH_PATH,
   type RateLimitRule,
   type RateLimitRules,
   resolveClientIp,
@@ -118,6 +122,7 @@ function rateLimitSettings(env: Env, warnings: string[]): RateLimitRules | null 
     authFailures: pick('RB_RATE_LIMIT_AUTH_FAIL', DEFAULT_RATE_LIMITS.authFailures),
     token: pick('RB_RATE_LIMIT_TOKEN', DEFAULT_RATE_LIMITS.token),
     grant: pick('RB_RATE_LIMIT_GRANT', DEFAULT_RATE_LIMITS.grant),
+    passthroughKey: pick('RB_RATE_LIMIT_PASSTHROUGH_KEY', DEFAULT_RATE_LIMITS.passthroughKey),
   };
   if (rules.authFailures === null) {
     warnings.push('RB_RATE_LIMIT_AUTH_FAIL=off: failed authentications are not throttled per IP.');
@@ -162,6 +167,31 @@ function auditSettings(env: Env, warnings: string[]): AuditSettings {
   };
 }
 
+/** Pass-through mode (P2-15): `null` when off (the default). */
+export interface PassthroughSettings {
+  readonly identityTtlMs: number;
+}
+
+function passthroughSettings(env: Env, warnings: string[]): PassthroughSettings | null {
+  const ttlRaw = env['RB_PASSTHROUGH_IDENTITY_TTL']?.trim();
+  let identityTtlMs = DEFAULT_PASSTHROUGH_IDENTITY_TTL_MS;
+  if (ttlRaw !== undefined && ttlRaw !== '') {
+    const max = MAX_PASSTHROUGH_IDENTITY_TTL_MS / 1000;
+    if (!/^\d{1,3}$/.test(ttlRaw) || Number(ttlRaw) > max) {
+      throw new ConfigError(
+        `RB_PASSTHROUGH_IDENTITY_TTL must be 0-${max} seconds (0 validates every request).`,
+      );
+    }
+    identityTtlMs = Number(ttlRaw) * 1000;
+  }
+  if (!onOff(env, 'RB_PASSTHROUGH', false)) return null;
+  warnings.push(
+    `RB_PASSTHROUGH=on: ${PASSTHROUGH_PATH} accepts New Relic keys in the ${PASSTHROUGH_KEY_HEADER} header. Serve it ` +
+      'only over HTTPS (set RB_HSTS=true behind a TLS proxy); plain HTTP to a non-loopback host is refused.',
+  );
+  return { identityTtlMs };
+}
+
 export interface ServeSettings {
   readonly port: number;
   readonly host: string;
@@ -176,6 +206,8 @@ export interface ServeSettings {
   /** Reverse proxies in front of the server (`X-Forwarded-For` is trusted for that many hops from the right). */
   readonly trustedProxyHops: number;
   readonly audit: AuditSettings;
+  /** Pass-through mode (`RB_PASSTHROUGH`); `null` when off. */
+  readonly passthrough: PassthroughSettings | null;
   readonly warnings: readonly string[];
 }
 
@@ -267,6 +299,7 @@ export function serveSettings(input: {
     rateLimits,
     trustedProxyHops: Number(hopsRaw),
     audit: auditSettings(env, warnings),
+    passthrough: passthroughSettings(env, warnings),
     warnings,
   };
 }
@@ -384,6 +417,9 @@ export async function startServer(options: StartServerOptions): Promise<RunningS
     ...(adminToken === undefined
       ? {}
       : { admin: { token: new Secret(adminToken), storage, ...(audit === undefined ? {} : { audit }) } }),
+    ...(settings.passthrough === null
+      ? {}
+      : { passthrough: { identityTtlMs: settings.passthrough.identityTtlMs } }),
   });
 
   const server = createAdaptorServer({
@@ -432,6 +468,7 @@ export async function startServer(options: StartServerOptions): Promise<RunningS
     audit: settings.audit.enabled ? settings.audit.nrql : 'off',
     adminApi: adminToken === undefined ? 'off' : `${url}/api/admin/v1`,
     trustedProxyHops: settings.trustedProxyHops,
+    passthrough: settings.passthrough === null ? 'off' : `${url}${PASSTHROUGH_PATH}`,
   });
 
   let closing: Promise<void> | undefined;

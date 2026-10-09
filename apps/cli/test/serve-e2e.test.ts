@@ -3,7 +3,7 @@
 // `relic-bridge serve` on an ephemeral port and talk MCP to it with the SDK Streamable HTTP client. NerdGraph is a
 // local mock (RB_TEST_NERDGRAPH_URL, honoured only by the test build).
 import { type ChildProcessWithoutNullStreams, execFileSync, spawn } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { createServer, request, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -203,6 +203,14 @@ describe('relic-bridge serve (built CLI)', () => {
       expect(bodies.size).toBe(1);
       await expect(client(base, 'prod', tokens.other, true)).rejects.toThrow();
 
+      // Pass-through (P2-15) is off unless RB_PASSTHROUGH is set: the route doesn't exist.
+      const off = await fetch(`${base}/passthrough/mcp`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-newrelic-api-key': FAKE_KEY },
+        body: '{}',
+      });
+      expect(off.status).toBe(404);
+
       // DNS rebinding: a foreign Host is refused.
       const rebinding = await new Promise<number>((resolve, reject) => {
         const u = new URL(base);
@@ -239,6 +247,58 @@ describe('relic-bridge serve (built CLI)', () => {
     expect(server.stderr).toContain('shutting down');
     expect(server.stderr).not.toContain(FAKE_KEY);
     for (const t of Object.values(tokens)) expect(server.stderr).not.toContain(t);
+  }, 60_000);
+
+  it('serves pass-through MCP with the caller key when RB_PASSTHROUGH=on, storing and logging nothing (P2-15)', async () => {
+    const PT_KEY = 'NRAK-PASSTHROUGHTESTKEY0123456789';
+    const server = new ServeProcess(['--port', '0', '--db', dbPath], env({ RB_PASSTHROUGH: 'on' }));
+    const seen = apiKeys.length;
+    try {
+      const base = await server.url;
+      expect(server.stderr).toMatch(/RB_PASSTHROUGH=on/);
+      for (const modern of [false, true]) {
+        const c = new Client(
+          { name: 'serve-e2e-pt', version: '0' },
+          { versionNegotiation: { mode: modern ? { pin: '2026-07-28' } : 'legacy' } },
+        );
+        await c.connect(
+          new StreamableHTTPClientTransport(new URL(`${base}/passthrough/mcp`), {
+            requestInit: { headers: { 'X-NewRelic-Api-Key': PT_KEY, 'X-NewRelic-Region': 'US' } },
+          }),
+        );
+        const names = (await c.listTools()).tools.map((t) => t.name);
+        expect(names).toContain('run_nrql');
+        const r = await c.callTool({ name: 'whoami', arguments: {} });
+        expect(r.isError).toBeFalsy();
+        expect(r.structuredContent).toMatchObject({ defaultAccount: 1000001 });
+        await c.close();
+      }
+      // Only the caller's key went to NerdGraph.
+      expect(apiKeys.slice(seen).every((k) => k === PT_KEY)).toBe(true);
+      const missing = await fetch(`${base}/passthrough/mcp`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${tokens.prod}` },
+        body: '{}',
+      });
+      expect(missing.status).toBe(401);
+      expect(await missing.text()).toBe('{"error":"unauthorized"}');
+    } finally {
+      server.child.kill('SIGTERM');
+      expect(await server.exit()).toBe(0);
+    }
+    expect(server.stderr).toContain('"passthrough":true');
+    expect(server.stderr).not.toContain(PT_KEY);
+    expect(server.stderr).not.toContain(tokens.prod);
+    // Nothing about the key reached the database (audit rows included).
+    for (const file of [dbPath, `${dbPath}-wal`]) {
+      let bytes = '';
+      try {
+        bytes = readFileSync(file, 'latin1');
+      } catch {
+        continue;
+      }
+      expect(bytes).not.toContain(PT_KEY);
+    }
   }, 60_000);
 
   it('throttles repeated authentication failures per client IP, ignoring a spoofed X-Forwarded-For', async () => {

@@ -396,3 +396,35 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Options:** add `Authorization suite` to the required status checks of `main`; rely on the `check` job (already
   runs it) being required.
 - **Needs:** the owner to add the required check once the stack is merged.
+
+## P2-15 — Pass-through mode
+
+### P2-15 — What pass-through means, and its defaults
+- **Context:** ARCHITECTURE mode E and the task described a client-supplied key in a header, "off by default, proposed
+  off on Workers"; details (route, headers, refusals, caching, TLS) were open.
+- **Assumption made:** a separate route `/passthrough/mcp`, registered only with `createHttpApp({ passthrough })`
+  (`serve`: `RB_PASSTHROUGH=on`, default off; Workers off as well — this resolves the THREAT_MODEL open question).
+  Headers `X-NewRelic-Api-Key` (User keys only) and `X-NewRelic-Region` (default `US`). Every read-only tool, default
+  limits (raw NRQL on), accounts = what the key reaches (default the lowest id). Key problems → one `401` with
+  `WWW-Authenticate: NewRelic-Api-Key` (not `Bearer`, so MCP clients don't try OAuth discovery); New Relic down → `503`.
+  The reachable accounts are cached 60 s (0-300 s, `RB_PASSTHROUGH_IDENTITY_TTL`) under an HMAC fingerprint with a
+  per-process random secret; per-key limit 120/min (`RB_RATE_LIMIT_PASSTHROUGH_KEY`).
+- **Options:** as assumed; let operators set pass-through limits (e.g. raw NRQL off, max window) through env; allow a
+  default-account header; a stable fingerprint secret from env for multi-replica rate limiting (the option exists in
+  the library, not in `serve`).
+- **Needs:** owner OK on the defaults (especially raw NRQL on and the `401` scheme).
+
+### P2-15 — Plain HTTP refused on the pass-through route
+- **Context:** the key travels in every request; the app can't see TLS behind a proxy.
+- **Assumption made:** refuse (`403 tls_required`) unless the request URL is https, `hsts: true` (`RB_HSTS=true`,
+  already the documented setting behind a TLS proxy) or the `Host` is loopback. Library opt-out:
+  `passthrough.requireTls: false` (not exposed in `serve`).
+- **Options:** as assumed; only warn at start; trust `X-Forwarded-Proto` from trusted proxies instead of `RB_HSTS`.
+- **Needs:** owner OK.
+
+### P2-15 — Pass-through tool calls not audited yet
+- **Context:** the audit hooks take an `McpRequestInfo` (project, grant, token); a pass-through request has none, and a
+  proper row needs an actor column decision.
+- **Assumption made:** refusals are audited (existing hooks), tool calls are not; new task P2-16.
+- **Options:** as assumed; record them now under `details.keyId` with the existing schema.
+- **Needs:** owner priority for P2-16.

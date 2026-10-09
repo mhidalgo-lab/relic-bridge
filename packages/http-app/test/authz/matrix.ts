@@ -31,6 +31,13 @@ export const MCP_ROUTES: readonly RouteCase[] = [
   { method: 'DELETE', pattern: '/p/:slug/mcp', path: '/p/{slug}/mcp' },
 ];
 
+/** The pass-through route (P2-15): registered only when `passthrough` is configured, else 404. */
+export const PASSTHROUGH_ROUTES: readonly RouteCase[] = [
+  { method: 'POST', pattern: '/passthrough/mcp', path: '/passthrough/mcp', body: INITIALIZE },
+  { method: 'GET', pattern: '/passthrough/mcp', path: '/passthrough/mcp' },
+  { method: 'DELETE', pattern: '/passthrough/mcp', path: '/passthrough/mcp' },
+];
+
 const A = '/api/admin/v1';
 /** Ids that don't exist: a control request with the admin token must not change anything worth scanning. */
 export const ADMIN_ROUTES: readonly RouteCase[] = [
@@ -108,6 +115,8 @@ export const PUBLIC_ROUTES: readonly RouteCase[] = [
  * `ALL` entries in Hono's route table (middleware and catch-alls), with why each is safe. A new one fails the guard.
  */
 export const WILDCARD_ROUTES: Readonly<Record<string, string>> = {
+  '/passthrough/mcp':
+    'CORS middleware of the pass-through route (on when CORS origins are configured); the handlers are matrix rows',
   '/*': 'global middleware: request id, security headers, Host/Origin checks (no handler of its own)',
   [`${A}/*`]:
     'admin authentication middleware and the authenticated 404 catch-all (matrix row GET /no-such-endpoint)',
@@ -417,6 +426,75 @@ export const MCP_PRINCIPALS: readonly McpPrincipal[] = [
 ];
 
 /** An admin API caller and the deny reason its audit row carries. */
+/**
+ * A pass-through caller presenting something other than a usable New Relic User key. The positive control is the
+ * same request with `X-NewRelic-Api-Key: NR_KEY`. `reachesNerdGraph`: the key is well-formed, so validating it costs
+ * one NerdGraph call (bounded by the per-IP failure throttle).
+ */
+export interface PassthroughPrincipal {
+  readonly name: string;
+  readonly reason: string;
+  readonly reachesNerdGraph?: boolean;
+  present(h: Harness): Presented | Promise<Presented>;
+}
+
+const ptKey = (key: string): Record<string, string> => ({ 'x-newrelic-api-key': key });
+
+export const PASSTHROUGH_PRINCIPALS: readonly PassthroughPrincipal[] = [
+  { name: 'no key', reason: 'passthrough_missing_key', present: () => ({ headers: {}, slug: '' }) },
+  {
+    name: 'blank key header',
+    reason: 'passthrough_missing_key',
+    present: () => ({ headers: ptKey('   '), slug: '' }),
+  },
+  {
+    name: 'device token as bearer (no key)',
+    reason: 'passthrough_missing_key',
+    present: (h) => ({ headers: bearer(h.world.tokens.prod), slug: '' }),
+  },
+  {
+    name: 'admin token as bearer (no key)',
+    reason: 'passthrough_missing_key',
+    present: () => ({ headers: bearer(ADMIN_TOKEN), slug: '' }),
+  },
+  {
+    name: 'NR key as bearer instead of the key header',
+    reason: 'passthrough_missing_key',
+    present: () => ({ headers: bearer(NR_KEY), slug: '' }),
+  },
+  {
+    name: 'NR key in the query string',
+    reason: 'passthrough_missing_key',
+    present: () => ({ headers: {}, slug: '', query: `api_key=${encodeURIComponent(NR_KEY)}` }),
+  },
+  {
+    name: 'NR key in a cookie',
+    reason: 'passthrough_missing_key',
+    present: () => ({ headers: { cookie: `x-newrelic-api-key=${NR_KEY}` }, slug: '' }),
+  },
+  {
+    name: 'device token in the key header',
+    reason: 'passthrough_malformed_key',
+    present: (h) => ({ headers: ptKey(h.world.tokens.prod), slug: '' }),
+  },
+  {
+    name: 'not a User key (ingest key shape)',
+    reason: 'passthrough_malformed_key',
+    present: () => ({ headers: ptKey('NRII-FAKETESTINGESTKEY0123456789'), slug: '' }),
+  },
+  {
+    name: 'User key with a trailing garbage character',
+    reason: 'passthrough_malformed_key',
+    present: () => ({ headers: ptKey(`${NR_KEY}!`), slug: '' }),
+  },
+  {
+    name: 'well-formed key New Relic refuses',
+    reason: 'passthrough_invalid_key',
+    reachesNerdGraph: true,
+    present: () => ({ headers: ptKey('NRAK-UNKNOWNTESTKEY0123456789ABC'), slug: '' }),
+  },
+];
+
 export interface AdminPrincipal {
   readonly name: string;
   readonly reason: string;

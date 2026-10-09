@@ -4,9 +4,11 @@
 //                 tokens alike, so a 429 never tells an attacker whether a guess was right, T1/T19)
 //   onAuthFailure charges the failure to the IP
 //   beforeMcp     per-token and per-grant limits (only reachable with a valid token)
+//   beforePassthrough  per-key limit on the pass-through route (P2-15; only reachable with a key New Relic accepted)
 import type { Logger } from '@relic-bridge/core';
 import type { Context } from 'hono';
 import type { AuthFailureInfo, HttpAppHooks, McpRequestInfo } from './app.ts';
+import type { PassthroughRequestInfo } from './passthrough.ts';
 import type { RateLimiter, RateLimitResult, RateLimitRule } from './rate-limit.ts';
 
 /** Largest `Retry-After` sent (a day), whatever the bucket arithmetic says. */
@@ -21,6 +23,8 @@ export interface RateLimitRules {
   readonly token: RateLimitRule | null;
   /** Requests per grant, unless the grant sets its own `rateLimit`. `null` = off. */
   readonly grant: RateLimitRule | null;
+  /** Pass-through requests per New Relic key (keyed by the key's fingerprint id, never the key). `null` = off. */
+  readonly passthroughKey: RateLimitRule | null;
 }
 
 /** Sized for personal use: one MCP request makes a handful of NerdGraph calls against NRQL's 3,000/min/account. */
@@ -29,6 +33,7 @@ export const DEFAULT_RATE_LIMITS: RateLimitRules = Object.freeze({
   authFailures: Object.freeze({ requests: 10, perSeconds: 300 }),
   token: Object.freeze({ requests: 120, perSeconds: 60 }),
   grant: Object.freeze({ requests: 300, perSeconds: 60 }),
+  passthroughKey: Object.freeze({ requests: 120, perSeconds: 60 }),
 });
 
 export interface RateLimitHooksOptions {
@@ -143,6 +148,17 @@ export function createRateLimitHooks(options: RateLimitHooksOptions): HttpAppHoo
       }
       return undefined;
     },
+
+    async beforePassthrough(c: Context, info: PassthroughRequestInfo) {
+      if (info.listen || !rules.passthroughKey) return undefined;
+      const rule = rules.passthroughKey;
+      const r = await guard('passthrough_key', () => post.take(`key:${info.keyId}`, rule));
+      if (r && !r.allowed) {
+        mark(c, 'rate_limit_passthrough_key');
+        return rateLimited(r.retryAfterMs);
+      }
+      return undefined;
+    },
   };
 }
 
@@ -169,6 +185,13 @@ export function mergeHooks(...sets: readonly (HttpAppHooks | undefined)[]): Http
     async beforeMcp(c, info) {
       for (const h of hooks) {
         const stop = await h.beforeMcp?.(c, info);
+        if (stop) return stop;
+      }
+      return undefined;
+    },
+    async beforePassthrough(c, info) {
+      for (const h of hooks) {
+        const stop = await h.beforePassthrough?.(c, info);
         if (stop) return stop;
       }
       return undefined;

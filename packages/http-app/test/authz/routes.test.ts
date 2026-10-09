@@ -7,12 +7,15 @@ import { DENY_REASONS } from '@relic-bridge/auth';
 import { Secret } from '@relic-bridge/core';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createHttpApp } from '../../src/index.ts';
+import { NR_KEY } from '../fixtures.ts';
 import { ADMIN_TOKEN, type Captured, createHarness, type Harness } from './harness.ts';
 import {
   ADMIN_PRINCIPALS,
   ADMIN_ROUTES,
   MCP_PRINCIPALS,
   MCP_ROUTES,
+  PASSTHROUGH_PRINCIPALS,
+  PASSTHROUGH_ROUTES,
   PUBLIC_ROUTES,
   type RouteCase,
   requestFor,
@@ -117,6 +120,59 @@ describe('MCP routes × principals', () => {
   });
 });
 
+describe('pass-through routes × principals (P2-15)', () => {
+  const ptApp = () => h.makeApp({ passthrough: {} });
+  const NR = { 'x-newrelic-api-key': NR_KEY };
+
+  it('do not exist unless pass-through is configured, whatever the caller presents', async () => {
+    for (const route of PASSTHROUGH_ROUTES) {
+      for (const headers of [{}, NR, { authorization: `Bearer ${h.world.tokens.prod}` }]) {
+        const res = await h.send(requestFor(route, { headers }));
+        expect(res.status).toBe(404);
+        expect(res.text).toBe('{"error":"not_found"}');
+      }
+    }
+    expect(h.nerdGraph.calls).toEqual([]);
+  });
+
+  it('the reference denial is one 401 that does not invite OAuth discovery', async () => {
+    const app = ptApp();
+    for (const route of PASSTHROUGH_ROUTES) {
+      const res = await h.send(requestFor(route, { headers: {} }), app);
+      expect(res.status).toBe(401);
+      expect(res.text).toBe('{"error":"unauthorized"}');
+      expect(res.headers.get('www-authenticate')).toBe('NewRelic-Api-Key realm="relic-bridge-passthrough"');
+      expect(res.headers.get('cache-control')).toBe('no-store');
+    }
+  });
+
+  for (const principal of PASSTHROUGH_PRINCIPALS) {
+    it(`${principal.name} → 401 (${principal.reason})`, async () => {
+      const app = ptApp();
+      for (const route of PASSTHROUGH_ROUTES) {
+        const control = await h.send(requestFor(route, { headers: NR }), app);
+        expect(control.status, `${route.method} control`).not.toBe(401);
+        expect(control.status).not.toBe(403);
+      }
+      const presented = await principal.present(h);
+      const callsBefore = h.nerdGraph.calls.length;
+      for (const route of PASSTHROUGH_ROUTES) {
+        const reference = await h.send(requestFor(route, { headers: {} }), app);
+        const res = await h.send(requestFor(route, presented), app);
+        await expectDenied(route, reference, res, principal.reason, principal.name);
+      }
+      const calls = h.nerdGraph.calls.slice(callsBefore);
+      if (principal.reachesNerdGraph) {
+        // Only the validation query, never a tool call, and never with another key.
+        expect(calls.map((c) => c.op)).toEqual(PASSTHROUGH_ROUTES.map(() => 'RbIdentity'));
+        expect(calls.every((c) => c.apiKey !== NR_KEY)).toBe(true);
+      } else {
+        expect(calls).toEqual([]);
+      }
+    });
+  }
+});
+
 describe('admin routes × principals', () => {
   for (const principal of ADMIN_PRINCIPALS) {
     it(`${principal.name} → 401 (${principal.reason}) on every admin route`, async () => {
@@ -202,6 +258,7 @@ describe('guard: every route is in the matrix', () => {
       keyring: h.world.keyring,
       corsOrigins: ['https://app.example.com'],
       admin: { token: new Secret(ADMIN_TOKEN), storage: h.world.storage },
+      passthrough: {},
     });
     const handlers = new Set<string>();
     const wildcards = new Set<string>();
@@ -215,7 +272,7 @@ describe('guard: every route is in the matrix', () => {
   it('fails when the app serves a route the matrix does not list, or the matrix lists a gone route', () => {
     const { handlers, wildcards } = discover();
     const listed = new Set(
-      [...MCP_ROUTES, ...ADMIN_ROUTES, ...PUBLIC_ROUTES]
+      [...MCP_ROUTES, ...PASSTHROUGH_ROUTES, ...ADMIN_ROUTES, ...PUBLIC_ROUTES]
         .filter((r) => !r.pattern.endsWith('/*'))
         .map((r) => `${r.method} ${r.pattern}`),
     );

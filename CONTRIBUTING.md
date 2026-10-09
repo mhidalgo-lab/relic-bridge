@@ -119,7 +119,7 @@ Check the tarball locally at any time: `pnpm build && pnpm check:package` (`--sk
   against a hostile NerdGraph (`tools.test.ts`), and cache / two-tenant / per-request-server isolation
   (`isolation.test.ts`). **A new route or tool needs its cases there, and the suite fails until it has them**: guard
   tests compare the matrix with Hono's route table and `TOOL_CASES` with the tool catalog.
-  - New route: add it to `MCP_ROUTES`, `ADMIN_ROUTES` or `PUBLIC_ROUTES` with the pattern exactly as Hono registers it,
+  - New route: add it to `MCP_ROUTES`, `PASSTHROUGH_ROUTES`, `ADMIN_ROUTES` or `PUBLIC_ROUTES` with the pattern exactly as Hono registers it,
     a sample path and a body valid enough to reach authentication. Every listed principal is then tried against it.
   - New tool: add `TOOL_CASES[name]` with at least one call naming a foreign account (or a GUID in one) when the tool
     takes an account, and extend `hostileNerdGraph` if it sends a new NerdGraph operation (unknown operations fail).

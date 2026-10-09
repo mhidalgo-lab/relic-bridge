@@ -56,6 +56,16 @@ export {
 } from './audit.ts';
 export { normalizeClientIp, resolveClientIp } from './client-ip.ts';
 export {
+  DEFAULT_PASSTHROUGH_IDENTITY_ENTRIES,
+  DEFAULT_PASSTHROUGH_IDENTITY_TTL_MS,
+  MAX_PASSTHROUGH_IDENTITY_TTL_MS,
+  PASSTHROUGH_KEY_HEADER,
+  PASSTHROUGH_PATH,
+  PASSTHROUGH_REGION_HEADER,
+  type PassthroughOptions,
+  type PassthroughRequestInfo,
+} from './passthrough.ts';
+export {
   DEFAULT_RATE_LIMIT_MAX_KEYS,
   isRateLimitRule,
   MemoryRateLimiter,

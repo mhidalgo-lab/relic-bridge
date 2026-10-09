@@ -81,3 +81,19 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   non-APM entities with a clear error; (d) minimum-requests filter for the slowest sort; (e) a time series per transaction.
 - **Needs:** a live run on an APM account; owner's call on (c) to (e).
 
+## P6-06 — Log tools
+
+### P6-06 — Log attribute names and level spellings unverified; extra redaction kept local; sampled patterns
+- **Context:** No live sample exists for `Log` queries here. `entity.guid`, `level`, `message`, `LIKE` case sensitivity,
+  `TIMESERIES <n> seconds` and the non-aggregate row ceiling are from documentation and the earlier phases' assumptions.
+- **Assumption made:** `list_recent_logs` filters by `entity.guid` (or the whole account) and matches levels against fixed case
+  variants; `analyze_entity_logs` computes message patterns client-side from the newest 1000 lines (numbers, ids, UUIDs, times,
+  addresses normalised), counts by `FACET level`, and finds bursts (24 buckets, at least 10 lines and 3 times the median).
+  Cost 1 and 3. Extra secret patterns (JWT, cloud/VCS/Slack/Stripe tokens, URL credentials, PEM keys) live in `logs.ts`, not
+  in the central `redact()`, so other tools' output is unchanged.
+- **Options:** (a) keep as is; (b) live probe on an account with logs (`pnpm test:live`); (c) move the extra patterns into the
+  central `redact()` (affects every tool and the logger; needs a snapshot review); (d) mask emails and IP addresses in log
+  lines; (e) server-side patterns with `FACET message` or `aggregationEndpoint`-style sampling; (f) per-connection default
+  `Log` deny.
+- **Needs:** a live run on an account with logs; owner's call on (c) to (f).
+

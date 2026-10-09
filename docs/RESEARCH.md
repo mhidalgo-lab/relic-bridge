@@ -316,6 +316,13 @@ Sources: <https://github.com/cloudflare/workers-oauth-provider>, issues #264, #3
   read as a number or the first numeric member of an object. **Unverified:** facet rows carrying the facet value in `facet`
   (an array when several facets), that `ORDER BY <aggregate> DESC` after `FACET` honours non-selected-alias expressions (the
   tool re-sorts client-side anyway), and `LIKE` being case-insensitive (the tool's description says so; check live).
+- Logs (P6-06, NRQL over `Log`, not verified against a real account): the entity filter is the `entity.guid` attribute
+  (sent backtick-quoted), the text is `message`, the severity `level`, newest first with `ORDER BY timestamp DESC`; `level`
+  values vary by forwarder (`ERROR`, `error`, `Error`, `WARNING`...), so the level filter matches a fixed list of case
+  variants (NRQL string equality is case-sensitive). Time series use `TIMESERIES <n> seconds` and rows carry
+  `beginTimeSeconds` / `endTimeSeconds`; level counts use `FACET level`. **Unverified:** `entity.guid` being set on every
+  log source, the exact `level` spellings, `LIKE` case sensitivity (the tool says "case as typed"), `TIMESERIES` in seconds
+  being accepted, and the 2000-row LIMIT ceiling for non-aggregate queries (the tool samples 1000).
 - **Trusted publishing** (OIDC from GitHub Actions, no long-lived npm token) needs npm CLI ≥ 11.5.1 and Node ≥ 22.14
   (Node 24 bundles npm 11), job permission `id-token: write`, and a GitHub-hosted runner. Each package has at most one
   trusted publisher (workflow file + optional environment); `npm trust github <pkg> --file release.yml --env release`

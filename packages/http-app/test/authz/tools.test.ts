@@ -113,6 +113,18 @@ export const TOOL_CASES: Readonly<Record<string, readonly ToolCall[]>> = {
     { args: { entity_guid: guidOf(3) }, expect: 'refused', offline: true },
     { args: { entity_guid: guidOf(1) }, expect: 'ok' },
   ],
+  list_recent_logs: [
+    { args: { entity_guid: guidOf(FOREIGN) }, expect: 'refused', offline: true },
+    { args: { entity_guid: guidOf(3) }, expect: 'refused', offline: true },
+    { args: { account: FOREIGN }, expect: 'refused', offline: true },
+    { args: { entity_guid: guidOf(1) }, expect: 'ok' },
+    { args: { account: 2, level: 'error', contains: "a'b" }, expect: 'ok' },
+  ],
+  analyze_entity_logs: [
+    { args: { entity_guid: guidOf(FOREIGN) }, expect: 'refused', offline: true },
+    { args: { entity_guid: guidOf(3) }, expect: 'refused', offline: true },
+    { args: { entity_guid: guidOf(1) }, expect: 'ok' },
+  ],
   get_entity: [
     { args: { guid: guidOf(FOREIGN) }, expect: 'refused', offline: true },
     // NerdGraph answers with an entity in the foreign account behind an allowed account's GUID.

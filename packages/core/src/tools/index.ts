@@ -8,6 +8,7 @@ import { createErrorTools } from './errors.ts';
 import { createGoldenMetricTools } from './golden.ts';
 import { createIdentityTools } from './identity.ts';
 import { createIssueTools } from './issues.ts';
+import { createLogTools } from './logs.ts';
 import { createQueryTools, type ToolDeps } from './query.ts';
 import { createSchemaTools } from './schema.ts';
 
@@ -29,6 +30,7 @@ export {
   type ScopedAccount,
 } from './identity.ts';
 export { createIssueTools } from './issues.ts';
+export { createLogTools } from './logs.ts';
 export {
   createQueryTools,
   MAX_NRQL_CHARS,
@@ -58,5 +60,6 @@ export function createBuiltinTools(deps: ToolDeps = {}): ToolDefinition[] {
     ...createErrorTools(deps),
     ...createChangeTools(deps),
     ...createApmTools(deps),
+    ...createLogTools(deps),
   ];
 }

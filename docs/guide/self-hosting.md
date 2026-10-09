@@ -227,10 +227,17 @@ become group-readable and are refused. In Kubernetes (or whenever you cannot own
 **TLS.** [`deploy/docker-compose.example.yml`](../../deploy/docker-compose.example.yml) puts Caddy in front (automatic
 certificates), with the settings this guide requires: the server is not published on the host, `RB_ALLOWED_HOSTS` is your
 hostname, `RB_TRUSTED_PROXY_HOPS=1` and `RB_HSTS=true` (the app sees plain HTTP from Caddy; without it no HSTS header
-is sent and pass-through requests are refused with `403 tls_required`).
+is sent and pass-through requests are refused with `403 tls_required`). Caddy starts only once the server's health
+check passes (`depends_on: condition: service_healthy`).
+
+**Maintainers:** the release path relies on repository settings (a `release` environment with required reviewers and a
+`main`-only deployment rule, and more). They are listed in [`docs/dev/releasing.md`](../dev/releasing.md).
 
 **Verify before you run it.** Images are signed with cosign keyless signing (GitHub OIDC), carry an SBOM (syft,
-CycloneDX) and a build provenance attestation. Pin what you verified by digest.
+CycloneDX) and a build provenance attestation. Pin what you verified by digest, not by tag: in production (and in
+compose or Kubernetes manifests) use `ghcr.io/matiashidalgo/relic-bridge:0.1.0@sha256:...` (the `cosign verify`
+output prints the digest). Tags are immutable by convention, and `:latest` moves with every stable release (never
+backwards), so it is for trying things out only.
 
 ```bash
 IMAGE=ghcr.io/matiashidalgo/relic-bridge:0.1.0

@@ -82,6 +82,10 @@ the version, as long as the rebuilt tarball is byte-identical to the published o
 stops and the release must be finished by hand. A leftover draft release `v<version>` must be deleted first. `plan`
 fails when `v<version>` exists on a commit other than the one being released.
 
+The repository settings these workflows assume (the `release` environment needs required reviewers and a `main`-only
+deployment rule; tag and branch rules) are listed in [`docs/dev/releasing.md`](docs/dev/releasing.md), together with the
+`:latest` rule and what the Docker workflow checks on every pull request.
+
 Check the tarball locally at any time: `pnpm build && pnpm check:package` (`--skip-install` offline).
 
 ## Pull request checklist

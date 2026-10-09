@@ -2,11 +2,11 @@
 id: P2-19
 title: Docker release hardening and an end-to-end image smoke test
 phase: 2
-status: todo
+status: review
 priority: medium
 depends_on: [P2-11]
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P2-19 — Docker release hardening and an end-to-end image smoke test
@@ -31,9 +31,14 @@ the built image answers MCP and the documented operator commands.
   digest rather than `:latest`; compose `depends_on: condition: service_healthy` for Caddy.
 
 ## Acceptance criteria
-- [ ] Workflow tests cover the `:latest` rule and the injection rule.
-- [ ] The image smoke job is green on a PR.
-- [ ] `docs/guide/self-hosting.md` and `docs/dev/` describe the required repository settings.
+- [x] Workflow tests cover the `:latest` rule and the injection rule (`scripts/test/docker-workflow.test.ts`, plus the
+  arm64 scan and the compose `service_healthy` dependency).
+- [x] The image smoke job is green on a PR (the extended smoke test passes locally against a freshly built image; see
+  the PR checks for the CI run).
+- [x] `docs/guide/self-hosting.md` and `docs/dev/releasing.md` describe the required repository settings
+  (`CONTRIBUTING.md` links to it).
+- [ ] Publish-dependent, left for the owner: the settings themselves (reviewers, `main`-only deployment rule) are not
+  applied by this task, and the `:latest` rule has run only in tests, not in a real release.
 
 ## Security notes
 T18 (supply chain), T13 (deployment hardening).
@@ -43,3 +48,17 @@ T18 (supply chain), T13 (deployment hardening).
 
 ## Out of scope
 - Publishing the first image (owner step).
+
+## Implementation notes
+- `:latest`: `plan` outputs `latest` (highest stable semver among published Releases); `publish` no longer reads the
+  prerelease flag.
+- arm64: cross-built into a docker archive and scanned with Trivy (`input:`) in PR and release builds. Trivy cannot
+  read a multi-arch OCI archive, so for releases this is a rebuild of the same inputs (pending-decisions entry).
+- Injection test covers every workflow: no `run:` interpolates `github.event.*`, `head_ref`, `ref_name`, `inputs.*`
+  or step/job outputs.
+- Smoke test: `credential add` validates the key against NerdGraph and the release image has no endpoint override, so
+  the script runs a local HTTPS stand-in as `api.newrelic.com` on a private docker network and trusts its throwaway
+  certificate with `NODE_EXTRA_CA_CERTS`. Everything else goes through the image: CLI setup, MCP `initialize` and
+  `tools/list` with the device token, `401` without it.
+- Compose with Caddy: run once locally (internal CA, image built here): `/health` answered over TLS and Caddy waited
+  for the healthy server. Not automated.

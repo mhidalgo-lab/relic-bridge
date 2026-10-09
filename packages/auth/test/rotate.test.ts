@@ -5,6 +5,7 @@ import { loadKeyringFromEnv } from '../src/crypto/env.ts';
 import type { CryptoError } from '../src/crypto/errors.ts';
 import { generateMasterKey, Keyring } from '../src/crypto/keyring.ts';
 import {
+  describeUnreadableKeys,
   keyCheckSettingKey,
   MAX_ROTATION_BATCH,
   rotateCredentialKeys,
@@ -377,5 +378,23 @@ describe('rotateCredentialKeysBatch (P3-11)', () => {
         code: 'invalid_input',
       });
     }
+  });
+});
+
+describe('unreadable rows report (P3-15)', () => {
+  it('counts credentials under a version the keyring lacks, per version, without ids', async () => {
+    const s = createMemoryStorage();
+    const k1 = await Keyring.create({ current: K1 });
+    await seed(s, k1, 3);
+    const k2 = await Keyring.create({ current: K2, previous: K1 });
+    expect((await verifyKeyChecks(s, k2)).unreadable).toEqual([]);
+    // Previous key removed before the rotation finished.
+    const onlyK2 = await Keyring.create({ current: K2 });
+    const result = await verifyKeyChecks(s, onlyK2, { register: false });
+    expect(result.unreadable).toEqual([{ version: 1, rows: 3 }]);
+    const text = describeUnreadableKeys(result.unreadable) ?? '';
+    expect(text).toContain('3 under version 1');
+    expect(text).not.toContain('cred_');
+    expect(describeUnreadableKeys([])).toBeUndefined();
   });
 });

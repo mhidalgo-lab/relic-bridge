@@ -81,6 +81,8 @@ export interface AdminApiDeps {
   readonly clock: Clock;
   readonly logger: Logger;
   readonly maxBodyBytes: number;
+  /** Ceiling for `keys/rotate` `batchSize`; a larger request is clamped to it (the caller loops on `nextCursor`). */
+  readonly maxRotationBatch?: number;
   /** Records an admin change; never rejects. */
   readonly audit?: (event: AdminAuditEvent) => Promise<void>;
   /** Pre-authentication hook (rate limits). A returned Response stops the request. */
@@ -560,7 +562,8 @@ const routes = {
       '`null` (`relic-bridge keys rotate --remote` does). Each row is re-encrypted with a compare-and-swap, so every ' +
       'row stays readable, an interrupted run resumes, and a repeated run changes nothing. A wrong or retired master ' +
       'key answers `503 unavailable` (`detail`: `key_mismatch`, `key_version_retired`) before any row is touched. ' +
-      'The previous key can be removed once `pending` is 0. Never returns key material.',
+      'The previous key can be removed once `pending` is 0. A server may cap `batchSize` (Free-plan Workers: 40). ' +
+      'Never returns key material.',
     request: BODY(S.RotateKeysBody),
     responses: { 200: json(S.KeyRotationOne, 'What this batch did'), ...errors(413, 415) },
   }),
@@ -1166,7 +1169,10 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
   // ------------------------------------------------------------------------------------------------ master key
   api.openapi(routes.rotateKeys, async (c) => {
     const body = c.req.valid('json');
-    const batchSize = body.batchSize ?? S.DEFAULT_ROTATION_BATCH;
+    const batchSize = Math.min(
+      body.batchSize ?? S.DEFAULT_ROTATION_BATCH,
+      deps.maxRotationBatch ?? S.MAX_ROTATION_BATCH_SIZE,
+    );
     const report = await change(
       c,
       { action: 'keys.rotate', targetType: 'master_key', details: { batchSize } },

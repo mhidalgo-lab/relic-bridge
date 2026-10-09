@@ -7,7 +7,7 @@ import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
 import { createAdaptorServer } from '@hono/node-server';
 import { getConnInfo } from '@hono/node-server/conninfo';
-import { CryptoError, loadKeyringFromEnv, verifyKeyChecks } from '@relic-bridge/auth';
+import { CryptoError, describeUnreadableKeys, loadKeyringFromEnv, verifyKeyChecks } from '@relic-bridge/auth';
 import { type FetchLike, type Logger, Secret, VERSION } from '@relic-bridge/core';
 import {
   AUDIT_NRQL_MODES,
@@ -355,8 +355,10 @@ export async function startServer(options: StartServerOptions): Promise<RunningS
   const created = !existsSync(settings.dbPath);
   const storage = await openSqliteStorage({ path: settings.dbPath });
   try {
-    const { registered } = await verifyKeyChecks(storage, keyring);
+    const { registered, unreadable } = await verifyKeyChecks(storage, keyring);
     if (registered.length > 0) logger.info('master key registered', { versions: registered });
+    const unreadableWarning = describeUnreadableKeys(unreadable);
+    if (unreadableWarning !== undefined) logger.warn(unreadableWarning, { unreadable });
   } catch (error) {
     await storage.close();
     throw error;

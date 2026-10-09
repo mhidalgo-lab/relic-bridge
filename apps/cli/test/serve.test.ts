@@ -3,8 +3,9 @@ import { randomBytes } from 'node:crypto';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { generateMasterKey } from '@relic-bridge/auth';
+import { generateMasterKey, Keyring } from '@relic-bridge/auth';
 import { createLogger } from '@relic-bridge/core';
+import { openSqliteStorage } from '@relic-bridge/storage-sqlite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { parseCliArgs, UsageError } from '../src/args.ts';
 import { ConfigError } from '../src/config.ts';
@@ -236,6 +237,39 @@ describe('startServer (in process)', () => {
       startServer({ ...common, env: { RB_MASTER_KEY: generateMasterKey(1) } }),
     ).rejects.toMatchObject({ code: 'key_mismatch' });
     await expect(startServer({ ...common, env: {} })).rejects.toMatchObject({ code: 'master_key_missing' });
+  });
+
+  it('warns at boot when credentials sit under a key version the keyring lacks (P3-15)', async () => {
+    const lines: string[] = [];
+    const logger = createLogger({ sink: (l) => lines.push(l) });
+    const k1 = generateMasterKey(1);
+    const k2 = generateMasterKey(2);
+    const db = join(tmp, 'rb.db');
+    const storage = await openSqliteStorage({ path: db });
+    await storage.credentials.create({
+      id: 'cred_old',
+      label: 'old',
+      region: 'US',
+      key: await (await Keyring.create({ current: k1 })).encryptCredentialKey(
+        'cred_old',
+        'NRAK-UNREADABLEROW000000000000',
+      ),
+    });
+    await storage.close();
+    const settings = serveSettings({ port: '0', db, env: {}, platform: 'linux' });
+    const server = await startServer({
+      settings,
+      fs: memoryFs({}),
+      platform: 'linux',
+      logger,
+      env: { RB_MASTER_KEY: k2 },
+    });
+    await server.close();
+    const out = lines.join('\n');
+    expect(out).toContain('cannot be decrypted');
+    expect(out).toContain('1 under version 1');
+    expect(out).not.toContain(k1.split(':')[1] as string);
+    expect(out).not.toContain('NRAK-UNREADABLE');
   });
 
   it('serves the admin API only with an admin token, and refuses an unusable one at boot', async () => {

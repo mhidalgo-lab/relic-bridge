@@ -2,6 +2,7 @@
 // The Worker host inside workerd (P3-01): MCP through the Worker's fetch, fail-closed boot, per-isolate runtime,
 // `waitUntil` audit writes and the client address from `CF-Connecting-IP`.
 import { env } from 'cloudflare:workers';
+import { generateMasterKey } from '@relic-bridge/auth';
 import type { FetchLike } from '@relic-bridge/core';
 import { MigrationError } from '@relic-bridge/storage';
 import { describe, expect, it } from 'vitest';
@@ -266,6 +267,44 @@ describe('Worker boot', () => {
     expect(quiet.lines.some((l) => String(l['msg']).includes('does not look randomly generated'))).toBe(
       false,
     );
+  });
+
+  it('warns at boot, without ids or keys, when credentials sit under a key version the keyring lacks (P3-15)', async () => {
+    const { storage } = await seed(generateMasterKey(1));
+    const k2 = generateMasterKey(2);
+    const log = logs();
+    const worker = createWorker({ openStorage: () => storage, logSink: log.sink });
+    expect((await call(worker, { ...env, RB_MASTER_KEY: k2 }, fakeCtx(), '/health')).status).toBe(200);
+    const warning = log.lines.find((l) => String(l['msg']).includes('cannot be decrypted'));
+    expect(warning).toMatchObject({ level: 'warn', unreadable: [{ version: 1, rows: 1 }] });
+    expect(JSON.stringify(log.lines)).not.toContain(k2.split(':')[1] as string);
+    // A healthy deployment stays quiet.
+    const quiet = logs();
+    const healthy = await seed(MASTER_KEY);
+    const okWorker = createWorker({ openStorage: () => healthy.storage, logSink: quiet.sink });
+    expect((await call(okWorker, env, fakeCtx(), '/health')).status).toBe(200);
+    expect(quiet.lines.some((l) => String(l['msg']).includes('cannot be decrypted'))).toBe(false);
+  });
+
+  it('caps keys/rotate batchSize at 40 on the Free plan, not on Paid (P3-15)', async () => {
+    const { storage } = await seed(MASTER_KEY);
+    const batchSizes: Record<string, unknown[]> = {};
+    for (const plan of ['free', 'paid']) {
+      const worker = createWorker({ openStorage: () => storage, logSink: () => {} });
+      const ctx = fakeCtx();
+      const res = await call(worker, { ...env, RB_PLAN: plan }, ctx, '/api/admin/v1/keys/rotate', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${ADMIN_TOKEN}`, 'content-type': 'application/json' },
+        body: JSON.stringify({ batchSize: 100 }),
+      });
+      expect(res.status, plan).toBe(200);
+      await ctx.settle();
+      batchSizes[plan] = (await storage.auditLog.list({ action: 'keys.rotate' })).map(
+        (r) => r.details?.['batchSize'],
+      );
+    }
+    expect(batchSizes['free']).toEqual([40]);
+    expect(batchSizes['paid']).toEqual([100, 40]);
   });
 
   it('answers 503 while the storage cannot be opened (missing binding, failed migration)', async () => {

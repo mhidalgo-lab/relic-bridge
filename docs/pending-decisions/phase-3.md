@@ -296,3 +296,15 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Assumption made:** non-default names get `1000000 + FNV-1a(name) mod 8e9` as `namespace_id` (collision across names is
   possible but improbable). The flag is `--replace-master-key`. Both unverified against a real account.
 - **Needs:** owner check in the P3-05 real-account run (two Workers show separate rate-limit counters).
+
+## P3-15 — Rotation guards
+
+### P3-15 — kv expiry purge from the cron deferred; Free cap clamps instead of refusing
+- **Context:** the scope asked to delete expired `kv` rows from the cron "once something uses `kv`". Nothing does (reads
+  already hide expired rows), so a purge would add a D1 query per cron run for nothing. A `batchSize` above the Free
+  ceiling could be refused with 422 or reduced.
+- **Assumption made:** no kv purge yet (add it with the first kv user, Phase 4 sessions); a Free Worker reduces
+  `batchSize` to 40 and the audit row records the effective size, because the CLI loops on `nextCursor` anyway. The
+  review's L5 mistyped-key guard was not in the task's scope and stays documented-recovery only.
+- **Needs:** nothing unless you prefer a hard 422 on Free.
+

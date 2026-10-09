@@ -40,7 +40,7 @@ export async function verifyKeyChecks(
   storage: Pick<Storage, 'settings' | 'credentials'>,
   keyring: Keyring,
   options: { readonly register?: boolean } = {},
-): Promise<{ readonly registered: readonly number[] }> {
+): Promise<VerifyKeyChecksResult> {
   const settings = await storage.settings.list();
   const stored = new Map<number, Uint8Array | null>();
   for (const [key, value] of Object.entries(settings)) {
@@ -87,7 +87,34 @@ export async function verifyKeyChecks(
     const bytes = typeof back === 'string' ? fromBase64(back) : null;
     if (bytes === null || !timingSafeEqual(bytes, expected)) throw mismatch(version, keyring);
   }
-  return { registered };
+  // Rows under a version the keyring does not hold can never be decrypted (an operator removed the previous key
+  // before the rotation finished). Report them so boot can warn; counts only, never ids or key material (P3-15).
+  const held = new Set(keyring.versions);
+  const missing = new Map<number, number>();
+  for (const c of rows) {
+    if (c.key.kind === 'encrypted' && !held.has(c.key.keyVersion)) {
+      missing.set(c.key.keyVersion, (missing.get(c.key.keyVersion) ?? 0) + 1);
+    }
+  }
+  const unreadable = [...missing].sort((a, b) => a[0] - b[0]).map(([version, rows]) => ({ version, rows }));
+  return { registered, unreadable };
+}
+
+export interface VerifyKeyChecksResult {
+  readonly registered: readonly number[];
+  /** Credentials stored under a key version the keyring lacks, per version (they cannot be read until it is back). */
+  readonly unreadable: readonly { readonly version: number; readonly rows: number }[];
+}
+
+/** Boot warning text for `unreadable`, or `undefined` when every row is readable. */
+export function describeUnreadableKeys(unreadable: VerifyKeyChecksResult['unreadable']): string | undefined {
+  if (unreadable.length === 0) return undefined;
+  const parts = unreadable.map((u) => `${u.rows} under version ${u.version}`).join(', ');
+  return (
+    `Stored credentials cannot be decrypted with the configured master keys (${parts}): the key they were ` +
+    'encrypted with is missing. Restore it as RB_MASTER_KEY_PREVIOUS and run `relic-bridge keys rotate`, or ' +
+    'replace those credentials (`credential rotate`).'
+  );
 }
 
 async function anyDecrypts(keyring: Keyring, rows: readonly CredentialRecord[]): Promise<boolean> {

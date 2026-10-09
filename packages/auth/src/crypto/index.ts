@@ -6,6 +6,7 @@ export { loadKeyringFromEnv, MASTER_KEY_ENV, PREVIOUS_MASTER_KEY_ENV } from './e
 export { CryptoError, type CryptoErrorCode, isCryptoError } from './errors.ts';
 export { generateMasterKey, Keyring, MASTER_KEY_BYTES, MAX_KEY_VERSION } from './keyring.ts';
 export {
+  describeUnreadableKeys,
   keyCheckSettingKey,
   MAX_ROTATION_BATCH,
   type RotationBatchReport,
@@ -13,5 +14,6 @@ export {
   type RotationReport,
   rotateCredentialKeys,
   rotateCredentialKeysBatch,
+  type VerifyKeyChecksResult,
   verifyKeyChecks,
 } from './rotate.ts';

@@ -249,7 +249,7 @@ through the Admin API (`POST /api/admin/v1/keys/rotate`, admin token required), 
    RB_ADMIN_TOKEN=… relic-bridge keys rotate --remote "$RB_REMOTE"
    ```
    It loops until every row was visited (25 rows per call by default: about 30 D1 queries, under the Free plan's 50
-   per invocation; `--batch-size` up to 100 on Paid), waits and retries when rate limited, and exits `0` when every
+   per invocation; `--batch-size` up to 100 on Paid, and the Free plan reduces anything above 40 to 40), waits and retries when rate limited, and exits `0` when every
    credential is on v2. It is safe to interrupt and run again. Rows it could not rotate are listed with a reason; see
    [secrets](secrets.md#rotate-the-key).
 4. Wait a minute so no isolate still runs the configuration from before step 2, and run step 3 once more: it must
@@ -327,3 +327,7 @@ checked 2026-10-03). Use it only where a **person with a browser** is the client
   of a new version registers that key's check value (`crypto.key_check.v<N>` in the `settings` table). Put the old key
   back as `RB_MASTER_KEY`, then delete that row (`wrangler d1 execute <database_name> --remote --command "DELETE FROM
   settings WHERE key = 'crypto.key_check.v<N>'"`) and start the rotation again.
+- **Log warning "Stored credentials cannot be decrypted with the configured master keys":** credentials sit under a key
+  version the Worker has no key for (the previous key was removed before the rotation finished). Set the old key again
+  as `RB_MASTER_KEY_PREVIOUS` (see [rotate the master key](#rotate-the-master-key)) and run `relic-bridge keys rotate
+  --remote` to the end; those credentials fail until then.

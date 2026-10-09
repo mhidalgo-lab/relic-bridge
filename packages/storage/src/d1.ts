@@ -56,10 +56,12 @@ import {
   checkEncryptedKey,
   checkGrantPrincipal,
   checkKeyHint,
+  checkLimit,
   checkRegion,
   checkRole,
   checkTokenHash,
   checkTokenPrefix,
+  kvExpiry,
   normalizeEmail,
 } from './validate.ts';
 
@@ -781,6 +783,7 @@ export async function createD1Storage(
       }),
     list: (q: AuditQuery = {}) =>
       call(async () => {
+        checkLimit(q.limit, 'auditLog.limit');
         const limit = Math.min(Math.max(1, Math.trunc(q.limit ?? AUDIT_DEFAULT_LIMIT)), AUDIT_MAX_LIMIT);
         const where: string[] = [];
         const params: unknown[] = [];
@@ -805,14 +808,15 @@ export async function createD1Storage(
         return freeze((await all(sql, [...params, limit])).map(auditOf));
       }),
     purgeBefore: (before, limit) =>
-      call(() =>
-        limit === undefined
+      call(() => {
+        checkLimit(limit, 'auditLog.limit');
+        return limit === undefined
           ? run('DELETE FROM audit_log WHERE ts < ?', [before])
           : run(
               'DELETE FROM audit_log WHERE id IN (SELECT id FROM audit_log WHERE ts < ? ORDER BY ts, id LIMIT ?)',
               [before, limit],
-            ),
-      ),
+            );
+      }),
   };
 
   // --------------------------------------------------------------------------------------------- settings
@@ -864,13 +868,7 @@ export async function createD1Storage(
       }),
     put: (key, value, opts = {}) =>
       call(async () => {
-        const t = now();
-        const expiresAt =
-          opts.expiration !== undefined
-            ? opts.expiration * 1000
-            : opts.expirationTtl !== undefined
-              ? t + opts.expirationTtl * 1000
-              : null;
+        const expiresAt = kvExpiry(opts, now());
         await run(
           'INSERT INTO kv (key, value, expires_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, expires_at = excluded.expires_at',
           [key, value, expiresAt],
@@ -882,6 +880,7 @@ export async function createD1Storage(
       }),
     list: (opts = {}) =>
       call(async (): Promise<KvListResult> => {
+        checkLimit(opts.limit, 'kv.limit');
         const limit = Math.min(Math.max(1, Math.trunc(opts.limit ?? KV_MAX_LIST)), KV_MAX_LIST);
         const prefix = opts.prefix ?? '';
         const useAfter = opts.cursor !== undefined;

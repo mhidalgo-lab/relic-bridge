@@ -54,7 +54,9 @@ Rotate after a suspected leak of the key or of a database backup, when someone w
    RB_ADMIN_TOKEN=… relic-bridge keys rotate --remote https://relic-bridge.example.com
    ```
    This calls `POST /api/admin/v1/keys/rotate` until every row was visited, re-encrypting at most `--batch-size`
-   (default 25, at most 100) rows per call so each call stays well inside a Worker's limits.
+   (default 25, at most 100) rows per call so each call stays well inside a Worker's limits. A Worker on the Free plan
+   lowers the ceiling to 40 (one call stays under D1's 50 queries per invocation): a larger `--batch-size` is reduced,
+   not refused, and the command still loops until every row was visited.
 
    Either way each row is re-encrypted and written on its own, atomically, and only if it hasn't changed since it was
    read. If the command stops halfway, every row is still readable with the two keys: run it again and it continues
@@ -62,7 +64,10 @@ Rotate after a suspected leak of the key or of a database backup, when someone w
    could not rotate: `key_version_unknown` (the server does not have the key that row uses: check
    `RB_MASTER_KEY_PREVIOUS`), `conflict` (it changed meanwhile: run again) or `decrypt_failed` (a damaged row: replace
    the key with `credential rotate <id>`). Each `--remote` call is recorded in the audit log (`keys.rotate`).
-4. Remove `RB_MASTER_KEY_PREVIOUS` and restart. Keep the old key in your backup until you have confirmed the server
+4. Remove `RB_MASTER_KEY_PREVIOUS` and restart. Only do this once step 3 reported 0 rows not on v2: at every start the
+   server logs a warning (`Stored credentials cannot be decrypted with the configured master keys (N under version 1)`)
+   when rows still use a version it has no key for. If you see it, put the previous key back as
+   `RB_MASTER_KEY_PREVIOUS` and run step 3 again; those credentials are unreadable until you do. Keep the old key in your backup until you have confirmed the server
    starts and serves requests without it, then destroy it, together with database backups taken before the rotation if
    the old key may have leaked (those backups are encrypted with it). With several server processes or Worker
    isolates, run `keys rotate` once more right before this step: a process that was still running with the old

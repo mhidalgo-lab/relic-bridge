@@ -2,7 +2,14 @@
 // Row rules every adapter enforces. They mirror the CHECK constraints in `schema.ts`, so the in-memory adapter and
 // the SQL adapters reject the same input (contract suite), and SQL adapters can fail early with a clear message.
 import { InvalidInputError } from './errors.ts';
-import { type EncryptedKey, NR_REGIONS, type NrRegion, USER_ROLES, type UserRole } from './types.ts';
+import {
+  type EncryptedKey,
+  type KvPutOptions,
+  NR_REGIONS,
+  type NrRegion,
+  USER_ROLES,
+  type UserRole,
+} from './types.ts';
 
 /** AES-GCM 96-bit IV (ADR-0007). */
 export const IV_BYTES = 12;
@@ -54,4 +61,25 @@ export function checkTokenPrefix(prefix: string): void {
 /** A grant names a user, or is a service grant with a label. */
 export function checkGrantPrincipal(userId: string | null, label: string | null): void {
   if (userId === null && label === null) throw new InvalidInputError('grants.principal');
+}
+
+/**
+ * KV expiry in epoch ms from Workers-style options (`expiration` in epoch seconds wins over `expirationTtl`). A
+ * non-finite value (NaN, Infinity) is refused: it would otherwise silently mean "never expires" (P3-15).
+ */
+export function kvExpiry(opts: KvPutOptions, nowMs: number): number | null {
+  if (opts.expiration !== undefined) {
+    if (!Number.isFinite(opts.expiration)) throw new InvalidInputError('kv.expiration');
+    return opts.expiration * 1000;
+  }
+  if (opts.expirationTtl !== undefined) {
+    if (!Number.isFinite(opts.expirationTtl)) throw new InvalidInputError('kv.expirationTtl');
+    return nowMs + opts.expirationTtl * 1000;
+  }
+  return null;
+}
+
+/** A row-count limit must be a finite number: NaN would bind as NULL (no limit) in SQL (P3-15). */
+export function checkLimit(limit: number | undefined, field: string): void {
+  if (limit !== undefined && !Number.isFinite(limit)) throw new InvalidInputError(field);
 }

@@ -4,7 +4,7 @@
 // per-isolate runtime (keyring with its imported CryptoKeys, access cache, rate-limit buckets, the app) built lazily
 // on the first request. The runtime holds configuration and caches only, never request data (THREAT_MODEL T21).
 import type { ExecutionContext, ScheduledController } from '@cloudflare/workers-types';
-import { CryptoError, loadKeyringFromEnv, verifyKeyChecks } from '@relic-bridge/auth';
+import { CryptoError, describeUnreadableKeys, loadKeyringFromEnv, verifyKeyChecks } from '@relic-bridge/auth';
 import { createLogger, type FetchLike, type Logger, type LogSink, Secret, VERSION } from '@relic-bridge/core';
 import {
   ADMIN_TOKEN_ADVICE,
@@ -24,7 +24,12 @@ import { createD1Storage } from '@relic-bridge/storage/d1';
 import type { Context } from 'hono';
 import type { WorkerEnv } from './env.ts';
 import { WorkersRateLimiter } from './rate-limit.ts';
-import { parseWorkerSettings, WorkerConfigError, type WorkerSettings } from './settings.ts';
+import {
+  FREE_ROTATION_BATCH,
+  parseWorkerSettings,
+  WorkerConfigError,
+  type WorkerSettings,
+} from './settings.ts';
 
 /**
  * After failed boots, requests answer 503 at once instead of retrying: 5 s after the first failure, 15 s after the
@@ -168,8 +173,10 @@ async function boot(env: WorkerEnv, options: WorkerOptions): Promise<Runtime> {
   }
 
   const storage = await (options.openStorage ?? openD1Storage)(env);
-  const { registered } = await verifyKeyChecks(storage, keyring);
+  const { registered, unreadable } = await verifyKeyChecks(storage, keyring);
   if (registered.length > 0) log.info('master key registered', { versions: registered });
+  const unreadableWarning = describeUnreadableKeys(unreadable);
+  if (unreadableWarning !== undefined) log.warn(unreadableWarning, { unreadable });
 
   // Shared limiter (Rate Limiting binding) plus per-isolate buckets (P3-04, src/rate-limit.ts). Two instances so
   // unauthenticated traffic can't push token/grant buckets out of the bounded isolate store.
@@ -237,7 +244,15 @@ async function boot(env: WorkerEnv, options: WorkerOptions): Promise<Runtime> {
     ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
     ...(adminRaw === ''
       ? {}
-      : { admin: { token: new Secret(adminRaw), storage, ...(audit === undefined ? {} : { audit }) } }),
+      : {
+          admin: {
+            token: new Secret(adminRaw),
+            storage,
+            ...(audit === undefined ? {} : { audit }),
+            // Free allows 50 D1 queries per invocation; a rotation batch costs about its size plus 5 (P3-15).
+            ...(settings.plan === 'free' ? { maxRotationBatch: FREE_ROTATION_BATCH } : {}),
+          },
+        }),
   });
 
   const limiter = !settings.rateLimit ? 'off' : binding === undefined ? 'isolate' : 'binding+isolate';

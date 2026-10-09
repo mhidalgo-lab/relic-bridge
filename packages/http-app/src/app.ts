@@ -199,6 +199,8 @@ export interface AdminApiOptions {
   readonly audit?: { admin(event: AdminAuditEvent): Promise<void> };
   /** Checks New Relic keys before they are stored. Default: NerdGraph `actor` query (using `fetch`). */
   readonly validateKey?: KeyValidator;
+  /** Ceiling for `keys/rotate` `batchSize` (a Free-plan Worker allows 50 D1 queries per call). Default: none beyond 100. */
+  readonly maxRotationBatch?: number;
   /** Largest admin request body. Default 64 KiB. */
   readonly maxBodyBytes?: number;
 }
@@ -711,6 +713,9 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
         catalog,
         clock,
         logger,
+        ...(admin.maxRotationBatch === undefined
+          ? {}
+          : { maxRotationBatch: checkRange('admin.maxRotationBatch', admin.maxRotationBatch, 1, 100) }),
         maxBodyBytes: checkRange(
           'admin.maxBodyBytes',
           admin.maxBodyBytes ?? DEFAULT_ADMIN_MAX_BODY_BYTES,

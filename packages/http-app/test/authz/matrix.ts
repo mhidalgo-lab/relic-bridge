@@ -166,6 +166,8 @@ export const UI_ROUTES: readonly RouteCase[] = [
   ui('GET', '/admin/tokens/new'),
   ui('POST', '/admin/tokens'),
   ui('POST', '/admin/tokens/:id/revoke', '/admin/tokens/tok_none/revoke'),
+  // P4-06: client configuration snippets (admin and owner).
+  ui('GET', '/admin/connect'),
   ui('GET', '/admin/users'),
   ui('GET', '/admin/users/new'),
   ui('POST', '/admin/users'),

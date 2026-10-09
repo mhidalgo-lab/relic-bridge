@@ -16,6 +16,14 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   tip into `main` in one go.
 - **Needs:** owner's merge strategy; then mark merged tasks `done` and run `pnpm tasks index`.
 
+### ALL — GitHub Actions quota exhausted
+- **Context:** From PR #60 onward, CI did not run: GitHub Actions jobs fail within seconds because of the account's
+  billing / spending limit (failed payment).
+- **Assumption made:** Every check (`pnpm lint && pnpm typecheck && pnpm test && pnpm test:workers && pnpm build`,
+  `pnpm bench:cpu`, the Docker image build when available) was run locally only.
+- **Options:** fix billing, then re-run CI on every PR from #60 onward (bottom of the stack first).
+- **Needs:** owner: fix billing and re-run CI on all PRs from #60 onward.
+
 ## P4-01 — Identity providers
 
 ### P4-01 — Real provider apps and an end-to-end run
@@ -195,4 +203,18 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Assumption made:** Accept; the guide says to narrow the time range for more.
 - **Options:** a "truncated" final row; a confirmation page showing the match count first; streaming export with a
   higher cap (needs a storage count or a streaming query).
+- **Needs:** nothing now.
+
+### P4-06 — Snippets are verified against documentation, not run in the clients
+- **Context:** Claude Code and Cursor formats were checked against their current docs (`${VAR}` in `.mcp.json`,
+  `${env:NAME}` in Cursor, `claude mcp add --transport http --header`). VS Code and Claude Desktop (`mcp-remote`) follow
+  the clients guide. Nothing was run in a real client.
+- **Assumption made:** Acceptable; the clients guide already says which snippets the maintainers have run.
+- **Needs:** owner run through each client once with a real token and update `docs/guide/clients.md`.
+
+### P4-06 — Claude Desktop needs the literal token in its config file
+- **Context:** The `mcp-remote` bridge has no secret prompt in Desktop's config, so the token sits in
+  `claude_desktop_config.json`.
+- **Assumption made:** Accepted and warned about on the one-time page.
+- **Options:** document an OS-keychain wrapper script; wait for Phase 5 OAuth (Desktop connectors).
 - **Needs:** nothing now.

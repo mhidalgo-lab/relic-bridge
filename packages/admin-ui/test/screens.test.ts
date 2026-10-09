@@ -58,6 +58,7 @@ const PAGES = [
   '/admin/tokens',
   '/admin/tokens/new',
   '/admin/tokens/new?grant=grt_me',
+  '/admin/connect',
   '/admin/users',
   '/admin/users/new',
   '/admin/users/usr_m',
@@ -485,7 +486,9 @@ describe('device tokens', () => {
     expect(res.headers.get('cache-control')).toBe('no-store');
     expect(res.headers.get('location')).toBeNull();
     expect(res.headers.get('set-cookie')).toBeNull();
-    expect(html.split(TOKEN).length - 1).toBe(1);
+    // The token is in the secret box and, for the Desktop bridge (which needs the literal value), once in its snippet.
+    expect(html.split(TOKEN).length - 1).toBe(2);
+    expect(html).not.toMatch(/claude mcp add[^<]*rb_live_ONETIME/);
     expect(html).toContain(`<code id="token">${TOKEN}</code>`);
     expect(html).toContain('data-copy="token"');
     expect(html).toContain('https://bridge.example/p/work-us/mcp');

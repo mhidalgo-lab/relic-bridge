@@ -128,7 +128,8 @@ A server started with `relic-bridge serve` ([self-hosting](self-hosting.md), [mu
 is reached over Streamable HTTP at `https://<your host>/p/<project>/mcp` (on Cloudflare: [deploy guide](cloudflare-deploy.md)) with a per-device token in an
 `Authorization: Bearer rb_live_…` header. Nothing runs on the device, and the New Relic key never leaves the server.
 **Use https**: a token sent over plain HTTP can be read on the way. Create a token per device with
-`relic-bridge token create` (it prints these snippets with your values filled in, once).
+`relic-bridge token create` (it prints these snippets with your values filled in, once) or in the admin panel, whose
+**Connect** page (`/admin/connect`) shows the same snippets for each project ([admin panel](admin-panel.md)).
 
 | Client | Remote config |
 |---|---|

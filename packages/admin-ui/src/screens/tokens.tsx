@@ -26,6 +26,7 @@ import {
 } from '../components.tsx';
 import { adminPath, type UiKit, type UiPrincipal } from '../kit.ts';
 import { htmlResponse } from '../pages.tsx';
+import { SnippetList } from '../snippets.tsx';
 import {
   type Grant,
   isId,
@@ -64,7 +65,7 @@ const BASE = '/admin/tokens';
 const ROUTE = '/tokens';
 
 /** Lifetimes offered (days; `never` is warned about). */
-const LIFETIMES = [
+export const LIFETIMES = [
   ['30', '30 days'],
   ['90', '90 days (default)'],
   ['180', '180 days'],
@@ -340,6 +341,20 @@ export function registerTokens(ui: Hono, kit: UiKit): void {
               <li>Never paste it into a chat, a ticket, a shared document or a repository.</li>
               <li>Do not reload this page: that would create another token.</li>
             </ul>
+          </section>
+          <section aria-labelledby="snippets-heading">
+            <h2 id="snippets-heading">Connect a client</h2>
+            <p>
+              Pick your client. The commands read the token from an environment variable, so it never lands in
+              your shell history or a file you might commit. Only the Claude Desktop snippet holds the token
+              itself.
+            </p>
+            <SnippetList
+              endpoint={endpointOf(kit.deps.publicUrl, project?.slug ?? '<project>')}
+              slug={project?.slug ?? 'project'}
+              token={token}
+              idPrefix="connect"
+            />
           </section>
           <div class="actions">
             <LinkButton href={adminPath`/admin/grants/${grant.id}`}>Done</LinkButton>

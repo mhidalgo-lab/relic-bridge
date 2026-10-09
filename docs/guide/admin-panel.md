@@ -32,8 +32,9 @@ The common case: you, two New Relic accounts (one in the US data center, one in 
 4. **Devices** → *New device token*. Choose the grant, name the device (`laptop`, `phone`) and a lifetime (90 days by
    default). The next page shows the token **once**: copy it into the device's MCP client right away. It is not
    stored and cannot be shown again. Do not reload that page: that would create another token.
-5. Connect the client to the endpoint shown on that page with `Authorization: Bearer <token>`
-   ([clients](clients.md)). One token per device lets you revoke a lost phone alone.
+5. Connect the client: the same page lists copy-paste snippets for Claude Code, Cursor, VS Code and Claude Desktop with
+   the endpoint and the token filled in where it must be (see **Connect** below, and [clients](clients.md)). One token
+   per device lets you revoke a lost phone alone.
 
 ## Screens
 
@@ -62,6 +63,15 @@ always the intersection of the grant and the project. A grant can't be edited: c
 **Devices** (`/admin/tokens`). Every token with its device name, prefix (`rb_live_Ab3d…`), grant, status, last use
 (updated at most every 5 minutes) and expiry. *Revoke…* asks for confirmation, then the device loses access at once.
 Connected OAuth clients (claude.ai, mobile) will be listed here with Phase 5.
+
+**Connect** (`/admin/connect`, admins and owners). Choose a project to get snippets for Claude Code (a command and
+`.mcp.json`), Cursor, VS Code, Claude Desktop and other clients. The address is built from the configured public URL
+(`RB_PUBLIC_URL`), not from the request. The snippets never contain a token, because tokens are stored as hashes and
+can't be shown again: the shell command reads it from `RELIC_BRIDGE_TOKEN` (`read -rs`, so it stays out of your shell
+history) and the JSON files use the client's `${VAR}` expansion. The form *Create a token for this device* issues a token
+through the same flow as **Devices**; its one-time page repeats the snippets with the real token filled into the one
+that needs it (Claude Desktop's `mcp-remote` bridge). Copy buttons appear when your browser allows them; without
+JavaScript, select the text. claude.ai on the web and the Claude mobile apps need OAuth (Phase 5).
 
 **Users** (`/admin/users`). *Add a user* is the invitation: that person can then sign in with any configured provider
 that confirms the email address (no email is sent, so tell them the panel's address). A user page shows their role,

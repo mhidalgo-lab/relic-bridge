@@ -12,6 +12,7 @@ import { ASSET_CACHE_CONTROL, findAsset } from './assets.ts';
 import { type AdminUiDeps, createUiKit, requestIdOf, type UiKit } from './kit.ts';
 import { errorPage } from './pages.tsx';
 import { registerAudit } from './screens/audit.tsx';
+import { registerConnect } from './screens/connect.tsx';
 import { registerCredentials } from './screens/credentials.tsx';
 import { registerGrants } from './screens/grants.tsx';
 import { registerOverview } from './screens/overview.tsx';
@@ -30,6 +31,7 @@ function registerScreens(ui: Hono, kit: UiKit): void {
   registerProjects(ui, kit);
   registerGrants(ui, kit);
   registerTokens(ui, kit);
+  registerConnect(ui, kit);
   registerUsers(ui, kit);
   registerAudit(ui, kit);
   registerUsage(ui, kit);

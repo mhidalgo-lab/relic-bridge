@@ -275,3 +275,15 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Options:** treat unknown as "no" (strictest, drops charts for 2025-era stateless clients); use only the switch and
   skip per-client gating; ask the SDK for a per-request list hook and drop the getters.
 - **Needs:** owner's call on (1); verify in a real MCP Apps host (Claude web or Desktop) that charts still render.
+
+### P7-17 — doctor: refused token is one outcome; client files are read from fixed paths
+- **Context:** The task asks for valid / expired / revoked. The server deliberately returns the same 401 for every
+  refusal (T19), and no `whoami`-style endpoint accepts a device token other than the MCP endpoint itself.
+- **Assumption made:** (1) The check sends one MCP `initialize` to `/p/<slug>/mcp` and reports ok / refused (invalid,
+  expired or revoked) / wrong project; it points to `token list` for the reason. No new endpoint or distinct error was
+  added. (2) The token comes only from `RB_TOKEN` or a `0600` `--token-file`; it is not taken from client config
+  files. (3) Config paths are fixed per OS (home, working directory, XDG/APPDATA); WSL does not reach the Windows
+  files; a malformed JSON-with-comments VS Code file is a warning.
+- **Options:** let the server reveal "revoked" vs "expired" to a presenter of the token itself (weakens the uniform
+  401); also test the token found in a client entry; search more locations (workspace folders, profiles).
+- **Needs:** owner's call on (1) and (2) if the uniform 401 should be relaxed.

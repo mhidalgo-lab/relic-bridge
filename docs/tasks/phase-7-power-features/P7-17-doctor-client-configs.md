@@ -2,11 +2,11 @@
 id: P7-17
 title: "doctor: client config files and remote token validity"
 phase: 7
-status: todo
+status: review
 priority: low
 depends_on: [P7-05]
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P7-17 — doctor: client config files and remote token validity
@@ -20,14 +20,19 @@ owner: ""
   remote's `whoami`-equivalent endpoint and report valid / expired / revoked.
 
 ## Acceptance criteria
-- [ ] Each mismatch has an actionable fix; tokens are never printed (fingerprint only).
-- [ ] Tests with in-memory file systems for each client format.
+- [x] Each mismatch has an actionable fix; tokens are never printed (fingerprint only).
+- [x] Tests with in-memory file systems for each client format.
 
 ## Security notes
 Config files hold tokens: read-only, never echoed, scrubbed like the rest of doctor output.
 
 ## Docs to update
 - CLI reference, troubleshooting.
+
+## Notes
+- Paths are defined in `apps/cli/src/manage/doctor-clients.ts` (`manage/configs.ts` only prints snippets). The server
+  answers every token refusal with one 401 (no existence oracle), so "expired" and "revoked" are reported together as
+  "refused"; see the pending decision.
 
 ## Out of scope
 - Rewriting client files (that is `token create`).

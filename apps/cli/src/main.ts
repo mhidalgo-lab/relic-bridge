@@ -41,6 +41,7 @@ export interface CliRuntime {
   readonly env: Env;
   readonly platform: string;
   readonly homeDir?: string;
+  readonly cwd?: string;
   readonly fs: ConfigFs;
   /** Only `help` and `version` write here. In stdio mode stdout is the MCP channel. */
   readonly stdout: (text: string) => void;
@@ -300,6 +301,7 @@ function manage(rt: CliRuntime): MainResult {
         fs: rt.fs,
         platform: rt.platform,
         ...(rt.homeDir === undefined ? {} : { homeDir: rt.homeDir }),
+        ...(rt.cwd === undefined ? {} : { cwd: rt.cwd }),
         stdout: rt.stdout,
         stderr: rt.stderr,
       },

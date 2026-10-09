@@ -23,6 +23,7 @@ const result = main({
   env: process.env,
   platform: process.platform,
   homeDir: homedir(),
+  cwd: process.cwd(),
   fs: {
     stat: (path) => statSync(path),
     readFile: (path) => readFileSync(path, 'utf8'),

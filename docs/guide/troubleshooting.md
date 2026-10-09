@@ -9,6 +9,10 @@ calls, `--json` for scripts). It checks Node, your config, the New Relic key and
 `RB_PUBLIC_URL`, clock skew and the remote server, and prints a fix for each problem without ever showing a secret. See
 the [CLI reference](../reference/cli.md#doctor).
 
+If a client cannot connect to your server, run `relic-bridge doctor --client-configs --remote https://your-server`: it
+checks the relic-bridge entry in your Claude Code, Claude Desktop, Cursor and VS Code files (URL, https, `/p/<slug>/mcp`
+path, token shape) and, with the token in `RB_TOKEN` or `--token-file`, whether the server still accepts it.
+
 ## Server won't start or doesn't appear
 
 | Message / symptom | Cause and fix |

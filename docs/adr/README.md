@@ -19,6 +19,7 @@ Statuses: `proposed` · `accepted` · `accepted (pending spike PX-NN)` · `super
 | [0010](0010-platform-limits-strategy.md) | Budgets, concurrency and retries for Workers and NerdGraph limits | accepted (spike P0-06) |
 | [0011](0011-oauth-state-in-storage-kv.md) | OAuth provider state in the storage `kv` table on both runtimes | accepted (P5-01) |
 | [0012](0012-cimd-resolved-by-relic-bridge.md) | Client ID Metadata Documents resolved by relic-bridge, per-runtime SSRF guard | accepted (P5-03) |
-| [0013](0013-refresh-token-reuse-interval.md) | Refresh token reuse interval for concurrent refreshes | accepted (P5-09, owner confirmation pending) |
-| [0014](0014-no-raw-nerdgraph-tool.md) | No raw NerdGraph passthrough tool | accepted (P6-15, owner confirmation pending) |
-| [0015](0015-opt-in-write-tools.md) | Opt-in write tools: four typed writes (P7-19 addendum: `create_dashboard`), off at every layer | accepted (P7-09, owner confirmation pending) |
+| [0013](0013-refresh-token-reuse-interval.md) | Refresh token reuse interval for concurrent refreshes | accepted (P5-09, owner confirmed) |
+| [0014](0014-no-raw-nerdgraph-tool.md) | No raw NerdGraph passthrough tool | accepted (P6-15, owner confirmed) |
+| [0015](0015-opt-in-write-tools.md) | Opt-in write tools: four typed writes (P7-19 addendum: `create_dashboard`), off at every layer | accepted (P7-09, owner confirmed; default approval superseded by 0016) |
+| [0016](0016-write-approval-required-by-default.md) | Human write approval (`RB_WRITE_APPROVAL=required`) by default | accepted (owner, 2026-10-09) |

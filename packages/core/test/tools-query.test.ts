@@ -100,7 +100,12 @@ describe('query tools: catalogue', () => {
   it('registers both tools as read-only, open-world, with the NRQL output schema', async () => {
     const registry = new ToolRegistry();
     for (const t of createBuiltinTools()) registry.register(t);
-    expect(registry.list().map((t) => t.name)).toEqual(['run_nrql', 'get_query_result']);
+    expect(
+      registry
+        .list()
+        .filter((t) => t.group === 'query')
+        .map((t) => t.name),
+    ).toEqual(['run_nrql', 'get_query_result']);
 
     const { client } = await setup([fixtureResponse('nrql_sync_1')]);
     const { tools } = await client.listTools();

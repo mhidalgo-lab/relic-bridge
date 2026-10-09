@@ -3,6 +3,7 @@ export {
   type AccountScope,
   type Budget,
   type Clock,
+  type ConnectionInfo,
   type Credential,
   createBudget,
   DEFAULT_LIMITS,
@@ -45,6 +46,7 @@ export {
 } from './registry.ts';
 export { Secret } from './secret.ts';
 export { type BuildServerOptions, buildMcpServer, DEFAULT_SERVER_INFO, type ServerInfo } from './server.ts';
+export * from './time/index.ts';
 export {
   annotationsFor,
   defineTool,

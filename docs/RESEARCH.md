@@ -109,6 +109,13 @@ Sources: <https://claude.com/docs/connectors/building/authentication>,
   **OAuth 2.0 with DCR** and **OAuth 2.0 with Client ID Metadata Documents (CIMD)**. Static request headers are
   only in beta for some organisations.
 - Claude Code (CLI) supports `--header "Authorization: Bearer …"` and OAuth.
+- Cloudflare `global_fetch_strictly_public` (compatibility flag): the global `fetch` routes "as if made on the public
+  Internet": requests to the Worker's own zone go through Cloudflare's front door (security settings, Workers routes)
+  instead of straight to the zone's origin server. A Worker's `fetch` has no route into private networks (no
+  VPC/Tunnel binding is configured) and a Worker cannot resolve DNS itself, so on Workers the CIMD SSRF guard is this
+  flag + the platform's egress + our client-id checks (no IP literals, internal names or ports) + no redirects (P5-03).
+  The docs say nothing explicit about hostnames that resolve to private addresses; not verified on a deployment.
+  Source: <https://developers.cloudflare.com/workers/configuration/compatibility-flags/#global-fetch-strictly-public>.
 - **Conclusion: static bearer tokens cover the MacBook, PC and W365 machine (Claude Code / IDEs) from
   Phase 2. The phone needs OAuth 2.1 (Phase 5).** Both DCR (still used by many clients) and CIMD (the
   spec's preferred method) must be supported.
@@ -129,6 +136,28 @@ Sources: <https://modelcontextprotocol.io/specification/2026-07-28/basic/authori
 - Auth: the server is an OAuth 2.1 resource server and MUST publish Protected Resource Metadata (RFC 9728). Clients
   send Resource Indicators (RFC 8707), and the server MUST reject tokens not issued for itself. CIMD is preferred and
   DCR is deprecated but kept for compatibility. Clients validate the issuer (RFC 9207).
+- **Read in the 2026-07-28 authorization pages (P5-02, 2026-10-05):** servers MUST implement RFC 9728 and either the
+  `resource_metadata` parameter on `401` or a well-known URI; clients use the header when present, else try
+  `/.well-known/oauth-protected-resource/{path}` (path insertion) then the root. PRM MUST list at least one
+  `authorization_servers`. Servers SHOULD send `scope` in the challenge and SHOULD NOT put `offline_access` in the
+  challenge or PRM `scopes_supported`. Clients MUST send `resource` (canonical server URI) in authorization **and**
+  token requests; servers SHOULD accept uppercase scheme/host. AS metadata via RFC 8414 or OIDC discovery (clients
+  must try both, RFC 8414 first). `403 insufficient_scope` with `scope` + `resource_metadata` for step-up.
+  Sources: <https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization>,
+  <https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization/authorization-server-discovery>.
+- **Read in the 2026-07-28 client registration and security pages (P5-03, 2026-10-05):** clients use pre-registration,
+  then CIMD when the AS metadata has `client_id_metadata_document_supported`, then DCR (`registration_endpoint`),
+  then ask the user. CIMD documents MUST contain `client_id`, `client_name`, `redirect_uris`; the AS MUST check
+  `client_id` equals the URL exactly, MUST validate redirect URIs against the document, SHOULD cache respecting HTTP
+  cache headers, SHOULD consider SSRF; SHOULD warn for localhost-only redirect URIs and MUST display the redirect URI
+  host. DCR is deprecated (kept for compatibility); clients MUST send `application_type` (`native` for loopback). Draft
+  (`draft-ietf-oauth-client-id-metadata-document-00`): client id URL https with a path, no dot segments, fragment or
+  userinfo (ports allowed, query discouraged); no `client_secret*` and no shared-secret auth methods; recommended max
+  5 KB; MUST NOT cache errors or invalid documents; the AS MAY bound cache lifetimes, MAY restrict redirect URIs relative
+  to the client id, SHOULD avoid private/loopback addresses, SHOULD show the client id host.
+  Sources: <https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization/client-registration>,
+  <https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization/security-considerations>,
+  <https://www.ietf.org/archive/id/draft-ietf-oauth-client-id-metadata-document-00.html>.
 - Extensions framework: **MCP Apps** (interactive HTML UIs) and **Tasks** (long-running operations) ship as
   extensions. Logging and sampling were removed from core.
 - Tool input schemas support full JSON Schema 2020-12.
@@ -171,6 +200,40 @@ Sources: <https://github.com/cloudflare/workers-oauth-provider>, issues #264, #3
   DCR, CIMD, PKCE S256, `iss`, refresh rotation and revocation, and runs on Node unmodified with a SQLite KV adapter. See ADR-0009.
   Claude hosted apps redirect to `https://claude.ai/api/mcp/auth_callback`; Claude Code uses loopback redirects. Claude
   picks CIMD when metadata advertises it with `none` auth. Real-client run pending (`spikes/oauth/deploy-and-test.md`).
+- **Read in the 1.2.1 source (P5-01, 2026-10-05):**
+  - The code exchange is read-check-write on the grant record (`authCodeWrappedKey` deleted after use), not atomic: two
+    concurrent redemptions can both pass on a store without atomic take (Workers KV). relic-bridge adds a single-use
+    marker consumed with `kv.take` (ADR-0011).
+  - A replay detected by the provider (`authCodeWrappedKey` gone) revokes the grant; `authCodeId` (SHA-256 of the code)
+    stays on the grant after the exchange.
+  - Access tokens, refresh tokens and codes are all `userId:grantId:secret` (grant id 16, secret 32 characters of
+    `[A-Za-z0-9_-]`); validation is one KV read of `token:{userId}:{grantId}:{sha256(token)}` plus an `expiresAt` check
+    against `Date.now()`. `audienceMatches` allows path-prefix matches; `validateToken(resource, …)` itself requires the
+    exact registered resource.
+  - Authorization-server metadata includes `protected_resources` (every declared resource) when resources are
+    declared: relic-bridge strips it (project slugs are not public, T19).
+  - The token endpoint accepts only `application/x-www-form-urlencoded` (media type compared after `split(';')`).
+  - PKCE: the provider requires it only for public clients (`token_endpoint_auth_method: none`) and accepts
+    `S256` only (`code_challenge_methods_supported: ["S256"]`); relic-bridge requires S256 for every client.
+  - The module prints a `console.warn` at import time when `global_fetch_strictly_public` is off (CIMD disabled), so it
+    is imported lazily. `parseAuthRequest()` checks the request URL against the issuer's authorize endpoint, so the
+    request is re-addressed to the issuer origin first (works behind a TLS-terminating proxy).
+  - `completeAuthorization()` revokes the user's earlier grants for the same client and resource by default.
+  - Token endpoint `resource` is optional in the provider: omitted → the grant's resource; given → it must match the
+    grant's (`invalid_target`). The provider folds scheme/host case when matching resources and returns the configured
+    (canonical) resource from `parseAuthRequest`. relic-bridge requires `resource` on code and refresh grants (P5-02).
+  - (P5-03) CIMD in the provider: enabled only with `Cloudflare.compatibilityFlags.global_fetch_strictly_public`;
+    fetches with the global `fetch` without `redirect` (redirects followed), 10 s, 5 KiB, caches in the Cache API
+    (`caches`, skipped on Node) for the document's `max-age` capped at 7 days; with CIMD off it reads a URL client id
+    from KV like any stored client (`client:<url>`), which relic-bridge uses to hand it validated documents (ADR-0012).
+    Grant replacement for URL client ids is keyed by redirect URI as well (any flag). DCR: `client_id` is 16 random
+    characters; listed redirect URIs may use private-use schemes as long as one is https or loopback http;
+    `clientRegistrationTTL` (default 90 days) expires registrations, renewed at half-life after a successful token
+    response; `clientRegistrationCallback` can refuse a registration. Confidential DCR clients are accepted
+    (`client_secret_basic` / `_post`).
+  - The provider's own PRM handler and `OAuthResourceServer` challenge (`resource_metadata`, `insufficient_scope`)
+    exist but are bound to declared resources; relic-bridge builds PRM and the challenge itself from the path, so no
+    project list is needed per request and unknown slugs answer like known ones.
 - Originally to verify (P0-08):
   1. whether the library can run on Node with a KV-compatible adapter backed by SQLite (otherwise use a Node-native
      authorization server such as `oidc-provider`, behind the same interface)
@@ -511,3 +574,35 @@ Source: <https://docs.github.com/en/rest/apps/oauth-applications#delete-an-app-t
   the endpoint is being spammed. Revoking the token ends that one token only; the user's app authorization stays.
 - relic-bridge treats `204` and `404` as done, anything else (and network errors or timeouts) as a failed, logged
   best-effort revocation.
+
+## 20. OAuth consent page in the browser (P5-04, measured 2026-10-05 with Playwright's Chromium)
+
+- **`form-action` and the redirect after a consent post.** With the admin UI policy (`form-action 'self'`), posting the
+  consent form to our origin and answering `303 Location: http://127.0.0.1:<port>/callback?code=…` is blocked by
+  Chromium (the navigation never reaches the client; `e2e/oauth.spec.ts` times out waiting for the callback). Adding
+  the redirect URI's origin to `form-action` fixes it. CSP3 host sources have no syntax for IPv6 literals, so an
+  `http://[::1]` redirect needs the `http:` scheme source. Source: https://www.w3.org/TR/CSP3/#directive-form-action
+  (the check applies to "navigations … including redirects" in Chromium; measured, not assumed).
+- **The provider's consent helpers** (`beginConsent` / `approveConsent` / `isConsentRemembered` in
+  `@cloudflare/workers-oauth-provider` 1.2.1): a 10-minute encrypted transaction in KV bound to the browser by a
+  `__Host-` cookie per transaction, and remembered consent in an HMAC-signed `__Host-…approvals` cookie keyed by client,
+  redirect URI, resource and an optional subject. `__Host-` cookies need `Secure`, which an `http://localhost`
+  development instance can't rely on, and the remembered-consent cookie stores scopes only (not which relic-bridge grant
+  was chosen) and can't be revoked server-side; relic-bridge keeps the request in the URL (re-validated each step) and
+  remembered approvals in its own `kv` rows instead. Source: `node_modules/@cloudflare/workers-oauth-provider/dist/oauth-provider.js`
+  (`src/oauth-consent.ts` region).
+
+## 21. Refresh token reuse intervals (P5-09, checked 2026-10-05)
+
+- **Okta** "grace period for token rotation": after a refresh token is rotated, the previous one stays valid for the
+  configured time so clients can still get the new token; default **30 s**, settable 0-60 s.
+  <https://developer.okta.com/docs/guides/refresh-tokens/main/>
+- **Auth0** "refresh token reuse interval": accounts for network lag; up to 2,592,000 s (30 days). During the window
+  breach detection does not apply and a **new** rotating refresh token is issued; only the previous token may be reused,
+  exchanging the second-to-last one triggers breach detection.
+  <https://auth0.com/docs/secure/tokens/refresh-tokens/configure-refresh-token-rotation>,
+  <https://support.auth0.com/center/s/article/Refresh-token-leeway>
+- Same symptom in another MCP server: FastMCP's OAuth proxy rotated refresh tokens with no grace period and lost
+  sessions under concurrent `/token` requests (<https://github.com/PrefectHQ/fastmcp/issues/4901>).
+- relic-bridge (ADR-0013) is narrower than both: the replay returns the **same** successor pair (no new token per
+  reuse), only while that successor is still current, only for the same client, ≤ 120 s.

@@ -74,7 +74,7 @@
 | **A. stdio, env vars** | none (env) | none (local process) | Fastest start: `npx relic-bridge` |
 | **B. stdio, config file** | `yaml` (read-only; keys taken from env/keychain) | none | Several projects locally, no server |
 | **C. Self-hosted HTTP** (`relic-bridge serve`, Docker) | `sqlite` | tokens → OAuth | Home server, VPS, company network |
-| **D. Cloudflare Worker** | `d1` + KV (OAuth) | tokens → OAuth | Reachable from every device including phone; no server to run |
+| **D. Cloudflare Worker** | `d1` (OAuth state too, ADR-0011) | tokens → OAuth | Reachable from every device including phone; no server to run |
 | **E. Pass-through** (optional flag on C/D, off by default) | none for credentials | client sends its NR key in `X-NewRelic-Api-Key` on `/passthrough/mcp` (P2-15) | Shared instance; the server stores no NR keys |
 
 Mode D is the main remote target. C and D share all code except the storage adapter and entry point.
@@ -136,10 +136,10 @@ Times are epoch milliseconds, ids are caller-generated text, lists/objects are J
 | `projects` | id, slug (unique), name, default_account_id, allowed_account_ids (json), enabled_tools (json, null = all), limits (json), default_credential_id, created_at, updated_at, disabled_at |
 | `grants` | id, project_id, user_id (null for service grants, which need a label), label, credential_id (null → project default), tools (json, null = project's), account_ids (json, null = project's), limits (json, tightening), rate_limit (json), created_at, updated_at, expires_at, revoked_at |
 | `access_tokens` | id, grant_id, prefix, token_hash (SHA-256 hex, unique), label (device), created_at, expires_at, last_used_at, revoked_at |
-| `oauth_*` | Managed by the OAuth server (KV on Workers; the `kv` table on Node). Token props carry `grant_id` and audience. |
+| `oauth_*` | No tables: the OAuth provider's clients, grants and tokens are `kv` rows under `oauth:` on every runtime (ADR-0011). Token props (encrypted by the provider) carry `grantId`, `projectSlug`, `userId`, `clientId`; the audience is the slug's resource URL. |
 | `audit_log` | id, ts, kind (`tool_call` \| `auth` \| `admin`), action, status (`ok` \| `error` \| `denied`), request_id, user_id, grant_id, token_id, key_id (pass-through key fingerprint `pt_…`), client_id, project_id, account_ids, nrql (masked), duration_ms, inspected_count, error_code, target_type, target_id, details (json). No foreign keys. |
 | `settings` | key, value (json), updated_at |
-| `kv` | key, value, expires_at — Workers-KV-compatible store for the OAuth provider on Node (ADR-0009); also sign-in transactions (`login:<sha256(state)>`) and setup links (`setup:<sha256(code)>`) on every runtime, consumed atomically with `take` (P4-01) |
+| `kv` | key, value, expires_at — Workers-KV-compatible store for the OAuth provider on Node and Workers (`oauth:…`, ADR-0011) and its single-use code markers (`oauth-code:<sha256(code)>`, consumed with `take`, P5-01), cached client metadata documents (`oauth:client:<url>`, P5-03) and the dynamic registration cap counter (`oauth-dcr-count:<window>`, atomic `increment`, P5-03); also sign-in transactions (`login:<sha256(state)>`) and setup links (`setup:<sha256(code)>`) on every runtime, consumed atomically with `take` (P4-01) |
 | `schema_migrations` | version, name, checksum, applied_at (owned by the migration runner) |
 
 Deleting a project removes its grants and their tokens; deleting a grant removes its tokens; a credential that a
@@ -152,12 +152,14 @@ Implemented by `createHttpApp` in `packages/http-app` (P2-06); `relic-bridge ser
 1. `POST /p/{slug}/mcp` reaches the Hono app: request id, security headers (on every response), `Host` / `Origin`
    allowlists (DNS rebinding, T24), CORS only when configured, declared body size ≤ 1 MiB.
 2. **Authenticate**: bearer token (format and checksum offline, then hash lookup, constant-time compare, revoked,
-   expired) or, from Phase 5, an OAuth access token (audience must equal this slug's resource URL). The token is
-   checked before the slug is looked at.
+   expired) or, with OAuth on (P5-01), a provider-issued access token: validated for this slug's resource only
+   (RFC 8707 audience), props cross-checked (slug, user, client), then its grant goes through the same `resolveAccess`
+   as a device token's grant (see [`dev/oauth.md`](dev/oauth.md)). The token is checked before the slug is looked at.
 3. **Resolve grant**: effective tools, accounts, limits and credential (`resolveAccess`; steps 2-3 together are
    `authenticateAccess`, one storage call on SQL storage — one D1 `batch()` on Workers, P3-09), cached per isolate for
    0-60 s (default 30 s), never past the token's or grant's expiry, keyed by token hash + slug, holding no plaintext
-   key. Every denial in steps 2-3 is the same 401; storage errors are 503.
+   key. Every denial in steps 2-3 is the same 401 (with OAuth on, its `WWW-Authenticate` names the slug's RFC 9728
+   metadata, built from the path alone, P5-02); storage errors are 503.
 4. **Rate limit** (P2-07, `createRateLimitHooks` over a pluggable `RateLimiter`; bounded in-memory token bucket on
    Node; on Workers `WorkersRateLimiter` = per-isolate bucket plus the Rate Limiting binding as shared backstop, the auth-failure throttle per isolate (P3-04); Durable Object limiter in P7-10). Before step 2 (`beforeAuth`): per-IP request limit (and,
    on the pass-through route only, the per-IP auth-failure throttle, before a key is sent to NerdGraph). On a failed

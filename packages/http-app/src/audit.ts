@@ -235,11 +235,15 @@ export function createAuditRecorder(options: AuditRecorderOptions): AuditRecorde
     userId: info.userId,
     grantId: info.grantId,
     tokenId: info.tokenId,
+    clientId: info.clientId,
     projectId: info.projectId,
   });
 
   const writeToolCall = async (
-    who: Pick<AuditEntry, 'requestId' | 'userId' | 'grantId' | 'tokenId' | 'projectId' | 'keyId'>,
+    who: Pick<
+      AuditEntry,
+      'requestId' | 'userId' | 'grantId' | 'tokenId' | 'clientId' | 'projectId' | 'keyId'
+    >,
     details: Record<string, unknown>,
     event: ToolCallEvent,
   ): Promise<void> => {
@@ -299,7 +303,13 @@ export function createAuditRecorder(options: AuditRecorderOptions): AuditRecorde
         status: 'denied',
         requestId: info.requestId,
         ...(req
-          ? { userId: req.userId, grantId: req.grantId, tokenId: req.tokenId, projectId: req.projectId }
+          ? {
+              userId: req.userId,
+              grantId: req.grantId,
+              tokenId: req.tokenId,
+              clientId: req.clientId,
+              projectId: req.projectId,
+            }
           : {}),
         ...(info.passthrough ? { keyId: info.passthrough.keyId } : {}),
         errorCode: info.reason ?? `http_${info.status}`,

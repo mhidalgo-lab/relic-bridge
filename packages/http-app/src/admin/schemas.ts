@@ -440,6 +440,121 @@ export const MyGrantPage = page(MyGrantSchema, 'MyGrantPage');
 export const MyGrantOne = one(MyGrantSchema, 'MyGrantResponse');
 
 // ---------------------------------------------------------------------------------------------------------------
+// OAuth devices (P5-05): one per app authorization (a provider grant); never token material.
+// ---------------------------------------------------------------------------------------------------------------
+
+export const OAuthDeviceSchema = z
+  .object({
+    id: z.string().openapi({ description: '`oauth_…`: also the `tokenId` of its audit rows.' }),
+    userId: z.string(),
+    clientId: z
+      .string()
+      .openapi({ description: 'The OAuth client (a metadata document URL or a registered id).' }),
+    clientName: z
+      .string()
+      .nullable()
+      .openapi({ description: 'Name from the client registration or metadata document: not verified.' }),
+    clientKind: z.enum(['metadata_document', 'dynamic']),
+    clientHost: z.string().nullable().openapi({
+      description: 'Metadata-document clients: the host of the client id. Null for dynamic ones.',
+    }),
+    label: z.string().nullable().openapi({ description: 'Device name typed on the consent page.' }),
+    projectSlug: z.string().nullable(),
+    grantId: z
+      .string()
+      .nullable()
+      .openapi({ description: 'The grant the app was approved with (revoking it revokes the device).' }),
+    createdAt: timestamp('Authorized'),
+    expiresAt: nullableTimestamp('End of the refresh lifetime: the app must ask again after it'),
+  })
+  .openapi('OAuthDevice', { description: 'An app connected with OAuth (P5-05). Tokens are never returned.' });
+
+export const OAuthDevicePage = page(OAuthDeviceSchema, 'OAuthDevicePage');
+export const OAuthDeviceOne = one(OAuthDeviceSchema, 'OAuthDeviceResponse');
+
+/** `/users/{id}/oauth-devices/{deviceId}`. */
+export const UserDeviceParam = z.strictObject({
+  id: z
+    .string()
+    .regex(ID_RE)
+    .openapi({ param: { name: 'id', in: 'path' }, example: 'usr_0123456789abcdef0123456789abcdef' }),
+  deviceId: z
+    .string()
+    .regex(ID_RE)
+    .openapi({ param: { name: 'deviceId', in: 'path' }, example: 'oauth_AbCdEfGhIjKlMnOp' }),
+});
+
+// ---------------------------------------------------------------------------------------------------------------
+// OAuth clients and the registration switch (P5-08)
+// ---------------------------------------------------------------------------------------------------------------
+
+export const OAuthClientSchema = z
+  .object({
+    id: z.string().openapi({ description: 'The client id: a metadata document URL or a registered id.' }),
+    kind: z.enum(['metadata_document', 'dynamic']),
+    name: z
+      .string()
+      .nullable()
+      .openapi({
+        description:
+          'Name from the registration or metadata document: chosen by whoever registered the client, not verified. ' +
+          'Show it as plain text only.',
+      }),
+    host: z.string().nullable().openapi({
+      description:
+        'Metadata-document clients: the host of the client id, which vouches for it. Null otherwise.',
+    }),
+    redirectHosts: z.array(z.string()).openapi({ description: 'Hosts of the redirect URIs.' }),
+    registeredAt: nullableTimestamp('Registered or fetched'),
+    expiresAt: nullableTimestamp('End of the record (a metadata document is fetched again after it)'),
+  })
+  .openapi('OAuthClient', { description: 'An OAuth client known to this server (P5-08). No secrets.' });
+
+export const OAuthClientList = z
+  .object({
+    data: z.array(OAuthClientSchema),
+    nextCursor: z
+      .null()
+      .openapi({ description: 'Always null: the list is one page of the newest 500 clients.' }),
+    truncated: z.boolean().openapi({
+      description: 'True when more clients exist than the page shows (the oldest are left out).',
+    }),
+  })
+  .openapi('OAuthClientList');
+
+export const RemoveOAuthClientBody = z
+  .strictObject({ clientId: z.string().min(1).max(512) })
+  .openapi('RemoveOAuthClient');
+
+export const OAuthClientRemovalSchema = z
+  .object({
+    client: OAuthClientSchema,
+    devicesRevoked: z.number().int().openapi({ description: 'Device authorizations revoked, every user.' }),
+    approvalsForgotten: z.number().int().openapi({ description: "Remembered 'don't ask again' approvals." }),
+    complete: z.boolean().openapi({
+      description:
+        'False when the call stopped at its work budget: repeat the same removal until it is true (the client record is already gone).',
+    }),
+  })
+  .openapi('OAuthClientRemoval');
+export const OAuthClientRemovalOne = one(OAuthClientRemovalSchema, 'OAuthClientRemovalResponse');
+
+export const OAuthRegistrationSchema = z
+  .object({
+    enabled: z.boolean().openapi({ description: 'What `/oauth/register` does now.' }),
+    deployment: z.boolean().openapi({
+      description: '`RB_OAUTH_DCR` (default on). When off, the switch cannot turn registration on.',
+    }),
+    setting: z.boolean().openapi({ description: 'The runtime switch (on when never set).' }),
+  })
+  .openapi('OAuthRegistration');
+export const OAuthRegistrationOne = one(OAuthRegistrationSchema, 'OAuthRegistrationResponse');
+
+export const SetOAuthRegistrationBody = z
+  .strictObject({ enabled: z.boolean() })
+  .openapi('SetOAuthRegistration');
+
+// ---------------------------------------------------------------------------------------------------------------
 // Audit
 // ---------------------------------------------------------------------------------------------------------------
 

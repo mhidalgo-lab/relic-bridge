@@ -15,6 +15,7 @@
 //   GET  /admin/me/tokens/new[?grant=]  step 1: choose the grant, step 2: device name and lifetime
 //   POST /admin/me/tokens               issue → the one-time page (single-use form handle)
 //   POST /admin/me/tokens/:id/revoke    revoke (needs confirm=yes)
+//   POST /admin/me/apps/:id/revoke      disconnect an app connected with OAuth (needs confirm=yes, P5-05)
 import type { Context, Hono } from 'hono';
 import {
   Button,
@@ -40,10 +41,12 @@ import {
   one,
   parseCredential,
   parseMyGrant,
+  parseOAuthDevice,
   parseToken,
   REGIONS,
   type Token,
 } from './data.ts';
+import { appName, OAuthDevicesTable } from './oauth-devices.tsx';
 import { endpointOf } from './projects.tsx';
 import {
   confirmed,
@@ -394,6 +397,8 @@ export function registerMe(ui: Hono, kit: UiKit): void {
     listAll(kit, c, principal, '/me/grants', parseMyGrant);
   const myTokens = (c: Context, principal: UiPrincipal) =>
     listAll(kit, c, principal, '/me/tokens', parseToken);
+  const myApps = (c: Context, principal: UiPrincipal) =>
+    listAll(kit, c, principal, '/me/oauth-devices', parseOAuthDevice);
 
   const findKey = async (c: Context, principal: UiPrincipal, id: string) =>
     isId(id) ? ((await myKeys(c, principal)) ?? []).find((k) => k.id === id) : undefined;
@@ -402,10 +407,11 @@ export function registerMe(ui: Hono, kit: UiKit): void {
     ROUTE,
     kit.page('member', async (c, page) => {
       const { principal } = page;
-      const [keys, grants, tokens] = await Promise.all([
+      const [keys, grants, tokens, apps] = await Promise.all([
         myKeys(c, principal),
         myGrants(c, principal),
         myTokens(c, principal),
+        myApps(c, principal),
       ]);
       if (keys === null || grants === null || tokens === null) return failed(c, principal);
       const t = now();
@@ -506,6 +512,24 @@ export function registerMe(ui: Hono, kit: UiKit): void {
               ]}
             />
           </section>
+
+          {apps !== null && apps.length > 0 ? (
+            <section aria-labelledby="apps-heading">
+              <h2 id="apps-heading">Apps connected with OAuth</h2>
+              <p>
+                Apps you approved on a consent page (claude.ai, Claude on your phone, Claude Code…).
+                Disconnecting one ends all its access at once; it has to ask you again.{' '}
+                <a href="/oauth/approvals">Apps that don't ask again</a>
+              </p>
+              <OAuthDevicesTable
+                caption="My apps connected with OAuth"
+                rows={apps}
+                csrf={principal.csrf}
+                grantNames={grantName}
+                revokeAction={(d) => `${BASE}${adminPath`/apps/${d.id}/revoke`}`}
+              />
+            </section>
+          ) : null}
         </Layout>,
       );
     }),
@@ -884,6 +908,37 @@ export function registerMe(ui: Hono, kit: UiKit): void {
         c,
         principal,
         { method: 'POST', path: adminPath`/me/tokens/${id}/revoke` },
+        form,
+      );
+      if (isOk(res)) return kit.redirect(BASE, 'revoked');
+      const problem = problemOf(res);
+      return problem.status === 404 ? missing(c, principal) : kit.redirect(BASE, flashFor(problem));
+    }),
+  );
+  ui.post(
+    `${ROUTE}/apps/:id/revoke`,
+    kit.form('member', async (c, principal, form) => {
+      const id = idOf(c);
+      const app = isId(id) ? ((await myApps(c, principal)) ?? []).find((d) => d.id === id) : undefined;
+      if (app === undefined) return missing(c, principal);
+      if (!confirmed(form)) {
+        return confirmPage({
+          viewer: principal,
+          current: BASE,
+          title: `Disconnect ${appName(app)}?`,
+          paragraphs: [
+            'The app loses access at once: every token it holds stops working, and it has to ask you again.',
+            'Other apps and your device tokens keep working.',
+          ],
+          action: `${BASE}${adminPath`/apps/${id}/revoke`}`,
+          confirm: 'Disconnect',
+          cancel: BASE,
+        });
+      }
+      const res = await kit.callAdmin(
+        c,
+        principal,
+        { method: 'POST', path: adminPath`/me/oauth-devices/${id}/revoke` },
         form,
       );
       if (isOk(res)) return kit.redirect(BASE, 'revoked');

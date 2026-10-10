@@ -144,6 +144,41 @@ Request body (`UnbindUser`):
 | 413 | `Error` | Body too large (`payload_too_large`) |
 | 415 | `Error` | Body is not JSON (`unsupported_media_type`) |
 
+### GET /users/{id}/oauth-devices
+
+List a user's OAuth apps
+
+Admins and owners. Empty when OAuth is off.
+
+| Parameter | In | Type | Required | Description |
+| --- | --- | --- | --- | --- |
+| `id` | path | `string` | yes |  |
+| `limit` | query | `integer` | no | Page size, 1-200 (default 50). |
+| `cursor` | query | `string` | no | `nextCursor` from the previous page. |
+
+| Status | Body | Description |
+| --- | --- | --- |
+| 200 | `OAuthDevicePage` | The OAuth devices |
+| 403 | `Error` | Session refused: role too low, missing/invalid CSRF token or cross-origin request (`forbidden`) |
+| 404 | `Error` | No such resource (`not_found`) |
+
+### POST /users/{id}/oauth-devices/{deviceId}/revoke
+
+Disconnect a user's OAuth app
+
+Admins (an owner's apps: owners only). Revokes every token of that authorization and forgets the user's remembered approval for the app on that project.
+
+| Parameter | In | Type | Required | Description |
+| --- | --- | --- | --- | --- |
+| `id` | path | `string` | yes |  |
+| `deviceId` | path | `string` | yes |  |
+
+| Status | Body | Description |
+| --- | --- | --- |
+| 200 | `OAuthDeviceResponse` | Revoked |
+| 403 | `Error` | Session refused: role too low, missing/invalid CSRF token or cross-origin request (`forbidden`) |
+| 404 | `Error` | No such resource (`not_found`) |
+
 ## Sessions
 
 ### POST /users/{id}/sessions/revoke
@@ -833,6 +868,103 @@ Revoke one of my device tokens
 | 403 | `Error` | Session refused: role too low, missing/invalid CSRF token or cross-origin request (`forbidden`) |
 | 404 | `Error` | No such resource (`not_found`) |
 
+### GET /me/oauth-devices
+
+List the apps I connected with OAuth
+
+One row per app authorization (claude.ai, Claude Code, …): client, device name, project and grant. Empty when OAuth is off. Tokens are never returned.
+
+| Parameter | In | Type | Required | Description |
+| --- | --- | --- | --- | --- |
+| `limit` | query | `integer` | no | Page size, 1-200 (default 50). |
+| `cursor` | query | `string` | no | `nextCursor` from the previous page. |
+
+| Status | Body | Description |
+| --- | --- | --- |
+| 200 | `OAuthDevicePage` | Your OAuth devices |
+| 403 | `Error` | Session refused: role too low, missing/invalid CSRF token or cross-origin request (`forbidden`) |
+
+### POST /me/oauth-devices/{id}/revoke
+
+Disconnect one of my OAuth apps
+
+Revokes every access and refresh token of that authorization at once and forgets the remembered approval for the app on that project, so it has to ask again.
+
+| Parameter | In | Type | Required | Description |
+| --- | --- | --- | --- | --- |
+| `id` | path | `string` | yes |  |
+
+| Status | Body | Description |
+| --- | --- | --- |
+| 200 | `OAuthDeviceResponse` | Revoked |
+| 403 | `Error` | Session refused: role too low, missing/invalid CSRF token or cross-origin request (`forbidden`) |
+| 404 | `Error` | No such resource (`not_found`) |
+
+## Oauth
+
+### GET /oauth/clients
+
+List OAuth clients
+
+Owners only. Clients registered dynamically and cached metadata-document clients, newest first, at most 500. Names are chosen by whoever registered the client: show them as plain text. Empty when OAuth is off.
+
+| Status | Body | Description |
+| --- | --- | --- |
+| 200 | `OAuthClientList` | The clients |
+| 403 | `Error` | Session refused: role too low, missing/invalid CSRF token or cross-origin request (`forbidden`) |
+
+### POST /oauth/clients/remove
+
+Remove an OAuth client and everything issued to it
+
+Owners only. Deletes the client record and revokes every device authorization of the client (all users: every access and refresh token) and forgets their remembered approvals. A metadata-document client can start over with consent. Audited as `oauth_client.remove`. 404 when there is no such client or OAuth is off.
+
+Request body (`RemoveOAuthClient`):
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `clientId` | `string` | yes |  |
+
+| Status | Body | Description |
+| --- | --- | --- |
+| 200 | `OAuthClientRemovalResponse` | Removed |
+| 403 | `Error` | Session refused: role too low, missing/invalid CSRF token or cross-origin request (`forbidden`) |
+| 404 | `Error` | No such resource (`not_found`) |
+| 413 | `Error` | Body too large (`payload_too_large`) |
+| 415 | `Error` | Body is not JSON (`unsupported_media_type`) |
+
+### GET /oauth/registration
+
+State of dynamic client registration
+
+Owners only. `404` when OAuth is off.
+
+| Status | Body | Description |
+| --- | --- | --- |
+| 200 | `OAuthRegistrationResponse` | The state |
+| 403 | `Error` | Session refused: role too low, missing/invalid CSRF token or cross-origin request (`forbidden`) |
+| 404 | `Error` | No such resource (`not_found`) |
+
+### POST /oauth/registration
+
+Turn dynamic client registration on or off
+
+Owners only. Stored in settings and read by every process within about 5 seconds. Off: `/oauth/register` answers 404 and the server metadata has no `registration_endpoint`; existing clients keep working. It cannot turn on what `RB_OAUTH_DCR=off` disabled. Audited as `oauth_registration.set`.
+
+Request body (`SetOAuthRegistration`):
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `enabled` | `boolean` | yes |  |
+
+| Status | Body | Description |
+| --- | --- | --- |
+| 200 | `OAuthRegistrationResponse` | The new state |
+| 403 | `Error` | Session refused: role too low, missing/invalid CSRF token or cross-origin request (`forbidden`) |
+| 404 | `Error` | No such resource (`not_found`) |
+| 413 | `Error` | Body too large (`payload_too_large`) |
+| 415 | `Error` | Body is not JSON (`unsupported_media_type`) |
+
 ## Audit
 
 ### GET /audit
@@ -1168,6 +1300,91 @@ _No fields._
 | `data` | `MyGrant` | yes | A grant assigned to the caller, with the project it is for. |
 | `warnings` | `string[]` | no | Non-fatal notes about the change (e.g. parts of a grant the project does not allow). |
 
+### OAuthClient
+
+An OAuth client known to this server (P5-08). No secrets.
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `id` | `string` | yes | The client id: a metadata document URL or a registered id. |
+| `kind` | `"metadata_document" \| "dynamic"` | yes |  |
+| `name` | `string \| null` | yes | Name from the registration or metadata document: chosen by whoever registered the client, not verified. Show it as plain text only. |
+| `host` | `string \| null` | yes | Metadata-document clients: the host of the client id, which vouches for it. Null otherwise. |
+| `redirectHosts` | `string[]` | yes | Hosts of the redirect URIs. |
+| `registeredAt` | `integer \| null` | yes | Registered or fetched (epoch ms, null = none) |
+| `expiresAt` | `integer \| null` | yes | End of the record (a metadata document is fetched again after it) (epoch ms, null = none) |
+
+### OAuthClientList
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `data` | `OAuthClient[]` | yes |  |
+| `nextCursor` | `null` | yes | Always null: the list is one page of the newest 500 clients. |
+| `truncated` | `boolean` | yes | True when more clients exist than the page shows (the oldest are left out). |
+
+### OAuthClientRemoval
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `client` | `OAuthClient` | yes | An OAuth client known to this server (P5-08). No secrets. |
+| `devicesRevoked` | `integer` | yes | Device authorizations revoked, every user. |
+| `approvalsForgotten` | `integer` | yes | Remembered 'don't ask again' approvals. |
+| `complete` | `boolean` | yes | False when the call stopped at its work budget: repeat the same removal until it is true (the client record is already gone). |
+
+### OAuthClientRemovalResponse
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `data` | `OAuthClientRemoval` | yes |  |
+| `warnings` | `string[]` | no | Non-fatal notes about the change (e.g. parts of a grant the project does not allow). |
+
+### OAuthDevice
+
+An app connected with OAuth (P5-05). Tokens are never returned.
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `id` | `string` | yes | `oauth_…`: also the `tokenId` of its audit rows. |
+| `userId` | `string` | yes |  |
+| `clientId` | `string` | yes | The OAuth client (a metadata document URL or a registered id). |
+| `clientName` | `string \| null` | yes | Name from the client registration or metadata document: not verified. |
+| `clientKind` | `"metadata_document" \| "dynamic"` | yes |  |
+| `clientHost` | `string \| null` | yes | Metadata-document clients: the host of the client id. Null for dynamic ones. |
+| `label` | `string \| null` | yes | Device name typed on the consent page. |
+| `projectSlug` | `string \| null` | yes |  |
+| `grantId` | `string \| null` | yes | The grant the app was approved with (revoking it revokes the device). |
+| `createdAt` | `integer` | yes | Authorized (epoch ms) |
+| `expiresAt` | `integer \| null` | yes | End of the refresh lifetime: the app must ask again after it (epoch ms, null = none) |
+
+### OAuthDevicePage
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `data` | `OAuthDevice[]` | yes |  |
+| `nextCursor` | `string \| null` | yes | Pass as `cursor` for the next page; null at the end. |
+
+### OAuthDeviceResponse
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `data` | `OAuthDevice` | yes | An app connected with OAuth (P5-05). Tokens are never returned. |
+| `warnings` | `string[]` | no | Non-fatal notes about the change (e.g. parts of a grant the project does not allow). |
+
+### OAuthRegistration
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `enabled` | `boolean` | yes | What `/oauth/register` does now. |
+| `deployment` | `boolean` | yes | `RB_OAUTH_DCR` (default on). When off, the switch cannot turn registration on. |
+| `setting` | `boolean` | yes | The runtime switch (on when never set). |
+
+### OAuthRegistrationResponse
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `data` | `OAuthRegistration` | yes |  |
+| `warnings` | `string[]` | no | Non-fatal notes about the change (e.g. parts of a grant the project does not allow). |
+
 ### Project
 
 | Field | Type | Required | Description |
@@ -1204,6 +1421,12 @@ _No fields._
 | --- | --- | --- | --- |
 | `requests` | `integer` | yes |  |
 | `perSeconds` | `integer` | yes |  |
+
+### RemoveOAuthClient
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `clientId` | `string` | yes |  |
 
 ### Revalidation
 
@@ -1271,6 +1494,12 @@ _No fields._
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `credentialId` | `string \| null` | yes | One of your own keys (`GET /me/credentials`); null = the project default. |
+
+### SetOAuthRegistration
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `enabled` | `boolean` | yes |  |
 
 ### SetupLink
 

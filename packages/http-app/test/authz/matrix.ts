@@ -50,6 +50,13 @@ export const ADMIN_ROUTES: readonly RouteCase[] = [
   { method: 'POST', pattern: `${A}/users`, path: `${A}/users`, body: { email: 'new@example.com' } },
   { method: 'GET', pattern: `${A}/users/:id`, path: `${A}/users/usr_none` },
   { method: 'PATCH', pattern: `${A}/users/:id`, path: `${A}/users/usr_none`, body: { disabled: true } },
+  // P5-05: a user's OAuth devices (admins; owners' devices only by owners).
+  { method: 'GET', pattern: `${A}/users/:id/oauth-devices`, path: `${A}/users/usr_none/oauth-devices` },
+  {
+    method: 'POST',
+    pattern: `${A}/users/:id/oauth-devices/:deviceId/revoke`,
+    path: `${A}/users/usr_none/oauth-devices/oauth_none/revoke`,
+  },
   // Sessions (P4-02): sign a user out everywhere; who is calling.
   { method: 'POST', pattern: `${A}/users/:id/sessions/revoke`, path: `${A}/users/usr_none/sessions/revoke` },
   // Identity re-binding (P4-09): owner only; the control call on an unknown user changes nothing.
@@ -163,6 +170,28 @@ export const ADMIN_ROUTES: readonly RouteCase[] = [
     body: { grantId: 'grt_none', label: 'laptop' },
   },
   { method: 'POST', pattern: `${A}/me/tokens/:id/revoke`, path: `${A}/me/tokens/tok_none/revoke` },
+  // P5-05: OAuth devices (own; and per user for admins). Empty lists and 404s without OAuth.
+  { method: 'GET', pattern: `${A}/me/oauth-devices`, path: `${A}/me/oauth-devices` },
+  {
+    method: 'POST',
+    pattern: `${A}/me/oauth-devices/:id/revoke`,
+    path: `${A}/me/oauth-devices/oauth_none/revoke`,
+  },
+  // P5-08: OAuth clients and the registration switch (owners only). Without OAuth: an empty list and 404s.
+  { method: 'GET', pattern: `${A}/oauth/clients`, path: `${A}/oauth/clients` },
+  {
+    method: 'POST',
+    pattern: `${A}/oauth/clients/remove`,
+    path: `${A}/oauth/clients/remove`,
+    body: { clientId: 'client_none' },
+  },
+  { method: 'GET', pattern: `${A}/oauth/registration`, path: `${A}/oauth/registration` },
+  {
+    method: 'POST',
+    pattern: `${A}/oauth/registration`,
+    path: `${A}/oauth/registration`,
+    body: { enabled: false },
+  },
   // Not a registered route: the admin catch-all (`ALL /api/admin/v1/*`) must authenticate before saying 404.
   { method: 'GET', pattern: `${A}/*`, path: `${A}/no-such-endpoint` },
 ];
@@ -229,6 +258,12 @@ export const UI_ROUTES: readonly RouteCase[] = [
   ui('POST', '/admin/users/:id/signout', '/admin/users/usr_none/signout'),
   ui('GET', '/admin/users/:id/unbind', '/admin/users/usr_none/unbind'),
   ui('POST', '/admin/users/:id/unbind', '/admin/users/usr_none/unbind'),
+  // P5-05: disconnect a user's OAuth app (admin; an owner's only by owners, decided by the API).
+  ui('POST', '/admin/users/:id/apps/:device/revoke', '/admin/users/usr_none/apps/oauth_none/revoke'),
+  // P5-08: OAuth apps and the registration switch (owners only).
+  ui('GET', '/admin/oauth-clients'),
+  ui('POST', '/admin/oauth-clients/remove'),
+  ui('POST', '/admin/oauth-clients/registration'),
   // P4-15: member self-service screens (every signed-in role; the /me API decides, ids of others are 404 pages).
   ui('GET', '/admin/me'),
   ui('GET', '/admin/me/keys/new'),
@@ -244,6 +279,8 @@ export const UI_ROUTES: readonly RouteCase[] = [
   ui('GET', '/admin/me/tokens/new'),
   ui('POST', '/admin/me/tokens'),
   ui('POST', '/admin/me/tokens/:id/revoke', '/admin/me/tokens/tok_none/revoke'),
+  // P5-05: disconnect one of my OAuth apps (any role; ids not in my own list are the 404 page).
+  ui('POST', '/admin/me/apps/:id/revoke', '/admin/me/apps/oauth_none/revoke'),
   // P4-05: the audit viewer and CSV (any role; members see their own rows) and usage statistics (admin and owner).
   ui('GET', '/admin/audit'),
   ui('GET', '/admin/audit.csv'),
@@ -260,6 +297,38 @@ export const UI_ASSET_ROUTES: readonly RouteCase[] = [
 export const PUBLIC_ROUTES: readonly RouteCase[] = [
   { method: 'GET', pattern: '/health', path: '/health' },
   { method: 'GET', pattern: '/version', path: '/version' },
+];
+
+/**
+ * The OAuth 2.1 endpoints (P5-01): registered only with the `oauth` option. Unauthenticated by design (the token and
+ * registration bodies are their own credentials); `oauth-suite.ts` checks they answer alike whatever a caller presents.
+ */
+export const OAUTH_ROUTES: readonly RouteCase[] = [
+  {
+    method: 'GET',
+    pattern: '/.well-known/oauth-authorization-server',
+    path: '/.well-known/oauth-authorization-server',
+  },
+  // RFC 9728 per-project metadata (P5-02): built from the path, so it answers alike for any slug.
+  {
+    method: 'GET',
+    pattern: '/.well-known/oauth-protected-resource/p/:slug/mcp',
+    path: '/.well-known/oauth-protected-resource/p/prod/mcp',
+  },
+  { method: 'GET', pattern: '/oauth/authorize', path: '/oauth/authorize' },
+  { method: 'POST', pattern: '/oauth/token', path: '/oauth/token', body: {} },
+  { method: 'POST', pattern: '/oauth/register', path: '/oauth/register', body: {} },
+];
+
+/**
+ * The built-in consent screen (P5-04): registered with `oauth` unless a custom consent step is given. Session pages:
+ * only the admin session cookie counts (bearers, the admin token and query credentials are ignored), unsafe methods
+ * need the session's CSRF token from our own origin. `consent.test.ts` crosses them with principals and defects.
+ */
+export const CONSENT_ROUTES: readonly RouteCase[] = [
+  { method: 'POST', pattern: '/oauth/consent', path: '/oauth/consent' },
+  { method: 'GET', pattern: '/oauth/approvals', path: '/oauth/approvals' },
+  { method: 'POST', pattern: '/oauth/approvals/forget', path: '/oauth/approvals/forget' },
 ];
 
 /**

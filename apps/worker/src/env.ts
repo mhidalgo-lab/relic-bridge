@@ -28,6 +28,21 @@ export interface WorkerVars {
   readonly RB_AUDIT_RETENTION_DAYS?: string;
   readonly RB_RATE_LIMIT?: string;
   readonly RB_PASSTHROUGH?: string;
+  /** OAuth for MCP clients (P5-04, docs/guide/oauth.md): `on` / `off` (default off); needs sign-in. */
+  readonly RB_OAUTH?: string;
+  /** Dynamic client registration: `on` (default) / `off`. */
+  readonly RB_OAUTH_DCR?: string;
+  /** Dynamic registrations per hour for the whole deployment (default 30), or `off`. */
+  readonly RB_OAUTH_DCR_LIMIT?: string;
+  readonly RB_OAUTH_DCR_IP_LIMIT?: string;
+  /** Comma-separated https redirect hosts dynamic clients may use (default: any). */
+  readonly RB_OAUTH_DCR_REDIRECT_HOSTS?: string;
+  /** OAuth access token lifetime (default 1h, 60s-24h). */
+  readonly RB_OAUTH_ACCESS_TTL?: string;
+  /** OAuth refresh token lifetime (default 30d, 1h-365d). */
+  readonly RB_OAUTH_REFRESH_TTL?: string;
+  /** Refresh token reuse interval in seconds (ADR-0013; default 30, 0-120, `0`/`off` = strict single use). */
+  readonly RB_OAUTH_REFRESH_REUSE_WINDOW?: string;
   readonly RB_LOG_LEVEL?: string;
   /** Sign-in (P4-01, see docs/guide/identity-providers.md): the origin browsers use, e.g. https://bridge.example.com. */
   readonly RB_PUBLIC_URL?: string;
@@ -73,7 +88,7 @@ export interface WorkerSecrets {
 export interface WorkerBindings {
   /** D1 database (storage, P3-02). */
   readonly DB?: D1Database;
-  /** KV namespace for the OAuth provider (Phase 5). */
+  /** Reserved, unused: the OAuth provider keeps its state in D1 (ADR-0011); removal is a pending owner decision. */
   readonly OAUTH_KV?: KVNamespace;
   /** Workers Rate Limiting binding (P3-04). */
   readonly RATE_LIMITER?: RateLimit | undefined;

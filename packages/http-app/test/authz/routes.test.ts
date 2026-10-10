@@ -19,10 +19,12 @@ import {
 import {
   ADMIN_PRINCIPALS,
   ADMIN_ROUTES,
+  CONSENT_ROUTES,
   IDENTITY_ROUTES,
   isSelfService,
   MCP_PRINCIPALS,
   MCP_ROUTES,
+  OAUTH_ROUTES,
   PASSTHROUGH_PRINCIPALS,
   PASSTHROUGH_ROUTES,
   PUBLIC_ROUTES,
@@ -252,6 +254,8 @@ function controlStatus(route: RouteCase): number {
       (route.path.endsWith('/grants') || route.path.endsWith('/tokens')) &&
       route.body !== undefined);
   if (dangling) return 404;
+  // OAuth is off in these apps: the client list is empty, the rest is 404 (P5-08).
+  if (route.path.endsWith('/oauth/clients/remove') || route.path.endsWith('/oauth/registration')) return 404;
   if (route.path.endsWith('/keys/rotate')) return 200;
   return route.method === 'POST' ? 201 : 200;
 }
@@ -261,6 +265,10 @@ const OWNER_ONLY = new Set([
   'POST /api/admin/v1/keys/rotate',
   'POST /api/admin/v1/setup-links',
   'POST /api/admin/v1/users/:id/unbind',
+  'GET /api/admin/v1/oauth/clients',
+  'POST /api/admin/v1/oauth/clients/remove',
+  'GET /api/admin/v1/oauth/registration',
+  'POST /api/admin/v1/oauth/registration',
 ]);
 const ANY_ROLE = new Set(['GET /api/admin/v1/session', 'GET /api/admin/v1/audit']);
 
@@ -718,6 +726,8 @@ describe.skipIf(authzHostKind() !== 'http-app')('guard: every route is in the ma
         policy: { emails: [], domains: [], githubOrgs: [], autoProvision: 'off' },
         storage: h.world.storage,
       },
+      // The built-in consent screen (P5-04) adds its routes.
+      oauth: {},
     });
     const handlers = new Set<string>();
     const wildcards = new Set<string>();
@@ -739,6 +749,8 @@ describe.skipIf(authzHostKind() !== 'http-app')('guard: every route is in the ma
         ...UI_ROUTES,
         ...UI_ASSET_ROUTES,
         ...PUBLIC_ROUTES,
+        ...OAUTH_ROUTES,
+        ...CONSENT_ROUTES,
       ]
         .filter((r) => !r.pattern.endsWith('/*'))
         .map((r) => `${r.method} ${r.pattern}`),

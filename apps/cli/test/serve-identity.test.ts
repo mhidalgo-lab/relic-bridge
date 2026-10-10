@@ -174,4 +174,85 @@ describe('serve: sign-in over a localhost redirect', () => {
     expect(ok.identity?.providers.map((p) => p.kind)).toEqual(['github']);
     expect(settings({}).identity).toBeNull();
   });
+
+  it('RB_OAUTH: off by default, needs sign-in, takes the registration settings (P5-04)', () => {
+    const settings = (env: Record<string, string>) =>
+      serveSettings({ port: '0', db: join(tmp, 'rb.db'), env, platform: 'linux' });
+    const signIn = {
+      RB_GITHUB_CLIENT_ID: 'x',
+      RB_GITHUB_CLIENT_SECRET: 'y',
+      RB_PUBLIC_URL: 'http://127.0.0.1:8787',
+    };
+    expect(settings(signIn).oauth).toBeNull();
+    expect(settings({ ...signIn, RB_OAUTH: 'off' }).oauth).toBeNull();
+    expect(() => settings({ RB_OAUTH: 'on' })).toThrow(/RB_OAUTH=on needs sign-in/);
+    expect(() => settings({ ...signIn, RB_OAUTH: 'maybe' })).toThrow(ConfigError);
+    expect(settings({ ...signIn, RB_OAUTH: 'on' }).oauth).toEqual({
+      registration: true,
+      registrationLimit: { requests: 30, perSeconds: 3600 },
+      registrationIpLimit: { requests: 10, perSeconds: 3600 },
+    });
+    expect(
+      settings({
+        ...signIn,
+        RB_OAUTH: 'on',
+        RB_OAUTH_DCR: 'off',
+        RB_OAUTH_DCR_LIMIT: 'off',
+        RB_OAUTH_DCR_IP_LIMIT: 'off',
+        RB_OAUTH_DCR_REDIRECT_HOSTS: 'claude.ai, Example.COM',
+      }).oauth,
+    ).toEqual({
+      registration: false,
+      registrationLimit: null,
+      registrationIpLimit: null,
+      registrationRedirectHosts: ['claude.ai', 'example.com'],
+    });
+    expect(settings({ ...signIn, RB_OAUTH: 'on', RB_OAUTH_DCR_LIMIT: '5' }).oauth?.registrationLimit).toEqual(
+      {
+        requests: 5,
+        perSeconds: 3600,
+      },
+    );
+    // Token lifetimes (P5-05): seconds or s/m/h/d, bounded; the refresh lifetime is never shorter than an access token.
+    expect(
+      settings({ ...signIn, RB_OAUTH: 'on', RB_OAUTH_ACCESS_TTL: '90m', RB_OAUTH_REFRESH_TTL: '7d' }).oauth,
+    ).toMatchObject({ accessTokenTtlSeconds: 5400, refreshTokenTtlSeconds: 604_800 });
+    expect(settings({ ...signIn, RB_OAUTH: 'on', RB_OAUTH_ACCESS_TTL: '600' }).oauth).toMatchObject({
+      accessTokenTtlSeconds: 600,
+    });
+    // Refresh reuse interval (P5-09): unset keeps the runtime default (30 s); 0 or off is strict single use.
+    expect(settings({ ...signIn, RB_OAUTH: 'on' }).oauth?.refreshReuseWindowSeconds).toBeUndefined();
+    for (const [value, seconds] of [
+      ['0', 0],
+      ['off', 0],
+      ['45', 45],
+      ['2m', 120],
+    ] as const) {
+      expect(
+        settings({ ...signIn, RB_OAUTH: 'on', RB_OAUTH_REFRESH_REUSE_WINDOW: value }).oauth
+          ?.refreshReuseWindowSeconds,
+      ).toBe(seconds);
+    }
+    for (const bad of [
+      { RB_OAUTH_ACCESS_TTL: '59' },
+      { RB_OAUTH_ACCESS_TTL: '25h' },
+      { RB_OAUTH_ACCESS_TTL: '1w' },
+      { RB_OAUTH_ACCESS_TTL: '-60' },
+      { RB_OAUTH_REFRESH_TTL: '30m' },
+      { RB_OAUTH_REFRESH_TTL: '366d' },
+      { RB_OAUTH_ACCESS_TTL: '12h', RB_OAUTH_REFRESH_TTL: '2h' },
+      { RB_OAUTH_DCR_LIMIT: '0' },
+      { RB_OAUTH_DCR_LIMIT: '-1' },
+      { RB_OAUTH_DCR_LIMIT: 'lots' },
+      { RB_OAUTH_DCR_IP_LIMIT: '0' },
+      { RB_OAUTH_DCR_REDIRECT_HOSTS: 'https://claude.ai' },
+      { RB_OAUTH_DCR_REDIRECT_HOSTS: 'localhost' },
+      { RB_OAUTH_DCR: 'sometimes' },
+      { RB_OAUTH_REFRESH_REUSE_WINDOW: '121' },
+      { RB_OAUTH_REFRESH_REUSE_WINDOW: '1h' },
+      { RB_OAUTH_REFRESH_REUSE_WINDOW: 'on' },
+    ]) {
+      expect(() => settings({ ...signIn, RB_OAUTH: 'on', ...bad }), JSON.stringify(bad)).toThrow(ConfigError);
+    }
+  });
 });

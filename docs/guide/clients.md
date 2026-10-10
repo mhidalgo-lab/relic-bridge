@@ -137,7 +137,7 @@ is reached over Streamable HTTP at `https://<your host>/p/<project>/mcp` (on Clo
 | Cursor | `url` + `headers` in `mcp.json` |
 | VS Code | `"type": "http"` + `headers` in `mcp.json` |
 | Claude Desktop | through the `mcp-remote` bridge (below) |
-| claude.ai web, Claude mobile | Not yet: they need OAuth (Phase 5) |
+| claude.ai web, Claude mobile | OAuth, no token: [phone and claude.ai guide](oauth-phone.md) (not yet verified with the real apps) |
 
 ### Claude Code
 
@@ -208,7 +208,7 @@ token. Check with `claude mcp list` or `/mcp`. (Checked against Claude Code's cu
 
 ### Claude Desktop
 
-Desktop's built-in connectors are added in claude.ai and use OAuth, so a bearer token goes through the
+Desktop's built-in connectors are added in claude.ai and use OAuth ([guide](oauth-phone.md)); to use a bearer token instead, go through the
 [`mcp-remote`](https://www.npmjs.com/package/mcp-remote) bridge, which Desktop starts as a stdio server. The header is
 passed through `env` so the token is not a visible command-line argument (and a space-free `--header` value works on
 Windows):

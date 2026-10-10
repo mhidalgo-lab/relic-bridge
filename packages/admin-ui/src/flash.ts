@@ -16,6 +16,12 @@ export type FlashCode =
   | 'created_with_notes'
   | 'deleted'
   | 'revoked'
+  | 'client_removed'
+  | 'client_removal_partial'
+  | 'form_used'
+  | 'registration_on'
+  | 'registration_off'
+  | 'oauth_off'
   | 'disabled'
   | 'enabled'
   | 'signed_out_everywhere'
@@ -48,6 +54,21 @@ export const FLASH_MESSAGES: Readonly<Record<FlashCode, FlashMessage>> = Object.
   },
   deleted: { kind: 'success', text: 'Deleted.' },
   revoked: { kind: 'success', text: 'Revoked.' },
+  form_used: { kind: 'info', text: 'That form was already sent, so nothing was changed again.' },
+  client_removed: {
+    kind: 'success',
+    text: 'App removed. Every device authorization of it is revoked and its tokens no longer work.',
+  },
+  client_removal_partial: {
+    kind: 'info',
+    text: 'The app is removed and cannot connect again, but it had too many device authorizations to revoke in one go. Remove it again to revoke the rest.',
+  },
+  registration_on: { kind: 'success', text: 'Dynamic client registration is on.' },
+  registration_off: {
+    kind: 'success',
+    text: 'Dynamic client registration is off. Apps already registered keep working.',
+  },
+  oauth_off: { kind: 'info', text: 'OAuth is not enabled on this server.' },
   disabled: { kind: 'success', text: 'Disabled.' },
   enabled: { kind: 'success', text: 'Enabled.' },
   signed_out_everywhere: { kind: 'success', text: 'Signed out on every device.' },

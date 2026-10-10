@@ -27,11 +27,15 @@ import {
   describeAdminTokenProblem,
   mergeHooks,
   normalizeClientIp,
+  OAuthConfigError,
+  type OAuthOptions,
+  oauthSettingsFromEnv,
   SECURITY_HEADERS,
 } from '@relic-bridge/http-app';
 import { type KvPurgeBudget, purgeExpiredKv, type Storage, StorageError } from '@relic-bridge/storage';
 import { createD1Storage } from '@relic-bridge/storage/d1';
 import type { Context } from 'hono';
+import { strictlyPublicCimdFetch } from './cimd-fetch.ts';
 import type { WorkerEnv } from './env.ts';
 import { WorkersRateLimiter } from './rate-limit.ts';
 import {
@@ -90,6 +94,11 @@ export interface WorkerOptions {
   readonly purge?: Partial<PurgeBudget>;
   /** Expired `kv` row purge budget per run (tests). Default: `DEFAULT_KV_PURGE_BUDGET`. */
   readonly kvPurge?: Partial<KvPurgeBudget>;
+  /**
+   * The OAuth 2.1 server (P5-01; needs sign-in, `RB_PUBLIC_URL`), overriding the `RB_OAUTH*` variables (tests). A
+   * deployment turns it on with `RB_OAUTH=on` (P5-04).
+   */
+  readonly oauth?: OAuthOptions;
 }
 
 /** What one scheduled run may spend on deleting audit rows. */
@@ -127,6 +136,8 @@ interface Runtime {
   readonly adminApi: boolean;
   /** Sign-in provider ids (empty: sign-in off). */
   readonly identity: readonly string[];
+  /** OAuth for MCP clients is on (P5-04). */
+  readonly oauth: boolean;
   /** Where rate limits are counted: the binding plus the isolate, the isolate alone, or nowhere. */
   readonly limiter: 'binding+isolate' | 'isolate' | 'off';
   readonly app: {
@@ -205,6 +216,28 @@ async function boot(env: WorkerEnv, options: WorkerOptions): Promise<Runtime> {
         'RB_PUBLIC_URL',
         'RB_PUBLIC_URL must name a host listed in RB_ALLOWED_HOSTS.',
       );
+    }
+  }
+
+  // OAuth for MCP clients (P5-04): `RB_OAUTH=on`, the built-in consent screen, CIMD only with the strictly-public
+  // fetch flag (ADR-0012). A programmatic `options.oauth` (tests) wins.
+  let oauth: OAuthOptions | undefined = options.oauth;
+  if (oauth === undefined) {
+    let oauthSettings: ReturnType<typeof oauthSettingsFromEnv>;
+    try {
+      oauthSettings = oauthSettingsFromEnv(env as unknown as Record<string, unknown>, identity !== null);
+    } catch (error) {
+      if (error instanceof OAuthConfigError) throw new WorkerConfigError(error.variable, error.message);
+      throw error;
+    }
+    if (oauthSettings !== null) {
+      const cimd = strictlyPublicCimdFetch();
+      if (cimd === null) {
+        log.warn(
+          'RB_OAUTH=on without the global_fetch_strictly_public compatibility flag: Client ID Metadata Documents are off (claude.ai falls back to dynamic registration).',
+        );
+      }
+      oauth = { ...oauthSettings, ...(cimd === null ? {} : { clientMetadataDocuments: { fetch: cimd } }) };
     }
   }
 
@@ -298,6 +331,7 @@ async function boot(env: WorkerEnv, options: WorkerOptions): Promise<Runtime> {
             ...(audit === undefined ? {} : { audit }),
           },
         }),
+    ...(oauth === undefined ? {} : { oauth: { clientIp: workersClientIp, ...oauth } }),
     // Admin API: the bootstrap token, admin sessions (sign-in configured, P4-02), or both.
     ...(adminRaw === '' && identityProviders === undefined
       ? {}
@@ -318,6 +352,7 @@ async function boot(env: WorkerEnv, options: WorkerOptions): Promise<Runtime> {
     log,
     adminApi: adminRaw !== '' || identityProviders !== undefined,
     identity: (identityProviders ?? []).map((p) => p.id),
+    oauth: oauth !== undefined && identityProviders !== undefined,
     limiter,
     app,
   };
@@ -375,6 +410,7 @@ export function createWorker(options: WorkerOptions = {}): WorkerHandler {
       audit: settings.audit.enabled ? settings.audit.nrql : 'off',
       rateLimit: runtime.limiter,
       passthrough: settings.passthrough,
+      oauth: runtime.oauth,
     });
     return runtime;
   };

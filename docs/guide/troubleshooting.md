@@ -75,6 +75,8 @@ names the reason for every refusal (`"deny":"…"`); the client only ever sees a
 | `504` (`{"error":"timeout"}`) | The request did not finish within the server's deadline (3 minutes): the body was not delivered in time, or the tool call ran too long. Narrow the query; for a slow client or proxy, check the network between them. |
 | TLS or certificate errors | The reverse proxy, not relic-bridge: check DNS and ports 80/443. |
 
+**OAuth clients (claude.ai, phone)** have their own table: [troubleshooting in the phone guide](oauth-phone.md#troubleshooting).
+
 A revoked or newly created token, grant or project takes effect within `RB_ACCESS_CACHE_TTL` seconds (default 30) on
 a running server, immediately when changed with `--remote`.
 

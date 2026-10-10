@@ -62,6 +62,8 @@ export interface MessagePageProps extends Pick<LayoutProps, 'viewer'> {
   readonly title: string;
   readonly paragraphs: readonly string[];
   readonly link?: { readonly href: string; readonly label: string } | undefined;
+  /** A button to an absolute `http://[::1]…` URL (the consent post's answer for an IPv6 loopback client, P5-12). */
+  readonly continueHref?: string | undefined;
   /** Shown so a person can quote it to whoever reads the logs. Nothing else about the failure is shown. */
   readonly requestId?: string | undefined;
   readonly children?: Child;
@@ -75,6 +77,14 @@ export function MessagePage(props: MessagePageProps): JSX.Element {
         <p>{p}</p>
       ))}
       {props.children}
+      {props.continueHref !== undefined &&
+      /^http:\/\/\[::1\](?::\d{1,5})?(?:[/?#]|$)/.test(props.continueHref) ? (
+        <p>
+          <a class="button" href={props.continueHref}>
+            Continue
+          </a>
+        </p>
+      ) : null}
       {props.link ? (
         <p>
           <a href={localHref(props.link.href)}>{props.link.label}</a>

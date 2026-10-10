@@ -73,6 +73,60 @@ export {
   safeNextPath,
 } from './identity.ts';
 export {
+  CIMD_MAX_BYTES,
+  CIMD_TIMEOUT_MS,
+  type ClientMetadataFetch,
+  isPublicIp,
+} from './oauth/clients.ts';
+export {
+  type ConsentScreen,
+  type ConsentScreenDeps,
+  createConsentScreen,
+  MAX_AUTHORIZE_URL_CHARS,
+  MAX_REMEMBERED_APPROVALS,
+  OAUTH_APPROVALS_FORGET_PATH,
+  OAUTH_APPROVALS_PATH,
+  OAUTH_CONSENT_PATH,
+  OAUTH_CONSENT_REMEMBER_TTL_S,
+} from './oauth/consent.ts';
+export { OAUTH_KV_PREFIX, type OAuthKvNamespace, oauthKvNamespace } from './oauth/kv-namespace.ts';
+export {
+  DEFAULT_OAUTH_ACCESS_TTL_S,
+  DEFAULT_OAUTH_REFRESH_TTL_S,
+  DEFAULT_OAUTH_REGISTRATION_IP_LIMIT,
+  DEFAULT_OAUTH_REGISTRATION_LIMIT,
+  deviceLabel,
+  looksLikeOAuthToken,
+  MAX_DEVICE_LABEL_CHARS,
+  MAX_OAUTH_CIMD_CLIENTS,
+  MCP_SCOPE,
+  OAUTH_AUTHORIZE_PATH,
+  OAUTH_CIMD_FETCHES_PER_IP,
+  OAUTH_CODE_TTL_S,
+  OAUTH_DENY_REASONS,
+  OAUTH_MAX_BODY_BYTES,
+  OAUTH_METADATA_PATH,
+  OAUTH_PROTECTED_RESOURCE_PREFIX,
+  OAUTH_REGISTER_PATH,
+  OAUTH_SCOPES,
+  OAUTH_TOKEN_PATH,
+  OAUTH_UNUSED_REGISTRATION_TTL_S,
+  type OAuthApproval,
+  type OAuthAuthentication,
+  type OAuthAuthorizationRequest,
+  type OAuthConsentApi,
+  type OAuthConsentHandler,
+  type OAuthDenyReason,
+  type OAuthGrantProps,
+  type OAuthOptions,
+} from './oauth/server.ts';
+export {
+  OAuthConfigError,
+  type OAuthEnv,
+  type OAuthSettings,
+  oauthSettingsFromEnv,
+} from './oauth/settings.ts';
+export {
   DEFAULT_PASSTHROUGH_IDENTITY_ENTRIES,
   DEFAULT_PASSTHROUGH_IDENTITY_TTL_MS,
   MAX_PASSTHROUGH_IDENTITY_TTL_MS,

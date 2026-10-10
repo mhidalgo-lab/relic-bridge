@@ -57,10 +57,14 @@ export const workerHost: AuthzHost = {
   async prepare() {
     const db = env.DB as D1Database;
     await wipeD1(db);
+    // The clock first: it fakes `Date`. The suite's own storage reads the time through it, like the Worker does; a
+    // storage made before (or holding the original `Date.now`) would stamp `kv` expiries in real time, and rows the
+    // suite writes would look expired (or alive) to the Worker depending on today's date.
+    const clock = new SystemClock();
     return {
-      storage: await createD1Storage(db),
+      storage: await createD1Storage(db, { now: () => Date.now() }),
       keyring: await Keyring.create({ current: env.RB_MASTER_KEY as string }),
-      clock: new SystemClock(),
+      clock,
     };
   },
   create({ nerdGraph, log, idpFetch }) {
@@ -69,13 +73,16 @@ export const workerHost: AuthzHost = {
       recorderHooks: {},
       settle: () => ctx.settle(),
       makeApp(over = {}) {
-        const workerEnv = envFor(over);
+        // OAuth (P5-01) is a programmatic Worker option, not a setting.
+        const { oauth, ...settings } = over;
+        const workerEnv = envFor(settings);
         // One Worker (isolate) per app, like a fresh deployment.
         const worker = createWorker({
           fetch: nerdGraph.fetch,
           identityFetch: idpFetch,
           logSink: log,
           auditMaxAuthRowsPerMinute: 1_000_000,
+          ...(oauth === undefined ? {} : { oauth }),
         });
         return { fetch: (request) => worker.fetch(request, workerEnv, ctx) };
       },

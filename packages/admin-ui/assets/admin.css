@@ -569,3 +569,26 @@ meter {
   margin: 0.5rem 0 0;
   padding-left: 1.25rem;
 }
+
+/* OAuth consent (P5-04): the app's name and the host the answer goes to stand out (phishing resistance). */
+.consent-client {
+  font-size: 1.25rem;
+  font-weight: 700;
+  margin: 0 0 0.5rem;
+  overflow-wrap: anywhere;
+}
+
+.consent-host {
+  font-family: var(--mono);
+  font-size: 1.125rem;
+  overflow-wrap: anywhere;
+}
+
+.grant-option {
+  align-items: flex-start;
+  padding: 0.25rem 0;
+}
+
+.grant-option input {
+  margin-top: 0.15rem;
+}

@@ -4,9 +4,9 @@ Run relic-bridge on your own Cloudflare account: one URL, one token per device, 
 Works on a free `*.workers.dev` address; a custom domain is optional. Read [Cloudflare limits](cloudflare-limits.md)
 first to pick `free` or `paid`.
 
-> **Phone and claude.ai (web) are not covered** until OAuth (Phase 5). Claude Code, Cursor and VS Code use a device token.
+> **Phone and claude.ai (web)** connect with OAuth: set `RB_OAUTH=on` and follow [Use relic-bridge from your phone and claude.ai](oauth-phone.md). Claude Code, Cursor and VS Code can use a device token.
 
-What gets created: a Worker, a D1 database (`DB`), a KV namespace (`OAUTH_KV`) and a Rate Limiting binding
+What gets created: a Worker, a D1 database (`DB`), a KV namespace (`OAUTH_KV`, reserved and currently unused) and a Rate Limiting binding
 (`RATE_LIMITER`). You supply nothing else: no database setup, **no migration command** (the Worker migrates D1 itself
 the first time it boots).
 
@@ -309,6 +309,11 @@ survive later runs because of `--keep-vars`:
 | `RB_GOOGLE_HOSTED_DOMAIN` | Restrict Google sign-in to one Workspace domain. |
 | `RB_SESSION_IDLE_MINUTES`, `RB_SESSION_MAX_HOURS` | Session lifetime (5 to 1440 minutes idle, default 30; 1 to 168 hours, default 12). |
 | `RB_CF_ACCESS_TEAM`, `RB_CF_ACCESS_AUD` | Cloudflare Access as a sign-in provider. |
+| `RB_OAUTH` | `on`: MCP clients such as claude.ai and Claude on your phone connect with OAuth (sign-in + a consent page). Needs sign-in. See [OAuth](oauth.md). |
+| `RB_PUBLIC_URL` (for OAuth) | Must be exactly the address clients use (custom domain or workers.dev, no alias): it is the issuer and the `resource` of each project. |
+| `RB_OAUTH_DCR`, `RB_OAUTH_DCR_LIMIT`, `RB_OAUTH_DCR_IP_LIMIT`, `RB_OAUTH_DCR_REDIRECT_HOSTS` | Dynamic client registration: `on`/`off`, registrations per hour for the server (default 30) and per client address (default 10) or `off`, allowed https redirect hosts. |
+| `RB_OAUTH_ACCESS_TTL`, `RB_OAUTH_REFRESH_TTL` | OAuth token lifetimes: access token (default `1h`, 60 s to 24 h) and the absolute lifetime of an app's authorization (default `30d`, 1 h to 365 days), on every plan. |
+| `RB_OAUTH_REFRESH_REUSE_WINDOW` | Refresh token reuse interval (default `30` seconds, up to 120; `0` or `off` = strict): an app that renews twice at once gets the same tokens instead of being disconnected. Costs one extra D1 row write per renewal. |
 
 When it finishes, the script prints the redirect URL to register with each provider
 (`<RB_PUBLIC_URL>/auth/callback/<provider>`) and the next step, the first owner's link:

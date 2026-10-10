@@ -2,7 +2,7 @@
 id: P2-08
 title: Audit log
 phase: 2
-status: review
+status: done
 priority: high
 depends_on: [P2-06]
 adr: []

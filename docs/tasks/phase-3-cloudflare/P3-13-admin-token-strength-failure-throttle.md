@@ -2,7 +2,7 @@
 id: P3-13
 title: Admin token strength check and auth-failure throttle that cannot lock out valid tokens
 phase: 3
-status: review
+status: done
 priority: medium
 depends_on: [P3-04]
 adr: []

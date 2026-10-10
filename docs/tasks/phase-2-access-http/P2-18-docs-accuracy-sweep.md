@@ -2,7 +2,7 @@
 id: P2-18
 title: Phase 2 docs accuracy sweep
 phase: 2
-status: review
+status: done
 priority: medium
 depends_on: [P2-13]
 adr: []

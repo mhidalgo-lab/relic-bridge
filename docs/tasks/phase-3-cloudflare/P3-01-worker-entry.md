@@ -2,7 +2,7 @@
 id: P3-01
 title: Cloudflare Worker entry and bindings
 phase: 3
-status: review
+status: done
 priority: high
 depends_on: [P2-13]
 adr: [0004, 0005]

@@ -2,7 +2,7 @@
 id: P2-15
 title: Pass-through mode (client-supplied New Relic key)
 phase: 2
-status: review
+status: done
 priority: low
 depends_on: [P2-06, P2-07]
 adr: [0008]

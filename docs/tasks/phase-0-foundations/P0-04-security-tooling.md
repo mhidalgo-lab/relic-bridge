@@ -2,7 +2,7 @@
 id: P0-04
 title: Security tooling baseline
 phase: 0
-status: review
+status: done
 priority: high
 depends_on: [P0-03]
 adr: [0003]

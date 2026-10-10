@@ -2,7 +2,7 @@
 id: P2-17
 title: Admin API audit and error-model follow-ups
 phase: 2
-status: review
+status: done
 priority: medium
 depends_on: [P2-09]
 adr: [0009]

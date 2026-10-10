@@ -2,7 +2,7 @@
 id: P3-05
 title: Deploy to Cloudflare button and setup script
 phase: 3
-status: review
+status: done
 priority: high
 depends_on: [P3-02]
 adr: [6, 7]

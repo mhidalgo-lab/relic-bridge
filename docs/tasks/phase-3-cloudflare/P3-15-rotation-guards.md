@@ -2,7 +2,7 @@
 id: P3-15
 title: Key-rotation guards (unreadable rows warning, Free-plan batch size, kv TTL validation)
 phase: 3
-status: review
+status: done
 priority: low
 depends_on: [P3-11]
 adr: [0007]

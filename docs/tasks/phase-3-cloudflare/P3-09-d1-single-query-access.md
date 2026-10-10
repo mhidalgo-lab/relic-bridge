@@ -2,7 +2,7 @@
 id: P3-09
 title: Resolve access in one D1 round trip
 phase: 3
-status: review
+status: done
 priority: medium
 depends_on: [P3-02]
 adr: [0006, 0008, 0010]

@@ -2,7 +2,7 @@
 id: P1-10
 title: "Tools: list_event_types, get_attributes"
 phase: 1
-status: review
+status: done
 priority: high
 depends_on: [P1-06]
 adr: []

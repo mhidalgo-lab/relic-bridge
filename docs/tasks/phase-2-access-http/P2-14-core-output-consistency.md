@@ -2,7 +2,7 @@
 id: P2-14
 title: Core tool consistency and envelope coverage clean-up
 phase: 2
-status: review
+status: done
 priority: low
 depends_on: []
 adr: []

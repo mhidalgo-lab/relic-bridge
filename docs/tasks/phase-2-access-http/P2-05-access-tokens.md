@@ -2,7 +2,7 @@
 id: P2-05
 title: Access tokens (per device)
 phase: 2
-status: review
+status: done
 priority: high
 depends_on: [P2-04]
 adr: [0009]

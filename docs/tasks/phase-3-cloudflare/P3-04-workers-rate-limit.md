@@ -2,7 +2,7 @@
 id: P3-04
 title: Rate limiting on Workers
 phase: 3
-status: review
+status: done
 priority: medium
 depends_on: [P3-01, P2-07]
 adr: []

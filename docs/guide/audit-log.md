@@ -33,6 +33,22 @@ that off with `RB_AUDIT_CLIENT_IP=off`. A `request.rejected` row for an authenti
 rate limit) or for a pass-through key names the user, grant, token or `key_id` instead and has no `details.ip`; its
 `details` is `{"status": 429}`.
 
+## Sign-in rows
+
+Every sign-in attempt that reached a provider writes one `auth` row: `login.ok` (with the user's id) or `login.denied`
+(with the reason in `error_code`: `not_allowed`, `not_provisioned`, `identity_conflict`, `user_disabled`, or a protocol
+reason such as `unknown_state`, `invalid_token` or `email_unverified`). `target_id` is the provider id. `details` holds:
+
+| Key | Meaning |
+|---|---|
+| `idp` | The provider kind (`google`, `github`, `cf-access`, `oidc:<name>`). |
+| `outcome` | `login.ok` only: `existing`, `linked` (first sign-in bound the account), `provisioned` or `owner_bootstrap`. |
+| `identityHash` | Once the provider verified an identity: `v<N>.` and 22 characters, a keyed hash (HMAC-SHA-256 under a key derived from master key version `N`) of the provider and subject. The same identity gives the same value, so repeated `identity_conflict` or `not_allowed` attempts by one person can be grouped; without the master key it cannot be matched to a guessed email or subject. Never the email or the subject itself. Rotating the master key changes every value. |
+| `previousRole` | `owner_bootstrap` of an existing user: the role the setup link replaced. |
+| `ip` | The client address, as for other refusals (`RB_AUDIT_CLIENT_IP`). |
+
+Group refusals by identity with `relic-bridge audit tail --action login.denied --json` and the `identityHash` field.
+
 ## Pass-through calls
 
 When [pass-through mode](self-hosting.md#pass-through-mode) is on, each `tools/call` on `/passthrough/mcp` writes one
@@ -66,7 +82,7 @@ If the query text is itself sensitive, use `hash` or `off`. Stored text is trunc
 
 ## Reading it
 
-Through the [admin API](../reference/admin-api.md#audit): `GET /api/admin/v1/audit`, newest first, filtered by `kind`,
+Through the [admin API](../reference/admin-api.md#audit) (or the panel, below): `GET /api/admin/v1/audit`, newest first, filtered by `kind`,
 `action`, `status`, `projectId`, `userId`, `grantId`, `tokenId`, `keyId` (a `pt_…` id, or `any` for every pass-through row), `since` / `until` (epoch ms or ISO 8601), paged with
 `limit` and `cursor`:
 
@@ -75,8 +91,26 @@ curl -s -H "Authorization: Bearer $RB_ADMIN_TOKEN" \
   'http://127.0.0.1:8787/api/admin/v1/audit?kind=auth&since=2026-10-01T00:00:00Z&limit=100'
 ```
 
-A change request the API refuses as invalid (schema or malformed JSON) is recorded too (`status` `error`, `error_code` `invalid_request`, no submitted values); these rows are capped per minute like `auth` rows, with an `admin.suppressed` summary. Admin changes made through the API carry `details.via = "admin_token"` (no user identity until Phase 4 sign-in);
+A change request the API refuses as invalid (schema or malformed JSON) is recorded too (`status` `error`, `error_code` `invalid_request`, no submitted values); these rows are capped per minute like `auth` rows, with an `admin.suppressed` summary. Admin changes made through the API carry `details.via`: `"admin_token"` for the bootstrap token (no user identity) or `"session"` for a signed-in user, whose id is the row's `user_id`; local CLI changes carry `"cli"`;
 failed attempts are recorded too, with `status` `error` (or `denied`) and the API error code.
+
+### In the admin panel
+
+Signed-in admins and owners read the log at **Audit** (`/admin/audit`) and see usage numbers at **Usage**
+(`/admin/usage`); see [the admin panel](admin-panel.md). Members see only their own rows (the admin API forces
+`userId` to theirs: asking for someone else's is `403 forbidden` and an `admin.forbidden` row). Audit text can contain
+what a caller sent (a tool name, an error message), so the panel shows it as plain text and the CSV export quotes every
+text cell and prefixes `'` to any that starts with `=`, `+`, `-`, `@`, a tab or a carriage return.
+
+### Usage statistics
+
+`GET /api/admin/v1/audit/stats` (admins and owners) aggregates `tool_call` rows in one SQL statement per request:
+calls, errors, denied, summed and longest duration, inspected events, grouped by `groupBy` = `action` (the tool,
+default), `project`, `grant`, `token` or `day` (UTC), optionally narrowed by `action`, `projectId`, `userId`,
+`grantId`, `tokenId`. The window is `[since, until)`, at most 90 days (default the last 7); at most 100 groups come
+back (`limit`, default 50). `GET /audit?order=slowest` lists the rows with the longest durations. Cost: the aggregate
+reads every `tool_call` row in the window, using the timestamp index. That is cheap on SQLite; on D1 each row read
+counts against the plan's row-read allowance, so keep dashboards on short windows if you record very many calls.
 
 ## Retention
 

@@ -8,7 +8,11 @@
     // App, not a library; type-checks sibling packages from source, which are not isolatedDeclarations-clean.
     "declaration": false,
     "isolatedDeclarations": false,
+    // Admin UI sources (Hono JSX) are type-checked from source too.
+    "jsx": "react-jsx",
+    "jsxImportSource": "hono/jsx",
     "paths": {
+      "@relic-bridge/admin-ui": ["../../packages/admin-ui/src/index.ts"],
       "@relic-bridge/auth": ["../../packages/auth/src/index.ts"],
       "@relic-bridge/core": ["../../packages/core/src/index.ts"],
       "@relic-bridge/http-app": ["../../packages/http-app/src/index.ts"],

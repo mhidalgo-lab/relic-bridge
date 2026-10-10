@@ -5,6 +5,7 @@ import {
   validateHostHeader,
   validateOriginHeader,
 } from '@modelcontextprotocol/server';
+import { ASSET_CACHE_CONTROL, PERMISSIONS_POLICY, UI_CSP, UI_REFERRER_POLICY } from '@relic-bridge/admin-ui';
 
 /** One year, the usual HSTS preload minimum. */
 export const HSTS_VALUE = 'max-age=31536000; includeSubDomains';
@@ -19,11 +20,30 @@ export const SECURITY_HEADERS: Readonly<Record<string, string>> = Object.freeze(
   'X-Frame-Options': 'DENY',
   'Content-Security-Policy': "default-src 'none'; frame-ancestors 'none'",
   'Cross-Origin-Resource-Policy': 'same-origin',
+  // On every response, assets and JSON included (P4-12: ZAP 10063 flagged the script asset).
+  'Permissions-Policy': PERMISSIONS_POLICY,
   'Cache-Control': 'no-store',
 });
 
+/**
+ * Set the security headers. Two values a response may bring survive (P4-03), compared exactly: the admin UI's page CSP
+ * (`UI_CSP`, HTML pages under `/admin` and `/auth`) and the immutable cache header of the hashed UI assets. Any other
+ * CSP or caching a handler set is replaced.
+ */
 export function applySecurityHeaders(headers: Headers, hsts: boolean): void {
-  for (const [name, value] of Object.entries(SECURITY_HEADERS)) headers.set(name, value);
+  const uiPage = headers.get('content-security-policy') === UI_CSP;
+  const asset = headers.get('cache-control') === ASSET_CACHE_CONTROL;
+  for (const [name, value] of Object.entries(SECURITY_HEADERS)) {
+    if (name === 'Content-Security-Policy' && uiPage) continue;
+    if (name === 'Cache-Control' && asset) continue;
+    // A browser sends `Origin: null` on a form POST under `no-referrer`, which the CSRF check must refuse: the admin
+    // pages use `same-origin` (a real Origin to ourselves, nothing to anyone else).
+    if (name === 'Referrer-Policy' && uiPage) {
+      headers.set(name, UI_REFERRER_POLICY);
+      continue;
+    }
+    headers.set(name, value);
+  }
   if (hsts) headers.set('Strict-Transport-Security', HSTS_VALUE);
   // Never advertise the framework.
   headers.delete('X-Powered-By');

@@ -5,9 +5,10 @@
 // Adding a route: add it to MCP_ROUTES / ADMIN_ROUTES / PUBLIC_ROUTES (pattern exactly as Hono registers it, a sample
 // path and a body valid enough to reach authentication). Adding a way to authenticate (OAuth, sessions): add the
 // principals that misuse it, with the stable deny reason the audit row must carry.
-import { generateTokenString } from '@relic-bridge/auth';
+import { generateTokenString, revokeSession, revokeUserSessions } from '@relic-bridge/auth';
+import { expect } from 'vitest';
 import { NR_KEY, T0 } from '../fixtures.ts';
-import { ADMIN_TOKEN, type Harness, NR_KEY_ADMIN } from './harness.ts';
+import { ADMIN_TOKEN, type Harness, NR_KEY_ADMIN, PUBLIC_ORIGIN } from './harness.ts';
 
 export interface RouteCase {
   readonly method: string;
@@ -24,6 +25,9 @@ const INITIALIZE = {
   method: 'initialize',
   params: { protocolVersion: '2025-11-25', capabilities: {}, clientInfo: { name: 'authz', version: '0' } },
 };
+
+/** Self-service routes (P4-10): `/me/*`. */
+export const isSelfService = (route: RouteCase): boolean => route.pattern.startsWith('/api/admin/v1/me/');
 
 export const MCP_ROUTES: readonly RouteCase[] = [
   { method: 'POST', pattern: '/p/:slug/mcp', path: '/p/{slug}/mcp', body: INITIALIZE },
@@ -46,6 +50,16 @@ export const ADMIN_ROUTES: readonly RouteCase[] = [
   { method: 'POST', pattern: `${A}/users`, path: `${A}/users`, body: { email: 'new@example.com' } },
   { method: 'GET', pattern: `${A}/users/:id`, path: `${A}/users/usr_none` },
   { method: 'PATCH', pattern: `${A}/users/:id`, path: `${A}/users/usr_none`, body: { disabled: true } },
+  // Sessions (P4-02): sign a user out everywhere; who is calling.
+  { method: 'POST', pattern: `${A}/users/:id/sessions/revoke`, path: `${A}/users/usr_none/sessions/revoke` },
+  // Identity re-binding (P4-09): owner only; the control call on an unknown user changes nothing.
+  {
+    method: 'POST',
+    pattern: `${A}/users/:id/unbind`,
+    path: `${A}/users/usr_none/unbind`,
+    body: { confirm: 'nobody@example.test' },
+  },
+  { method: 'GET', pattern: `${A}/session`, path: `${A}/session` },
   { method: 'GET', pattern: `${A}/credentials`, path: `${A}/credentials` },
   {
     method: 'POST',
@@ -102,10 +116,145 @@ export const ADMIN_ROUTES: readonly RouteCase[] = [
   { method: 'GET', pattern: `${A}/tokens/:id`, path: `${A}/tokens/tok_none` },
   { method: 'POST', pattern: `${A}/tokens/:id/revoke`, path: `${A}/tokens/tok_none/revoke` },
   { method: 'GET', pattern: `${A}/audit`, path: `${A}/audit` },
+  // P4-05: usage statistics (admins and owners only).
+  { method: 'GET', pattern: `${A}/audit/stats`, path: `${A}/audit/stats` },
   // Master-key rotation (P3-11): every row is already current in the fixture, so the control call changes nothing.
   { method: 'POST', pattern: `${A}/keys/rotate`, path: `${A}/keys/rotate`, body: {} },
+  // Owner setup link (P4-01): the control call issues one (a single-use code in `kv`, nothing else changes).
+  { method: 'POST', pattern: `${A}/setup-links`, path: `${A}/setup-links`, body: {} },
+  // Member self-service (P4-10): a session user's own rows. The admin token is nobody (403 `no_user`); ids don't exist.
+  { method: 'GET', pattern: `${A}/me/credentials`, path: `${A}/me/credentials` },
+  {
+    method: 'POST',
+    pattern: `${A}/me/credentials`,
+    path: `${A}/me/credentials`,
+    body: { label: 'mine', region: 'US', apiKey: NR_KEY_ADMIN },
+  },
+  {
+    method: 'PATCH',
+    pattern: `${A}/me/credentials/:id`,
+    path: `${A}/me/credentials/cred_none`,
+    body: { label: 'x' },
+  },
+  { method: 'DELETE', pattern: `${A}/me/credentials/:id`, path: `${A}/me/credentials/cred_none` },
+  {
+    method: 'POST',
+    pattern: `${A}/me/credentials/:id/rotate`,
+    path: `${A}/me/credentials/cred_none/rotate`,
+    body: { apiKey: NR_KEY_ADMIN },
+  },
+  {
+    method: 'POST',
+    pattern: `${A}/me/credentials/:id/revalidate`,
+    path: `${A}/me/credentials/cred_none/revalidate`,
+  },
+  { method: 'GET', pattern: `${A}/me/grants`, path: `${A}/me/grants` },
+  {
+    method: 'PATCH',
+    pattern: `${A}/me/grants/:id`,
+    path: `${A}/me/grants/grt_none`,
+    body: { credentialId: null },
+  },
+  { method: 'GET', pattern: `${A}/me/tokens`, path: `${A}/me/tokens` },
+  {
+    method: 'POST',
+    pattern: `${A}/me/tokens`,
+    path: `${A}/me/tokens`,
+    body: { grantId: 'grt_none', label: 'laptop' },
+  },
+  { method: 'POST', pattern: `${A}/me/tokens/:id/revoke`, path: `${A}/me/tokens/tok_none/revoke` },
   // Not a registered route: the admin catch-all (`ALL /api/admin/v1/*`) must authenticate before saying 404.
   { method: 'GET', pattern: `${A}/*`, path: `${A}/no-such-endpoint` },
+];
+
+/**
+ * Sign-in routes (P4-01): reachable without credentials by design (a browser that is not signed in yet). They must
+ * confer nothing on bearer tokens, cookies or query credentials: only a verified IdP answer or Access assertion counts,
+ * and they only exist when sign-in is configured.
+ */
+export const IDENTITY_ROUTES: readonly RouteCase[] = [
+  { method: 'GET', pattern: '/auth/login', path: '/auth/login' },
+  { method: 'GET', pattern: '/auth/login/:provider', path: '/auth/login/github' },
+  { method: 'GET', pattern: '/auth/callback/:provider', path: '/auth/callback/github' },
+  { method: 'GET', pattern: '/auth/cf-access', path: '/auth/cf-access' },
+  // Sign-out (P4-02): ends the session the cookie names, only with its CSRF token from our own origin.
+  { method: 'POST', pattern: '/auth/logout', path: '/auth/logout' },
+];
+
+const ui = (method: string, pattern: string, path = pattern): RouteCase => ({ method, pattern, path });
+
+/**
+ * Admin UI pages (P4-03): exist when sign-in is configured. Only the admin session cookie authenticates them (bearer
+ * tokens, the admin token, MCP tokens and query credentials are ignored: the answer is the sign-in redirect).
+ */
+export const UI_ROUTES: readonly RouteCase[] = [
+  { method: 'GET', pattern: '/admin', path: '/admin' },
+  // P4-04 screens (admin and owner). Ids that don't exist: a positive control must not change anything.
+  ui('GET', '/admin/credentials'),
+  ui('GET', '/admin/credentials/new'),
+  ui('POST', '/admin/credentials'),
+  ui('GET', '/admin/credentials/:id', '/admin/credentials/cred_none'),
+  ui('POST', '/admin/credentials/:id/rename', '/admin/credentials/cred_none/rename'),
+  ui('POST', '/admin/credentials/:id/revalidate', '/admin/credentials/cred_none/revalidate'),
+  ui('GET', '/admin/credentials/:id/rotate', '/admin/credentials/cred_none/rotate'),
+  ui('POST', '/admin/credentials/:id/rotate', '/admin/credentials/cred_none/rotate'),
+  ui('POST', '/admin/credentials/:id/delete', '/admin/credentials/cred_none/delete'),
+  ui('GET', '/admin/projects'),
+  ui('GET', '/admin/projects/new'),
+  ui('POST', '/admin/projects'),
+  ui('GET', '/admin/projects/:id', '/admin/projects/prj_none'),
+  ui('POST', '/admin/projects/:id', '/admin/projects/prj_none'),
+  ui('POST', '/admin/projects/:id/disable', '/admin/projects/prj_none/disable'),
+  ui('POST', '/admin/projects/:id/enable', '/admin/projects/prj_none/enable'),
+  ui('POST', '/admin/projects/:id/delete', '/admin/projects/prj_none/delete'),
+  ui('GET', '/admin/grants'),
+  ui('GET', '/admin/grants/new'),
+  ui('POST', '/admin/grants'),
+  ui('GET', '/admin/grants/:id', '/admin/grants/grt_none'),
+  ui('POST', '/admin/grants/:id/revoke', '/admin/grants/grt_none/revoke'),
+  ui('POST', '/admin/grants/:id/delete', '/admin/grants/grt_none/delete'),
+  ui('GET', '/admin/tokens'),
+  ui('GET', '/admin/tokens/new'),
+  ui('POST', '/admin/tokens'),
+  ui('POST', '/admin/tokens/:id/revoke', '/admin/tokens/tok_none/revoke'),
+  // P4-06: client configuration snippets (admin and owner).
+  ui('GET', '/admin/connect'),
+  ui('GET', '/admin/users'),
+  ui('GET', '/admin/users/new'),
+  ui('POST', '/admin/users'),
+  ui('GET', '/admin/users/:id', '/admin/users/usr_none'),
+  ui('POST', '/admin/users/:id', '/admin/users/usr_none'),
+  ui('POST', '/admin/users/:id/disable', '/admin/users/usr_none/disable'),
+  ui('POST', '/admin/users/:id/enable', '/admin/users/usr_none/enable'),
+  ui('POST', '/admin/users/:id/signout', '/admin/users/usr_none/signout'),
+  ui('GET', '/admin/users/:id/unbind', '/admin/users/usr_none/unbind'),
+  ui('POST', '/admin/users/:id/unbind', '/admin/users/usr_none/unbind'),
+  // P4-15: member self-service screens (every signed-in role; the /me API decides, ids of others are 404 pages).
+  ui('GET', '/admin/me'),
+  ui('GET', '/admin/me/keys/new'),
+  ui('POST', '/admin/me/keys'),
+  ui('GET', '/admin/me/keys/:id', '/admin/me/keys/cred_none'),
+  ui('POST', '/admin/me/keys/:id/rename', '/admin/me/keys/cred_none/rename'),
+  ui('POST', '/admin/me/keys/:id/revalidate', '/admin/me/keys/cred_none/revalidate'),
+  ui('GET', '/admin/me/keys/:id/rotate', '/admin/me/keys/cred_none/rotate'),
+  ui('POST', '/admin/me/keys/:id/rotate', '/admin/me/keys/cred_none/rotate'),
+  ui('POST', '/admin/me/keys/:id/delete', '/admin/me/keys/cred_none/delete'),
+  ui('GET', '/admin/me/grants/:id', '/admin/me/grants/grt_none'),
+  ui('POST', '/admin/me/grants/:id', '/admin/me/grants/grt_none'),
+  ui('GET', '/admin/me/tokens/new'),
+  ui('POST', '/admin/me/tokens'),
+  ui('POST', '/admin/me/tokens/:id/revoke', '/admin/me/tokens/tok_none/revoke'),
+  // P4-05: the audit viewer and CSV (any role; members see their own rows) and usage statistics (admin and owner).
+  ui('GET', '/admin/audit'),
+  ui('GET', '/admin/audit.csv'),
+  ui('GET', '/admin/usage'),
+  // Not a registered route: the signed-in 404 page of the UI catch-all (`ALL /admin/*`).
+  { method: 'GET', pattern: '/admin/*', path: '/admin/no-such-page' },
+];
+
+/** Static UI assets (P4-03): public, hashed, immutable; unknown names are a 404 page. */
+export const UI_ASSET_ROUTES: readonly RouteCase[] = [
+  { method: 'GET', pattern: '/admin/assets/:file', path: '/admin/assets/no-such-asset.css' },
 ];
 
 export const PUBLIC_ROUTES: readonly RouteCase[] = [
@@ -122,6 +271,9 @@ export const WILDCARD_ROUTES: Readonly<Record<string, string>> = {
   '/*': 'global middleware: request id, security headers, Host/Origin checks (no handler of its own)',
   [`${A}/*`]:
     'admin authentication middleware and the authenticated 404 catch-all (matrix row GET /no-such-endpoint)',
+  '/auth/*': 'sign-in routes: the pre-authentication hook (per-IP limit) only, no handler of its own',
+  '/admin/*':
+    'admin UI catch-all: session first (sign-in redirect), then the signed-in 404 page (matrix row GET /admin/*)',
 };
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -172,6 +324,13 @@ const prod = async (h: Harness): Promise<Presented> => ({
 const token = (p: Presented): string => (p.headers['authorization'] ?? '').replace(/^Bearer /, '');
 
 export const MCP_PRINCIPALS: readonly McpPrincipal[] = [
+  // --- an admin browser session is not an MCP credential (P4-02) ---
+  {
+    name: 'owner admin session cookie instead of a token',
+    reason: 'missing_token',
+    valid: prod,
+    broken: async (h, p) => ({ ...p, headers: (await h.addSession({ role: 'owner' })).headers }),
+  },
   // --- credentials missing or malformed (offline checks) ---
   {
     name: 'no credentials',
@@ -475,6 +634,11 @@ export const PASSTHROUGH_PRINCIPALS: readonly PassthroughPrincipal[] = [
     present: () => ({ headers: { cookie: `x-newrelic-api-key=${NR_KEY}` }, slug: '' }),
   },
   {
+    name: 'owner admin session cookie',
+    reason: 'passthrough_missing_key',
+    present: async (h) => ({ headers: (await h.addSession({ role: 'owner' })).headers, slug: '' }),
+  },
+  {
     name: 'device token in the key header',
     reason: 'passthrough_malformed_key',
     present: (h) => ({ headers: ptKey(h.world.tokens.prod), slug: '' }),
@@ -500,6 +664,8 @@ export const PASSTHROUGH_PRINCIPALS: readonly PassthroughPrincipal[] = [
 export interface AdminPrincipal {
   readonly name: string;
   readonly reason: string;
+  /** The reason on later requests when the first refusal ends the credential (a disabled user's session, P4-07). */
+  readonly reasonAfterFirst?: string;
   present(
     h: Harness,
   ): Promise<{ readonly headers: Readonly<Record<string, string>>; readonly query?: string }>;
@@ -548,7 +714,118 @@ export const ADMIN_PRINCIPALS: readonly AdminPrincipal[] = [
     reason: 'admin_missing_token',
     present: async () => ({ headers: {}, query: `token=${ADMIN_TOKEN}&access_token=${ADMIN_TOKEN}` }),
   },
+  // --- admin sessions (P4-02): every defect, each with a valid CSRF token and our own Origin ---
+  {
+    name: 'malformed session cookie',
+    reason: 'session_malformed',
+    present: async (h) => withCookie(await h.addSession(), 'rb_session=garbage'),
+  },
+  {
+    name: 'session cookie named twice (cookie tossing)',
+    reason: 'session_malformed',
+    present: async (h) => {
+      const s = await h.addSession();
+      return withCookie(s, `${s.cookie}; ${s.cookie}`);
+    },
+  },
+  {
+    name: 'session cookie under the __Host- name on http',
+    reason: 'admin_missing_token',
+    present: async (h) => {
+      const s = await h.addSession();
+      return withCookie(s, `__Host-rb_session=${s.value}`);
+    },
+  },
+  {
+    name: 'unknown session (forged secret)',
+    reason: 'session_unknown',
+    present: async (h) => {
+      const s = await h.addSession();
+      return withCookie(s, `rb_session=${s.userId}.${'A'.repeat(43)}`);
+    },
+  },
+  {
+    name: "session secret under another user's id",
+    reason: 'session_unknown',
+    present: async (h) => {
+      const s = await h.addSession();
+      return withCookie(s, `rb_session=usr_a.${s.value.split('.')[1]}`);
+    },
+  },
+  {
+    name: 'logged-out session',
+    reason: 'session_unknown',
+    present: async (h) => {
+      const s = await h.addSession();
+      await revokeSession(h.world.storage.kv, s.value);
+      return { headers: s.headers };
+    },
+  },
+  {
+    name: 'session revoked with all of its user’s sessions',
+    reason: 'session_unknown',
+    present: async (h) => {
+      const s = await h.addSession();
+      await revokeUserSessions(h.world.storage.kv, s.userId);
+      return { headers: s.headers };
+    },
+  },
+  {
+    name: 'session past its absolute lifetime',
+    reason: 'session_expired',
+    present: async (h) => {
+      const s = await h.addSession();
+      // Kept active (well inside the idle timeout) until the 12 h lifetime is over.
+      for (let i = 0; i < 24; i++) {
+        h.world.clock.advance(29 * 60_000);
+        expect((await h.send(sessionCheck(s.headers))).status).toBe(200);
+      }
+      h.world.clock.advance(29 * 60_000);
+      return { headers: s.headers };
+    },
+  },
+  {
+    name: 'idle session',
+    reason: 'session_idle',
+    present: async (h) => {
+      const s = await h.addSession();
+      h.world.clock.advance(30 * 60_000);
+      return { headers: s.headers };
+    },
+  },
+  {
+    name: 'session of a disabled user',
+    reason: 'session_user_disabled',
+    // The refusal deletes the session, so re-enabling the user does not revive it (P4-07).
+    reasonAfterFirst: 'session_unknown',
+    present: async (h) => {
+      const s = await h.addSession();
+      await h.world.storage.users.update(s.userId, { disabledAt: T0 });
+      return { headers: s.headers };
+    },
+  },
+  {
+    name: 'owner session next to a wrong bearer token (cookies ignored)',
+    reason: 'admin_bad_token',
+    present: async (h) => ({ headers: { ...(await h.addSession()).headers, ...bearer(`${ADMIN_TOKEN}x`) } }),
+  },
+  {
+    name: 'owner session next to a Basic header (cookies ignored)',
+    reason: 'admin_malformed_header',
+    present: async (h) => ({
+      headers: { ...(await h.addSession()).headers, authorization: `Basic ${btoa('a:b')}` },
+    }),
+  },
 ];
+
+const withCookie = (
+  s: { readonly headers: Readonly<Record<string, string>> },
+  cookie: string,
+): { headers: Record<string, string> } => ({ headers: { ...s.headers, cookie } });
+
+/** `GET /api/admin/v1/session` with these headers (keeps a session active in a principal's setup). */
+export const sessionCheck = (headers: Readonly<Record<string, string>>): Request =>
+  new Request(`${PUBLIC_ORIGIN}${A}/session`, { headers });
 
 /** Build the request for a route and a caller. */
 export function requestFor(

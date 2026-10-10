@@ -14,6 +14,7 @@ import {
 import { fakeEncryptedKey, runStorageContract } from '@relic-bridge/storage/testing';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { runAccessEquivalence } from '../../../packages/auth/test/access-equivalence.ts';
+import { runLoginRace } from '../../../packages/auth/test/login-race.ts';
 import { wipeD1 } from './helpers.ts';
 
 const db = env.DB as D1Database;
@@ -40,6 +41,20 @@ describe('access resolution equivalence (d1)', () => {
     },
     runs: 60,
     timeout: 120_000,
+  });
+});
+
+describe('first sign-in race (d1)', () => {
+  // P4-16: two storages on one D1 database, as two isolates would hold.
+  runLoginRace({
+    name: 'd1',
+    open: async () => {
+      await wipe();
+      const a = await createD1Storage(db);
+      const b = await createD1Storage(db);
+      return { a, b, close: async () => undefined };
+    },
+    timeout: 60_000,
   });
 });
 

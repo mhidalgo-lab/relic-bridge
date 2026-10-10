@@ -135,3 +135,73 @@ describe('scheduled audit purge', () => {
     expect(typeof mod.default.scheduled).toBe('function');
   });
 });
+
+describe('scheduled kv purge (P4-09)', () => {
+  beforeEach(() => wipeD1(db));
+
+  const past = () => Math.floor(Date.now() / 1000) - 60;
+  async function seed(): Promise<void> {
+    const storage = await createD1Storage(db);
+    for (const k of ['login:a', 'login:b', 'setup:c']) await storage.kv.put(k, 'x', { expiration: past() });
+    await storage.kv.put('login:live', 'y', { expirationTtl: 600 });
+    await storage.kv.put('keep', 'z');
+  }
+  async function names(): Promise<string[]> {
+    const storage = await createD1Storage(db);
+    // `list` hides expired rows, so count them with the purge itself in a dry batch of one.
+    return (await storage.kv.list()).keys.map((k) => k.name);
+  }
+
+  it('removes expired rows (abandoned logins, unused setup links) and keeps live ones', async () => {
+    await seed();
+    const { l, go } = run();
+    await go();
+    expect(await names()).toEqual(['keep', 'login:live']);
+    expect(await (await createD1Storage(db)).kv.purgeExpired()).toBe(0);
+    expect(l.lines.find((x) => x['msg'] === 'kv purge finished')).toMatchObject({
+      removed: 3,
+      complete: true,
+    });
+  });
+
+  it('runs even when audit retention is 0 or invalid, and writes no audit row', async () => {
+    for (const retention of ['0', 'x']) {
+      await wipeD1(db);
+      await seed();
+      const { go } = run({ RB_AUDIT_RETENTION_DAYS: retention });
+      await go();
+      expect(await (await createD1Storage(db)).kv.purgeExpired()).toBe(0);
+      expect(await actions()).toEqual([]);
+    }
+  });
+
+  it('works in bounded batches and resumes on the next run', async () => {
+    await seed();
+    const budget = { kvPurge: { batchRows: 2, maxBatches: 1 } };
+    const first = run({}, budget);
+    await first.go();
+    expect(first.l.lines.find((x) => x['msg'] === 'kv purge finished')).toMatchObject({
+      removed: 2,
+      complete: false,
+    });
+    const second = run({}, budget);
+    await second.go();
+    expect(second.l.lines.find((x) => x['msg'] === 'kv purge finished')).toMatchObject({
+      removed: 1,
+      complete: true,
+    });
+  });
+
+  it('logs a storage failure without throwing and does not stop the audit purge', async () => {
+    const { l, go } = run(
+      {},
+      {
+        openStorage: () => {
+          throw new Error('boom');
+        },
+      },
+    );
+    await expect(go()).resolves.toBeUndefined();
+    expect(l.lines.find((x) => x['msg'] === 'kv purge failed')).toBeDefined();
+  });
+});

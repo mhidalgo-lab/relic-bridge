@@ -223,6 +223,7 @@ export function createYamlStorage(
       list: empty,
       create: readOnly,
       update: readOnly,
+      bind: readOnly,
     },
     credentials: {
       get: async (id: string) => credentials.get(id) ?? null,
@@ -249,7 +250,7 @@ export function createYamlStorage(
       markUsed: readOnly,
       revoke: readOnly,
     },
-    auditLog: { append: readOnly, list: empty, purgeBefore: readOnly },
+    auditLog: { append: readOnly, list: empty, stats: empty, purgeBefore: readOnly },
     settings: {
       get: async () => undefined,
       set: readOnly,
@@ -261,6 +262,9 @@ export function createYamlStorage(
       get: none,
       put: readOnly,
       delete: readOnly,
+      take: readOnly,
+      purgeExpired: readOnly,
+      deletePrefix: readOnly,
       list: async () => Object.freeze({ keys: Object.freeze([]), complete: true }),
     },
     async close() {},

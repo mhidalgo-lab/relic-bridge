@@ -5,7 +5,10 @@
     "lib": ["es2023", "webworker"],
     // Type-checks sibling packages from source, which are not isolatedDeclarations-clean.
     "isolatedDeclarations": false,
+    "jsx": "react-jsx",
+    "jsxImportSource": "hono/jsx",
     "paths": {
+      "@relic-bridge/admin-ui": ["../admin-ui/src/index.ts"],
       "@relic-bridge/auth": ["../auth/src/index.ts"],
       "@relic-bridge/core": ["../core/src/index.ts"],
       "@relic-bridge/storage": ["../storage/src/index.ts"]

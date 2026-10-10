@@ -9,6 +9,15 @@ import {
   type McpRequestContext,
 } from '@modelcontextprotocol/server';
 import {
+  ADMIN_UI_BASE,
+  type AdminCall,
+  type AdminCallResult,
+  type AdminUiDeps,
+  createAdminUi,
+  type UiPrincipal,
+  type UiTool,
+} from '@relic-bridge/admin-ui';
+import {
   type AuthenticatedAccess,
   authenticateAccess,
   bearerToken,
@@ -42,8 +51,8 @@ import {
   type ToolDefinition,
   VERSION,
 } from '@relic-bridge/core';
-import { SLUG_RE, type Storage } from '@relic-bridge/storage';
-import { type Context, Hono } from 'hono';
+import { type KvRepository, SLUG_RE, type Storage } from '@relic-bridge/storage';
+import { type Context, type ExecutionContext, Hono } from 'hono';
 import { cors } from 'hono/cors';
 import {
   AccessCache,
@@ -59,6 +68,7 @@ import {
 } from './admin/api.ts';
 import { createAdminTokenVerifier } from './admin/token.ts';
 import type { AdminAuditEvent } from './audit.ts';
+import { createIdentityRoutes, IDENTITY_BASE, type IdentityOptions } from './identity.ts';
 import { peekJsonRpc, type RpcPeek } from './jsonrpc.ts';
 import {
   credentialIdOf,
@@ -84,6 +94,7 @@ import {
   originHostname,
   safeMcpHeader,
 } from './security.ts';
+import { createSessionManager, type SessionManager, type SessionPrincipal } from './session.ts';
 
 /** Largest request body accepted on the MCP route by default (a tool call is a few KiB). */
 export const DEFAULT_MAX_BODY_BYTES: number = 1024 * 1024;
@@ -132,9 +143,11 @@ export interface AuthFailureInfo {
 /**
  * Which credential a route authenticates (P3-13): an MCP access token (`/p/:slug/mcp`), the bootstrap admin token
  * (`/api/admin/*`) or a caller's New Relic key (pass-through). Checking the first two costs no outbound call; checking
- * a New Relic key asks NerdGraph, so hooks may treat it more strictly.
+ * a New Relic key asks NerdGraph, so hooks may treat it more strictly. `identity` is the sign-in routes (P4-01), which
+ * check IdP answers, not a credential of ours. `admin_session` is the admin UI pages (P4-03), which check the session
+ * cookie.
  */
-export type AuthScope = 'mcp_token' | 'admin_token' | 'passthrough_key';
+export type AuthScope = 'mcp_token' | 'admin_token' | 'passthrough_key' | 'identity' | 'admin_session';
 
 /**
  * Extension points for P2-07 (rate limiting) and P2-08 (audit). Hooks receive the Hono context so runtime-specific
@@ -191,8 +204,11 @@ export interface HttpAppHooks {
 
 /** The admin REST API (P2-09). Without it, `/api/admin/*` answers 404. */
 export interface AdminApiOptions {
-  /** The bootstrap admin token (`RB_ADMIN_TOKEN`): 32-512 printable characters. Only its digest is kept. */
-  readonly token: Secret;
+  /**
+   * The bootstrap admin token (`RB_ADMIN_TOKEN`): 32-512 printable characters. Only its digest is kept. Optional
+   * when sign-in (`identity`) is configured: the admin API then takes admin sessions only.
+   */
+  readonly token?: Secret;
   /** Needs the audit log too (the audit query endpoint). */
   readonly storage: StorageForAdmin;
   /** Records every admin change (`createAuditRecorder(...)`); omit only when auditing is off. */
@@ -241,6 +257,8 @@ export interface HttpAppOptions {
   readonly admin?: AdminApiOptions;
   /** Enables `/passthrough/mcp` (P2-15): callers bring their own New Relic key per request. Off when absent. */
   readonly passthrough?: PassthroughOptions;
+  /** Enables the `/auth/*` sign-in routes (P4-01) and admin setup links. Off when absent. */
+  readonly identity?: IdentityOptions;
 }
 
 type Env = { Variables: { requestId: string; started: number; log: Record<string, unknown> } };
@@ -390,6 +408,9 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
   const allowedOrigins = [
     ...(options.allowedOrigins ?? (allowedHosts === '*' ? defaultAllowedHostnames() : allowedHosts)),
     ...corsHostnames,
+    // The admin pages post from the public URL (P4-02): its origin always passes this coarse check (the admin API
+    // and sign-out then require that exact origin for cookie sessions).
+    ...(options.identity ? [new URL(options.identity.publicUrl).hostname] : []),
   ];
   const maxBodyBytes = checkRange(
     'maxBodyBytes',
@@ -440,7 +461,17 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
   // Scopes created by this app; the factory refuses anything else (defence in depth for `authInfo.extra`).
   const scopes = new WeakSet<RequestScope>();
   // Fails at construction (boot) for an unusable admin token, never per request.
-  const adminVerifier = options.admin ? createAdminTokenVerifier(options.admin.token) : undefined;
+  const adminVerifier = options.admin?.token ? createAdminTokenVerifier(options.admin.token) : undefined;
+  if (options.admin && adminVerifier === undefined && !options.identity) {
+    throw new TypeError('admin needs a token, or sign-in (identity) for admin sessions');
+  }
+  // Sign-in redirects come back to the public URL: its host must pass the Host check, or every callback would be 403.
+  if (options.identity) {
+    const publicHost = new URL(options.identity.publicUrl).hostname;
+    if (allowedHosts !== '*' && !checkHost(publicHost, allowedHosts).ok) {
+      throw new TypeError('identity.publicUrl must name a host in allowedHosts');
+    }
+  }
 
   const runInBackground = (c: Context, task: Promise<unknown>, what: string): void => {
     const guarded = task.catch((error: unknown) =>
@@ -595,6 +626,26 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
     return deadline.bound(response);
   };
 
+  // Admin sessions (P4-02): on whenever sign-in is configured. State lives in storage `kv`, never here (T21); the
+  // manager holds configuration and a ≤ 5 s cache of user records.
+  const identity = options.identity;
+  const sessions = identity
+    ? createSessionManager({
+        publicUrl: identity.publicUrl,
+        kv: identity.storage.kv,
+        users: identity.storage.users,
+        clock,
+        logger,
+        runInBackground,
+        ...(identity.session ? { options: identity.session } : {}),
+        ...(identity.audit?.admin
+          ? {
+              audit: (event: AdminAuditEvent) => identity.audit?.admin?.(event) ?? Promise.resolve(),
+            }
+          : {}),
+      })
+    : undefined;
+
   const app = new Hono<Env>();
 
   // 1. Request id + access log (one structured line per request, stderr via the logger).
@@ -699,14 +750,15 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
   app.get('/health', (c) => c.json({ status: 'ok' }));
   app.get('/version', (c) => c.json({ name: 'relic-bridge', version: VERSION }));
 
-  if (options.admin && adminVerifier) {
+  if (options.admin) {
     const admin = options.admin;
     app.route(
       ADMIN_API_BASE,
       createAdminApi({
         storage: admin.storage,
         keyring: options.keyring,
-        verifier: adminVerifier,
+        ...(adminVerifier ? { verifier: adminVerifier } : {}),
+        ...(sessions ? { sessions } : {}),
         validateKey:
           admin.validateKey ??
           nerdGraphKeyValidator({ logger, clock, ...(options.fetch ? { fetch: options.fetch } : {}) }),
@@ -743,9 +795,84 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
             reason: rejectReason(c.get('log')),
           }),
         runInBackground,
-        // A revoked token, grant or key stops at once on this process (other processes: within the cache TTL).
-        onChange: () => cache.clear(),
+        // A revoked token, grant or key stops at once on this process (other processes: within the cache TTL); a
+        // changed role or disabled user is re-read by the next session request here (elsewhere: within 5 s).
+        onChange: () => {
+          cache.clear();
+          sessions?.forgetUsers();
+        },
+        ...(options.identity
+          ? {
+              setupLinks: {
+                publicUrl: options.identity.publicUrl,
+                kv: options.identity.storage.kv,
+                providers: options.identity.providers.map((p) => ({ id: p.id, kind: p.kind })),
+              },
+            }
+          : {}),
       }),
+    );
+  }
+
+  if (options.identity) {
+    app.route(
+      IDENTITY_BASE,
+      createIdentityRoutes(options.identity, {
+        clock,
+        logger,
+        runInBackground,
+        identityHash: (idp, subject) => options.keyring.identityHash(idp, subject),
+        ...(sessions ? { sessions } : {}),
+        ...(hooks.beforeAuth
+          ? {
+              beforeAuth: async (c: Context, id: string) => {
+                const stop = await hooks.beforeAuth?.(c, id, 'identity');
+                if (stop) {
+                  notifyRejected(c, {
+                    requestId: id,
+                    status: stop.status,
+                    reason: rejectReason(c.get('log')),
+                  });
+                }
+                return stop;
+              },
+            }
+          : {}),
+      }),
+    );
+  }
+
+  // Admin UI (P4-03): server-rendered pages under /admin, on whenever sign-in is (they need a session).
+  if (options.identity && sessions) {
+    app.route(
+      ADMIN_UI_BASE,
+      createAdminUi(
+        adminUiDeps({
+          sessions,
+          publicUrl: options.identity.publicUrl,
+          hooks,
+          logger,
+          runInBackground,
+          audit:
+            options.admin?.audit?.admin.bind(options.admin.audit) ??
+            options.identity.audit?.admin?.bind(options.identity.audit),
+          adminApi: options.admin !== undefined,
+          tools: allTools.map((t) => ({ name: t.name, title: t.title, group: t.group, kind: t.kind })),
+          now: () => clock.now(),
+          kv: options.identity.storage.kv,
+          onRejected: (c, status) =>
+            notifyRejected(c, { requestId: c.get('requestId'), status, reason: rejectReason(c.get('log')) }),
+          fetchApp: (request, c) => {
+            let ctx: ExecutionContext | undefined;
+            try {
+              ctx = c.executionCtx;
+            } catch {
+              // Node: no execution context
+            }
+            return app.fetch(request, c.env, ctx);
+          },
+        }),
+      ),
     );
   }
 
@@ -1070,4 +1197,180 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
   });
 
   return app;
+}
+
+/** What `adminUiDeps` needs from `createHttpApp`. */
+interface AdminUiWiring {
+  readonly sessions: SessionManager;
+  readonly publicUrl: string;
+  readonly hooks: HttpAppHooks;
+  readonly logger: Logger;
+  readonly runInBackground: (c: Context, task: Promise<unknown>, what: string) => void;
+  readonly audit: ((event: AdminAuditEvent) => Promise<void>) | undefined;
+  /** A pre-authentication hook refused a page (audit `request.rejected`). */
+  readonly onRejected: (c: Context, status: number) => void;
+  /** The admin API is mounted (else every `callAdmin` is a 404). */
+  readonly adminApi: boolean;
+  /** The tool catalogue the project and grant screens choose from (P4-04). */
+  readonly tools: readonly UiTool[];
+  readonly now: () => number;
+  /** Single-use UI form handles (P4-07). */
+  readonly kv: Pick<KvRepository, 'put' | 'take' | 'list'>;
+  /** The whole app, for in-process admin API calls. */
+  readonly fetchApp: (request: Request, c: Context) => Response | Promise<Response>;
+}
+
+/** Headers that carry the client address to the per-IP hooks; copied onto in-process admin API calls. */
+const CLIENT_ADDRESS_HEADERS = ['cf-connecting-ip', 'x-forwarded-for'] as const;
+
+/**
+ * The admin UI's view of the P4-02 sessions. Pages get a `UiPrincipal` (no session secret, only what pages show and
+ * the CSRF token they embed); the session it came from stays here, keyed weakly by that object.
+ */
+function adminUiDeps(w: AdminUiWiring): AdminUiDeps {
+  const { sessions, hooks } = w;
+  const publicOrigin = new URL(w.publicUrl).origin;
+  const origins = new WeakMap<UiPrincipal, SessionPrincipal>();
+  const toUi = (p: SessionPrincipal): UiPrincipal => {
+    const ui: UiPrincipal = Object.freeze({
+      userId: p.user.id,
+      email: p.user.email,
+      displayName: p.user.displayName,
+      role: p.role,
+      csrf: p.session.record.csrf,
+      expiresAt: p.session.record.expiresAt,
+      idleExpiresAt: p.session.idleExpiresAt,
+    });
+    origins.set(ui, p);
+    return ui;
+  };
+  const sessionOf = (ui: UiPrincipal): SessionPrincipal => {
+    const p = origins.get(ui);
+    if (p === undefined) throw new TypeError('unknown admin UI principal');
+    return p;
+  };
+  const requestId = (c: Context) => c.get('requestId') as string;
+
+  return {
+    secureCookies: publicOrigin.startsWith('https:'),
+    tools: w.tools,
+    publicUrl: publicOrigin,
+    now: w.now,
+    clearSessionCookie: sessions.clearCookie,
+    onceStore: {
+      put: (key, ttlSeconds) => w.kv.put(key, '1', { expirationTtl: ttlSeconds }),
+      take: async (key) => (await w.kv.take(key)) !== null,
+      list: async (prefix, limit) => (await w.kv.list({ prefix, limit })).keys.map((k) => k.name),
+    },
+    async beforeAuth(c) {
+      const stop = await hooks.beforeAuth?.(c, requestId(c), 'admin_session');
+      if (stop) w.onRejected(c, stop.status);
+      return stop;
+    },
+
+    async authenticate(c) {
+      const auth = await sessions.authenticate(c);
+      if (auth.ok) {
+        (c.get('log') as Record<string, unknown>)['principal'] = 'session';
+        return { ok: true, principal: toUi(auth.principal) };
+      }
+      if (auth.reason === 'none') return { ok: false, presented: false };
+      // A broken, expired or revoked cookie: audited and charged like any failed credential (P3-13 throttle).
+      const info = { requestId: requestId(c), reason: auth.reason };
+      (c.get('log') as Record<string, unknown>)['deny'] = auth.reason;
+      try {
+        hooks.onAuthFailure?.(c, info);
+      } catch {
+        // never changes the answer
+      }
+      let instead: Response | undefined;
+      try {
+        instead = await hooks.refuseAuthFailure?.(c, info);
+      } catch {
+        // as above
+      }
+      return { ok: false, presented: true, ...(instead ? { response: instead } : {}) };
+    },
+
+    checkFetchOrigin: (c, unsafe) => sessions.checkFetchOrigin(c, unsafe),
+    csrfMatches: (ui, presented) => sessions.csrfMatches(sessionOf(ui), presented),
+
+    onForbidden(c, ui, reason) {
+      if (!w.audit) return;
+      w.runInBackground(
+        c,
+        w.audit({
+          actor: { requestId: requestId(c), userId: ui.userId },
+          action: 'admin.forbidden',
+          targetType: 'admin_ui',
+          targetId: null,
+          status: 'denied',
+          errorCode: 'forbidden',
+          refusal: true,
+          details: {
+            via: 'session',
+            reason,
+            method: c.req.method,
+            route: c.req.routePath.slice(0, 100),
+            role: ui.role,
+          },
+        }),
+        'admin_audit',
+      );
+    },
+
+    onError(c, error) {
+      w.logger.error('admin ui error', {
+        requestId: requestId(c),
+        error: error instanceof Error ? error.name : typeof error,
+      });
+    },
+
+    async callAdmin(c, ui, call: AdminCall): Promise<AdminCallResult> {
+      if (!w.adminApi) return { status: 404, body: null };
+      const session = sessionOf(ui);
+      const url = new URL(`${publicOrigin}${ADMIN_API_BASE}${call.path}`);
+      // The path is ours to build, but never let it escape the admin API (`/../`, encoded or not).
+      if (
+        url.origin !== publicOrigin ||
+        !url.pathname.startsWith(`${ADMIN_API_BASE}/`) ||
+        url.search !== ''
+      ) {
+        throw new TypeError('admin UI calls must stay inside the admin API');
+      }
+      for (const [k, v] of Object.entries(call.query ?? {})) url.searchParams.set(k, v);
+      const cookie = sessions.readCookie(c);
+      const headers = new Headers({
+        accept: 'application/json',
+        // Our own page, by construction: the UI checked the form's CSRF token before an unsafe call got here.
+        origin: publicOrigin,
+        'sec-fetch-site': 'same-origin',
+        'x-csrf-token': session.session.record.csrf,
+      });
+      if (typeof cookie === 'string') headers.set('cookie', `${sessions.cookieName}=${cookie}`);
+      for (const name of CLIENT_ADDRESS_HEADERS) {
+        const value = c.req.header(name);
+        if (value !== undefined) headers.set(name, value);
+      }
+      let body: string | undefined;
+      if (call.body !== undefined) {
+        headers.set('content-type', 'application/json');
+        body = JSON.stringify(call.body);
+      }
+      const res = await w.fetchApp(
+        new Request(url, { method: call.method, headers, ...(body === undefined ? {} : { body }) }),
+        c,
+      );
+      const text = await res.text();
+      let parsed: unknown = null;
+      if (text.length > 0) {
+        try {
+          parsed = JSON.parse(text);
+        } catch {
+          parsed = null;
+        }
+      }
+      return { status: res.status, body: parsed };
+    },
+  };
 }

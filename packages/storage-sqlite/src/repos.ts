@@ -14,7 +14,11 @@ import {
   type AuditLogRepository,
   type AuditQuery,
   type AuditRecord,
+  type AuditStatsQuery,
   accessRecordsParams,
+  auditOrder,
+  auditStatsRowOf,
+  auditStatsSql,
   type CredentialRecord,
   type CredentialsRepository,
   checkEncryptedKey,
@@ -28,12 +32,15 @@ import {
   type EncryptedKey,
   type GrantRecord,
   type GrantsRepository,
+  InvalidInputError,
   type JsonValue,
   type KvListResult,
   type KvPutOptions,
   type KvRepository,
   keyChangedError,
   kvExpiry,
+  lastOwnerError,
+  lastOwnerGuardSql,
   NO_ACCESS_RECORDS,
   NotFoundError,
   normalizeEmail,
@@ -41,6 +48,7 @@ import {
   type ProjectsRepository,
   type SettingsRepository,
   type Storage,
+  UNBOUND_ENABLED_SQL,
   type UserRecord,
   type UsersRepository,
 } from '@relic-bridge/storage';
@@ -117,12 +125,23 @@ export function createRepositories(
     const r = one('SELECT * FROM users WHERE id = ?', [id]);
     return r ? userOf(r) : null;
   };
-  const writeUser = (u: UserRecord): void => {
+  /** Full-row write, refused (no change) when it would leave no enabled owner: one statement (P4-16). */
+  const writeUser = (u: UserRecord): number =>
     run(
-      'UPDATE users SET email = ?, display_name = ?, idp = ?, idp_subject = ?, role = ?, updated_at = ?, disabled_at = ? WHERE id = ?',
-      [u.email, u.displayName, u.idp, u.idpSubject, u.role, u.updatedAt, u.disabledAt, u.id],
+      `UPDATE users SET email = ?, display_name = ?, idp = ?, idp_subject = ?, role = ?, updated_at = ?, disabled_at = ? WHERE id = ? AND ${lastOwnerGuardSql('?', '?')}`,
+      [
+        u.email,
+        u.displayName,
+        u.idp,
+        u.idpSubject,
+        u.role,
+        u.updatedAt,
+        u.disabledAt,
+        u.id,
+        u.role,
+        u.disabledAt,
+      ],
     );
-  };
   const usersRepo: UsersRepository = {
     get: (id) => call(() => getUser(id)),
     getByEmail: (email) =>
@@ -166,8 +185,32 @@ export function createRepositories(
           role: checkRole(row.role),
           updatedAt: now(),
         };
-        writeUser(next);
+        if (writeUser(next) === 0) {
+          // The row vanished (another process) or the last-owner guard held the write back.
+          if (getUser(id) === null) throw new NotFoundError('user', id);
+          throw lastOwnerError();
+        }
         return freeze(next);
+      }),
+    bind: (id, idp, idpSubject, patch = {}) =>
+      call(() => {
+        const sets = ['idp = ?', 'idp_subject = ?'];
+        const params: Params = [idp, idpSubject];
+        if (patch.displayName !== undefined) {
+          sets.push('display_name = ?');
+          params.push(patch.displayName);
+        }
+        if (patch.role !== undefined) {
+          sets.push('role = ?');
+          params.push(checkRole(patch.role));
+        }
+        sets.push('updated_at = ?');
+        params.push(now(), id);
+        const changed = run(
+          `UPDATE users SET ${sets.join(', ')} WHERE id = ? AND ${UNBOUND_ENABLED_SQL}`,
+          params,
+        );
+        return changed === 0 ? null : getUser(id);
       }),
   };
 
@@ -604,9 +647,16 @@ export function createRepositories(
         add('status = ?', q.status);
         add('ts >= ?', q.since);
         add('ts < ?', q.until);
-        add('id < ?', q.beforeId);
-        const sql = `SELECT * FROM audit_log${where.length ? ` WHERE ${where.join(' AND ')}` : ''} ORDER BY id DESC LIMIT ?`;
+        const order = auditOrder(q.order);
+        if (order.where === null) add('id < ?', q.beforeId);
+        else where.push(order.where);
+        const sql = `SELECT * FROM audit_log${where.length ? ` WHERE ${where.join(' AND ')}` : ''} ORDER BY ${order.orderBy} LIMIT ?`;
         return freeze(all(sql, [...params, limit]).map(auditOf));
+      }),
+    stats: (q: AuditStatsQuery) =>
+      call(() => {
+        const { sql, params } = auditStatsSql(q);
+        return freeze(all(sql, params).map(auditStatsRowOf));
       }),
     purgeBefore: (before, limit) =>
       call(() => {
@@ -678,6 +728,29 @@ export function createRepositories(
     delete: (key) =>
       call(() => {
         run('DELETE FROM kv WHERE key = ?', [key]);
+      }),
+    // One statement whatever the count; `substr` (not LIKE) so `%` and `_` in a prefix stay literal.
+    deletePrefix: (prefix) =>
+      call(() => {
+        if (prefix === '') throw new InvalidInputError('kv.prefix');
+        return run('DELETE FROM kv WHERE substr(key, 1, ?) = ?', [[...prefix].length, prefix]);
+      }),
+    // One statement: the row is deleted and returned atomically (an expired row is deleted, not returned).
+    take: (key) =>
+      call(() => {
+        const r = one('DELETE FROM kv WHERE key = ? RETURNING value, expires_at', [key]);
+        if (r === null) return null;
+        const exp = numOrNull(r['expires_at']);
+        return exp !== null && exp <= now() ? null : str(r['value']);
+      }),
+    purgeExpired: (limit) =>
+      call(() => {
+        checkLimit(limit, 'kv.limit');
+        const max = Math.min(Math.max(1, Math.trunc(limit ?? KV_MAX_LIST)), KV_MAX_LIST);
+        return run(
+          'DELETE FROM kv WHERE key IN (SELECT key FROM kv WHERE expires_at IS NOT NULL AND expires_at <= ? ORDER BY expires_at LIMIT ?)',
+          [now(), max],
+        );
       }),
     list: (opts = {}) =>
       call((): KvListResult => {

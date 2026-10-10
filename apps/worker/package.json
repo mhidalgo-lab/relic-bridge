@@ -21,6 +21,7 @@
     "wrangler": "4.144.0"
   },
   "dependencies": {
+    "@relic-bridge/admin-ui": "workspace:*",
     "@relic-bridge/auth": "workspace:*",
     "@relic-bridge/core": "workspace:*",
     "@relic-bridge/http-app": "workspace:*",

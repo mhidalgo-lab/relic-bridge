@@ -29,6 +29,28 @@ export interface WorkerVars {
   readonly RB_RATE_LIMIT?: string;
   readonly RB_PASSTHROUGH?: string;
   readonly RB_LOG_LEVEL?: string;
+  /** Sign-in (P4-01, see docs/guide/identity-providers.md): the origin browsers use, e.g. https://bridge.example.com. */
+  readonly RB_PUBLIC_URL?: string;
+  readonly RB_GOOGLE_CLIENT_ID?: string;
+  readonly RB_GOOGLE_HOSTED_DOMAIN?: string;
+  readonly RB_GITHUB_CLIENT_ID?: string;
+  readonly RB_OIDC_ISSUER?: string;
+  readonly RB_OIDC_CLIENT_ID?: string;
+  readonly RB_OIDC_NAME?: string;
+  readonly RB_OIDC_LABEL?: string;
+  readonly RB_OIDC_SCOPES?: string;
+  /** Cloudflare Access: Zero Trust team name and the application's AUD tag. */
+  readonly RB_CF_ACCESS_TEAM?: string;
+  readonly RB_CF_ACCESS_AUD?: string;
+  /** Who may sign in without a pre-created user (comma-separated); deny by default. */
+  readonly RB_LOGIN_ALLOW_EMAILS?: string;
+  readonly RB_LOGIN_ALLOW_DOMAINS?: string;
+  readonly RB_LOGIN_ALLOW_GITHUB_ORGS?: string;
+  /** `off` (default), `member` or `admin`. */
+  readonly RB_LOGIN_AUTO_PROVISION?: string;
+  /** Admin session timeouts: idle minutes (5-1440, default 30) and absolute hours (1-168, default 12). */
+  readonly RB_SESSION_IDLE_MINUTES?: string;
+  readonly RB_SESSION_MAX_HOURS?: string;
 }
 
 /** Secret bindings. Values are read once per isolate at boot and kept only inside the keyring / admin verifier. */
@@ -41,6 +63,10 @@ export interface WorkerSecrets {
   readonly RB_ADMIN_TOKEN?: string;
   /** HMAC secret (at least 32 bytes) for pass-through key fingerprints, shared by all isolates (P3-04). */
   readonly RB_FINGERPRINT_SECRET?: string;
+  /** OAuth client secrets of the sign-in providers (P4-01). */
+  readonly RB_GOOGLE_CLIENT_SECRET?: string;
+  readonly RB_GITHUB_CLIENT_SECRET?: string;
+  readonly RB_OIDC_CLIENT_SECRET?: string;
 }
 
 /** Resource bindings. Optional in the type so a missing binding is a boot error, not a crash. */

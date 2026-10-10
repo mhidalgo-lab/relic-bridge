@@ -34,6 +34,97 @@ const pragma = (path: string, name: string): unknown => {
   }
 };
 
+describe('audit log at scale (P4-05)', () => {
+  it('pages 100k rows by keyset: every row once, deep pages stay a seek', { timeout: 60_000 }, async () => {
+    const path = file();
+    (await openSqliteStorage({ path })).close();
+    const raw = new DatabaseSync(path);
+    raw.exec('BEGIN');
+    raw.exec(
+      `WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 100000)
+       INSERT INTO audit_log (ts, kind, action, status, project_id, duration_ms)
+       SELECT i * 1000, 'tool_call', 'run_nrql', CASE WHEN i % 10 = 0 THEN 'error' ELSE 'ok' END,
+              CASE WHEN i % 4 = 0 THEN 'p1' ELSE 'p2' END, i % 500 FROM n`,
+    );
+    raw.exec('COMMIT');
+    raw.close();
+
+    const s = await openSqliteStorage({ path });
+    try {
+      let seen = 0;
+      let before: number | undefined;
+      let prev = Number.POSITIVE_INFINITY;
+      let slowestPage = 0;
+      for (;;) {
+        const t0 = performance.now();
+        const rows = await s.auditLog.list({
+          limit: 1000,
+          ...(before === undefined ? {} : { beforeId: before }),
+        });
+        slowestPage = Math.max(slowestPage, performance.now() - t0);
+        if (rows.length === 0) break;
+        for (const r of rows) {
+          expect(r.id).toBeLessThan(prev);
+          prev = r.id;
+        }
+        seen += rows.length;
+        before = rows.at(-1)?.id as number;
+      }
+      expect(seen).toBe(100_000);
+      expect(slowestPage).toBeLessThan(1000);
+
+      // A filtered, time-bounded page near the end of the table, and the aggregate over the whole window.
+      const filtered = await s.auditLog.list({
+        projectId: 'p1',
+        status: 'error',
+        since: 50_000_000,
+        limit: 5,
+      });
+      expect(filtered).toHaveLength(5);
+      const stats = await s.auditLog.stats({ groupBy: 'project', since: 0, until: 100_001_000 });
+      expect(stats.map((r) => [r.key, r.calls, r.errors])).toEqual([
+        ['p2', 75_000, 5_000],
+        ['p1', 25_000, 5_000],
+      ]);
+      expect((await s.auditLog.list({ order: 'slowest', limit: 3 })).map((r) => r.durationMs)).toEqual([
+        499, 499, 499,
+      ]);
+    } finally {
+      await s.close();
+    }
+
+    // The plan for the unfiltered page is a primary-key seek: no scan with a sort. The statement is the one the
+    // adapter itself prepares (captured), not a copy of it.
+    const prepared: string[] = [];
+    const realPrepare = DatabaseSync.prototype.prepare;
+    DatabaseSync.prototype.prepare = function (this: DatabaseSync, sql: string) {
+      prepared.push(sql);
+      return realPrepare.call(this, sql);
+    };
+    const s2 = await openSqliteStorage({ path });
+    try {
+      await s2.auditLog.list({ beforeId: 50_000, limit: 1000 });
+    } finally {
+      DatabaseSync.prototype.prepare = realPrepare;
+      await s2.close();
+    }
+    const adapterSql = prepared.find((q) => q.startsWith('SELECT * FROM audit_log'));
+    expect(adapterSql).toBeDefined();
+    const check = new DatabaseSync(path);
+    try {
+      const plan = check
+        .prepare(`EXPLAIN QUERY PLAN ${adapterSql}`)
+        .all(50_000, 1000)
+        .map((r) => String((r as { detail: string }).detail))
+        .join(' | ');
+      expect(plan).toMatch(/SEARCH audit_log USING INTEGER PRIMARY KEY/);
+      expect(plan).not.toMatch(/TEMP B-TREE/);
+    } finally {
+      check.close();
+    }
+  });
+});
+
 describe('sqlite adapter', () => {
   it('creates the file 0600 in a 0700 directory, with WAL and foreign keys on', async () => {
     const path = file();

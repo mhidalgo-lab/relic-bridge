@@ -160,6 +160,20 @@ export const UpdateUserBody = z
   })
   .openapi('UpdateUser');
 
+export const UnbindUserBody = z
+  .strictObject({
+    confirm: z
+      .string()
+      .min(3)
+      .max(320)
+      .openapi({
+        description:
+          "The user's current email address, typed again as a confirmation. Anyone who then signs in with a provider " +
+          'that asserts this verified email takes over the account.',
+      }),
+  })
+  .openapi('UnbindUser');
+
 export const UserPage = page(UserSchema, 'UserPage');
 export const UserOne = one(UserSchema, 'UserResponse');
 
@@ -393,6 +407,39 @@ export const TokenCreated = z
   .openapi('AccessTokenCreated');
 
 // ---------------------------------------------------------------------------------------------------------------
+// Member self-service (P4-10): `/me/*`. The caller's own rows only; no user, owner or project ids are accepted.
+// ---------------------------------------------------------------------------------------------------------------
+
+/** A key the caller adds is always theirs: there is no `ownerUserId` (strict: sending one is a `400`). */
+export const CreateMyCredentialBody = z.strictObject({ label, region, apiKey }).openapi('CreateMyCredential');
+
+export const MyCredentialQuery = PageQuery;
+
+export const MyGrantSchema = GrantSchema.extend({
+  project: z
+    .object({
+      slug: z.string().openapi({ description: 'Connect at `/p/{slug}/mcp`.' }),
+      name: z.string().nullable(),
+      disabled: z.boolean(),
+    })
+    .nullable()
+    .openapi({ description: 'The project the grant is for (null if it no longer exists).' }),
+}).openapi('MyGrant', {
+  description: 'A grant assigned to the caller, with the project it is for.',
+});
+
+export const SetMyGrantCredentialBody = z
+  .strictObject({
+    credentialId: idRef(
+      'One of your own keys (`GET /me/credentials`); null = the project default.',
+    ).nullable(),
+  })
+  .openapi('SetMyGrantCredential');
+
+export const MyGrantPage = page(MyGrantSchema, 'MyGrantPage');
+export const MyGrantOne = one(MyGrantSchema, 'MyGrantResponse');
+
+// ---------------------------------------------------------------------------------------------------------------
 // Audit
 // ---------------------------------------------------------------------------------------------------------------
 
@@ -452,10 +499,73 @@ export const AuditQuerySchema = z.strictObject({
     }),
   since: timeQuery('Inclusive lower bound'),
   until: timeQuery('Exclusive upper bound'),
+  order: z
+    .enum(['newest', 'slowest'])
+    .optional()
+    .openapi({
+      description:
+        '`newest` (default) pages with `cursor`. `slowest`: rows that recorded a duration, longest first; one page of ' +
+        '`limit` rows, no cursor.',
+    }),
   limit: limitQuery,
   cursor: cursorQuery,
 });
 export const AuditPage = page(AuditSchema, 'AuditPage');
+
+/** Longest window `GET /audit/stats` aggregates (days): one bounded SQL aggregate over `tool_call` rows. */
+export const AUDIT_STATS_MAX_DAYS = 90;
+
+export const AuditStatsQuerySchema = z.strictObject({
+  groupBy: z.enum(['action', 'project', 'grant', 'token', 'day']).optional().openapi({
+    description: 'Group tool calls by tool (`action`, default), project, grant, device token or UTC day.',
+  }),
+  since: timeQuery(
+    `Inclusive lower bound (default: 7 days before \`until\`; at most ${AUDIT_STATS_MAX_DAYS} days)`,
+  ),
+  until: timeQuery('Exclusive upper bound (default: now)'),
+  action: z
+    .string()
+    .regex(/^[A-Za-z0-9_.:-]{1,64}$/)
+    .optional()
+    .openapi({ description: 'Only this tool.' }),
+  projectId: idRef('Only this project.').optional(),
+  userId: idRef('Only this user.').optional(),
+  grantId: idRef('Only this grant.').optional(),
+  tokenId: idRef('Only this access token.').optional(),
+  limit: z.coerce.number().int().min(1).max(100).optional().openapi({
+    description: 'Groups returned, 1-100 (default 50): most calls first; `day`: newest first.',
+    type: 'integer',
+  }),
+});
+
+export const AuditStatsRowSchema = z
+  .object({
+    key: z
+      .string()
+      .nullable()
+      .openapi({ description: 'The group value (null: calls without one, e.g. no project).' }),
+    calls: z.number().int(),
+    errors: z.number().int().openapi({ description: 'Calls with status `error`.' }),
+    denied: z.number().int().openapi({ description: 'Calls with status `denied`.' }),
+    durationSumMs: z
+      .number()
+      .int()
+      .openapi({ description: 'Sum of recorded durations; mean = sum / durationCount.' }),
+    durationCount: z.number().int().openapi({ description: 'Calls that recorded a duration.' }),
+    maxDurationMs: z.number().int().nullable(),
+    inspectedCount: z
+      .number()
+      .int()
+      .openapi({ description: 'Events New Relic reported inspecting, summed.' }),
+  })
+  .openapi('AuditStatsRow');
+
+export const AuditStatsResponse = z
+  .object({
+    data: z.array(AuditStatsRowSchema),
+    window: z.object({ since: timestamp('Window start'), until: timestamp('Window end') }),
+  })
+  .openapi('AuditStats');
 
 // ---------------------------------------------------------------------------------------------------------------
 // Master key (P3-11)
@@ -514,3 +624,80 @@ export const KeyRotationSchema = z
   .openapi('KeyRotation');
 
 export const KeyRotationOne = z.object({ data: KeyRotationSchema }).openapi('KeyRotationResponse');
+
+// ---------------------------------------------------------------------------------------------------------------
+// Setup links (P4-01)
+// ---------------------------------------------------------------------------------------------------------------
+
+export const CreateSetupLinkBody = z
+  .strictObject({
+    ttlMinutes: z
+      .number()
+      .int()
+      .min(1)
+      .max(7 * 24 * 60)
+      .optional()
+      .openapi({ description: 'Lifetime in minutes, 1-10080 (default 60).' }),
+    provider: z
+      .string()
+      .regex(/^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$/)
+      .optional()
+      .openapi({
+        description: 'Link straight to one sign-in provider (`google`, `github`, `cf-access`, …).',
+      }),
+  })
+  .openapi('CreateSetupLink');
+
+export const SetupLinkSchema = z
+  .object({
+    url: z.string().openapi({
+      description: 'Open it in a browser and sign in: that identity becomes `owner`. Shown once; single use.',
+    }),
+    expiresAt: z.number().int().openapi({ description: 'Epoch milliseconds.' }),
+    provider: z.string().nullable(),
+  })
+  .openapi('SetupLink');
+
+export const SetupLinkOne = z.object({ data: SetupLinkSchema }).openapi('SetupLinkResponse');
+
+// ---------------------------------------------------------------------------------------------------------------
+// Sessions (P4-02)
+// ---------------------------------------------------------------------------------------------------------------
+
+export const SessionSchema = z
+  .object({
+    kind: z.enum(['session', 'admin_token']).openapi({
+      description: '`session`: a signed-in browser (cookie). `admin_token`: the bootstrap admin token.',
+    }),
+    role: z.enum(['owner', 'admin', 'member']).openapi({
+      description: 'Effective role. The admin token counts as `owner`.',
+    }),
+    user: UserSchema.nullable().openapi({ description: 'The signed-in user; null for the admin token.' }),
+    csrfToken: z.string().nullable().openapi({
+      description:
+        'Send it as `X-CSRF-Token` on every POST/PATCH/DELETE made with the session cookie. Null for the admin token.',
+    }),
+    provider: z.string().nullable().openapi({ description: 'Sign-in provider of the session.' }),
+    expiresAt: z
+      .number()
+      .int()
+      .nullable()
+      .openapi({ description: 'Absolute end of the session (epoch ms).' }),
+    idleExpiresAt: z.number().int().nullable().openapi({
+      description: 'When the session ends unless another request comes (epoch ms).',
+    }),
+  })
+  .openapi('Session');
+
+export const SessionOne = z.object({ data: SessionSchema }).openapi('SessionResponse');
+
+export const SessionsRevokedSchema = z
+  .object({
+    userId: z.string(),
+    revoked: z.number().int().openapi({ description: 'How many live sessions were ended.' }),
+  })
+  .openapi('SessionsRevoked');
+
+export const SessionsRevokedOne = z
+  .object({ data: SessionsRevokedSchema })
+  .openapi('SessionsRevokedResponse');

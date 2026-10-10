@@ -20,3 +20,11 @@ spikes/**/wrangler.deploy*.jsonc
 # P3-05: local copy of apps/worker/wrangler.jsonc that Wrangler writes provisioned resource ids into
 apps/worker/wrangler.local.jsonc
 apps/worker/wrangler.*.local.jsonc
+
+# P4-11: Playwright output and the browser-run CLI build
+test-results/
+playwright-report/
+apps/cli/dist-e2e-browser/
+
+# P4-12: ZAP reports
+zap-reports/

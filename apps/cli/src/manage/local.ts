@@ -5,9 +5,12 @@
 import { existsSync } from 'node:fs';
 import {
   CryptoError,
+  IdentityConfigError,
+  identitySettingsFromEnv,
   type Keyring,
   loadKeyringFromEnv,
   nerdGraphKeyValidator,
+  providerRouteId,
   verifyKeyChecks,
 } from '@relic-bridge/auth';
 import {
@@ -21,7 +24,7 @@ import { ADMIN_API_BASE, createAdminApi, createAuditRecorder } from '@relic-brid
 import { openSqliteStorage } from '@relic-bridge/storage-sqlite';
 import { Hono } from 'hono';
 import { ConfigError } from '../config.ts';
-import { resolveMasterKeyEnv } from '../keys.ts';
+import { resolveIdpSecretEnv, resolveMasterKeyEnv } from '../keys.ts';
 import { resolveDbPath } from '../serve.ts';
 import { type AdminClient, buildPath } from './client.ts';
 import type { ManageContext } from './io.ts';
@@ -33,6 +36,8 @@ export interface LocalOptions {
   readonly db?: string;
   /** Needs the master key (credential add / rotate / revalidate); read-only commands run without it. */
   readonly needsKey: boolean;
+  /** `setup-link`: read RB_PUBLIC_URL and the providers from the environment (the same ones `serve` uses). */
+  readonly needsSetupLinks?: boolean;
   /** Create the database when missing (`init`). */
   readonly create?: boolean;
   /** NerdGraph fetch override (test hook). */
@@ -81,6 +86,33 @@ export async function openLocalClient(options: LocalOptions): Promise<AdminClien
     throw error;
   }
 
+  let setupLinks: Parameters<typeof createAdminApi>[0]['setupLinks'];
+  if (options.needsSetupLinks === true) {
+    try {
+      const identity = identitySettingsFromEnv(resolveIdpSecretEnv(ctx.env, ctx.fs, ctx.platform));
+      if (identity === null) {
+        throw new ConfigError(
+          'Sign-in is not configured in this environment.',
+          'Set RB_PUBLIC_URL and a provider (RB_GOOGLE_*, RB_GITHUB_*, RB_OIDC_*, RB_CF_ACCESS_*) as for `serve`, or use --remote.',
+        );
+      }
+      setupLinks = {
+        publicUrl: identity.publicUrl,
+        kv: storage.kv,
+        providers: identity.providers.map((p) => ({
+          id: providerRouteId(p),
+          kind: p.kind === 'cf-access' ? ('header' as const) : ('redirect' as const),
+        })),
+      };
+    } catch (error) {
+      await storage.close();
+      if (error instanceof IdentityConfigError) {
+        throw new ConfigError(error.message, 'See docs/guide/identity-providers.md.');
+      }
+      throw error;
+    }
+  }
+
   const recorder = createAuditRecorder({ storage, logger });
   const user = ctx.host.userName();
   const pending: Promise<unknown>[] = [];
@@ -98,6 +130,9 @@ export async function openLocalClient(options: LocalOptions): Promise<AdminClien
     clock: systemClock,
     logger,
     maxBodyBytes: 64 * 1024,
+    // Role changes and disables end the user's admin sessions here too (P4-02).
+    sessionKv: storage.kv,
+    ...(setupLinks === undefined ? {} : { setupLinks }),
     audit: (event) =>
       recorder.admin({ ...event, details: { ...(event.details ?? {}), via: 'cli', cliUser: user } }),
     runInBackground: (_c, task) => {

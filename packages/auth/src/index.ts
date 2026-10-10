@@ -3,4 +3,5 @@
 // (ADR-0004).
 export * from './access/index.ts';
 export * from './crypto/index.ts';
+export * from './identity/index.ts';
 export * from './tokens/index.ts';

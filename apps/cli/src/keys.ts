@@ -56,6 +56,30 @@ export function readKeyFile(variable: string, path: string, fs: ConfigFs, platfo
   return fs.readFile(path).trim();
 }
 
+/** Sign-in client secrets that can also come from a `0600` file named by `<NAME>_FILE` (P4-09). */
+export const IDP_SECRET_ENVS = [
+  'RB_GOOGLE_CLIENT_SECRET',
+  'RB_GITHUB_CLIENT_SECRET',
+  'RB_OIDC_CLIENT_SECRET',
+] as const;
+
+/**
+ * `env` with each sign-in client secret resolved from its `<NAME>_FILE` when that is set (same rules as the admin
+ * token file: mode `0600`, one value, never both forms). The secret never leaves the returned copy.
+ */
+export function resolveIdpSecretEnv(env: Env, fs: ConfigFs, platform: string): Env {
+  const out: Record<string, string | undefined> = { ...env };
+  for (const name of IDP_SECRET_ENVS) {
+    const direct = env[name]?.trim() ?? '';
+    const file = env[`${name}_FILE`]?.trim() ?? '';
+    if (direct !== '' && file !== '') {
+      throw new ConfigError(`Both ${name} and ${name}_FILE are set.`, 'Set only one of them.');
+    }
+    if (file !== '') out[name] = readKeyFile(`${name}_FILE`, file, fs, platform);
+  }
+  return out;
+}
+
 export const ADMIN_TOKEN_ENV = 'RB_ADMIN_TOKEN';
 
 /**

@@ -62,7 +62,7 @@
 | `packages/storage` | `Storage` interface, Drizzle schema, migrations; adapters: `yaml` (read-only, stdio), `sqlite` (Node), `d1` (Workers) | Adapters are the only runtime-specific code. |
 | `packages/auth` | Token hashing and verification, grant resolution, identity providers (Google, GitHub, Cloudflare Access, generic OIDC), admin sessions, OAuth 2.1 server integration | WebCrypto only. |
 | `packages/http-app` | Hono app: routing, middleware (security headers, auth, rate limit, audit), MCP handler per project, admin REST API | Runs under Workers and `@hono/node-server`. |
-| `packages/admin-ui` | Admin panel UI (server-rendered Hono JSX + minimal static JS; see ADR-0004) | No inline scripts; strict CSP. |
+| `packages/admin-ui` | Admin panel UI (server-rendered Hono JSX + minimal static JS; see ADR-0004): layout, components, page/form kit, hashed assets; mounted at `/admin` by `http-app` | No inline scripts or styles; strict CSP; auto-escaping only. |
 | `apps/cli` | `relic-bridge` binary: `stdio` (default), `serve`, `init`, `doctor`, management commands | Node active LTS. |
 | `apps/worker` | Cloudflare entry, bindings, wrangler config, deploy button | Workers runtime. |
 | `apps/docs` | Documentation site (Phase 8) | Static. |
@@ -139,7 +139,7 @@ Times are epoch milliseconds, ids are caller-generated text, lists/objects are J
 | `oauth_*` | Managed by the OAuth server (KV on Workers; the `kv` table on Node). Token props carry `grant_id` and audience. |
 | `audit_log` | id, ts, kind (`tool_call` \| `auth` \| `admin`), action, status (`ok` \| `error` \| `denied`), request_id, user_id, grant_id, token_id, key_id (pass-through key fingerprint `pt_…`), client_id, project_id, account_ids, nrql (masked), duration_ms, inspected_count, error_code, target_type, target_id, details (json). No foreign keys. |
 | `settings` | key, value (json), updated_at |
-| `kv` | key, value, expires_at — Workers-KV-compatible store for the OAuth provider on Node (ADR-0009) |
+| `kv` | key, value, expires_at — Workers-KV-compatible store for the OAuth provider on Node (ADR-0009); also sign-in transactions (`login:<sha256(state)>`) and setup links (`setup:<sha256(code)>`) on every runtime, consumed atomically with `take` (P4-01) |
 | `schema_migrations` | version, name, checksum, applied_at (owned by the migration runner) |
 
 Deleting a project removes its grants and their tokens; deleting a grant removes its tokens; a credential that a
@@ -183,15 +183,64 @@ Implemented by `createHttpApp` in `packages/http-app` (P2-06); `relic-bridge ser
 
 ### Admin API (P2-09)
 
-`/api/admin/v1/*` (`packages/http-app/src/admin`, `@hono/zod-openapi`) is mounted by `createHttpApp` only when an admin
-token is configured. Its own middleware runs after the shared request id, security headers and Host/Origin checks:
-declared body size → `beforeAuth` hooks (per-IP limits) → bootstrap admin token (digest compare; failures go to
-`onAuthFailure`, so they are throttled and audited like MCP failures) → JSON content type and streamed body cap →
+`/api/admin/v1/*` (`packages/http-app/src/admin`, `@hono/zod-openapi`) is mounted by `createHttpApp` when an admin
+token or sign-in is configured. Its own middleware runs after the shared request id, security headers and Host/Origin
+checks: declared body size → `beforeAuth` hooks (per-IP limits) → principal: with an `Authorization` header the
+bootstrap admin token only (digest compare; role `owner`; cookies ignored), otherwise the admin session cookie
+(P4-02) — failures of either go to `onAuthFailure`, so they are throttled and audited like MCP failures → for
+sessions: `Sec-Fetch-Site` / `Origin` = public URL / `X-CSRF-Token` on unsafe methods, then the route's least role
+(`requiredRole`), `403 forbidden` audited as `admin.forbidden` → JSON content type and streamed body cap →
 strict zod validation → handler. Handlers call the same domain services as the CLI (`createCredential`,
 `rotateCredentialKey`, `revalidateCredential`, `createProject`, `updateProject`, `createGrant`, `issueAccessToken`,
 `revokeAccessToken`), write one `admin` audit row per change (in the background) and clear the access cache. The
 OpenAPI 3.1 document is generated from the route schemas and served at `/api/admin/v1/openapi.json`;
-`docs/reference/admin-api.md` is generated from it. Phase 4 adds IdP sessions next to the bootstrap token.
+`docs/reference/admin-api.md` is generated from it.
+
+### Admin sessions (P4-02)
+
+`packages/auth/src/identity/session.ts` keeps sessions in storage `kv`: `sess:<userId>:<sha256(secret)>` (user,
+provider, created/absolute expiry, CSRF token) and `sess-seen:<userId>:<hash>` (last activity, touched at most once a
+minute, so a touch racing a logout can only recreate a worthless row). The cookie (`__Host-rb_session`, `rb_session`
+on http loopback; HttpOnly, Secure, SameSite=Lax, Path=/) carries `<userId>.<secret>`; revoke-all lists the user's
+prefix. `packages/http-app/src/session.ts` (`createSessionManager`, built by `createHttpApp` when sign-in is on) is the
+default `onLogin` (end the browser's previous session, create one, 303 to `next`), authenticates cookie requests (session
+row + user record, ≤ 5 s per-isolate user cache cleared by admin changes; role read per request), and serves
+`POST /auth/logout`. Role changes and disables end the user's sessions (`session.revoke_all`). Guide:
+[admin access](guide/admin-access.md).
+
+### Admin UI (P4-03)
+
+`packages/admin-ui` (web-standard, Hono JSX) renders the panel. `createAdminUi(deps)` is a Hono sub-app that
+`createHttpApp` mounts at `/admin` when sign-in is configured. The deps (`AdminUiDeps`) come from the P4-02 session
+manager, so `admin-ui` does not depend on `http-app`. Pages: `kit.page` (fetch metadata: same-origin, `none` or a
+cross-site top-level navigation only → per-IP hook (`admin_session` scope) → session → role) and forms: `kit.form`
+(Origin / fetch metadata → urlencoded, 16 KiB → `_csrf` token → role). Data and changes go through `kit.callAdmin`, which
+runs the request against the app itself (`app.fetch` with the same env and execution context): it carries the session
+cookie, the CSRF token, the public origin and the client-address headers, so the admin API's validation, roles and
+audit apply unchanged. Unsafe calls need the request's `VerifiedForm`. Rendering is synchronous JSX to a string with
+auto-escaping only (`scripts/check-ui-escaping.ts`). One stylesheet and one script are compiled into the bundle
+(`assets.generated.ts`, content-hashed names, SRI). They are served from `/admin/assets/*` with `immutable` caching, the
+same way on Node and Workers. The security middleware keeps the page CSP (`UI_CSP`) and the asset cache header when a
+response carries exactly those values, and replaces anything else. The sign-in pages (`/auth/*`) render with the same
+layout and CSP. Conventions: [`dev/admin-ui.md`](dev/admin-ui.md).
+
+### Admin sign-in (P4-01)
+
+`packages/auth/src/identity` (web-standard, `jose` on WebCrypto) defines `IdentityProvider`: **redirect** providers
+(generic OIDC by discovery, Google = OIDC preset with the `hd` check, GitHub = OAuth app + REST API) and the **header**
+provider (Cloudflare Access, `Cf-Access-Jwt-Assertion` verified against the team JWKS and AUD). Each yields a
+`VerifiedIdentity { idp, subject, email (verified, lowercase), displayName, orgs? }` or a stable `IdentityError` code.
+`identitySettingsFromEnv` reads the `RB_*` variables for both `serve` and the Worker.
+
+`packages/http-app/src/identity.ts` mounts `/auth/*` only when providers are configured:
+`GET /auth/login` (chooser) → `GET /auth/login/:provider` (transaction in storage `kv` keyed by SHA-256(state): PKCE
+verifier, nonce, provider, target path, setup-link hash, SHA-256 of the browser binding cookie; 10 min TTL; 302 to the
+IdP) → `GET /auth/callback/:provider` (transaction consumed once with `kv.take`; binding cookie and provider must match;
+code exchanged; ID token verified) or `GET /auth/cf-access` → setup link consumed (if any) → `resolveLoginUser`
+(existing binding → bind an unbound user by verified email → allowlist + auto-provisioning; email never moves an
+account between identities; deny by default) → audit `login.ok` / `login.denied` → `onLogin(c, CompletedLogin)`, the
+seam `createHttpApp` fills with the admin session (P4-02). `POST /api/admin/v1/setup-links` (admin token) issues the single-use owner
+bootstrap link. Guide: [identity providers](guide/identity-providers.md).
 
 ### Management CLI (P2-10)
 

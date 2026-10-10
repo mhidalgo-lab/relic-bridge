@@ -13,7 +13,7 @@ Sources: <https://developers.cloudflare.com/workers/platform/limits/>,
 |---|---|---|---|
 | Requests / day | 100,000 | unlimited | Far above personal or small-team MCP usage. |
 | CPU time / request | **10 ms** | 30 s default, 5 min max | **Main risk.** Network waits do *not* count, but JSON parsing of large NRQL results, crypto, and output shaping do. |
-| Subrequests / request | **50 external** + 1,000 to Cloudflare services | 10,000 (configurable up to 10 M via `limits.subrequests`) | **Changed 2026-02-11:** on Free, `fetch` to the Internet (every NerdGraph call and async poll) counts against the 50; D1, KV and other Cloudflare services count against a separate 1,000. Each redirect hop counts. The old assumption "D1 lookups eat the 50" no longer holds, so the access-resolve cost (one D1 batch call + a throttled write on a miss since P3-09) does not touch the NerdGraph budget. |
+| Subrequests / request | **50 external** + 1,000 to Cloudflare services | 10,000 (configurable up to 10 M via `limits.subrequests`) | **Changed 2026-02-11:** on Free, `fetch` to the Internet (every NerdGraph call and async poll) counts against the 50; D1, KV and other Cloudflare services count against a separate 1,000. Each redirect hop counts. **Conflicting sources (checked 2026-10-05):** the [Workers limits page](https://developers.cloudflare.com/workers/platform/limits/#subrequests) lists 1,000 "subrequests to internal services" on Free, but the [D1 limits page](https://developers.cloudflare.com/d1/platform/limits/) (updated 2026-04-21) still says "Queries per Worker invocation: 50 (Free) / 1,000 (Paid)". Until a measurement on a real Free Worker settles it, **relic-bridge budgets D1 against the stricter 50 per invocation** (rotation `batchSize` clamp, purge batches, constant-cost session revocation); the 1,000 only means a miscount can't break NerdGraph calls. The old assumption "D1 lookups eat the 50" no longer holds for NerdGraph, so the access-resolve cost (one D1 batch call + a throttled write on a miss since P3-09) does not touch the NerdGraph budget. |
 | D1 rows (Free) | 5 M read / 100 k written per day | 25 B / 50 M per month included | Enforced since 2026-09-01: queries fail with a "free tier daily row read/write limit" error until 00:00 UTC. Matters for audit writes and cache misses on a busy Free deployment. |
 | Concurrent connections waiting for headers | 6 | 6 | Parallel NerdGraph fan-out from one invocation is capped at 6. |
 | Wall-clock duration (HTTP) | no limit while the client is connected | same | Async NRQL polling is fine while the MCP client keeps the connection open. |
@@ -426,3 +426,88 @@ database.
   Source: https://developers.cloudflare.com/waf/rate-limiting-rules/ (availability table) and
   https://developers.cloudflare.com/use-cases/solutions/stop-account-takeover-attacks/.
 
+
+## 16. Identity providers for admin sign-in (P4-01, checked 2026-10-03)
+
+- **GitHub** supports PKCE (S256 only) for OAuth apps and GitHub Apps since 2025-07-14; not required, but used when
+  `code_challenge` is sent. GitHub does not distinguish public and confidential clients.
+  Source: https://github.blog/changelog/2025-07-14-pkce-support-for-oauth-and-github-app-authentication/.
+  Token endpoint `POST https://github.com/login/oauth/access_token` answers OAuth errors with **HTTP 200** and an
+  `error` field (`Accept: application/json`). `GET /user/emails` (scope `user:email`) returns `primary` and `verified`
+  per address; `GET /user/memberships/orgs/{org}` (scope `read:org`) returns `state: active | pending`, 404 when not a
+  member. Organization OAuth app access restrictions can hide memberships until an org owner approves the app.
+- **Google** OIDC: discovery at `https://accounts.google.com/.well-known/openid-configuration`; ID token `iss` is
+  `https://accounts.google.com` **or** `accounts.google.com` (both documented); `hd` request parameter is only a hint,
+  the `hd` claim must be checked. Supports PKCE S256, `client_secret_basic` and `client_secret_post`.
+  Source: https://developers.google.com/identity/openid-connect/openid-connect.
+- **Cloudflare Access**: the application token is in the `Cf-Access-Jwt-Assertion` header (also the `CF_Authorization`
+  cookie, which we ignore); keys at `https://<team>.cloudflareaccess.com/cdn-cgi/access/certs`, RS256, `iss` = team
+  domain, `aud` = array containing the application's AUD tag; service-token JWTs carry `common_name` and an empty
+  `sub`, no `email`. Source: https://developers.cloudflare.com/cloudflare-one/identity/authorization-cookie/validating-json/.
+- **jose 6.2.12** (`panva/jose`, zero dependencies, WebCrypto; runs on Node and workerd): `createRemoteJWKSet` caches
+  10 min by default, refetches for an unmatched `kid` only after `cooldownDuration` (30 s) and accepts a `[customFetch]`
+  (used to inject the mock IdP); `jwtVerify` never accepts `alg: none`, and an `algorithms` allowlist excludes HMAC
+  (key confusion). Already in the lockfile through `@modelcontextprotocol/client`, published 2026-09-05 (beyond the
+  3-day `minimumReleaseAge`).
+- **RFC 9207** (`iss` in the authorization response) is advertised by `authorization_response_iss_parameter_supported`;
+  when advertised it must be present, when present it must equal the issuer.
+
+## 17. Browser session cookies and CSRF signals (P4-02, from documentation 2026-10-03, not re-measured)
+
+- **`__Host-` prefix** (RFC 6265bis §4.1.3.2): the browser accepts the cookie only with `Secure`, `Path=/` and no
+  `Domain`, from a secure origin, so a sibling subdomain can neither set nor overwrite it (cookie tossing). Browsers
+  refuse it over plain http, hence `rb_session` on http loopback (`parsePublicUrl` allows http only for loopback).
+  Source: https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Set-Cookie#cookie_prefixes.
+- **SameSite**: `Lax` cookies are sent on top-level `GET` navigations from other sites and withheld on cross-site
+  subresources, `fetch`, and `POST` forms; `Strict` cookies are withheld on any request whose navigation chain started
+  on another site, including the redirect chain IdP → `/auth/callback` → `/admin`, so the first admin page after an
+  IdP sign-in would arrive without the session. Source: RFC 6265bis §5.2 ("same-site" requests and redirects),
+  https://web.dev/articles/samesite-cookies-explained.
+- **Fetch metadata**: `Sec-Fetch-Site` is `same-origin`, `same-site`, `cross-site` or `none` (user-initiated: typed
+  URL, bookmark), sent by Chromium, Firefox and Safari (16.4+) on every request. Source:
+  https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Sec-Fetch-Site and https://web.dev/articles/fetch-metadata.
+- **`Origin`** is sent on every `POST`/`PUT`/`PATCH`/`DELETE` by current browsers, same-origin ones included (Fetch
+  standard, "append a request `Origin` header"); `GET`/`HEAD` same-origin requests may omit it. OWASP's CSRF cheat
+  sheet recommends a synchronizer token plus Origin/fetch-metadata verification as defence in depth.
+  Source: https://fetch.spec.whatwg.org/#origin-header,
+  https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html.
+- Session guidance (idle 15-30 min, absolute 4-8 h for high-value apps; rotate the id at login; server-side
+  invalidation on logout): https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html. We default
+  to 30 min / 12 h (a personal admin used from a phone) and let `RB_SESSION_*` tighten it.
+
+## 18. Server-rendered admin UI: Hono JSX, CSP and fetch metadata (P4-03, from documentation 2026-10-03)
+
+- **Hono JSX** (hono 4.13): `jsx: react-jsx` + `jsxImportSource: hono/jsx` (or the per-file pragma
+  `/** @jsxImportSource hono/jsx */`, which esbuild/wrangler, rolldown/tsdown and Vitest all honour). Children and
+  attribute values are escaped; `raw()` / the `html` helper and `dangerouslySetInnerHTML` are the only ways around it.
+  A rendered element's `toString()` is a string when no component is async. `app.route()` keeps a sub-app's
+  `onError` for its routes. Source: https://hono.dev/docs/guides/jsx, https://hono.dev/docs/helpers/html.
+- **CSP**: `default-src 'none'` plus `script-src 'self'` / `style-src 'self'` covers pages with no inline code (no nonce
+  needed). `form-action 'self'` also applies to redirects after a form post in Chromium, so sign-out may redirect only
+  within the origin. `frame-ancestors 'none'` supersedes `X-Frame-Options` (kept for old browsers).
+  `require-trusted-types-for 'script'` makes string-to-HTML sinks throw (Chromium; others ignore it). Source:
+  https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Content-Security-Policy,
+  https://w3c.github.io/trusted-types/dist/spec/.
+- **SRI** on same-origin `<script>`/`<link>` needs no `crossorigin` attribute. Source:
+  https://developer.mozilla.org/en-US/docs/Web/Security/Subresource_Integrity.
+- **Resource isolation with fetch metadata**: allow `Sec-Fetch-Site` `same-origin` / `same-site`* / `none`, plus
+  cross-site requests with `Sec-Fetch-Mode: navigate` and a `GET` method and a `Sec-Fetch-Dest` other than
+  `object`/`embed`; refuse the rest. We are stricter: `same-site` is refused (subdomains are not trusted) and a
+  navigation must be `Sec-Fetch-Dest: document` (frames are refused here too, besides `frame-ancestors`). Source:
+  https://web.dev/articles/fetch-metadata.
+- **`__Host-` cookies need `Path=/`**: the flash cookie (`__Host-rb_flash`) is therefore site-wide, short-lived
+  (60 s) and carries only a message code. Source: RFC 6265bis §4.1.3.2.
+- **axe-core in jsdom**: rules run on the DOM. `color-contrast` needs layout and is reported "incomplete" in jsdom, so
+  token contrast is computed from the stylesheet (WCAG 2.x relative luminance) instead. Source:
+  https://github.com/dequelabs/axe-core/blob/develop/doc/API.md.
+
+## 19. Revoking GitHub OAuth user tokens (P4-13, checked 2026-10-04)
+
+Source: <https://docs.github.com/en/rest/apps/oauth-applications#delete-an-app-token>
+
+- `DELETE https://api.github.com/applications/{client_id}/token` with JSON body `{"access_token": "<token>"}`.
+  Authentication is HTTP Basic with the OAuth app's client id and client secret (not the user token).
+  `204 No Content` on success; `404` when the token is unknown or already revoked; `422` on validation failure or when
+  the endpoint is being spammed. Revoking the token ends that one token only; the user's app authorization stays.
+- relic-bridge treats `204` and `404` as done, anything else (and network errors or timeouts) as a failed, logged
+  best-effort revocation.

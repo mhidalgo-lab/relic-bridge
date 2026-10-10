@@ -26,6 +26,8 @@ are redacted from the error. Process lists and shell history would leak them.
   `--key-file <file>` (mode `0600`); `--key-env <VAR>` (the variable's *name*).
 - **Admin token**: `RB_ADMIN_TOKEN`, `RB_ADMIN_TOKEN_FILE`, or a hidden prompt. Generate one with
   `relic-bridge admin-token generate`.
+- **Sign-in client secrets** (`setup-link`, local mode, and `serve`): `RB_GOOGLE_CLIENT_SECRET`,
+  `RB_GITHUB_CLIENT_SECRET`, `RB_OIDC_CLIENT_SECRET`, or the same names with `_FILE` (a file with mode `0600`).
 - **New device tokens** are printed once on stdout (nothing else on stdout), with a warning and client snippets on
   stderr. They cannot be shown again.
 
@@ -47,6 +49,8 @@ relic-bridge init [--db <path>] [--master-key-file <path>] [--label <l> --region
                   [--client claude-code|claude-code-powershell|claude-desktop|cursor|vscode|all] [--no-config]
 relic-bridge admin-token generate
 relic-bridge user add --email <e> [--name <n>] [--role owner|admin|member] | user list [--limit <n>]
+relic-bridge user unbind <id> [--confirm <email>]
+relic-bridge setup-link [--provider google|github|cf-access|oidc|oidc-<name>] [--ttl <minutes>]
 relic-bridge credential add --label <l> --region US|EU|JP [--owner <user id>] [key source]
 relic-bridge credential list [--owner <user id>] [--limit <n>] | rotate <id> [key source] | revalidate <id> | remove <id> [--yes]
 relic-bridge project add --slug <s> --default-account <id> [--accounts 1,2] [--tools a,b] [--name <n>] [--default-credential <id>]
@@ -61,6 +65,16 @@ relic-bridge token list [--grant <id>] [--limit <n>] | token revoke <id>
 relic-bridge audit tail [--limit <n>] [--follow] [--kind --action --status --project --user --grant --token-id --key-id --since --until]
 relic-bridge keys rotate --remote <url> [--batch-size <1-100>]
 ```
+
+`user unbind` (owner only) clears a user's sign-in identity so they can sign in with another provider, and ends their
+sessions. It asks you to retype the user's email, or takes `--confirm <email>` when there is no terminal. Whoever signs in
+next with that verified email takes the account, so read
+[Moving a user to another provider](../guide/identity-providers.md#moving-a-user-to-another-provider) first.
+
+`setup-link` prints a single-use link (stdout only) that makes whoever signs in through it an `owner`; `--ttl` is in
+minutes (1-10080, default 60). With `--remote` the server builds the link from its own `RB_PUBLIC_URL`; locally the
+command needs `RB_PUBLIC_URL` and the provider variables in its environment, as for `serve`. The code is never logged
+and not stored in clear.
 
 Options for every management command: `--db <path>` (local), `--remote <url>`, `--insecure`, `--json`,
 `--log-level <level>` and `-h/--help`. `credential remove` also takes `--yes`. Option names are checked per command; an

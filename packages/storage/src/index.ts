@@ -10,8 +10,23 @@ export {
   accessRecordsParams,
   NO_ACCESS_RECORDS,
 } from './access-records.ts';
+export {
+  AUDIT_STATS_DEFAULT_GROUPS,
+  AUDIT_STATS_MAX_GROUPS,
+  AUDIT_STATS_MAX_WINDOW_MS,
+  auditOrder,
+  auditStatsRowOf,
+  auditStatsSql,
+  utcDay,
+} from './audit-stats.ts';
 export * from './errors.ts';
 export { newId } from './ids.ts';
+export {
+  DEFAULT_KV_PURGE_BUDGET,
+  type KvPurgeBudget,
+  type KvPurgeResult,
+  purgeExpiredKv,
+} from './kv-purge.ts';
 export { createMemoryStorage, type MemoryStorageOptions } from './memory.ts';
 export {
   type MigrateResult,
@@ -24,6 +39,7 @@ export {
 } from './migrate.ts';
 export { MIGRATIONS } from './migrations.generated.ts';
 export * from './types.ts';
+export { lastOwnerGuardSql, UNBOUND_ENABLED_SQL } from './user-guards.ts';
 export * from './validate.ts';
 export {
   accountIdSchema,

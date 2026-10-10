@@ -4,12 +4,22 @@
 // per-isolate runtime (keyring with its imported CryptoKeys, access cache, rate-limit buckets, the app) built lazily
 // on the first request. The runtime holds configuration and caches only, never request data (THREAT_MODEL T21).
 import type { ExecutionContext, ScheduledController } from '@cloudflare/workers-types';
-import { CryptoError, describeUnreadableKeys, loadKeyringFromEnv, verifyKeyChecks } from '@relic-bridge/auth';
+import {
+  CryptoError,
+  createIdentityProviders,
+  describeUnreadableKeys,
+  IdentityConfigError,
+  type IdentitySettings,
+  identitySettingsFromEnv,
+  loadKeyringFromEnv,
+  verifyKeyChecks,
+} from '@relic-bridge/auth';
 import { createLogger, type FetchLike, type Logger, type LogSink, Secret, VERSION } from '@relic-bridge/core';
 import {
   ADMIN_TOKEN_ADVICE,
   adminTokenLooksWeak,
   checkAdminToken,
+  checkHost,
   createAuditRecorder,
   createHttpApp,
   createRateLimitHooks,
@@ -19,7 +29,7 @@ import {
   normalizeClientIp,
   SECURITY_HEADERS,
 } from '@relic-bridge/http-app';
-import { type Storage, StorageError } from '@relic-bridge/storage';
+import { type KvPurgeBudget, purgeExpiredKv, type Storage, StorageError } from '@relic-bridge/storage';
 import { createD1Storage } from '@relic-bridge/storage/d1';
 import type { Context } from 'hono';
 import type { WorkerEnv } from './env.ts';
@@ -66,6 +76,8 @@ export interface WorkerOptions {
   readonly openStorage?: OpenStorage;
   /** NerdGraph fetch override (tests). */
   readonly fetch?: FetchLike;
+  /** Identity provider fetch override (tests: the mock IdP). */
+  readonly identityFetch?: FetchLike;
   /** Log sink override (tests). Default: `console.error` → Workers Logs. */
   readonly logSink?: LogSink;
   /** Cap on refusal rows per minute (tests that provoke thousands of refusals). Default: the recorder's. */
@@ -76,6 +88,8 @@ export interface WorkerOptions {
   readonly bootWaitMs?: number;
   /** Retention purge budget per run (tests). Default: `PURGE_BATCH_ROWS`, `PURGE_MAX_BATCHES`, `PURGE_BUDGET_MS`. */
   readonly purge?: Partial<PurgeBudget>;
+  /** Expired `kv` row purge budget per run (tests). Default: `DEFAULT_KV_PURGE_BUDGET`. */
+  readonly kvPurge?: Partial<KvPurgeBudget>;
 }
 
 /** What one scheduled run may spend on deleting audit rows. */
@@ -89,8 +103,8 @@ export interface PurgeBudget {
 }
 
 /**
- * Defaults: 500-row batches, 20 per run (10,000 rows), 10 s. Each DELETE is one D1 query (the Free plan allows 50 D1
- * queries per invocation); a backlog beyond the budget is finished by the next run, so an hourly trigger clears
+ * Defaults: 500-row batches, 20 per run (10,000 rows), 10 s. Each DELETE is one D1 query (budgeted against the stricter
+ * of Cloudflare's two published limits, 50 D1 queries per invocation on Free; see docs/RESEARCH.md); a backlog beyond the budget is finished by the next run, so an hourly trigger clears
  * 240,000 rows a day at most, far above what the audit caps allow.
  */
 export const DEFAULT_PURGE_BUDGET: PurgeBudget = Object.freeze({
@@ -111,6 +125,8 @@ interface Runtime {
   readonly settings: WorkerSettings;
   readonly log: Logger;
   readonly adminApi: boolean;
+  /** Sign-in provider ids (empty: sign-in off). */
+  readonly identity: readonly string[];
   /** Where rate limits are counted: the binding plus the isolate, the isolate alone, or nowhere. */
   readonly limiter: 'binding+isolate' | 'isolate' | 'off';
   readonly app: {
@@ -172,6 +188,26 @@ async function boot(env: WorkerEnv, options: WorkerOptions): Promise<Runtime> {
     }
   }
 
+  let identity: IdentitySettings | null;
+  try {
+    identity = identitySettingsFromEnv(env as unknown as Record<string, string | undefined>);
+  } catch (error) {
+    if (error instanceof IdentityConfigError) throw new WorkerConfigError(error.variable, error.message);
+    throw error;
+  }
+  if (identity !== null) {
+    for (const w of identity.warnings) log.warn(w);
+    if (
+      settings.allowedHosts !== '*' &&
+      !checkHost(new URL(identity.publicUrl).hostname, settings.allowedHosts).ok
+    ) {
+      throw new WorkerConfigError(
+        'RB_PUBLIC_URL',
+        'RB_PUBLIC_URL must name a host listed in RB_ALLOWED_HOSTS.',
+      );
+    }
+  }
+
   const storage = await (options.openStorage ?? openD1Storage)(env);
   const { registered, unreadable } = await verifyKeyChecks(storage, keyring);
   if (registered.length > 0) log.info('master key registered', { versions: registered });
@@ -226,6 +262,13 @@ async function boot(env: WorkerEnv, options: WorkerOptions): Promise<Runtime> {
       ? undefined
       : mergeHooks(rateLimitHooks, audit?.hooks);
 
+  const identityProviders =
+    identity === null
+      ? undefined
+      : createIdentityProviders(identity, {
+          ...(options.identityFetch === undefined ? {} : { fetch: options.identityFetch }),
+        });
+
   const app = createHttpApp({
     storage,
     keyring,
@@ -242,21 +285,42 @@ async function boot(env: WorkerEnv, options: WorkerOptions): Promise<Runtime> {
     ...(hooks === undefined ? {} : { hooks }),
     ...(fingerprintSecret === undefined ? {} : { passthrough: { fingerprintSecret } }),
     ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
-    ...(adminRaw === ''
+    ...(identityProviders === undefined || identity === null
+      ? {}
+      : {
+          identity: {
+            publicUrl: identity.publicUrl,
+            providers: identityProviders,
+            policy: identity.policy,
+            storage,
+            // Sign-in ends in an admin session (cookie, CSRF token, roles): `createHttpApp`'s `onLogin` (P4-02).
+            session: { timeouts: identity.session },
+            ...(audit === undefined ? {} : { audit }),
+          },
+        }),
+    // Admin API: the bootstrap token, admin sessions (sign-in configured, P4-02), or both.
+    ...(adminRaw === '' && identityProviders === undefined
       ? {}
       : {
           admin: {
-            token: new Secret(adminRaw),
+            ...(adminRaw === '' ? {} : { token: new Secret(adminRaw) }),
             storage,
             ...(audit === undefined ? {} : { audit }),
-            // Free allows 50 D1 queries per invocation; a rotation batch costs about its size plus 5 (P3-15).
+            // Budget 50 D1 queries per invocation on Free (the D1 limits page; the Workers page says 1,000, see RESEARCH); a rotation batch costs about its size plus 5 (P3-15).
             ...(settings.plan === 'free' ? { maxRotationBatch: FREE_ROTATION_BATCH } : {}),
           },
         }),
   });
 
   const limiter = !settings.rateLimit ? 'off' : binding === undefined ? 'isolate' : 'binding+isolate';
-  return { settings, log, adminApi: adminRaw !== '', limiter, app };
+  return {
+    settings,
+    log,
+    adminApi: adminRaw !== '' || identityProviders !== undefined,
+    identity: (identityProviders ?? []).map((p) => p.id),
+    limiter,
+    app,
+  };
 }
 
 /**
@@ -307,6 +371,7 @@ export function createWorker(options: WorkerOptions = {}): WorkerHandler {
       maxResponseBytes: settings.maxResponseBytes,
       concurrency: settings.concurrency,
       adminApi: runtime.adminApi,
+      signIn: runtime.identity,
       audit: settings.audit.enabled ? settings.audit.nrql : 'off',
       rateLimit: runtime.limiter,
       passthrough: settings.passthrough,
@@ -402,9 +467,25 @@ export function createWorker(options: WorkerOptions = {}): WorkerHandler {
     }
   };
 
+  /**
+   * Expired `kv` rows (P4-09): abandoned `login:*` transactions, unused `setup:*` links, ended sessions. Independent of
+   * the audit retention (which may be 0 or misconfigured) and of the master key. Bounded batches; failures are logged,
+   * never thrown.
+   */
+  const purgeKv = async (env: WorkerEnv): Promise<void> => {
+    try {
+      const storage = await (options.openStorage ?? openD1Storage)(env);
+      const result = await purgeExpiredKv(storage.kv, options.kvPurge, now);
+      logger.info('kv purge finished', { ...result });
+    } catch (error) {
+      logger.error('kv purge failed', bootFailure(error));
+    }
+  };
+
   return {
     async scheduled(_controller, env) {
       await purgeAudit(env);
+      await purgeKv(env);
     },
     async fetch(request, env, ctx) {
       const runtime = await runtimeFor(env);

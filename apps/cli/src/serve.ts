@@ -7,12 +7,22 @@ import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
 import { createAdaptorServer } from '@hono/node-server';
 import { getConnInfo } from '@hono/node-server/conninfo';
-import { CryptoError, describeUnreadableKeys, loadKeyringFromEnv, verifyKeyChecks } from '@relic-bridge/auth';
+import {
+  CryptoError,
+  createIdentityProviders,
+  describeUnreadableKeys,
+  IdentityConfigError,
+  type IdentitySettings,
+  identitySettingsFromEnv,
+  loadKeyringFromEnv,
+  verifyKeyChecks,
+} from '@relic-bridge/auth';
 import { type FetchLike, type Logger, Secret, VERSION } from '@relic-bridge/core';
 import {
   AUDIT_NRQL_MODES,
   type AuditNrqlMode,
   adminTokenLooksWeak,
+  checkHost,
   createAuditRecorder,
   createHttpApp,
   createRateLimitHooks,
@@ -30,12 +40,12 @@ import {
   type RateLimitRules,
   resolveClientIp,
 } from '@relic-bridge/http-app';
-import { StorageError } from '@relic-bridge/storage';
+import { purgeExpiredKv, StorageError } from '@relic-bridge/storage';
 import { openSqliteStorage } from '@relic-bridge/storage-sqlite';
 import type { Context } from 'hono';
 import { parseRetentionDays } from './audit.ts';
 import { ConfigError, type ConfigFs, type Env } from './config.ts';
-import { resolveAdminToken, resolveMasterKeyEnv } from './keys.ts';
+import { resolveAdminToken, resolveIdpSecretEnv, resolveMasterKeyEnv } from './keys.ts';
 
 export const DEFAULT_PORT = 8787;
 export const DEFAULT_HOST = '127.0.0.1';
@@ -142,6 +152,7 @@ function rateLimitSettings(env: Env, warnings: string[]): RateLimitRules | null 
     authFailures: pick('RB_RATE_LIMIT_AUTH_FAIL', DEFAULT_RATE_LIMITS.authFailures),
     token: pick('RB_RATE_LIMIT_TOKEN', DEFAULT_RATE_LIMITS.token),
     grant: pick('RB_RATE_LIMIT_GRANT', DEFAULT_RATE_LIMITS.grant),
+    signIn: pick('RB_RATE_LIMIT_SIGN_IN', DEFAULT_RATE_LIMITS.signIn ?? null),
     passthroughKey: pick('RB_RATE_LIMIT_PASSTHROUGH_KEY', DEFAULT_RATE_LIMITS.passthroughKey),
   };
   if (rules.authFailures === null) {
@@ -228,7 +239,34 @@ export interface ServeSettings {
   readonly audit: AuditSettings;
   /** Pass-through mode (`RB_PASSTHROUGH`); `null` when off. */
   readonly passthrough: PassthroughSettings | null;
+  /** Admin sign-in (P4-01, `RB_PUBLIC_URL` + provider variables); `null` when no provider is configured. */
+  readonly identity: IdentitySettings | null;
   readonly warnings: readonly string[];
+}
+
+function identitySettings(
+  env: Env,
+  allowedHosts: readonly string[] | '*',
+  warnings: string[],
+): IdentitySettings | null {
+  let settings: IdentitySettings | null;
+  try {
+    settings = identitySettingsFromEnv(env);
+  } catch (error) {
+    if (error instanceof IdentityConfigError) {
+      throw new ConfigError(error.message, 'See docs/guide/identity-providers.md.');
+    }
+    throw error;
+  }
+  if (settings === null) return null;
+  if (allowedHosts !== '*' && !checkHost(new URL(settings.publicUrl).hostname, allowedHosts).ok) {
+    throw new ConfigError(
+      'RB_PUBLIC_URL must name a host listed in RB_ALLOWED_HOSTS.',
+      'Sign-in redirects come back to RB_PUBLIC_URL; requests for other hosts are refused.',
+    );
+  }
+  warnings.push(...settings.warnings);
+  return settings;
 }
 
 /** Validate flags and `RB_*` variables for `serve`. Throws `ConfigError` with a hint. */
@@ -239,6 +277,8 @@ export function serveSettings(input: {
   readonly env: Env;
   readonly platform: string;
   readonly homeDir?: string;
+  /** Needed to read `RB_*_CLIENT_SECRET_FILE`; without it a `_FILE` variable is ignored. */
+  readonly fs?: ConfigFs;
 }): ServeSettings {
   const { env } = input;
   const warnings: string[] = [];
@@ -320,6 +360,11 @@ export function serveSettings(input: {
     trustedProxyHops: Number(hopsRaw),
     audit: auditSettings(env, warnings),
     passthrough: passthroughSettings(env, warnings),
+    identity: identitySettings(
+      input.fs === undefined ? env : resolveIdpSecretEnv(env, input.fs, input.platform),
+      allowedHosts,
+      warnings,
+    ),
     warnings,
   };
 }
@@ -338,6 +383,8 @@ export interface StartServerOptions {
   readonly logger: Logger;
   /** NerdGraph fetch override (test hook). */
   readonly fetch?: FetchLike;
+  /** Identity provider fetch override (tests). */
+  readonly identityFetch?: FetchLike;
 }
 
 /**
@@ -420,8 +467,28 @@ export async function startServer(options: StartServerOptions): Promise<RunningS
         logger.warn('audit purge failed', { error: error instanceof Error ? error.name : typeof error }),
     );
   };
-  purgeAudit();
-  const purgeTimer = setInterval(purgeAudit, AUDIT_PURGE_INTERVAL_MS);
+  // Expired `kv` rows (P4-09): abandoned logins, unused setup links, ended sessions. Always on, whatever the audit retention.
+  let kvPurging = false;
+  const purgeKv = (): void => {
+    if (kvPurging) return;
+    kvPurging = true;
+    purgeExpiredKv(storage.kv).then(
+      (result) => {
+        kvPurging = false;
+        if (result.removed > 0) logger.info('expired kv rows purged', { ...result });
+      },
+      (error: unknown) => {
+        kvPurging = false;
+        logger.warn('kv purge failed', { error: error instanceof Error ? error.name : typeof error });
+      },
+    );
+  };
+  const purgeHousekeeping = (): void => {
+    purgeAudit();
+    purgeKv();
+  };
+  purgeHousekeeping();
+  const purgeTimer = setInterval(purgeHousekeeping, AUDIT_PURGE_INTERVAL_MS);
   purgeTimer.unref();
   const hooks =
     rateLimitHooks === undefined && audit === undefined
@@ -439,12 +506,34 @@ export async function startServer(options: StartServerOptions): Promise<RunningS
     hsts: settings.hsts,
     ...(hooks === undefined ? {} : { hooks }),
     ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
-    ...(adminToken === undefined
+    // Admin API: the bootstrap token, admin sessions (sign-in configured, P4-02), or both.
+    ...(adminToken === undefined && settings.identity === null
       ? {}
-      : { admin: { token: new Secret(adminToken), storage, ...(audit === undefined ? {} : { audit }) } }),
+      : {
+          admin: {
+            ...(adminToken === undefined ? {} : { token: new Secret(adminToken) }),
+            storage,
+            ...(audit === undefined ? {} : { audit }),
+          },
+        }),
     ...(settings.passthrough === null
       ? {}
       : { passthrough: { identityTtlMs: settings.passthrough.identityTtlMs } }),
+    ...(settings.identity === null
+      ? {}
+      : {
+          identity: {
+            publicUrl: settings.identity.publicUrl,
+            providers: createIdentityProviders(settings.identity, {
+              ...(options.identityFetch === undefined ? {} : { fetch: options.identityFetch }),
+            }),
+            policy: settings.identity.policy,
+            storage,
+            // Sign-in ends in an admin session (cookie, CSRF token, roles): `createHttpApp`'s `onLogin`.
+            session: { timeouts: settings.identity.session },
+            ...(audit === undefined ? {} : { audit }),
+          },
+        }),
   });
 
   const server = createAdaptorServer({
@@ -491,9 +580,16 @@ export async function startServer(options: StartServerOptions): Promise<RunningS
     cors: settings.corsOrigins.length > 0,
     rateLimit: settings.rateLimits !== null,
     audit: settings.audit.enabled ? settings.audit.nrql : 'off',
-    adminApi: adminToken === undefined ? 'off' : `${url}/api/admin/v1`,
+    adminApi:
+      adminToken === undefined && settings.identity === null
+        ? 'off'
+        : `${url}/api/admin/v1 (${[adminToken === undefined ? null : 'token', settings.identity === null ? null : 'sessions'].filter((x) => x !== null).join(', ')})`,
     trustedProxyHops: settings.trustedProxyHops,
     passthrough: settings.passthrough === null ? 'off' : `${url}${PASSTHROUGH_PATH}`,
+    signIn:
+      settings.identity === null
+        ? 'off'
+        : `${settings.identity.publicUrl}/auth/login (${settings.identity.providers.map((p) => p.kind).join(', ')})`,
   });
 
   let closing: Promise<void> | undefined;

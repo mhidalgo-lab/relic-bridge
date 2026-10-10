@@ -1,8 +1,9 @@
 # relic-bridge
 
-> **Status: alpha.** v0.1 (local stdio) is the released line. The self-hosted multi-device server (Phase 2, v0.2) is
-> implemented on the development branches and documented here; it is not yet released. Cloudflare, OAuth (claude.ai web
-> and mobile) and the admin panel are on the [roadmap](docs/ROADMAP.md).
+> **Status: alpha.** v0.1 (local stdio) is the released line. The self-hosted multi-device server (Phase 2, v0.2), the
+> Cloudflare Worker (Phase 3, v0.3) and the sign-in and admin panel (Phase 4, v0.4) are implemented on the development
+> branches and documented here; none of them is released yet. OAuth (claude.ai web and mobile) is on the
+> [roadmap](docs/ROADMAP.md).
 
 [![CI](https://github.com/matiashidalgo/relic-bridge/actions/workflows/ci.yml/badge.svg)](https://github.com/matiashidalgo/relic-bridge/actions/workflows/ci.yml)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/matiashidalgo/relic-bridge/badge)](https://scorecard.dev/viewer/?uri=github.com/matiashidalgo/relic-bridge)
@@ -30,17 +31,27 @@ only a **User API key** — no account-level MCP enablement required.
 - A [management CLI](docs/reference/cli.md) and an [admin API](docs/reference/admin-api.md), plus an optional
   [pass-through mode](docs/guide/self-hosting.md#pass-through-mode) where callers bring their own key.
 
-**Available on the development branch, not released yet** (Phase 3, in review):
+**Implemented for v0.3 (Cloudflare; not released yet):**
 
 - A Cloudflare Worker deployment on D1, one setup command or a Deploy button
   ([guide](docs/guide/cloudflare-deploy.md), [limits and costs](docs/guide/cloudflare-limits.md)). The guide has not yet
   been validated on a clean Cloudflare account.
 
+**Implemented for v0.4 (sign-in and admin panel; not released yet, [admin guide](docs/guide/admin-guide.md)):**
+
+- **Sign in** with Google, GitHub, Cloudflare Access or any OpenID Connect provider, with deny-by-default allow-lists,
+  optional auto-provisioning, and a one-time setup link for the first owner ([identity providers](docs/guide/identity-providers.md)).
+- **Sessions, roles and CSRF** (owner, admin, member) for the admin API and the panel ([admin access](docs/guide/admin-access.md)).
+- An **admin panel** (`/admin`, works on a phone, no JavaScript needed): New Relic keys, projects, grants, device tokens,
+  users, an audit viewer with CSV export, usage statistics, a connect page with client snippets, and "My access" for
+  members, who bring their own keys ([panel guide](docs/guide/admin-panel.md)).
+- Contributor checks: a Playwright browser run (`pnpm test:e2e`) and an OWASP ZAP baseline scan (`pnpm scan:zap`).
+
 **Planned** (see the [roadmap](docs/ROADMAP.md); none of this exists yet):
 
 - OAuth 2.1, which claude.ai on the web and Claude on your phone need (static tokens work in Claude Code, Cursor and
   VS Code on your computers today).
-- Sign-in (Google, GitHub, Cloudflare Access) and an admin panel.
+- More tools (Phase 6) and power features (Phase 7).
 
 ## Install
 
@@ -65,7 +76,8 @@ carries the tarball, an SBOM and checksums with build attestations. Changes: [CH
 ## Documentation
 
 - **Guides:** [local quickstart](docs/guide/quickstart-local.md) · [client setup](docs/guide/clients.md) ·
-  [self-hosting](docs/guide/self-hosting.md) · [deploy to Cloudflare](docs/guide/cloudflare-deploy.md) · [Cloudflare limits and costs](docs/guide/cloudflare-limits.md) · [multi-device setup](docs/guide/multi-device.md) ·
+  [self-hosting](docs/guide/self-hosting.md) · [deploy to Cloudflare](docs/guide/cloudflare-deploy.md) · [Cloudflare limits and costs](docs/guide/cloudflare-limits.md) · [multi-device setup](docs/guide/multi-device.md) · [admin guide](docs/guide/admin-guide.md) ·
+  [admin panel](docs/guide/admin-panel.md) · [sign-in providers](docs/guide/identity-providers.md) · [admin access](docs/guide/admin-access.md) ·
   [access model](docs/guide/access-model.md) · [secrets](docs/guide/secrets.md) ·
   [configuration](docs/guide/configuration.md) · [security basics](docs/guide/security-basics.md) ·
   [troubleshooting](docs/guide/troubleshooting.md) · [tool reference](docs/reference/tools.md) · [CLI reference](docs/reference/cli.md)

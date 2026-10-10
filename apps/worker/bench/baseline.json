@@ -10,6 +10,8 @@
     "mcp.tools-list.hit": 6.674,
     "mcp.tools-list.miss": 13.015,
     "tool.whoami": 5.696,
+    "admin.asset": 0.134,
+    "admin.overview": 9.89,
     "tool.run_nrql.10kb": 7.256,
     "tool.run_nrql.100kb": 9.444,
     "tool.run_nrql.500kb": 15.259

@@ -14,6 +14,8 @@ export {
   createAdminApi,
   DEFAULT_ADMIN_MAX_BODY_BYTES,
   paginate,
+  requiredRole,
+  SESSION_ACTOR,
   type StorageForAdmin,
 } from './admin/api.ts';
 export { ADMIN_ERROR_CODES, AdminApiError, type AdminErrorCode } from './admin/errors.ts';
@@ -60,6 +62,17 @@ export {
 } from './audit.ts';
 export { normalizeClientIp, resolveClientIp } from './client-ip.ts';
 export {
+  type CompletedLogin,
+  createIdentityRoutes,
+  DEFAULT_LOGIN_NEXT,
+  escapeHtml,
+  IDENTITY_BASE,
+  type IdentityOptions,
+  type LoginAuditEvent,
+  type StorageForIdentity,
+  safeNextPath,
+} from './identity.ts';
+export {
   DEFAULT_PASSTHROUGH_IDENTITY_ENTRIES,
   DEFAULT_PASSTHROUGH_IDENTITY_TTL_MS,
   MAX_PASSTHROUGH_IDENTITY_TTL_MS,
@@ -94,3 +107,18 @@ export {
   originHostname,
   SECURITY_HEADERS,
 } from './security.ts';
+export {
+  type AdminPrincipal,
+  CSRF_FIELD,
+  CSRF_HEADER,
+  createSessionManager,
+  DEFAULT_USER_CACHE_TTL_MS,
+  type FetchOriginProblem,
+  isUnsafeMethod,
+  ROLE_RANK,
+  type SessionAuth,
+  type SessionManager,
+  type SessionManagerDeps,
+  type SessionOptions,
+  type SessionPrincipal,
+} from './session.ts';

@@ -98,6 +98,15 @@ describe('relic-bridge format known answers', () => {
     expect(secret.reveal()).toBe(PLAINTEXT);
   });
 
+  it('produces the pinned audit identity hashes (P4-16), length-prefixed so fields cannot shift', async () => {
+    // Cross-checked with node:crypto: hkdfSync(sha256, master, salt, "relic-bridge/audit-identity/hmac-sha-256", 32),
+    // then createHmac(sha256) over u32 len || idp || u32 len || subject, first 16 bytes, base64url.
+    const ring = await Keyring.create({ current: MASTER_TEXT });
+    expect(await ring.identityHash('google', 'g-1')).toBe('v7.ZptnaKgxaN80KM12Xs-gGQ');
+    expect(await ring.identityHash('oidc:corp', 'user-1')).toBe('v7.2ClvglJmEbPybUazEYZbhg');
+    expect(await ring.identityHash('googl', 'eg-1')).not.toBe(await ring.identityHash('google', 'g-1'));
+  });
+
   it('zeroes the master key bytes after derivation', async () => {
     const bytes = new Uint8Array(MASTER);
     await deriveVersionKeys(bytes);

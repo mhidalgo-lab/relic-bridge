@@ -130,6 +130,20 @@ Check the tarball locally at any time: `pnpm build && pnpm check:package` (`--sk
   - New way to authenticate (OAuth, sessions): add principals that misuse it, with the deny reason the audit row carries.
   - Keep the suite web-standard (no `node:*`): the Workers pool runs the same files against the Worker (below). A test
     that needs HTTP app internals skips itself with `authzHostKind()`.
+- **Admin panel in a real browser** (`pnpm test:e2e`, Playwright, Chromium only, not part of `pnpm test`): builds the CLI
+  with the test hooks, starts `relic-bridge serve` on a temporary database with a mock identity provider and a NerdGraph
+  stand-in, and clicks through sign-in, keys, projects, grants, device tokens, connect, audit, member screens and
+  unbind at 1280 px and 320 px, failing on any CSP / Trusted Types violation or console error. First time:
+  `pnpm exec playwright install chromium` (add `--with-deps` on a bare Linux box). `pnpm e2e:screenshots` also
+  regenerates `docs/guide/images/` (secrets masked). CI runs it only on demand (`Admin browser E2E`, manual).
+- **ZAP baseline scan of the admin panel** (`pnpm scan:zap`, needs Docker, not part of `pnpm test`): starts the same
+  throwaway server as the browser run (mock identity provider, fake keys, temporary database), signs in with a setup link
+  and runs the OWASP ZAP baseline from an image pinned by digest (`e2e/zap.ts`) against `/auth/login` (signed out),
+  `/admin` (owner session cookie, spidered) and `/api/admin/v1` (OpenAPI document, passive). Only localhost is scanned.
+  It fails on any Medium or High alert that is not listed in `.zap/rules.tsv`; every ignored rule there carries a reason.
+  Reports land in the git-ignored `zap-reports/`. On Docker Desktop (Windows, macOS, WSL) a small relay container makes
+  the VM's `localhost` reach the server. CI runs it only on demand (`Admin ZAP baseline`, manual). To update ZAP, pull
+  `ghcr.io/zaproxy/zaproxy:stable`, put its digest in `e2e/zap.ts`, rerun and review new alerts.
 - **Workers runtime tests** (`apps/worker/test/`, `pnpm test:workers`, its own CI job): run inside workerd with
   `@cloudflare/vitest-plugin` and the bindings from `apps/worker/wrangler.jsonc`. They are part of `pnpm test` but not
   of `pnpm test:coverage` (V8 coverage cannot attach to workerd). The authorization suite above also runs here, against

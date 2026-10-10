@@ -9,6 +9,7 @@ import { describe, expect, it } from 'vitest';
 import {
   ConflictError,
   InvalidInputError,
+  LAST_OWNER_CONSTRAINT,
   NotFoundError,
   ReadOnlyStorageError,
   StorageError,
@@ -213,6 +214,7 @@ export function runStorageContract(options: StorageContractOptions): void {
           const writes: Promise<unknown>[] = [
             s.users.create({ id: 'u', email: 'a@b.c', role: 'owner' }),
             s.users.update('u', {}),
+            s.users.bind('u', 'google', 's'),
             s.credentials.create({ id: 'c', label: 'x', region: 'US', key: fakeEncryptedKey() }),
             s.credentials.update('project:acme-prod', { label: 'x' }),
             s.credentials.delete('project:acme-prod'),
@@ -239,6 +241,9 @@ export function runStorageContract(options: StorageContractOptions): void {
             s.settings.delete('k'),
             s.kv.put('k', 'v'),
             s.kv.delete('k'),
+            s.kv.take('k'),
+            s.kv.purgeExpired(),
+            s.kv.deletePrefix('k'),
           ];
           for (const w of writes) await rejects(w, ReadOnlyStorageError);
           expect((await s.projects.list()).length).toBe(CONTRACT_FIXTURE.projects.length);
@@ -262,7 +267,7 @@ export function runStorageContract(options: StorageContractOptions): void {
           email: 'Owner@Example.COM',
           idp: 'google',
           idpSubject: 'sub-1',
-          role: 'owner',
+          role: 'admin',
         });
         expect(u).toMatchObject({
           email: 'owner@example.com',
@@ -302,6 +307,100 @@ export function runStorageContract(options: StorageContractOptions): void {
         await rejects(s.users.update('u5', { email: 'a@x.io' }), ConflictError);
         await rejects(s.users.update('missing', { displayName: 'x' }), NotFoundError);
         await s.close();
+      });
+
+      it('binds an identity only while the row is unbound and enabled (P4-16 compare-and-set)', async () => {
+        const { s, clock } = await fresh();
+        await s.users.create({ id: 'u1', email: 'a@x.io', role: 'member' });
+        clock.advance(5);
+        const bound = await s.users.bind('u1', 'google', 'g-1', { displayName: 'A', role: 'owner' });
+        expect(bound).toMatchObject({
+          idp: 'google',
+          idpSubject: 'g-1',
+          displayName: 'A',
+          role: 'owner',
+          updatedAt: clock.t,
+        });
+        expect(await s.users.getByIdentity('google', 'g-1')).toEqual(bound);
+        // Already bound (to this or any identity): nothing changes.
+        expect(await s.users.bind('u1', 'github', 'h-1')).toBeNull();
+        expect(await s.users.bind('u1', 'google', 'g-1')).toBeNull();
+        expect(await s.users.get('u1')).toEqual(bound);
+        // Missing and disabled rows are not bound.
+        expect(await s.users.bind('missing', 'google', 'g-2')).toBeNull();
+        await s.users.create({ id: 'u2', email: 'b@x.io', role: 'member' });
+        await s.users.update('u2', { disabledAt: clock.t });
+        expect(await s.users.bind('u2', 'google', 'g-2')).toBeNull();
+        expect((await s.users.get('u2'))?.idp).toBeNull();
+        // An identity another user holds is a conflict; without a patch the name and role stay.
+        await s.users.create({ id: 'u3', email: 'c@x.io', displayName: 'C', role: 'admin' });
+        await rejects(s.users.bind('u3', 'google', 'g-1'), ConflictError);
+        expect(await s.users.bind('u3', 'github', 'h-3')).toMatchObject({ displayName: 'C', role: 'admin' });
+        await rejects(s.users.bind('u2', 'google', 'g-9', { role: 'root' as never }), InvalidInputError);
+        await s.close();
+      });
+
+      it('lets exactly one of two concurrent first bindings win (P4-16)', async () => {
+        const { s } = await fresh();
+        for (let i = 0; i < 5; i++) {
+          await s.users.create({ id: `r${i}`, email: `r${i}@x.io`, role: 'member' });
+          const results = await Promise.all([
+            s.users.bind(`r${i}`, 'google', `g-${i}`),
+            s.users.bind(`r${i}`, 'github', `h-${i}`),
+          ]);
+          const winners = results.filter((r) => r !== null);
+          expect(winners).toHaveLength(1);
+          expect(await s.users.get(`r${i}`)).toEqual(winners[0]);
+        }
+        await s.close();
+      });
+
+      it('never demotes or disables the last enabled owner (P4-16)', async () => {
+        const { s, clock } = await fresh();
+        await s.users.create({ id: 'o1', email: 'o1@x.io', role: 'owner' });
+        await s.users.create({ id: 'a1', email: 'a1@x.io', role: 'admin' });
+        const lastOwner = async (p: Promise<unknown>): Promise<void> => {
+          const e = await p.catch((x: unknown) => x);
+          expect(e).toBeInstanceOf(ConflictError);
+          expect((e as ConflictError).constraint).toBe(LAST_OWNER_CONSTRAINT);
+        };
+        await lastOwner(s.users.update('o1', { role: 'admin' }));
+        await lastOwner(s.users.update('o1', { disabledAt: clock.t }));
+        await lastOwner(s.users.update('o1', { role: 'member', displayName: 'x' }));
+        // Nothing was written by a refused update.
+        expect(await s.users.get('o1')).toMatchObject({ role: 'owner', disabledAt: null, displayName: null });
+        // Other changes to the last owner, and any change to non-owners, pass.
+        await s.users.update('o1', { displayName: 'Owner', role: 'owner', disabledAt: null });
+        await s.users.update('a1', { role: 'member', disabledAt: clock.t });
+        // A disabled owner does not count; with a second enabled owner the first may step down.
+        await s.users.create({ id: 'o2', email: 'o2@x.io', role: 'owner' });
+        await s.users.update('o2', { disabledAt: clock.t });
+        await lastOwner(s.users.update('o1', { role: 'admin' }));
+        await s.users.update('o2', { disabledAt: null });
+        expect(await s.users.update('o1', { role: 'admin' })).toMatchObject({ role: 'admin' });
+        await lastOwner(s.users.update('o2', { disabledAt: clock.t }));
+        // With no enabled owner at all (made outside this guard), promoting and editing still work.
+        expect(await s.users.update('o1', { role: 'owner' })).toMatchObject({ role: 'owner' });
+        await rejects(s.users.update('missing', { role: 'admin' }), NotFoundError);
+        await s.close();
+      });
+
+      it('leaves one owner when two owners demote or disable each other at once (P4-16)', async () => {
+        for (let i = 0; i < 4; i++) {
+          const { s, clock } = await fresh();
+          await s.users.create({ id: 'a', email: 'a@x.io', role: 'owner' });
+          await s.users.create({ id: 'b', email: 'b@x.io', role: 'owner' });
+          const settled = await Promise.allSettled([
+            s.users.update('a', i % 2 === 0 ? { role: 'admin' } : { disabledAt: clock.t }),
+            s.users.update('b', i < 2 ? { role: 'member' } : { disabledAt: clock.t }),
+          ]);
+          expect(settled.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+          const refused = settled.find((r) => r.status === 'rejected') as PromiseRejectedResult;
+          expect((refused.reason as ConflictError).constraint).toBe(LAST_OWNER_CONSTRAINT);
+          const owners = (await s.users.list()).filter((u) => u.role === 'owner' && u.disabledAt === null);
+          expect(owners).toHaveLength(1);
+          await s.close();
+        }
       });
     });
 
@@ -820,7 +919,87 @@ export function runStorageContract(options: StorageContractOptions): void {
 
       it('is append-only: the repository has no update or delete besides retention purge', async () => {
         const { s } = await fresh();
-        expect(Object.keys(s.auditLog).sort()).toEqual(['append', 'list', 'purgeBefore']);
+        expect(Object.keys(s.auditLog).sort()).toEqual(['append', 'list', 'purgeBefore', 'stats']);
+        await s.close();
+      });
+
+      it('aggregates tool calls in a bounded window, and lists the slowest', async () => {
+        const { s } = await fresh();
+        const day = 86_400_000;
+        const row = (
+          ts: number,
+          action: string,
+          status: 'ok' | 'error' | 'denied',
+          ms: number | null,
+          extra = {},
+        ) =>
+          s.auditLog.append({
+            ts,
+            kind: 'tool_call',
+            action,
+            status,
+            durationMs: ms,
+            inspectedCount: ms === null ? null : 10,
+            projectId: 'p1',
+            tokenId: 't1',
+            ...extra,
+          });
+        await row(day + 1, 'run_nrql', 'ok', 100);
+        await row(day + 2, 'run_nrql', 'error', 300);
+        await row(2 * day + 3, 'run_nrql', 'ok', 200, { projectId: 'p2', tokenId: null });
+        await row(2 * day + 4, 'list_accounts', 'denied', null);
+        await s.auditLog.append({ ts: day + 5, kind: 'admin', action: 'token.create', status: 'ok' });
+        await row(9 * day, 'run_nrql', 'ok', 5); // outside the window
+        const w = { since: day, until: 3 * day };
+        expect(await s.auditLog.stats({ ...w, groupBy: 'action' })).toEqual([
+          {
+            key: 'run_nrql',
+            calls: 3,
+            errors: 1,
+            denied: 0,
+            durationSumMs: 600,
+            durationCount: 3,
+            maxDurationMs: 300,
+            inspectedCount: 30,
+          },
+          {
+            key: 'list_accounts',
+            calls: 1,
+            errors: 0,
+            denied: 1,
+            durationSumMs: 0,
+            durationCount: 0,
+            maxDurationMs: null,
+            inspectedCount: 0,
+          },
+        ]);
+        expect((await s.auditLog.stats({ ...w, groupBy: 'day' })).map((r) => [r.key, r.calls])).toEqual([
+          ['1970-01-03', 2],
+          ['1970-01-02', 2],
+        ]);
+        expect((await s.auditLog.stats({ ...w, groupBy: 'project' })).map((r) => [r.key, r.calls])).toEqual([
+          ['p1', 3],
+          ['p2', 1],
+        ]);
+        expect(
+          (await s.auditLog.stats({ ...w, groupBy: 'token', action: 'run_nrql' })).map((r) => [
+            r.key,
+            r.calls,
+          ]),
+        ).toEqual([
+          ['t1', 2],
+          [null, 1],
+        ]);
+        expect(await s.auditLog.stats({ ...w, groupBy: 'action', projectId: 'p2' })).toHaveLength(1);
+        expect(await s.auditLog.stats({ ...w, groupBy: 'action', limit: 1 })).toHaveLength(1);
+        // An unbounded or inverted window is refused (D1 row reads).
+        await rejects(s.auditLog.stats({ since: 0, until: 91 * day, groupBy: 'action' }), InvalidInputError);
+        await rejects(s.auditLog.stats({ since: 5, until: 5, groupBy: 'action' }), InvalidInputError);
+        await rejects(s.auditLog.stats({ ...w, groupBy: 'action', limit: Number.NaN }), InvalidInputError);
+
+        expect(
+          (await s.auditLog.list({ kind: 'tool_call', order: 'slowest', limit: 3 })).map((r) => r.durationMs),
+        ).toEqual([300, 200, 100]);
         await s.close();
       });
 
@@ -974,6 +1153,26 @@ export function runStorageContract(options: StorageContractOptions): void {
         await s.close();
       });
 
+      it('take returns a live value once and removes it (P4-01 single-use state)', async () => {
+        const { s, clock } = await fresh();
+        await s.kv.put('once', 'v1', { expirationTtl: 60 });
+        expect(await s.kv.take('once')).toBe('v1');
+        expect(await s.kv.take('once')).toBeNull();
+        expect(await s.kv.get('once')).toBeNull();
+        expect(await s.kv.take('never-written')).toBeNull();
+        // Concurrent takes of one key: exactly one wins.
+        await s.kv.put('race', 'v2');
+        const results = await Promise.all([1, 2, 3, 4, 5].map(() => s.kv.take('race')));
+        expect(results.filter((r) => r === 'v2')).toHaveLength(1);
+        expect(results.filter((r) => r === null)).toHaveLength(4);
+        // An expired value is not returned (and is gone afterwards).
+        await s.kv.put('stale', 'v3', { expirationTtl: 60 });
+        clock.advance(60_000);
+        expect(await s.kv.take('stale')).toBeNull();
+        expect((await s.kv.list({ prefix: 'stale' })).keys).toEqual([]);
+        await s.close();
+      });
+
       it('hides expired keys (expirationTtl and absolute expiration)', async () => {
         const { s, clock } = await fresh();
         await s.kv.put('ttl', 'x', { expirationTtl: 60 });
@@ -989,6 +1188,42 @@ export function runStorageContract(options: StorageContractOptions): void {
         clock.advance(60_000);
         expect(await s.kv.get('abs')).toBeNull();
         expect((await s.kv.list()).keys.map((k) => k.name)).toEqual(['forever']);
+        await s.close();
+      });
+
+      it('deletePrefix removes exactly the rows under one prefix in one call (P4-17)', async () => {
+        const { s } = await fresh();
+        for (const k of ['sess:u1:a', 'sess:u1:b', 'sess-seen:u1:a', 'sess:u12:a', 'sess:u2:a'])
+          await s.kv.put(k, 'x');
+        expect(await s.kv.deletePrefix('sess:u1:')).toBe(2);
+        expect((await s.kv.list()).keys.map((k) => k.name)).toEqual([
+          'sess-seen:u1:a',
+          'sess:u12:a',
+          'sess:u2:a',
+        ]);
+        expect(await s.kv.deletePrefix('sess:u1:')).toBe(0);
+        // LIKE wildcards in a prefix are literal.
+        await s.kv.put('a%b', 'x');
+        await s.kv.put('axb', 'x');
+        expect(await s.kv.deletePrefix('a%')).toBe(1);
+        expect((await s.kv.list({ prefix: 'a' })).keys.map((k) => k.name)).toEqual(['axb']);
+        await rejects(s.kv.deletePrefix(''), InvalidInputError);
+        await s.close();
+      });
+
+      it('purgeExpired removes only expired rows, in bounded batches (P4-09)', async () => {
+        const { s, clock } = await fresh();
+        for (const k of ['e1', 'e2', 'e3']) await s.kv.put(`login:${k}`, 'x', { expirationTtl: 60 });
+        await s.kv.put('live', 'y', { expirationTtl: 600 });
+        await s.kv.put('forever', 'z');
+        expect(await s.kv.purgeExpired()).toBe(0);
+        clock.advance(60_000);
+        expect(await s.kv.purgeExpired(2)).toBe(2);
+        expect(await s.kv.purgeExpired(2)).toBe(1);
+        expect(await s.kv.purgeExpired(2)).toBe(0);
+        expect((await s.kv.list()).keys.map((k) => k.name)).toEqual(['forever', 'live']);
+        for (const bad of [Number.NaN, Number.POSITIVE_INFINITY])
+          await rejects(s.kv.purgeExpired(bad), InvalidInputError);
         await s.close();
       });
 

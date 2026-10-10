@@ -147,7 +147,8 @@ describe('credential cipher', () => {
       ),
       { numRuns: 200 },
     );
-  });
+    // 200 encrypt/decrypt pairs take 2-10 s on a loaded machine: over Vitest's 5 s default (flaky, phase 4 review).
+  }, 30_000);
 
   it('fails on any single flipped bit in the ciphertext, tag or IV (property)', async () => {
     const enc = await ring1.encryptCredentialKey('cred_a', NR_KEY);

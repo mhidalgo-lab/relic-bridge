@@ -35,6 +35,11 @@ export interface RateLimitRules {
   readonly grant: RateLimitRule | null;
   /** Pass-through requests per New Relic key (keyed by the key's fingerprint id, never the key). `null` = off. */
   readonly passthroughKey: RateLimitRule | null;
+  /**
+   * Sign-in requests (`/auth/*`) per client IP (P4-07), on top of `ip`: every sign-in start stores a login state, so an
+   * unauthenticated client must not create thousands of them. Optional for callers built before it; `null` = off.
+   */
+  readonly signIn?: RateLimitRule | null;
 }
 
 /** Sized for personal use: one MCP request makes a handful of NerdGraph calls against NRQL's 3,000/min/account. */
@@ -44,6 +49,7 @@ export const DEFAULT_RATE_LIMITS: RateLimitRules = Object.freeze({
   token: Object.freeze({ requests: 120, perSeconds: 60 }),
   grant: Object.freeze({ requests: 300, perSeconds: 60 }),
   passthroughKey: Object.freeze({ requests: 120, perSeconds: 60 }),
+  signIn: Object.freeze({ requests: 60, perSeconds: 300 }),
 });
 
 export interface RateLimitHooksOptions {
@@ -112,6 +118,14 @@ export function createRateLimitHooks(options: RateLimitHooksOptions): HttpAppHoo
         const r = await guard('auth_failures', () => pre.peek(`fail:${ip}`, rule));
         if (r && !r.allowed) {
           mark(c, 'rate_limit_auth_failures');
+          return rateLimited(r.retryAfterMs);
+        }
+      }
+      if (rules.signIn && scope === 'identity') {
+        const rule = rules.signIn;
+        const r = await guard('sign_in', () => pre.take(`signin:${ip}`, rule));
+        if (r && !r.allowed) {
+          mark(c, 'rate_limit_sign_in');
           return rateLimited(r.retryAfterMs);
         }
       }

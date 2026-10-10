@@ -20,10 +20,12 @@ import {
   accessRecordsParams,
   NO_ACCESS_RECORDS,
 } from './access-records.ts';
+import { auditOrder, auditStatsRowOf, auditStatsSql } from './audit-stats.ts';
 import {
   ConflictError,
   InvalidInputError,
   keyChangedError,
+  lastOwnerError,
   MigrationError,
   NotFoundError,
   StorageError,
@@ -37,6 +39,7 @@ import type {
   AuditLogRepository,
   AuditQuery,
   AuditRecord,
+  AuditStatsQuery,
   CredentialRecord,
   CredentialsRepository,
   EncryptedKey,
@@ -52,6 +55,7 @@ import type {
   UserRecord,
   UsersRepository,
 } from './types.ts';
+import { lastOwnerGuardSql, UNBOUND_ENABLED_SQL } from './user-guards.ts';
 import {
   checkEncryptedKey,
   checkGrantPrincipal,
@@ -381,9 +385,39 @@ export async function createD1Storage(
           .set('role', patch.role === undefined ? undefined : checkRole(patch.role))
           .set('disabled_at', patch.disabledAt)
           .set('updated_at', now());
-        const r = await one(`UPDATE users SET ${a.sql} WHERE id = ? RETURNING *`, [...a.params, id]);
-        if (!r) throw new NotFoundError('user', id);
-        return userOf(r);
+        const role = patch.role === undefined ? undefined : checkRole(patch.role);
+        const guard = lastOwnerGuardSql(
+          role === undefined ? 'role' : '?',
+          patch.disabledAt === undefined ? 'disabled_at' : '?',
+        );
+        const guardParams = [
+          ...(role === undefined ? [] : [role]),
+          ...(patch.disabledAt === undefined ? [] : [patch.disabledAt]),
+        ];
+        const r = await one(`UPDATE users SET ${a.sql} WHERE id = ? AND ${guard} RETURNING *`, [
+          ...a.params,
+          id,
+          ...guardParams,
+        ]);
+        if (r) return userOf(r);
+        // Nothing written: the row is gone, or the guard held it back (one statement, so no partial write).
+        if ((await one('SELECT id FROM users WHERE id = ?', [id])) === null)
+          throw new NotFoundError('user', id);
+        throw lastOwnerError();
+      }),
+    bind: (id, idp, idpSubject, patch = {}) =>
+      call(async () => {
+        const a = new Assignments()
+          .set('idp', idp)
+          .set('idp_subject', idpSubject)
+          .set('display_name', patch.displayName)
+          .set('role', patch.role === undefined ? undefined : checkRole(patch.role))
+          .set('updated_at', now());
+        const r = await one(`UPDATE users SET ${a.sql} WHERE id = ? AND ${UNBOUND_ENABLED_SQL} RETURNING *`, [
+          ...a.params,
+          id,
+        ]);
+        return r ? userOf(r) : null;
       }),
   };
 
@@ -803,9 +837,16 @@ export async function createD1Storage(
         add('status = ?', q.status);
         add('ts >= ?', q.since);
         add('ts < ?', q.until);
-        add('id < ?', q.beforeId);
-        const sql = `SELECT * FROM audit_log${where.length ? ` WHERE ${where.join(' AND ')}` : ''} ORDER BY id DESC LIMIT ?`;
+        const order = auditOrder(q.order);
+        if (order.where === null) add('id < ?', q.beforeId);
+        else where.push(order.where);
+        const sql = `SELECT * FROM audit_log${where.length ? ` WHERE ${where.join(' AND ')}` : ''} ORDER BY ${order.orderBy} LIMIT ?`;
         return freeze((await all(sql, [...params, limit])).map(auditOf));
+      }),
+    stats: (q: AuditStatsQuery) =>
+      call(async () => {
+        const { sql, params } = auditStatsSql(q);
+        return freeze((await all(sql, params)).map(auditStatsRowOf));
       }),
     purgeBefore: (before, limit) =>
       call(() => {
@@ -877,6 +918,30 @@ export async function createD1Storage(
     delete: (key) =>
       call(async () => {
         await run('DELETE FROM kv WHERE key = ?', [key]);
+      }),
+    // One statement whatever the count; `substr` (not LIKE) so `%` and `_` in a prefix stay literal.
+    deletePrefix: (prefix) =>
+      call(async () => {
+        if (prefix === '') throw new InvalidInputError('kv.prefix');
+        return run('DELETE FROM kv WHERE substr(key, 1, ?) = ?', [[...prefix].length, prefix]);
+      }),
+    // One statement: SQLite deletes and returns the row atomically, so concurrent takes can't both see it. An expired
+    // row is deleted too but not returned.
+    take: (key) =>
+      call(async () => {
+        const r = await one('DELETE FROM kv WHERE key = ? RETURNING value, expires_at', [key]);
+        if (r === null) return null;
+        const exp = numOrNull(r['expires_at']);
+        return exp !== null && exp <= now() ? null : str(r['value']);
+      }),
+    purgeExpired: (limit) =>
+      call(async () => {
+        checkLimit(limit, 'kv.limit');
+        const max = Math.min(Math.max(1, Math.trunc(limit ?? KV_MAX_LIST)), KV_MAX_LIST);
+        return run(
+          'DELETE FROM kv WHERE key IN (SELECT key FROM kv WHERE expires_at IS NOT NULL AND expires_at <= ? ORDER BY expires_at LIMIT ?)',
+          [now(), max],
+        );
       }),
     list: (opts = {}) =>
       call(async (): Promise<KvListResult> => {

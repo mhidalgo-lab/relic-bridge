@@ -43,13 +43,26 @@ export type UserPatch = Partial<
   Pick<UserRecord, 'email' | 'displayName' | 'idp' | 'idpSubject' | 'role' | 'disabledAt'>
 >;
 
+/** What a first sign-in may change besides the identity (P4-16). */
+export type UserBindPatch = Partial<Pick<UserRecord, 'displayName' | 'role'>>;
+
 export interface UsersRepository {
   get(id: string): Promise<UserRecord | null>;
   getByEmail(email: string): Promise<UserRecord | null>;
   getByIdentity(idp: string, idpSubject: string): Promise<UserRecord | null>;
   list(): Promise<readonly UserRecord[]>;
   create(input: NewUser): Promise<UserRecord>;
+  /**
+   * Apply `patch`. Refuses (`lastOwnerError()`, constraint `LAST_OWNER_CONSTRAINT`) to demote or disable the last enabled
+   * owner: the check and the write are one statement, so two owners demoting each other at once leave one (P4-16).
+   */
   update(id: string, patch: UserPatch): Promise<UserRecord>;
+  /**
+   * Compare-and-set first binding (P4-16, THREAT_MODEL T14): set `(idp, idpSubject)` (and `patch`) only while the row
+   * exists, is enabled and has **no** identity, in one conditional write. `null` when that no longer holds (a
+   * concurrent sign-in bound it first); `ConflictError` when another user already has this identity.
+   */
+  bind(id: string, idp: string, idpSubject: string, patch?: UserBindPatch): Promise<UserRecord | null>;
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -365,16 +378,53 @@ export interface AuditQuery {
   readonly since?: number;
   /** Exclusive upper bound on `ts`. */
   readonly until?: number;
-  /** Only rows with `id` below this (next page, newest first). */
+  /** Only rows with `id` below this (next page, newest first). Ignored by `order: 'slowest'`. */
   readonly beforeId?: number;
+  /**
+   * `newest` (default): newest first, pageable with `beforeId`. `slowest`: rows that recorded a duration, longest
+   * first (one page, no cursor).
+   */
+  readonly order?: 'newest' | 'slowest';
   /** Default 100, max 1000. */
   readonly limit?: number;
+}
+
+/** What `auditLog.stats` groups `tool_call` rows by (`day` is the UTC day, `YYYY-MM-DD`). */
+export type AuditStatsGroup = 'action' | 'project' | 'grant' | 'token' | 'day';
+
+/** One bounded aggregate over `tool_call` rows in `[since, until)`. */
+export interface AuditStatsQuery {
+  readonly groupBy: AuditStatsGroup;
+  readonly since: number;
+  readonly until: number;
+  readonly projectId?: string;
+  readonly userId?: string;
+  readonly grantId?: string;
+  readonly tokenId?: string;
+  readonly action?: string;
+  /** Groups returned (default 50, max 100): most calls first (`day`: newest first). */
+  readonly limit?: number;
+}
+
+export interface AuditStatsRow {
+  /** The group's value (tool name, project id, grant id, token id or day); null for rows without one. */
+  readonly key: string | null;
+  readonly calls: number;
+  readonly errors: number;
+  readonly denied: number;
+  /** Sum and count of recorded durations (mean = sum / count), and the longest. */
+  readonly durationSumMs: number;
+  readonly durationCount: number;
+  readonly maxDurationMs: number | null;
+  readonly inspectedCount: number;
 }
 
 export interface AuditLogRepository {
   append(entry: AuditEntry): Promise<void>;
   /** Newest first. */
   list(query?: AuditQuery): Promise<readonly AuditRecord[]>;
+  /** Read-only aggregate of tool calls (one query, bounded by the window and the group limit). */
+  stats(query: AuditStatsQuery): Promise<readonly AuditStatsRow[]>;
   /**
    * Retention job only: deletes rows with `ts` < `before` (oldest first, at most `limit` when given, so a job with a
    * time or row budget can work in batches); returns the count.
@@ -426,6 +476,23 @@ export interface KvRepository {
   get(key: string): Promise<string | null>;
   put(key: string, value: string, options?: KvPutOptions): Promise<void>;
   delete(key: string): Promise<void>;
+  /**
+   * Atomic read-and-delete (P4-01): resolves the live value and removes the key in one step, or `null` when there is
+   * no live value. Of concurrent calls for one key at most one gets the value (single-use login state, setup links).
+   */
+  take(key: string): Promise<string | null>;
+  /**
+   * Housekeeping (P4-09): deletes up to `limit` rows (default and max 1000) whose expiry has passed (abandoned login
+   * transactions, unused setup links, ended sessions) and resolves how many it removed. Expired rows are already
+   * invisible to every other method, so this only reclaims space. Callers loop while the count equals `limit`.
+   */
+  purgeExpired(limit?: number): Promise<number>;
+  /**
+   * Deletes every row whose key starts with `prefix` in ONE statement (P4-17: revoking all sessions of a user costs a
+   * constant number of storage calls, however many there are) and resolves how many rows it removed (rows already
+   * expired but not yet purged count). An empty prefix is refused (`InvalidInputError`): it would wipe the table.
+   */
+  deletePrefix(prefix: string): Promise<number>;
   /** Keys in lexicographic order. `limit` default and max 1000. */
   list(options?: {
     readonly prefix?: string;

@@ -6,6 +6,7 @@ import { isRbError, redact } from '@relic-bridge/core';
 import {
   ConflictError,
   InvalidInputError,
+  LAST_OWNER_CONSTRAINT,
   NotFoundError,
   ReadOnlyStorageError,
   StorageError,
@@ -14,6 +15,7 @@ import {
 export type AdminErrorCode =
   | 'invalid_request'
   | 'unauthorized'
+  | 'forbidden'
   | 'not_found'
   | 'conflict'
   | 'not_permitted'
@@ -29,6 +31,7 @@ export type AdminErrorCode =
 export const ADMIN_ERROR_CODES: readonly AdminErrorCode[] = Object.freeze([
   'invalid_request',
   'unauthorized',
+  'forbidden',
   'not_found',
   'conflict',
   'not_permitted',
@@ -45,6 +48,7 @@ export const ADMIN_ERROR_CODES: readonly AdminErrorCode[] = Object.freeze([
 const STATUS: Readonly<Record<AdminErrorCode, number>> = Object.freeze({
   invalid_request: 400,
   unauthorized: 401,
+  forbidden: 403,
   not_found: 404,
   conflict: 409,
   not_permitted: 422,
@@ -135,6 +139,12 @@ export function toAdminApiError(error: unknown): AdminApiError | null {
   }
   if (error instanceof NotFoundError) return new AdminApiError('not_found', error.message);
   if (error instanceof ReadOnlyStorageError) return new AdminApiError('read_only', error.message);
+  if (error instanceof ConflictError && error.constraint === LAST_OWNER_CONSTRAINT) {
+    // P4-16: demoting or disabling the last enabled owner. `detail` lets the UI and the CLI say so plainly.
+    return new AdminApiError('conflict', 'the last enabled owner cannot be demoted or disabled', {
+      detail: 'last_owner',
+    });
+  }
   if (error instanceof ConflictError) return new AdminApiError('conflict', conflictMessage(error.constraint));
   if (error instanceof InvalidInputError) {
     return new AdminApiError('invalid_request', error.message, { field: error.field });

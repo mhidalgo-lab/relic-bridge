@@ -1,0 +1,10 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["node"],
+    "isolatedDeclarations": false,
+    "noEmit": true,
+    "lib": ["ES2024", "DOM"]
+  },
+  "include": ["*.ts", "../packages/auth/test/mock-idp.ts"]
+}

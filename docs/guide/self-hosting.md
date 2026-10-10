@@ -52,17 +52,27 @@ relic-bridge serve --port 9000 --db /var/lib/relic-bridge/relic-bridge.db
 | `RB_RATE_LIMIT_AUTH_FAIL` | `10/300` | Failed authentications per client IP. Past it, further **failures** from that IP get `429` instead of `401` until the bucket refills (one failure per 30 s with the default); a valid token is still served. On the pass-through route every request from that IP is refused (checking a New Relic key costs a NerdGraph call). |
 | `RB_RATE_LIMIT_TOKEN` | `120/60` | Requests per access token. |
 | `RB_RATE_LIMIT_GRANT` | `300/60` | Requests per grant, unless the grant has its own `rateLimit`, which replaces this. |
+| `RB_RATE_LIMIT_SIGN_IN` | `60/300` | Sign-in requests (`/auth/*`: chooser, provider start, callback, logout) per client IP, on top of `RB_RATE_LIMIT_IP`. Every sign-in start stores a short-lived login state, so this bounds what an unauthenticated client can store. On Workers it is counted per isolate. |
 | `RB_RATE_LIMIT_PASSTHROUGH_KEY` | `120/60` | [Pass-through](#pass-through-mode) requests per New Relic key. |
 | `RB_TRUSTED_PROXY_HOPS` | `0` | Reverse proxies in front of the server (0-5). `X-Forwarded-For` is only believed for that many hops, counted from the right; with `0` the socket address is the client. **Set it behind a proxy**, or all clients share the proxy's address and one bad device can lock the others out. |
 | `RB_AUDIT` | `on` | `off` stops recording tool calls, refusals and admin changes. See the [audit log](audit-log.md). |
 | `RB_AUDIT_NRQL` | `mask` | `mask` (literal values hidden), `hash`, `full` or `off`: how NRQL text is stored. |
 | `RB_AUDIT_RETENTION_DAYS` | `90` | Days to keep audit rows (`0` = forever). Purged at startup and hourly; `relic-bridge audit purge` does it by hand. |
 | `RB_AUDIT_CLIENT_IP` | `on` | Record the client address on refused requests. |
-| `RB_ADMIN_TOKEN` | unset (admin API off) | Bootstrap admin token that enables `/api/admin/v1` ([admin API](#admin-api)). 32-512 printable characters, no spaces, randomly generated: predictable values (fewer than 8 distinct characters, a repeated block, runs such as `abcdef…`) and placeholders (`changeme…`) are refused at start, hand-made ones start with a warning. Or `RB_ADMIN_TOKEN_FILE` (a `0600` file). |
+| `RB_ADMIN_TOKEN` | unset (admin API off unless sign-in is configured) | Bootstrap admin token for `/api/admin/v1` ([admin API](#admin-api)); it acts as `owner`. With sign-in configured the admin API also takes [admin sessions](admin-access.md). 32-512 printable characters, no spaces, randomly generated: predictable values (fewer than 8 distinct characters, a repeated block, runs such as `abcdef…`) and placeholders (`changeme…`) are refused at start, hand-made ones start with a warning. Or `RB_ADMIN_TOKEN_FILE` (a `0600` file). |
 | `RB_PASSTHROUGH` | `off` | `on` adds `/passthrough/mcp`, where callers bring their own New Relic key ([pass-through mode](#pass-through-mode)). |
 | `RB_PASSTHROUGH_IDENTITY_TTL` | `60` | Seconds a pass-through key's reachable accounts are cached, `0`-`300` (`0` asks New Relic on every request). |
 | `RB_HSTS` | `auto` | `Strict-Transport-Security` when the request arrived over https; `true` behind a TLS-terminating proxy. |
 | `RB_LOG_LEVEL` | `info` | One JSON line per request on stderr (never the token or the New Relic key). |
+| `RB_PUBLIC_URL` | unset | Origin browsers use to reach the server (`https://…`, or `http://localhost:8787` locally). Needed by [admin sign-in](identity-providers.md); its host must be in `RB_ALLOWED_HOSTS`. |
+| `RB_GOOGLE_CLIENT_ID` / `RB_GOOGLE_CLIENT_SECRET` | unset | Google sign-in. `RB_GOOGLE_HOSTED_DOMAIN` limits it to one Workspace domain. |
+| `RB_GITHUB_CLIENT_ID` / `RB_GITHUB_CLIENT_SECRET` | unset | GitHub sign-in (OAuth app). |
+| `RB_OIDC_ISSUER` / `RB_OIDC_CLIENT_ID` / `RB_OIDC_CLIENT_SECRET` | unset | Any OpenID Connect provider, by discovery. Optional `RB_OIDC_NAME`, `RB_OIDC_LABEL`, `RB_OIDC_SCOPES`. |
+| `RB_CF_ACCESS_TEAM` / `RB_CF_ACCESS_AUD` | unset | Cloudflare Access in front of the server (team name and application AUD tag). |
+| `RB_LOGIN_ALLOW_EMAILS` / `RB_LOGIN_ALLOW_DOMAINS` / `RB_LOGIN_ALLOW_GITHUB_ORGS` | unset | Who may sign in without a pre-created user. Deny by default. |
+| `RB_LOGIN_AUTO_PROVISION` | `off` | `member` or `admin`: create a user for an allowlisted identity on its first sign-in. Never `owner`. |
+| `RB_SESSION_IDLE_MINUTES` | `30` | Admin sessions end after this many minutes without a request (5-1440). See [admin access](admin-access.md). |
+| `RB_SESSION_MAX_HOURS` | `12` | Admin sessions end this many hours after sign-in, whatever the activity (1-168). |
 
 ### What the server enforces
 
@@ -164,8 +174,9 @@ relic-bridge audit tail --follow --remote https://mcp.example.com
 ## Admin API
 
 `/api/admin/v1` manages users, New Relic credentials, projects, grants, device tokens and the audit log over JSON. It
-is **off** unless `RB_ADMIN_TOKEN` (or `RB_ADMIN_TOKEN_FILE`) is set, and then every request needs
-`Authorization: Bearer <admin token>`. Full reference: [admin API](../reference/admin-api.md); the OpenAPI 3.1
+is **off** unless `RB_ADMIN_TOKEN` (or `RB_ADMIN_TOKEN_FILE`) is set or [sign-in](identity-providers.md) is
+configured. Automation sends `Authorization: Bearer <admin token>` (the token acts as `owner`); a signed-in browser uses
+its admin session cookie with a CSRF token instead (see [admin access](admin-access.md)). Full reference: [admin API](../reference/admin-api.md); the OpenAPI 3.1
 document is at `GET /api/admin/v1/openapi.json` (admin token required).
 
 ```bash
@@ -188,14 +199,16 @@ jq -n --arg k "$NR_KEY" '{label:"main", region:"US", apiKey:$k}' |
 - New Relic keys are accepted **only in request bodies**, never in URLs, and never come back: credentials are listed as
   masked metadata (label, region, last 4 characters, validation status, reachable accounts). Token hashes are never
   returned; a new device token is shown once, in the `POST /tokens` response.
-- Bearer-only: cookies are ignored, so cross-site request forgery doesn't apply; no CORS headers are sent on admin
-  routes, and the `Host` / `Origin` checks apply as everywhere else.
+- A request with an `Authorization` header is judged by that header alone: its cookies are ignored, so cross-site
+  request forgery doesn't apply to bearer calls. Cookie sessions need the CSRF token, the public URL as `Origin` and
+  same-origin fetch metadata ([admin access](admin-access.md)). No CORS headers are sent on admin routes, and the
+  `Host` / `Origin` checks apply as everywhere else.
 - Every change (and every failed attempt at one) writes an `admin` [audit](audit-log.md) row; query them with
   `GET /api/admin/v1/audit?kind=admin`.
 - A change takes effect at once on the server that made it (its access cache is cleared); other server processes
   pick it up within `RB_ACCESS_CACHE_TTL`.
-- Phase 4 adds sign-in with Google, GitHub, Cloudflare Access or OIDC for the admin panel; the bootstrap token remains
-  for automation.
+- Sign-in with Google, GitHub, Cloudflare Access or OIDC gives browsers an admin session with a role (`owner`,
+  `admin`, `member`); the bootstrap token remains for automation and break-glass.
 
 ## Docker
 

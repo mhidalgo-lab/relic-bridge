@@ -104,6 +104,61 @@ async function userAdd(run: Run): Promise<number> {
   return 0;
 }
 
+/**
+ * `user unbind <id>`: clear the user's sign-in identity so they can sign in with another provider. Owner only on the
+ * server. The operator must type the user's email again (a prompt, or `--confirm <email>` for scripts).
+ */
+async function userUnbind(run: Run): Promise<number> {
+  const id = run.args.positionals[0] ?? '';
+  const user = rec(rec(await api(run.client, 'GET', `/users/${encodeURIComponent(id)}`))['data']);
+  let typed = run.args.values.confirm;
+  if (typed === undefined) {
+    if (!run.ctx.host.stdinIsTTY) {
+      throw new UsageError("user unbind needs --confirm <the user's email> when there is no terminal.");
+    }
+    run.ctx.stderr(
+      `This clears the sign-in identity of ${plain(user['email'])} (now ${plain(user['idp'] ?? 'none')}) and signs them out everywhere.\n` +
+        'The next verified sign-in with that email, at ANY configured provider, takes the account.',
+    );
+    typed = await run.ctx.host.prompt('Type the email address to confirm: ');
+  }
+  const res = rec(
+    await api(run.client, 'POST', `/users/${encodeURIComponent(id)}/unbind`, { body: { confirm: typed } }),
+  );
+  emit(
+    run,
+    res,
+    () =>
+      `Cleared the sign-in identity of ${plain(user['email'])}. They can now sign in with another provider.\n`,
+  );
+  return 0;
+}
+
+/** `setup-link`: a single-use link that makes whoever signs in with it an owner. Printed once, never logged. */
+async function setupLink(run: Run): Promise<number> {
+  const { values } = run.args;
+  const ttl = intOption('ttl', values.ttl, 1, 7 * 24 * 60);
+  const body = {
+    ...(values.provider === undefined ? {} : { provider: values.provider }),
+    ...(ttl === undefined ? {} : { ttlMinutes: ttl }),
+  };
+  const res = rec(await api(run.client, 'POST', '/setup-links', { body }));
+  const link = rec(res['data']);
+  // Not through `plain()`: it would redact the `rb_…` code, which is the whole point of the link. A URL that is not
+  // plain printable text (a server gone wrong) is refused rather than echoed to the terminal.
+  const url = str(link['url']);
+  if (!/^https?:\/\/[\x21-\x7e]+$/.test(url))
+    throw new ApiError(502, 'bad_response', 'the server returned no usable link');
+  emit(run, res, () => `${url}\n`);
+  if (!run.json) {
+    run.ctx.stderr(
+      `Single-use link, valid until ${iso(link['expiresAt'])}. Open it in a browser and sign in: that account becomes an owner. ` +
+        'It is not stored anywhere readable; issue another if you lose it.',
+    );
+  }
+  return 0;
+}
+
 async function userList(run: Run): Promise<number> {
   const rows = await listAll(run.client, '/users', {}, limitOf(run.args.values));
   emit(run, { data: rows }, () =>
@@ -517,6 +572,8 @@ export function adminTokenGenerate(ctx: ManageContext, json: boolean): number {
 export const HANDLERS: Readonly<Record<string, (run: Run) => Promise<number>>> = {
   'user add': userAdd,
   'user list': userList,
+  'user unbind': userUnbind,
+  'setup-link': setupLink,
   'credential add': credentialAdd,
   'credential list': credentialList,
   'credential rotate': credentialRotate,

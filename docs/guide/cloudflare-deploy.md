@@ -194,6 +194,8 @@ pnpm cf:setup --plan free          # same plan as before; existing secrets and r
 - **Rolling back code** (`wrangler rollback`, or deploying an older commit) is safe only while the database schema is the
   same: once a newer version migrated D1, an older build refuses to start (503). Take an export first
   ([backups](#backups-and-the-master-key)) before upgrading across a release that adds migrations (see the changelog).
+- Sign-in variables set by `cf:setup --sign-in` are deployed with `--var` and kept by later runs because of
+  `--keep-vars`; check Settings, Variables after the first run, and re-run with `--sign-in` to change them.
 - Settings and secrets set in the dashboard survive redeploys: `pnpm cf:setup` deploys with `--keep-vars` and only
   overwrites `RB_PLAN` (and `RB_PASSTHROUGH` with `--passthrough`). A plain `wrangler deploy` without `--keep-vars`
   **deletes** dashboard variables such as `RB_ALLOWED_HOSTS`.
@@ -280,10 +282,48 @@ The repository ships the same check as a nightly workflow, `.github/workflows/st
 staging Worker**: it needs the `staging` environment with the variable `STAGING_URL` and the secret `STAGING_ADMIN_TOKEN`,
 and skips cleanly when they are unset ([testing](../dev/testing.md#staging-smoke-optional-nightly)).
 
+## Sign-in on the Worker
+
+Admin sign-in (Google, GitHub, OIDC; [guide](identity-providers.md)) needs `RB_PUBLIC_URL`, a client id and a client
+secret per provider. The script can set them:
+
+```sh
+pnpm cf:setup --sign-in --public-url https://relic-bridge.acme.workers.dev
+```
+
+It asks, per provider, for the client id (empty skips the provider) and the client secret (hidden). Without a terminal,
+put the answers in your shell instead: `RB_GOOGLE_CLIENT_ID` and `RB_GOOGLE_CLIENT_SECRET` (the same for `GITHUB` and
+`OIDC`, plus `RB_OIDC_ISSUER` and optionally `RB_OIDC_NAME`). The client **secrets** go to Wrangler on stdin in the same
+`secret bulk` call as the other secrets: never as arguments, never in `wrangler.local.jsonc`, never printed (the script
+lists only their names). Ids, the issuer and the public URL are not secret and are deployed as variables. A provider
+whose secret already exists keeps it when you leave the secret empty. Everything is asked before anything is sent, and
+`--dry-run` asks nothing.
+
+The script does **not** set these; add them as variables in the dashboard (Settings, Variables) when you need them, and they
+survive later runs because of `--keep-vars`:
+
+| Variable | What for |
+|---|---|
+| `RB_LOGIN_ALLOW_EMAILS`, `RB_LOGIN_ALLOW_DOMAINS`, `RB_LOGIN_ALLOW_GITHUB_ORGS` | Who may sign in without a pre-created user (comma-separated; deny by default). |
+| `RB_LOGIN_AUTO_PROVISION` | `off` (default), `member` or `admin`: the role of a user created at first sign-in. |
+| `RB_GOOGLE_HOSTED_DOMAIN` | Restrict Google sign-in to one Workspace domain. |
+| `RB_SESSION_IDLE_MINUTES`, `RB_SESSION_MAX_HOURS` | Session lifetime (5 to 1440 minutes idle, default 30; 1 to 168 hours, default 12). |
+| `RB_CF_ACCESS_TEAM`, `RB_CF_ACCESS_AUD` | Cloudflare Access as a sign-in provider. |
+
+When it finishes, the script prints the redirect URL to register with each provider
+(`<RB_PUBLIC_URL>/auth/callback/<provider>`) and the next step, the first owner's link:
+
+```sh
+relic-bridge setup-link --remote https://relic-bridge.acme.workers.dev   # admin token from RB_ADMIN_TOKEN
+```
+
+The hourly cron trigger also deletes expired sign-in rows (abandoned logins, unused setup links, ended sessions) from D1,
+in batches of 500 (at most 10 statements per run), whatever `RB_AUDIT_RETENTION_DAYS` is.
+
 ## Harden the admin API
 
-The admin API (`/api/admin/v1`) is reachable from the internet and protected by `RB_ADMIN_TOKEN` alone until Phase 4
-sign-in. What protects it:
+The admin API (`/api/admin/v1`) is reachable from the internet and protected by `RB_ADMIN_TOKEN`, or by an admin
+session once [sign-in](identity-providers.md) is configured. What protects it:
 
 - **Token strength.** `cf:setup` and `admin-token generate` make 256-bit tokens; the Worker refuses predictable ones at
   boot.
@@ -309,8 +349,8 @@ checked 2026-10-03). Use it only where a **person with a browser** is the client
 - **Do not put it in front of `/api/admin/v1` today** either: the CLI's `--remote` sends only the admin token, so Access
   would lock you out of the CLI. The admin API stays protected by `RB_ADMIN_TOKEN` (32+ random characters, only the
   holder can call it); keep that token off the devices that only need MCP.
-- **Good fit: the admin panel** that arrives in Phase 4 (browser, phone friendly): protect that path (or its own
-  hostname) with an Access policy for your email, with Cloudflare Access as a sign-in provider (P4-01). Create it as a
+- **Good fit: the [admin panel](admin-panel.md)** (`/admin`, browser, phone friendly): protect that path (or its own
+  hostname) with an Access policy for your email, with Cloudflare Access as a sign-in provider. Create it as a
   self-hosted application on that path only, so `/p/*/mcp`, `/health` and the OAuth endpoints stay reachable.
 - Access needs Zero Trust enabled on the account and a custom domain or `workers.dev` hostname; check
   [Cloudflare's plans](https://www.cloudflare.com/plans/zero-trust-services/) for its current free allowance.

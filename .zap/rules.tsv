@@ -1,0 +1,24 @@
+# P4-12: ZAP rules for `pnpm scan:zap` (zap-baseline.py -c format: <rule id> TAB <IGNORE|WARN|FAIL> TAB <name>).
+# Only IGNORE lines are accepted findings. The scan fails on any other alert of risk Medium or High; Low and
+# Informational alerts are printed. Every line below needs a reason. Review the list when ZAP is updated.
+#
+# 10049 (Non-Storable / Storable and Cacheable Content): informational. Pages and the API answer `Cache-Control:
+# no-store` on purpose (CSRF tokens, one-time device tokens, T13); the hashed script and stylesheet are immutable and
+# cacheable on purpose (P4-03).
+10049	IGNORE	(Non-Storable Content / Storable and Cacheable Content)
+# 10112 (Session Management Response Identified): informational; it just notes the session cookie. Its attributes are
+# checked by 10010, 10011, 10054, 10029 and 10035 style rules, which pass.
+10112	IGNORE	(Session Management Response Identified)
+# 10027 (Suspicious Comments): fires on the word "admin" in the second comment line of our own script (line 2 of `packages/admin-ui/assets/admin.js`)
+# (`// relic-bridge admin UI ...`). The build strips nothing secret into comments; the asset is public by design.
+10027	IGNORE	(Information Disclosure - Suspicious Comments)
+# 10024 (Sensitive Information in URL): the audit and grant filters are named `user`, `token` and `project`, and carry
+# opaque ids (`usr_...`, `tok_...`), never a secret. Credentials are never accepted in a query string (P2-12 matrix).
+10024	IGNORE	(Information Disclosure - Sensitive Information in URL)
+# 10031 (User Controllable HTML Element Attribute): the filter forms echo the query values into `value` attributes. All
+# output is escaped by the template layer (scripts/check-ui-escaping.ts), and the CSP forbids inline script with Trusted
+# Types, so a reflected value cannot execute. Covered by the escaping tests (P4-03/P4-07 probes).
+10031	IGNORE	(User Controllable HTML Element Attribute (Potential XSS))
+# 100000 (client error response code, API scan): ZAP's generated requests hit validation and 404 paths; the admin API
+# answers them with 4xx on purpose.
+100000	IGNORE	(A Client Error response code was returned by the server)

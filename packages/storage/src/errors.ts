@@ -60,3 +60,11 @@ export class MigrationError extends StorageError {
 export function keyChangedError(credentialId: string): ConflictError {
   return new ConflictError('credentials.key', `credential ${credentialId} key changed since it was read`);
 }
+
+/** `ConflictError.constraint` of an update that would leave no enabled owner (P4-16). */
+export const LAST_OWNER_CONSTRAINT = 'users.last_owner';
+
+/** The update would demote or disable the last enabled owner (P4-16). */
+export function lastOwnerError(): ConflictError {
+  return new ConflictError(LAST_OWNER_CONSTRAINT, 'the last enabled owner cannot be demoted or disabled');
+}

@@ -2,7 +2,7 @@
 id: P1-12
 title: Test harness (fixtures, MCP contract tests, optional live suite)
 phase: 1
-status: review
+status: done
 priority: high
 depends_on: [P1-01]
 adr: []

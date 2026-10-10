@@ -2,7 +2,7 @@
 id: P1-11
 title: CLI with stdio mode (env and YAML config)
 phase: 1
-status: review
+status: done
 priority: high
 depends_on: [P1-06, P1-07]
 adr: [0005, 0006]

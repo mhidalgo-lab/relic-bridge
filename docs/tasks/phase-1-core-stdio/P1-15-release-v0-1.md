@@ -2,7 +2,7 @@
 id: P1-15
 title: Release pipeline and v0.1.0
 phase: 1
-status: review
+status: done
 priority: high
 depends_on: [P1-11, P1-12, P1-14]
 adr: [0003]

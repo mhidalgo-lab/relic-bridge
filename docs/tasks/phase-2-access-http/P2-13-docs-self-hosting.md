@@ -2,7 +2,7 @@
 id: P2-13
 title: Docs — self-hosting, access model, multi-device setup
 phase: 2
-status: review
+status: done
 priority: high
 depends_on: [P2-10, P2-11]
 adr: []

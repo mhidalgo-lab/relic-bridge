@@ -2,7 +2,7 @@
 id: P2-02
 title: SQLite adapter for Node
 phase: 2
-status: review
+status: done
 priority: high
 depends_on: [P2-01]
 adr: [0006]

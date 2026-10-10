@@ -2,7 +2,7 @@
 id: P2-01
 title: Storage interface, Drizzle schema and migrations
 phase: 2
-status: review
+status: done
 priority: high
 depends_on: [P1-15]
 adr: [0006, 0007, 0008, 0009]

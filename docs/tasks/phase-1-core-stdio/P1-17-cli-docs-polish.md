@@ -2,7 +2,7 @@
 id: P1-17
 title: CLI warnings and docs accuracy follow-ups from the Phase 1 review
 phase: 1
-status: review
+status: done
 priority: low
 depends_on: [P1-11, P1-14]
 adr: []

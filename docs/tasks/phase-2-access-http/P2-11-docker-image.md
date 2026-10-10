@@ -2,7 +2,7 @@
 id: P2-11
 title: Docker image (signed, SBOM)
 phase: 2
-status: review
+status: done
 priority: medium
 depends_on: [P2-06, P2-02]
 adr: []

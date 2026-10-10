@@ -14,7 +14,8 @@ import type { Logger } from '@relic-bridge/core';
 import { ADMIN_TOKEN_ADVICE, checkAdminToken, describeAdminTokenProblem } from '@relic-bridge/http-app';
 import { StorageError } from '@relic-bridge/storage';
 import { openSqliteStorage } from '@relic-bridge/storage-sqlite';
-import { ConfigError, type ConfigFs, type Env } from './config.ts';
+import { ConfigError, type ConfigFs, type Env, keychainValue } from './config.ts';
+import { createKeychain, type Keychain } from './keychain.ts';
 
 /** A key file is a few dozen bytes; anything larger is not one. */
 const MAX_KEY_FILE_BYTES = 1024;
@@ -23,16 +24,32 @@ const MAX_KEY_FILE_BYTES = 1024;
  * Resolve `RB_MASTER_KEY` / `RB_MASTER_KEY_PREVIOUS`, each from the variable or from `<NAME>_FILE`. A key file must
  * not be readable by group or others (POSIX; Windows relies on the profile ACL). Setting both forms is an error.
  */
-export function resolveMasterKeyEnv(env: Env, fs: ConfigFs, platform: string): Record<string, string> {
+export function resolveMasterKeyEnv(
+  env: Env,
+  fs: ConfigFs,
+  platform: string,
+  keychain?: Keychain,
+): Record<string, string> {
   const out: Record<string, string> = {};
   for (const name of [MASTER_KEY_ENV, PREVIOUS_MASTER_KEY_ENV]) {
     const direct = env[name]?.trim() ?? '';
     const file = env[`${name}_FILE`]?.trim() ?? '';
+    const entry = env[`${name}_KEYCHAIN`]?.trim() ?? '';
     if (direct !== '' && file !== '') {
       throw new ConfigError(`Both ${name} and ${name}_FILE are set.`, 'Set only one of them.');
     }
+    if (entry !== '' && (direct !== '' || file !== '')) {
+      throw new ConfigError(
+        `${name}_KEYCHAIN is set together with ${name} or ${name}_FILE.`,
+        'Set only one of them.',
+      );
+    }
     if (direct !== '') out[name] = direct;
     else if (file !== '') out[name] = readKeyFile(`${name}_FILE`, file, fs, platform);
+    else if (entry !== '') {
+      // The OS keychain (P7-11): opt-in by naming an entry; an unusable keychain is an error, never a fallback.
+      out[name] = keychainValue(keychain ?? createKeychain({ platform, env }), entry, `${name}_KEYCHAIN`);
+    }
   }
   return out;
 }

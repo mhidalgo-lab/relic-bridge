@@ -4,10 +4,14 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   createBudget,
   createReportTools,
+  createTask,
   ERROR_META_KEY,
   ErrorCode,
   type FetchLike,
+  getTask,
+  type TaskJob,
   type ToolContext,
+  type ToolOutput,
 } from '../src/index.ts';
 import {
   browserQuery,
@@ -602,5 +606,136 @@ describe('generate_user_impact_report', () => {
     });
     expect(errorCode(foreign)).toBe(ErrorCode.AuthForbidden);
     expect(ng.calls).toEqual([]);
+  });
+});
+
+describe('generate_alert_insights_report as an MCP task (P7-21)', () => {
+  const NAME = 'generate_alert_insights_report';
+  const rows = new Map<string, string>();
+  const store = {
+    get: async (k: string) => rows.get(k) ?? null,
+    put: async (k: string, v: string) => void rows.set(k, v),
+    compareAndPut: async (k: string, e: string, v: string) => {
+      if (rows.get(k) !== e) return false;
+      rows.set(k, v);
+      return true;
+    },
+  };
+  const setup = (budget = 45, o: Overrides = {}) => {
+    rows.clear();
+    let now = NOW;
+    const ng = nerdGraph(o);
+    const tools = createReportTools({ fetch: ng.fetch, sleep: async () => {} });
+    const ctx = (extra: Partial<ToolContext> = {}): ToolContext =>
+      testContext({
+        accounts: { allowed: [A, B], default: A },
+        budget: createBudget(budget),
+        clock: { now: () => now },
+        tasks: { store, owner: 'project:p/grant:g', accepted: true },
+        ...extra,
+      });
+    const def = tools.find((t) => t.name === NAME) as (typeof tools)[number];
+    return { ng, tools, ctx, def, advance: (ms: number) => (now += ms) };
+  };
+
+  it('completes through polls with the report a synchronous call gives, one bounded step at a time', async () => {
+    const t = setup();
+    const sync = await t.def.handler(
+      t.def.inputSchema.parse({ issue_id: 'issue-1' }),
+      t.ctx({ tasks: undefined as never }),
+    );
+    const syncCalls = t.ng.calls.length;
+    t.ng.calls.length = 0;
+
+    const first = t.ctx();
+    const out = await t.def.handler(t.def.inputSchema.parse({ issue_id: 'issue-1' }), first);
+    expect(out.task?.statusMessage).toContain('0 of 6');
+    // Only the issue lookup ran in the creating request.
+    expect(t.ng.calls.map((c) => c.op)).toEqual(['RbAiIssues']);
+    const created = await createTask(first, NAME, out.task as TaskJob);
+    const opts = { tools: t.tools };
+
+    let seen = await getTask(t.ctx(), created.taskId, opts);
+    expect(seen.status).toBe('working');
+    expect(t.ng.calls).toHaveLength(1);
+    const steps: number[] = [];
+    for (let i = 0; i < 5 && seen.status === 'working'; i++) {
+      t.advance(1000);
+      const before = t.ng.calls.length;
+      seen = await getTask(t.ctx(), created.taskId, opts);
+      steps.push(t.ng.calls.length - before);
+    }
+    expect(seen.status).toBe('completed');
+    // At most three sections per poll: more than one poll, each far below the whole report.
+    expect(steps.filter((n) => n > 0).length).toBeGreaterThanOrEqual(2);
+    expect(t.ng.calls.length).toBe(syncCalls);
+    const result = seen.result as { structuredContent: unknown; content: { text: string }[] };
+    expect(result.structuredContent).toEqual(JSON.parse(JSON.stringify(sync.structured)));
+    // Same text apart from the random ids of the untrusted-data envelopes.
+    const plain = (x: string | undefined) =>
+      (x ?? '')
+        .replace(/untrusted-data id="[0-9a-f]+"/g, 'id')
+        .replace(/<\/untrusted-data id="[0-9a-f]+">/g, '</id>')
+        .replace(/<untrusted-data id="[0-9a-f]+"/g, '<id');
+    expect(plain(result.content[0]?.text)).toBe(plain(sync.text));
+  });
+
+  it('a section that does not fit one request waits for the next poll; a tiny budget skips it', async () => {
+    const t = setup(45);
+    const out = await t.def.handler(t.def.inputSchema.parse({ issue_id: 'issue-1' }), t.ctx());
+    const first = t.ctx();
+    const created = await createTask(first, NAME, out.task as TaskJob);
+    t.advance(1000);
+    // 5 requests per poll: the 3 NRQL log queries are not skipped, they come in a later poll.
+    const small = t.ctx({ budget: createBudget(6) });
+    const step1 = await getTask(small, created.taskId, { tools: t.tools });
+    expect(step1.status).toBe('working');
+    expect(step1.statusMessage).toContain('of 6 sections');
+  });
+
+  it('fails closed on a tampered state and keeps nothing readable at rest', async () => {
+    const t = setup();
+    const out = await t.def.handler(t.def.inputSchema.parse({ issue_id: 'issue-1' }), t.ctx());
+    const first = t.ctx();
+    await createTask(first, NAME, out.task as TaskJob);
+    const value = [...rows.values()][0] as string;
+    expect(value).not.toContain('High error rate');
+    expect(value).not.toContain('issue-1');
+    await expect(t.def.resumeTask?.({ args: { issue_id: '' } }, t.ctx())).rejects.toThrow();
+  });
+
+  it('a host that cannot store the task still gets the whole report (taskFallback)', async () => {
+    const t = setup();
+    const out = await t.def.handler(t.def.inputSchema.parse({ issue_id: 'issue-1' }), t.ctx());
+    const full = (await out.taskFallback?.()) as ToolOutput;
+    expect(full.structured).toMatchObject({ partial: false, entityGuid: MOCK_GUID });
+    expect((full.structured as { sections: unknown[] }).sections).toHaveLength(6);
+  });
+
+  it('without a task binding the report is synchronous', async () => {
+    const t = setup();
+    const out = await t.def.handler(
+      t.def.inputSchema.parse({ issue_id: 'issue-1' }),
+      t.ctx({ tasks: { store, owner: 'x' } }),
+    );
+    expect(out.task).toBeUndefined();
+    expect(out.structured).toBeDefined();
+  });
+
+  it('a tool no longer granted is a skipped section, not a failure', async () => {
+    const t = setup();
+    const ctx = () => t.ctx({ connection: { allowedTools: [NAME, 'get_entity'], unavailableTools: [] } });
+    const out = await t.def.handler(t.def.inputSchema.parse({ issue_id: 'issue-1' }), ctx());
+    const created = await createTask(ctx(), NAME, out.task as TaskJob);
+    let seen = await getTask(ctx(), created.taskId, { tools: t.tools });
+    for (let i = 0; i < 5 && seen.status === 'working'; i++) {
+      t.advance(1000);
+      seen = await getTask(ctx(), created.taskId, { tools: t.tools });
+    }
+    expect(seen.status).toBe('completed');
+    const s = (seen.result as { structuredContent: { sections: { name: string; status: string }[] } })
+      .structuredContent;
+    expect(s.sections.find((x) => x.name === 'logs')?.status).toBe('skipped');
+    expect(s.sections.find((x) => x.name === 'entity')?.status).toBe('ok');
   });
 });

@@ -32,25 +32,38 @@ import {
   TOKEN_PREFIX,
 } from '@relic-bridge/auth';
 import {
+  APPROVAL_LEDGER_TTL_SECONDS,
   buildMcpServer,
   type Clock,
+  compositeSiblings,
   createBudget,
   createBuiltinTools,
+  createMemoryTaskStore,
   createSemaphoreLimiter,
+  createWriteTools,
   DEFAULT_CONCURRENCY,
   DEFAULT_LIMITS,
   type FetchLike,
+  type Limiter,
   LimiterPool,
   type Logger,
   newRequestId,
+  PUBLIC_DISCOVERY_METHODS,
+  publicCatalogTools,
+  QueryCache,
   type QueryLimits,
   type Secret,
   silentLogger,
   systemClock,
+  type TaskStore,
+  TOOL_CATALOG_PATH,
   type ToolCallEvent,
   type ToolContext,
   type ToolDefinition,
+  toolCatalog,
   VERSION,
+  WRITE_TOOL_NAMES,
+  type WriteIntent,
 } from '@relic-bridge/core';
 import { type KvRepository, SLUG_RE, type Storage } from '@relic-bridge/storage';
 import { type Context, type ExecutionContext, Hono } from 'hono';
@@ -70,7 +83,7 @@ import {
 import { createAdminTokenVerifier } from './admin/token.ts';
 import type { AdminAuditEvent } from './audit.ts';
 import { createIdentityRoutes, IDENTITY_BASE, type IdentityOptions } from './identity.ts';
-import { peekJsonRpc, type RpcPeek } from './jsonrpc.ts';
+import { peekJsonRpc, type RpcPeek, type WriteRound } from './jsonrpc.ts';
 import {
   createConsentScreen,
   OAUTH_APPROVALS_FORGET_PATH,
@@ -107,6 +120,7 @@ import {
   reachableAccounts,
   readPassthroughHeaders,
 } from './passthrough.ts';
+import { createQuotaGuard, type QuotaDenial, type QuotaStore } from './quota.ts';
 import {
   applySecurityHeaders,
   checkHost,
@@ -116,6 +130,7 @@ import {
   safeMcpHeader,
 } from './security.ts';
 import { createSessionManager, type SessionManager, type SessionPrincipal } from './session.ts';
+import { serveTaskRequest, TASK_METHODS } from './tasks.ts';
 
 /** Largest request body accepted on the MCP route by default (a tool call is a few KiB). */
 export const DEFAULT_MAX_BODY_BYTES: number = 1024 * 1024;
@@ -126,7 +141,7 @@ export const DEFAULT_CALL_BUDGET = 1000;
 
 export type StorageForHttp = Pick<
   Storage,
-  'projects' | 'grants' | 'users' | 'credentials' | 'accessTokens' | 'settings'
+  'projects' | 'grants' | 'users' | 'credentials' | 'accessTokens' | 'settings' | 'grantUsage'
 >;
 
 /** What the hooks know about an authenticated MCP request. Never contains the token or the New Relic key. */
@@ -143,6 +158,12 @@ export interface McpRequestInfo {
   readonly mcpMethod: string | null;
   /** `params.name` of the body (sanitised): the tool name for `tools/call`. */
   readonly mcpName: string | null;
+  /**
+   * For a `tools/call` of a write tool: how the raw body relates to the write limit (P7-35, see `WriteRound`). `null` or
+   * absent means "unknown": the write bucket charges it. A `question` round is also marked on the tool context so it
+   * cannot send a change.
+   */
+  readonly writeRound?: WriteRound | null;
   /** A `subscriptions/listen` request: answered at once, not a tool call (don't rate-limit it like one). */
   readonly listen: boolean;
   readonly access: EffectiveAccess;
@@ -217,6 +238,12 @@ export interface HttpAppHooks {
   onRejected?(c: Context, info: RejectInfo): Promise<void> | void;
   /** After each tool call finished, success or error (audit). Runs in the background; must not throw. */
   onToolCall?(c: Context, info: McpRequestInfo, event: ToolCallEvent): Promise<void> | void;
+  /**
+   * A write tool is about to send its mutation (P7-28, audit). **Awaited**, and unlike every other hook it must reject
+   * when the row could not be stored: the write is then refused with nothing sent. `createHttpApp` refuses
+   * `writeTools: true` without it.
+   */
+  onWriteIntent?(c: Context, info: McpRequestInfo, intent: WriteIntent): Promise<void>;
   /** After the MCP handler answered (audit). Runs in the background (`waitUntil`); errors are logged. */
   /**
    * After each tool call on the pass-through route finished, success or error (audit, P2-16). Runs in the background;
@@ -227,6 +254,11 @@ export interface HttpAppHooks {
     info: PassthroughRequestInfo,
     event: ToolCallEvent,
   ): Promise<void> | void;
+  /**
+   * A grant's quota refused a NerdGraph call (P7-12; audit). Runs in the background; must not throw. Carries the
+   * period, what ran out, the cap and the reset time of that grant only.
+   */
+  onQuotaDenied?(c: Context, info: McpRequestInfo, denial: QuotaDenial): Promise<void> | void;
   afterMcp?(
     c: Context,
     info: McpRequestInfo,
@@ -261,6 +293,8 @@ export interface HttpAppOptions {
   readonly clock?: Clock;
   /** NerdGraph fetch override (tests). */
   readonly fetch?: FetchLike;
+  /** Wait between NRQL polls and retries (tests). Default: `setTimeout`. */
+  readonly sleep?: (ms: number) => Promise<void>;
   /** `Host` allowlist (hostnames, no ports). Default: loopback names. `'*'` disables the check (not recommended). */
   readonly allowedHosts?: readonly string[] | '*';
   /** `Origin` allowlist (hostnames). Default: `allowedHosts` (or loopback names when that is `'*'`). */
@@ -280,6 +314,11 @@ export interface HttpAppOptions {
   readonly maxResponseBytes?: number;
   /** NerdGraph calls in flight per credential (1-25, default 5). */
   readonly concurrencyPerCredential?: number;
+  /**
+   * Cross-process NerdGraph concurrency (P7-10; the Workers Durable Object limiter): a limiter for a credential id,
+   * entered after a slot of this process's own semaphore. It must fail open (never block) when its store is down.
+   */
+  readonly sharedConcurrency?: (credentialId: string) => Limiter;
   /** `'auto'` (default): HSTS when the request URL is https. `true` for a TLS-terminating proxy. */
   readonly hsts?: 'auto' | boolean;
   /** Runs background work (Workers: `executionCtx.waitUntil`). Default: try `executionCtx`, else fire-and-forget. */
@@ -296,6 +335,59 @@ export interface HttpAppOptions {
    * `/p/:slug/mcp` next to device tokens. Needs `identity` (its public URL is the issuer, its `kv` holds the state).
    */
   readonly oauth?: OAuthOptions;
+  /**
+   * NRQL query cache (P7-02). Default: an in-memory LRU keyed with the master-key-derived id key. `null` turns caching
+   * off (`RB_QUERY_CACHE=off`). Entries are scoped per grant and per pass-through key (THREAT_MODEL T16).
+   */
+  readonly queryCache?: QueryCache | null;
+  /**
+   * Opt-in write tools (P7-09, ADR-0015, `RB_WRITE_TOOLS=on`). Default false: the write tools are not in the catalog at
+   * all, so no project or grant can name them and OAuth never advertises `mcp:write`. On: a connection still gets one
+   * only when its project and grant name it explicitly (and, over OAuth, its token carries `mcp:write`). Pass-through
+   * connections never get write tools.
+   */
+  readonly writeTools?: boolean;
+  /**
+   * `RB_WRITE_APPROVAL=required` (P7-25): a write is refused unless the client can ask a person and the person approves
+   * (MCP elicitation). Default false: `confirm: true` alone is enough when the client cannot be asked.
+   */
+  readonly requireWriteApproval?: boolean;
+  /**
+   * Where per-grant quota counters live (P7-12). Default: `storage.grantUsage` (atomic on SQLite and D1). The Worker passes
+   * its Durable Object store when `RB_SHARED_LIMITER=on`.
+   */
+  readonly quotaStore?: QuotaStore;
+  /**
+   * MCP Tasks extension (P7-13): where task records live (the storage `kv`; records are sealed and expire after 15
+   * minutes). Absent: the extension is not offered and slow queries answer with their `queryId` handle, as for clients
+   * without the extension. Project routes only (not pass-through).
+   */
+  readonly taskStore?: TaskStore;
+  /**
+   * Kill switch for the Tasks extension (P7-34, `RB_TASKS`). Default true. False: no tasks capability is advertised, no
+   * task record is ever written (project routes and pass-through), a slow call answers inline as for a client without
+   * the extension, and `tasks/*` are unknown methods.
+   */
+  readonly tasks?: boolean;
+  /**
+   * Where spent write approvals are remembered (P7-26): the storage `kv` (atomic `increment`, only the approval key, a
+   * hash, is stored, expiring after the approval window). Absent: write approvals are bound to a time
+   * window only and a replay inside it is not refused.
+   */
+  readonly approvalStore?: Pick<KvRepository, 'increment'>;
+  /**
+   * Registry-friendly discovery (P7-14, `RB_PUBLIC_TOOL_CATALOG=on`). Default false: every MCP request needs a
+   * credential. On: `GET /.well-known/relic-bridge/tools.json` serves the static read-only tool catalog, and a POST to
+   * `/p/:slug/mcp` without an `Authorization` header that asks only for `initialize`, `server/discover`, `ping` or
+   * `tools/list` is answered from that same catalog, identically for every slug (no storage read: no project
+   * existence oracle). Everything else still answers the standard 401.
+   */
+  readonly publicToolCatalog?: boolean;
+  /**
+   * Offer the MCP Apps chart view (P7-16, `RB_MCP_APPS`). Default true: `_meta.ui` and the `ui://` resource go to
+   * clients that declare MCP Apps support. False: neither appears on any request.
+   */
+  readonly mcpApps?: boolean;
 }
 
 type Env = { Variables: { requestId: string; started: number; log: Record<string, unknown> } };
@@ -389,6 +481,10 @@ const UNAUTHORIZED_BODY = '{"error":"unauthorized"}';
 const WWW_AUTHENTICATE = 'Bearer realm="relic-bridge"';
 /** Not `Bearer`: a client must not start OAuth discovery for a route that takes a New Relic key. */
 const PASSTHROUGH_WWW_AUTHENTICATE = 'NewRelic-Api-Key realm="relic-bridge-passthrough"';
+/** Largest unauthenticated discovery body read (P7-14): an `initialize` is well under 2 KiB. */
+const PUBLIC_DISCOVERY_MAX_BYTES = 16 * 1024;
+/** How long an unauthenticated discovery body may take to arrive. */
+const PUBLIC_DISCOVERY_READ_MS = 10_000;
 const BATCH_REFUSED_BODY =
   '{"jsonrpc":"2.0","id":null,"error":{"code":-32600,"message":"Batch requests are not supported: send one JSON-RPC message per request."}}';
 
@@ -491,10 +587,40 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
     options.accessCacheMaxEntries ?? DEFAULT_ACCESS_CACHE_ENTRIES,
   );
   const limiters = new LimiterPool(options.concurrencyPerCredential);
+  // Per-grant quota counters (P7-12): the host's store, else the storage table (atomic on SQLite and D1).
+  const quotaStore: QuotaStore = options.quotaStore ?? options.storage.grantUsage;
+  const tasksOn = options.tasks !== false;
+  const taskStore = tasksOn ? options.taskStore : undefined;
+  const approvalStore = options.approvalStore;
+  // The process-local slot first, then the shared one: only calls this process would run anyway compete across them.
+  const sharedConcurrency = options.sharedConcurrency;
+  const withShared = (local: Limiter, credentialId: string): Limiter => {
+    if (sharedConcurrency === undefined) return local;
+    const shared = sharedConcurrency(credentialId);
+    return Object.freeze({ run: <T>(task: () => Promise<T>) => local.run(() => shared.run(task)) });
+  };
+  // The NRQL query cache lives with the app (process / isolate), never in module state (T21); scopes keep grants apart.
+  const queryCache =
+    options.queryCache === null
+      ? undefined
+      : (options.queryCache ?? new QueryCache({ macKey: options.keyring.queryCacheKeys().id }));
   // One tool set per app: its caches are keyed by credential id, region and account (never shared across tenants).
-  const allTools = createBuiltinTools(options.fetch ? { fetch: options.fetch } : {});
+  const toolDeps = {
+    ...(options.fetch ? { fetch: options.fetch } : {}),
+    ...(options.sleep ? { sleep: options.sleep } : {}),
+  };
+  const writeTools = options.writeTools === true;
+  const allTools = [...createBuiltinTools(toolDeps), ...(writeTools ? createWriteTools(toolDeps) : [])];
   const catalog = allTools.map((t) => t.name);
   const hooks = options.hooks ?? {};
+  // Every write is recorded before its mutation (P7-28): no audit hook, no write tools (`serve` and the Worker already
+  // refuse `RB_WRITE_TOOLS=on` with `RB_AUDIT=off`; this holds for any other host).
+  const onWriteIntent = hooks.onWriteIntent;
+  if (writeTools && onWriteIntent === undefined) {
+    throw new TypeError(
+      'writeTools needs an audit hook (hooks.onWriteIntent, e.g. createAuditRecorder().hooks)',
+    );
+  }
   // Scopes created by this app; the factory refuses anything else (defence in depth for `authInfo.extra`).
   const scopes = new WeakSet<RequestScope>();
   // Fails at construction (boot) for an unusable admin token, never per request.
@@ -575,6 +701,8 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
         tools: scope.tools,
         ctx: scope.ctx,
         toolsListChanged: false,
+        mcpApps: options.mcpApps !== false,
+        requireWriteApproval: options.requireWriteApproval === true,
         ...(scope.onToolCall ? { onToolCall: scope.onToolCall } : {}),
       });
     },
@@ -584,6 +712,32 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
       onerror: (error) => logger.debug('mcp transport', { error: error.message.slice(0, 200) }),
     },
   );
+
+  // Registry-friendly discovery (P7-14): a separate handler whose server holds the static read-only catalog and no
+  // context at all, so nothing it serves can reach New Relic, storage or a project (a call would fail closed).
+  const publicToolCatalog = options.publicToolCatalog === true;
+  const publicTools = Object.freeze(publicCatalogTools(createBuiltinTools(toolDeps)));
+  const publicMcp = publicToolCatalog
+    ? createMcpHandler(
+        () =>
+          buildMcpServer({
+            tools: publicTools,
+            ctx: () => {
+              throw new Error('the public tool catalog has no tool context');
+            },
+            toolsListChanged: false,
+            prompts: [],
+            resources: [],
+          }),
+        {
+          legacy: 'stateless',
+          maxRequestBodySize: PUBLIC_DISCOVERY_MAX_BYTES,
+          onerror: (error) =>
+            logger.debug('mcp transport (public catalog)', { error: error.message.slice(0, 200) }),
+        },
+      )
+    : undefined;
+  const publicCatalogBody = publicToolCatalog ? JSON.stringify(toolCatalog(publicTools)) : undefined;
 
   /** `413` for a declared body length over the limit (or an unparseable one), before any authentication work. */
   const refuseDeclaredBody = (c: Context<Env>): Response | undefined => {
@@ -602,10 +756,18 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
    */
   const readRpc = async (
     c: Context<Env>,
-  ): Promise<{ readonly mcpMethod: string | null; readonly mcpName: string | null } | Response> => {
+  ): Promise<
+    | {
+        readonly mcpMethod: string | null;
+        readonly mcpName: string | null;
+        readonly round: WriteRound | null;
+      }
+    | Response
+  > => {
     const log = c.get('log');
     let mcpMethod: string | null = null;
     let mcpName: string | null = null;
+    let round: WriteRound | null = null;
     if (c.req.method === 'POST') {
       const peek = await peekWithin(c.req.raw, maxBodyBytes, timeoutMs);
       // Refused without reading the rest: release the unread original as well (never awaited, it may be stalled).
@@ -628,11 +790,12 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
       if (peek.kind === 'message') {
         mcpMethod = safeMcpHeader(peek.method);
         mcpName = safeMcpHeader(peek.name);
+        round = peek.round;
       }
     }
     if (mcpMethod !== null) log['mcpMethod'] = mcpMethod;
     if (mcpName !== null) log['mcpName'] = mcpName;
-    return { mcpMethod, mcpName };
+    return { mcpMethod, mcpName, round };
   };
 
   /**
@@ -641,9 +804,10 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
    */
   const serveMcp = async (
     c: Context<Env>,
-    authInfo: AuthInfo,
+    authInfo: AuthInfo | undefined,
     mcpMethod: string | null,
     mcpName: string | null,
+    handler: typeof mcp = mcp,
   ): Promise<Response> => {
     const requestId = c.get('requestId');
     const deadline = new Deadline(timeoutMs, () => {
@@ -653,7 +817,7 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
     let response: Response;
     try {
       response = await Promise.race([
-        mcp.fetch(c.req.raw, { authInfo }),
+        handler.fetch(c.req.raw, authInfo === undefined ? {} : { authInfo }),
         deadline.expired.then(() => json(504, '{"error":"timeout"}')),
       ]);
     } catch (error) {
@@ -661,6 +825,27 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
       throw error;
     }
     return deadline.bound(response);
+  };
+
+  /** `tasks/*` (P7-13) under the same request deadline as any MCP exchange (one task step at most). */
+  const serveTasks = async (c: Context<Env>, scope: RequestScope): Promise<Response> => {
+    const log = c.get('log');
+    const deadline = new Deadline(timeoutMs, () => {
+      log['timeout'] = true;
+      logger.warn('task request timed out', { requestId: c.get('requestId'), ms: timeoutMs });
+    });
+    try {
+      return await Promise.race([
+        serveTaskRequest(c.req.raw, {
+          ctx: scope.ctx,
+          resume: { tools: scope.tools, ...(scope.onToolCall ? { onToolCall: scope.onToolCall } : {}) },
+          log,
+        }),
+        deadline.expired.then(() => json(504, '{"error":"timeout"}')),
+      ]);
+    } finally {
+      deadline.clear();
+    }
   };
 
   // Admin sessions (P4-02): on whenever sign-in is configured. State lives in storage `kv`, never here (T21); the
@@ -702,7 +887,13 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
           runInBackground,
           audit: uiAudit,
           adminApi: options.admin !== undefined,
-          tools: allTools.map((t) => ({ name: t.name, title: t.title, group: t.group, kind: t.kind })),
+          tools: allTools.map((t) => ({
+            name: t.name,
+            title: t.title,
+            group: t.group,
+            kind: t.kind,
+            ...(t.siblingTools === undefined ? {} : { siblings: t.siblingTools }),
+          })),
           now: () => clock.now(),
           kv: options.identity.storage.kv,
           onRejected: (c, status) =>
@@ -747,6 +938,7 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
           runInBackground,
           ...(consentScreen ? { defaultConsent: consentScreen.handler } : {}),
           ...(uiAudit ? { audit: uiAudit } : {}),
+          writeScope: writeTools,
         })
       : undefined;
 
@@ -853,6 +1045,10 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
 
   app.get('/health', (c) => c.json({ status: 'ok' }));
   app.get('/version', (c) => c.json({ name: 'relic-bridge', version: VERSION }));
+  if (publicCatalogBody !== undefined) {
+    const body = publicCatalogBody;
+    app.get(TOOL_CATALOG_PATH, () => json(200, body));
+  }
 
   if (options.admin) {
     const admin = options.admin;
@@ -860,6 +1056,7 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
       ADMIN_API_BASE,
       createAdminApi({
         storage: admin.storage,
+        usage: quotaStore,
         keyring: options.keyring,
         ...(adminVerifier ? { verifier: adminVerifier } : {}),
         ...(sessions ? { sessions } : {}),
@@ -867,6 +1064,7 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
           admin.validateKey ??
           nerdGraphKeyValidator({ logger, clock, ...(options.fetch ? { fetch: options.fetch } : {}) }),
         catalog,
+        compositeSiblings: compositeSiblings(allTools),
         clock,
         logger,
         ...(admin.maxRotationBatch === undefined
@@ -1047,6 +1245,29 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
     const refused = oauth === undefined ? unauthorized : () => unauthorized(oauth.challenge(slug));
     const deny = (reason: string): Promise<Response> => denyWith(c, { requestId, reason }, log, refused);
 
+    // Registry-friendly discovery (P7-14, opt-in): no `Authorization` header at all, and a body that only asks what the
+    // server offers. Decided from the body (never the `Mcp-Method` header) and before the slug is looked at, so every
+    // slug, known or not, gets the same answer; anything else is the same 401 as without the catalog.
+    if (publicMcp !== undefined && c.req.header('authorization') === undefined) {
+      if (c.req.method !== 'POST') return deny('missing_token');
+      const peek = await peekWithin(c.req.raw, PUBLIC_DISCOVERY_MAX_BYTES, PUBLIC_DISCOVERY_READ_MS);
+      if (
+        peek === 'timeout' ||
+        peek.kind !== 'message' ||
+        peek.method === null ||
+        !PUBLIC_DISCOVERY_METHODS.includes(peek.method)
+      ) {
+        // Refused without reading the rest: release the unread original (never awaited, it may be stalled).
+        if (peek === 'timeout' || peek.kind === 'too_large')
+          void c.req.raw.body?.cancel().catch(() => undefined);
+        return deny('missing_token');
+      }
+      const method = safeMcpHeader(peek.method);
+      log['publicCatalog'] = true;
+      if (method !== null) log['mcpMethod'] = method;
+      return serveMcp(c, undefined, method, null, publicMcp);
+    }
+
     // 6. Authenticate, then authorise for this slug. The token is checked before the slug is looked at, so slugs
     // can't be probed without a valid token (T19); every denial is the same 401.
     const token = bearerToken(
@@ -1065,8 +1286,8 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
 
     const now = clock.now();
     const cacheKey = `${await hashToken(token)}\n${slug}`;
-    let resolved: Omit<CachedAccess, 'expiresAt'> | undefined = cache.get(cacheKey, now);
-    if (resolved === undefined) {
+    /** Resolve from storage (never the cache) and refresh the cache entry; a Response when refused. */
+    const resolveFresh = async (): Promise<Omit<CachedAccess, 'expiresAt'> | Response> => {
       // One storage call on SQL storage (D1: one batch round trip, P3-09); repository reads otherwise.
       let auth: AuthenticatedAccess | OAuthAuthentication;
       try {
@@ -1093,31 +1314,50 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
         return json(503, '{"error":"unavailable"}', { 'Retry-After': '5' });
       }
       if (!auth.ok) {
+        cache.delete(cacheKey);
         if (auth.stage === 'access') log['tokenId'] = auth.tokenId;
         return deny(auth.reason);
       }
-      resolved = {
+      const fresh = {
         tokenId: auth.tokenId,
         access: auth.access,
         credential: auth.credential,
         clientId: viaOAuth ? (auth as Extract<OAuthAuthentication, { ok: true }>).clientId : null,
       };
-      cache.set(cacheKey, resolved, now, [auth.tokenExpiresAt, auth.access.expiresAt]);
-    } else {
-      log['cached'] = true;
-    }
-    const { access, tokenId } = resolved;
-    const clientId = resolved.clientId ?? null;
-    log['tokenId'] = tokenId;
-    log['grantId'] = access.grantId;
-    if (clientId !== null) log['oauthClient'] = clientId;
+      cache.set(cacheKey, fresh, now, [auth.tokenExpiresAt, auth.access.expiresAt]);
+      return fresh;
+    };
+    let resolved: Omit<CachedAccess, 'expiresAt'> | Response | undefined = cache.get(cacheKey, now);
+    if (resolved === undefined) resolved = await resolveFresh();
+    else log['cached'] = true;
+    if (resolved instanceof Response) return resolved;
+    log['tokenId'] = resolved.tokenId;
+    log['grantId'] = resolved.access.grantId;
+    if (resolved.clientId != null) log['oauthClient'] = resolved.clientId;
 
     // What the request asks for comes from the body, never from the `Mcp-Method` / `Mcp-Name` headers alone: the SDK
     // cross-checks those only for modern requests, so a legacy request could name `subscriptions/listen` in a header
     // to skip rate limiting, or a granted tool to hide an ungranted call from the audit (P2-12).
     const rpc = await readRpc(c);
     if (rpc instanceof Response) return rpc;
-    const { mcpMethod, mcpName } = rpc;
+    const { mcpMethod, mcpName, round } = rpc;
+    // A write tool call never runs on cached access (P7-28): a revoked grant, token or write tool stops the next write
+    // at once, on every process, instead of within the cache TTL. Reads keep the cache.
+    if (
+      log['cached'] === true &&
+      mcpMethod === 'tools/call' &&
+      mcpName !== null &&
+      WRITE_TOOL_NAMES.includes(mcpName)
+    ) {
+      resolved = await resolveFresh();
+      if (resolved instanceof Response) return resolved;
+      log['cached'] = false;
+    }
+    const { access, tokenId } = resolved;
+    const clientId = resolved.clientId ?? null;
+    log['tokenId'] = tokenId;
+    log['grantId'] = access.grantId;
+    if (clientId !== null) log['oauthClient'] = clientId;
     const info: McpRequestInfo = Object.freeze({
       requestId,
       projectSlug: access.projectSlug,
@@ -1128,6 +1368,7 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
       clientId,
       mcpMethod,
       mcpName,
+      writeRound: round,
       listen: mcpMethod === 'subscriptions/listen',
       access,
     });
@@ -1151,10 +1392,69 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
         ctx: Object.freeze({
           requestId,
           credential,
+          // P7-35: a call the write limit did not charge (a question round) cannot send a change.
+          ...(info.writeRound === 'question' ? { writeQuestionOnly: true } : {}),
           accounts: access.accounts,
           budget: createBudget(callBudget),
-          limiter: limiters.for(credential.id),
+          limiter: withShared(limiters.for(credential.id), credential.id),
           limits: capLimits(access.limits),
+          ...(access.quota === null
+            ? {}
+            : {
+                quota: createQuotaGuard({
+                  store: quotaStore,
+                  grantId: access.grantId,
+                  quota: access.quota,
+                  now: () => clock.now(),
+                  logger: toolLogger,
+                  onDenied: (denial) => {
+                    const hook = hooks.onQuotaDenied;
+                    if (hook)
+                      runInBackground(
+                        c,
+                        Promise.resolve().then(() => hook(c, info, denial)),
+                        'on_quota_denied',
+                      );
+                  },
+                }),
+              }),
+          ...(queryCache === undefined
+            ? {}
+            : {
+                queryCache: Object.freeze({
+                  cache: queryCache,
+                  scope: `project:${access.projectId}/grant:${access.grantId}`,
+                }),
+              }),
+          // Tasks are visible to the device that created them only: project, grant, token (an OAuth device's token id
+          // is stable across refreshes) and OAuth client (T32).
+          ...(taskStore === undefined
+            ? {}
+            : {
+                tasks: Object.freeze({
+                  store: taskStore,
+                  owner: `project:${access.projectId}/grant:${access.grantId}/token:${tokenId}/client:${clientId ?? '-'}`,
+                }),
+              }),
+          // Spent write approvals, scoped to project, grant and user (P7-26): one approval answers one attempt.
+          ...(approvalStore === undefined
+            ? {}
+            : {
+                writeApprovals: Object.freeze({
+                  consume: async (key: string): Promise<boolean> =>
+                    (await approvalStore.increment(
+                      `write-approval:${access.projectId}/${access.grantId}/${access.userId ?? '-'}/${key}`,
+                      { expirationTtl: APPROVAL_LEDGER_TTL_SECONDS },
+                    )) === 1,
+                }),
+              }),
+          ...(onWriteIntent === undefined
+            ? {}
+            : {
+                writeAudit: Object.freeze({
+                  intent: (intent: WriteIntent): Promise<void> => onWriteIntent(c, info, intent),
+                }),
+              }),
           connection: Object.freeze({
             project: access.projectSlug,
             allowedTools: access.tools,
@@ -1193,7 +1493,11 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
     };
 
     const started = clock.now();
-    const response = await serveMcp(c, authInfo, mcpMethod, mcpName);
+    // `tasks/*` (P7-13): answered here, the SDK has no Tasks runtime. Same scope, budget and hooks as any MCP request.
+    const response =
+      scope.ctx.tasks !== undefined && mcpMethod !== null && TASK_METHODS.includes(mcpMethod)
+        ? await serveTasks(c, scope)
+        : await serveMcp(c, authInfo, mcpMethod, mcpName);
     if (hooks.afterMcp) {
       const after = hooks.afterMcp;
       const outcome = Object.freeze({ status: response.status, durationMs: clock.now() - started });
@@ -1221,6 +1525,9 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
     const ptGranted = affordable(allTools.filter((t) => t.kind === 'read'));
     const ptTools = Object.freeze(ptGranted.tools);
     const ptToolNames = Object.freeze(ptTools.map((t) => t.name));
+    // Pass-through keeps nothing of the caller's, so its tasks live in the host's task store when it has one, else in a
+    // bounded in-process one (sealed, lost on restart; P7-22).
+    const ptTaskStore = tasksOn ? (taskStore ?? createMemoryTaskStore()) : undefined;
     const requireTls = pt.requireTls ?? true;
     const concurrency = options.concurrencyPerCredential ?? DEFAULT_CONCURRENCY;
     createSemaphoreLimiter(concurrency); // validate at boot
@@ -1324,8 +1631,22 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
           accounts: Object.freeze({ allowed: accounts, default: accounts[0] as number }),
           budget: createBudget(callBudget),
           // Per request: no per-key state that grows with the number of keys seen (the rate limiter bounds the rest).
-          limiter: createSemaphoreLimiter(concurrency),
+          limiter: withShared(createSemaphoreLimiter(concurrency), credentialId),
           limits: ptLimits,
+          // Keyed by the key fingerprint id and the key itself (hashed): one caller's key never reads another's entries.
+          ...(queryCache === undefined
+            ? {}
+            : { queryCache: Object.freeze({ cache: queryCache, scope: 'passthrough' }) }),
+          // Tasks belong to the key's fingerprint (T32, T12): never the key. The fingerprint is keyed per app instance, so
+          // a restart (or another replica without a shared `fingerprintSecret`) makes old tasks "not found".
+          ...(ptTaskStore === undefined
+            ? {}
+            : {
+                tasks: Object.freeze({
+                  store: ptTaskStore,
+                  owner: `passthrough:${credentialId}/region:${region}`,
+                }),
+              }),
           connection: Object.freeze({ allowedTools: ptToolNames, unavailableTools: ptGranted.unavailable }),
           logger: logger.child({ requestId, keyId }),
           clock,
@@ -1352,7 +1673,9 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
         scopes: [],
         extra: { [SCOPE_KEY]: scope },
       };
-      return serveMcp(c, authInfo, mcpMethod, mcpName);
+      return tasksOn && mcpMethod !== null && TASK_METHODS.includes(mcpMethod)
+        ? serveTasks(c, scope)
+        : serveMcp(c, authInfo, mcpMethod, mcpName);
     });
   }
 

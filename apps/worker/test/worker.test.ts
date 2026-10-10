@@ -41,6 +41,49 @@ describe('Worker MCP endpoint', () => {
     expect(rows.map((r) => r.action)).toEqual(['whoami']);
   });
 
+  it('RB_TASKS: the extension is advertised by default and off removes it, with no task record (P7-34)', async () => {
+    const TASKS = 'io.modelcontextprotocol/tasks';
+    const rpc = async (vars: Record<string, string>, method: string, params: Record<string, unknown>) => {
+      const { storage, token } = await seed(MASTER_KEY);
+      const worker = createWorker({
+        openStorage: () => storage,
+        fetch: mockNerdGraph().fetch,
+        logSink: () => {},
+      });
+      const res = await call(worker, { ...env, ...vars } as WorkerEnv, fakeCtx(), '/p/prod/mcp', {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${token}`,
+          'content-type': 'application/json',
+          accept: 'application/json, text/event-stream',
+          'mcp-method': method,
+          'mcp-protocol-version': '2026-07-28',
+          ...(typeof params['taskId'] === 'string' ? { 'mcp-name': params['taskId'] } : {}),
+        },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 1,
+          method,
+          params: {
+            ...params,
+            _meta: {
+              'io.modelcontextprotocol/protocolVersion': '2026-07-28',
+              'io.modelcontextprotocol/clientInfo': { name: 'worker-test', version: '0' },
+              'io.modelcontextprotocol/clientCapabilities': { extensions: { [TASKS]: {} } },
+            },
+          },
+        }),
+      });
+      return { text: await res.text(), storage };
+    };
+    expect((await rpc({}, 'server/discover', {})).text).toContain(TASKS);
+    const off = await rpc({ RB_TASKS: 'off' }, 'server/discover', {});
+    expect(off.text).not.toContain(TASKS);
+    const get = await rpc({ RB_TASKS: 'off' }, 'tasks/get', { taskId: 'x'.repeat(43) });
+    expect(get.text).toContain('-32601');
+    expect(await get.storage.kv.list({ prefix: 'task:' })).toMatchObject({ keys: [] });
+  });
+
   it('answers 401 for a wrong token and records the CF-Connecting-IP address through waitUntil', async () => {
     const { storage } = await seed(MASTER_KEY);
     const worker = createWorker({ openStorage: () => storage, logSink: () => {} });
@@ -411,4 +454,69 @@ describe('Plan limits', () => {
     expect(calls).toBeLessThanOrEqual(4);
     await client.close();
   }, 30_000);
+});
+
+describe('Self-monitoring (P7-08)', () => {
+  const event = (r: Request) => new URL(r.url).pathname;
+
+  it('is off by default: no export happens', async () => {
+    const { storage, token } = await seed(MASTER_KEY);
+    const sent: string[] = [];
+    const worker = createWorker({
+      openStorage: () => storage,
+      fetch: mockNerdGraph().fetch,
+      telemetryFetch: async (url) => {
+        sent.push(String(url));
+        return new Response('{}');
+      },
+      logSink: () => {},
+    });
+    const ctx = fakeCtx();
+    const client = await connect(worker, env, ctx, token);
+    await client.callTool({ name: 'whoami', arguments: {} });
+    await client.close();
+    await ctx.settle();
+    expect(sent).toEqual([]);
+  });
+
+  it('exports through waitUntil when RB_OTEL=on, with the headers from the secret', async () => {
+    const { storage, token } = await seed(MASTER_KEY);
+    const sent: { path: string; key: string | null; body: string }[] = [];
+    const worker = createWorker({
+      openStorage: () => storage,
+      fetch: mockNerdGraph().fetch,
+      telemetryFetch: async (url, init) => {
+        sent.push({
+          path: event(new Request(String(url))),
+          key: new Headers(init.headers).get('api-key'),
+          body: String(init.body),
+        });
+        return new Response('{}');
+      },
+      logSink: () => {},
+    });
+    const otelEnv = {
+      ...env,
+      RB_OTEL: 'on',
+      RB_OTEL_ENDPOINT: 'https://otlp.example.test:4318',
+      RB_OTEL_HEADERS: 'api-key=fake-license-key',
+    } as WorkerEnv;
+    const ctx = fakeCtx();
+    const client = await connect(worker, otelEnv, ctx, token);
+    await client.callTool({ name: 'whoami', arguments: {} });
+    await client.close();
+    await ctx.settle();
+    // P7-18: the request log lines (allowlisted) ride along with the first call's export.
+    expect(sent.map((s) => s.path).sort()).toEqual(['/v1/logs', '/v1/metrics', '/v1/traces']);
+    expect(sent.every((s) => s.key === 'fake-license-key')).toBe(true);
+    expect(sent.map((s) => s.body).join('')).not.toContain('a@example.com');
+    expect(sent.map((s) => s.body).join('')).not.toContain('fake-license-key');
+  });
+
+  it('fails the boot closed on RB_OTEL=on without an endpoint', async () => {
+    const { storage } = await seed(MASTER_KEY);
+    const worker = createWorker({ openStorage: () => storage, logSink: () => {} });
+    const res = await call(worker, { ...env, RB_OTEL: 'on' } as WorkerEnv, fakeCtx(), '/health');
+    expect(res.status).toBe(503);
+  });
 });

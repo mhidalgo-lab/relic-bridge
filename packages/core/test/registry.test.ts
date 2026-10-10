@@ -87,5 +87,14 @@ describe('annotationsFor', () => {
       destructiveHint: true,
       idempotentHint: false,
     });
+    // Write tools declare idempotence themselves (P7-09); read tools are always idempotent.
+    expect(annotationsFor({ kind: 'write', openWorld: true, title: 'T', idempotent: true })).toMatchObject({
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+    });
+    expect(annotationsFor({ kind: 'write', openWorld: true, title: 'T' })).toMatchObject({
+      idempotentHint: false,
+    });
   });
 });

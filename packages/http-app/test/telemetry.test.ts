@@ -1,0 +1,522 @@
+// SPDX-License-Identifier: Apache-2.0
+// Self-monitoring (P7-08, T30): a local mock OTLP receiver stands in for the collector; no real endpoint or key.
+import { createLogger, type FetchLike } from '@relic-bridge/core';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  createHttpApp,
+  createTelemetry,
+  mergeHooks,
+  parseOtlpEndpoint,
+  parseOtlpHeaders,
+  parseSampleRate,
+  parseTraceparent,
+  TELEMETRY_LOG_BUFFER,
+  TelemetryConfigError,
+  telemetrySettingsFromEnv,
+} from '../src/index.ts';
+import { connect, mockNerdGraph, NR_KEY, seedWorld, type World } from './fixtures.ts';
+
+const LICENSE = `lic-${'k'.repeat(30)}NRAL`;
+
+interface Received {
+  readonly path: string;
+  readonly headers: Record<string, string>;
+  readonly body: string;
+}
+
+let received: Received[];
+let base: string;
+let world: World;
+let logLines: string[];
+let up: boolean;
+
+/** The mock OTLP receiver: records what the exporter posts (web-standard; the Node socket test lives in apps/cli). */
+const receiverFetch: FetchLike = async (url, init) => {
+  if (!up) throw new TypeError('connect ECONNREFUSED');
+  received.push({
+    path: new URL(String(url)).pathname,
+    headers: Object.fromEntries(new Headers(init.headers).entries()),
+    body: String(init.body),
+  });
+  return new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } });
+};
+
+beforeEach(async () => {
+  received = [];
+  up = true;
+  base = 'http://127.0.0.1:4318';
+  world = await seedWorld();
+  logLines = [];
+});
+
+const logger = () => createLogger({ level: 'debug', sink: (l) => logLines.push(l) });
+
+function appWith(options: Partial<Parameters<typeof createTelemetry>[0]> = {}) {
+  const telemetry = createTelemetry({
+    endpoint: base,
+    fetch: receiverFetch,
+    headers: { 'api-key': LICENSE },
+    logger: logger(),
+    ...options,
+  });
+  return createHttpApp({
+    storage: world.storage,
+    keyring: world.keyring,
+    clock: world.clock,
+    logger: logger(),
+    fetch: mockNerdGraph().fetch,
+    hooks: mergeHooks(telemetry.hooks),
+  });
+}
+
+describe('OTLP export', () => {
+  it('exports a span and metrics per tool call, with an allowlisted attribute set and the headers', async () => {
+    const app = appWith();
+    const client = await connect(app, 'prod', world.tokens.prod, 'modern');
+    await client.callTool({ name: 'whoami', arguments: {} });
+    await client.callTool({
+      name: 'run_nrql',
+      arguments: { nrql: "SELECT count(*) FROM Transaction WHERE email = 'SECRET-VALUE@example.com'" },
+    });
+    await client.close();
+    await vi.waitFor(() => expect(received.filter((r) => r.path === '/v1/traces').length).toBe(2));
+    await vi.waitFor(() => expect(received.filter((r) => r.path === '/v1/metrics').length).toBe(2));
+
+    const spans = received
+      .filter((r) => r.path === '/v1/traces')
+      // biome-ignore lint/suspicious/noExplicitAny: test inspects raw OTLP JSON
+      .flatMap((r) => (JSON.parse(r.body) as any).resourceSpans[0].scopeSpans[0].spans);
+    expect(spans.map((s: { name: string }) => s.name)).toEqual(['tools/call', 'tools/call']);
+    const tools = spans.map(
+      (s: { attributes: { key: string; value: { stringValue: string } }[] }) =>
+        s.attributes.find((a) => a.key === 'tool')?.value.stringValue,
+    );
+    expect(tools.sort()).toEqual(['run_nrql', 'whoami']);
+    for (const s of spans) {
+      expect(s.traceId).toMatch(/^[0-9a-f]{32}$/);
+      expect(s.spanId).toMatch(/^[0-9a-f]{16}$/);
+      const keys = s.attributes.map((a: { key: string }) => a.key);
+      for (const k of keys)
+        expect([
+          'tool',
+          'status',
+          'error.code',
+          'project',
+          'mode',
+          'nerdgraph.calls',
+          'nerdgraph.response_bytes',
+        ]).toContain(k);
+    }
+    expect(received[0]?.headers['api-key']).toBe(LICENSE);
+
+    // T8/T30: nothing from the request, the result or the credentials leaves the process.
+    const dump = received.map((r) => r.body).join('\n') + logLines.join('\n');
+    for (const forbidden of [
+      'SECRET-VALUE',
+      'SELECT',
+      'a@example.com',
+      NR_KEY,
+      LICENSE,
+      ...Object.values(world.tokens),
+    ]) {
+      expect(dump).not.toContain(forbidden);
+    }
+    expect(dump).not.toMatch(/\brb_(live|test)_/);
+    expect(dump).toContain('relic_bridge.tool.duration');
+  });
+
+  it('exports refused requests as a counter by reason, without addresses or credentials', async () => {
+    const rejected = createTelemetry({ endpoint: base, fetch: receiverFetch, logger: logger() });
+    await rejected.hooks.onRejected?.({} as never, { requestId: 'r', status: 429, reason: 'rate_limit_ip' });
+    await rejected.hooks.onRejected?.({} as never, { requestId: 'r', status: 400, reason: "x'; DROP" });
+    expect(received.length).toBe(2);
+    expect(received[0]?.body).toContain('relic_bridge.requests.rejected');
+    expect(received[0]?.body).toContain('rate_limit_ip');
+    expect(received[1]?.body).not.toContain('DROP');
+    expect(received[1]?.body).toContain('"other"');
+  });
+
+  it('masks hostile tool names and error codes into `other`', async () => {
+    const t = createTelemetry({ endpoint: base, fetch: receiverFetch, traceSampleRate: 0 });
+    await t.hooks.onToolCall?.({} as never, { projectSlug: 'prod' } as never, {
+      tool: 'SELECT * FROM x',
+      status: 'error',
+      errorCode: 'user@example.com',
+      durationMs: 12,
+      input: { nrql: 'secret' },
+      meta: undefined,
+    });
+    expect(received.map((r) => r.path)).toEqual(['/v1/metrics']); // sample rate 0: no spans
+    expect(received[0]?.body).not.toContain('SELECT');
+    expect(received[0]?.body).not.toContain('user@example.com');
+    expect(received[0]?.body).not.toContain('secret');
+  });
+
+  it('samples traces but always exports metrics', async () => {
+    const t = createTelemetry({
+      endpoint: base,
+      fetch: receiverFetch,
+      traceSampleRate: 0.5,
+      random: () => 0.9,
+    });
+    const event = {
+      tool: 'whoami',
+      status: 'ok',
+      errorCode: null,
+      durationMs: 5,
+      input: {},
+      meta: undefined,
+    } as const;
+    await t.hooks.onToolCall?.({} as never, { projectSlug: 'prod' } as never, event);
+    expect(received.map((r) => r.path)).toEqual(['/v1/metrics']);
+  });
+});
+
+describe('failures never reach the caller', () => {
+  it('survives an unreachable collector, logs once without the endpoint or headers, then pauses', async () => {
+    up = false;
+    const app = appWith({ timeoutMs: 500 });
+    const client = await connect(app, 'prod', world.tokens.prod, 'modern');
+    const out = await client.callTool({ name: 'whoami', arguments: {} });
+    expect(out.isError).not.toBe(true);
+    await client.callTool({ name: 'whoami', arguments: {} });
+    await client.close();
+    await vi.waitFor(() => expect(logLines.some((l) => l.includes('telemetry export failed'))).toBe(true));
+    const dump = logLines.join('\n');
+    expect(dump).not.toContain(LICENSE);
+    expect(dump).not.toContain(base);
+  });
+
+  it('survives a collector answering 500 and a throwing fetch', async () => {
+    const t = createTelemetry({
+      endpoint: base,
+      fetch: async () => new Response('no', { status: 500 }),
+      logger: logger(),
+    });
+    const event = {
+      tool: 'whoami',
+      status: 'ok',
+      errorCode: null,
+      durationMs: 5,
+      input: {},
+      meta: undefined,
+    } as const;
+    await expect(
+      t.hooks.onToolCall?.({} as never, { projectSlug: 'p' } as never, event),
+    ).resolves.toBeUndefined();
+    const t2 = createTelemetry({
+      endpoint: base,
+      fetch: async () => {
+        throw new Error(`boom ${LICENSE}`);
+      },
+      logger: logger(),
+    });
+    await expect(
+      t2.hooks.onToolCall?.({} as never, { projectSlug: 'p' } as never, event),
+    ).resolves.toBeUndefined();
+    expect(logLines.join('\n')).not.toContain(LICENSE);
+  });
+
+  it('drops exports beyond the in-flight cap', async () => {
+    let calls = 0;
+    const t = createTelemetry({
+      endpoint: base,
+      maxInFlight: 1,
+      traceSampleRate: 0,
+      fetch: () => {
+        calls += 1;
+        return new Promise(() => undefined);
+      },
+      timeoutMs: 60_000,
+    });
+    const event = {
+      tool: 'whoami',
+      status: 'ok',
+      errorCode: null,
+      durationMs: 5,
+      input: {},
+      meta: undefined,
+    } as const;
+    void t.hooks.onToolCall?.({} as never, { projectSlug: 'p' } as never, event);
+    await t.hooks.onToolCall?.({} as never, { projectSlug: 'p' } as never, event);
+    expect(calls).toBe(1);
+  });
+});
+
+describe('configuration', () => {
+  it('is off unless RB_OTEL=on', () => {
+    expect(telemetrySettingsFromEnv({})).toBeNull();
+    expect(telemetrySettingsFromEnv({ RB_OTEL: 'off', RB_OTEL_ENDPOINT: 'https://x.example' })).toBeNull();
+    expect(() => telemetrySettingsFromEnv({ RB_OTEL: 'on' })).toThrow(TelemetryConfigError);
+    expect(() => telemetrySettingsFromEnv({ RB_OTEL: 'maybe' })).toThrow(TelemetryConfigError);
+    expect(
+      telemetrySettingsFromEnv({
+        RB_OTEL: 'on',
+        RB_OTEL_ENDPOINT: 'https://otlp.example.com:4318/',
+        RB_OTEL_HEADERS: 'api-key=abc%3D',
+        RB_OTEL_SAMPLE: '0.25',
+      }),
+    ).toEqual({
+      endpoint: 'https://otlp.example.com:4318',
+      headers: { 'api-key': 'abc=' },
+      traceSampleRate: 0.25,
+      acceptTraceparent: false,
+    });
+  });
+
+  it('requires https (loopback excepted) and refuses credentials in the URL, without echoing the value', () => {
+    expect(parseOtlpEndpoint('http://localhost:4318')).toBe('http://localhost:4318');
+    for (const bad of [
+      'http://collector.example.com',
+      'https://u:p@x.example',
+      'https://x.example/?k=v',
+      'nope',
+    ]) {
+      expect(() => parseOtlpEndpoint(bad)).toThrow(TelemetryConfigError);
+      try {
+        parseOtlpEndpoint(bad);
+      } catch (e) {
+        expect((e as Error).message).not.toContain('collector.example.com');
+        expect((e as Error).message).not.toContain('p@x');
+      }
+    }
+  });
+
+  it('validates headers and the sample rate', () => {
+    expect(parseOtlpHeaders(undefined)).toEqual({});
+    expect(() => parseOtlpHeaders('no-equals')).toThrow(TelemetryConfigError);
+    expect(() => parseOtlpHeaders('bad name=1')).toThrow(TelemetryConfigError);
+    expect(parseSampleRate(undefined)).toBe(1);
+    expect(parseSampleRate('off')).toBe(0);
+    expect(() => parseSampleRate('2')).toThrow(TelemetryConfigError);
+    expect(() => parseSampleRate('x')).toThrow(TelemetryConfigError);
+  });
+});
+
+const EVENT = {
+  tool: 'whoami',
+  status: 'ok',
+  errorCode: null,
+  durationMs: 5,
+  input: {},
+  meta: undefined,
+} as const;
+
+// biome-ignore lint/suspicious/noExplicitAny: test inspects raw OTLP JSON
+const bodies = (path: string): any[] =>
+  received.filter((r) => r.path === path).map((r) => JSON.parse(r.body));
+
+describe('budget usage (P7-18)', () => {
+  it('exports NerdGraph calls and bytes per tool call as low-cardinality counters, and on the span', async () => {
+    const t = createTelemetry({ endpoint: base, fetch: receiverFetch });
+    await t.hooks.onToolCall?.({} as never, { projectSlug: 'prod' } as never, {
+      ...EVENT,
+      nerdgraphCalls: 3,
+      nerdgraphBytes: 4096,
+    });
+    const metrics = bodies('/v1/metrics')[0].resourceMetrics[0].scopeMetrics[0].metrics;
+    const byName = Object.fromEntries(metrics.map((m: { name: string }) => [m.name, m]));
+    expect(byName['relic_bridge.nerdgraph.calls'].sum.dataPoints[0].asInt).toBe('3');
+    expect(byName['relic_bridge.nerdgraph.response_bytes'].sum.dataPoints[0].asInt).toBe('4096');
+    expect(byName['relic_bridge.nerdgraph.response_bytes'].unit).toBe('By');
+    const keys = byName['relic_bridge.nerdgraph.calls'].sum.dataPoints[0].attributes.map(
+      (a: { key: string }) => a.key,
+    );
+    expect(keys).toEqual(['tool', 'status', 'project', 'mode']);
+    const span = bodies('/v1/traces')[0].resourceSpans[0].scopeSpans[0].spans[0];
+    expect(span.attributes).toContainEqual({ key: 'nerdgraph.calls', value: { intValue: '3' } });
+  });
+
+  it('ignores missing or hostile usage numbers', async () => {
+    const t = createTelemetry({ endpoint: base, fetch: receiverFetch, traceSampleRate: 0 });
+    await t.hooks.onToolCall?.({} as never, { projectSlug: 'prod' } as never, {
+      ...EVENT,
+      nerdgraphCalls: Number.NaN,
+      nerdgraphBytes: -5,
+    });
+    expect(received[0]?.body).not.toContain('nerdgraph');
+  });
+
+  it('counts calls and bytes on a real tool call through the app', async () => {
+    const app = appWith();
+    const client = await connect(app, 'prod', world.tokens.prod, 'modern');
+    await client.callTool({ name: 'whoami', arguments: {} });
+    await client.close();
+    await vi.waitFor(() => expect(bodies('/v1/metrics').length).toBe(1));
+    const names = bodies('/v1/metrics')[0].resourceMetrics[0].scopeMetrics[0].metrics.map(
+      (m: { name: string }) => m.name,
+    );
+    expect(names).toContain('relic_bridge.nerdgraph.calls');
+    expect(names).toContain('relic_bridge.nerdgraph.response_bytes');
+  });
+});
+
+describe('OTLP logs (P7-18)', () => {
+  it('exports only allowlisted, pattern-checked fields; secrets and free text never leave', async () => {
+    const t = createTelemetry({ endpoint: base, fetch: receiverFetch });
+    const log = t.wrapLogger(createLogger({ level: 'debug', sink: (l) => logLines.push(l) }));
+    log.debug('tool ok', { ms: 3 });
+    log.info('tool error', {
+      tool: 'run_nrql',
+      code: 'RB_NRQL_INVALID',
+      ms: 12,
+      nrql: "SELECT * FROM Log WHERE user = 'victim@example.com'",
+      apiKey: NR_KEY,
+      error: 'x; DROP TABLE',
+      email: 'victim@example.com',
+    });
+    log.child({ tool: 'whoami', token: world.tokens.prod }).warn(`bad token ${world.tokens.prod}`);
+    log.warn('user victim@example.com signed in');
+    log.error('NerdGraph said: SELECT secret');
+    log.info('telemetry export failed; pausing exports');
+    await t.flush();
+    const records = bodies('/v1/logs').flatMap((b) => b.resourceLogs[0].scopeLogs[0].logRecords);
+    expect(records.map((r: { severityText: string }) => r.severityText)).toEqual([
+      'INFO',
+      'WARN',
+      'WARN',
+      'ERROR',
+    ]);
+    expect(records[0].body.stringValue).toBe('tool error');
+    expect(records[0].attributes).toEqual([
+      { key: 'log.tool', value: { stringValue: 'run_nrql' } },
+      { key: 'log.code', value: { stringValue: 'RB_NRQL_INVALID' } },
+      { key: 'log.ms', value: { intValue: '12' } },
+      { key: 'log.error', value: { stringValue: 'other' } },
+    ]);
+    expect(records[1].body.stringValue).toBe('other');
+    expect(records[2].body.stringValue).toBe('other');
+    expect(records[3].body.stringValue).toBe('other');
+    const dump = received.map((r) => r.body).join('\n');
+    for (const forbidden of ['SELECT', 'victim', 'DROP', NR_KEY, world.tokens.prod]) {
+      expect(dump).not.toContain(forbidden);
+    }
+  });
+
+  it('keeps writing the wrapped logger unchanged and bounds the buffer', async () => {
+    const t = createTelemetry({ endpoint: base, fetch: receiverFetch });
+    const log = t.wrapLogger(createLogger({ sink: (l) => logLines.push(l) }));
+    for (let i = 0; i < 350; i++) log.info('purged');
+    expect(logLines.length).toBe(350);
+    await t.flush();
+    const n = bodies('/v1/logs').reduce((a, b) => a + b.resourceLogs[0].scopeLogs[0].logRecords.length, 0);
+    expect(n).toBe(TELEMETRY_LOG_BUFFER);
+  });
+
+  it('exports route paths but never a filesystem path (L2)', async () => {
+    const t = createTelemetry({ endpoint: base, fetch: receiverFetch });
+    const log = t.wrapLogger(createLogger({ sink: (l) => logLines.push(l) }));
+    log.info('database created', { path: '/home/someone/relic-bridge/data.db' });
+    log.info('route seen', { path: '/p/prod/mcp' });
+    await t.flush();
+    const records = bodies('/v1/logs').flatMap((b) => b.resourceLogs[0].scopeLogs[0].logRecords);
+    const dump = JSON.stringify(records);
+    expect(dump).not.toContain('someone');
+    expect(dump).toContain('/p/prod/mcp');
+  });
+
+  it('flushes with the next tool call, and a failing collector does not re-export its own warning', async () => {
+    up = false;
+    const t = createTelemetry({ endpoint: base, fetch: receiverFetch, logger: logger() });
+    const log = t.wrapLogger(logger());
+    log.info('housekeeping done');
+    await t.hooks.onToolCall?.({} as never, { projectSlug: 'prod' } as never, EVENT);
+    up = true;
+    t.close();
+    expect(received).toEqual([]);
+  });
+
+  it('exports logs alongside a tool call when the collector is up', async () => {
+    const t = createTelemetry({ endpoint: base, fetch: receiverFetch });
+    t.wrapLogger(silentLoggerFor()).info('housekeeping done');
+    await t.hooks.onToolCall?.({} as never, { projectSlug: 'prod' } as never, EVENT);
+    expect(received.map((r) => r.path).sort()).toEqual(['/v1/logs', '/v1/metrics', '/v1/traces']);
+  });
+});
+
+function silentLoggerFor() {
+  return createLogger({ sink: () => undefined });
+}
+
+describe('trace context (P7-18)', () => {
+  const TRACE = '4bf92f3577b34da6a3ce929d0e0e4736';
+  const PARENT = '00f067aa0ba902b7';
+  const ctx = (value: string | undefined) =>
+    ({ req: { header: (n: string) => (n === 'traceparent' ? value : undefined) } }) as never;
+
+  it('parses only a strict version 00 header', () => {
+    expect(parseTraceparent(`00-${TRACE}-${PARENT}-01`)).toEqual({ traceId: TRACE, spanId: PARENT });
+    for (const bad of [
+      undefined,
+      '',
+      `01-${TRACE}-${PARENT}-01`,
+      `00-${TRACE.toUpperCase()}-${PARENT}-01`,
+      `00-${'0'.repeat(32)}-${PARENT}-01`,
+      `00-${TRACE}-${'0'.repeat(16)}-01`,
+      `00-${TRACE}-${PARENT}-01-extra`,
+      `00-${TRACE}-${PARENT}`,
+      `00-${TRACE}-${PARENT}-0g`,
+      `00-${TRACE}-${PARENT}-01\n`,
+    ]) {
+      expect(parseTraceparent(bad)).toBeUndefined();
+    }
+  });
+
+  it('is ignored unless enabled', async () => {
+    const t = createTelemetry({ endpoint: base, fetch: receiverFetch });
+    await t.hooks.onToolCall?.(ctx(`00-${TRACE}-${PARENT}-01`), { projectSlug: 'prod' } as never, EVENT);
+    const span = bodies('/v1/traces')[0].resourceSpans[0].scopeSpans[0].spans[0];
+    expect(span.traceId).not.toBe(TRACE);
+    expect(span.parentSpanId).toBeUndefined();
+  });
+
+  it('joins the client trace when enabled, and falls back to a fresh trace for a bad header', async () => {
+    const t = createTelemetry({ endpoint: base, fetch: receiverFetch, acceptTraceparent: true });
+    await t.hooks.onToolCall?.(ctx(`00-${TRACE}-${PARENT}-01`), { projectSlug: 'prod' } as never, EVENT);
+    await t.hooks.onPassthroughToolCall?.(ctx('garbage'), {} as never, EVENT);
+    const spans = bodies('/v1/traces').map((b) => b.resourceSpans[0].scopeSpans[0].spans[0]);
+    expect(spans[0].traceId).toBe(TRACE);
+    expect(spans[0].parentSpanId).toBe(PARENT);
+    expect(spans[1].traceId).toMatch(/^[0-9a-f]{32}$/);
+    expect(spans[1].traceId).not.toBe(TRACE);
+    expect(spans[1].parentSpanId).toBeUndefined();
+  });
+
+  it('never changes a response, and is not forwarded to NerdGraph', async () => {
+    const nerdgraph = mockNerdGraph();
+    const seenHeaders: string[] = [];
+    const spy: FetchLike = (url, init) => {
+      seenHeaders.push(JSON.stringify([...new Headers(init.headers).entries()]));
+      return nerdgraph.fetch(url, init);
+    };
+    const telemetry = createTelemetry({
+      endpoint: base,
+      fetch: receiverFetch,
+      acceptTraceparent: true,
+    });
+    const app = createHttpApp({
+      storage: world.storage,
+      keyring: world.keyring,
+      clock: world.clock,
+      logger: logger(),
+      fetch: spy,
+      hooks: mergeHooks(telemetry.hooks),
+    });
+    const withHeader = {
+      fetch: (req: Request) => {
+        const headers = new Headers(req.headers);
+        headers.set('traceparent', `00-${TRACE}-${PARENT}-01`);
+        return app.fetch(new Request(req, { headers }));
+      },
+    };
+    const client = await connect(withHeader, 'prod', world.tokens.prod, 'modern');
+    const out = await client.callTool({ name: 'whoami', arguments: {} });
+    await client.close();
+    expect(out.isError).toBeFalsy();
+    await vi.waitFor(() => expect(bodies('/v1/traces').length).toBe(1));
+    expect(bodies('/v1/traces')[0].resourceSpans[0].scopeSpans[0].spans[0].traceId).toBe(TRACE);
+    expect(seenHeaders.length).toBeGreaterThan(0);
+    expect(seenHeaders.join('')).not.toMatch(/traceparent|tracestate/);
+    expect(seenHeaders.join('')).not.toContain(TRACE);
+  });
+});

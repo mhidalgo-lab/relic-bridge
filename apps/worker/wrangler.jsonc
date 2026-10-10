@@ -1,5 +1,5 @@
 // relic-bridge on Cloudflare Workers (P3-01). No account or resource ids are committed: `wrangler dev` uses local
-// resources, and Wrangler's automatic provisioning creates D1/KV on the first deploy (P3-05 documents the setup).
+// resources, and Wrangler's automatic provisioning creates D1 on the first deploy (P3-05 documents the setup).
 // Secrets (`RB_MASTER_KEY`, `RB_ADMIN_TOKEN`) come from `wrangler secret put` or a local `.dev.vars`, never `vars`.
 {
   "$schema": "node_modules/wrangler/config-schema.json",
@@ -24,12 +24,14 @@
     "@relic-bridge/storage": "../../packages/storage/src/index.ts"
   },
   "d1_databases": [{ "binding": "DB", "database_name": "relic-bridge" }],
-  // Reserved and unused: OAuth provider state lives in D1 (ADR-0011). See docs/pending-decisions/phase-5.md.
-  "kv_namespaces": [{ "binding": "OAUTH_KV" }],
   // Workers Rate Limiting (P3-04). `namespace_id` is any account-unique integer string, not a secret.
   "ratelimits": [
     { "name": "RATE_LIMITER", "namespace_id": "1701", "simple": { "limit": 600, "period": 60 } }
   ],
+  // Shared limiter (P7-10): a SQLite-backed Durable Object class (available on the Free plan). Declaring it costs
+  // nothing; it is used only when RB_SHARED_LIMITER is `rules` or `on` (docs/guide/cloudflare-limits.md).
+  "durable_objects": { "bindings": [{ "name": "SHARED_LIMITER", "class_name": "SharedLimiter" }] },
+  "exports": { "SharedLimiter": { "type": "durable-object", "storage": "sqlite" } },
   // Audit retention (P3-08): hourly like `relic-bridge serve`; deletes rows older than RB_AUDIT_RETENTION_DAYS.
   "triggers": { "crons": ["17 * * * *"] },
   "secrets": { "required": ["RB_MASTER_KEY", "RB_ADMIN_TOKEN"] },

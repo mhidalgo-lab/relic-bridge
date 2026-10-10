@@ -30,7 +30,7 @@ class SystemClock extends ManualClock {
 const SECRET = 'fp-'.padEnd(40, 'f');
 
 /** The HTTP app options a test may override, as the Worker's settings. */
-function envFor(over: Partial<HttpAppOptions>): WorkerEnv {
+function envFor(over: Partial<HttpAppOptions>, approvalUnset = false): WorkerEnv {
   const vars: Record<string, string> = {
     RB_ADMIN_TOKEN: ADMIN_TOKEN,
     // The matrix sends thousands of refusals from one (absent) address; rate limits have their own tests.
@@ -45,7 +45,22 @@ function envFor(over: Partial<HttpAppOptions>): WorkerEnv {
     vars['RB_RATE_LIMIT'] = 'on';
     vars['RB_FINGERPRINT_SECRET'] = SECRET;
   }
-  const { accessCacheTtlMs: _a, passthrough: _p, ...unsupported } = over;
+  if (over.writeTools === true) vars['RB_WRITE_TOOLS'] = 'on';
+  // ADR-0016: the Worker default is `required`; these suites exercise the `client` flow unless they ask for `required`.
+  if (over.writeTools === true && !approvalUnset) {
+    vars['RB_WRITE_APPROVAL'] = over.requireWriteApproval === true ? 'required' : 'client';
+  }
+  if (over.publicToolCatalog === true) vars['RB_PUBLIC_TOOL_CATALOG'] = 'on';
+  if (over.mcpApps === false) vars['RB_MCP_APPS'] = 'off';
+  const {
+    accessCacheTtlMs: _a,
+    passthrough: _p,
+    writeTools: _w,
+    requireWriteApproval: _r,
+    publicToolCatalog: _c,
+    mcpApps: _m,
+    ...unsupported
+  } = over;
   if (Object.keys(unsupported).length > 0) {
     throw new Error(`worker host cannot map the options ${Object.keys(unsupported).join(', ')}`);
   }
@@ -74,8 +89,8 @@ export const workerHost: AuthzHost = {
       settle: () => ctx.settle(),
       makeApp(over = {}) {
         // OAuth (P5-01) is a programmatic Worker option, not a setting.
-        const { oauth, ...settings } = over;
-        const workerEnv = envFor(settings);
+        const { oauth, writeApprovalUnset, ...settings } = over;
+        const workerEnv = envFor(settings, writeApprovalUnset === true);
         // One Worker (isolate) per app, like a fresh deployment.
         const worker = createWorker({
           fetch: nerdGraph.fetch,

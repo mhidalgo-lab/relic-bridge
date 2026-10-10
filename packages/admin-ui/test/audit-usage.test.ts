@@ -285,6 +285,103 @@ describe('usage screen', () => {
     expect(html).toContain('Slowest calls');
   });
 
+  describe('quotas and the daily series (P7-12)', () => {
+    const quotaRow = (over: Record<string, unknown> = {}) => ({
+      grantId: 'grt_me',
+      projectId: 'prj_us',
+      userId: 'usr_admin',
+      label: 'laptop',
+      quota: { day: { queries: 100, inspectedEvents: 1000 }, month: { queries: 2000 }, warnPercent: 80 },
+      day: { period: 'd2026-10-06', queries: 85, inspected: 400, resetsAt: T + 1000 },
+      month: { period: 'm2026-10', queries: 300, inspected: 4000, resetsAt: T + 5000 },
+      ...over,
+    });
+    /** The usual usage page, plus an answer for `/usage/quotas`. */
+    const withQuotas = (rows: unknown[], truncated = false) => {
+      const m = setup();
+      const base = m.fake.adminAnswer;
+      m.fake.adminAnswer = (call) =>
+        call.path === '/usage/quotas' ? { status: 200, body: { data: rows, truncated } } : base(call);
+      return m;
+    };
+
+    it('lists the grants with a quota, usage against caps, meters, and links to the grant', async () => {
+      const m = setup();
+      m.fake.adminAnswer = scriptedApi(sample(), (call) =>
+        call.path === '/usage/quotas'
+          ? { status: 200, body: { data: [quotaRow()], truncated: true } }
+          : call.path === '/audit/stats'
+            ? {
+                status: 200,
+                body: {
+                  data: [
+                    {
+                      key: '2026-10-06',
+                      calls: 9,
+                      errors: 0,
+                      denied: 0,
+                      durationSumMs: 0,
+                      durationCount: 0,
+                      maxDurationMs: null,
+                      inspectedCount: 4000,
+                    },
+                  ],
+                  window: { since: 0, until: T },
+                },
+              }
+            : call.path === '/audit'
+              ? { status: 200, body: { data: [], nextCursor: null } }
+              : undefined,
+      );
+      const { html } = await m.get('/admin/usage');
+      expect(m.fake.calls.find((c) => c.path === '/usage/quotas')).toBeDefined();
+      expect(html).toContain('id="quotas-heading"');
+      expect(html).toContain('85 of 100 (85.0%)');
+      expect(html).toContain('400 of 1,000 (40.0%)');
+      expect(html).toContain('300 of 2,000 (15.0%)');
+      expect(html).toContain('href="/admin/grants/grt_me"');
+      expect(html).toContain('aria-label="admin@example.com (laptop grant): calls today"');
+      expect(html).toContain('More grants have a quota than the 50 shown.');
+      // The series: one more bounded aggregate, grouped by day over the last 14 days.
+      const series = m.fake.calls.filter((c) => c.path === '/audit/stats').at(-1);
+      expect(series?.query).toEqual({
+        groupBy: 'day',
+        since: String(T - 14 * 86_400_000),
+        until: String(T),
+        limit: '15',
+      });
+      expect(html).toContain('Last 14 days');
+      expect(html).toContain('2026-10-06');
+      expect(html).not.toMatch(/style=/);
+    });
+
+    it('a measure without a cap shows the plain count and no meter', async () => {
+      const m = withQuotas([quotaRow({ quota: { day: { queries: 100 }, warnPercent: 80 } })]);
+      const { html } = await m.get('/admin/usage');
+      expect(html).toContain('85 of 100 (85.0%)');
+      expect(html).not.toContain('aria-label="admin@example.com (laptop grant): events inspected today"');
+    });
+
+    it('says so when no grant has a quota, and hides the section when the API cannot answer', async () => {
+      const none = withQuotas([]);
+      expect((await none.get('/admin/usage')).html).toContain('No grant has a quota.');
+      const failing = setup((call) =>
+        call.path === '/usage/quotas'
+          ? { status: 500, body: { error: { code: 'internal_error', message: 'x' } } }
+          : undefined,
+      );
+      const { res, html } = await failing.get('/admin/usage');
+      expect(res.status).toBe(200);
+      expect(html).not.toContain('quotas-heading');
+    });
+
+    it('escapes a hostile grant label', async () => {
+      const m = withQuotas([quotaRow({ grantId: 'grt_x', label: HOSTILE, userId: null })]);
+      const { html } = await m.get('/admin/usage');
+      expect(html).not.toContain('<script>alert');
+    });
+  });
+
   it('uses defaults for unknown choices and is admin-only', async () => {
     const { fake, get } = setup();
     await get('/admin/usage?window=9y&by=nrql');

@@ -9,11 +9,13 @@ export {
   type CreateGrantInput,
   type CreateGrantResult,
   type CreateProjectInput,
+  checkQuota,
   createGrant,
   createProject,
   MAX_ACCOUNTS,
   MAX_NAME_CHARS,
   MAX_TOOLS,
+  setGrantQuota,
   type UpdateProjectInput,
   type UpdateProjectResult,
   updateProject,
@@ -56,3 +58,14 @@ export {
   type Principal,
   tightenLimits,
 } from './resolve.ts';
+export {
+  credentialWriteScope,
+  grantWriteScope,
+  namesWriteTools,
+  type ProjectScopeInput,
+  projectWriteScope,
+  quotaWidens,
+  tokenWriteScope,
+  userWriteScope,
+  type WriteScopeChange,
+} from './write-scope.ts';

@@ -256,6 +256,8 @@ Env mode (no config file):
   RB_TOOLS               Tool allowlist (comma-separated). Default: all read-only tools.
   RB_LIMITS_*            MAX_LIMIT, MAX_WINDOW_DAYS, RAW_NRQL, MAX_RESPONSE_BYTES,
                          EVENT_TYPES_ALLOW, EVENT_TYPES_DENY.
+  RB_QUERY_CACHE         on (default) or off: reuse NRQL results for a short time (also serve).
+  RB_QUERY_CACHE_TTL     Seconds a result over a moving window is reused, 0-300 (default 30).
 
 HTTP server (serve):
   RB_ALLOWED_HOSTS       Hostnames clients use to reach the server (Host check against DNS
@@ -270,7 +272,7 @@ HTTP server (serve):
                          behind a proxy, or every client shares the proxy's address for
                          rate limiting.
   RB_RATE_LIMIT          on (default) or off: all rate limiting.
-  RB_RATE_LIMIT_IP | _AUTH_FAIL | _TOKEN | _GRANT | _PASSTHROUGH_KEY | _SIGN_IN
+  RB_RATE_LIMIT_IP | _AUTH_FAIL | _TOKEN | _GRANT | _PASSTHROUGH_KEY | _SIGN_IN | _WRITE
                          One limit each, "<requests>/<seconds>" or off (see the self-hosting
                          guide for the defaults).
 
@@ -286,6 +288,34 @@ Audit log (serve):
   RB_AUDIT_RETENTION_DAYS  Days to keep rows (default 90; 0 keeps everything). Purged at
                          startup and hourly.
   RB_AUDIT_CLIENT_IP     on (default) or off: record the client address on refused requests.
+
+Write tools (stdio and serve, off by default; see docs/adr/0015-opt-in-write-tools.md):
+  RB_WRITE_TOOLS         off (default) or on: offer the write tools (create_change_event,
+                         acknowledge_issue, close_issue, create_dashboard). Even then a tool works
+                         only when it is named explicitly (stdio: RB_TOOLS or the YAML tools list;
+                         serve: the project and the grant). serve needs RB_AUDIT=on.
+  RB_WRITE_APPROVAL      required (default) or client: a write is refused unless the client supports
+                         MCP elicitation and the person approves the exact change (a client that
+                         cannot be asked can only dry-run, nothing is changed). client lets the model
+                         set confirm: true instead and logs a warning at startup.
+
+MCP Apps (stdio and serve; see docs/guide/charts.md):
+  RB_MCP_APPS            on (default) or off: offer the chart view (_meta.ui on run_nrql and
+                         get_query_result, and the ui:// resource) to clients that declare MCP Apps.
+
+MCP Tasks (stdio and serve):
+  RB_TASKS               on (default) or off: kill switch for the Tasks extension. off advertises no
+                         tasks capability, stores no task, and answers tasks/* as unknown methods;
+                         slow calls answer inline (run_nrql returns its query handle).
+
+Registry-friendly discovery (serve, off by default; see docs/guide/registry-listing.md):
+  RB_PUBLIC_TOOL_CATALOG off (default) or on: answer initialize and tools/list without a token
+                         (static read-only tool list, the same for every project URL) and serve
+                         /.well-known/relic-bridge/tools.json. Tool calls still need a token.
+
+Self-monitoring (serve, off by default):
+  RB_OTEL                off (default) or on: export traces, metrics and logs about this server over OTLP
+                         (needs RB_OTEL_ENDPOINT; optional RB_OTEL_HEADERS, RB_OTEL_SAMPLE, RB_OTEL_TRACEPARENT). See docs/guide/observability.md.
 
 Admin API (serve):
   RB_ADMIN_TOKEN         Bootstrap admin token (32+ printable characters, e.g. from

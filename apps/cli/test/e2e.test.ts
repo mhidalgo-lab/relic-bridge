@@ -146,7 +146,7 @@ describe('relic-bridge stdio (built CLI)', () => {
     const names = list.tools.map((t) => t.name);
     expect(names).toContain('run_nrql');
     expect(names).toContain('whoami');
-    expect(names).toHaveLength(36);
+    expect(names).toHaveLength(37);
 
     const before = requests.length;
     const call = (await s.request(3, 'tools/call', { name: 'whoami', arguments: {} }))['result'] as {
@@ -257,6 +257,44 @@ describe('relic-bridge stdio (built CLI)', () => {
     expect(stderr).not.toContain('chmod 600');
   }, 30_000);
 
+  it('setup mode (P7-14): without any configuration it lists the tools and every call explains the setup', async () => {
+    const s = new RawSession(TEST_BIN, [], baseEnv({}));
+    const init = await s.request(1, 'initialize', {
+      protocolVersion: '2025-06-18',
+      capabilities: {},
+      clientInfo: { name: 'registry', version: '0' },
+    });
+    expect(init['result']).toMatchObject({ serverInfo: { name: 'relic-bridge' } });
+    s.send({ jsonrpc: '2.0', method: 'notifications/initialized' });
+    const list = (await s.request(2, 'tools/list', {}))['result'] as {
+      tools: { name: string; annotations: { readOnlyHint: boolean } }[];
+    };
+    const names = list.tools.map((t) => t.name);
+    expect(names).toContain('run_nrql');
+    expect(names).toContain('whoami');
+    expect(list.tools.every((t) => t.annotations.readOnlyHint)).toBe(true);
+
+    const before = requests.length;
+    const call = (await s.request(3, 'tools/call', { name: 'whoami', arguments: {} }))['result'] as {
+      isError?: boolean;
+      content: { text: string }[];
+    };
+    expect(call.isError).toBe(true);
+    expect(call.content[0]?.text).toContain('RB_AUTH_UNAUTHORIZED: relic-bridge is not configured yet');
+    expect(call.content[0]?.text).toContain('NEW_RELIC_ACCOUNT_ID');
+    const nrql = (await s.request(4, 'tools/call', { name: 'run_nrql', arguments: { nrql: 'SELECT 1' } }))[
+      'result'
+    ] as { isError?: boolean };
+    expect(nrql.isError).toBe(true);
+    // Nothing reached New Relic (there is no key to send).
+    expect(requests.length).toBe(before);
+
+    s.child.stdin.end();
+    expect(await s.exit()).toBe(0);
+    expect(s.messages().every((m) => m['jsonrpc'] === '2.0')).toBe(true);
+    expect(s.stderr).toContain('setup mode');
+  }, 30_000);
+
   it('exits 1 with a clear message on config errors, writing nothing to stdout', async () => {
     const s = new RawSession(TEST_BIN, [], baseEnv({ NEW_RELIC_ACCOUNT_ID: '1' }));
     expect(await s.exit()).toBe(1);
@@ -281,7 +319,8 @@ describe('relic-bridge stdio (built CLI)', () => {
     expect(version).toMatch(/^\d+\.\d+\.\d+/);
     const help = execFileSync(process.execPath, [RELEASE_BIN, '--help']).toString();
     expect(help).toContain('relic-bridge [stdio]');
-  });
+    // Two cold starts of the built CLI: under a loaded machine they exceed the 5 s default (phase 7 review, L8).
+  }, 30_000);
 
   it('shuts down gracefully on SIGTERM', async () => {
     const s = new RawSession(

@@ -12,7 +12,7 @@ One row per event, with these fields (empty when they don't apply):
 |---|---|
 | `ts` | When, epoch milliseconds. |
 | `kind` | `tool_call`, `auth` (a refused request) or `admin` (a change to credentials, projects, grants, tokens). |
-| `action` | The tool name (`run_nrql`), or `auth.denied`, `request.rejected`, `tool.not_granted`, `auth.suppressed`, `admin.suppressed`, or an admin verb such as `token.create`. |
+| `action` | The tool name (`run_nrql`), or `auth.denied`, `request.rejected`, `tool.not_granted`, `quota.denied`, `auth.suppressed`, `admin.suppressed`, or an admin verb such as `token.create` or `grant.quota_set`. |
 | `status` | `ok`, `error` (the tool failed) or `denied`. |
 | `request_id` | Matches the `requestId` in the server log. |
 | `user_id`, `grant_id`, `token_id`, `project_id` | Who, by id. Labels and names live on those records; the project's slug is also kept in `details` so the row stays readable after a deletion. |
@@ -112,6 +112,12 @@ back (`limit`, default 50). `GET /audit?order=slowest` lists the rows with the l
 reads every `tool_call` row in the window, using the timestamp index. That is cheap on SQLite; on D1 each row read
 counts against the plan's row-read allowance, so keep dashboards on short windows if you record very many calls.
 
+`quota.denied` (P7-12) is an `auth` row written when a grant's usage quota first refused a call; `details` holds the
+project slug, the period (`day` or `month`), the cap that ran out (`queries` or `inspectedEvents`) and its value, with
+the error code `RB_LIMIT_QUOTA`. At most one such row per grant, period and cap is written every 15 minutes, and they
+share the per-minute cap of all refusal rows; every refused call is also an ordinary `tool_call` row with that error code.
+Changes to a quota are `admin` rows `grant.quota_set` (the new caps in `details.quota`).
+
 ## Retention
 
 `RB_AUDIT_RETENTION_DAYS` (default `90`; `0` keeps everything). `serve` deletes older rows at startup and every hour.
@@ -136,6 +142,11 @@ off entirely (warned at start).
   fails, the server logs `audit write failed` (kind, action, request id and error name only) and carries on. During a
   database outage the audit rows for that period are lost, and the server also answers `503` for requests that need the
   database to authenticate.
+- **Except for writes (P7-28).** Before a write tool sends its change to New Relic it stores a `tool_call` row with
+  action `write.intent` (target: the tool; details: the arguments and the planned change) and waits for it. If that row
+  cannot be stored, the write is refused (`RB_INTERNAL`, "nothing was changed") and nothing is sent. The usual
+  `tool_call` row for the call follows afterwards; usage statistics count only that one. An intent row with no
+  matching call row means the call ended before reporting: check the target in New Relic.
 - **Floods can't fill the table.** Refusal rows are capped at 120 per minute; beyond that they are counted into one
   `auth.suppressed` row for the minute.
 - A tool call that the grant doesn't include is recorded as `tool.not_granted`, from both 2025- and 2026-era clients

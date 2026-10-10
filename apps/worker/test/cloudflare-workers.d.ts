@@ -11,3 +11,18 @@ declare module 'cloudflare:workers' {
     readonly default: { fetch(input: Request | string, init?: RequestInit): Promise<Response> };
   };
 }
+
+// The Durable Object helpers of `@cloudflare/vitest-plugin` the shared-limiter tests use (P7-10).
+declare module 'cloudflare:test' {
+  import type { DurableObjectState } from '@cloudflare/workers-types';
+
+  /** Runs `callback` inside the object behind `stub` (its instance and state). */
+  export function runInDurableObject<O, R>(
+    stub: unknown,
+    callback: (instance: O, state: DurableObjectState) => R | Promise<R>,
+  ): Promise<R>;
+  /** Runs the object's scheduled alarm now, if any; `true` when one ran. */
+  export function runDurableObjectAlarm(stub: unknown): Promise<boolean>;
+  /** Tears the running object down (memory lost, storage kept). */
+  export function evictDurableObject(stub: unknown): Promise<void>;
+}

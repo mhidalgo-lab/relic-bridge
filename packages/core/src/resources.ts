@@ -7,9 +7,11 @@
 // - Schema resources never query New Relic themselves: they call the `list_event_types` / `get_attributes` handlers,
 //   so the account check (deny by default), event-type allow/deny lists, the per-credential cache, the untrusted-data
 //   wrapping, the request budget and the audit row are the tools' own, not a second copy that could drift.
+// - The MCP Apps view (P7-04) is static HTML that draws the tool result the host hands it; it reads nothing itself.
 // - The URI is client input. `{account}` must be digits; the handlers validate the rest. `resources/list` names only
 //   the connection's effective accounts, and attributes are never enumerated.
-import { type McpServer, ResourceTemplate } from '@modelcontextprotocol/server';
+import { type McpServer, type RegisteredResource, ResourceTemplate } from '@modelcontextprotocol/server';
+import { CHART_APP_HTML, CHART_APP_RESOURCE_META, MCP_APP_MIME_TYPE, NRQL_CHART_URI } from './apps/index.ts';
 import type { ToolContext } from './context.ts';
 import { ErrorCode, isRbError } from './errors.ts';
 import { NRQL_REFERENCE } from './nrql-reference.ts';
@@ -31,7 +33,7 @@ export interface ResourceDefinition {
   readonly mimeType: string;
   /** Tool that must be allowed for the resource to be offered (and that serves it, for schema resources). */
   readonly needsTool: string;
-  readonly kind: 'static' | 'event_types' | 'attributes';
+  readonly kind: 'static' | 'event_types' | 'attributes' | 'app';
 }
 
 export const RESOURCES: readonly ResourceDefinition[] = [
@@ -65,6 +67,16 @@ export const RESOURCES: readonly ResourceDefinition[] = [
     needsTool: 'get_attributes',
     kind: 'attributes',
   },
+  {
+    name: 'nrql_chart',
+    title: 'NRQL chart view',
+    description:
+      'MCP Apps view for run_nrql / get_query_result results: line chart for TIMESERIES, bars for FACET, otherwise a table. Draws only the tool result it is given.',
+    uri: NRQL_CHART_URI,
+    mimeType: MCP_APP_MIME_TYPE,
+    needsTool: 'run_nrql',
+    kind: 'app',
+  },
 ];
 
 /** Resources whose tool is allowed. */
@@ -91,6 +103,7 @@ function readError(error: unknown): Error {
   return new Error('Internal error while reading the resource.');
 }
 
+/** Registers the offered resources; returns the MCP Apps view resources by URI (their visibility is per client, P7-16). */
 export function registerResources(
   server: McpServer,
   opts: {
@@ -99,7 +112,8 @@ export function registerResources(
     readonly contextFor: () => ToolContext;
     readonly invoke: InvokeTool;
   },
-): void {
+): Map<string, RegisteredResource> {
+  const registered = new Map<string, RegisteredResource>();
   const toolByName = new Map(opts.tools.map((t) => [t.name, t]));
   for (const def of opts.defs) {
     const meta = { title: def.title, description: def.description, mimeType: def.mimeType };
@@ -107,6 +121,23 @@ export function registerResources(
       server.registerResource(def.name, def.uri, meta, (uri) => ({
         contents: [{ uri: uri.href, mimeType: def.mimeType, text: NRQL_REFERENCE }],
       }));
+      continue;
+    }
+    if (def.kind === 'app') {
+      const appMeta = { ...meta, _meta: { ...CHART_APP_RESOURCE_META } };
+      registered.set(
+        def.uri,
+        server.registerResource(def.name, def.uri, appMeta, (uri) => ({
+          contents: [
+            {
+              uri: uri.href,
+              mimeType: def.mimeType,
+              text: CHART_APP_HTML,
+              _meta: { ...CHART_APP_RESOURCE_META },
+            },
+          ],
+        })),
+      );
       continue;
     }
     const tool = toolByName.get(def.needsTool);
@@ -160,4 +191,5 @@ export function registerResources(
     });
     server.registerResource(def.name, template, meta, (uri, vars) => read(uri, vars));
   }
+  return registered;
 }

@@ -195,7 +195,7 @@ export function hostileNerdGraph(tenants: Readonly<Record<string, string>>): Hos
     fetch: async (_url, init) => {
       const apiKey = new Headers(init.headers).get('api-key');
       const body = JSON.parse(String(init.body)) as { query: string; variables?: Record<string, unknown> };
-      const op = /query (Rb\w+)/.exec(body.query)?.[1] ?? 'unknown';
+      const op = /(?:query|mutation) (Rb\w+)/.exec(body.query)?.[1] ?? 'unknown';
       const variables = body.variables ?? {};
       calls.push({ apiKey, op, variables });
       if (mock.delayMs > 0) await new Promise((r) => setTimeout(r, Math.random() * mock.delayMs));
@@ -219,6 +219,25 @@ export function hostileNerdGraph(tenants: Readonly<Record<string, string>>): Hos
         case 'RbNrql':
         case 'RbNrqlCrossAccount': {
           const nrql = String(variables['nrql'] ?? '');
+          // An async query naming SLOW is still running: a handle (or an MCP task, P7-13) until one progress poll.
+          if (op === 'RbNrql' && variables['async'] === true && nrql.includes('SLOW')) {
+            return ok({
+              actor: {
+                account: {
+                  nrql: {
+                    ...nrqlContainer([]),
+                    results: null,
+                    queryProgress: {
+                      queryId: `slow-${label}`,
+                      completed: false,
+                      retryAfter: 1,
+                      resultExpiration: null,
+                    },
+                  },
+                },
+              },
+            });
+          }
           const results = nrql.startsWith('SHOW EVENT TYPES')
             ? [{ eventType: 'Transaction' }, { eventType: `${label}Event` }]
             : nrql.includes('keyset()')
@@ -529,6 +548,55 @@ export function hostileNerdGraph(tenants: Readonly<Record<string, string>>): Hos
               },
             },
           });
+        // Write tools (P7-09): mutations answer as New Relic documents them (no real call is ever made).
+        case 'RbCreateChangeEvent': {
+          const query = String(
+            (variables['event'] as { entitySearch?: { query?: string } }).entitySearch?.query,
+          );
+          const guid = /id = '([^']*)'/.exec(query)?.[1] ?? null;
+          return ok({
+            changeTrackingCreateEvent: {
+              changeTrackingEvent: {
+                changeTrackingId: 'ct-created-1',
+                category: 'DEPLOYMENT',
+                type: 'BASIC',
+                timestamp: 1790338700000,
+                entity: { guid, accountId: guid === null ? null : decodeEntityGuid(guid).accountId },
+              },
+              messages: [],
+            },
+          });
+        }
+        case 'RbAckIssue':
+        case 'RbResolveIssue': {
+          const field = op === 'RbAckIssue' ? 'aiIssuesAckIssue' : 'aiIssuesResolveIssue';
+          return ok({
+            [field]: {
+              result: {
+                accountId: variables['accountId'],
+                action: op === 'RbAckIssue' ? 'ACK' : 'RESOLVE',
+                issueId: variables['issueId'],
+              },
+              error: null,
+            },
+          });
+        }
+        // create_dashboard (P7-19): a hostile answer names a foreign-looking dashboard with a leaky name; the tool must
+        // neither echo New Relic's name nor trust what it says.
+        case 'RbCreateDashboard': {
+          const account = Number(variables['accountId']);
+          return ok({
+            dashboardCreate: {
+              entityResult: {
+                guid: guidOf(account, 'dash-created'),
+                accountId: account,
+                name: `${LEAK}-dashboard`,
+                permissions: 'PRIVATE',
+              },
+              errors: [],
+            },
+          });
+        }
         default:
           throw new Error(`hostileNerdGraph: no reply for ${op}`);
       }
@@ -548,6 +616,27 @@ export function accountsNamed(call: NerdGraphCall): number[] {
     if (m?.[1]) out.push(...m[1].split(',').map((s) => Number(s.trim().replace(/'/g, ''))));
   }
   if (typeof v['guid'] === 'string') out.push(decodeEntityGuid(v['guid']).accountId);
+  // Write tools (P7-09): the change event's entity filter names the entity by GUID.
+  const search = (v['event'] as { entitySearch?: { query?: unknown } } | undefined)?.entitySearch?.query;
+  if (typeof search === 'string') {
+    const m = /id = '([^']*)'/.exec(search);
+    if (m?.[1]) out.push(decodeEntityGuid(m[1]).accountId);
+  }
+  // create_dashboard (P7-19): the dashboard's account variable is above; every widget query names its own account.
+  const dashboard = v['dashboard'] as
+    | {
+        pages?: {
+          widgets?: { configuration?: Record<string, { nrqlQueries?: { accountId?: unknown }[] }> }[];
+        }[];
+      }
+    | undefined;
+  for (const page of dashboard?.pages ?? []) {
+    for (const widget of page.widgets ?? []) {
+      for (const config of Object.values(widget.configuration ?? {})) {
+        for (const q of config.nrqlQueries ?? []) if (typeof q.accountId === 'number') out.push(q.accountId);
+      }
+    }
+  }
   return out;
 }
 
@@ -574,7 +663,7 @@ export interface Harness {
   readonly recorderHooks: HttpAppHooks;
   /** Calls the app made to identity providers (sign-in routes, P4-01); a stand-in that answers 503. */
   readonly idpCalls: string[];
-  makeApp(over?: Partial<HttpAppOptions>): { fetch(request: Request): Response | Promise<Response> };
+  makeApp(over?: AuthzAppOptions): { fetch(request: Request): Response | Promise<Response> };
   send(request: Request, app?: { fetch(request: Request): Response | Promise<Response> }): Promise<Captured>;
   /** A validated credential reaching `reachable` (default 1, 2, 3 and FOREIGN). */
   addCredential(opts?: {
@@ -674,12 +763,18 @@ export const IDENTITY_ENV: Readonly<Record<string, string>> = Object.freeze({
 
 /** The app under test with the admin API (token `ADMIN_TOKEN`), sign-in and the audit recorder on. */
 export interface HostApp {
-  makeApp(over?: Partial<HttpAppOptions>): AuthzApp;
+  makeApp(over?: AuthzAppOptions): AuthzApp;
   /** The recorder's hooks, for tests composing their own hooks (the HTTP app host only). */
   readonly recorderHooks: HttpAppHooks;
   /** Wait for background work (audit rows written through `waitUntil`). */
   settle?(): Promise<void>;
 }
+
+/**
+ * The options a test passes to `makeApp`. `writeApprovalUnset` stands for a deployment that leaves `RB_WRITE_APPROVAL`
+ * unset (ADR-0016: `required`): the HTTP app host sets the resolved value, the Worker host leaves the variable out.
+ */
+export type AuthzAppOptions = Partial<HttpAppOptions> & { readonly writeApprovalUnset?: true };
 
 export interface AuthzHost {
   readonly kind: 'http-app' | 'worker';
@@ -718,7 +813,7 @@ export const httpAppHost: AuthzHost = {
     };
     return {
       recorderHooks: recorder.hooks,
-      makeApp: (over = {}) => {
+      makeApp: ({ writeApprovalUnset, ...over } = {}) => {
         // Sign-in comes back to http://localhost; a test that narrows the Host allowlist elsewhere goes without it.
         const hosts = over.allowedHosts;
         const signIn = hosts === undefined || hosts === '*' || hosts.includes('localhost');
@@ -730,6 +825,9 @@ export const httpAppHost: AuthzHost = {
           fetch: nerdGraph.fetch,
           accessCacheTtlMs: 0,
           hooks: recorder.hooks,
+          // MCP Tasks (P7-13), as `serve` and the Worker keep them.
+          taskStore: storage.kv,
+          approvalStore: storage.kv,
           admin: {
             token: new Secret(ADMIN_TOKEN),
             storage,
@@ -737,6 +835,7 @@ export const httpAppHost: AuthzHost = {
             audit: recorder,
           },
           ...(signIn ? { identity: identityOptions } : {}),
+          ...(writeApprovalUnset === true ? { requireWriteApproval: true } : {}),
           ...over,
         });
       },

@@ -12,8 +12,8 @@ with Workers bindings. Private package; it is deployed with Wrangler, not publis
 | Binding | Kind | Purpose |
 |---|---|---|
 | `DB` | D1 | Storage (projects, grants, tokens, encrypted credentials, audit log). |
-| `OAUTH_KV` | KV | Reserved, unused: OAuth provider state lives in D1 (ADR-0011). |
 | `RATE_LIMITER` | Rate Limiting | Shared coarse rate-limit ceiling (P3-04); exact rules stay per isolate. |
+| `SHARED_LIMITER` | Durable Object (`SharedLimiter`, SQLite) | Optional exact counters shared by every isolate (P7-10), used only with `RB_SHARED_LIMITER`. |
 | `RB_MASTER_KEY` | secret, required | Encrypts stored New Relic keys (`relic-bridge keys generate`). Back it up. |
 | `RB_MASTER_KEY_PREVIOUS` | secret, optional | The previous master key while rotating ([runbook](../../docs/guide/cloudflare-deploy.md#rotate-the-master-key)). |
 | `RB_FINGERPRINT_SECRET` | secret, optional | Required only with `RB_PASSTHROUGH=on` (`pnpm cf:setup --passthrough` generates it). |
@@ -21,7 +21,7 @@ with Workers bindings. Private package; it is deployed with Wrangler, not publis
 | `RB_GOOGLE_CLIENT_SECRET`, `RB_GITHUB_CLIENT_SECRET`, `RB_OIDC_CLIENT_SECRET` | secret, optional | OAuth client secrets of the [sign-in providers](../../docs/guide/identity-providers.md) you enable. |
 
 Secrets go through `wrangler secret put` (or `.dev.vars` locally), never `vars` and never D1. `wrangler.jsonc` holds no
-account or resource ids: local dev uses local resources, and Wrangler's automatic provisioning creates D1/KV on the
+account or resource ids: local dev uses local resources, and Wrangler's automatic provisioning creates D1 on the
 first deploy.
 
 ## Settings (`vars`)
@@ -36,10 +36,19 @@ first deploy.
 | `RB_ALLOWED_ORIGINS` | loopback | Hostnames browsers may send in `Origin`. |
 | `RB_CORS_ORIGINS` | off | Full origins allowed by CORS. |
 | `RB_ACCESS_CACHE_TTL` | `30` | Seconds a resolved token/grant stays cached per isolate (0-60, 0 disables). |
+| `RB_QUERY_CACHE` | `memory` (free), `on` (paid) | NRQL query cache (P7-02): `on` = isolate memory plus the data center's Cache API (bodies encrypted with a master-key-derived key; each lookup or write counts as a subrequest and is skipped once half the request budget is spent), `memory` = isolate memory only, `off`. |
+| `RB_QUERY_CACHE_TTL` | `30` | Seconds a result over a moving window is reused (0-300). |
 | `RB_AUDIT`, `RB_AUDIT_NRQL`, `RB_AUDIT_CLIENT_IP` | `on`, `mask`, `on` | As for `serve`. Audit rows are written with `ctx.waitUntil`. |
+| `RB_OTEL`, `RB_OTEL_ENDPOINT`, `RB_OTEL_SAMPLE`, `RB_OTEL_TRACEPARENT` (vars), `RB_OTEL_HEADERS` (secret) | `off` | Opt-in OTLP self-monitoring, exported with `ctx.waitUntil`; see `docs/guide/observability.md`. |
 | `RB_AUDIT_RETENTION_DAYS` | `90` | Days to keep audit rows (`0` = forever). An hourly cron trigger (`triggers.crons`) deletes older rows, in batches of 500 (up to 10,000 per run); a larger backlog is finished by the next run. |
 | `RB_RATE_LIMIT` | `on` | `off` disables rate limiting (isolate buckets and the `RATE_LIMITER` binding). The binding's own limit (default 600 per 60 s per key) is set in `wrangler.jsonc`. |
+| `RB_SHARED_LIMITER` | `off` | Durable Object limiter (P7-10, [Cloudflare limits](../../docs/guide/cloudflare-limits.md#shared-limiter-durable-object-optional)): `rules` counts the auth-failure, sign-in, OAuth and write limits once for the deployment instead of per isolate; `on` also caps NerdGraph calls in flight per credential (`RB_CONCURRENCY`) across isolates. Needs the `SHARED_LIMITER` binding (warning and per-isolate limits without it). |
 | `RB_PASSTHROUGH` | `off` | `on` enables `/passthrough/mcp`; it needs `RB_FINGERPRINT_SECRET` and the `RATE_LIMITER` binding, otherwise the boot fails (503). |
+| `RB_WRITE_TOOLS` | `off` | `on` offers the opt-in write tools (P7-09, `docs/adr/0015-opt-in-write-tools.md`); each still needs the project and the grant to name it, and owners only can do that. Needs `RB_AUDIT=on`. The stricter write rate limit is per isolate unless `RB_SHARED_LIMITER` is `rules` or `on`. |
+| `RB_WRITE_APPROVAL` | `required` | With write tools on (ADR-0016): `required` needs a person's approval through MCP elicitation, so a client that cannot be asked can only dry-run; `client` is an explicit opt-down (the model's `confirm: true` is enough) and logs a startup warning. |
+| `RB_TASKS` | `on` | `off` turns the MCP Tasks extension off (P7-34): no tasks capability, nothing written to D1 `kv` for tasks, slow calls answer inline (`run_nrql` returns its query handle), `tasks/*` are unknown methods. |
+| `RB_MCP_APPS` | `on` | `off` removes the chart view (P7-16, [charts](../../docs/guide/charts.md)): no `_meta.ui` on the NRQL tools and no `ui://` resource for any client. |
+| `RB_PUBLIC_TOOL_CATALOG` | `off` | `on` (P7-14, [registry listing](../../docs/guide/registry-listing.md)): `initialize` / `tools/list` without a token answer the static read-only tool list, the same for every project URL, and `/.well-known/relic-bridge/tools.json` serves it; everything else still needs a token. Warns without `RB_RATE_LIMIT`. |
 | `RB_LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error`. Logs go to Workers Logs, redacted. |
 | `RB_PUBLIC_URL`, `RB_GOOGLE_CLIENT_ID`, `RB_GOOGLE_HOSTED_DOMAIN`, `RB_GITHUB_CLIENT_ID`, `RB_OIDC_*`, `RB_CF_ACCESS_TEAM`, `RB_CF_ACCESS_AUD`, `RB_LOGIN_*`, `RB_SESSION_IDLE_MINUTES`, `RB_SESSION_MAX_HOURS` | off | Admin sign-in (P4-01) and admin sessions (P4-02, default 30 min idle / 12 h): the admin panel is served at `/admin` when sign-in is on (P4-03, assets bundled, no static-assets binding). See the [identity providers guide](../../docs/guide/identity-providers.md) and [admin access](../../docs/guide/admin-access.md). A half-configured provider fails the boot. |
 

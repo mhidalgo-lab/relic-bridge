@@ -14,6 +14,7 @@
     "admin.overview": 8.056,
     "tool.run_nrql.10kb": 2.311,
     "tool.run_nrql.100kb": 3.444,
-    "tool.run_nrql.500kb": 6.407
+    "tool.run_nrql.500kb": 6.407,
+    "tool.run_nrql.summary2000": 9.6
   }
 }

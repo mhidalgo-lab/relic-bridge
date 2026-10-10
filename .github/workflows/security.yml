@@ -18,7 +18,7 @@ concurrency:
 jobs:
   codeql:
     name: CodeQL
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(vars.CI_RUNS_ON || '["self-hosted","linux","x64"]') }}
     timeout-minutes: 20
     permissions:
       actions: read
@@ -28,6 +28,10 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # The runner's default node is too old for the TypeScript extractor.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
       - uses: github/codeql-action/init@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
         with:
           languages: javascript-typescript, actions
@@ -39,7 +43,7 @@ jobs:
 
   gitleaks:
     name: Secret scan (gitleaks)
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(vars.CI_RUNS_ON || '["self-hosted","linux","x64"]') }}
     timeout-minutes: 10
     env:
       GITLEAKS_VERSION: 8.30.1
@@ -61,23 +65,25 @@ jobs:
 
   audit:
     name: Dependency audit
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(vars.CI_RUNS_ON || '["self-hosted","linux","x64"]') }}
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      # setup-node comes first: pnpm/action-setup runs on the node on PATH, which is too old on a fresh runner. No
+      # `cache: pnpm` (it needs pnpm already installed).
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: '24'
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
       - run: pnpm audit --audit-level high
 
   dependency-review:
     name: Dependency review
     # Needs a public repo (or GitHub Advanced Security). While private, scripts/check-licenses.ts + pnpm audit cover it.
     if: github.event_name == 'pull_request' && !github.event.repository.private
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(vars.CI_RUNS_ON || '["self-hosted","linux","x64"]') }}
     timeout-minutes: 10
     permissions:
       contents: read

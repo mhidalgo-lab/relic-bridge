@@ -14,25 +14,36 @@
 // - every change is written to the audit log and clears the in-process access cache.
 import { createRoute, OpenAPIHono, type RouteConfig, type z } from '@hono/zod-openapi';
 import {
+  type ConfigBundle,
   type CreateGrantInput,
   type CreateProjectInput,
   createCredential,
   createGrant,
   createProject,
   createSetupLink,
+  credentialWriteScope,
+  exportConfig,
+  grantWriteScope,
+  importConfig,
   issueAccessToken,
   type Keyring,
   type KeyValidator,
+  parseWrapKey,
+  projectWriteScope,
   revalidateCredential,
   revokeAccessToken,
   revokeUserSessions,
   rotateCredentialKey,
   rotateCredentialKeysBatch,
+  setGrantQuota,
+  tokenWriteScope,
   type toTokenSummary,
   type UpdateProjectInput,
   updateProject,
+  userWriteScope,
+  type WriteScopeChange,
 } from '@relic-bridge/auth';
-import { type Clock, type Logger, redact, Secret } from '@relic-bridge/core';
+import { type Clock, type Logger, redact, Secret, siblingWarnings } from '@relic-bridge/core';
 import {
   type AccessTokenRecord,
   type AuditQuery,
@@ -40,13 +51,17 @@ import {
   ConflictError,
   type CredentialRecord,
   type GrantRecord,
+  type GrantUsageRepository,
   type KvRepository,
   newId,
   normalizeEmail,
   type ProjectRecord,
+  periodResetsAt,
   type Storage,
+  type StoredQuota,
   type UserPatch,
   type UserRecord,
+  usagePeriods,
 } from '@relic-bridge/storage';
 import type { Context } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
@@ -82,7 +97,7 @@ export const SESSION_ACTOR: 'session' = 'session';
 
 export type StorageForAdmin = Pick<
   Storage,
-  'users' | 'credentials' | 'projects' | 'grants' | 'accessTokens' | 'auditLog' | 'settings'
+  'users' | 'credentials' | 'projects' | 'grants' | 'accessTokens' | 'auditLog' | 'settings' | 'grantUsage'
 >;
 
 type Vars = {
@@ -96,6 +111,8 @@ export type AdminEnv = { Variables: Vars };
 /** What `createHttpApp` hands the admin API (everything request-scoped stays in the handler). */
 export interface AdminApiDeps {
   readonly storage: StorageForAdmin;
+  /** Where quota counters are read for the usage view (P7-12). Default: `storage.grantUsage`. */
+  readonly usage?: Pick<GrantUsageRepository, 'getMany'>;
   readonly keyring: Keyring;
   /** The bootstrap admin token; absent when only sessions are configured. */
   readonly verifier?: AdminTokenVerifier;
@@ -108,6 +125,8 @@ export interface AdminApiDeps {
   readonly sessionKv?: Pick<KvRepository, 'get' | 'put' | 'delete' | 'list' | 'deletePrefix'>;
   readonly validateKey: KeyValidator;
   readonly catalog: readonly string[];
+  /** Composite tool to the sibling tools it calls (P6-25): `POST /grants` warns when a grant names one without them. */
+  readonly compositeSiblings?: Readonly<Record<string, readonly string[]>>;
   readonly clock: Clock;
   readonly logger: Logger;
   readonly maxBodyBytes: number;
@@ -215,6 +234,7 @@ function grantView(g: GrantRecord): z.infer<typeof S.GrantSchema> {
     limits: limitsView(g.limits),
     rateLimit:
       g.rateLimit === null ? null : { requests: g.rateLimit.requests, perSeconds: g.rateLimit.perSeconds },
+    quota: g.quota === null ? null : (JSON.parse(JSON.stringify(g.quota)) as z.infer<typeof S.QuotaSchema>),
     createdAt: g.createdAt,
     updatedAt: g.updatedAt,
     expiresAt: g.expiresAt,
@@ -387,7 +407,8 @@ const routes = {
     tags: ['users'],
     summary: 'Create a user',
     description:
-      'Users own personal credentials and receive user grants. Login identities arrive in Phase 4.',
+      'Users own personal credentials and receive user grants. Login identities arrive in Phase 4. Creating an admin or ' +
+      'an owner is owner-only (`403 forbidden`, `detail: owner`, P4-21).',
     request: BODY(S.CreateUserBody),
     responses: { 201: json(S.UserOne, 'Created'), ...errors(409, 413, 415) },
   }),
@@ -405,7 +426,11 @@ const routes = {
     tags: ['users'],
     summary: 'Update or disable a user',
     description:
-      'Demoting or disabling the last enabled owner is refused with `409 conflict`, `detail: last_owner` (P4-16).',
+      'Only an owner (or the admin token) promotes a user to admin or changes, demotes, disables or enables another ' +
+      'admin: an admin session gets `403 forbidden`, `detail: owner` (P4-21). ' +
+      'Demoting or disabling the last enabled owner is refused with `409 conflict`, `detail: last_owner` (P4-16). ' +
+      'Re-enabling a user who holds a live grant naming a write tool is owner-only: `403 forbidden`, ' +
+      '`detail: write_scope` (P7-32).',
     request: { params: S.IdParam, ...BODY(S.UpdateUserBody) },
     responses: { 200: json(S.UserOne, 'Updated'), ...errors(404, 409, 413, 415) },
   }),
@@ -495,7 +520,7 @@ const routes = {
     summary: 'Sign a user out everywhere',
     description:
       'Ends every admin session of the user at once (all devices). Members may do this for themselves only; admins ' +
-      'for anyone but an owner. A role change or disabling a user does this automatically.',
+      'for members and themselves (another admin or an owner: owners only). A role change or disabling a user does this automatically.',
     request: { params: S.IdParam },
     responses: { 200: json(S.SessionsRevokedOne, 'Sessions ended'), ...errors(404) },
   }),
@@ -635,10 +660,34 @@ const routes = {
     summary: 'Create a grant',
     description:
       'A grant may use the project default credential, a shared one, or its own user’s. Parts the project does not ' +
-      'allow are stored but have no effect (listed in `warnings`).',
+      'allow are stored but have no effect (listed in `warnings`). A composite tool named without the sibling tools ' +
+      'it calls is also listed there: a grant never implies them, so those sections come back skipped.',
     request: BODY(S.CreateGrantBody),
     responses: { 201: json(S.GrantOne, 'Created'), ...errors(404, 409, 413, 415, 422) },
   }),
+  setGrantQuota: route({
+    method: 'put',
+    path: '/grants/{id}/quota',
+    tags: ['grants'],
+    summary: 'Set or remove a grant’s usage quota',
+    description:
+      'Caps per UTC day and month on real NerdGraph calls and inspected events (P7-12). Takes effect at once on this ' +
+      'process and within the access cache TTL elsewhere. Counters are kept: a cap below today’s use denies at once. ' +
+      'Admins and owners; only owners change a grant that acts for an owner.',
+    request: { params: S.IdParam, ...BODY(S.SetQuotaBody) },
+    responses: { 200: json(S.GrantOne, 'The grant with its quota'), ...errors(404, 413, 415, 422) },
+  }),
+  quotaUsage: route({
+    method: 'get',
+    path: '/usage/quotas',
+    tags: ['audit'],
+    summary: 'Usage against the quota of the grants that have one',
+    description:
+      'The counters of the current UTC day and month next to each grant’s caps, for at most 50 live grants with a quota ' +
+      '(one bounded read). Admins and owners only.',
+    responses: { 200: json(S.QuotaUsageResponse, 'Usage'), ...errors() },
+  }),
+
   getGrant: route({
     method: 'get',
     path: '/grants/{id}',
@@ -713,6 +762,37 @@ const routes = {
       'Never returns key material.',
     request: BODY(S.RotateKeysBody),
     responses: { 200: json(S.KeyRotationOne, 'What this batch did'), ...errors(413, 415) },
+  }),
+
+  exportConfig: route({
+    method: 'post',
+    path: '/config/export',
+    tags: ['config'],
+    summary: 'Export projects, grants, users and settings',
+    description:
+      'Owner only (P7-06). Returns a `relic-bridge-config` bundle. New Relic keys are never included in plaintext: ' +
+      'leave the body empty for an export without keys, or send `wrapKey` + `kdf` (derived by the CLI from a ' +
+      "passphrase) to include them sealed with AES-256-GCM: shared keys and the caller's own personal keys only (the admin " +
+      "token, which is nobody, gets shared keys; a colleague's personal key is never exported). Access tokens, sessions, OAuth state, identity bindings " +
+      'and master keys are never exported. Audited as `config.export`.',
+    request: BODY(S.ExportConfigBody),
+    responses: { 200: json(S.ExportConfigOne, 'The bundle'), ...errors(413, 415) },
+  }),
+
+  importConfig: route({
+    method: 'post',
+    path: '/config/import',
+    tags: ['config'],
+    summary: 'Import a configuration bundle (dry run by default)',
+    description:
+      'Owner only (P7-06). Validates the bundle strictly, then returns what it would create, update or skip ' +
+      '(`apply` false, the default: nothing changes). With `apply: true` it makes those changes through the same rules ' +
+      'as the other routes and stops at the first failure (`failed`); importing again resumes. Matching is by natural ' +
+      'key (user email, credential owner and label, project slug, grant project and user), so a repeated import ' +
+      'changes nothing. Never deletes or revokes; users are create-only and never owners; existing grants and stored ' +
+      'keys are not modified. Audited as `config.import`.',
+    request: BODY(S.ImportConfigBody),
+    responses: { 200: json(S.ImportReportOne, 'The plan or the outcome'), ...errors(413, 415, 422) },
   }),
 
   createSetupLink: route({
@@ -898,8 +978,11 @@ const REFUSAL_ROUTES: readonly (readonly [string, RegExp, string, string])[] = [
   ['POST', /^\/projects$/, 'project.create', 'project'],
   ['PATCH', /^\/projects\/([^/]+)$/, 'project.update', 'project'],
   ['POST', /^\/grants$/, 'grant.create', 'grant'],
+  ['PUT', /^\/grants\/([^/]+)\/quota$/, 'grant.quota_set', 'grant'],
   ['POST', /^\/tokens$/, 'token.create', 'token'],
   ['POST', /^\/keys\/rotate$/, 'keys.rotate', 'master_key'],
+  ['POST', /^\/config\/export$/, 'config.export', 'config'],
+  ['POST', /^\/config\/import$/, 'config.import', 'config'],
   ['POST', /^\/setup-links$/, 'setup_link.create', 'setup_link'],
 ];
 
@@ -935,6 +1018,8 @@ const viaOf = (principal: AdminPrincipal | undefined): string =>
   principal?.kind === 'session' ? SESSION_ACTOR : ADMIN_TOKEN_ACTOR;
 
 /** Bounds for self-service (a member cannot fill storage or fan out New Relic validations). */
+/** Grants the quota usage view lists at most (one bounded counter read). */
+export const QUOTA_USAGE_MAX_GRANTS = 50;
 const MAX_OWN_CREDENTIALS = 10;
 const MAX_LIVE_TOKENS_PER_GRANT = 20;
 
@@ -943,7 +1028,7 @@ const UNBIND = /^\/users\/[^/]+\/unbind$/;
 
 /**
  * The least role a cookie session needs for a route (P4-02). Owner-only: master-key rotation, owner setup links, the
- * user unbind and `/oauth/*` (clients and the registration switch, P5-08).
+ * user unbind, config export/import and `/oauth/*` (clients and the registration switch, P5-08).
  * Any role: `GET /session`, `GET /audit` (the handler limits members to their own rows) and revoking sessions (the
  * handler limits members to themselves). Everything else, unknown
  * paths included: `admin`.
@@ -953,7 +1038,14 @@ export function requiredRole(method: string, rel: string): 'owner' | 'admin' | '
   if (method === 'POST' && SELF_SESSIONS.test(rel)) return 'member';
   // Self-service (P4-10): every handler works on the caller's own rows only (and refuses the admin token).
   if (rel === '/me' || rel.startsWith('/me/')) return 'member';
-  if (method === 'POST' && (rel === '/keys/rotate' || rel === '/setup-links' || UNBIND.test(rel)))
+  if (
+    method === 'POST' &&
+    (rel === '/keys/rotate' ||
+      rel === '/setup-links' ||
+      rel === '/config/export' ||
+      rel === '/config/import' ||
+      UNBIND.test(rel))
+  )
     return 'owner';
   // OAuth clients and the registration switch (P5-08): owners only, every method.
   if (rel === '/oauth' || rel.startsWith('/oauth/')) return 'owner';
@@ -969,7 +1061,7 @@ const FORBIDDEN_MESSAGES: Readonly<Record<string, string>> = {
   self: 'you cannot change your own role or disable yourself; ask another owner',
   no_user: 'this route is for signed-in users: the admin token has no keys, grants or tokens of its own',
   owner:
-    "only an owner can create, change or sign out an owner, or act on an owner's keys, grants and tokens",
+    "only an owner can create, change or sign out an owner or an administrator, or act on an owner's keys, grants and tokens",
 };
 
 /** Build the admin sub-app (mounted at {@link ADMIN_API_BASE}). */
@@ -1192,6 +1284,8 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
       targetId?: string | null;
       projectId?: string | null;
       details?: Record<string, unknown>;
+      /** A change that finished but not fully (config import stopped at a failure). */
+      outcome?: { readonly status: 'error'; readonly errorCode: string };
     },
   ): Promise<T> => {
     const record = (event: Omit<AdminAuditEvent, 'actor' | 'action' | 'targetType'>) => {
@@ -1233,6 +1327,7 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
       targetId: extra.targetId ?? meta.targetId ?? null,
       projectId: extra.projectId ?? meta.projectId ?? null,
       ...(extra.details ? { details: extra.details } : {}),
+      ...(extra.outcome ?? {}),
     });
     deps.onChange?.();
     return result;
@@ -1303,6 +1398,30 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
     );
   };
   /**
+   * The one owner guard for write scope (P7-09, P7-28, ADR-0015, THREAT_MODEL T31). Write tools act in New Relic: only
+   * an owner (or the admin token) may add one to a project or grant, or widen what a project or grant that writes can
+   * reach (accounts, default account or key, limits, re-enabling, quota, a new token, rotating its key), or re-enable a
+   * user whose grants write (P7-32). What counts as widening lives in `@relic-bridge/auth` (`projectWriteScope`,
+   * `grantWriteScope`, `tokenWriteScope`, `credentialWriteScope`, `userWriteScope`); every route that writes a project,
+   * grant, token, key or a user's disabled state runs its change through here. Narrowing (removing write tools,
+   * disabling, revoking, deleting, fewer accounts, a lower quota) stays open to admins.
+   */
+  const guardWriteScope = (
+    c: Context,
+    scope: WriteScopeChange,
+    subject = 'a project or grant with write tools',
+  ) => {
+    if ((!scope.addsWriteTools && scope.widened.length === 0) || actsAsOwner(c)) return;
+    if (scope.addsWriteTools) {
+      throw new AdminApiError('forbidden', 'only an owner can enable write tools', { detail: 'write_tools' });
+    }
+    throw new AdminApiError(
+      'forbidden',
+      `only an owner can change ${scope.widened.join(', ')} of ${subject}`,
+      { detail: 'write_scope', ...(scope.widened[0] === undefined ? {} : { field: scope.widened[0] }) },
+    );
+  };
+  /**
    * A grant acts for its user and for the owner of the personal key it names. A project default stays out: an owner
    * who made their own key a project's default shared it with that project (admins cannot make that choice for them:
    * project create and update are guarded).
@@ -1361,7 +1480,7 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
       c,
       { action: 'user.create', targetType: 'user', details: { role: body.role ?? 'member' } },
       async () => {
-        if (body.role === 'owner' && !actsAsOwner(c)) throw denied('owner');
+        if ((body.role === 'owner' || body.role === 'admin') && !actsAsOwner(c)) throw denied('owner');
         return storage.users.create({
           id: newId('usr'),
           email: normalizeEmail(body.email),
@@ -1395,6 +1514,18 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
         if (principal?.kind === 'session' && principal.user.id === existing.id && privileged)
           throw denied('self');
         if ((existing.role === 'owner' || body.role === 'owner') && !actsAsOwner(c)) throw denied('owner');
+        // Administrators are not peers (P4-21): only an owner promotes, demotes, disables or edits another admin.
+        // An admin may still change their own display name (a role or disabled change is refused above).
+        const selfEdit = principal?.kind === 'session' && principal.user.id === existing.id;
+        if ((existing.role === 'admin' && !selfEdit) || body.role === 'admin') {
+          if (!actsAsOwner(c)) throw denied('owner');
+        }
+        // Re-enabling brings back the user's grants and tokens: owner-only when one of them writes (P7-32, T31).
+        guardWriteScope(
+          c,
+          await userWriteScope(storage, existing, body),
+          'a user whose grants have write tools',
+        );
         const patch: { -readonly [K in keyof UserPatch]: UserPatch[K] } = {};
         if (body.displayName !== undefined) patch.displayName = body.displayName;
         if (body.role !== undefined) patch.role = body.role;
@@ -1470,7 +1601,8 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
         }
         const target = await must('user', id, (x) => storage.users.get(x));
         const self = principal?.kind === 'session' && principal.user.id === target.id;
-        if (target.role === 'owner' && !self && !actsAsOwner(c)) throw denied('owner');
+        if ((target.role === 'owner' || target.role === 'admin') && !self && !actsAsOwner(c))
+          throw denied('owner');
         return revokeAll(target.id);
       },
       (n) => ({ details: { revoked: n } }),
@@ -1603,6 +1735,7 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
       async () => {
         const existing = await must('credential', id, (x) => storage.credentials.get(x));
         await guardOwnerAssets(c, [existing.ownerUserId]);
+        guardWriteScope(c, await credentialWriteScope(storage, existing.id));
         return rotateCredentialKey(credentialDeps, id, new Secret(body.apiKey));
       },
       (r) => ({ details: { warnings: [...r.warnings] } }),
@@ -1654,6 +1787,7 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
       async () => {
         await guardOwnerAssets(c, [await credentialOwnerId(body.defaultCredentialId)]);
         await guardProjectDefault(c, body.defaultCredentialId);
+        guardWriteScope(c, projectWriteScope(null, compact(body) as CreateProjectInput));
         return createProject(storage, compact(body) as CreateProjectInput, catalog);
       },
       (p) => ({ targetId: p.id, projectId: p.id }),
@@ -1680,11 +1814,9 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
       },
       async () => {
         await guardOwnerAssets(c, [await credentialOwnerId(body.defaultCredentialId)]);
-        await guardProjectDefault(
-          c,
-          body.defaultCredentialId,
-          (await storage.projects.get(id))?.defaultCredentialId,
-        );
+        const current = await storage.projects.get(id);
+        await guardProjectDefault(c, body.defaultCredentialId, current?.defaultCredentialId);
+        guardWriteScope(c, projectWriteScope(current, compact(body) as UpdateProjectInput));
         return updateProject(storage, id, compact(body) as UpdateProjectInput, catalog, clock.now());
       },
     );
@@ -1740,11 +1872,78 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
           c,
           await grantUsers({ userId: body.userId ?? null, credentialId: body.credentialId ?? null }),
         );
+        guardWriteScope(c, grantWriteScope(null, compact(body) as CreateGrantInput));
         return createGrant(storage, compact(body) as CreateGrantInput, catalog, clock.now());
       },
       (r) => ({ targetId: r.grant.id, projectId: r.grant.projectId }),
     );
-    return c.json({ data: grantView(result.grant), warnings: [...result.warnings] }, 201);
+    const warnings = [
+      ...result.warnings,
+      ...siblingWarnings(deps.compositeSiblings ?? {}, result.grant.tools),
+    ];
+    return c.json({ data: grantView(result.grant), warnings }, 201);
+  });
+
+  api.openapi(routes.setGrantQuota, async (c) => {
+    const { id } = c.req.valid('param');
+    const { quota } = c.req.valid('json');
+    const grant = await change(
+      c,
+      {
+        action: 'grant.quota_set',
+        targetType: 'grant',
+        targetId: id,
+        details: { removed: quota === null },
+      },
+      async () => {
+        const existing = await must('grant', id, (x) => storage.grants.get(x));
+        await guardOwnerAssets(c, await grantUsers(existing));
+        guardWriteScope(c, grantWriteScope(existing, { quota: (quota ?? null) as StoredQuota | null }));
+        // Validated by the schema, and again by the service (`checkQuota`).
+        return setGrantQuota(storage, existing.id, quota as StoredQuota | null);
+      },
+      (g) => ({
+        projectId: g.projectId,
+        // The caps themselves are not secret and are what an auditor needs to see.
+        details: { quota: g.quota },
+      }),
+    );
+    return c.json({ data: grantView(grant) }, 200);
+  });
+
+  api.openapi(routes.quotaUsage, async (c) => {
+    const now = clock.now();
+    const live = (await storage.grants.list()).filter(
+      (g) => g.quota !== null && g.revokedAt === null && (g.expiresAt === null || g.expiresAt > now),
+    );
+    const shown = live.slice(0, QUOTA_USAGE_MAX_GRANTS);
+    const periods = usagePeriods(now);
+    const counters =
+      shown.length === 0
+        ? {}
+        : await (deps.usage ?? storage.grantUsage).getMany(
+            shown.map((g) => g.id),
+            [periods.day, periods.month],
+          );
+    const zero = { queries: 0, inspected: 0 };
+    const data = shown.map((g) => ({
+      grantId: g.id,
+      projectId: g.projectId,
+      userId: g.userId,
+      label: g.label,
+      quota: grantView(g).quota as z.infer<typeof S.QuotaSchema>,
+      day: {
+        period: periods.day,
+        ...(counters[g.id]?.[periods.day] ?? zero),
+        resetsAt: periodResetsAt('day', now),
+      },
+      month: {
+        period: periods.month,
+        ...(counters[g.id]?.[periods.month] ?? zero),
+        resetsAt: periodResetsAt('month', now),
+      },
+    }));
+    return c.json({ data, truncated: live.length > shown.length }, 200);
   });
 
   api.openapi(routes.getGrant, async (c) => {
@@ -1824,6 +2023,7 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
       async () => {
         const target = await storage.grants.get(body.grantId);
         if (target) await guardOwnerAssets(c, await grantUsers(target));
+        guardWriteScope(c, tokenWriteScope(target));
         const result = await issueAccessToken(
           storage,
           { grantId: body.grantId, label: body.label, ...(ttl === undefined ? {} : { ttl }) },
@@ -1924,6 +2124,83 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
       },
       200,
     );
+  });
+
+  // ------------------------------------------------------------------------------------- config import/export
+  api.openapi(routes.exportConfig, async (c) => {
+    if (!actsAsOwner(c)) throw denied('role');
+    const body = c.req.valid('json');
+    const wrap =
+      body.wrapKey === undefined || body.kdf === undefined
+        ? undefined
+        : { key: parseWrapKey(body.wrapKey), kdf: body.kdf };
+    try {
+      const result = await change(
+        c,
+        { action: 'config.export', targetType: 'config', details: { withCredentials: wrap !== undefined } },
+        () => {
+          const principal = c.get('principal') as AdminPrincipal | undefined;
+          return exportConfig(
+            { storage, keyring: deps.keyring, clock },
+            wrap === undefined
+              ? {}
+              : { wrap, keyOwnerUserId: principal?.kind === 'session' ? principal.user.id : null },
+          );
+        },
+        (r) => ({
+          details: {
+            users: r.bundle.users.length,
+            credentials: r.bundle.credentials.length,
+            projects: r.bundle.projects.length,
+            grants: r.bundle.grants.length,
+            warnings: r.warnings.length,
+          },
+        }),
+      );
+      return c.json(
+        {
+          // The bundle is plain JSON data built field by field; the schema type is just its mutable twin.
+          data: JSON.parse(JSON.stringify(result.bundle)) as z.infer<typeof S.ConfigBundleSchema>,
+          warnings: [...result.warnings],
+        },
+        200,
+      );
+    } finally {
+      wrap?.key.fill(0);
+    }
+  });
+
+  api.openapi(routes.importConfig, async (c) => {
+    if (!actsAsOwner(c)) throw denied('role');
+    const body = c.req.valid('json');
+    const apply = body.apply === true;
+    const wrapKey = body.wrapKey === undefined ? undefined : parseWrapKey(body.wrapKey);
+    const principal = c.get('principal') as AdminPrincipal | undefined;
+    const actorUserId = principal?.kind === 'session' ? principal.user.id : null;
+    try {
+      const report = await change(
+        c,
+        { action: 'config.import', targetType: 'config', details: { dryRun: !apply } },
+        () =>
+          importConfig(
+            { storage, keyring: deps.keyring, validate: deps.validateKey, catalog, clock },
+            body.bundle as ConfigBundle,
+            { apply, actorUserId, ...(wrapKey === undefined ? {} : { wrapKey }) },
+          ),
+        (r) => ({
+          details: {
+            ...r.summary,
+            warnings: r.warnings.length,
+            // Natural keys only (emails, slugs, labels): no secret ever reaches an entry.
+            ...(r.failed === null ? {} : { failedKind: r.failed.kind, failedCode: r.failed.code }),
+          },
+          ...(r.failed === null ? {} : { outcome: { status: 'error' as const, errorCode: r.failed.code } }),
+        }),
+      );
+      return c.json({ data: report as z.infer<typeof S.ImportReportSchema> }, 200);
+    } finally {
+      wrapKey?.fill(0);
+    }
   });
 
   // -------------------------------------------------------------------------------------------- setup links

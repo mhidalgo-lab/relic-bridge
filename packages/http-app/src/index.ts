@@ -100,6 +100,7 @@ export {
   MAX_DEVICE_LABEL_CHARS,
   MAX_OAUTH_CIMD_CLIENTS,
   MCP_SCOPE,
+  MCP_WRITE_SCOPE,
   OAUTH_AUTHORIZE_PATH,
   OAUTH_CIMD_FETCHES_PER_IP,
   OAUTH_CODE_TTL_S,
@@ -111,6 +112,7 @@ export {
   OAUTH_SCOPES,
   OAUTH_TOKEN_PATH,
   OAUTH_UNUSED_REGISTRATION_TTL_S,
+  OAUTH_WRITE_SCOPES,
   type OAuthApproval,
   type OAuthAuthentication,
   type OAuthAuthorizationRequest,
@@ -137,6 +139,14 @@ export {
   type PassthroughRequestInfo,
 } from './passthrough.ts';
 export {
+  createQuotaGuard,
+  type QuotaDenial,
+  type QuotaGuardOptions,
+  type QuotaMeasure,
+  type QuotaStore,
+  quotaError,
+} from './quota.ts';
+export {
   DEFAULT_RATE_LIMIT_MAX_KEYS,
   isRateLimitRule,
   MemoryRateLimiter,
@@ -144,6 +154,8 @@ export {
   type RateLimiter,
   type RateLimitResult,
   type RateLimitRule,
+  type TokenBucket,
+  tokenBucketStep,
 } from './rate-limit.ts';
 export {
   createRateLimitHooks,
@@ -176,3 +188,24 @@ export {
   type SessionOptions,
   type SessionPrincipal,
 } from './session.ts';
+export {
+  createTelemetry,
+  DEFAULT_TELEMETRY_MAX_IN_FLIGHT,
+  DEFAULT_TELEMETRY_TIMEOUT_MS,
+  DURATION_BUCKETS_MS,
+  parseOtlpEndpoint,
+  parseOtlpHeaders,
+  parseSampleRate,
+  parseTraceparent,
+  TELEMETRY_BACKOFF_MS,
+  TELEMETRY_LOG_BUFFER,
+  TELEMETRY_NAMES,
+  TELEMETRY_SERVICE_NAME,
+  type Telemetry,
+  TelemetryConfigError,
+  type TelemetryOptions,
+  type TelemetrySettings,
+  type ToolCallOrigin,
+  type TraceParent,
+  telemetrySettingsFromEnv,
+} from './telemetry.ts';

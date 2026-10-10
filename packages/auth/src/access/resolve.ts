@@ -7,14 +7,18 @@ import {
   type QueryLimits,
   RAW_NRQL_TOOLS,
   type Region,
+  WRITE_TOOL_NAMES,
 } from '@relic-bridge/core';
 import {
   type CredentialRecord,
+  cloneQuota,
   type GrantRecord,
+  isStoredQuota,
   limitsSchema,
   NR_REGIONS,
   type ProjectRecord,
   type StoredLimits,
+  type StoredQuota,
   type StoredRateLimit,
   type UserRecord,
 } from '@relic-bridge/storage';
@@ -94,6 +98,8 @@ export interface EffectiveAccess {
   readonly accounts: AccountScope;
   readonly limits: QueryLimits;
   readonly rateLimit: StoredRateLimit | null;
+  /** The grant's usage caps (P7-12); null = unlimited. */
+  readonly quota: StoredQuota | null;
   /** The grant's expiry, so a cache of this result can expire with it (P2-06). */
   readonly expiresAt: number | null;
 }
@@ -120,6 +126,14 @@ export interface ComputeAccessInput {
   readonly catalog: readonly string[];
   /** Epoch milliseconds. */
   readonly now: number;
+}
+
+/** A frozen copy of a valid quota (a cached access result is shared between requests). */
+function freezeQuota(q: StoredQuota): StoredQuota {
+  const c = cloneQuota(q);
+  if (c.day !== undefined) Object.freeze(c.day);
+  if (c.month !== undefined) Object.freeze(c.month);
+  return Object.freeze(c);
 }
 
 const deny = (reason: DenyReason): AccessDecision => Object.freeze({ ok: false as const, reason });
@@ -213,7 +227,9 @@ function freezeLimits(l: QueryLimits): QueryLimits {
  * Compute what a request may do (ARCHITECTURE §4):
  *
  * ```
- * tools    = catalog ∩ (project.enabledTools ?? catalog) ∩ (grant.tools ?? all), minus raw-NRQL tools if rawNrql is off
+ * tools    = catalog ∩ (project.enabledTools ?? catalog) ∩ (grant.tools ?? all), minus raw-NRQL tools if rawNrql is off;
+ *            a write tool (P7-09) only when the project AND the grant name it explicitly (never through `null`) and the
+ *            key is shared or the grant user's own (ADR-0015)
  * accounts = credential.reachableAccounts ∩ project.allowedAccounts ∩ (grant.accounts ?? all)
  * limits   = project limits tightened by grant limits
  * key      = grant.credential ?? project.defaultCredential
@@ -281,7 +297,8 @@ export function computeAccess(input: ComputeAccessInput): AccessDecision {
     (grant.tools !== null && !isStringArray(grant.tools)) ||
     (grant.accountIds !== null && !isAccountArray(grant.accountIds)) ||
     !isAccountArray(credential.reachableAccountIds) ||
-    (grant.rateLimit !== null && !isRateLimit(grant.rateLimit))
+    (grant.rateLimit !== null && !isRateLimit(grant.rateLimit)) ||
+    (grant.quota !== null && !isStoredQuota(grant.quota))
   ) {
     return deny('invalid_config');
   }
@@ -295,11 +312,19 @@ export function computeAccess(input: ComputeAccessInput): AccessDecision {
   // Tools
   const projectTools = project.enabledTools;
   const grantTools = grant.tools;
-  const tools = [...new Set(catalog)].filter(
-    (name) =>
-      (projectTools === null || projectTools.includes(name)) &&
-      (grantTools === null || grantTools.includes(name)) &&
-      (limits.rawNrql || !RAW_NRQL_TOOLS.includes(name)),
+  // Writes act in New Relic as the key's user: never with somebody else's personal key (e.g. an owner's key that is a
+  // project default), whoever administers the grant.
+  const writeKey = credential.ownerUserId === null || credential.ownerUserId === grant.userId;
+  const tools = [...new Set(catalog)].filter((name) =>
+    WRITE_TOOL_NAMES.includes(name)
+      ? // Explicit names only: `null` ("every tool") never implies a write tool.
+        writeKey &&
+        projectTools?.includes(name) === true &&
+        grantTools?.includes(name) === true &&
+        (limits.rawNrql || !RAW_NRQL_TOOLS.includes(name))
+      : (projectTools === null || projectTools.includes(name)) &&
+        (grantTools === null || grantTools.includes(name)) &&
+        (limits.rawNrql || !RAW_NRQL_TOOLS.includes(name)),
   );
   if (tools.length === 0) return deny('no_tools');
 
@@ -323,6 +348,7 @@ export function computeAccess(input: ComputeAccessInput): AccessDecision {
     accounts: Object.freeze({ allowed: Object.freeze(allowed), default: defaultAccount }),
     limits,
     rateLimit: grant.rateLimit === null ? null : Object.freeze({ ...grant.rateLimit }),
+    quota: grant.quota === null ? null : freezeQuota(grant.quota),
     expiresAt: grant.expiresAt,
   });
   return Object.freeze({ ok: true as const, access });

@@ -57,9 +57,10 @@ only a **User API key** — no account-level MCP enablement required.
 - Tested with SDK clients shaped like the real ones; the real claude.ai and mobile apps are still to be checked
   ([client compatibility](docs/reference/client-compatibility.md)).
 
-**Planned** (see the [roadmap](docs/ROADMAP.md); none of this exists yet):
+**In review, not released** (see the [roadmap](docs/ROADMAP.md)):
 
-- More tools (Phase 6) and power features (Phase 7).
+- Phases 6 (more tools) and 7 (power features: write tools, Tasks, doctor, config import/export, OS keychain, quotas,
+  OTLP export, the Claude Code plugin) are built and in review as stacked PRs; they are not released yet.
 
 ## Install
 
@@ -87,8 +88,8 @@ carries the tarball, an SBOM and checksums with build attestations. Changes: [CH
   [self-hosting](docs/guide/self-hosting.md) · [deploy to Cloudflare](docs/guide/cloudflare-deploy.md) · [Cloudflare limits and costs](docs/guide/cloudflare-limits.md) · [multi-device setup](docs/guide/multi-device.md) · [admin guide](docs/guide/admin-guide.md) ·
   [admin panel](docs/guide/admin-panel.md) · [sign-in providers](docs/guide/identity-providers.md) · [use it from your phone and claude.ai](docs/guide/oauth-phone.md) · [OAuth settings](docs/guide/oauth.md) · [how OAuth works](docs/guide/oauth-how-it-works.md) · [client compatibility](docs/reference/client-compatibility.md) · [admin access](docs/guide/admin-access.md) ·
   [access model](docs/guide/access-model.md) · [secrets](docs/guide/secrets.md) ·
-  [configuration](docs/guide/configuration.md) · [security basics](docs/guide/security-basics.md) ·
-  [troubleshooting](docs/guide/troubleshooting.md) · [tool reference](docs/reference/tools.md) · [CLI reference](docs/reference/cli.md)
+  [configuration](docs/guide/configuration.md) · [charts (MCP Apps)](docs/guide/charts.md) · [security basics](docs/guide/security-basics.md) ·
+  [troubleshooting](docs/guide/troubleshooting.md) · [registry listing](docs/guide/registry-listing.md) · [tool reference](docs/reference/tools.md) · [CLI reference](docs/reference/cli.md)
 - [Roadmap & task index](docs/ROADMAP.md)
 - [Architecture](docs/ARCHITECTURE.md) · [Decisions (ADRs)](docs/adr/) · [Research & platform limits](docs/RESEARCH.md)
 - [Threat model](docs/THREAT_MODEL.md)

@@ -5,7 +5,8 @@
 // HKDF-SHA-256 derives, with separate `info` labels:
 //   - the AES-256-GCM data key that encrypts NR keys (non-extractable `CryptoKey`), and
 //   - a 32-byte key check value (KCV), stored in `settings` to detect a wrong master key before touching rows, and
-//   - an HMAC-SHA-256 key for audit identity hashes (P4-16): a refused sign-in is correlatable, never reversible.
+//   - an HMAC-SHA-256 key for audit identity hashes (P4-16): a refused sign-in is correlatable, never reversible, and
+//   - an HMAC-SHA-256 key for query cache entry ids plus an AES-256-GCM key for cached bodies on Workers (P7-02).
 // The raw master key bytes are dropped (and zeroed) once both are derived.
 import { Secret } from '@relic-bridge/core';
 import type { EncryptedKey } from '@relic-bridge/storage';
@@ -32,6 +33,10 @@ export const HKDF_SALT: Uint8Array<ArrayBuffer> = utf8('relic-bridge/master-key/
 export const INFO_CREDENTIAL_KEY: Uint8Array<ArrayBuffer> = utf8('relic-bridge/credential-key/aes-256-gcm');
 export const INFO_KEY_CHECK: Uint8Array<ArrayBuffer> = utf8('relic-bridge/key-check');
 export const INFO_AUDIT_IDENTITY: Uint8Array<ArrayBuffer> = utf8('relic-bridge/audit-identity/hmac-sha-256');
+export const INFO_QUERY_CACHE_ID: Uint8Array<ArrayBuffer> = utf8('relic-bridge/query-cache-id/hmac-sha-256');
+export const INFO_QUERY_CACHE_DATA: Uint8Array<ArrayBuffer> = utf8(
+  'relic-bridge/query-cache-data/aes-256-gcm',
+);
 /** Bytes of the HMAC kept in an identity hash: 128 bits, plenty to correlate, short in the audit row. */
 export const IDENTITY_HASH_BYTES = 16;
 /** AAD purpose label for NR keys stored in `credentials`. */
@@ -93,6 +98,9 @@ export interface VersionKeys {
   readonly check: Uint8Array<ArrayBuffer>;
   /** HMAC-SHA-256, sign only, non-extractable. */
   readonly identity: WebCryptoKey;
+  /** Query cache (P7-02): HMAC-SHA-256 for entry ids and AES-256-GCM for cached bodies. Non-extractable. */
+  readonly cacheId: WebCryptoKey;
+  readonly cacheData: WebCryptoKey;
 }
 
 /** HKDF-SHA-256 derivation of the data key and the key check value. Zeroes `masterKey` afterwards. */
@@ -120,7 +128,21 @@ export async function deriveVersionKeys(masterKey: Uint8Array<ArrayBuffer>): Pro
       false,
       ['sign'],
     );
-    return { aes, check, identity };
+    const cacheId = await crypto.subtle.deriveKey(
+      { name: 'HKDF', hash: 'SHA-256', salt: HKDF_SALT, info: INFO_QUERY_CACHE_ID },
+      base,
+      { name: 'HMAC', hash: 'SHA-256', length: 256 },
+      false,
+      ['sign'],
+    );
+    const cacheData = await crypto.subtle.deriveKey(
+      { name: 'HKDF', hash: 'SHA-256', salt: HKDF_SALT, info: INFO_QUERY_CACHE_DATA },
+      base,
+      { name: 'AES-GCM', length: 256 },
+      false,
+      ['encrypt', 'decrypt'],
+    );
+    return { aes, check, identity, cacheId, cacheData };
   } finally {
     masterKey.fill(0);
   }
@@ -344,6 +366,15 @@ export class Keyring {
     );
     const b64 = toBase64(mac.subarray(0, IDENTITY_HASH_BYTES));
     return `v${this.currentVersion}.${b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')}`;
+  }
+
+  /**
+   * Keys for the NRQL query cache (P7-02) under the current master key version: `id` signs entry ids, `data`
+   * encrypts bodies kept in the shared Workers Cache API. Rotating the master key starts a fresh cache.
+   */
+  queryCacheKeys(): { readonly id: WebCryptoKey; readonly data: WebCryptoKey } {
+    const keys = this.#need(this.currentVersion);
+    return Object.freeze({ id: keys.cacheId, data: keys.cacheData });
   }
 
   toJSON(): { currentVersion: number; versions: readonly number[]; keys: string } {

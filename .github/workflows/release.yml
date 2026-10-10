@@ -3,15 +3,18 @@
 # Flow: a changeset on `main` → the `version` job opens/updates the "Version Packages" PR. Merging it leaves no
 # changesets and a version npm doesn't have (`plan` mode `publish`) → the `build` job installs, checks, builds and
 # packs `relic-bridge` and uploads the tarball, SBOM and SHA256SUMS → the `publish` job verifies them, attests,
-# publishes with npm trusted publishing (OIDC, no npm token) and creates the GitHub Release `v<version>`.
-# Mode `release` (version on npm, no GitHub Release: an earlier run failed after `npm publish`) rebuilds, checks the
-# tarball is identical to the one on npm and creates only the GitHub Release.
+# stages the tarball on npm with trusted publishing (OIDC, no npm token; a maintainer approves it with 2FA on
+# npmjs.com) and, once the version is live, creates the GitHub Release `v<version>`.
+# Mode `release` (version on npm, no GitHub Release: an earlier run failed after the version went live) rebuilds, checks the
+# tarball is identical to the one on npm and creates only the GitHub Release (this is also the run after a staged
+# version was approved on npmjs.com).
 #
 # Safety rails (THREAT_MODEL T18): never runs on pull requests; build/publish run only on `main`, only when the
 # repository variable RB_RELEASE_ENABLED is 'true', and publish only after a reviewer approves the protected `release`
-# environment. Only the `publish` job can mint an OIDC token, and it never checks out the repository, installs
-# dependencies or runs project code (scripts/test/release.test.ts asserts this). `plan` and `publish` refuse a
-# `v<version>` tag that points at another commit.
+# environment. The version goes live only after a second approval with 2FA on npmjs.com. Only the `publish` job can
+# mint an OIDC token, and it never checks out the repository, installs dependencies or runs project code
+# (scripts/test/release.test.ts asserts this). `plan` and `publish` refuse a `v<version>` tag that points at another
+# commit.
 name: Release
 
 on:
@@ -152,7 +155,7 @@ jobs:
   # Holds the OIDC token. No checkout, no install, no project scripts: only setup-node, the artifact, sha256sum, npm
   # and gh. Keep it that way (scripts/test/release.test.ts fails otherwise).
   publish:
-    name: Publish to npm and GitHub
+    name: Stage on npm and release on GitHub
     needs: [plan, build]
     if: >-
       github.ref == 'refs/heads/main' && vars.RB_RELEASE_ENABLED == 'true' &&
@@ -248,12 +251,43 @@ jobs:
         with:
           subject-path: dist-release/release/relic-bridge-${{ needs.plan.outputs.version }}.tgz
           sbom-path: dist-release/release/relic-bridge-${{ needs.plan.outputs.version }}.cdx.json
-      # npm >= 11.5.1 (bundled with Node 24) exchanges the OIDC token for a short-lived publish credential.
-      # --ignore-scripts: nothing from the tarball runs here.
-      - name: Publish (trusted publishing, provenance)
+      # npm >= 11.15.0 (checked in the step; Node 24 bundles npm 11) stages the tarball with the OIDC token;
+      # `npm stage publish` never goes live on its own. A maintainer approves it with
+      # 2FA on npmjs.com (`npm stage approve` cannot use OIDC), and only then is the version public. The trusted
+      # publisher must allow `npm stage publish` (docs/dev/releasing.md); the workflow never calls `npm publish`.
+      # --ignore-scripts: nothing from the tarball runs here. The tarball path is absolute (npm reads a relative
+      # `a/b.tgz` as a git shorthand).
+      # Rerun while the version is staged and not approved: npm refuses a second stage of the same version (staged
+      # and published versions share one version index), which is reported as "awaiting approval" and ends the job
+      # successfully without a GitHub Release. After approval, run the workflow again: `plan` finds the version on
+      # npm without a GitHub Release (mode `release`) and only creates the Release.
+      - name: Stage on npm (trusted publishing, provenance; approval on npmjs.com)
         if: steps.npm.outputs.published == 'false'
-        run: npm publish "dist-release/release/relic-bridge-${VERSION}.tgz" --provenance --access public --ignore-scripts
+        run: |
+          npm_version="$(npm --version)"
+          [[ "$(printf '%s\n11.15.0\n' "$npm_version" | sort -V | head -n1)" == 11.15.0 ]] || {
+            echo "::error::npm ${npm_version} is too old for staged publishing (needs >= 11.15.0)"; exit 1
+          }
+          out="$RUNNER_TEMP/stage-out.txt"
+          integrity="sha512-$(openssl dgst -sha512 -binary "dist-release/release/relic-bridge-${VERSION}.tgz" | base64 -w0)"
+          summary() { printf '%s\n' "$1" >> "${GITHUB_STEP_SUMMARY:-/dev/null}"; }
+          if npm stage publish "${PWD}/dist-release/release/relic-bridge-${VERSION}.tgz" \
+            --provenance --access public --ignore-scripts >"$out" 2>&1; then
+            cat "$out"
+            summary "relic-bridge@${VERSION} is **staged, not published**. Approve it with 2FA on npmjs.com (Staged Packages) after checking its integrity is \`${integrity}\`, then run this workflow again to create the GitHub Release."
+            echo "::notice::relic-bridge@${VERSION} is staged; approve it on npmjs.com, then run this workflow again"
+            exit 0
+          fi
+          cat "$out" >&2
+          if grep -Eqi 'E409|EPUBLISHCONFLICT|already (exists|staged)|cannot publish over|previously published|version conflict' "$out"; then
+            summary "relic-bridge@${VERSION} was already staged by an earlier run and awaits approval on npmjs.com (integrity of this build: \`${integrity}\`). Nothing was staged again."
+            echo "::notice::relic-bridge@${VERSION} is already staged and awaiting approval on npmjs.com; nothing staged again"
+            exit 0
+          fi
+          echo "::error::npm stage publish failed"; exit 1
+      # Only once the version is live on npm (approved): a staged version has no public tarball to release yet.
       - name: GitHub Release
+        if: steps.npm.outputs.published == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

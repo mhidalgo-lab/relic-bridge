@@ -21,3 +21,11 @@ strictPeerDependencies: true
 # only). Pin it to the patched line we already use; drizzle-kit only calls its transform API.
 overrides:
   '@esbuild-kit/core-utils>esbuild': 0.25.12
+  # Dev-only advisories (THREAT_MODEL T18, P8-10). Pinned to the first patched release until the parents catch up.
+  # miniflare (wrangler, @cloudflare/vitest-plugin) pins sharp 0.35.4; no miniflare release pins >= 0.35.5 yet
+  # (GHSA-wq5f-xc86-pv6w, librsvg). sharp is not in any shipped artifact.
+  sharp: 0.35.5
+  # @changesets/cli > launch-editor (GHSA-pqg4-j6r4-53mv).
+  shell-quote: 1.11.0
+  # vite/postcss/jsdom/css-tree (GHSA-68fv-2mgg-jv7q).
+  source-map-js: 1.2.2

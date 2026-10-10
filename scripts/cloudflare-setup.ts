@@ -4,7 +4,7 @@
 //   1. generates RB_MASTER_KEY and RB_ADMIN_TOKEN (and RB_FINGERPRINT_SECRET with --passthrough) with the CSPRNG,
 //   2. sends them to `wrangler secret bulk` on STDIN (never as arguments, never written to a repo file),
 //   3. deploys with a git-ignored copy of wrangler.jsonc, so Wrangler's automatic provisioning creates the D1 database
-//      and the KV namespace and writes their ids into the copy, not into the committed file,
+//      and writes its id into the copy, not into the committed file,
 //   3b. with --sign-in (P4-09): asks for RB_PUBLIC_URL and the sign-in provider settings. Client ids and issuer go to the
 //      deploy as `--var`; client SECRETS go through the same `wrangler secret bulk` stdin call (read from the environment
 //      or a hidden prompt, never from an argument, never written to a file),
@@ -34,6 +34,8 @@ export interface SetupOptions {
   publicUrl: string | undefined;
   /** Allow generating a new RB_MASTER_KEY although the Worker already has RB_ADMIN_TOKEN (orphans stored keys). */
   replaceMasterKey: boolean;
+  /** `--shared-limiter rules|on`: deploy with RB_SHARED_LIMITER (P7-10, the Durable Object limiter). */
+  sharedLimiter: 'rules' | 'on' | undefined;
 }
 
 export interface WranglerResult {
@@ -77,7 +79,7 @@ export const LOCAL_CONFIG = 'wrangler.local.jsonc';
 const DEFAULT_NAME = 'relic-bridge';
 
 /**
- * The git-ignored config a Worker deploys with. One per Worker name: Wrangler writes the provisioned D1/KV ids into
+ * The git-ignored config a Worker deploys with. One per Worker name: Wrangler writes the provisioned D1 id into
  * it, so a second Worker (staging) sharing the default copy would bind to the first one's database.
  */
 export function localConfigName(name: string): string {
@@ -106,12 +108,13 @@ export function rateLimitNamespace(name: string): string {
 
 /**
  * Comparable form of a wrangler config: comments, whitespace and the ids Wrangler writes on provisioning
- * (`database_id`, KV `id`) removed. Equal forms mean a `git pull` changed nothing the local copy lacks.
+ * (`database_id`) and any leftover `kv_namespaces` block (P5-13) removed. Equal forms mean a `git pull` changed nothing the local copy lacks.
  */
 export function normalizeConfig(text: string): string {
   return text
     .replace(/(^|\s)\/\/.*$/gm, '')
     .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/"kv_namespaces"\s*:\s*\[[^\]]*\]\s*,?/g, '')
     .replace(/"(database_id|id)"\s*:\s*"[^"]*"\s*,?/g, '')
     .replace(/,\s*([}\]])/g, '$1')
     .replace(/\s+/g, '');
@@ -129,6 +132,7 @@ export function parseArgs(argv: readonly string[]): SetupOptions | 'help' {
     signIn: false,
     publicUrl: undefined,
     replaceMasterKey: false,
+    sharedLimiter: undefined,
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i] as string;
@@ -150,7 +154,11 @@ export function parseArgs(argv: readonly string[]): SetupOptions | 'help' {
     else if (a === '--backup-file') o.backupFile = value();
     else if (a === '--sign-in') o.signIn = true;
     else if (a === '--public-url') o.publicUrl = value();
-    else throw new SetupError(`unknown option ${a}`);
+    else if (a === '--shared-limiter') {
+      const v = value();
+      if (v !== 'rules' && v !== 'on') throw new SetupError('--shared-limiter must be rules or on');
+      o.sharedLimiter = v;
+    } else throw new SetupError(`unknown option ${a}`);
   }
   if (!WORKER_NAME_RE.test(o.name)) {
     throw new SetupError('--name must be lowercase letters, digits and dashes (max 63 characters)');
@@ -174,6 +182,10 @@ Deploys relic-bridge to your Cloudflare account (run \`wrangler login\` first).
                        RB_<GOOGLE|GITHUB|OIDC>_CLIENT_ID / _CLIENT_SECRET (and RB_OIDC_ISSUER) in your environment, so
                        it also works without a terminal. Client secrets are sent as Worker secrets, never as arguments.
   --public-url <url>   The https origin people use for this Worker (with --sign-in); not a secret.
+  --shared-limiter rules|on
+                       Count limits in the SharedLimiter Durable Object for every isolate (P7-10): \`rules\` for the
+                       auth-failure, sign-in, OAuth and write limits, \`on\` also for NerdGraph concurrency per key.
+                       Each check is a Durable Object request (Free plan: 100,000 a day). See cloudflare-limits.md.
   --dry-run            Print what would happen; generates and sends nothing, calls no Cloudflare API
 `;
 
@@ -360,7 +372,7 @@ export async function runSetup(opts: SetupOptions, deps: SetupDeps): Promise<{ u
   if (opts.dryRun) {
     log('Dry run: nothing is generated, sent or deployed.');
     log(
-      `  1. copy wrangler.jsonc to ${localName} (git-ignored; Wrangler writes the D1/KV ids there)` +
+      `  1. copy wrangler.jsonc to ${localName} (git-ignored; Wrangler writes the D1 id there)` +
         (opts.name === DEFAULT_NAME
           ? ''
           : `, with D1 database "${opts.name}" and rate-limit namespace ${rateLimitNamespace(opts.name)}`),
@@ -374,7 +386,7 @@ export async function runSetup(opts: SetupOptions, deps: SetupDeps): Promise<{ u
     );
     log('     unless --replace-master-key is given; --assume-new is refused if the Worker already exists');
     log(
-      `  3. wrangler deploy --keep-vars (Wrangler provisions the D1 and KV resources; RB_PLAN=${opts.plan}${opts.passthrough ? ', RB_PASSTHROUGH=on' : ''})`,
+      `  3. wrangler deploy --keep-vars (Wrangler provisions the D1 database and the SharedLimiter Durable Object namespace; RB_PLAN=${opts.plan}${opts.passthrough ? ', RB_PASSTHROUGH=on' : ''}${opts.sharedLimiter === undefined ? '' : `, RB_SHARED_LIMITER=${opts.sharedLimiter}`})`,
     );
     if (opts.signIn) {
       log(
@@ -408,12 +420,18 @@ export async function runSetup(opts: SetupOptions, deps: SetupDeps): Promise<{ u
     const wanted = normalizeConfig(
       localConfigFor(deps.fs.read(join(deps.workerDir, 'wrangler.jsonc')), opts.name),
     );
-    if (normalizeConfig(deps.fs.read(localConfig)) !== wanted) {
+    const current = deps.fs.read(localConfig);
+    if (/"kv_namespaces"\s*:\s*\[[^\]]*"OAUTH_KV"/.test(current)) {
+      log(
+        `NOTE: ${localName} still declares the OAUTH_KV KV namespace, which relic-bridge no longer uses (P5-13). It is harmless; remove the "kv_namespaces" entry from the copy, and delete the namespace with \`wrangler kv namespace delete\` (see the upgrade note in docs/guide/cloudflare-deploy.md).`,
+      );
+    }
+    if (normalizeConfig(current) !== wanted) {
       log(
         `WARNING: ${localName} differs from wrangler.jsonc (a git pull may have added a binding, cron or setting that this deploy will not include, or you edited the copy on purpose, e.g. a custom domain).`,
       );
       log(
-        `  Compare the two files, copy new entries into ${localName} and keep its provisioned ids. Deleting the copy would make Wrangler provision new D1/KV resources.`,
+        `  Compare the two files, copy new entries into ${localName} and keep its provisioned ids. Deleting the copy would make Wrangler provision a new D1 database.`,
       );
     }
   }
@@ -481,6 +499,7 @@ export async function runSetup(opts: SetupOptions, deps: SetupDeps): Promise<{ u
   // silently resetting an operator's security settings on each re-run.
   const deployArgs = ['deploy', ...cfg, '--keep-vars', '--var', `RB_PLAN:${opts.plan}`];
   if (opts.passthrough) deployArgs.push('--var', 'RB_PASSTHROUGH:on');
+  if (opts.sharedLimiter !== undefined) deployArgs.push('--var', `RB_SHARED_LIMITER:${opts.sharedLimiter}`);
   for (const [k, v] of Object.entries(signIn?.vars ?? {})) deployArgs.push('--var', `${k}:${v}`);
   const dep = await deps.wrangler(deployArgs);
   if (dep.code !== 0)

@@ -21,7 +21,11 @@ function checked(value: string, what: string): string {
  * A New Relic User key: `--key-file <path>` (mode 0600), `--key-env <VAR>` (the variable's name, not its value),
  * a hidden prompt on a terminal, or stdin when piped. The value is returned to the caller and never logged.
  */
-export async function readNewRelicKey(ctx: ManageContext, values: ManageValues): Promise<string> {
+export async function readNewRelicKey(
+  ctx: ManageContext,
+  values: ManageValues,
+  label = 'New Relic User API key',
+): Promise<string> {
   const file = values['key-file'];
   const envName = values['key-env'];
   if (file !== undefined && envName !== undefined) {
@@ -34,8 +38,7 @@ export async function readNewRelicKey(ctx: ManageContext, values: ManageValues):
       throw new ConfigError('--key-env takes the NAME of an environment variable.');
     return checked(ctx.env[envName] ?? '', `key in ${envName}`);
   }
-  if (ctx.host.stdinIsTTY)
-    return checked(await ctx.host.promptSecret('New Relic User API key (hidden): '), 'key');
+  if (ctx.host.stdinIsTTY) return checked(await ctx.host.promptSecret(`${label} (hidden): `), 'key');
   let text: string;
   try {
     text = await ctx.host.readStdin(4096);

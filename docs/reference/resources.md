@@ -2,7 +2,7 @@
 
 # Resource reference
 
-3 MCP resources (`resources/list`, `resources/templates/list`, `resources/read`). URIs are stable. A resource is offered only when the tool behind it is in the connection's allowed list, otherwise its URI is unknown.
+4 MCP resources (`resources/list`, `resources/templates/list`, `resources/read`). URIs are stable. A resource is offered only when the tool behind it is in the connection's allowed list, otherwise its URI is unknown.
 
 Schema resources are readers over `list_event_types` and `get_attributes`: the same account check (an account outside the connection is refused with `RB_AUTH_FORBIDDEN`, no New Relic call), event-type allow and deny lists, per-credential cache (5 minutes), request budget and audit row. The window is fixed at the last 24 hours. Names come from the account and are labelled as untrusted data. `{eventType}` is percent-encoded and case-sensitive.
 
@@ -29,3 +29,11 @@ Schema resources are readers over `list_event_types` and `get_attributes`: the s
 - Kind: resource template; MIME type `text/plain`
 - Offered when the connection can use `get_attributes`.
 - Never listed: build the URI from an event type returned by the event-types resource.
+
+## `ui://relic-bridge/nrql-chart`
+
+**NRQL chart view**. MCP Apps view for run_nrql / get_query_result results: line chart for TIMESERIES, bars for FACET, otherwise a table. Draws only the tool result it is given.
+
+- Kind: MCP Apps view (static HTML); MIME type `text/html;profile=mcp-app`
+- Offered when the connection can use `run_nrql`.
+- Self-contained page bundled with the server (no external script, style or URL; no CSP domains). Clients that render MCP Apps show it for the tools whose `_meta.ui.resourceUri` names it, drawing that tool result only; other clients ignore it, and `RB_MCP_APPS=off` removes it. See `docs/guide/charts.md`.

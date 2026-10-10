@@ -155,6 +155,10 @@ export async function connect(
   slug: string,
   token: string,
   era: Era,
+  /** What the client declares under `capabilities.extensions` (e.g. MCP Apps, P7-16). */
+  extensions?: Record<string, Record<string, string[]>>,
+  /** Other capabilities the client declares (e.g. `elicitation`, P7-20). */
+  capabilities?: Record<string, unknown>,
 ): Promise<Client> {
   const transport = new StreamableHTTPClientTransport(new URL(`http://localhost/p/${slug}/mcp`), {
     requestInit: { headers: { Authorization: `Bearer ${token}` } },
@@ -162,7 +166,12 @@ export async function connect(
   });
   const client = new Client(
     { name: 'http-test', version: '0' },
-    { versionNegotiation: { mode: era === 'legacy' ? 'legacy' : { pin: '2026-07-28' } } },
+    {
+      ...(extensions === undefined && capabilities === undefined
+        ? {}
+        : { capabilities: { ...capabilities, ...(extensions === undefined ? {} : { extensions }) } }),
+      versionNegotiation: { mode: era === 'legacy' ? 'legacy' : { pin: '2026-07-28' } },
+    },
   );
   await client.connect(transport);
   return client;

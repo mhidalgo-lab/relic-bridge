@@ -3,16 +3,34 @@
 //   tool calls     one row per `tools/call` (tool, project, accounts, outcome, error code, duration, NRQL as configured)
 //   refusals       kind `auth`: failed authentication, rate limits, a tool the grant doesn't include
 //   admin actions  `recorder.admin(...)`, the API the admin REST API (P2-09) and CLI (P2-10) call
+//   write intents  `write.intent`, stored before a write tool's mutation (P7-28)
 // Never stored: access tokens, New Relic keys, result rows, request bodies. Every write runs in the background and a
-// failed write is logged, never surfaced to the caller (an audit outage must not become a service outage).
+// failed write is logged, never surfaced to the caller (an audit outage must not become a service outage), except the
+// write intent: it is awaited, and a failure refuses the write (fail closed for writes).
 
-import type { ToolCallEvent } from '@relic-bridge/core';
-import { type Clock, type Logger, redact, redactValue, silentLogger, systemClock } from '@relic-bridge/core';
-import type { AuditEntry, AuditKind, AuditLogRepository, AuditStatus } from '@relic-bridge/storage';
+import type { ToolCallEvent, WriteIntent } from '@relic-bridge/core';
+import {
+  type Clock,
+  type Logger,
+  redact,
+  redactValue,
+  silentLogger,
+  systemClock,
+  WRITE_META_KEY,
+  WRITE_TOOL_NAMES,
+} from '@relic-bridge/core';
+import {
+  AUDIT_WRITE_INTENT_ACTION,
+  type AuditEntry,
+  type AuditKind,
+  type AuditLogRepository,
+  type AuditStatus,
+} from '@relic-bridge/storage';
 import type { Context } from 'hono';
 import type { AuthFailureInfo, HttpAppHooks, McpRequestInfo, RejectInfo } from './app.ts';
 import type { LoginAuditEvent } from './identity.ts';
 import type { PassthroughRequestInfo } from './passthrough.ts';
+import type { QuotaDenial } from './quota.ts';
 
 /** How NRQL text is stored. `mask` is the default: enough to see what was asked, without the values. */
 export type AuditNrqlMode = 'mask' | 'hash' | 'full' | 'off';
@@ -25,6 +43,9 @@ export const AUDIT_MAX_DETAILS_CHARS = 2000;
 /** Default cap on refusal rows per minute (all kinds of `auth` rows together). */
 export const DEFAULT_AUDIT_AUTH_ROWS_PER_MINUTE = 120;
 export const DEFAULT_AUDIT_RETENTION_DAYS = 90;
+/** A grant's quota refusals are audited at most once per this interval (P7-12): a runaway agent cannot flood the log. */
+export const QUOTA_DENIED_AUDIT_INTERVAL_MS: number = 15 * 60_000;
+const QUOTA_DENIED_MAX_GRANTS = 1000;
 
 const DAY_MS = 86_400_000;
 const MINUTE_MS = 60_000;
@@ -154,6 +175,57 @@ export interface AuditRecorder {
   purge(retentionDays: number, options?: { readonly limit?: number }): Promise<number>;
 }
 
+/** Longest string kept from a write tool's arguments in `details.write.input`. */
+const AUDIT_MAX_WRITE_ARG_CHARS = 120;
+
+/** Deepest nesting and most array items kept from a write tool's arguments (`create_dashboard` pages, P7-19). */
+const AUDIT_MAX_WRITE_ARG_DEPTH = 8;
+const AUDIT_MAX_WRITE_ARG_ITEMS = 20;
+
+/**
+ * A write tool's arguments for the row: strings capped, nesting and arrays bounded, and NRQL nested in them
+ * (`create_dashboard` widget queries) stored the way the NRQL column is (`mask` and `hash` mask literals, `off` drops
+ * it, `full` keeps it), so literals in a widget's query never land in the row unmasked.
+ */
+function capWriteArg(value: unknown, key: string, mode: AuditNrqlMode, depth: number): unknown {
+  if (typeof value === 'string') {
+    let v = value;
+    if (key === 'nrql') {
+      if (mode === 'off') return '(omitted)';
+      if (mode !== 'full') v = maskNrql(v);
+    }
+    return v.length > AUDIT_MAX_WRITE_ARG_CHARS ? `${v.slice(0, AUDIT_MAX_WRITE_ARG_CHARS)}…` : v;
+  }
+  if (value === null || typeof value !== 'object') return value;
+  if (depth >= AUDIT_MAX_WRITE_ARG_DEPTH) return '…';
+  if (Array.isArray(value)) {
+    const items = value.slice(0, AUDIT_MAX_WRITE_ARG_ITEMS).map((v) => capWriteArg(v, key, mode, depth + 1));
+    return value.length > AUDIT_MAX_WRITE_ARG_ITEMS
+      ? [...items, `… ${value.length - AUDIT_MAX_WRITE_ARG_ITEMS} more`]
+      : items;
+  }
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(value)) out[k] = capWriteArg(v, k, mode, depth + 1);
+  return out;
+}
+
+/**
+ * What a write tool call did (P7-09, ADR-0015), for `details.write`: the tool's own record (action, account, target,
+ * dry run, applied, before/after) when it got that far, and always the arguments it was called with (strings capped,
+ * nested NRQL stored per `nrqlMode`; `sanitizeDetails` redacts the whole row). Never the result rows.
+ */
+export function writeDetails(
+  event: ToolCallEvent,
+  nrqlMode: AuditNrqlMode = 'mask',
+): Record<string, unknown> | undefined {
+  if (!WRITE_TOOL_NAMES.includes(event.tool)) return undefined;
+  const raw =
+    typeof event.input === 'object' && event.input !== null ? (event.input as Record<string, unknown>) : {};
+  const input = capWriteArg(raw, '', nrqlMode, 0) as Record<string, unknown>;
+  const record = event.meta?.[WRITE_META_KEY];
+  return { input, ...(typeof record === 'object' && record !== null ? { record } : {}) };
+}
+
 const asNumberList = (v: unknown): number[] | null =>
   Array.isArray(v) && v.length > 0 && v.every((n) => Number.isSafeInteger(n)) ? (v as number[]) : null;
 
@@ -220,6 +292,9 @@ export function createAuditRecorder(options: AuditRecorderOptions): AuditRecorde
     if (admit) await write(entry);
   };
 
+  // Last `quota.denied` row per grant and period: bookkeeping for this recorder, bounded, not request data.
+  const quotaDeniedAt = new Map<string, number>();
+
   const ipDetails = (c: Context): Record<string, unknown> => {
     if (!options.getClientIp) return {};
     try {
@@ -268,7 +343,15 @@ export function createAuditRecorder(options: AuditRecorderOptions): AuditRecorde
       inspectedCount:
         typeof inspected === 'number' && Number.isFinite(inspected) ? Math.trunc(inspected) : null,
       errorCode: event.errorCode,
-      details,
+      details: (() => {
+        const write = writeDetails(event, mode);
+        if (write === undefined) return details;
+        // Too large with the arguments: keep the record (account, target, diff) and drop the argument text.
+        const full = sanitizeDetails({ ...details, write });
+        if (full !== null && !('note' in full)) return full;
+        const { input: _input, ...recordOnly } = write;
+        return sanitizeDetails({ ...details, write: { ...recordOnly, inputOmitted: true } }) ?? details;
+      })(),
     });
   };
 
@@ -321,6 +404,33 @@ export function createAuditRecorder(options: AuditRecorderOptions): AuditRecorde
       await writeToolCall(identity(info), { project: info.projectSlug }, event);
     },
 
+    // A write about to be sent (P7-28): stored before the mutation and awaited, and a failed append rejects (the write
+    // is then refused with nothing sent). The outcome is the ordinary `tool_call` row written after the call.
+    async onWriteIntent(_c: Context, info: McpRequestInfo, intent: WriteIntent) {
+      const input = capWriteArg(asRecord(intent.input) ?? {}, '', mode, 0);
+      const write = { phase: 'intent', tool: intent.tool, input, record: intent.record };
+      const record = asRecord(intent.record);
+      const accountId = record?.['accountId'];
+      const details =
+        (() => {
+          const full = sanitizeDetails({ project: info.projectSlug, write });
+          if (full !== null && !('note' in full)) return full;
+          const { input: _input, ...recordOnly } = write;
+          return sanitizeDetails({ project: info.projectSlug, write: { ...recordOnly, inputOmitted: true } });
+        })() ?? null;
+      await repo.append({
+        ts: clock.now(),
+        kind: 'tool_call',
+        action: AUDIT_WRITE_INTENT_ACTION,
+        status: 'ok',
+        ...identity(info),
+        accountIds: typeof accountId === 'number' && Number.isSafeInteger(accountId) ? [accountId] : null,
+        targetType: 'tool',
+        targetId: intent.tool,
+        details,
+      });
+    },
+
     // Pass-through calls (P2-16): the actor is the key's fingerprint id (`pt_...`), never the key. No grant, token or
     // project exists; `details.mode` marks the row as pass-through.
     async onPassthroughToolCall(_c: Context, info: PassthroughRequestInfo, event) {
@@ -329,6 +439,31 @@ export function createAuditRecorder(options: AuditRecorderOptions): AuditRecorde
         { mode: 'passthrough', region: info.region },
         event,
       );
+    },
+
+    // A grant's quota refused a call (P7-12): one `auth` row per grant, period and measure per interval, and also under
+    // the per-minute cap of all `auth` rows. Each refused call is still an ordinary `tool_call` error row.
+    async onQuotaDenied(_c: Context, info: McpRequestInfo, denial: QuotaDenial) {
+      const key = `${info.grantId}\n${denial.period}\n${denial.measure}`;
+      const now = clock.now();
+      const last = quotaDeniedAt.get(key);
+      if (last !== undefined && now - last < QUOTA_DENIED_AUDIT_INTERVAL_MS) return;
+      if (quotaDeniedAt.size >= QUOTA_DENIED_MAX_GRANTS) quotaDeniedAt.clear();
+      quotaDeniedAt.set(key, now);
+      await writeAuth({
+        ts: now,
+        kind: 'auth',
+        action: 'quota.denied',
+        status: 'denied',
+        ...identity(info),
+        errorCode: 'RB_LIMIT_QUOTA',
+        details: {
+          project: info.projectSlug,
+          period: denial.period,
+          measure: denial.measure,
+          limit: denial.limit,
+        },
+      });
     },
 
     // A `tools/call` for a tool this grant doesn't include is answered by the MCP layer as "unknown tool", so the

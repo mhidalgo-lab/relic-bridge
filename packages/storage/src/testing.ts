@@ -240,11 +240,16 @@ export function runStorageContract(options: StorageContractOptions): void {
             s.settings.setIfAbsent('k', 1),
             s.settings.delete('k'),
             s.kv.put('k', 'v'),
+            s.kv.compareAndPut('k', 'v', 'w'),
             s.kv.delete('k'),
             s.kv.take('k'),
             s.kv.increment('k', { expirationTtl: 60 }),
             s.kv.purgeExpired(),
             s.kv.deletePrefix('k'),
+            s.grantUsage.reserve('g', 'd2026-10-06', null),
+            s.grantUsage.release('g', 'd2026-10-06'),
+            s.grantUsage.addInspected('g', 'd2026-10-06', 1),
+            s.grantUsage.purgeBefore(1),
           ];
           for (const w of writes) await rejects(w, ReadOnlyStorageError);
           expect((await s.projects.list()).length).toBe(CONTRACT_FIXTURE.projects.length);
@@ -632,6 +637,7 @@ export function runStorageContract(options: StorageContractOptions): void {
           accountIds: null,
           limits: {},
           rateLimit: null,
+          quota: null,
           expiresAt: null,
           revokedAt: null,
           createdAt: clock.t,
@@ -657,6 +663,11 @@ export function runStorageContract(options: StorageContractOptions): void {
           tools: [],
           rateLimit: { requests: 60, perSeconds: 60 },
         });
+        const quota = { day: { queries: 100, inspectedEvents: 5_000_000 }, warnPercent: 90 };
+        expect((await s.grants.update('g2', { quota })).quota).toEqual(quota);
+        expect((await s.grants.get('g2'))?.quota).toEqual(quota);
+        expect((await s.grants.update('g2', { revokedAt: null })).quota).toEqual(quota);
+        expect((await s.grants.update('g2', { quota: null })).quota).toBeNull();
         await s.close();
       });
 
@@ -676,6 +687,124 @@ export function runStorageContract(options: StorageContractOptions): void {
         await rejects(s.grants.update('g', { label: null }), InvalidInputError);
         await rejects(s.grants.update('missing', { label: 'x' }), NotFoundError);
         await rejects(s.grants.delete('missing'), NotFoundError);
+        await s.close();
+      });
+    });
+
+    describe('grant usage (P7-12)', () => {
+      const DAY = 'd2026-10-06';
+      const MONTH = 'm2026-10';
+      const seedGrant = async (s: Storage, id = 'g1'): Promise<void> => {
+        await seedFixture(s);
+        await s.grants.create({ id, projectId: 'acme-prod', label: 'svc' });
+      };
+
+      it('reserve counts one query per call and refuses at the cap without changing anything', async () => {
+        const { s } = await fresh();
+        await seedGrant(s);
+        expect(await s.grantUsage.reserve('g1', DAY, 2)).toEqual({ queries: 1, inspected: 0 });
+        expect(await s.grantUsage.reserve('g1', DAY, 2)).toEqual({ queries: 2, inspected: 0 });
+        expect(await s.grantUsage.reserve('g1', DAY, 2)).toBeNull();
+        expect(await s.grantUsage.get('g1', [DAY, MONTH])).toEqual({ [DAY]: { queries: 2, inspected: 0 } });
+        // No cap: always counts. A lower cap than the count refuses.
+        expect(await s.grantUsage.reserve('g1', DAY, null)).toEqual({ queries: 3, inspected: 0 });
+        expect(await s.grantUsage.reserve('g1', DAY, 1)).toBeNull();
+        // Another period starts at zero (rollover).
+        expect(await s.grantUsage.reserve('g1', 'd2026-10-07', 2)).toEqual({ queries: 1, inspected: 0 });
+        await s.close();
+      });
+
+      it('reserve is atomic: 50 concurrent calls against a cap of 10 succeed exactly 10 times', async () => {
+        const { s } = await fresh();
+        await seedGrant(s);
+        const results = await Promise.all(
+          Array.from({ length: 50 }, () => s.grantUsage.reserve('g1', DAY, 10)),
+        );
+        expect(results.filter((r) => r !== null)).toHaveLength(10);
+        expect((await s.grantUsage.get('g1', [DAY]))[DAY]?.queries).toBe(10);
+        const open = await Promise.all(
+          Array.from({ length: 20 }, () => s.grantUsage.reserve('g1', MONTH, null)),
+        );
+        expect(open.map((r) => r?.queries).sort((a, b) => (a ?? 0) - (b ?? 0))).toEqual(
+          Array.from({ length: 20 }, (_, i) => i + 1),
+        );
+        await s.close();
+      });
+
+      it('adds inspected events atomically, releases a query and never goes below zero', async () => {
+        const { s } = await fresh();
+        await seedGrant(s);
+        await Promise.all(Array.from({ length: 10 }, () => s.grantUsage.addInspected('g1', DAY, 7)));
+        expect(await s.grantUsage.get('g1', [DAY])).toEqual({ [DAY]: { queries: 0, inspected: 70 } });
+        await s.grantUsage.reserve('g1', DAY, null);
+        await s.grantUsage.release('g1', DAY);
+        await s.grantUsage.release('g1', DAY);
+        await s.grantUsage.release('g1', 'd2026-01-01');
+        expect(await s.grantUsage.get('g1', [DAY])).toEqual({ [DAY]: { queries: 0, inspected: 70 } });
+        await rejects(s.grantUsage.addInspected('g1', DAY, -1), InvalidInputError);
+        await rejects(s.grantUsage.addInspected('g1', DAY, 1.5), InvalidInputError);
+        await s.close();
+      });
+
+      it('reads many grants in one call, refuses bad periods and too many grants', async () => {
+        const { s } = await fresh();
+        await seedGrant(s);
+        await s.grants.create({ id: 'g2', projectId: 'acme-prod', label: 'two' });
+        await s.grantUsage.reserve('g1', DAY, null);
+        await s.grantUsage.reserve('g2', MONTH, null);
+        expect(await s.grantUsage.getMany(['g1', 'g2', 'g3'], [DAY, MONTH])).toEqual({
+          g1: { [DAY]: { queries: 1, inspected: 0 } },
+          g2: { [MONTH]: { queries: 1, inspected: 0 } },
+        });
+        expect(await s.grantUsage.getMany([], [DAY])).toEqual({});
+        for (const bad of [
+          [],
+          ['x'],
+          ['d2026-1-1'],
+          [DAY, MONTH, 'd2026-10-01', 'd2026-10-02', 'd2026-10-03'],
+        ]) {
+          await rejects(s.grantUsage.get('g1', bad), InvalidInputError);
+        }
+        await rejects(s.grantUsage.reserve('g1', "d2026-10-06' OR 1=1", null), InvalidInputError);
+        await rejects(
+          s.grantUsage.getMany(
+            Array.from({ length: 51 }, (_, i) => `g${i}`),
+            [DAY],
+          ),
+          InvalidInputError,
+        );
+        await s.close();
+      });
+
+      it('refuses an unknown grant, and counters go with their grant and project', async () => {
+        const { s } = await fresh();
+        await seedGrant(s);
+        await rejects(s.grantUsage.reserve('ghost', DAY, null), ConflictError);
+        await s.grantUsage.reserve('g1', DAY, null);
+        await s.grants.delete('g1');
+        expect(await s.grantUsage.get('g1', [DAY])).toEqual({});
+        await s.grants.create({ id: 'g1', projectId: 'acme-prod', label: 'again' });
+        await s.grantUsage.reserve('g1', DAY, null);
+        await s.projects.delete('acme-prod');
+        expect(await s.grantUsage.get('g1', [DAY])).toEqual({});
+        await s.close();
+      });
+
+      it('purges rows by last update, oldest first, within the limit', async () => {
+        const { s, clock } = await fresh();
+        await seedGrant(s);
+        await s.grantUsage.reserve('g1', 'd2026-10-01', null);
+        clock.advance(1000);
+        await s.grantUsage.reserve('g1', 'd2026-10-02', null);
+        clock.advance(1000);
+        await s.grantUsage.reserve('g1', 'd2026-10-03', null);
+        expect(await s.grantUsage.purgeBefore(clock.t, 1)).toBe(1);
+        expect(Object.keys(await s.grantUsage.get('g1', ['d2026-10-01', 'd2026-10-02']))).toEqual([
+          'd2026-10-02',
+        ]);
+        expect(await s.grantUsage.purgeBefore(clock.t)).toBe(1);
+        expect(await s.grantUsage.purgeBefore(clock.t)).toBe(0);
+        expect(Object.keys(await s.grantUsage.get('g1', ['d2026-10-03']))).toEqual(['d2026-10-03']);
         await s.close();
       });
     });
@@ -1151,6 +1280,32 @@ export function runStorageContract(options: StorageContractOptions): void {
         await s.kv.delete('a');
         await s.kv.delete('a');
         expect(await s.kv.get('a')).toBeNull();
+        await s.close();
+      });
+
+      it('compareAndPut swaps only the exact live value, and one of many concurrent callers wins (P7-29)', async () => {
+        const { s, clock } = await fresh();
+        expect(await s.kv.compareAndPut('task:a', 'v0', 'v1', { expirationTtl: 60 })).toBe(false);
+        expect(await s.kv.get('task:a')).toBeNull();
+        await s.kv.put('task:a', 'v0', { expirationTtl: 60 });
+        expect(await s.kv.compareAndPut('task:a', 'other', 'v1', { expirationTtl: 60 })).toBe(false);
+        expect(await s.kv.get('task:a')).toBe('v0');
+        const wins = await Promise.all(
+          ['x', 'y', 'z', 'w'].map((v) => s.kv.compareAndPut('task:a', 'v0', v, { expirationTtl: 120 })),
+        );
+        expect(wins.filter(Boolean)).toHaveLength(1);
+        const winner = ['x', 'y', 'z', 'w'][wins.indexOf(true)];
+        expect(await s.kv.get('task:a')).toBe(winner);
+        // The new expiry applies.
+        expect((await s.kv.list({ prefix: 'task:' })).keys[0]?.expiration).toBe(
+          Math.floor(clock.t / 1000) + 120,
+        );
+        // An expired row is not swapped.
+        clock.advance(121_000);
+        expect(await s.kv.compareAndPut('task:a', winner as string, 'late', { expirationTtl: 60 })).toBe(
+          false,
+        );
+        expect(await s.kv.get('task:a')).toBeNull();
         await s.close();
       });
 

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import { createLogger, redact } from '@relic-bridge/core';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { createHttpApp, type HttpAppOptions, type McpRequestInfo } from '../src/index.ts';
+import { createHttpApp, type HttpAppOptions, type McpRequestInfo, mergeHooks } from '../src/index.ts';
 import { CATALOG, connect, type Era, mockNerdGraph, NR_KEY, seedWorld, type World } from './fixtures.ts';
 
 let world: World;
@@ -441,5 +441,35 @@ describe('hooks', () => {
     const line = logLines.map((l) => JSON.parse(l)).find((l) => l.msg === 'http request');
     expect(line).toMatchObject({ status: 200, project: 'prod', route: '/p/:slug/mcp' });
     expect(JSON.stringify(line)).toBe(redact(JSON.stringify(line)));
+  });
+});
+
+describe('write tools need the write audit hook (P7-28)', () => {
+  it('refuses writeTools without hooks.onWriteIntent, accepts it with one (also through mergeHooks)', () => {
+    expect(() => makeApp({ writeTools: true })).toThrow(/onWriteIntent/);
+    expect(() => makeApp({ writeTools: true, hooks: mergeHooks({ onToolCall: () => undefined }) })).toThrow(
+      /onWriteIntent/,
+    );
+    expect(() =>
+      makeApp({ writeTools: true, hooks: { onWriteIntent: async () => undefined } }),
+    ).not.toThrow();
+    expect(() =>
+      makeApp({ writeTools: true, hooks: mergeHooks({}, { onWriteIntent: async () => undefined }) }),
+    ).not.toThrow();
+    expect(() => makeApp()).not.toThrow();
+  });
+
+  it('mergeHooks runs every intent hook in order and the first rejection refuses', async () => {
+    const seen: string[] = [];
+    const merged = mergeHooks(
+      { onWriteIntent: async () => void seen.push('a') },
+      { onWriteIntent: async () => Promise.reject(new Error('store down')) },
+      { onWriteIntent: async () => void seen.push('c') },
+    );
+    const intent = { tool: 'close_issue', input: {}, record: {} };
+    await expect(merged.onWriteIntent?.({} as never, {} as McpRequestInfo, intent)).rejects.toThrow(
+      'store down',
+    );
+    expect(seen).toEqual(['a']);
   });
 });

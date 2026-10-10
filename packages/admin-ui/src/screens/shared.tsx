@@ -249,6 +249,24 @@ export function Notes(props: {
   );
 }
 
+/**
+ * Composites in a tool list whose sibling tools are not in it (P6-25): the grant stores fine, but those sections come
+ * back skipped. `null` (every tool the project enables) lacks none.
+ */
+export function siblingNotes(selected: readonly string[] | null, tools: readonly UiTool[]): string[] {
+  if (selected === null) return [];
+  const out: string[] = [];
+  for (const name of selected) {
+    const missing = (tools.find((t) => t.name === name)?.siblings ?? []).filter((s) => !selected.includes(s));
+    if (missing.length > 0) {
+      out.push(
+        `${name} calls tools this grant does not include (those sections come back skipped): ${missing.join(', ')}.`,
+      );
+    }
+  }
+  return out;
+}
+
 /** A point in time, or a dash. */
 export function When(props: { readonly at: number | null; readonly none?: string }): JSX.Element {
   return props.at === null ? <span>{props.none ?? '—'}</span> : <Time at={props.at} />;
@@ -325,6 +343,12 @@ export function ToolChecklist(props: ToolChecklistProps): JSX.Element {
         hint={props.allHint}
         checked={props.selected === null}
       />
+      {props.tools.some((t) => t.kind !== 'read') ? (
+        <p class="hint">
+          Write tools (marked write or destructive) change New Relic. They are never part of “all”: tick each
+          one you want. Only owners can enable them.
+        </p>
+      ) : null}
       {props.tools.length === 0 ? (
         <p class="hint">The tool list is not available here: choose all tools, or use the admin API.</p>
       ) : (
@@ -341,6 +365,13 @@ export function ToolChecklist(props: ToolChecklistProps): JSX.Element {
                   <>
                     {t.title} <code>{t.name}</code> <Badge tone={KIND_TONE[t.kind]}>{t.kind}</Badge>
                     {props.outside?.has(t.name) ? <Badge tone="muted">not on the project</Badge> : null}
+                    {t.siblings === undefined || t.siblings.length === 0 ? null : (
+                      <span class="hint">
+                        {' '}
+                        Runs these tools for its sections; ticking it does not grant them, and a section whose
+                        tool is not granted comes back skipped: {t.siblings.join(', ')}.
+                      </span>
+                    )}
                   </>
                 }
               />
@@ -352,10 +383,21 @@ export function ToolChecklist(props: ToolChecklistProps): JSX.Element {
   );
 }
 
-/** The tools a checklist posted: null for "all", a list, or an error message. */
-export function toolsFrom(form: VerifiedForm): { value: string[] | null } | { error: string } {
-  if (form.fields.get('tools_all') !== null) return { value: null };
-  const names = [...new Set(form.fields.getAll('tools'))].filter((n) => /^[a-z0-9_]{1,64}$/.test(n));
+/**
+ * The tools a checklist posted: null for "all", a list, or an error message. Write tools (P7-09) are never implied by
+ * "all": "all" plus ticked write tools becomes the explicit list of every read tool in `tools` and those write tools.
+ */
+export function toolsFrom(
+  form: VerifiedForm,
+  tools: readonly UiTool[] = [],
+): { value: string[] | null } | { error: string } {
+  const ticked = [...new Set(form.fields.getAll('tools'))].filter((n) => /^[a-z0-9_]{1,64}$/.test(n));
+  if (form.fields.get('tools_all') !== null) {
+    const writes = ticked.filter((n) => tools.some((t) => t.name === n && t.kind !== 'read'));
+    if (writes.length === 0) return { value: null };
+    return { value: [...tools.filter((t) => t.kind === 'read').map((t) => t.name), ...writes] };
+  }
+  const names = ticked;
   if (names.length === 0) return { error: 'Choose at least one tool, or all tools.' };
   return { value: names };
 }
@@ -446,13 +488,17 @@ const LIMIT_FIELDS = [
 export function LimitsFields(props: {
   readonly limits: Limits;
   readonly errors: Readonly<Record<string, string>>;
+  /** Replaces the default hint line (a grant form says the project's limits still apply). */
+  readonly hint?: string;
 }): JSX.Element {
   const l = props.limits;
   const raw = l.rawNrql === undefined ? '' : l.rawNrql ? 'on' : 'off';
   return (
     <fieldset class="field">
       <legend>Query limits</legend>
-      <p class="hint">Leave a field blank for the server default. Grants can only narrow these.</p>
+      <p class="hint">
+        {props.hint ?? 'Leave a field blank for the server default. Grants can only narrow these.'}
+      </p>
       {LIMIT_FIELDS.map(([name, label, hint, max]) => (
         <TextField
           name={`limit_${name}`}

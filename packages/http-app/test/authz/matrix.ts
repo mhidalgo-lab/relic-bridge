@@ -113,6 +113,14 @@ export const ADMIN_ROUTES: readonly RouteCase[] = [
   { method: 'GET', pattern: `${A}/grants/:id`, path: `${A}/grants/grt_none` },
   { method: 'POST', pattern: `${A}/grants/:id/revoke`, path: `${A}/grants/grt_none/revoke` },
   { method: 'DELETE', pattern: `${A}/grants/:id`, path: `${A}/grants/grt_none` },
+  // P7-12: per-grant quota (admins and owners; an owner's grant only by owners) and the usage against it.
+  {
+    method: 'PUT',
+    pattern: `${A}/grants/:id/quota`,
+    path: `${A}/grants/grt_none/quota`,
+    body: { quota: { day: { queries: 10 } } },
+  },
+  { method: 'GET', pattern: `${A}/usage/quotas`, path: `${A}/usage/quotas` },
   { method: 'GET', pattern: `${A}/tokens`, path: `${A}/tokens` },
   {
     method: 'POST',
@@ -127,6 +135,25 @@ export const ADMIN_ROUTES: readonly RouteCase[] = [
   { method: 'GET', pattern: `${A}/audit/stats`, path: `${A}/audit/stats` },
   // Master-key rotation (P3-11): every row is already current in the fixture, so the control call changes nothing.
   { method: 'POST', pattern: `${A}/keys/rotate`, path: `${A}/keys/rotate`, body: {} },
+  // Config import/export (P7-06): owner only. Export without keys and a dry-run import of an empty bundle change nothing.
+  { method: 'POST', pattern: `${A}/config/export`, path: `${A}/config/export`, body: {} },
+  {
+    method: 'POST',
+    pattern: `${A}/config/import`,
+    path: `${A}/config/import`,
+    body: {
+      bundle: {
+        format: 'relic-bridge-config',
+        version: 1,
+        exportedAt: '2026-01-01T00:00:00.000Z',
+        users: [],
+        credentials: [],
+        projects: [],
+        grants: [],
+        settings: {},
+      },
+    },
+  },
   // Owner setup link (P4-01): the control call issues one (a single-use code in `kv`, nothing else changes).
   { method: 'POST', pattern: `${A}/setup-links`, path: `${A}/setup-links`, body: {} },
   // Member self-service (P4-10): a session user's own rows. The admin token is nobody (403 `no_user`); ids don't exist.
@@ -240,6 +267,7 @@ export const UI_ROUTES: readonly RouteCase[] = [
   ui('GET', '/admin/grants/new'),
   ui('POST', '/admin/grants'),
   ui('GET', '/admin/grants/:id', '/admin/grants/grt_none'),
+  ui('POST', '/admin/grants/:id/quota', '/admin/grants/grt_none/quota'),
   ui('POST', '/admin/grants/:id/revoke', '/admin/grants/grt_none/revoke'),
   ui('POST', '/admin/grants/:id/delete', '/admin/grants/grt_none/delete'),
   ui('GET', '/admin/tokens'),
@@ -297,6 +325,18 @@ export const UI_ASSET_ROUTES: readonly RouteCase[] = [
 export const PUBLIC_ROUTES: readonly RouteCase[] = [
   { method: 'GET', pattern: '/health', path: '/health' },
   { method: 'GET', pattern: '/version', path: '/version' },
+];
+
+/**
+ * The static tool catalog (P7-14): registered only with `publicToolCatalog` (`RB_PUBLIC_TOOL_CATALOG=on`), else 404.
+ * Unauthenticated by design; `public-catalog.test.ts` checks it answers alike whatever a caller presents.
+ */
+export const PUBLIC_CATALOG_ROUTES: readonly RouteCase[] = [
+  {
+    method: 'GET',
+    pattern: '/.well-known/relic-bridge/tools.json',
+    path: '/.well-known/relic-bridge/tools.json',
+  },
 ];
 
 /**

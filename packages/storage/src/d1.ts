@@ -45,6 +45,7 @@ import type {
   EncryptedKey,
   GrantRecord,
   GrantsRepository,
+  GrantUsageRepository,
   JsonValue,
   KvListResult,
   KvRepository,
@@ -55,6 +56,19 @@ import type {
   UserRecord,
   UsersRepository,
 } from './types.ts';
+import {
+  checkPeriod,
+  checkPeriods,
+  checkUsageCount,
+  groupUsage,
+  USAGE_ADD_INSPECTED_SQL,
+  USAGE_PURGE_DEFAULT,
+  USAGE_PURGE_SQL,
+  USAGE_RELEASE_SQL,
+  USAGE_RESERVE_SQL,
+  usageGetSql,
+  usageOf,
+} from './usage.ts';
 import { lastOwnerGuardSql, UNBOUND_ENABLED_SQL } from './user-guards.ts';
 import {
   checkEncryptedKey,
@@ -65,6 +79,7 @@ import {
   checkRole,
   checkTokenHash,
   checkTokenPrefix,
+  KV_COMPARE_AND_PUT_SQL,
   KV_INCREMENT_SQL,
   kvCounterExpiry,
   kvExpiry,
@@ -624,6 +639,7 @@ export async function createD1Storage(
       accountIds: jsonOrNull<number[]>(r['account_ids']),
       limits: JSON.parse(str(r['limits'])) as GrantRecord['limits'],
       rateLimit: jsonOrNull<GrantRecord['rateLimit'] & object>(r['rate_limit']),
+      quota: jsonOrNull<GrantRecord['quota'] & object>(r['quota']),
       createdAt: num(r['created_at']),
       updatedAt: num(r['updated_at']),
       expiresAt: numOrNull(r['expires_at']),
@@ -655,7 +671,7 @@ export async function createD1Storage(
         checkGrantPrincipal(input.userId ?? null, input.label ?? null);
         const t = now();
         const r = await one(
-          'INSERT INTO grants (id, project_id, user_id, label, credential_id, tools, account_ids, limits, rate_limit, created_at, updated_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *',
+          'INSERT INTO grants (id, project_id, user_id, label, credential_id, tools, account_ids, limits, rate_limit, quota, created_at, updated_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *',
           [
             input.id,
             input.projectId,
@@ -666,6 +682,7 @@ export async function createD1Storage(
             toJson(input.accountIds),
             JSON.stringify(input.limits ?? {}),
             toJson(input.rateLimit),
+            toJson(input.quota),
             t,
             t,
             input.expiresAt ?? null,
@@ -683,6 +700,7 @@ export async function createD1Storage(
           .set('account_ids', patch.accountIds === undefined ? undefined : toJson(patch.accountIds))
           .set('limits', patch.limits === undefined ? undefined : JSON.stringify(patch.limits))
           .set('rate_limit', patch.rateLimit === undefined ? undefined : toJson(patch.rateLimit))
+          .set('quota', patch.quota === undefined ? undefined : toJson(patch.quota))
           .set('expires_at', patch.expiresAt)
           .set('revoked_at', patch.revokedAt)
           .set('updated_at', now());
@@ -693,6 +711,45 @@ export async function createD1Storage(
     delete: (id) =>
       call(async () => {
         if ((await run('DELETE FROM grants WHERE id = ?', [id])) === 0) throw new NotFoundError('grant', id);
+      }),
+  };
+
+  // ----------------------------------------------------------------------------------------------- grant usage
+  // One statement each (shared SQL, `usage.ts`): D1 has no transactions, and the cap check is part of the upsert.
+  const grantUsageRepo: GrantUsageRepository = {
+    reserve: (grantId, period, maxQueries) =>
+      call(async () => {
+        checkPeriod(period);
+        const r = await one(USAGE_RESERVE_SQL, [grantId, period, now(), maxQueries, maxQueries]);
+        return r === null ? null : usageOf(r);
+      }),
+    release: (grantId, period) =>
+      call(async () => {
+        checkPeriod(period);
+        await run(USAGE_RELEASE_SQL, [now(), grantId, period]);
+      }),
+    addInspected: (grantId, period, events) =>
+      call(async () => {
+        checkPeriod(period);
+        checkUsageCount(events, 'grant_usage.inspected');
+        return usageOf(await one(USAGE_ADD_INSPECTED_SQL, [grantId, period, events, now()]));
+      }),
+    get: (grantId, periods) =>
+      call(async () => {
+        checkPeriods(periods);
+        const q = usageGetSql([grantId], periods);
+        return freeze(groupUsage(await all(q.sql, q.params))[grantId] ?? {});
+      }),
+    getMany: (grantIds, periods) =>
+      call(async () => {
+        const q = usageGetSql([...new Set(grantIds)], periods);
+        return freeze(groupUsage(await all(q.sql, q.params)));
+      }),
+    purgeBefore: (before, limit) =>
+      call(async () => {
+        checkLimit(limit, 'grant_usage.limit');
+        const max = Math.min(Math.max(1, Math.trunc(limit ?? USAGE_PURGE_DEFAULT)), USAGE_PURGE_DEFAULT);
+        return run(USAGE_PURGE_SQL, [before, max]);
       }),
   };
 
@@ -917,6 +974,11 @@ export async function createD1Storage(
           [key, value, expiresAt],
         );
       }),
+    compareAndPut: (key, expected, value, opts = {}) =>
+      call(async () => {
+        const expiresAt = kvExpiry(opts, now());
+        return (await run(KV_COMPARE_AND_PUT_SQL, [value, expiresAt, key, expected, now()])) > 0;
+      }),
     delete: (key) =>
       call(async () => {
         await run('DELETE FROM kv WHERE key = ?', [key]);
@@ -1011,6 +1073,7 @@ export async function createD1Storage(
     auditLog: auditRepo,
     settings: settingsRepo,
     kv: kvRepo,
+    grantUsage: grantUsageRepo,
     loadAccessRecords,
     // The binding has no connection to close.
     async close() {},

@@ -8,6 +8,7 @@ import {
   createRateLimitHooks,
   type HttpAppHooks,
   type HttpAppOptions,
+  type McpRequestInfo,
   MemoryRateLimiter,
   mergeHooks,
   normalizeClientIp,
@@ -560,5 +561,119 @@ describe('defaults', () => {
     }
     expect((await app.fetch(post('rb_live_nope'))).status).toBe(429);
     expect((await app.fetch(post(world.tokens.prod))).status).toBe(200);
+  });
+});
+
+describe('write bucket charging by round (P7-35)', () => {
+  const rounds = ['dry_run', 'question', 'answered', 'confirm'] as const;
+  const info = (writeRound: McpRequestInfo['writeRound'], grantId = 'grt_w') =>
+    ({
+      tokenId: 'tok_w',
+      grantId,
+      listen: false,
+      mcpMethod: 'tools/call',
+      mcpName: 'close_issue',
+      ...(writeRound === undefined ? {} : { writeRound }),
+      access: { tools: ['close_issue', 'whoami'], rateLimit: null },
+    }) as unknown as McpRequestInfo;
+  const c = { get: () => undefined } as never;
+  const make = (write: number) => {
+    const limiter = new MemoryRateLimiter({ clock: new ManualClock() });
+    const hooks = createRateLimitHooks({
+      limiter,
+      rules: {
+        ip: null,
+        authFailures: null,
+        token: null,
+        grant: null,
+        write: { requests: write, perSeconds: 3600 },
+      },
+      getClientIp: () => '203.0.113.7',
+    });
+    return { hooks, limiter };
+  };
+  const remaining = (limiter: MemoryRateLimiter) =>
+    limiter.peek('write:grt_w', { requests: 100, perSeconds: 3600 }).remaining;
+
+  it('charges exactly the rounds that can reach a mutation', async () => {
+    for (const round of rounds) {
+      const { hooks, limiter } = make(100);
+      expect(await hooks.beforeMcp?.(c, info(round))).toBeUndefined();
+      const charged = round === 'answered' || round === 'confirm';
+      expect(remaining(limiter), round).toBe(charged ? 99 : 100);
+    }
+  });
+
+  it('a call with no classification is charged (fail closed)', async () => {
+    const { hooks, limiter } = make(100);
+    await hooks.beforeMcp?.(c, info(undefined));
+    await hooks.beforeMcp?.(c, info(null));
+    expect(remaining(limiter)).toBe(98);
+  });
+
+  it('elicitation: the question round plus the answered round cost one unit', async () => {
+    const { hooks } = make(2);
+    for (let write = 0; write < 2; write++) {
+      expect(await hooks.beforeMcp?.(c, info('question'))).toBeUndefined();
+      expect(await hooks.beforeMcp?.(c, info('answered'))).toBeUndefined();
+    }
+    // Two confirmed writes used the whole bucket: the next one that can mutate is refused, at either shape.
+    expect((await hooks.beforeMcp?.(c, info('answered')))?.status).toBe(429);
+    expect((await hooks.beforeMcp?.(c, info('confirm')))?.status).toBe(429);
+  });
+
+  it('negative: confirm: true without elicitation, and junk or empty inputResponses, are charged', async () => {
+    const { hooks } = make(1);
+    expect(await hooks.beforeMcp?.(c, info('confirm'))).toBeUndefined();
+    expect((await hooks.beforeMcp?.(c, info('confirm')))?.status).toBe(429);
+    expect((await hooks.beforeMcp?.(c, info('answered')))?.status).toBe(429);
+  });
+
+  it('negative: question-only rounds never touch the write bucket, so an exhausted bucket still refuses mutations', async () => {
+    const { hooks } = make(1);
+    expect(await hooks.beforeMcp?.(c, info('answered'))).toBeUndefined();
+    for (let i = 0; i < 50; i++) expect(await hooks.beforeMcp?.(c, info('question'))).toBeUndefined();
+    expect((await hooks.beforeMcp?.(c, info('answered')))?.status).toBe(429);
+  });
+
+  it('repeated question rounds stay bounded by the token and grant limits', async () => {
+    const limiter = new MemoryRateLimiter({ clock: new ManualClock() });
+    const hooks = createRateLimitHooks({
+      limiter,
+      rules: {
+        ip: null,
+        authFailures: null,
+        token: { requests: 5, perSeconds: 60 },
+        grant: { requests: 100, perSeconds: 60 },
+        write: { requests: 1, perSeconds: 3600 },
+      },
+      getClientIp: () => '203.0.113.7',
+    });
+    const codes: (number | undefined)[] = [];
+    for (let i = 0; i < 8; i++) codes.push((await hooks.beforeMcp?.(c, info('question')))?.status);
+    expect(codes).toEqual([undefined, undefined, undefined, undefined, undefined, 429, 429, 429]);
+    // The same bound holds for dry runs.
+    const dry: (number | undefined)[] = [];
+    for (let i = 0; i < 3; i++) dry.push((await hooks.beforeMcp?.(c, info('dry_run', 'grt_other')))?.status);
+    expect(dry).toEqual([429, 429, 429]);
+  });
+
+  it('the limiter failing closes the charged rounds only', async () => {
+    const broken: RateLimiter = {
+      take: (key: string) => {
+        if (key.startsWith('write:')) throw new Error('store down');
+        return { allowed: true, retryAfterMs: 0, remaining: 1 };
+      },
+      peek: () => ({ allowed: true, retryAfterMs: 0, remaining: 1 }),
+    } as unknown as RateLimiter;
+    const hooks = createRateLimitHooks({
+      limiter: broken,
+      rules: { ip: null, authFailures: null, token: null, grant: null },
+      getClientIp: () => null,
+    });
+    expect(await hooks.beforeMcp?.(c, info('question'))).toBeUndefined();
+    expect(await hooks.beforeMcp?.(c, info('dry_run'))).toBeUndefined();
+    expect((await hooks.beforeMcp?.(c, info('answered')))?.status).toBe(429);
+    expect((await hooks.beforeMcp?.(c, info('confirm')))?.status).toBe(429);
   });
 });

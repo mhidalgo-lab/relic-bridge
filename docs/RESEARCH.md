@@ -160,6 +160,30 @@ Sources: <https://modelcontextprotocol.io/specification/2026-07-28/basic/authori
   <https://www.ietf.org/archive/id/draft-ietf-oauth-client-id-metadata-document-00.html>.
 - Extensions framework: **MCP Apps** (interactive HTML UIs) and **Tasks** (long-running operations) ship as
   extensions. Logging and sampling were removed from core.
+- **Tasks extension (read 2026-10-06, P7-13)**: identifier `io.modelcontextprotocol/tasks` (SEP-2663, repo
+  `modelcontextprotocol/ext-tasks`, `specification/2026-07-28/tasks.md`). The client declares it per request in
+  `_meta["io.modelcontextprotocol/clientCapabilities"].extensions`, the server in `server/discover` capabilities
+  `extensions`. Server-directed: the server MAY answer a supported request (only `tools/call` today) with
+  `CreateTaskResult` = `resultType: "task"` + `Task { taskId, status (working | input_required | completed | failed |
+  cancelled), statusMessage?, createdAt, lastUpdatedAt (ISO), ttlMs (null = unlimited), pollIntervalMs? }`, and MUST
+  NOT to a request without the capability; the task MUST be durably created before the response. `tasks/get` returns
+  the task with `resultType: "complete"`, `result` (the original `CallToolResult`, `isError` results included) when
+  `completed`, `error` (JSON-RPC error) when `failed`, `inputRequests` when `input_required`; `tasks/update`
+  (`inputResponses`) and `tasks/cancel` (cooperative) answer an empty `resultType: "complete"`. No `tasks/list`.
+  Errors: unknown or expired task `-32602`; client without the capability `-32021` (data `requiredCapabilities`). Over
+  Streamable HTTP, `Mcp-Name` MUST be the `taskId`. Optional `notifications/tasks` via `subscriptions/listen`
+  (`notifications.taskIds`). Security: ids MUST be unguessable (they may act as bearer tokens) and every task request
+  MUST be authorised. The `@modelcontextprotocol/ext-tasks` npm package (0.2.x) is client-side (requester sessions,
+  2025-11-25 receiver), with no server runtime.
+- **Tasks and a server without the capability (P7-34)**: task creation is server-directed, so a client declaring the
+  extension on a request does not oblige the server to return a task; a server that does not advertise it answers
+  `tools/call` normally and `tasks/*` as unknown methods (`-32601`). `RB_TASKS=off` relies on exactly this.
+- **SDK 2.2.0 and Tasks (verified locally, P7-13)**: the 2026-07-28 registry has no `tasks/*` methods (`-32601`, HTTP
+  404); `McpServer` accepts `capabilities.extensions` and advertises it in `server/discover`; a `tools/call` handler's
+  `resultType` passes the encoder untouched (`tools/call` is an extended-result method), but the output-schema check
+  (`validateToolOutput`, private) fails a result without `structuredContent`, and the result check needs a `content`
+  array. The handler sees the request envelope (client capabilities) as `ctx.mcpReq.envelope`; 2025-era requests
+  have none.
 - Tool input schemas support full JSON Schema 2020-12.
 - **SDK v2** (`@modelcontextprotocol/server`, 2.1.x) supports both protocol eras:
   - `createMcpHandler(factory, { legacy: 'stateless' })` builds a fresh server per request and serves both 2025-era
@@ -374,8 +398,31 @@ Sources: <https://github.com/cloudflare/workers-oauth-provider>, issues #264, #3
 - `actions/attest` v4 (successor of `attest-build-provenance`) needs `id-token: write`, `attestations: write` and
   `artifact-metadata: write`; in **private** repositories attestations need GitHub Enterprise, so release from a public
   repo.
-- npm staged publishing (`npm stage publish`, `--allow-stage-publish` on the trusted publisher) lets CI upload a
-  version that a maintainer then approves with 2FA; an alternative to environment approval (pending decision P1-15).
+- **npm staged publishing** (verified 2026-10-09 against the official docs and `npm help stage` / `npm trust github
+  --help` of npm 11.16; sources: docs.npmjs.com/staged-publishing, /cli/v11/commands/npm-stage,
+  /cli/v11/commands/npm-trust, /trusted-publishers):
+  - Needs npm CLI >= 11.15.0 and Node >= 22.14. `npm stage publish [<package-spec>]` places the version in the
+    registry in a non-public state; it never asks for 2FA and accepts `--tag`, `--access`, `--provenance`, `--dry-run`.
+    `--ignore-scripts` is a global npm config flag and is accepted (checked with `--dry-run` on a tarball). A relative
+    tarball path like `a/b.tgz` is parsed as a git shorthand: pass an absolute path or `./a/b.tgz`.
+  - Approval: `npm stage approve <stage-id>` (2FA) or the **Staged Packages** tab on npmjs.com (**Approve**).
+    `npm stage list|view|download` need no 2FA, `npm stage reject` needs 2FA. **The `npm stage` subcommands cannot use
+    OIDC tokens** ("proof of presence"), so CI can neither list, approve nor reject, and cannot detect staged state.
+  - Staged and published versions share one semver unique index: a version that is staged cannot be published or
+    staged again. A stage can sit next to normal publishes and several versions can be staged. The tag is fixed when
+    staging (reject and re-stage to change it). `private: true` is refused as with `npm publish`.
+  - The package must already exist (the name is owned: 0.0.0 placeholder). Staging a package that does not exist
+    creates a public `0.0.0-stage` placeholder.
+  - Trusted publisher: each configuration has "Allowed actions"; `npm stage publish` is always allowed and
+    `npm publish` is optional. CLI: `npm trust github <pkg> --file release.yml --env release --repo <owner/repo>
+    --allow-stage-publish` (`--allow-publish` is the other flag; at least one is required). OIDC tokens can run only
+    `npm stage publish` and `npm publish`. The docs say configurations created after 2026-09-03 default to allowing
+    stage publish.
+  - **Not documented** (so the workflow does not rely on it): the stage-id format, expiry of a staged version, the exact
+    error text of staging a version twice. The release job therefore matches a conflict error loosely
+    (`E409`, `already staged`, `cannot publish over`, ...) and treats it as "already staged, awaiting approval";
+    any other failure fails the job. Verify the real wording on the first release and tighten
+    `release.yml` and its test (docs/dev/releasing.md).
 - The name `relic-bridge` is owned by the maintainer (0.0.0 placeholder, 2026-10-03; P0-01).
 
 ## 7. Existing community projects (prior art)
@@ -404,6 +451,14 @@ and known issues before Phase 1.
   `meta/_journal.json` and snapshots. D1 runs the same SQL.
 - `drizzle-kit` 0.31 still depends on the deprecated `@esbuild-kit/*` loader, which pulls esbuild 0.18
   (GHSA-67mh-4wv8-2f99, dev-server only). Overridden to esbuild 0.25.12 in `pnpm-workspace.yaml`; generation works.
+- Dev-tooling audit advisories (P8-10, 2026-10-09): `miniflare` (via `wrangler` and `@cloudflare/vitest-plugin`) pins `sharp`
+  exactly, and no miniflare release that was past `minimumReleaseAge` pinned the patched `sharp` 0.35.5
+  (GHSA-wq5f-xc86-pv6w, librsvg), so `pnpm-workspace.yaml` overrides `sharp` to 0.35.5 (wrangler stays on 4.144.0; drop the
+  override once a released miniflare pins >= 0.35.5). `shell-quote` (via `@changesets/cli`) and `source-map-js` (via
+  vite/postcss/jsdom) are overridden the same way. `pnpm audit` has no ignore list in this repo. Reachability: `sharp`
+  is a dependency of `miniflare` only; `pnpm --filter relic-bridge --prod deploy` contains no `sharp`, and the Worker
+  bundle (`wrangler deploy --dry-run`) and CLI bundle contain neither `sharp` nor `miniflare`, so it exists only in dev
+  and CI installs.
 - Sources: npm registry metadata; orm.drizzle.team docs (SQLite column types, indexes & constraints).
 
 ## 9. WebCrypto AES-GCM and HKDF (P2-03, checked 2026-10-03)
@@ -712,3 +767,224 @@ Two facts the code relies on were not verified live because the run had no New R
 
 `pnpm test:live` now carries one probe for each (`packages/core/test/live/nerdgraph.live.ts`). Run it with
 `RB_LIVE_API_KEY` / `RB_LIVE_ACCOUNT_ID`, then replace this section with the measured result.
+
+## 23. Workers Cache API for the query cache (P7-02, from documentation 2026-10-06, not measured on a deployment)
+
+Sources: developers.cloudflare.com/workers/runtime-apis/cache/, /workers/platform/limits/ (Cache API limits),
+/cache/concepts/default-cache-behavior/.
+
+- The Cache API is per data center: entries are not replicated to other locations and `cache.put` does not take part
+  in tiered caching. `caches.open(name)` gives a named cache next to `caches.default`.
+- `put()` honours `Cache-Control` on the stored response (and `Expires`, `ETag`, `Last-Modified`, `Cache-Tag`); a
+  response with `private`, `no-store`, `no-cache` or `max-age=0` is not stored, and one with `Set-Cookie` is never
+  stored. relic-bridge therefore stores `Cache-Control: max-age=<ttl>` only and re-checks the expiry it encrypted into
+  the body.
+- Calls per request (`put`, `match`, `delete`): 50 on Free, 1,000 on Paid, **sharing the subrequest quota** with
+  `fetch()`. The query cache spends one unit of the request budget per Cache API call and stops using it once half of
+  the budget is gone; the Free preset defaults to the isolate memory store only.
+- "Workers deployed to custom domains have access to functional cache operations"; Cache API calls in the dashboard
+  editor and Playground previews have no effect, and the Cache API is unavailable behind Cloudflare Access. Expect
+  misses on other hostnames (e.g. `workers.dev`).
+- Workers Caching (the newer cache in front of a Worker, configured with `Cache-Control` on Worker responses) is a
+  separate mechanism; relic-bridge does not use it (MCP responses are per caller and never cacheable).
+- workerd in `@cloudflare/vitest-plugin` implements `caches.open` / `match` / `put` locally (used by
+  `apps/worker/test/query-cache.test.ts`).
+
+## 24. New Relic UI link formats (P7-03, NOT verified in a browser)
+
+- Entity permalink `https://one.newrelic.com/redirect/entity/<guid>` (EU: `one.eu.newrelic.com`): the documented
+  entity permalink; works for dashboards. Used for `entity_guid`.
+- Query builder: `/launcher/data-exploration.query-builder?pane=<base64 JSON>` with
+  `{"nerdletId":"data-exploration.query-builder","initialActiveInterface":"nrqlEditor","initialQueries":[{"accountId":N,"nrql":"..."}]}`,
+  recalled from New Relic launcher links, not checked.
+- Issue page `/alerts-ai/issues/<issueId>?account=<id>`: a best guess, not checked.
+- No UI host is documented for the JP region, so JP gets no links.
+
+## 25. MCP Apps extension (P7-04, from the specification 2026-10-06, not run in a real host)
+
+Sources: github.com/modelcontextprotocol/ext-apps `specification/2026-01-26/apps.mdx` and `src/spec.types.ts`
+(`LATEST_PROTOCOL_VERSION = "2026-01-26"`; a `draft` folder exists), via Context7 `/modelcontextprotocol/ext-apps`.
+
+- Extension id `io.modelcontextprotocol/ui`; a host declares `capabilities.extensions["io.modelcontextprotocol/ui"]
+  .mimeTypes: ["text/html;profile=mcp-app"]`. The spec suggests (SHOULD-level example) registering UI tools only for
+  such clients; unknown `_meta` is ignored by others. MCP 2026-07-28 / SDK 2.2 carry client capabilities in request
+  `_meta` (`CLIENT_CAPABILITIES_META_KEY`), which P7-16 uses on the stateless transport (checked, SDK 2.2.0 with the
+  SDK client in tests): `McpServer.server.getClientCapabilities()` is backfilled per request on 2026-07-28 and holds the
+  `initialize` value on a 2025-era stdio connection; a stateless 2025-era HTTP request has no capabilities at all. The
+  `tools/list` and `resources/list` handlers get no request context, so the view link and resource are switched per
+  request by reading the registered tool's `_meta` and the resource's `enabled` as getters.
+- UI resources use the `ui://` scheme and MIME `text/html;profile=mcp-app`. Content `_meta.ui`: `csp`
+  (`connectDomains`, `resourceDomains`, `frameDomains`, `baseUriDomains`; empty or omitted = none),
+  `permissions`, `domain`, `prefersBorder`.
+- Tools link with `_meta.ui.resourceUri`; `_meta.ui.visibility` (default `["model","app"]`) controls whether the app may
+  call the tool. The flat `_meta["ui/resourceUri"]` is deprecated "and will be removed before GA".
+- Host default CSP when `ui.csp` is omitted: `default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self'
+  'unsafe-inline'; img-src 'self' data:; media-src 'self' data:; connect-src 'none'`. Web hosts must use a sandbox proxy
+  on a different origin (`allow-scripts allow-same-origin`), `frame-src 'none'` and `object-src 'none'` by default.
+- View ↔ host: JSON-RPC 2.0 over `postMessage`. The view sends `ui/initialize` (`appInfo`, `appCapabilities`,
+  `protocolVersion`), gets `hostContext` (theme `light`/`dark`, `styles.variables` with standard names such as
+  `--color-background-primary`, `locale`, `timeZone`, `containerDimensions`, ...), then sends
+  `ui/notifications/initialized`. The host must not send anything before that. It then sends
+  `ui/notifications/tool-input` and `ui/notifications/tool-result` (the `CallToolResult`: `content`,
+  `structuredContent`, `_meta`, `isError`), `host-context-changed`, `tool-cancelled`, and the request
+  `ui/resource-teardown`. The view reports `ui/notifications/size-changed` (`width`, `height`).
+- Not verified: which Claude surfaces render MCP Apps today, whether any host still needs the deprecated flat key, and
+  whether a host injects anything into the page that the view's own `<meta>` CSP would block.
+
+
+## 26. NerdGraph mutations used by the write tools (P7-09, from documentation 2026-10-06, NOT run live)
+
+No mutation was sent to New Relic (the autonomous run may not change real accounts). The P0-09 introspection
+(`spikes/nerdgraph/results/raw/introspection.json`) holds the query type only, so the input and result **types** below
+are verified there, and the **root fields and argument names** come from New Relic's documentation:
+
+- `changeTrackingCreateEvent(changeTrackingEvent: ChangeTrackingCreateEventInput!, dataHandlingRules:
+  ChangeTrackingDataHandlingRules)` → `ChangeTrackingCreateEventResponse { changeTrackingEvent { … } messages }`
+  (docs.newrelic.com/docs/change-tracking/change-tracking-graphql, via Context7 `/websites/newrelic`). Input fields
+  (introspection): `categoryAndTypeData { kind { category, type } categoryFields { deployment { version! commit changelog
+  deepLink } featureFlag { featureFlagId! } } }`, `entitySearch { query! }` (one entity; docs example `id = '<guid>'`),
+  `description`, `shortDescription`, `user`, `groupId`, `timestamp`, `customAttributes` (not sent). "category and type
+  should match the prefix and suffix of the CategoryType enum" (`DEPLOYMENT__BASIC` → `DEPLOYMENT` / `BASIC`); the docs
+  example uses lower case (`deployment` / `basic`), so case sensitivity is unverified. `validationFlags:
+  [FAIL_ON_FIELD_LENGTH]` refuses over-long fields instead of truncating them.
+- `aiIssuesAckIssue(accountId: Int!, issueId: ID!)` and `aiIssuesResolveIssue(accountId: Int!, issueId: ID!)` →
+  `AiIssuesIssueUserActionResponse { result { accountId action issueId } error }` (result type and the
+  `AiIssuesIssueUserAction` enum `ACK`, `UNACK`, `RESOLVE`, … are in the introspection; the field and argument names
+  are from New Relic's alerts NerdGraph examples, not found in Context7). Sent with the `AiIssues` experimental opt-in
+  header like the reads.
+- To verify (owner, P7-09 pending decision): one `dry_run` and one real call of each tool on a test entity / issue, in
+  US and EU.
+- `dashboardCreate(accountId: Int!, dashboard: DashboardInput!)` → `DashboardCreateResult { entityResult { guid
+  accountId name permissions … } errors { description type } }` (P7-19). Unlike the notes above, the P0-09
+  introspection **does** hold `RootMutationType` (396 fields; re-checked 2026-10-06), and this field, its arguments and
+  every input type are verified there: `DashboardInput { name! description permissions! pages! variables }`,
+  `DashboardPermissions` = `PRIVATE | PUBLIC_READ_ONLY | PUBLIC_READ_WRITE`, `DashboardPageInput { name! description
+  guid widgets! }`, `DashboardWidgetInput { title layout { column row width height } visualization { id }
+  configuration rawConfiguration link linkedEntityGuids … }`, `DashboardWidgetConfigurationInput { area bar billboard
+  line pie table { nrqlQueries: [DashboardWidgetNrqlQueryInput { accountId: Int!, query: Nrql! }] } markdown { text! }
+  }`, `DashboardCreateErrorType` = `INVALID_INPUT`. **Unverified:** the `viz.<type>` visualization ids (from New
+  Relic's dashboard JSON docs), whether typed `configuration` alone renders without `rawConfiguration`, the 12-column
+  grid, and whether a dashboard created with an API key is owned by (and private to) the key's user. Not run live.
+
+## 27. Durable Objects for the shared limiter (P7-10, from documentation 2026-10-06, not measured on a deployment)
+
+Sources: Cloudflare docs via the Cloudflare docs search, pages updated 2026-09-28/30:
+[Durable Objects pricing](https://developers.cloudflare.com/durable-objects/platform/pricing/),
+[Durable Object class exports](https://developers.cloudflare.com/durable-objects/reference/durable-objects-migrations/),
+[legacy migrations](https://developers.cloudflare.com/durable-objects/reference/durable-object-class-migrations-legacy/),
+[Workers limits](https://developers.cloudflare.com/workers/platform/limits/#subrequests).
+
+- **Free plan:** Durable Objects are available on Workers Free, **SQLite-backed only**. Free limits per day: 100,000
+  requests, 13,000 GB-s duration, 5 M rows read, 100,000 rows written, 5 GB stored. Over a limit, "further operations of
+  that type will fail with an error" until 00:00 UTC (the limiter falls back to per-isolate counting). Paid: 1 M requests
+  and 400,000 GB-s per month included, then $0.15 per million requests and $12.50 per million GB-s; SQLite rows priced
+  like D1; SQLite storage billing on Paid since January 2026, never on Free.
+- **Billing units:** every RPC method call on a stub is its own billed request (calls on an `RpcTarget` returned by a call
+  share that session). Duration is wall clock while the object is active or idle but not eligible for hibernation (for
+  example with a pending `setTimeout`); idle objects eligible for hibernation are not billed. Key-value `get`/`put`/
+  `delete` are billed as rows read/written; each `setAlarm()` is one row written.
+- **Configuration:** new namespaces must be SQLite-backed (key-value backed namespaces cannot be created on accounts
+  without one since 2026-07-09). New Workers should declare classes with the declarative `exports` field
+  (`{ "Class": { "type": "durable-object", "storage": "sqlite" } }`, changelog 2026-06-30) instead of the `migrations`
+  array; a Worker uses one or the other, and once deployed with `exports` it cannot go back to `migrations`. Wrangler
+  4.144 accepts `exports` (`wrangler deploy --dry-run` lists the binding). Lifecycle changes apply only through
+  `wrangler deploy`, not `wrangler versions upload`. A class in code but not in `exports` is ignored (no namespace).
+- **Subrequests:** on Free, requests to Cloudflare services count against 1,000 per invocation, separate from the 50
+  external subrequests NerdGraph uses (Workers limits page; Durable Objects are assumed to be a "Cloudflare service" here,
+  the page names R2, KV and D1 explicitly).
+- **Placement and latency:** an object runs in one data center (chosen near its first caller), so each call from a far
+  isolate pays a network round trip; not measured.
+- **Local tests:** `@cloudflare/vitest-plugin` runs the objects in workerd with real stubs (`runInDurableObject`,
+  `runDurableObjectAlarm`, `evictDurableObject`); workerd may run a due alarm on its own before the test triggers it.
+- **NerdGraph side:** New Relic guarantees 25 concurrent requests per user (§2); P0-09 saw 30 parallel light queries
+  queued without a 429, so the 429 the shared limiter prevents was simulated in tests (a mock answering 429 above the
+  limit), not observed.
+
+## 28. OS keychain tools (P7-11, from documentation and man pages, macOS and Windows NOT run)
+
+- **Why not a library:** `keytar` is archived (2022); `@napi-rs/keyring` is a maintained native addon shipped as
+  per-platform optional dependencies, which would break the one-file publishable package (P1-15 `EXPECTED_FILES`) and
+  `npx` installs on unlisted platforms. Shelling out adds no dependency.
+- **macOS:** `security add-generic-password -w <pw>` puts the password in argv (visible in `ps`); with `-w` last and no
+  value it prompts on the tty. `security -i` reads commands from stdin, which keeps the value out of the process list.
+  `find-generic-password -s S -a A -w` prints the password; exit 44 is `errSecItemNotFound`. Interactive mode's exit
+  status for a failed command is not documented, so `keychain set` always reads back.
+- **Linux:** `secret-tool store --label=L attr value ...` reads the secret from stdin; `lookup` prints it and exits 1 with
+  no output when nothing matches; `clear` removes. Without a Secret Service on the session bus it prints
+  `The name org.freedesktop.secrets was not provided by any .service files` (seen on WSL2 without gnome-keyring),
+  which the backend reports as "no Secret Service" rather than "no entry".
+- **Windows:** no built-in cmdlet for Credential Manager; the `Windows.Security.Credentials.PasswordVault` WinRT class is
+  reachable from Windows PowerShell 5.1 (not PowerShell 7). The script goes in `-EncodedCommand` (no secret in it) and the
+  value on stdin. PasswordVault entries are per user and readable by that user's processes.
+- **WSL2:** `uname` is Linux, so the libsecret backend is used; the Windows credential store is a different trust
+  domain and is not bridged.
+
+## 29. Atomic quota counters on SQLite, D1 and Durable Objects (P7-12, tested in node:sqlite and workerd, not measured on a deployment)
+
+Sources: SQLite [UPSERT](https://www.sqlite.org/lang_upsert.html) and [RETURNING](https://www.sqlite.org/lang_returning.html),
+[D1 SQL statements](https://developers.cloudflare.com/d1/sql-api/sql-statements/),
+[Durable Object storage and input gates](https://developers.cloudflare.com/durable-objects/api/storage-api/).
+
+- `INSERT ... ON CONFLICT(...) DO UPDATE SET c = c + 1 WHERE <cap check> RETURNING c` is one statement: when the `WHERE`
+  is false no row is updated and `RETURNING` yields nothing, so "refused at the cap" is "no row back". It works on
+  `node:sqlite` and (same engine) on D1, where it is the only way to a cap that concurrent isolates cannot overshoot, because
+  D1 has no interactive transactions. In the `DO UPDATE ... WHERE` the unqualified column is the stored row; `excluded.` is
+  the row proposed for insertion (a first insert is never checked, which is why a cap of at least 1 is required).
+- A D1 `prepare(...).all()` on a statement with `RETURNING` returns the rows (the existing adapter does this for `INSERT ...
+  RETURNING *`); `.run()` returns only `meta.changes`.
+- D1 limits a statement to 100 bound parameters: the usage read is bounded to 50 grants x 4 periods (54).
+- A Durable Object runs JavaScript for one event at a time, but an `await` lets another event in. A first version that
+  read a counter with `storage.get`, checked it and wrote it with `storage.put` overshot a cap of 8 by one in about one run
+  in three (four isolates, 20 parallel calls), whatever the input-gate documentation suggests for such code. The final
+  version uses the SQLite storage API of the SQLite-backed class (`ctx.storage.sql.exec`, synchronous): the cap check and the
+  increment are one `INSERT ... ON CONFLICT DO UPDATE ... WHERE ... RETURNING` with no `await` before the result is used, and
+  the same load held the cap in each of 14 consecutive runs. An error thrown inside the object that crosses RPC
+  also reaches the runtime as an unhandled error, so the quota methods return refusals instead of throwing.
+- UTC period keys (`d2026-10-06`, `m2026-10`) sort lexicographically in time order, which is how the object's cleanup alarm
+  tells ended periods from current ones.
+
+## 30. MCP Registry metadata and unauthenticated discovery (P7-14, from documentation 2026-10-06, nothing published)
+
+Sources: [server.json format](https://github.com/modelcontextprotocol/registry/blob/main/docs/reference/server-json/generic-server-json.md),
+[server.schema.json 2025-12-11](https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json),
+[2026-07-28 authorization](https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization),
+[SEP-1649 / SEP-2127 server cards](https://github.com/modelcontextprotocol/modelcontextprotocol/issues/1649).
+
+- The newest registry schema is still `2025-12-11` (no 2026 version found). Required: `name` (reverse DNS
+  `^[a-zA-Z0-9.-]+/[a-zA-Z0-9._-]+$`, 3-200 characters), `description` (≤ 100 characters), `version` (a specific
+  version: ranges, `1.x` and `latest` are rejected). Optional: `title` (≤ 100), `websiteUrl`, `repository`
+  (`url`, `source`, optional `subfolder`, `id`), `packages`, `remotes`, `_meta` under
+  `io.modelcontextprotocol.registry/publisher-provided`.
+- A package needs `registryType` (`npm`, `pypi`, `nuget`, `oci`, `mcpb`, …), `identifier` and `transport`
+  (`stdio`; `streamable-http` / `sse` need a `url`); `environmentVariables` entries take `name`, `description`,
+  `isRequired`, `isSecret`, `format`, `default`, `choices`. npm packages prove the namespace with `mcpName` in
+  `package.json` equal to `name`; `io.github.<user>/…` names are verified by GitHub sign-in in `mcp-publisher`.
+- `remotes` URLs may hold `{variables}`, but a self-hosted server has no single URL, so relic-bridge lists only the npm
+  package.
+- The 2026-07-28 authorization page says authorization is optional for MCP implementations, that clients MUST send the
+  token on every HTTP request, and that invalid or missing tokens get `401`; it neither requires nor forbids serving
+  `initialize` / `tools/list` without a token. Partial unauthenticated access is therefore a server choice, which is why
+  relic-bridge keeps it opt-in and limited to the static catalog. Stdio servers take credentials from the environment
+  and do not follow the HTTP authorization flow.
+- MCP Server Cards (`/.well-known/mcp/server-card(s).json`) are still a draft SEP (SEP-2127 superseding SEP-1649) with
+  no settled path; not implemented. relic-bridge's own `/.well-known/relic-bridge/tools.json` is project-specific and can
+  be replaced once a card format is ratified.
+
+
+## 31. MCP elicitation for write confirmation (P7-20, SDK 2.2.0 types and tests, no real client verified)
+
+- 2026-07-28 removes server-to-client requests: a `tools/call` handler returns `input_required` with embedded
+  `inputRequests` (`inputRequired({ inputRequests: { key: inputRequired.elicit({ message, requestedSchema }) } })`); the
+  client fulfils them through its `elicitation/create` handler and repeats the call with `inputResponses` (bare
+  `ElicitResult`: `action` `accept`/`decline`/`cancel`, `content`). It works on stateless HTTP, Node and Workers
+  (tested through both hosts). `requestState` is optional, opaque and must be integrity-protected if it carries
+  authority; relic-bridge uses none (the question key is the SHA-256 of the message).
+- On a 2025-era connection the SDK's default-on legacy shim fulfils the same `input_required` return with a real
+  `elicitation/create` request (needs the `initialize` state: stdio, not stateless HTTP) and re-enters the handler.
+  `ServerOptions.inputRequired.roundTimeoutMs` (default 10 min) bounds a wait; relic-bridge sets 5 min; `maxRounds`
+  (default 8).
+- The server checks the declared capabilities before returning an embedded elicitation (an unsupported one answers
+  `-32021`), so relic-bridge only asks when `getClientCapabilities().elicitation` is present (empty object or `form`).
+- Form schemas are restricted to flat primitives; a single boolean `confirm` is used. Whether a client shows `message`
+  as plain text or Markdown is unknown; the message is therefore plain lines with quoted values.
+- Not verified: Claude Code, Claude Desktop, VS Code and mobile behaviour with these forms.

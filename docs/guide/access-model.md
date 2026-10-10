@@ -28,7 +28,8 @@ flowchart TD
 Every request is resolved afresh (cached for at most a minute):
 
 ```
-tools    = project tools ∩ grant tools                          (minus run_nrql / get_query_result when raw NRQL is off)
+tools    = project tools ∩ grant tools                          (minus run_nrql / get_query_result when raw NRQL is off;
+                                                                 write tools only when both name them, see below)
 accounts = accounts the key can read ∩ project accounts ∩ grant accounts
 limits   = project limits, tightened by the grant               (smaller number wins; raw NRQL needs both;
                                                                  event-type allow lists intersect, deny lists add up)
@@ -44,9 +45,18 @@ flowchart LR
 
 - A grant can never get more than the project allows. Asking for more is accepted when the grant is created, with a
   warning, and simply has no effect.
+- **Composite tools never imply their parts.** `generate_alert_insights_report`, `generate_user_impact_report`,
+  `dependency_health` and `entity_health` call other tools (such as `get_entity` or `list_error_groups`) for their
+  sections. Granting a composite does not grant those tools: a section whose tool the grant lacks comes back `skipped`
+  (`dependency_health` refuses outright without `get_related_entities`). When a grant names a composite without its
+  tools, creating it still works but warns: the admin panel marks the tools on the form, lists them on the grant page,
+  and `POST /grants` returns the warning in `warnings`. A grant of "every tool the project enables" has them all.
 - Tools a connection may not use are **not listed** to the client at all, and calls to them are refused anyway.
 - The default account is the project's default when it is still allowed, else the first allowed account in the
   project's order.
+- **Write tools** (opt-in, server flag `RB_WRITE_TOOLS=on`) are never implied by "all tools": the project and the grant
+  must both name them, only owners can do that, and the key must be shared or the grant user's own. Details:
+  [write tools](security-basics.md#write-tools-opt-in).
 
 ### Fail closed
 

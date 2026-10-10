@@ -2,12 +2,14 @@
 import { createLogger, type Logger } from '@relic-bridge/core';
 import type { AuditRecord, Storage } from '@relic-bridge/storage';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { writeDetails } from '../src/audit.ts';
 import {
   type AuditNrqlMode,
   createAuditRecorder,
   createHttpApp,
   createRateLimitHooks,
   type HttpAppHooks,
+  type McpRequestInfo,
   MemoryRateLimiter,
   maskNrql,
   mergeHooks,
@@ -297,6 +299,59 @@ describe('pass-through tool calls (P2-16)', () => {
   });
 });
 
+describe('write intent (P7-28)', () => {
+  const info = {
+    requestId: 'req_w',
+    projectSlug: 'prod',
+    projectId: 'prj_1',
+    grantId: 'grt_1',
+    tokenId: 'tok_1',
+    userId: 'usr_1',
+    clientId: null,
+    mcpMethod: 'tools/call',
+    mcpName: 'close_issue',
+    listen: false,
+  } as unknown as McpRequestInfo;
+  const intent = {
+    tool: 'close_issue',
+    input: { issue_id: 'i-1', account: 1, confirm: true, note: `key ${NR_KEY}` },
+    record: { action: 'issue.close', accountId: 1, target: { type: 'issue', id: 'i-1' }, applied: false },
+  };
+
+  it('stores one redacted row before the mutation, awaited', async () => {
+    const { recorder } = makeApp();
+    await recorder.hooks.onWriteIntent?.({} as never, info, intent);
+    const [row] = await rows();
+    expect(row).toMatchObject({
+      kind: 'tool_call',
+      action: 'write.intent',
+      status: 'ok',
+      requestId: 'req_w',
+      grantId: 'grt_1',
+      projectId: 'prj_1',
+      accountIds: [1],
+      targetType: 'tool',
+      targetId: 'close_issue',
+      details: {
+        project: 'prod',
+        write: { phase: 'intent', tool: 'close_issue', record: { action: 'issue.close', applied: false } },
+      },
+    });
+    expect(JSON.stringify(row)).not.toContain(NR_KEY);
+  });
+
+  it('rejects when the row cannot be stored (the write is then refused), unlike every other hook', async () => {
+    const broken = {
+      ...world.storage,
+      auditLog: { ...world.storage.auditLog, append: () => Promise.reject(new Error('disk full')) },
+    } as Storage;
+    const recorder = createAuditRecorder({ storage: broken, logger, clock: world.clock });
+    await expect(mergeHooks(recorder.hooks).onWriteIntent?.({} as never, info, intent)).rejects.toThrow(
+      'disk full',
+    );
+  });
+});
+
 describe('refusals', () => {
   it('records failed authentication with the reason and client address, never the token', async () => {
     const { app } = makeApp();
@@ -467,5 +522,40 @@ describe('admin actions and retention', () => {
     expect(await recorder.purge(90)).toBe(1);
     expect((await rows()).map((r) => r.action)).toEqual(['recent']);
     expect(await recorder.purge(5)).toBe(1);
+  });
+});
+
+describe('writeDetails (P7-19): nested arguments', () => {
+  const event = (input: unknown) =>
+    ({ tool: 'create_dashboard', input, status: 'ok', durationMs: 1, errorCode: null }) as never;
+  const nested = {
+    name: 'D',
+    pages: [
+      {
+        name: 'P',
+        widgets: Array.from({ length: 25 }, () => ({
+          title: 't',
+          queries: [{ nrql: "SELECT count(*) FROM Log WHERE user = 'alice@example.com'" }],
+        })),
+      },
+    ],
+  };
+  const firstNrql = (d: Record<string, unknown> | undefined) =>
+    (d?.['input'] as typeof nested | undefined)?.pages[0]?.widgets[0]?.queries[0]?.nrql;
+
+  it('masks nested NRQL per mode and bounds arrays', () => {
+    const masked = writeDetails(event(nested));
+    expect(firstNrql(masked)).not.toContain('alice');
+    expect(firstNrql(writeDetails(event(nested), 'hash'))).not.toContain('alice');
+    expect(firstNrql(writeDetails(event(nested), 'off'))).toBe('(omitted)');
+    expect(firstNrql(writeDetails(event(nested), 'full'))).toContain('alice');
+    const widgets =
+      (masked?.['input'] as { pages: { widgets: unknown[] }[] } | undefined)?.pages[0]?.widgets ?? [];
+    expect(widgets.length).toBe(21);
+    expect(widgets[20]).toBe('… 5 more');
+  });
+
+  it('is not used for read tools', () => {
+    expect(writeDetails({ ...(event({}) as object), tool: 'run_nrql' } as never)).toBeUndefined();
   });
 });

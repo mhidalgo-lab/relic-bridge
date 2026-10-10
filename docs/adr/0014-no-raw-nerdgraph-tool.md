@@ -1,6 +1,6 @@
 # 0014 — No raw NerdGraph passthrough tool
 
-- Status: accepted (P6-15, 2026-10-05; **owner confirmation pending**, see `docs/pending-decisions/phase-6.md`)
+- Status: accepted (P6-15, 2026-10-05; owner confirmed 2026-10-09; P7-15 stays blocked)
 - Date: 2026-10-05
 - Related: THREAT_MODEL T3, T4, T5, T6, T8, T12, T22, T23; ADR-0008 (access model), ADR-0009 (authentication),
   ADR-0010 (limits); prior-art review P0-10 (`docs/research/prior-art.md`, S2, S5, S6)

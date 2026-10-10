@@ -24,6 +24,11 @@ are redacted from the error. Process lists and shell history would leak them.
 
 - **New Relic key** (`credential add|rotate`, `init`): hidden prompt on a terminal; else stdin (first line);
   `--key-file <file>` (mode `0600`); `--key-env <VAR>` (the variable's *name*).
+- **OS keychain** (`keychain set <name>`): the value from the same sources as a New Relic key; it goes to the OS tool on
+  stdin. `keychain delete <name>` and `keychain status` print no value. See [secrets](../guide/secrets.md#os-keychain-optional).
+- **Config passphrase** (`config export --with-credentials`, `config import`): hidden prompt (asked twice on export);
+  `--passphrase-file <file>` (mode `0600`); `--passphrase-env <VAR>` (the variable's *name*). Only the derived key
+  reaches the server.
 - **Admin token**: `RB_ADMIN_TOKEN`, `RB_ADMIN_TOKEN_FILE`, or a hidden prompt. Generate one with
   `relic-bridge admin-token generate`.
 - **Sign-in client secrets** (`setup-link`, local mode, and `serve`): `RB_GOOGLE_CLIENT_SECRET`,
@@ -47,7 +52,11 @@ the key is valid.
 relic-bridge init [--db <path>] [--master-key-file <path>] [--label <l> --region US|EU|JP [key source]]
                   [--slug <s> --default-account <id> --accounts 1,2] [--device <name>] [--url <https://host>]
                   [--client claude-code|claude-code-powershell|claude-desktop|cursor|vscode|all] [--no-config]
+relic-bridge doctor [--config <file>] [--project <slug>] [--db <path>] [--offline] [--remote <url> [--insecure]] [--client-configs] [--token-file <path>] [--json]
+relic-bridge keychain set <name> [key source] | keychain delete <name> | keychain status
 relic-bridge admin-token generate
+relic-bridge config export --out <file> [--with-credentials (--passphrase-file <f> | --passphrase-env <VAR>)]
+relic-bridge config import <file> [--apply] [--passphrase-file <f> | --passphrase-env <VAR>]
 relic-bridge user add --email <e> [--name <n>] [--role owner|admin|member] | user list [--limit <n>]
 relic-bridge user unbind <id> [--confirm <email>]
 relic-bridge setup-link [--provider google|github|cf-access|oidc|oidc-<name>] [--ttl <minutes>]
@@ -100,7 +109,36 @@ version, `1` when rows are left (listed on stderr with the reason). `--json` pri
 - **`credential remove`** asks for confirmation on a terminal; without one it requires `--yes`. The API refuses it
   (`conflict`) while a project or grant uses the key.
 - `--tools all` clears a tool restriction; `--default-credential none` clears the project's default key.
+- **`config export` / `config import`** (owner only; local or `--remote`): see the
+  [migration guide](../guide/migrating-config.md). Export writes a YAML file (mode `0600`, never overwritten); New Relic
+  keys (shared ones, and the caller's own personal ones) are included only with `--with-credentials`, encrypted under a passphrase (hidden prompt, `--passphrase-file`
+  with mode `0600`, or `--passphrase-env <NAME>`; never an option value; 12+ characters). Import is a dry run unless
+  `--apply`, is idempotent, never deletes, never creates owners and stops at the first failure (exit `1`).
 - **`audit tail`** prints the newest `--limit` rows (default 20, at most 200) oldest-first; `--follow` polls every two
   seconds until interrupted.
 
 See the [self-hosting guide](../guide/self-hosting.md#management-cli) for a walk-through.
+
+## doctor
+
+`relic-bridge doctor` is a read-only health check. It prints one line per check (`ok`, `warn`, `FAIL`, `skip`) and,
+for every warning or failure, a `fix:` line. With `--json` it prints one document
+`{"ok":true,"summary":{"ok":n,"warn":n,"fail":n,"skip":n},"checks":[{"id","status","title","detail"?,"fix"?}]}`.
+Exit codes: `0` when nothing failed (warnings are allowed), `1` when a check failed, `2` for a usage error.
+
+| Check | What it verifies |
+|---|---|
+| `node` | Node 24.11 or later. |
+| `config` | The stdio config (`--config` / `RB_CONFIG` YAML, or `NEW_RELIC_*` variables) loads; file permissions; plaintext key warning. Skipped when none is configured. |
+| `newrelic-key` | One NerdGraph call with your own key: User-key format, validity, region (a wrong region says which to use) and that the default account is reachable. Shows the key's prefix and last four characters only. `--offline` skips it. |
+| `keychain` | OS keychain backend usable and the entries that `keychain:<name>` / `RB_MASTER_KEY_KEYCHAIN` name exist (names only, never values). Skipped when nothing references the keychain. |
+| `master-key` | `RB_MASTER_KEY[_FILE\|_KEYCHAIN]` loads (file mode `0600`); prints key versions, never the key. |
+| `database` | The SQLite file exists, is not readable by others, opens, has no pending migrations, and the master key matches the stored key checks. Nothing is written. |
+| `public-url` | `RB_PUBLIC_URL` is https (or localhost), a bare origin, and its host is in `RB_ALLOWED_HOSTS`. |
+| `clock` | Skew against New Relic's (or, with `--remote`, the server's) `Date` header: warning over 30 s, failure over 300 s. |
+| `remote-*` | With `--remote <url>` (or `RB_REMOTE`): `/health`, `/version`, that the MCP endpoint refuses an unauthenticated probe, and that the OAuth issuer is the origin you reached. No admin token is needed. |
+| `client-config:<client>` | With `--client-configs`: reads the known MCP client files (Claude Code `~/.claude.json` and `./.mcp.json`; Claude Desktop, VS Code user `mcp.json` under the OS config dir; Cursor `~/.cursor/mcp.json` and `./.cursor/mcp.json`; `./.vscode/mcp.json`) and checks each relic-bridge entry (named `relic…` or a `/p/<slug>/mcp` URL): https (http only to localhost), the `/p/<slug>/mcp` path, the host against `--remote`, and that the `Authorization` token has the `rb_` shape and checksum. Read-only; shows token fingerprints only; the fix says to run `token create` (doctor never edits client files). WSL reads the Linux side only: run doctor from Windows for the Windows files. |
+| `remote-token` | With `--remote` and a token in `--token-file <path>` (mode 0600) or `RB_TOKEN` (never an argument): one MCP `initialize` to `/p/<slug>/mcp` (slug from `--project`, else the first client entry). `ok`, or `FAIL` when refused. The server answers every refusal with the same 401, so invalid, expired and revoked cannot be told apart from outside; use `token list` to see which. Skipped without a token. |
+| `workers-drift` | In a clone: `apps/worker/wrangler.local.jsonc` (from `pnpm cf:setup`) still matches `wrangler.jsonc`. |
+
+Only New Relic (with your key) and the `--remote` server are contacted; `--offline` makes no request at all.

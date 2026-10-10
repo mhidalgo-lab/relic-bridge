@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import type { FetchLike } from '@relic-bridge/core';
 import type { ConfigFs, Env } from '../config.ts';
+import type { Keychain } from '../keychain.ts';
 
 /**
  * Everything the management commands need from the process, injected so they run in tests without a terminal.
@@ -23,6 +24,10 @@ export interface ManageHost {
   userName(): string;
   /** Create `path` (and parents, mode 0700) exclusively with mode 0600; throws when it exists. */
   writeSecretFile(path: string, text: string): void;
+  /** Node version for `doctor` (tests); defaults to the running process. */
+  readonly nodeVersion?: string;
+  /** Clock for `doctor` (tests); defaults to `Date.now`. */
+  readonly now?: () => number;
   /** `audit tail --follow` stops when this aborts. */
   readonly signal?: AbortSignal;
   /** Pause for `ms`; resolves early on abort. */
@@ -36,6 +41,10 @@ export interface ManageContext {
   readonly fs: ConfigFs;
   readonly platform: string;
   readonly homeDir?: string;
+  /** Working directory (project-level client config files for `doctor --client-configs`). */
+  readonly cwd?: string;
+  /** OS keychain override (tests); the real one for this platform is created when a command needs it. */
+  readonly keychain?: Keychain;
   /** Machine-readable output on stdout. */
   readonly stdout: (text: string) => void;
   /** Guidance, warnings and errors. Never receives a secret. */

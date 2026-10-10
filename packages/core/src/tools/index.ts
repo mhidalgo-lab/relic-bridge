@@ -12,6 +12,7 @@ import { createGoldenMetricTools } from './golden.ts';
 import { createIdentityTools } from './identity.ts';
 import { createInvestigationTools } from './investigations.ts';
 import { createIssueTools } from './issues.ts';
+import { createLinkTools } from './links.ts';
 import { createLogTools } from './logs.ts';
 import { createQueryTools, type ToolDeps } from './query.ts';
 import { createReportTools } from './reports.ts';
@@ -56,6 +57,7 @@ export {
 } from './identity.ts';
 export { createInvestigationTools } from './investigations.ts';
 export { createIssueTools } from './issues.ts';
+export { createLinkTools } from './links.ts';
 export { createLogTools } from './logs.ts';
 export { bindingOf, decodePageCursor, encodePageCursor } from './paging.ts';
 export {
@@ -75,6 +77,12 @@ export {
   SCHEMA_TTL_MS,
 } from './schema.ts';
 export { createSyntheticTools } from './synthetics.ts';
+export {
+  createWriteTools,
+  WRITE_META_KEY,
+  WRITE_TOOL_NAMES,
+  type WriteRecord,
+} from './writes.ts';
 
 /** Tools that also take an entity name instead of its guid (P6-17, P6-18). Composites call their section tools directly. */
 const APM = { domain: 'APM' } as const;
@@ -104,6 +112,7 @@ export function createBuiltinTools(options: ToolDeps = {}): ToolDefinition[] {
   const tools = [
     ...createIdentityTools(deps),
     ...createTimeTools(),
+    ...createLinkTools(),
     ...createQueryTools(deps),
     ...createEntityTools(deps),
     ...createEntityResolveTools(deps),
@@ -127,3 +136,4 @@ export function createBuiltinTools(options: ToolDeps = {}): ToolDefinition[] {
     return o ? withEntityName(t, resolver, o) : t;
   });
 }
+export { APPROVAL_LEDGER_TTL_SECONDS, createMemoryApprovalLedger } from './write-common.ts';

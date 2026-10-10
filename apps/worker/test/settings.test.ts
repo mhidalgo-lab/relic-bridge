@@ -88,6 +88,48 @@ describe('parseWorkerSettings', () => {
     fails({ RB_PLAN: { nested: true } }, 'RB_PLAN');
   });
 
+  it('parses RB_TASKS (P7-34): on by default, off is the kill switch', () => {
+    expect(parseWorkerSettings({}).tasks).toBe(true);
+    expect(parseWorkerSettings({ RB_TASKS: 'off' }).tasks).toBe(false);
+    fails({ RB_TASKS: 'maybe' }, 'RB_TASKS');
+  });
+
+  it('parses RB_MCP_APPS (P7-16): on by default, off turns the chart view off', () => {
+    expect(parseWorkerSettings({}).mcpApps).toBe(true);
+    expect(parseWorkerSettings({ RB_MCP_APPS: 'off' }).mcpApps).toBe(false);
+    fails({ RB_MCP_APPS: 'maybe' }, 'RB_MCP_APPS');
+  });
+
+  it('parses RB_WRITE_TOOLS (P7-09): off by default, needs the audit log', () => {
+    expect(parseWorkerSettings({}).writeTools).toBe(false);
+    const on = parseWorkerSettings({ RB_WRITE_TOOLS: 'on' });
+    expect(on.writeTools).toBe(true);
+    expect(on.warnings.join(' ')).toContain('RB_WRITE_TOOLS=on');
+    fails({ RB_WRITE_TOOLS: 'on', RB_AUDIT: 'off' }, 'RB_WRITE_TOOLS');
+    expect(parseWorkerSettings({ RB_WRITE_TOOLS: 'on', RB_RATE_LIMIT: 'off' }).warnings.join(' ')).toContain(
+      'not rate limited',
+    );
+    fails({ RB_WRITE_TOOLS: 'sure' }, 'RB_WRITE_TOOLS');
+    // P7-25: the approval switch
+    // ADR-0016 / P7-33: unset means required; `client` is an explicit opt-down that warns when writes are on
+    expect(parseWorkerSettings({}).requireWriteApproval).toBe(true);
+    expect(parseWorkerSettings({ RB_WRITE_TOOLS: 'on' }).requireWriteApproval).toBe(true);
+    expect(parseWorkerSettings({ RB_WRITE_TOOLS: 'on' }).warnings.join(' ')).not.toContain(
+      'RB_WRITE_APPROVAL',
+    );
+    expect(
+      parseWorkerSettings({ RB_WRITE_TOOLS: 'on', RB_WRITE_APPROVAL: 'required' }).requireWriteApproval,
+    ).toBe(true);
+    const optDown = parseWorkerSettings({ RB_WRITE_TOOLS: 'on', RB_WRITE_APPROVAL: 'client' });
+    expect(optDown.requireWriteApproval).toBe(false);
+    expect(optDown.warnings.join(' ')).toContain('RB_WRITE_APPROVAL=client');
+    expect(parseWorkerSettings({ RB_WRITE_APPROVAL: 'client' }).warnings.join(' ')).not.toContain(
+      'RB_WRITE_APPROVAL=client',
+    );
+    expect(parseWorkerSettings({ RB_WRITE_APPROVAL: 'required' }).warnings.join(' ')).toContain('no effect');
+    fails({ RB_WRITE_APPROVAL: 'always' }, 'RB_WRITE_APPROVAL');
+  });
+
   it('parses RB_PASSTHROUGH (secret and binding are checked at boot)', () => {
     expect(parseWorkerSettings({ RB_PASSTHROUGH: 'off' }).passthrough).toBe(false);
     expect(parseWorkerSettings({ RB_PASSTHROUGH: 'on' }).passthrough).toBe(true);

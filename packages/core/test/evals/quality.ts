@@ -10,9 +10,15 @@ export const MAX_DESCRIPTION_CHARS = 1200;
 export const MAX_PURPOSE_CHARS = 450;
 /**
  * Ceiling of the whole catalogue as agents see it: every description plus its input JSON Schema (characters, roughly 4
- * per token). 65 683 before P6-13, 61 291 after it, 51 980 after P6-19, 53 1xx after P6-24 (a `limit` and a `cursor` on every list, about 110 characters per tool); raise it only on purpose, every tool list is paid in every conversation.
+ * per token). 65 683 before P6-13, 61 291 after it, 51 980 after P6-19, 53 1xx after P6-24 (a `limit` and a `cursor` on every list, about 110 characters per tool), 53 587 after P7-02 (`run_nrql` `cache: "bypass"`), 54 367 after P7-03 (`get_ui_link`, one tool of 770 characters); raise it only on purpose, every tool list is paid in every conversation.
  */
-export const TOOLS_LIST_BUDGET = 53_500;
+export const TOOLS_LIST_BUDGET = 54_400;
+/**
+ * The same ceiling for a `tools/list` with the write tools enabled (P7-27): the built-ins plus `create_change_event`,
+ * `acknowledge_issue`, `close_issue` and `create_dashboard`. Built-ins were 54 367 and the write tools about 8 100 before
+ * P7-27 trimmed both (52 900 and 7 583 after), so this is the built-in budget plus 8 000. Policy: docs/dev/evals.md.
+ */
+export const TOOLS_LIST_BUDGET_WITH_WRITES = 62_400;
 /** Tools that run this many requests or more must say so ("Runs ..."). */
 export const COST_HINT_FROM = 8;
 /** Two descriptions this similar (Jaccard of their content words) must be a declared confusable pair. */
@@ -41,6 +47,8 @@ export const CONFUSABLE_PAIRS: readonly (readonly [string, string])[] = [
   ['list_recent_logs', 'trace_error'],
   ['analyze_threads', 'list_gc_metrics'],
   ['list_dashboards', 'get_dashboard'],
+  ['acknowledge_issue', 'close_issue'],
+  ['create_change_event', 'create_dashboard'],
 ];
 
 /** Verbs our tool names start with: a snake_case word with one of these prefixes in a description must be a tool. */
@@ -54,6 +62,7 @@ export interface ListedTool {
   readonly openWorld: boolean;
   readonly cost: number;
   readonly inputSchema: Record<string, unknown>;
+  readonly kind: 'read' | 'write' | 'destructive';
 }
 
 export function listed(tools: readonly ToolDefinition[]): ListedTool[] {
@@ -63,6 +72,7 @@ export function listed(tools: readonly ToolDefinition[]): ListedTool[] {
     openWorld: t.openWorld,
     cost: t.cost,
     inputSchema: inputJsonSchema(t) as Record<string, unknown>,
+    kind: t.kind,
   }));
 }
 
@@ -103,7 +113,8 @@ export function lintDescriptions(tools: readonly ListedTool[]): string[] {
       if (typeof schema.description !== 'string' || schema.description.trim().length < 3)
         say(`input "${field}" has no description`);
     }
-    if (t.openWorld && !d.includes(UNTRUSTED)) say('open-world tool without the untrusted-data sentence');
+    if (t.openWorld && t.kind === 'read' && !d.includes(UNTRUSTED))
+      say('open-world tool without the untrusted-data sentence');
     if (t.cost >= COST_HINT_FROM && !/\bRuns\b/.test(d)) say(`cost ${t.cost} but no "Runs ..." hint`);
     if (/guid from search_entities/.test(d))
       say('says "guid from search_entities"; say "(guid or name)" instead');
@@ -114,7 +125,7 @@ export function lintDescriptions(tools: readonly ListedTool[]): string[] {
     const ta = byName.get(a);
     const tb = byName.get(b);
     if (!ta || !tb) {
-      problems.push(`confusable pair ${a}/${b}: unknown tool`);
+      // Skip pairs where one or both tools don't exist (e.g., write tools when linting read tools only)
       continue;
     }
     if (!ta.description.includes(b)) problems.push(`${a}: does not mention its confusable sibling ${b}`);

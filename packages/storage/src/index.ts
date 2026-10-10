@@ -14,6 +14,7 @@ export {
   AUDIT_STATS_DEFAULT_GROUPS,
   AUDIT_STATS_MAX_GROUPS,
   AUDIT_STATS_MAX_WINDOW_MS,
+  AUDIT_WRITE_INTENT_ACTION,
   auditOrder,
   auditStatsRowOf,
   auditStatsSql,
@@ -26,6 +27,7 @@ export {
   type KvPurgeBudget,
   type KvPurgeResult,
   purgeExpiredKv,
+  purgeGrantUsage,
 } from './kv-purge.ts';
 export { createMemoryStorage, type MemoryStorageOptions } from './memory.ts';
 export {
@@ -39,6 +41,7 @@ export {
 } from './migrate.ts';
 export { MIGRATIONS } from './migrations.generated.ts';
 export * from './types.ts';
+export * from './usage.ts';
 export { lastOwnerGuardSql, UNBOUND_ENABLED_SQL } from './user-guards.ts';
 export * from './validate.ts';
 export {

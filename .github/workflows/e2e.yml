@@ -1,10 +1,12 @@
-# Admin panel in a real browser (P4-11). Manual only: Chromium download and run cost Actions minutes, so it is never
-# triggered by pull requests or pushes. Run it before a release or after changing admin-ui / sign-in / headers, or run
+# Admin panel in a real browser (P4-11). Weekly (Monday 04:47 UTC, default branch only) and on demand: Chromium download
+# and run cost Actions minutes, so it is never triggered by pull requests or pushes. Run it on demand before a release or after changing admin-ui / sign-in / headers, or run
 # `pnpm test:e2e` locally. Uses no secrets and never deploys; the identity provider and NerdGraph are loopback mocks.
 name: Admin browser E2E
 
 on:
   workflow_dispatch:
+  schedule:
+    - cron: '47 4 * * 1'
 
 permissions:
   contents: read
@@ -12,20 +14,22 @@ permissions:
 jobs:
   browser:
     name: Playwright (Chromium)
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(vars.CI_RUNS_ON || '["self-hosted","linux","x64"]') }}
     timeout-minutes: 15
     steps:
       - uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
+        if: ${{ runner.environment == 'github-hosted' }}
         with:
           egress-policy: audit
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      # setup-node comes first: pnpm/action-setup runs on the node on PATH, which is too old on a fresh runner. No
+      # `cache: pnpm` (it needs pnpm already installed).
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: '24'
-          cache: pnpm
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec playwright install --with-deps chromium
       - run: pnpm test:e2e

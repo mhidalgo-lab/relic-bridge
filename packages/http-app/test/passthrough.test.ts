@@ -272,6 +272,44 @@ describe('isolation between keys (T21)', () => {
     await a.close();
     await b.close();
   });
+
+  it('query cache (P7-02): each key hits only its own entries', async () => {
+    const app = ptApp();
+    const a = await connectPt(app, NR_KEY, 'modern');
+    const b = await connectPt(app, NR_KEY_B, 'modern');
+    const nrql = { nrql: 'SELECT count(*) FROM Transaction SINCE 1 hour ago' };
+    const nrqlCalls = () => h.nerdGraph.calls.filter((c) => c.op === 'RbNrql');
+    const status = (r: Awaited<ReturnType<Client['callTool']>>) =>
+      (r._meta?.['relic-bridge/result'] as { cache?: { status: string } } | undefined)?.cache?.status;
+    expect(status(await a.callTool({ name: 'run_nrql', arguments: nrql }))).toBe('miss');
+    expect(status(await a.callTool({ name: 'run_nrql', arguments: nrql }))).toBe('hit');
+    const before = nrqlCalls().length;
+    const rb = await b.callTool({ name: 'run_nrql', arguments: nrql });
+    expect(status(rb)).toBe('miss');
+    expect(
+      nrqlCalls()
+        .slice(before)
+        .map((c) => c.apiKey),
+    ).toEqual([NR_KEY_B]);
+    expect(JSON.stringify(rb)).toContain('beta');
+    expect(JSON.stringify(rb)).not.toContain('alpha');
+    await a.close();
+    await b.close();
+  });
+
+  it('query cache off (`queryCache: null`): every call asks New Relic and says so', async () => {
+    const app = ptApp({ queryCache: null });
+    const a = await connectPt(app, NR_KEY, 'modern');
+    const nrql = { nrql: 'SELECT count(*) FROM Transaction SINCE 1 hour ago' };
+    for (let i = 0; i < 2; i++) {
+      const r = await a.callTool({ name: 'run_nrql', arguments: nrql });
+      expect(
+        (r._meta?.['relic-bridge/result'] as { cache?: { status: string } } | undefined)?.cache?.status,
+      ).toBe('off');
+    }
+    expect(h.nerdGraph.calls.filter((c) => c.op === 'RbNrql')).toHaveLength(2);
+    await a.close();
+  });
 });
 
 describe('rate limits', () => {

@@ -24,6 +24,7 @@ const OPTS: SetupOptions = {
   signIn: false,
   publicUrl: undefined,
   replaceMasterKey: false,
+  sharedLimiter: undefined,
 };
 
 interface Call {
@@ -96,6 +97,13 @@ describe('parseArgs', () => {
     expect(() => parseArgs(['--name'])).toThrow(SetupError);
     expect(() => parseArgs(['--master-key', 'x'])).toThrow(SetupError);
   });
+
+  it('takes --shared-limiter rules|on (P7-10)', () => {
+    expect(parseArgs(['--shared-limiter', 'rules'])).toMatchObject({ sharedLimiter: 'rules' });
+    expect(parseArgs(['--shared-limiter', 'on'])).toMatchObject({ sharedLimiter: 'on' });
+    expect(() => parseArgs(['--shared-limiter', 'off'])).toThrow(SetupError);
+    expect(() => parseArgs(['--shared-limiter'])).toThrow(SetupError);
+  });
 });
 
 describe('generateSecrets', () => {
@@ -150,6 +158,23 @@ describe('runSetup', () => {
     const bulk = h.calls.find((c) => c.args[1] === 'bulk');
     expect(Object.keys(JSON.parse(bulk?.input ?? '{}'))).toContain('RB_FINGERPRINT_SECRET');
     expect(h.calls.find((c) => c.args[0] === 'deploy')?.args).toContain('RB_PASSTHROUGH:on');
+  });
+
+  it('deploys with RB_SHARED_LIMITER for --shared-limiter, and only then (P7-10)', async () => {
+    const h = harness(ok);
+    await runSetup({ ...OPTS, sharedLimiter: 'on' }, h.deps);
+    expect(h.calls.find((c) => c.args[0] === 'deploy')?.args).toEqual(
+      expect.arrayContaining(['--var', 'RB_SHARED_LIMITER:on']),
+    );
+    const plain = harness(ok);
+    await runSetup(OPTS, plain.deps);
+    expect(plain.calls.find((c) => c.args[0] === 'deploy')?.args.join(' ')).not.toContain(
+      'RB_SHARED_LIMITER',
+    );
+    const dry = harness(ok);
+    await runSetup({ ...OPTS, sharedLimiter: 'rules', dryRun: true }, dry.deps);
+    expect(dry.calls).toEqual([]);
+    expect(dry.logs.join('\n')).toContain('RB_SHARED_LIMITER=rules');
   });
 
   it('never regenerates a secret that exists (a new master key would orphan stored credentials)', async () => {
@@ -208,6 +233,19 @@ describe('runSetup', () => {
     await runSetup(OPTS, h.deps);
     expect(h.copies).toEqual([]);
     expect(h.logs.join('\n')).not.toContain('differs from wrangler.jsonc');
+  });
+
+  it('notes a leftover OAUTH_KV binding in the local copy without a drift warning (P5-13)', async () => {
+    const withKv = COMMITTED.replace(
+      '"ratelimits"',
+      '"kv_namespaces": [{ "binding": "OAUTH_KV", "id": "abc" }], "ratelimits"',
+    );
+    const h = harness(ok, true, [], withKv);
+    await runSetup(OPTS, h.deps);
+    const out = h.logs.join('\n');
+    expect(out).toMatch(/still declares the OAUTH_KV KV namespace/);
+    expect(out).not.toContain('differs from wrangler.jsonc');
+    expect(h.copies).toEqual([]);
   });
 
   it('warns on a re-run when wrangler.jsonc gained something the local copy lacks, without overwriting it', async () => {

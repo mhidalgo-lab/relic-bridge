@@ -7,7 +7,10 @@
 #
 # New Relic is replaced by a local HTTPS stand-in (scripts/docker-smoke/fake-nerdgraph.mjs) reachable as
 # api.newrelic.com on a private docker network; the image trusts its throwaway certificate through NODE_EXTRA_CA_CERTS.
-# Needs docker, curl, jq and openssl. Usage: scripts/docker-smoke.sh <image>
+# Needs docker, jq and openssl. It works against a Docker daemon that shares neither a filesystem nor a network with
+# this shell (a CI runner talking to a remote or sibling daemon): files go in with `docker cp`, never a bind mount, and
+# HTTP requests come from a curl container on the same private network, never from a published port.
+# Usage: scripts/docker-smoke.sh <image>
 set -euo pipefail
 
 image="${1:?usage: docker-smoke.sh <image>}"
@@ -16,12 +19,22 @@ id="$$"
 name="rb-smoke-${id}"
 fake="rb-smoke-nr-${id}"
 net="rb-smoke-${id}"
-port="${RB_SMOKE_PORT:-18787}"
+seed="rb-smoke-seed-${id}"
+# curl client container, pinned by digest (curlimages/curl 8.11.1).
+curl_image="${RB_SMOKE_CURL_IMAGE:-curlimages/curl@sha256:c1fe1679c34d9784c1b0d1e5f62ac0a79fca01fb6377cdd33e90473c6f9f9a69}"
+base="http://${name}:8787"
 certs="$(mktemp -d)"
 cli=(docker exec -i "$name" /nodejs/bin/node /app/dist/index.mjs)
 
 cleanup() {
-  docker rm -f "$name" "$fake" >/dev/null 2>&1 || true
+  status=$?
+  if [[ "$status" -ne 0 ]]; then
+    echo "--- logs of the NerdGraph stand-in ($fake) ---" >&2
+    docker logs "$fake" >&2 2>&1 || true
+    echo "--- logs of the image under test ($name) ---" >&2
+    docker logs "$name" >&2 2>&1 || true
+  fi
+  docker rm -f "$name" "$fake" "$seed" >/dev/null 2>&1 || true
   docker volume rm -f "$name" >/dev/null 2>&1 || true
   docker network rm "$net" >/dev/null 2>&1 || true
   rm -rf "$certs"
@@ -32,26 +45,50 @@ key="$(docker run --rm "$image" keys generate 2>/dev/null)"
 [[ -n "$key" ]] || { echo "could not generate a master key" >&2; exit 1; }
 
 # A throwaway self-signed certificate for api.newrelic.com, trusted by the image under test as an extra CA.
-openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj '/CN=api.newrelic.com' \
-  -addext 'subjectAltName=DNS:api.newrelic.com' -addext 'basicConstraints=critical,CA:TRUE' \
+# An explicit config: OpenSSL 1.1.1 appends -addext extensions to its default CA ones, which makes duplicates that
+# Node refuses.
+cat > "$certs/openssl.cnf" <<'CNF'
+[req]
+distinguished_name = dn
+x509_extensions = ext
+prompt = no
+[dn]
+CN = api.newrelic.com
+[ext]
+subjectAltName = DNS:api.newrelic.com
+basicConstraints = critical,CA:TRUE
+CNF
+openssl req -x509 -newkey rsa:2048 -nodes -days 1 -config "$certs/openssl.cnf" \
   -keyout "$certs/key.pem" -out "$certs/cert.pem" >/dev/null 2>&1
 chmod 0755 "$certs"; chmod 0644 "$certs"/*.pem
 
+# curl from inside the private network. The server only accepts the Host `localhost`; DCURL_HOST overrides it.
+dcurl() { docker run --rm -i --network "$net" "$curl_image" -sS -H "Host: ${DCURL_HOST:-localhost}" "$@"; }
+
 docker network create "$net" >/dev/null
 # The stand-in runs on the image's own Node (the distroless entrypoint is node; the script is passed as its argument).
-docker run -d --name "$fake" --network "$net" --network-alias api.newrelic.com --entrypoint /nodejs/bin/node \
-  -v "$certs:/certs:ro" -v "$here/docker-smoke/fake-nerdgraph.mjs:/fake.mjs:ro" "$image" /fake.mjs >/dev/null
+docker create --name "$fake" --network "$net" --network-alias api.newrelic.com --entrypoint /nodejs/bin/node \
+  "$image" /tmp/fake.mjs >/dev/null
+docker cp "$certs/key.pem" "$fake:/tmp/key.pem"
+docker cp "$certs/cert.pem" "$fake:/tmp/cert.pem"
+docker cp "$here/docker-smoke/fake-nerdgraph.mjs" "$fake:/tmp/fake.mjs"
+docker start "$fake" >/dev/null
+
+# The CA certificate goes into the data volume (the root file system of the image under test is read-only).
+docker create --name "$seed" -v "$name:/data" "$image" >/dev/null
+docker cp "$certs/cert.pem" "$seed:/data/ca.pem"
+docker rm "$seed" >/dev/null
 
 # The key goes through the environment of this one container only (never an argument that would show in `ps` output
 # of the host: `-e NAME` without a value forwards it from this process).
 export RB_MASTER_KEY="$key"
 docker run -d --name "$name" --network "$net" --read-only --cap-drop ALL --security-opt no-new-privileges:true \
-  -v "$name:/data" -v "$certs/cert.pem:/certs/ca.pem:ro" -e NODE_EXTRA_CA_CERTS=/certs/ca.pem \
-  -e RB_MASTER_KEY -e RB_ALLOWED_HOSTS=localhost -p "127.0.0.1:${port}:8787" "$image" >/dev/null
+  -v "$name:/data" -e NODE_EXTRA_CA_CERTS=/data/ca.pem \
+  -e RB_MASTER_KEY -e RB_ALLOWED_HOSTS=localhost "$image" >/dev/null
 
 up=false
 for _ in $(seq 1 30); do
-  if body="$(curl -fsS --max-time 2 "http://localhost:${port}/health" 2>/dev/null)"; then up=true; break; fi
+  if body="$(dcurl -f --max-time 2 "${base}/health" 2>/dev/null)"; then up=true; break; fi
   sleep 1
 done
 if [[ "$up" != true ]]; then
@@ -63,7 +100,7 @@ fi
 
 uid="$(docker inspect --format '{{.Config.User}}' "$image")"
 [[ "$uid" == "65532:65532" ]] || { echo "image user is '$uid', expected 65532:65532" >&2; exit 1; }
-code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 2 -H 'Host: evil.example' "http://localhost:${port}/health")"
+code="$(DCURL_HOST=evil.example dcurl -o /dev/null -w '%{http_code}' --max-time 2 "${base}/health")"
 [[ "$code" == "403" ]] || { echo "a foreign Host got $code, expected 403" >&2; exit 1; }
 
 # The maintenance commands find the database through RB_DATA_DIR, as the docs run them (P2-review H2).
@@ -78,19 +115,19 @@ token="$("${cli[@]}" token create --grant "$grant" --label smoke --ttl-days 1 --
 
 # MCP through the image: initialize, then tools/list, with the device token.
 mcp() {
-  curl -sS --max-time 10 -X POST "http://localhost:${port}/p/smoke/mcp" \
+  dcurl --max-time 10 -X POST "${base}/p/smoke/mcp" \
     -H "Authorization: Bearer ${token}" -H 'Content-Type: application/json' \
     -H 'Accept: application/json, text/event-stream' -H 'MCP-Protocol-Version: 2025-06-18' "$@"
 }
 # The answer is plain JSON or a one-event SSE stream: take the first `data:` line if there is one.
 payload() { if grep -q '^data: ' "$1"; then sed -n 's/^data: //p' "$1" | head -n1; else cat "$1"; fi; }
-mcp -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"smoke","version":"0"}}}' -o "$certs/init.out"
+mcp -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"smoke","version":"0"}}}' > "$certs/init.out"
 payload "$certs/init.out" | jq -e '.result.serverInfo' >/dev/null || { echo "MCP initialize failed:" >&2; cat "$certs/init.out" >&2; exit 1; }
-mcp -d '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' -o "$certs/tools.out"
+mcp -d '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' > "$certs/tools.out"
 count="$(payload "$certs/tools.out" | jq -e '.result.tools | length' || true)"
 [[ "${count:-0}" -gt 0 ]] || { echo "MCP tools/list returned no tools:" >&2; cat "$certs/tools.out" >&2; exit 1; }
 # A request without a token must not get a tool list.
-nocode="$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 -X POST "http://localhost:${port}/p/smoke/mcp" \
+nocode="$(dcurl -o /dev/null -w '%{http_code}' --max-time 5 -X POST "${base}/p/smoke/mcp" \
   -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' \
   -d '{"jsonrpc":"2.0","id":3,"method":"tools/list"}')"
 [[ "$nocode" == "401" ]] || { echo "an unauthenticated MCP request got $nocode, expected 401" >&2; exit 1; }

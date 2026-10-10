@@ -85,8 +85,17 @@ Ask the agent "who am I in New Relic?": it calls `whoami` and shows your user, r
 "which event types does my account have?" (`list_event_types`) and a query such as
 `SELECT count(*) FROM Transaction SINCE 1 hour ago`.
 
+### Started without a key?
+
+With no configuration at all (no `NEW_RELIC_API_KEY`, no `NEW_RELIC_ACCOUNT_ID`, no `--config`), relic-bridge still
+starts in **setup mode**: it lists its read-only tools, so a client, an MCP inspector or a registry can show what it
+offers, and every tool call answers `RB_AUTH_UNAUTHORIZED` with what to set. Nothing reaches New Relic. Add the
+variables above and restart the server. A partial configuration (for example a key without an account id) is still an
+error at startup.
+
 ## Next steps
 
 - Per-client setup (Claude Code, Claude Desktop, Cursor, VS Code): [client guides](clients.md)
 - [Security basics](security-basics.md): dedicated key, read-only tools, prompt-injection note
 - Something wrong? [Troubleshooting](troubleshooting.md)
+- Listing relic-bridge in an MCP registry: [registry listing](registry-listing.md)

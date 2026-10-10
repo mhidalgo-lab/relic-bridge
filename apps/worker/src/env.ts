@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // The Worker's bindings (`wrangler.jsonc`). Secrets arrive through `wrangler secret put` (production) or `.dev.vars`
 // (local); they are never `vars` and never stored in D1 (THREAT_MODEL T7).
-import type { D1Database, KVNamespace, RateLimit } from '@cloudflare/workers-types';
+import type { D1Database, RateLimit } from '@cloudflare/workers-types';
+import type { SharedLimiterNamespace } from './shared-limiter.ts';
 
 /** Plain-text settings from `vars` (all optional; see `settings.ts` for defaults and validation). */
 export interface WorkerVars {
@@ -21,13 +22,41 @@ export interface WorkerVars {
   readonly RB_CORS_ORIGINS?: string;
   /** Access cache TTL in seconds, 0-60 (0 disables). Default 30. */
   readonly RB_ACCESS_CACHE_TTL?: string;
+  /** NRQL query cache (P7-02): `on` (isolate memory + per-colo Cache API; paid default), `memory` (free default), `off`. */
+  readonly RB_QUERY_CACHE?: string;
+  /** Lifetime in seconds of cached results over moving windows (0-300, default 30; 0 caches only settled windows). */
+  readonly RB_QUERY_CACHE_TTL?: string;
   readonly RB_AUDIT?: string;
   readonly RB_AUDIT_NRQL?: string;
   readonly RB_AUDIT_CLIENT_IP?: string;
   /** Whole days to keep audit rows (default 90; `0` keeps everything). The cron trigger deletes older rows. */
   readonly RB_AUDIT_RETENTION_DAYS?: string;
   readonly RB_RATE_LIMIT?: string;
+  /**
+   * Durable Object limiter (P7-10, docs/guide/cloudflare-limits.md): `off` (default), `rules` (auth-failure, sign-in,
+   * OAuth and write limits shared by every isolate) or `on` (also NerdGraph concurrency per credential). Needs the
+   * `SHARED_LIMITER` binding.
+   */
+  readonly RB_SHARED_LIMITER?: string;
+  /** Self-monitoring via OTLP (P7-08, docs/guide/observability.md): `on` / `off` (default off). */
+  readonly RB_OTEL?: string;
+  /** OTLP base URL, e.g. https://otlp.nr-data.net:4318 (`/v1/traces`, `/v1/metrics` are appended). */
+  readonly RB_OTEL_ENDPOINT?: string;
+  /** Share of tool calls exported as traces, 0-1 (default 1). */
+  readonly RB_OTEL_SAMPLE?: string;
+  /** `on`: spans join an inbound W3C `traceparent` (P7-18). Default off. */
+  readonly RB_OTEL_TRACEPARENT?: string;
   readonly RB_PASSTHROUGH?: string;
+  /** Opt-in write tools (P7-09, docs/adr/0015-opt-in-write-tools.md): `on` / `off` (default off); needs RB_AUDIT=on. */
+  readonly RB_WRITE_TOOLS?: string;
+  /** `client` (default) or `required` (P7-25): with `required` a write needs a person's approval through MCP elicitation. */
+  readonly RB_WRITE_APPROVAL?: string;
+  /** `on`: registries and inspectors may list the static read-only tool catalog without a credential (P7-14). */
+  readonly RB_PUBLIC_TOOL_CATALOG?: string;
+  /** `off` removes the MCP Apps chart view (P7-16); default on. */
+  readonly RB_MCP_APPS?: string;
+  /** `off` disables the MCP Tasks extension (P7-34); default on. */
+  readonly RB_TASKS?: string;
   /** OAuth for MCP clients (P5-04, docs/guide/oauth.md): `on` / `off` (default off); needs sign-in. */
   readonly RB_OAUTH?: string;
   /** Dynamic client registration: `on` (default) / `off`. */
@@ -76,6 +105,8 @@ export interface WorkerSecrets {
   readonly RB_MASTER_KEY_PREVIOUS?: string;
   /** Bootstrap admin token; the admin API is off without it. */
   readonly RB_ADMIN_TOKEN?: string;
+  /** OTLP export headers, `api-key=<New Relic license key>` (P7-08). A secret: it never goes in `vars`. */
+  readonly RB_OTEL_HEADERS?: string;
   /** HMAC secret (at least 32 bytes) for pass-through key fingerprints, shared by all isolates (P3-04). */
   readonly RB_FINGERPRINT_SECRET?: string;
   /** OAuth client secrets of the sign-in providers (P4-01). */
@@ -88,10 +119,10 @@ export interface WorkerSecrets {
 export interface WorkerBindings {
   /** D1 database (storage, P3-02). */
   readonly DB?: D1Database;
-  /** Reserved, unused: the OAuth provider keeps its state in D1 (ADR-0011); removal is a pending owner decision. */
-  readonly OAUTH_KV?: KVNamespace;
   /** Workers Rate Limiting binding (P3-04). */
   readonly RATE_LIMITER?: RateLimit | undefined;
+  /** Durable Object namespace of the `SharedLimiter` class (P7-10); used only with `RB_SHARED_LIMITER`. */
+  readonly SHARED_LIMITER?: SharedLimiterNamespace | undefined;
 }
 
 export type WorkerEnv = WorkerVars & WorkerSecrets & WorkerBindings;

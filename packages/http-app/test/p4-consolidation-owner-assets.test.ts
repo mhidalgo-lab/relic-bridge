@@ -55,6 +55,29 @@ describe("admins cannot act on an owner's keys, grants and tokens (review H1)", 
     expect((await h.world.storage.accessTokens.get(w.ownerToken.id))?.revokedAt).toBeNull();
   });
 
+  it("refuses setting or clearing the usage quota of an owner's grant, and of a grant on an owner's key (P7-12)", async () => {
+    const w = await world();
+    const member = await h.addUser('mq@example.com', 'member');
+    const onOwnerKey = await h.addGrant(w.projectId, { userId: member, credentialId: w.ownerKey });
+    const body = { quota: { day: { queries: 5 } } };
+    for (const id of [w.ownerGrant, onOwnerKey]) {
+      ownerRefusal(await call('PUT', `${A}/grants/${id}/quota`, w.admin.headers, body));
+      ownerRefusal(await call('PUT', `${A}/grants/${id}/quota`, w.admin.headers, { quota: null }));
+      expect((await h.world.storage.grants.get(id))?.quota).toBeNull();
+    }
+    // Owners may, and an administrator may cap an ordinary member's grant.
+    const ok = await call('PUT', `${A}/grants/${w.ownerGrant}/quota`, w.owner.headers, body);
+    expect(ok.status, ok.text).toBe(200);
+    const plain = await h.addGrant(w.projectId, { userId: member });
+    const byAdmin = await call('PUT', `${A}/grants/${plain}/quota`, w.admin.headers, body);
+    expect(byAdmin.status, byAdmin.text).toBe(200);
+    // A member session has no role for it, and the usage view is for administrators.
+    const m = await h.addSession({ role: 'member' });
+    expect((await call('PUT', `${A}/grants/${plain}/quota`, m.headers, body)).status).toBe(403);
+    expect((await call('GET', `${A}/usage/quotas`, m.headers)).status).toBe(403);
+    expect((await call('GET', `${A}/usage/quotas`, w.admin.headers)).status).toBe(200);
+  });
+
   it("refuses changing, rotating or deleting an owner's key, and planting one on the owner", async () => {
     const w = await world();
     ownerRefusal(await call('PATCH', `${A}/credentials/${w.ownerKey}`, w.admin.headers, { label: 'mine' }));

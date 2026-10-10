@@ -22,6 +22,13 @@
       "when": 1791029123405,
       "tag": "0002_audit_key_id",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1791306713174,
+      "tag": "0003_grant_quota_usage",
+      "breakpoints": true
     }
   ]
 }

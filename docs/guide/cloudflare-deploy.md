@@ -6,7 +6,7 @@ first to pick `free` or `paid`.
 
 > **Phone and claude.ai (web)** connect with OAuth: set `RB_OAUTH=on` and follow [Use relic-bridge from your phone and claude.ai](oauth-phone.md). Claude Code, Cursor and VS Code can use a device token.
 
-What gets created: a Worker, a D1 database (`DB`), a KV namespace (`OAUTH_KV`, reserved and currently unused) and a Rate Limiting binding
+What gets created: a Worker, a D1 database (`DB`) and a Rate Limiting binding
 (`RATE_LIMITER`). You supply nothing else: no database setup, **no migration command** (the Worker migrates D1 itself
 the first time it boots).
 
@@ -24,7 +24,7 @@ The script:
    machine's secure random generator, and passes them to Wrangler **on stdin**: never as command-line arguments
    (visible in the process list), never written to a repo file;
 2. deploys using `apps/worker/wrangler.local.jsonc`, a git-ignored copy of `wrangler.jsonc`, so Wrangler creates the D1
-   and KV resources and records their ids in the copy, not in a committed file. Another `--name` gets its own copy
+   database and records their ids in the copy, not in a committed file. Another `--name` gets its own copy
    (`wrangler.<name>.local.jsonc`) and its own D1 database named after the Worker, so a staging Worker never binds to
    the production database, and its own Rate Limiting namespace (two Workers on one account would otherwise share the
    `1701` counters);
@@ -38,7 +38,9 @@ Pick a path outside the repository (only `.env` files are git-ignored; the scrip
 and note that Windows ignores the mode.
 
 Other options: `--name <worker>` (default `relic-bridge`), `--passthrough` (also generates `RB_FINGERPRINT_SECRET` and
-sets `RB_PASSTHROUGH=on`), `--assume-new` (see below).
+sets `RB_PASSTHROUGH=on`), `--shared-limiter rules|on` (sets `RB_SHARED_LIMITER`: limits counted once for the whole
+deployment by a Durable Object instead of per isolate, see [Cloudflare limits](cloudflare-limits.md#shared-limiter-durable-object-optional)),
+`--assume-new` (see below).
 
 **Re-running is safe.** Secrets that already exist are kept, never regenerated (a new master key would orphan every
 stored credential), so you can re-run the script to redeploy after `git pull`. If Wrangler can't tell whether the Worker
@@ -50,7 +52,7 @@ refused too: a new master key would orphan every stored New Relic key. Restore t
 `wrangler.local.jsonc` is never overwritten (it holds the provisioned ids and any edits of yours, such as a custom
 domain). On a re-run the script compares it with `wrangler.jsonc`, ignoring comments, whitespace and the ids, and
 **warns** when they differ, for example after a `git pull` added a binding or cron. Copy the new entries into the local
-file, keeping its ids; deleting it would make Wrangler provision new D1/KV resources.
+file, keeping its ids; deleting it would make Wrangler provision a new D1 database.
 
 **Windows (PowerShell).** Everything above works the same (the script starts Wrangler with Node, no shell). Where the
 guide shows bash, use the PowerShell form given next to it.
@@ -59,7 +61,7 @@ guide shows bash, use the PowerShell form given next to it.
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/matiashidalgo/relic-bridge/tree/main/apps/worker)
 
-Cloudflare copies the repository to your GitHub/GitLab account, provisions D1 and KV, asks for the secrets listed in
+Cloudflare copies the repository to your GitHub/GitLab account, provisions D1, asks for the secrets listed in
 `apps/worker/.dev.vars.example` (`RB_MASTER_KEY`, `RB_ADMIN_TOKEN`) and deploys with Workers Builds; pushes to your copy
 redeploy. Generate the values yourself first:
 
@@ -155,8 +157,13 @@ is revoked alone.
 ## Settings and custom domain
 
 Settings are Worker variables (see the [worker README](../../apps/worker/README.md#settings-vars)): `RB_PLAN`,
-`RB_ALLOWED_HOSTS`, budget overrides. Pass them at deploy time with `wrangler deploy --var NAME:value`, or set them in the
+`RB_ALLOWED_HOSTS`, `RB_TASKS=off` (MCP Tasks kill switch), budget overrides. Pass them at deploy time with `wrangler deploy --var NAME:value`, or set them in the
 dashboard (Worker, Settings, Variables); `pnpm cf:setup` sets `RB_PLAN` from `--plan`.
+
+Write tools stay off unless you set `RB_WRITE_TOOLS=on` (needs `RB_AUDIT=on`). When on, `RB_WRITE_APPROVAL` defaults to
+`required`: a write needs a person's approval through MCP elicitation, and a client that cannot be asked can only dry-run.
+Set `RB_WRITE_APPROVAL=client` only if you accept that the model's own `confirm: true` is then the only gate; the Worker
+logs a startup warning. See [write tools](security-basics.md#write-tools-opt-in).
 
 Audit history is trimmed by an hourly cron trigger (`triggers.crons` in `wrangler.jsonc`, registered at deploy): rows
 older than `RB_AUDIT_RETENTION_DAYS` (default 90, `0` keeps everything) are deleted. See the
@@ -197,10 +204,18 @@ pnpm cf:setup --plan free          # same plan as before; existing secrets and r
 - Sign-in variables set by `cf:setup --sign-in` are deployed with `--var` and kept by later runs because of
   `--keep-vars`; check Settings, Variables after the first run, and re-run with `--sign-in` to change them.
 - Settings and secrets set in the dashboard survive redeploys: `pnpm cf:setup` deploys with `--keep-vars` and only
-  overwrites `RB_PLAN` (and `RB_PASSTHROUGH` with `--passthrough`). A plain `wrangler deploy` without `--keep-vars`
+  overwrites `RB_PLAN` (and `RB_PASSTHROUGH` with `--passthrough`, `RB_SHARED_LIMITER` with `--shared-limiter`). A plain `wrangler deploy` without `--keep-vars`
   **deletes** dashboard variables such as `RB_ALLOWED_HOSTS`.
 - `wrangler.local.jsonc` is copied from `wrangler.jsonc` once and never refreshed: after a `git pull` that changes
   `wrangler.jsonc` (new binding, cron or compatibility date), carry the change over by hand (keep the provisioned ids).
+  Since P7-10 that includes the `durable_objects` and `exports` entries of the `SharedLimiter` class (needed only for
+  `RB_SHARED_LIMITER`; without them the Worker logs a warning and keeps per-isolate limits).
+- **Upgrade note (P5-13): the `OAUTH_KV` namespace is gone.** Earlier versions declared a KV namespace that was never
+  used (OAuth state lives in D1, ADR-0011). Nothing breaks if your `wrangler.local.jsonc` still lists it, and
+  `cf:setup` prints a note while it does. To tidy up, remove the `kv_namespaces` entry from the local copy, redeploy,
+  then list and delete the old namespace:
+  `pnpm --filter @relic-bridge/worker exec wrangler kv namespace list` and
+  `... wrangler kv namespace delete --namespace-id <id>`.
 - With the button flow, a push to your copy of the repository redeploys through Workers Builds.
 
 ## Backups and the master key
@@ -333,8 +348,9 @@ session once [sign-in](identity-providers.md) is configured. What protects it:
 - **Token strength.** `cf:setup` and `admin-token generate` make 256-bit tokens; the Worker refuses predictable ones at
   boot.
 - **Failure throttle.** 10 failed authentications per 5 minutes per client address, then further failures get `429`.
-  It is counted per isolate (Cloudflare runs many), so a distributed guesser gets more attempts; your valid token is
-  never refused by it, even from an address that sent bad ones (a shared office or mobile network).
+  It is counted per isolate (Cloudflare runs many), so a distributed guesser gets more attempts, unless the
+  [shared limiter](cloudflare-limits.md#shared-limiter-durable-object-optional) is on (`RB_SHARED_LIMITER=rules`), which
+  counts it once for the whole deployment; your valid token is never refused by it, even from an address that sent bad ones (a shared office or mobile network).
 - **Optional shared backstop:** a WAF rate-limiting rule (dashboard: your zone > **Security** > **Security rules** >
   **Create rule** > **Rate limiting rules**) matching `http.host eq "<your custom domain>" and
   starts_with(http.request.uri.path, "/api/admin/")`, counted per IP, for example 30 requests per 10 seconds, action

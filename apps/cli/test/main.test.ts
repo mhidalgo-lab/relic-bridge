@@ -51,7 +51,8 @@ describe('main', () => {
   });
 
   it('config errors exit 1, log JSON to stderr, and never touch stdout', () => {
-    const r = run([]);
+    // A partial configuration (an account without a key) is an error; no configuration at all is setup mode (P7-14).
+    const r = run([], { NEW_RELIC_ACCOUNT_ID: '1' });
     expect(r.result).toEqual({ kind: 'exit', code: 1 });
     expect(r.stdout).toBe('');
     const line = JSON.parse(r.stderr) as { level: string; msg: string; hint: string };

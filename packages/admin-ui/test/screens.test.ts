@@ -143,6 +143,44 @@ describe('screen pages', () => {
     expect(html).toContain('>expired<');
   });
 
+  it('a grant warns when a composite tool lacks its siblings, and not once they are granted (P6-25)', async () => {
+    const grantWith = (tools: string[] | null) =>
+      setup((call) =>
+        call.method === 'GET' && call.path === '/grants/grt_me'
+          ? { status: 200, body: { data: { ...sample().grants[0], tools } } }
+          : undefined,
+      ).app;
+    const note = 'entity_health calls tools this grant does not include';
+    const missing = await get(grantWith(['entity_health', 'whoami']), '/admin/grants/grt_me');
+    expect(missing.html).toContain(note);
+    expect(missing.html).toContain('list_accounts');
+    for (const tools of [['entity_health', 'whoami', 'list_accounts'], null]) {
+      expect((await get(grantWith(tools), '/admin/grants/grt_me')).html).not.toContain(note);
+    }
+  });
+
+  it('the tool checklist says which tools a composite runs (P6-25)', async () => {
+    const { html } = await get(setup().app, '/admin/grants/new?project=prj_us');
+    expect(html).toContain('does not grant them');
+    expect(html).toMatch(/entity_health.*whoami, list_accounts/s);
+  });
+
+  it('creating a grant for a composite without its siblings redirects with the notes flash (P6-25)', async () => {
+    const { app } = setup((call) =>
+      call.method === 'POST' ? { status: 201, body: { data: sample().grants[0], warnings: [] } } : undefined,
+    );
+    const { res } = await post(app, '/admin/grants', {
+      projectId: 'prj_us',
+      userId: 'service',
+      label: 'ci',
+      credentialId: '',
+      tools: ['entity_health'],
+      accounts_all: 'on',
+      expires_days: '30',
+    });
+    expect(res.headers.get('set-cookie')).toMatch(/^rb_flash=created_with_notes;/);
+  });
+
   it('warns on the project page only when the default key is personal (P4-18)', async () => {
     const warning = 'The default key is personal';
     expect((await get(setup().app, '/admin/projects/prj_us')).html).not.toContain(warning);
@@ -416,6 +454,102 @@ describe('grants', () => {
     ]);
   });
 
+  describe('query limits (P4-23)', () => {
+    const base = { projectId: 'prj_us', userId: 'service', label: 'ci', tools_all: '1', accounts_all: '1' };
+
+    it('the form offers the limit fields', async () => {
+      const { html } = await get(setup().app, '/admin/grants/new?project=prj_us');
+      for (const name of ['limit_maxLimit', 'limit_maxWindowDays', 'limit_maxResponseBytes', 'limit_rawNrql'])
+        expect(html).toContain(`name="${name}"`);
+      expect(html).toContain('name="limit_eventAllow"');
+    });
+
+    it('sends the limits with the grant, and notes the ones above the project', async () => {
+      const { app, fake } = setup((call) =>
+        call.method === 'POST'
+          ? { status: 201, body: { data: sample().grants[0], warnings: [] } }
+          : undefined,
+      );
+      const { res } = await post(app, '/admin/grants', {
+        ...base,
+        limit_maxLimit: '500',
+        limit_rawNrql: 'off',
+        limit_eventDeny: 'Log, Span',
+      });
+      expect(res.headers.get('set-cookie')).toMatch(/^rb_flash=created_with_notes;/);
+      expect(changes(fake)[0]?.body).toMatchObject({
+        limits: { maxLimit: 500, rawNrql: false, eventTypes: { deny: ['Log', 'Span'] } },
+      });
+    });
+
+    it('limits within the project add no note and an empty form sends no limits', async () => {
+      const { app, fake } = setup((call) =>
+        call.method === 'POST'
+          ? { status: 201, body: { data: sample().grants[0], warnings: [] } }
+          : undefined,
+      );
+      const { res } = await post(app, '/admin/grants', { ...base, limit_maxLimit: '50' });
+      expect(res.headers.get('set-cookie')).toMatch(/^rb_flash=created;/);
+      await post(app, '/admin/grants', base);
+      expect(changes(fake)[1]?.body).not.toHaveProperty('limits');
+    });
+
+    it('invalid values show field errors and nothing is sent', async () => {
+      const { app, fake } = setup();
+      const bad = await post(app, '/admin/grants', {
+        ...base,
+        limit_maxLimit: '0',
+        limit_maxWindowDays: 'abc',
+        limit_rawNrql: 'maybe',
+      });
+      expect(bad.res.status).toBe(422);
+      expect(bad.html).toContain('Enter a whole number from 1 to 1000000, or leave it blank.');
+      expect(bad.html).toContain('Choose one of the options.');
+      expect(bad.html).toContain('name="limit_maxLimit"');
+      expect(changes(fake)).toEqual([]);
+    });
+
+    it('an API refusal of a limit shows on its field, escaped', async () => {
+      const { app } = setup((call) =>
+        call.method === 'POST'
+          ? {
+              status: 422,
+              body: { error: { code: 'invalid_input', message: 'bad <b>x</b>', field: 'limits.maxLimit' } },
+            }
+          : undefined,
+      );
+      const { res, html } = await post(app, '/admin/grants', { ...base, limit_maxLimit: '5' });
+      expect(res.status).toBe(422);
+      expect(html).toContain('id="limit_maxLimit-error"');
+      expect(html).toContain('bad &lt;b&gt;x&lt;/b&gt;');
+    });
+
+    it('members cannot create a grant with limits: nothing is called', async () => {
+      const { app, fake } = setup();
+      const { res } = await post(app, '/admin/grants', { ...base, limit_maxLimit: '5' }, 'member');
+      expect(res.status).toBe(403);
+      expect(fake.calls).toEqual([]);
+    });
+
+    it('the grant page shows its limits and warns about the ones above the project', async () => {
+      const grant = {
+        ...sample().grants[0],
+        projectId: 'prj_us',
+        limits: { maxLimit: 500, maxWindowDays: 3, rawNrql: true },
+      };
+      const { app } = setup((call) =>
+        call.method === 'GET' && call.path === '/grants/grt_me'
+          ? { status: 200, body: { data: grant } }
+          : undefined,
+      );
+      const { html } = await get(app, '/admin/grants/grt_me');
+      expect(html).toContain('at most 500 rows; windows up to 3 days; arbitrary NRQL on');
+      expect(html).toContain('Most rows per query is above the project&#39;s limit (100)');
+      expect(html).toContain('Arbitrary NRQL is off on the project');
+      expect(html).not.toContain('Longest time window is above');
+    });
+  });
+
   it('a service needs a label; half a rate limit is refused; another person’s key is explained', async () => {
     const { app, fake } = setup((call) =>
       call.method === 'POST'
@@ -446,6 +580,111 @@ describe('grants', () => {
     });
     expect(refused.res.status).toBe(422);
     expect(refused.html).toMatch(/id="credentialId-error">not another user’s key</);
+  });
+
+  describe('usage quota (P7-12)', () => {
+    const withQuota = (quota: unknown) => (call: AdminCall) =>
+      call.method === 'GET' && call.path === '/grants/grt_me'
+        ? { status: 200, body: { data: { ...sample().grants[0], quota } } }
+        : undefined;
+
+    it('shows the quota in words and a form filled with its caps', async () => {
+      const { app } = setup(
+        withQuota({
+          day: { queries: 100, inspectedEvents: 5_000_000 },
+          month: { queries: 2000 },
+          warnPercent: 90,
+        }),
+      );
+      const { html } = await get(app, '/admin/grants/grt_me');
+      expect(html).toContain('per day: 100 calls, 5,000,000 events; per month: 2,000 calls (warning at 90%)');
+      expect(html).toMatch(/name="day_queries"[^>]*value="100"/);
+      expect(html).toMatch(/name="day_events"[^>]*value="5000000"/);
+      expect(html).toMatch(/name="month_queries"[^>]*value="2000"/);
+      expect(html).toMatch(/name="warn"[^>]*value="90"/);
+      expect(html).toContain('action="/admin/grants/grt_me/quota"');
+    });
+
+    it('says none, and offers the form, for a grant without a quota', async () => {
+      const { app } = setup();
+      const { html } = await get(app, '/admin/grants/grt_me');
+      expect(html).toMatch(/Usage quota<\/dt>\s*<dd>none/);
+      expect(html).toContain('Save quota');
+    });
+
+    it('sets a quota with PUT and flashes saved', async () => {
+      const { app, fake } = setup((call) =>
+        call.method === 'PUT' ? { status: 200, body: { data: sample().grants[0] } } : undefined,
+      );
+      const { res } = await post(app, '/admin/grants/grt_me/quota', {
+        day_queries: '100',
+        month_events: '9000000',
+        warn: '75',
+      });
+      expect(res.status).toBe(303);
+      expect(res.headers.get('location')).toBe('/admin/grants/grt_me');
+      expect(res.headers.get('set-cookie')).toMatch(/^rb_flash=saved;/);
+      expect(changes(fake)).toEqual([
+        {
+          method: 'PUT',
+          path: '/grants/grt_me/quota',
+          body: { quota: { day: { queries: 100 }, month: { inspectedEvents: 9_000_000 }, warnPercent: 75 } },
+        },
+      ]);
+    });
+
+    it('blank fields remove the quota', async () => {
+      const { app, fake } = setup((call) =>
+        call.method === 'PUT' ? { status: 200, body: { data: sample().grants[0] } } : undefined,
+      );
+      const { res } = await post(app, '/admin/grants/grt_me/quota', {});
+      expect(res.headers.get('set-cookie')).toMatch(/^rb_flash=quota_removed;/);
+      expect(changes(fake)).toEqual([{ method: 'PUT', path: '/grants/grt_me/quota', body: { quota: null } }]);
+    });
+
+    it('refuses bad numbers, and a warning without a cap, without calling the API and without echoing input', async () => {
+      const { app, fake } = setup();
+      const hostile = '<script>alert(1)</script>';
+      const bad = await post(app, '/admin/grants/grt_me/quota', {
+        day_queries: '0',
+        day_events: hostile,
+        month_queries: '12.5',
+        warn: '100',
+      });
+      expect(bad.res.status).toBe(422);
+      expect(bad.html).toContain('id="day_queries-error"');
+      expect(bad.html).toContain('id="warn-error"');
+      expect(bad.html).not.toContain('<script>alert');
+      const lonely = await post(app, '/admin/grants/grt_me/quota', { warn: '50' });
+      expect(lonely.res.status).toBe(422);
+      expect(lonely.html).toContain('Set a cap first');
+      expect(changes(fake)).toEqual([]);
+    });
+
+    it('a grant that no longer exists goes back to the list; a refusal comes back as a flash', async () => {
+      const gone = setup((call) =>
+        call.method === 'PUT'
+          ? { status: 404, body: { error: { code: 'not_found', message: 'no grant' } } }
+          : undefined,
+      );
+      const a = await post(gone.app, '/admin/grants/grt_me/quota', { day_queries: '5' });
+      expect(a.res.headers.get('location')).toBe('/admin/grants');
+      const owner = setup((call) =>
+        call.method === 'PUT'
+          ? { status: 403, body: { error: { code: 'forbidden', message: 'owner only', detail: 'owner' } } }
+          : undefined,
+      );
+      const b = await post(owner.app, '/admin/grants/grt_me/quota', { day_queries: '5' });
+      expect(b.res.headers.get('location')).toBe('/admin/grants/grt_me');
+      expect(b.res.headers.get('set-cookie')).toMatch(/rb_flash=not_allowed/);
+    });
+
+    it('members cannot reach it and nothing is called', async () => {
+      const { app, fake } = setup();
+      const { res } = await post(app, '/admin/grants/grt_me/quota', { day_queries: '5' }, 'member');
+      expect(res.status).toBe(403);
+      expect(fake.calls).toEqual([]);
+    });
   });
 
   it('revoke and delete ask first', async () => {
@@ -621,7 +860,7 @@ describe('users', () => {
     const { app, fake } = setup((call) =>
       call.method === 'PATCH' ? { status: 200, body: { data: {} } } : undefined,
     );
-    await post(app, '/admin/users/usr_m', { displayName: '', role: 'admin' });
+    await post(app, '/admin/users/usr_m', { displayName: '', role: 'admin' }, 'owner');
     expect(changes(fake)).toEqual([{ method: 'PATCH', path: '/users/usr_m', body: { role: 'admin' } }]);
     const self = await get(setup().app, '/admin/users/usr_admin', 'admin');
     expect(self.html).toContain('You cannot change your own role');
@@ -629,6 +868,27 @@ describe('users', () => {
     expect(self.html).not.toContain('Disable this user');
     const ownerByAdmin = await get(setup().app, '/admin/users/usr_owner', 'admin');
     expect(ownerByAdmin.html).toContain('Only an owner can change an owner.');
+  });
+
+  it('administrators are an owner’s to manage: an admin viewer gets no controls for another admin (P4-21)', async () => {
+    const asAdmin = await get(setup().app, '/admin/users/usr_admin2', 'admin');
+    expect(asAdmin.html).toContain('Only an owner can change an administrator.');
+    expect(asAdmin.html).not.toContain('name="role"');
+    expect(asAdmin.html).not.toContain('name="displayName"');
+    expect(asAdmin.html).not.toContain('/admin/users/usr_admin2/signout');
+    expect(asAdmin.html).not.toContain('/admin/users/usr_admin2/disable');
+    expect(asAdmin.html).not.toContain('/admin/users/usr_admin2/unbind');
+    // An admin viewer is offered member only, in the add form and on a member's page.
+    const add = await get(setup().app, '/admin/users/new', 'admin');
+    expect(add.html).not.toContain('value="admin"');
+    const member = await get(setup().app, '/admin/users/usr_m', 'admin');
+    expect(member.html).not.toContain('value="admin"');
+    // An owner viewer keeps every control.
+    const asOwner = await get(setup().app, '/admin/users/usr_admin2', 'owner');
+    expect(asOwner.html).toContain('name="role"');
+    expect(asOwner.html).toContain('value="admin"');
+    expect(asOwner.html).toContain('/admin/users/usr_admin2/signout');
+    expect(asOwner.html).toContain('/admin/users/usr_admin2/unbind');
   });
 
   it('disable and sign-out ask first; enable does not', async () => {

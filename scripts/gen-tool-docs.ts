@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import {
   annotationsFor,
   createBuiltinTools,
+  createWriteTools,
   inputJsonSchema,
   outputJsonSchema,
   PROMPTS,
@@ -86,8 +87,31 @@ function renderTool(def: ToolDefinition): string {
   return lines.join('\n');
 }
 
-export function renderToolsDoc(tools: readonly ToolDefinition[]): string {
+export function renderToolsDoc(
+  tools: readonly ToolDefinition[],
+  writeTools: readonly ToolDefinition[] = [],
+): string {
   const sorted = [...tools].sort((x, y) => x.group.localeCompare(y.group) || x.name.localeCompare(y.name));
+  const writes = [...writeTools].sort((x, y) => x.name.localeCompare(y.name));
+  const writeSection =
+    writes.length === 0
+      ? []
+      : [
+          '# Write tools (opt-in, off by default)',
+          '',
+          `${writes.length} tools that change New Relic (P7-09, [ADR-0015](../adr/0015-opt-in-write-tools.md)). They are not offered unless the server runs with \`RB_WRITE_TOOLS=on\`, and even then a connection gets one only when its project **and** its grant name it explicitly (never through "all tools"), with a shared key or the grant user's own key; over OAuth the token also needs the \`mcp:write\` scope. Pass-through connections never get them. Every call needs \`confirm: true\` (or \`dry_run: true\`), is rate limited per grant and is audited with a before/after record.`,
+          '',
+          [
+            '| Tool | Kind | Idempotent | Cost |',
+            '| --- | --- | --- | --- |',
+            ...writes.map(
+              (t) =>
+                `| [\`${t.name}\`](#${t.name}) | ${t.kind} | ${annotationsFor(t).idempotentHint ? 'yes' : 'no'} | ${t.cost} |`,
+            ),
+          ].join('\n'),
+          '',
+          ...writes.map(renderTool),
+        ];
   const index = [
     '| Tool | Group | Kind | Cost | Phase |',
     '| --- | --- | --- | --- | --- |',
@@ -103,6 +127,7 @@ export function renderToolsDoc(tools: readonly ToolDefinition[]): string {
     index,
     '',
     ...sorted.map(renderTool),
+    ...writeSection,
   ]
     .join('\n')
     .replace(/\n{3,}/g, '\n\n')
@@ -151,13 +176,15 @@ function renderResources(resources: readonly ResourceDefinition[]): string {
       '',
       `**${r.title}**. ${r.description}`,
       '',
-      `- Kind: ${r.kind === 'static' ? 'static resource' : 'resource template'}; MIME type \`${r.mimeType}\``,
+      `- Kind: ${r.kind === 'static' ? 'static resource' : r.kind === 'app' ? 'MCP Apps view (static HTML)' : 'resource template'}; MIME type \`${r.mimeType}\``,
       `- Offered when the connection can use \`${r.needsTool}\`.`,
       r.kind === 'event_types'
         ? '- `resources/list` names one URI per account of the connection (and no other account).'
         : r.kind === 'attributes'
           ? '- Never listed: build the URI from an event type returned by the event-types resource.'
-          : '- Original text bundled with the server; no New Relic call.',
+          : r.kind === 'app'
+            ? '- Self-contained page bundled with the server (no external script, style or URL; no CSP domains). Clients that render MCP Apps show it for the tools whose `_meta.ui.resourceUri` names it, drawing that tool result only; other clients ignore it, and `RB_MCP_APPS=off` removes it. See `docs/guide/charts.md`.'
+            : '- Original text bundled with the server; no New Relic call.',
       '',
     ].join('\n'),
   );
@@ -180,7 +207,11 @@ function renderResources(resources: readonly ResourceDefinition[]): string {
 
 export function main(args: string[]): number {
   const targets = [
-    { file: OUT, name: 'docs/reference/tools.md', next: renderToolsDoc(createBuiltinTools()) },
+    {
+      file: OUT,
+      name: 'docs/reference/tools.md',
+      next: renderToolsDoc(createBuiltinTools(), createWriteTools()),
+    },
     { file: PROMPTS_OUT, name: 'docs/reference/prompts.md', next: renderPrompts(PROMPTS) },
     { file: RESOURCES_OUT, name: 'docs/reference/resources.md', next: renderResources(RESOURCES) },
   ];

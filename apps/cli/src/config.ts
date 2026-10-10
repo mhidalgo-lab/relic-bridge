@@ -27,6 +27,13 @@ import {
   yamlRecords,
 } from '@relic-bridge/storage';
 import type { z } from 'zod';
+import {
+  createKeychain,
+  KEYCHAIN_REF_RE,
+  type Keychain,
+  KeychainError,
+  readKeychainSecret,
+} from './keychain.ts';
 
 /** A configuration problem: printed on stderr, exit code 1. Messages never contain key values. */
 export class ConfigError extends Error {
@@ -48,6 +55,8 @@ export interface ResolvedProject {
   readonly credentialId: string;
   readonly region: Region;
   readonly apiKey: Secret;
+  /** The keychain entry the key was read from (`keychain:<name>`), for `doctor`. */
+  readonly keychainEntry?: string;
   readonly accounts: AccountScope;
   /** Tool allowlist; undefined means every built-in read-only tool. */
   readonly tools?: readonly string[];
@@ -252,12 +261,37 @@ export function parseConfigFile(text: string, file: string): ConfigFile {
   }
 }
 
-/** Resolve `apiKey`: `${VAR}` reads the environment; anything else is a literal key (allowed, but warned about). */
+/** Read a keychain entry for configuration, as a `ConfigError` (message and hint, never a value). */
+export function keychainValue(keychain: Keychain, name: string, what: string): string {
+  try {
+    return readKeychainSecret(keychain, name, what);
+  } catch (error) {
+    if (error instanceof KeychainError) throw new ConfigError(`${what}: ${error.message}`, error.hint);
+    throw error;
+  }
+}
+
+/**
+ * Resolve `apiKey`: `${VAR}` reads the environment, `keychain:<name>` the OS keychain (P7-11); anything else is a
+ * literal key (allowed, but warned about).
+ */
 export function resolveApiKey(
   apiKey: string,
   env: Env,
   where: string,
-): { readonly secret: Secret; readonly plaintext: boolean } {
+  keychain?: () => Keychain,
+): { readonly secret: Secret; readonly plaintext: boolean; readonly keychainEntry?: string } {
+  const kc = KEYCHAIN_REF_RE.exec(apiKey.trim());
+  if (kc) {
+    if (keychain === undefined)
+      throw new ConfigError(`${where}: keychain references are not available here.`);
+    const entry = kc[1] as string;
+    return {
+      secret: new Secret(keychainValue(keychain(), entry, `${where} (keychain reference)`)),
+      plaintext: false,
+      keychainEntry: entry,
+    };
+  }
   const ref = ENV_REF_RE.exec(apiKey.trim());
   if (ref) {
     const name = ref[1] as string;
@@ -320,6 +354,8 @@ export interface LoadConfigOptions {
   readonly platform: string;
   /** Expands a leading `~/`. */
   readonly homeDir?: string;
+  /** OS keychain for `keychain:<name>` references (tests inject a fake); the real one is created on first use. */
+  readonly keychain?: Keychain;
 }
 
 function expandHome(path: string, home: string | undefined): string {
@@ -363,7 +399,12 @@ export function loadYamlConfig(options: LoadConfigOptions & { configPath: string
     selected.defaultCredentialId === null ? undefined : records.credentials.get(selected.defaultCredentialId);
   if (credential === undefined) throw new ConfigError(`${file} project "${selected.slug}" has no apiKey.`);
   const where = `${file} project "${selected.slug}"`;
-  const key = resolveApiKey(apiKeyText(credential.key), options.env, where);
+  const key = resolveApiKey(
+    apiKeyText(credential.key),
+    options.env,
+    where,
+    () => options.keychain ?? createKeychain({ platform: options.platform, env: options.env }),
+  );
   if (key.plaintext) {
     warnings.push(
       // Worded so the redacting logger leaves the suggestion readable (an `…API_KEY: ${…}` pair would be redacted).
@@ -378,6 +419,7 @@ export function loadYamlConfig(options: LoadConfigOptions & { configPath: string
       credentialId: credential.id,
       region: credential.region,
       apiKey: key.secret,
+      ...(key.keychainEntry === undefined ? {} : { keychainEntry: key.keychainEntry }),
       accounts: accountScope(selected.defaultAccountId, selected.allowedAccountIds, where),
       ...(selected.enabledTools === null ? {} : { tools: Object.freeze([...selected.enabledTools]) }),
       limits: buildLimits(selected.limits),

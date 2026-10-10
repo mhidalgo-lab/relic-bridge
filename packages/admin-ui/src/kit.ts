@@ -27,10 +27,10 @@ export type UiAuthResult =
 
 /** One admin API call (`path` relative to `/api/admin/v1`; build it with {@link adminPath}). */
 export interface AdminCall {
-  readonly method: 'GET' | 'POST' | 'PATCH' | 'DELETE';
+  readonly method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   readonly path: string;
   readonly query?: Readonly<Record<string, string>>;
-  /** JSON body for POST/PATCH. */
+  /** JSON body for POST/PUT/PATCH. */
   readonly body?: unknown;
 }
 
@@ -48,6 +48,8 @@ export interface UiTool {
   readonly group: string;
   /** `read` tools have no side effects in New Relic; `write` and `destructive` ones do. */
   readonly kind: 'read' | 'write' | 'destructive';
+  /** For a composite tool: the sibling tools it calls. A grant never implies them (P6-25). */
+  readonly siblings?: readonly string[];
 }
 
 /** What the admin UI needs from the server (`@relic-bridge/http-app` provides it from the P4-02 sessions). */

@@ -104,7 +104,8 @@ Access token (static bearer, per device)   or   OAuth client session (per device
 **Effective permissions for a request**
 
 ```
-tools    = project.enabledTools ∩ grant.tools
+tools    = project.enabledTools ∩ grant.tools               (write tools: only when both name them explicitly and the key
+                                                            is shared or the grant user's own; OAuth also needs mcp:write)
 accounts = credential.reachableAccounts ∩ project.allowedAccounts ∩ grant.accounts
 key      = grant.credential ?? project.defaultCredential   (must exist, else 403)
 limits   = project.limits tightened by grant.limits        (min of numbers, rawNrql AND, allow ∩, deny ∪)
@@ -151,6 +152,10 @@ Implemented by `createHttpApp` in `packages/http-app` (P2-06); `relic-bridge ser
 
 1. `POST /p/{slug}/mcp` reaches the Hono app: request id, security headers (on every response), `Host` / `Origin`
    allowlists (DNS rebinding, T24), CORS only when configured, declared body size ≤ 1 MiB.
+   *Optional public discovery (P7-14, `RB_PUBLIC_TOOL_CATALOG=on`, off by default):* after the per-IP limit and
+   before step 2, a POST with no `Authorization` header whose body asks only for `initialize`, `server/discover`,
+   `ping` or `tools/list` is answered by a second MCP handler holding the static read-only catalog and no context, the
+   same for every slug (no storage read); anything else continues to step 2 and gets the usual 401.
 2. **Authenticate**: bearer token (format and checksum offline, then hash lookup, constant-time compare, revoked,
    expired) or, with OAuth on (P5-01), a provider-issued access token: validated for this slug's resource only
    (RFC 8707 audience), props cross-checked (slug, user, client), then its grant goes through the same `resolveAccess`
@@ -161,7 +166,7 @@ Implemented by `createHttpApp` in `packages/http-app` (P2-06); `relic-bridge ser
    key. Every denial in steps 2-3 is the same 401 (with OAuth on, its `WWW-Authenticate` names the slug's RFC 9728
    metadata, built from the path alone, P5-02); storage errors are 503.
 4. **Rate limit** (P2-07, `createRateLimitHooks` over a pluggable `RateLimiter`; bounded in-memory token bucket on
-   Node; on Workers `WorkersRateLimiter` = per-isolate bucket plus the Rate Limiting binding as shared backstop, the auth-failure throttle per isolate (P3-04); Durable Object limiter in P7-10). Before step 2 (`beforeAuth`): per-IP request limit (and,
+   Node; on Workers `WorkersRateLimiter` = per-isolate bucket plus the Rate Limiting binding as shared backstop, the auth-failure throttle per isolate (P3-04); with `RB_SHARED_LIMITER` the `SharedLimiter` Durable Object counts `fail:`/`signin:`/`oauth:`/`write:` for the whole deployment and, with `on`, NerdGraph concurrency per credential (P7-10)). Before step 2 (`beforeAuth`): per-IP request limit (and,
    on the pass-through route only, the per-IP auth-failure throttle, before a key is sent to NerdGraph). On a failed
    authentication (`refuseAuthFailure`, P3-13) the failure is charged to the IP and, past the budget, answered 429
    instead of 401; a credential that verifies never reaches it, so valid tokens are not locked out.
@@ -177,6 +182,13 @@ Implemented by `createHttpApp` in `packages/http-app` (P2-06); `relic-bridge ser
    - apply query limits
    - NerdGraph call(s) with explicit timeout and backoff on 429
    - async polling within budget
+   - with the MCP Tasks extension (P7-13): a client that declared `io.modelcontextprotocol/tasks` on a 2026-07-28
+     `tools/call` gets a task handle (`resultType: "task"`) for a slow `run_nrql` instead of the `queryId` text. The
+     task is a sealed `kv` record (key = hash of the 256-bit id, AES-GCM under a key derived from the id, AAD = project,
+     grant, token / OAuth device; 15 min TTL). `tasks/get` / `tasks/update` / `tasks/cancel` are answered by the route
+     itself after steps 2-4 (the SDK has no Tasks runtime): each `tasks/get` does at most one NerdGraph poll, within
+     that request's budget, limits and quota, and only once the task's poll interval has passed. Nothing runs after
+     a response.
 7. **Shape output**: format, caps, truncation notice, "untrusted telemetry" envelope. The whole exchange, including a
    streamed response, is bounded by a request deadline (180 s).
 8. **Audit** (P2-08, `createAuditRecorder` hooks, each write run in the background, `waitUntil` on Workers): one row per
@@ -262,6 +274,11 @@ environment variable (`secrets.ts`); the node-only terminal pieces live in `host
   fallback), an entity name adds up to 4 (`RESOLVE_COST`), retries are not counted (they follow a failure and each attempt
   spends a unit, so the budget still caps them). Composites plan in these units and degrade to a partial result;
   `tool-costs.test.ts` forces the worst case on every tool and asserts requests ≤ declared cost. `RB_MAX_RESPONSE_BYTES` is a platform ceiling over each project's `maxResponseBytes`.
+- **Query cache** (P7-02, [guide](guide/query-cache.md)): NRQL results are reused for a short TTL (moving windows 30 s,
+  settled fixed windows 10 min) from a bounded in-memory LRU (stdio, `serve`, Worker isolates) and, on Workers with
+  `RB_QUERY_CACHE=on`, the per-colo Cache API (encrypted bodies). Entry ids are HMACs over the connection scope,
+  credential, key hash, accounts, query limits and normalized NRQL (THREAT_MODEL T16); lookups happen after account and
+  limit checks. The cache is owned by the runtime and passed in `ToolContext.queryCache`.
 - **Concurrency**: per-credential semaphore (default 5) inside an invocation and process; ≤ 6 on Workers. Optional
   Durable Object global limiter (Phase 7).
 - **Query limits** (per project, can be tightened per grant):
@@ -276,7 +293,7 @@ environment variable (`secrets.ts`); the node-only terminal pieces live in `host
   (`packages/core/src/output`, [output formats guide](guide/output-formats.md)).
 - **Errors**: stable error codes (`RB_AUTH_*`, `RB_LIMIT_*`, `RB_NERDGRAPH_*`, `RB_BUDGET_EXHAUSTED`, …), mapped to
   MCP tool errors with actionable messages for the agent. Secrets are never echoed.
-- **Observability**: structured JSON logs (redacted); optional OpenTelemetry export (Phase 7).
+- **Observability**: structured JSON logs (redacted); optional OTLP/HTTP self-monitoring export, off by default (P7-08, `docs/guide/observability.md`).
 - **Configuration**: env vars with the `RB_` prefix plus the storage-backed settings. A config schema is validated at boot.
 
 ## 7. Tool catalogue (target)
@@ -295,7 +312,11 @@ environment variable (`secrets.ts`); the node-only terminal pieces live in `host
 | Write (opt-in) | `acknowledge_issue`, `close_issue`, `create_change_event`, `create_dashboard` | 7 |
 
 Plus MCP **prompts** (seven investigation workflows, P6-11, `packages/core/src/prompts.ts`, reference in `docs/reference/prompts.md`; registered by `buildMcpServer` only when a tool they use is in the connection's allowed list) and **resources** (P6-12, `packages/core/src/resources.ts`, reference in `docs/reference/resources.md`: a static NRQL cheat sheet and per-account event-type and attribute snapshots, served by the `list_event_types` / `get_attributes` handlers so account checks, limits, cache and audit are the tools' own; registered only when that tool is allowed),
-and **MCP Apps** charts in Phase 7.
+and **MCP Apps** charts (P7-04, `packages/core/src/apps`, [guide](guide/charts.md)): one `ui://relic-bridge/nrql-chart`
+resource (`text/html;profile=mcp-app`, offered with `run_nrql` to clients that declare MCP Apps, P7-16; `RB_MCP_APPS=off` removes it) linked from `run_nrql` / `get_query_result` by
+`_meta.ui.resourceUri`. The view is a dependency-free page (`packages/core/assets/chart-app.*`, embedded at build time by
+`scripts/gen-app-assets.ts`) that draws the tool's `structuredContent` as SVG inside the host's sandboxed iframe; tool
+results themselves are unchanged, so other clients fall back to the text table.
 
 ## 8. Repository layout (target)
 

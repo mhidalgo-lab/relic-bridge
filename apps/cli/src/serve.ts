@@ -17,7 +17,16 @@ import {
   loadKeyringFromEnv,
   verifyKeyChecks,
 } from '@relic-bridge/auth';
-import { type FetchLike, type Logger, Secret, VERSION } from '@relic-bridge/core';
+import {
+  type CacheCryptoKey,
+  DEFAULT_QUERY_CACHE_POLICY,
+  type FetchLike,
+  type Logger,
+  MAX_RELATIVE_TTL_MS,
+  QueryCache,
+  Secret,
+  VERSION,
+} from '@relic-bridge/core';
 import {
   AUDIT_NRQL_MODES,
   type AuditNrqlMode,
@@ -27,6 +36,7 @@ import {
   createAuditRecorder,
   createHttpApp,
   createRateLimitHooks,
+  createTelemetry,
   DEFAULT_PASSTHROUGH_IDENTITY_TTL_MS,
   DEFAULT_RATE_LIMITS,
   defaultAllowedHostnames,
@@ -43,8 +53,11 @@ import {
   type RateLimitRule,
   type RateLimitRules,
   resolveClientIp,
+  TelemetryConfigError,
+  type TelemetrySettings,
+  telemetrySettingsFromEnv,
 } from '@relic-bridge/http-app';
-import { purgeExpiredKv, StorageError } from '@relic-bridge/storage';
+import { purgeExpiredKv, purgeGrantUsage, StorageError } from '@relic-bridge/storage';
 import { openSqliteStorage } from '@relic-bridge/storage-sqlite';
 import type { Context } from 'hono';
 import { parseRetentionDays } from './audit.ts';
@@ -159,6 +172,7 @@ function rateLimitSettings(env: Env, warnings: string[]): RateLimitRules | null 
     grant: pick('RB_RATE_LIMIT_GRANT', DEFAULT_RATE_LIMITS.grant),
     signIn: pick('RB_RATE_LIMIT_SIGN_IN', DEFAULT_RATE_LIMITS.signIn ?? null),
     passthroughKey: pick('RB_RATE_LIMIT_PASSTHROUGH_KEY', DEFAULT_RATE_LIMITS.passthroughKey),
+    write: pick('RB_RATE_LIMIT_WRITE', DEFAULT_RATE_LIMITS.write ?? null),
   };
   if (rules.authFailures === null) {
     warnings.push('RB_RATE_LIMIT_AUTH_FAIL=off: failed authentications are not throttled per IP.');
@@ -201,6 +215,51 @@ function auditSettings(env: Env, warnings: string[]): AuditSettings {
     retentionDays,
     clientIp: onOff(env, 'RB_AUDIT_CLIENT_IP', true),
   };
+}
+
+function telemetrySettings(env: Env): TelemetrySettings | null {
+  try {
+    return telemetrySettingsFromEnv(env);
+  } catch (error) {
+    if (error instanceof TelemetryConfigError) {
+      throw new ConfigError(`${error.message}.`, 'See docs/guide/observability.md.');
+    }
+    throw error;
+  }
+}
+
+/** NRQL query cache (P7-02): `RB_QUERY_CACHE` (on|off, default on) and `RB_QUERY_CACHE_TTL` (seconds, 0-300). */
+export interface QueryCacheSettings {
+  readonly enabled: boolean;
+  /** Lifetime of results over moving windows; 0 caches only settled fixed windows. */
+  readonly relativeTtlMs: number;
+}
+
+/** Shared by `serve` and stdio. Throws `ConfigError`. */
+export function queryCacheSettings(env: Env): QueryCacheSettings {
+  const enabled = onOff(env, 'RB_QUERY_CACHE', true);
+  const raw = env['RB_QUERY_CACHE_TTL']?.trim();
+  let relativeTtlMs = DEFAULT_QUERY_CACHE_POLICY.relativeTtlMs;
+  if (raw !== undefined && raw !== '') {
+    const max = MAX_RELATIVE_TTL_MS / 1000;
+    if (!/^\d{1,3}$/.test(raw) || Number(raw) > max) {
+      throw new ConfigError(`RB_QUERY_CACHE_TTL must be 0-${max} seconds.`);
+    }
+    relativeTtlMs = Number(raw) * 1000;
+  }
+  return { enabled, relativeTtlMs };
+}
+
+/** The in-memory query cache for this process, or null when `RB_QUERY_CACHE=off`. */
+export function createProcessQueryCache(
+  settings: QueryCacheSettings,
+  macKey?: CacheCryptoKey,
+): QueryCache | null {
+  if (!settings.enabled) return null;
+  return new QueryCache({
+    ...(macKey === undefined ? {} : { macKey }),
+    policy: { relativeTtlMs: settings.relativeTtlMs },
+  });
 }
 
 /** Pass-through mode (P2-15): `null` when off (the default). */
@@ -248,7 +307,83 @@ export interface ServeSettings {
   readonly identity: IdentitySettings | null;
   /** OAuth for MCP clients (P5-04, `RB_OAUTH=on`); `null` when off (the default). */
   readonly oauth: OAuthSettings | null;
+  /** NRQL query cache (P7-02). */
+  readonly queryCache: QueryCacheSettings;
+  /** Self-monitoring via OTLP (P7-08, `RB_OTEL=on`); `null` when off (the default). */
+  readonly telemetry: TelemetrySettings | null;
+  /** Opt-in write tools (P7-09, `RB_WRITE_TOOLS=on`); off by default. Needs the audit log on. */
+  readonly writeTools: boolean;
+  /** `RB_WRITE_APPROVAL` (P7-25, ADR-0016): writes need a person's approval through elicitation. Default `required`. */
+  readonly requireWriteApproval: boolean;
+  /** Registry-friendly discovery (P7-14, `RB_PUBLIC_TOOL_CATALOG=on`); off by default. */
+  readonly publicToolCatalog: boolean;
+  /** MCP Apps chart view (P7-16, `RB_MCP_APPS`); on by default. */
+  readonly mcpApps: boolean;
+  /** MCP Tasks kill switch (P7-34, `RB_TASKS`); on by default. */
+  readonly tasks: boolean;
   readonly warnings: readonly string[];
+}
+
+/**
+ * `RB_WRITE_APPROVAL` (P7-25, ADR-0016): `required` (default) or `client`. `client` is an explicit opt-down and warns
+ * when write tools are on; an explicit `required` without write tools has no effect and says so.
+ */
+export function writeApprovalSetting(env: Env, warnings: string[]): boolean {
+  const v = env['RB_WRITE_APPROVAL']?.trim().toLowerCase();
+  if (v !== undefined && v !== '' && v !== 'client' && v !== 'required') {
+    throw new ConfigError('RB_WRITE_APPROVAL must be client or required.');
+  }
+  const writes = onOff(env, 'RB_WRITE_TOOLS', false);
+  if (v === 'client') {
+    if (writes) warnings.push(WRITE_APPROVAL_CLIENT_WARNING);
+    return false;
+  }
+  if (v === 'required' && !writes) {
+    warnings.push('RB_WRITE_APPROVAL=required has no effect without RB_WRITE_TOOLS=on.');
+  }
+  return true;
+}
+
+/** Startup warning for `RB_WRITE_APPROVAL=client` with write tools on (T31). */
+export const WRITE_APPROVAL_CLIENT_WARNING =
+  'RB_WRITE_APPROVAL=client with RB_WRITE_TOOLS=on: a client that cannot show an approval form can write when the model sets confirm: true, so a prompt-injected agent is the only gate. Remove RB_WRITE_APPROVAL (default required) unless you accept that.';
+
+/** `RB_WRITE_TOOLS` (P7-09, ADR-0015): off by default; refused without the audit log (every write must be recorded). */
+export function writeToolsSetting(
+  env: Env,
+  audit: AuditSettings,
+  warnings: string[],
+  writeLimit: RateLimitRule | null = null,
+): boolean {
+  const on = onOff(env, 'RB_WRITE_TOOLS', false);
+  if (!on) return false;
+  if (!audit.enabled) {
+    throw new ConfigError(
+      'RB_WRITE_TOOLS=on needs the audit log (RB_AUDIT=on): every write must be recorded.',
+      'See docs/adr/0015-opt-in-write-tools.md.',
+    );
+  }
+  warnings.push(
+    'RB_WRITE_TOOLS=on: write tools can be enabled per project and grant (owners only). See docs/guide/security-basics.md.',
+  );
+  if (writeLimit === null) {
+    warnings.push('RB_WRITE_TOOLS=on with the write rate limit off: write tool calls are not rate limited.');
+  }
+  return true;
+}
+
+/**
+ * `RB_PUBLIC_TOOL_CATALOG` (P7-14): off by default. On, registries and inspectors can list the static read-only tool
+ * catalog without a credential; tool calls and data still need one.
+ */
+export function publicToolCatalogSetting(env: Env, warnings: string[], rateLimited: boolean): boolean {
+  const on = onOff(env, 'RB_PUBLIC_TOOL_CATALOG', false);
+  if (on && !rateLimited) {
+    warnings.push(
+      'RB_PUBLIC_TOOL_CATALOG=on with rate limiting off: unauthenticated discovery is not rate limited.',
+    );
+  }
+  return on;
 }
 
 function oauthSettings(env: Env, identity: IdentitySettings | null): OAuthSettings | null {
@@ -370,6 +505,7 @@ export function serveSettings(input: {
     );
   }
 
+  const audit = auditSettings(env, warnings);
   return {
     port: Number(portRaw),
     host,
@@ -381,10 +517,17 @@ export function serveSettings(input: {
     hsts,
     rateLimits,
     trustedProxyHops: Number(hopsRaw),
-    audit: auditSettings(env, warnings),
+    audit,
     passthrough: passthroughSettings(env, warnings),
     identity,
     oauth: oauthSettings(env, identity),
+    queryCache: queryCacheSettings(env),
+    telemetry: telemetrySettings(env),
+    writeTools: writeToolsSetting(env, audit, warnings, rateLimits?.write ?? null),
+    requireWriteApproval: writeApprovalSetting(env, warnings),
+    publicToolCatalog: publicToolCatalogSetting(env, warnings, rateLimits !== null),
+    mcpApps: onOff(env, 'RB_MCP_APPS', true),
+    tasks: onOff(env, 'RB_TASKS', true),
     warnings,
   };
 }
@@ -494,16 +637,22 @@ export async function startServer(options: StartServerOptions): Promise<RunningS
   const purgeKv = (): void => {
     if (kvPurging) return;
     kvPurging = true;
-    purgeExpiredKv(storage.kv).then(
-      (result) => {
-        kvPurging = false;
+    purgeExpiredKv(storage.kv)
+      .then(async (result) => {
         if (result.removed > 0) logger.info('expired kv rows purged', { ...result });
-      },
-      (error: unknown) => {
-        kvPurging = false;
-        logger.warn('kv purge failed', { error: error instanceof Error ? error.name : typeof error });
-      },
-    );
+        // Quota counters of long-gone periods (P7-12).
+        const usage = await purgeGrantUsage(storage.grantUsage, Date.now());
+        if (usage > 0) logger.info('quota counters purged', { removed: usage });
+      })
+      .then(
+        () => {
+          kvPurging = false;
+        },
+        (error: unknown) => {
+          kvPurging = false;
+          logger.warn('kv purge failed', { error: error instanceof Error ? error.name : typeof error });
+        },
+      );
   };
   const purgeHousekeeping = (): void => {
     purgeAudit();
@@ -512,20 +661,42 @@ export async function startServer(options: StartServerOptions): Promise<RunningS
   purgeHousekeeping();
   const purgeTimer = setInterval(purgeHousekeeping, AUDIT_PURGE_INTERVAL_MS);
   purgeTimer.unref();
-  const hooks =
-    rateLimitHooks === undefined && audit === undefined
+  const telemetry =
+    settings.telemetry === null
       ? undefined
-      : mergeHooks(rateLimitHooks, audit?.hooks);
+      : createTelemetry({
+          endpoint: settings.telemetry.endpoint,
+          headers: settings.telemetry.headers,
+          traceSampleRate: settings.telemetry.traceSampleRate,
+          acceptTraceparent: settings.telemetry.acceptTraceparent,
+          logFlushIntervalMs: 5000,
+          runtime: 'node',
+          logger,
+        });
+  const hooks =
+    rateLimitHooks === undefined && audit === undefined && telemetry === undefined
+      ? undefined
+      : mergeHooks(rateLimitHooks, audit?.hooks, telemetry?.hooks);
 
   const app = createHttpApp({
     storage,
     keyring,
-    logger,
+    // With telemetry on, the request logs are also exported as OTLP logs (allowlisted).
+    logger: telemetry === undefined ? logger : telemetry.wrapLogger(logger),
     allowedHosts: settings.allowedHosts,
     ...(settings.allowedOrigins === undefined ? {} : { allowedOrigins: settings.allowedOrigins }),
     corsOrigins: settings.corsOrigins,
     ...(settings.accessCacheTtlMs === undefined ? {} : { accessCacheTtlMs: settings.accessCacheTtlMs }),
     hsts: settings.hsts,
+    queryCache: createProcessQueryCache(settings.queryCache, keyring.queryCacheKeys().id),
+    writeTools: settings.writeTools,
+    requireWriteApproval: settings.requireWriteApproval,
+    publicToolCatalog: settings.publicToolCatalog,
+    mcpApps: settings.mcpApps,
+    tasks: settings.tasks,
+    // MCP Tasks (P7-13): sealed task records in the `kv` table, purged with the other expired rows.
+    taskStore: storage.kv,
+    approvalStore: storage.kv,
     ...(hooks === undefined ? {} : { hooks }),
     ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
     // Admin API: the bootstrap token, admin sessions (sign-in configured, P4-02), or both.
@@ -633,6 +804,7 @@ export async function startServer(options: StartServerOptions): Promise<RunningS
     url,
     close: () => {
       clearInterval(purgeTimer);
+      telemetry?.close();
       closing ??= (async () => {
         await new Promise<void>((resolve) => {
           server.close(() => resolve());
@@ -641,6 +813,7 @@ export async function startServer(options: StartServerOptions): Promise<RunningS
           setTimeout(() => server.closeAllConnections(), 5_000).unref();
         });
         await storage.close();
+        await telemetry?.flush();
       })();
       return closing;
     },

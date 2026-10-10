@@ -7,7 +7,7 @@ declare const resultType: unique symbol;
  *
  * Documents are module-level constants. Every value travels as a GraphQL variable (THREAT_MODEL T4), so a document never
  * depends on input. `defineDocument` enforces what it can at definition time: a named operation, no string literals, and
- * no mutation unless the caller opts in explicitly (ADR-0014: relic-bridge is read-only; write tools are P7-09).
+ * no mutation unless the caller opts in explicitly and the operation is allow-listed (ADR-0014, ADR-0015).
  */
 export interface GraphQLDocument<TData, TVars extends Record<string, unknown>> {
   /** Operation name, used in logs (never the variables). */
@@ -25,13 +25,43 @@ export type DocumentVariables<D> = D extends GraphQLDocument<unknown, infer V> ?
 export interface DefineDocumentOptions {
   headers?: Record<string, string>;
   /**
-   * Must be `true` for a `mutation` document. No built-in tool sets it today (ADR-0014, THREAT_MODEL T22); a write tool
-   * (P7-09) has to opt in on purpose, next to its own grant and annotations.
+   * Must be `true` for a `mutation` document, and the operation must be on {@link ALLOWED_MUTATIONS} (ADR-0014,
+   * ADR-0015, THREAT_MODEL T22/T31). Only the opt-in write tools (P7-09) set it, each for its own reviewed document.
    */
   mutation?: boolean;
 }
 
+/**
+ * The only mutation operations relic-bridge may ever define (ADR-0015). Each one belongs to one opt-in write tool;
+ * adding a name here is a security review (new write tool, THREAT_MODEL T31, P2-12 negative cases).
+ */
+export const ALLOWED_MUTATIONS: readonly string[] = Object.freeze([
+  'RbCreateChangeEvent',
+  'RbAckIssue',
+  'RbResolveIssue',
+  'RbCreateDashboard',
+]);
+
 const OPERATION_RE = /^\s*(query|mutation|subscription)\s+([A-Za-z_][A-Za-z0-9_]*)/;
+
+/** True when the document's first selection set closes at the end of the text (no second operation or fragment). */
+function singleOperation(query: string): boolean {
+  let depth = 0;
+  let opened = false;
+  for (let i = 0; i < query.length; i++) {
+    const ch = query[i];
+    if (ch === '#') return false; // comments could hide braces; static documents need none
+    if (ch === '{') {
+      depth++;
+      opened = true;
+    } else if (ch === '}') {
+      depth--;
+      if (depth < 0) return false;
+      if (depth === 0) return query.slice(i + 1).trim() === '';
+    }
+  }
+  return opened && depth === 0;
+}
 
 /** Header names a document may not override: they carry the credential or the transport contract. */
 const RESERVED_HEADERS = new Set([
@@ -64,9 +94,20 @@ export function defineDocument<TData, TVars extends Record<string, unknown> = Re
       `Document ${op[2]} is a mutation; pass { mutation: true } deliberately (ADR-0014).`,
     );
   }
+  if (op[1] === 'mutation' && !ALLOWED_MUTATIONS.includes(op[2])) {
+    throw new DocumentError(`Mutation ${op[2]} is not on the allow-list of write operations (ADR-0015).`);
+  }
+  if (op[1] === 'query' && options.mutation === true) {
+    throw new DocumentError(`Document ${op[2]} is a query; { mutation: true } is for mutations only.`);
+  }
   // String literals are how input sneaks into a document. Values must be variables instead (T4).
   if (query.includes('"')) {
     throw new DocumentError(`Document ${op[2]} contains a string literal; pass values as GraphQL variables.`);
+  }
+  // One operation per document: the checks above read only the first, so a second (a mutation after an allowed query
+  // or mutation) would slip past the allow-list (phase 7 review, ADR-0014).
+  if (!singleOperation(query)) {
+    throw new DocumentError(`Document ${op[2]} must hold exactly one operation and nothing after it.`);
   }
   const headers: Record<string, string> = {};
   for (const [name, value] of Object.entries(options.headers ?? {})) {

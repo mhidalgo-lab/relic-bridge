@@ -66,9 +66,25 @@ function collectPropertyNames(schema: unknown, out: Set<string> = new Set(), dep
 
 /** The JSON Schema (2020-12) clients will see for a tool's input. */
 export function inputJsonSchema(def: Pick<ToolDefinition, 'inputSchema'>): Record<string, unknown> {
-  return withoutDialect(
-    z.toJSONSchema(def.inputSchema, { target: 'draft-2020-12' }) as Record<string, unknown>,
+  return withoutSafeIntegerMax(
+    withoutDialect(z.toJSONSchema(def.inputSchema, { target: 'draft-2020-12' }) as Record<string, unknown>),
   );
+}
+
+/**
+ * Drop `"maximum": 9007199254740991` (P7-27). It is `Number.MAX_SAFE_INTEGER`, which every account id schema carries
+ * (about 30 characters, 40 times in a `tools/list`) and which no client can exceed anyway. Only the advertised schema
+ * changes: the handlers still validate with the original zod schema.
+ */
+export function withoutSafeIntegerMax<T>(schema: T): T {
+  if (Array.isArray(schema)) return schema.map(withoutSafeIntegerMax) as T;
+  if (schema === null || typeof schema !== 'object') return schema;
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(schema)) {
+    if (k === 'maximum' && v === Number.MAX_SAFE_INTEGER) continue;
+    out[k] = withoutSafeIntegerMax(v);
+  }
+  return out as T;
 }
 
 /**

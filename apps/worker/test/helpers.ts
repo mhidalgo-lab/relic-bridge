@@ -113,6 +113,7 @@ export async function connect(
 /** Tables the migrations create, children before parents so dropping never trips a foreign key. */
 const TABLES = [
   'access_tokens',
+  'grant_usage',
   'grants',
   'projects',
   'credentials',

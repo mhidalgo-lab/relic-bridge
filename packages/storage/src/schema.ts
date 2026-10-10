@@ -6,8 +6,17 @@
 // Secrets: NR keys only as AES-256-GCM ciphertext + IV + key version (ADR-0007, THREAT_MODEL T7); access tokens only
 // as SHA-256 hex (T1/T15). `schema_migrations` is owned by the migration runner (`migrate.ts`), not by this file.
 import { sql } from 'drizzle-orm';
-import { check, customType, index, integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
-import type { StoredLimits, StoredRateLimit } from './types.ts';
+import {
+  check,
+  customType,
+  index,
+  integer,
+  primaryKey,
+  sqliteTable,
+  text,
+  uniqueIndex,
+} from 'drizzle-orm/sqlite-core';
+import type { StoredLimits, StoredQuota, StoredRateLimit } from './types.ts';
 
 /** BLOB as `Uint8Array` on every driver (node:sqlite, better-sqlite3 `Buffer`, D1 `ArrayBuffer` / number[]). */
 const bytes = customType<{ data: Uint8Array; driverData: Uint8Array }>({
@@ -119,6 +128,7 @@ export const grants = sqliteTable(
     accountIds: json<number[]>('account_ids'),
     limits: json<StoredLimits>('limits').notNull(),
     rateLimit: json<StoredRateLimit>('rate_limit'),
+    quota: json<StoredQuota>('quota'),
     createdAt: integer('created_at').notNull(),
     updatedAt: integer('updated_at').notNull(),
     expiresAt: integer('expires_at'),
@@ -155,6 +165,25 @@ export const accessTokens = sqliteTable(
       sql`length(${t.tokenHash}) = 64 AND ${t.tokenHash} NOT GLOB '*[^0-9a-f]*'`,
     ),
     check('access_tokens_prefix_check', sql`length(${t.prefix}) <= 12`),
+  ],
+);
+
+/** Usage counters per grant and UTC period (P7-12): `d2026-10-06` / `m2026-10`. Rows go with their grant. */
+export const grantUsage = sqliteTable(
+  'grant_usage',
+  {
+    grantId: text('grant_id')
+      .notNull()
+      .references(() => grants.id, { onDelete: 'cascade' }),
+    period: text('period').notNull(),
+    queries: integer('queries').notNull().default(0),
+    inspected: integer('inspected').notNull().default(0),
+    updatedAt: integer('updated_at').notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.grantId, t.period] }),
+    index('grant_usage_updated_idx').on(t.updatedAt),
+    check('grant_usage_counts_check', sql`${t.queries} >= 0 AND ${t.inspected} >= 0`),
   ],
 );
 
@@ -217,6 +246,7 @@ export const tables = Object.freeze({
   projects,
   grants,
   accessTokens,
+  grantUsage,
   auditLog,
   settings,
   kv,

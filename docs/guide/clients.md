@@ -34,6 +34,7 @@ claude mcp add relic \
   key.
 - Check it: `claude mcp list`, or `/mcp` inside a session. Remove it with `claude mcp remove relic`.
 - Debug output: `claude --debug` shows the server's stderr.
+- Prefer a bundle? The [Claude Code plugin](claude-code-plugin.md) adds investigation skills and slash commands.
 
 ## Claude Desktop
 
@@ -230,6 +231,42 @@ Restart Desktop fully after editing; the `command`/`PATH` notes in the Claude De
 Only the Claude Code snippet was checked (against its documentation and its CLI). The Cursor, VS Code and Claude
 Desktop snippets follow each client's documentation but haven't been run by the maintainers. For
 problems, see [troubleshooting](troubleshooting.md#hosted-self-hosted-server).
+
+## Write tools and your client
+
+If your server offers write tools ([write tools](security-basics.md#write-tools-opt-in)), they show up only on a
+connection whose project and grant name them (and, over OAuth, whose app asked for `mcp:write` and you ticked "Also allow
+changes"). They are annotated `readOnlyHint: false` (`close_issue` also `destructiveHint: true`), so clients that ask
+before running non-read-only tools (Claude Code, Claude Desktop, VS Code) do. **Don't add them to auto-approve lists**
+(`permissions.allow` in Claude Code, "always allow" in Desktop, `chat.tools.autoApprove` in VS Code): the client's prompt
+is the one approval the model cannot give itself. Each call also needs `confirm: true`; `dry_run: true` previews.
+
+If your client supports **MCP elicitation** (a form the server can show you), relic-bridge also asks you, in that form,
+to approve the exact change just before it is made (what, where, the values; text from New Relic is shown in quotes).
+Decline or cancel and nothing is changed; the answer is recorded in the [audit log](audit-log.md). This works on stdio
+and, over HTTP, with clients speaking protocol 2026-07-28; an older client over HTTP cannot be asked and only the
+`confirm: true` flow applies. Never set your client to auto-accept these forms. Which clients show them is not yet
+verified: [client compatibility](../reference/client-compatibility.md).
+
+## Slow queries and MCP Tasks
+
+A NRQL query that is still running after `timeout_seconds` comes back as a handle: the agent calls `get_query_result`
+with the `queryId` later. On a remote server (`serve`, Cloudflare), a client that supports the MCP **Tasks** extension
+(`io.modelcontextprotocol/tasks`, protocol 2026-07-28) gets a task instead and polls it itself; the result is the same
+as a normal call. Task results are kept for 15 minutes, only for the device (token or OAuth sign-in) that started the
+query. Nothing to configure. Which clients support it: [client compatibility](../reference/client-compatibility.md#mcp-tasks-p7-13-2026-10-06).
+
+On a Tasks-declaring client, `generate_alert_insights_report` is also a task: the call looks the issue up and returns the task, and each poll
+runs up to three report sections inside its own request budget and quota. The finished report is the same as the synchronous one;
+you get it from the last poll. Clients without Tasks get the report in one call as before.
+`generate_user_impact_report`, `entity_health` and `dependency_health` work the same way: the creating call does the cheap
+preparation and each poll runs a few lookups, queries or sections inside its own request budget and quota, so a big check no
+longer has to fit one request. The finished answer equals the synchronous one.
+
+Tasks are also served on **stdio** (a 2026-07-28 client that declares the extension; records live in the process only
+and are lost when it exits) and on the **pass-through** route (a task is visible only to the same New Relic key and
+region; a restart, or another replica without a shared `passthrough.fingerprintSecret`, loses it). Both are poll-only:
+there are no status notifications, so the client asks with `tasks/get`.
 
 ## Other clients and MCP Inspector
 

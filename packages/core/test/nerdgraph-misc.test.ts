@@ -27,6 +27,21 @@ describe('defineDocument (T4)', () => {
     ).toThrow(DocumentError);
   });
 
+  it('rejects a second operation or fragment after the first (phase 7 review: the allow-list reads only the first)', () => {
+    expect(() =>
+      defineDocument('query RbOk { actor { user { id } } } mutation RbEvil($k: Int!) { b(k: $k) { id } }'),
+    ).toThrow(/exactly one operation/);
+    expect(() =>
+      defineDocument('mutation RbAckIssue($a: Int!) { a(a: $a) { id } } mutation RbEvil { b { id } }', {
+        mutation: true,
+      }),
+    ).toThrow(/exactly one operation/);
+    expect(() => defineDocument('query RbOk { actor { user { id } } } fragment F on User { id }')).toThrow(
+      /exactly one operation/,
+    );
+    expect(() => defineDocument('query RbOk { actor { user { id } } # }\n }')).toThrow(/exactly one/);
+  });
+
   it('rejects anonymous operations and reserved headers', () => {
     expect(() => defineDocument('{ actor { user { id } } }')).toThrow(/named/);
     expect(() =>

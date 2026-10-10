@@ -4,11 +4,21 @@ Start with the agent: ask it to run `whoami`. It reports the region, default acc
 never shows the key. Then read the server's log (JSON lines on stderr: Claude Code `claude --debug`, Claude Desktop's
 MCP log file, VS Code *MCP: List Servers > Show Output*).
 
+Or run `relic-bridge doctor` (add `--remote https://your-server` for a deployed instance, `--offline` to avoid network
+calls, `--json` for scripts). It checks Node, your config, the New Relic key and region, the master key, the database,
+`RB_PUBLIC_URL`, clock skew and the remote server, and prints a fix for each problem without ever showing a secret. See
+the [CLI reference](../reference/cli.md#doctor).
+
+If a client cannot connect to your server, run `relic-bridge doctor --client-configs --remote https://your-server`: it
+checks the relic-bridge entry in your Claude Code, Claude Desktop, Cursor and VS Code files (URL, https, `/p/<slug>/mcp`
+path, token shape) and, with the token in `RB_TOKEN` or `--token-file`, whether the server still accepts it.
+
 ## Server won't start or doesn't appear
 
 | Message / symptom | Cause and fix |
 |---|---|
 | `NEW_RELIC_API_KEY is not set.` / `NEW_RELIC_ACCOUNT_ID is not set.` | The variable isn't in the client's `env` block for this server. Exporting it in your shell isn't enough. |
+| Tools are listed, but every call answers `RB_AUTH_UNAUTHORIZED: relic-bridge is not configured yet` (stderr: `setup mode`) | Neither `NEW_RELIC_API_KEY` nor `NEW_RELIC_ACCOUNT_ID` nor a config file reached the server, so it only lists its tools. Add both variables to the client's `env` block (or `--config`) and restart the server. |
 | `apiKey refers to ${NAME}, which is not set.` | YAML mode: set `NAME` in the client's `env` block. |
 | `<file> has N projects; choose one with --project.` | Add `--project <slug>` to the args. |
 | `Unknown tool name(s) in the tool allowlist` | A typo in `tools` / `RB_TOOLS`; the message lists valid names (see the [tool reference](../reference/tools.md)). |
@@ -40,7 +50,8 @@ Tool errors carry a stable code and usually a hint.
 | `RB_NERDGRAPH_UNAVAILABLE` | New Relic had a server or network error. | Retry shortly; check New Relic's status page. |
 | `RB_BUDGET_EXHAUSTED` | One tool call needed too many NerdGraph requests (limit 1000). | Ask for a narrower request. |
 | `RB_NERDGRAPH_ERROR` | NerdGraph returned another error; the (redacted) message is included. | Read the message; for NRQL errors, correct the query. |
-| `RB_AUTH_UNAUTHORIZED`, `RB_LIMIT_RATE` | Used by the hosted modes (tokens, rate limits). stdio never returns them. | See [hosted server](#hosted-self-hosted-server) above. |
+| `RB_LIMIT_QUOTA` | The grant's usage quota for the day or month is used up (the error says which and when it starts again). | An administrator can raise or remove it: [Quotas](admin-guide.md#quotas-per-grant). |
+| `RB_AUTH_UNAUTHORIZED`, `RB_LIMIT_RATE` | Used by the hosted modes (tokens, rate limits). On stdio, `RB_AUTH_UNAUTHORIZED` only means setup mode (no configuration at all, see above). | See [hosted server](#hosted-self-hosted-server) above. |
 | `RB_INTERNAL` | A bug. The message includes a reference, and details are in the stderr log. | Report an issue with the log line (check it for secrets first). |
 
 ## Hosted (self-hosted server)
@@ -53,6 +64,7 @@ names the reason for every refusal (`"deny":"…"`); the client only ever sees a
 | Message / `code` | Fix |
 |---|---|
 | `RB_MASTER_KEY is not set` (`master_key_missing`) | Set `RB_MASTER_KEY` or `RB_MASTER_KEY_FILE` ([secrets](secrets.md)). |
+| `no keychain entry "…" in the …` / `secret-tool could not reach a Secret Service` | Store the entry with `relic-bridge keychain set <name>`; on Linux/WSL2 install `libsecret-tools` and run a Secret Service, or use a key file ([secrets](secrets.md#os-keychain-optional)). `relic-bridge doctor` shows the `keychain` check. |
 | `RB_MASTER_KEY_FILE: … is readable by other users (mode 644)` | `chmod 600` the file (Docker: owned by uid `65532`, mode `0400`; see [self-hosting](self-hosting.md#docker)). |
 | `Binding 0.0.0.0 (not loopback) needs RB_ALLOWED_HOSTS` | List the hostnames clients use: `RB_ALLOWED_HOSTS=mcp.example.com`. |
 | `the master key given for version 1 does not match…` (`key_mismatch`) | Wrong key for this database. Restore the right key from your backup; a new key needs a new version (`keys generate --key-version 2`, then [rotate](secrets.md#rotate-the-key)). |

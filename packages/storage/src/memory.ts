@@ -2,7 +2,7 @@
 // In-memory adapter: the reference implementation of the `Storage` contract (tests, ephemeral servers). It enforces
 // the same unique, referential and row rules as the SQL schema. State lives in the instance (THREAT_MODEL T21);
 // records are copied in and out, so callers can't mutate stored rows.
-import { auditStatsSql, utcDay } from './audit-stats.ts';
+import { AUDIT_WRITE_INTENT_ACTION, auditStatsSql, utcDay } from './audit-stats.ts';
 import {
   ConflictError,
   InvalidInputError,
@@ -24,6 +24,7 @@ import type {
   EncryptedKey,
   GrantRecord,
   GrantsRepository,
+  GrantUsageRepository,
   JsonValue,
   KvListResult,
   KvPutOptions,
@@ -32,9 +33,18 @@ import type {
   ProjectsRepository,
   SettingsRepository,
   Storage,
+  UsageCounters,
   UserRecord,
   UsersRepository,
 } from './types.ts';
+import {
+  checkPeriod,
+  checkPeriods,
+  checkUsageCount,
+  USAGE_MAX_GRANTS,
+  USAGE_PURGE_DEFAULT,
+  usageOf,
+} from './usage.ts';
 import {
   checkEncryptedKey,
   checkGrantPrincipal,
@@ -116,6 +126,8 @@ export function createMemoryStorage(options: MemoryStorageOptions = {}): Storage
   const grants = new Map<string, GrantRecord>();
   const tokens = new Map<string, AccessTokenRecord>();
   const audit: AuditRecord[] = [];
+  /** `grantId\n period` -> counters and the time of the last update. */
+  const usage = new Map<string, { queries: number; inspected: number; updatedAt: number }>();
   let auditSeq = 0;
   const settings = new Map<string, string>();
   const kv = new Map<string, { value: string; expiresAt: number | null }>();
@@ -364,6 +376,7 @@ export function createMemoryStorage(options: MemoryStorageOptions = {}): Storage
   // ------------------------------------------------------------------------------------------------ grants
   const deleteGrant = (id: string): void => {
     for (const t of [...tokens.values()]) if (t.grantId === id) tokens.delete(t.id);
+    for (const k of [...usage.keys()]) if (k.startsWith(`${id}\n`)) usage.delete(k);
     grants.delete(id);
   };
   const checkGrantRefs = (g: GrantRecord): void => {
@@ -399,6 +412,7 @@ export function createMemoryStorage(options: MemoryStorageOptions = {}): Storage
         accountIds: input.accountIds ?? null,
         limits: input.limits ?? {},
         rateLimit: input.rateLimit ?? null,
+        quota: input.quota ?? null,
         createdAt: t,
         updatedAt: t,
         expiresAt: input.expiresAt ?? null,
@@ -419,6 +433,70 @@ export function createMemoryStorage(options: MemoryStorageOptions = {}): Storage
     async delete(id) {
       if (!grants.has(id)) throw new NotFoundError('grant', id);
       deleteGrant(id);
+    },
+  };
+
+  // ----------------------------------------------------------------------------------------------- grant usage
+  const usageKey = (grantId: string, period: string): string => `${grantId}\n${period}`;
+  const grantUsageRepo: GrantUsageRepository = {
+    async reserve(grantId, period, maxQueries) {
+      checkPeriod(period);
+      mustExist(grants, 'grant', 'grant_usage.grant_id', grantId);
+      const k = usageKey(grantId, period);
+      const existing = usage.get(k);
+      // As the SQL does: a missing row is always created (a cap is at least 1); an existing one at the cap is left alone.
+      if (existing !== undefined && maxQueries !== null && existing.queries >= maxQueries) return null;
+      const cur = existing ?? { queries: 0, inspected: 0, updatedAt: 0 };
+      const next = { ...cur, queries: cur.queries + 1, updatedAt: now() };
+      usage.set(k, next);
+      return usageOf(next);
+    },
+    async release(grantId, period) {
+      checkPeriod(period);
+      const k = usageKey(grantId, period);
+      const cur = usage.get(k);
+      if (cur) usage.set(k, { ...cur, queries: Math.max(0, cur.queries - 1), updatedAt: now() });
+    },
+    async addInspected(grantId, period, events) {
+      checkPeriod(period);
+      checkUsageCount(events, 'grant_usage.inspected');
+      mustExist(grants, 'grant', 'grant_usage.grant_id', grantId);
+      const k = usageKey(grantId, period);
+      const cur = usage.get(k) ?? { queries: 0, inspected: 0, updatedAt: 0 };
+      const next = { ...cur, inspected: cur.inspected + events, updatedAt: now() };
+      usage.set(k, next);
+      return usageOf(next);
+    },
+    async get(grantId, periods) {
+      checkPeriods(periods);
+      const found: Record<string, UsageCounters> = {};
+      for (const p of periods) {
+        const u = usage.get(usageKey(grantId, p));
+        if (u) found[p] = usageOf(u);
+      }
+      return freeze(found);
+    },
+    async getMany(grantIds, periods) {
+      checkPeriods(periods);
+      if (grantIds.length > USAGE_MAX_GRANTS) throw new InvalidInputError('grant_usage.grants');
+      const found: Record<string, Record<string, UsageCounters>> = {};
+      for (const g of new Set(grantIds)) {
+        for (const p of periods) {
+          const u = usage.get(usageKey(g, p));
+          if (u) found[g] = { ...found[g], [p]: usageOf(u) };
+        }
+      }
+      return freeze(found);
+    },
+    async purgeBefore(before, limit) {
+      checkLimit(limit, 'grant_usage.limit');
+      const max = Math.min(Math.max(1, Math.trunc(limit ?? USAGE_PURGE_DEFAULT)), USAGE_PURGE_DEFAULT);
+      const old = [...usage]
+        .filter(([, u]) => u.updatedAt < before)
+        .sort((a, b) => a[1].updatedAt - b[1].updatedAt);
+      const doomed = old.slice(0, max);
+      for (const [k] of doomed) usage.delete(k);
+      return doomed.length;
     },
   };
 
@@ -535,7 +613,8 @@ export function createMemoryStorage(options: MemoryStorageOptions = {}): Storage
       const limit = params.at(-1) as number;
       const groups = new Map<string | null, AuditStatsRow>();
       for (const r of audit) {
-        if (r.kind !== 'tool_call' || r.ts < q.since || r.ts >= q.until) continue;
+        if (r.kind !== 'tool_call' || r.action === AUDIT_WRITE_INTENT_ACTION) continue;
+        if (r.ts < q.since || r.ts >= q.until) continue;
         if (q.projectId !== undefined && r.projectId !== q.projectId) continue;
         if (q.userId !== undefined && r.userId !== q.userId) continue;
         if (q.grantId !== undefined && r.grantId !== q.grantId) continue;
@@ -632,6 +711,12 @@ export function createMemoryStorage(options: MemoryStorageOptions = {}): Storage
     async put(key, value, opts: KvPutOptions = {}) {
       kv.set(key, { value, expiresAt: kvExpiry(opts, now()) });
     },
+    async compareAndPut(key, expected, value, opts: KvPutOptions = {}) {
+      const expiresAt = kvExpiry(opts, now());
+      if (live(key)?.value !== expected) return false;
+      kv.set(key, { value, expiresAt });
+      return true;
+    },
     async delete(key) {
       kv.delete(key);
     },
@@ -707,6 +792,7 @@ export function createMemoryStorage(options: MemoryStorageOptions = {}): Storage
     auditLog: auditRepo,
     settings: settingsRepo,
     kv: kvRepo,
+    grantUsage: grantUsageRepo,
     async close() {},
   });
 }

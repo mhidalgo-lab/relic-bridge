@@ -94,7 +94,7 @@ export function timeRangeInput(defaultWindow: string): z.ZodOptional<z.ZodString
     .max(200)
     .optional()
     .describe(
-      `Window, e.g. "last 6 hours" or "2026-10-01 to 2026-10-02" (UTC). Default "${defaultWindow}". Max: the connection's window limit.`,
+      `E.g. "last 6 hours" or "2026-10-01 to 2026-10-02" (UTC). Default "${defaultWindow}"; capped by the connection.`,
     );
 }
 

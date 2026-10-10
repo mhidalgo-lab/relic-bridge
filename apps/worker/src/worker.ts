@@ -14,7 +14,19 @@ import {
   loadKeyringFromEnv,
   verifyKeyChecks,
 } from '@relic-bridge/auth';
-import { createLogger, type FetchLike, type Logger, type LogSink, Secret, VERSION } from '@relic-bridge/core';
+import {
+  type CacheApiLike,
+  CacheApiQueryCacheStore,
+  createLogger,
+  type FetchLike,
+  type Logger,
+  type LogSink,
+  MemoryQueryCacheStore,
+  QueryCache,
+  type QueryCacheStore,
+  Secret,
+  VERSION,
+} from '@relic-bridge/core';
 import {
   ADMIN_TOKEN_ADVICE,
   adminTokenLooksWeak,
@@ -23,6 +35,7 @@ import {
   createAuditRecorder,
   createHttpApp,
   createRateLimitHooks,
+  createTelemetry,
   DEFAULT_RATE_LIMITS,
   describeAdminTokenProblem,
   mergeHooks,
@@ -31,8 +44,16 @@ import {
   type OAuthOptions,
   oauthSettingsFromEnv,
   SECURITY_HEADERS,
+  TelemetryConfigError,
+  telemetrySettingsFromEnv,
 } from '@relic-bridge/http-app';
-import { type KvPurgeBudget, purgeExpiredKv, type Storage, StorageError } from '@relic-bridge/storage';
+import {
+  type KvPurgeBudget,
+  purgeExpiredKv,
+  purgeGrantUsage,
+  type Storage,
+  StorageError,
+} from '@relic-bridge/storage';
 import { createD1Storage } from '@relic-bridge/storage/d1';
 import type { Context } from 'hono';
 import { strictlyPublicCimdFetch } from './cimd-fetch.ts';
@@ -44,6 +65,7 @@ import {
   WorkerConfigError,
   type WorkerSettings,
 } from './settings.ts';
+import { createDurableQuotaStore, createSharedConcurrency } from './shared-limiter.ts';
 
 /**
  * After failed boots, requests answer 503 at once instead of retrying: 5 s after the first failure, 15 s after the
@@ -86,6 +108,8 @@ export interface WorkerOptions {
   readonly logSink?: LogSink;
   /** Cap on refusal rows per minute (tests that provoke thousands of refusals). Default: the recorder's. */
   readonly auditMaxAuthRowsPerMinute?: number;
+  /** Fetch for the OTLP self-monitoring exporter (tests: a mock receiver). */
+  readonly telemetryFetch?: FetchLike;
   /** Epoch-ms clock for the boot backoff (tests). */
   readonly now?: () => number;
   /** How long a request waits for the boot in flight before it boots itself (tests). Default: `BOOT_WAIT_MS`. */
@@ -99,6 +123,37 @@ export interface WorkerOptions {
    * deployment turns it on with `RB_OAUTH=on` (P5-04).
    */
   readonly oauth?: OAuthOptions;
+  /** Cache API override for the query cache (tests). Default: `caches.open(QUERY_CACHE_NAME)` when available. */
+  readonly queryCacheApi?: CacheApiLike;
+}
+
+/** Named Cache API cache of the NRQL query cache (P7-02). */
+export const QUERY_CACHE_NAME = 'relic-bridge-query-cache';
+
+/**
+ * The query cache for one isolate (P7-02): the isolate's memory LRU, then (mode `on`) the colo's Cache API with
+ * bodies encrypted under a master-key-derived key. Entry ids are keyed with the master key too, so every isolate of a
+ * deployment computes the same id and no one without the key can link an id to a query.
+ */
+export function createWorkerQueryCache(
+  settings: WorkerSettings['queryCache'],
+  keys: { readonly id: CryptoKey; readonly data: CryptoKey },
+  cacheApi?: CacheApiLike,
+): QueryCache | null {
+  if (settings.mode === 'off') return null;
+  const stores: QueryCacheStore[] = [new MemoryQueryCacheStore()];
+  const storage = (globalThis as { caches?: { open(name: string): Promise<CacheApiLike> } }).caches;
+  if (settings.mode === 'on' && (cacheApi !== undefined || storage !== undefined)) {
+    stores.push(
+      new CacheApiQueryCacheStore({
+        cache:
+          cacheApi ??
+          (() => (storage as { open(name: string): Promise<CacheApiLike> }).open(QUERY_CACHE_NAME)),
+        aesKey: keys.data,
+      }),
+    );
+  }
+  return new QueryCache({ stores, macKey: keys.id, policy: { relativeTtlMs: settings.relativeTtlMs } });
 }
 
 /** What one scheduled run may spend on deleting audit rows. */
@@ -140,6 +195,8 @@ interface Runtime {
   readonly oauth: boolean;
   /** Where rate limits are counted: the binding plus the isolate, the isolate alone, or nowhere. */
   readonly limiter: 'binding+isolate' | 'isolate' | 'off';
+  /** What the Durable Object limiter counts (P7-10); `off` without `RB_SHARED_LIMITER` or the binding. */
+  readonly shared: 'rules+concurrency' | 'rules' | 'concurrency' | 'off';
   readonly app: {
     fetch(request: Request, env: WorkerEnv, ctx: ExecutionContext): Response | Promise<Response>;
   };
@@ -253,10 +310,18 @@ async function boot(env: WorkerEnv, options: WorkerOptions): Promise<Runtime> {
   if (settings.rateLimit && binding === undefined) {
     log.warn('RATE_LIMITER binding missing: rate limits are per isolate only (weaker).');
   }
+  // The Durable Object limiter (P7-10): opt-in; without the binding everything stays as it was, with a warning.
+  const sharedNs = settings.sharedLimiter === 'off' ? undefined : env.SHARED_LIMITER;
+  if (settings.sharedLimiter !== 'off' && sharedNs === undefined) {
+    log.warn(
+      `RB_SHARED_LIMITER=${settings.sharedLimiter} but the SHARED_LIMITER binding is missing: limits stay per isolate.`,
+    );
+  }
+  const durable = settings.rateLimit ? sharedNs : undefined;
   const rateLimitHooks = settings.rateLimit
     ? createRateLimitHooks({
-        limiter: new WorkersRateLimiter({ binding }),
-        preAuthLimiter: new WorkersRateLimiter({ binding }),
+        limiter: new WorkersRateLimiter({ binding, durable, logger: log }),
+        preAuthLimiter: new WorkersRateLimiter({ binding, durable, logger: log }),
         rules: DEFAULT_RATE_LIMITS,
         logger: log,
         getClientIp: workersClientIp,
@@ -290,10 +355,30 @@ async function boot(env: WorkerEnv, options: WorkerOptions): Promise<Runtime> {
         ...(settings.audit.clientIp ? { getClientIp: workersClientIp } : {}),
       })
     : undefined;
-  const hooks =
-    rateLimitHooks === undefined && audit === undefined
+  // Self-monitoring (P7-08): off unless RB_OTEL=on; the endpoint and headers (license key) come from env/secrets only.
+  let telemetryConfig: ReturnType<typeof telemetrySettingsFromEnv>;
+  try {
+    telemetryConfig = telemetrySettingsFromEnv(env as Record<string, unknown>);
+  } catch (error) {
+    if (error instanceof TelemetryConfigError) throw new WorkerConfigError('RB_OTEL', error.message);
+    throw error;
+  }
+  const telemetry =
+    telemetryConfig === null
       ? undefined
-      : mergeHooks(rateLimitHooks, audit?.hooks);
+      : createTelemetry({
+          endpoint: telemetryConfig.endpoint,
+          headers: telemetryConfig.headers,
+          traceSampleRate: telemetryConfig.traceSampleRate,
+          acceptTraceparent: telemetryConfig.acceptTraceparent,
+          runtime: 'workers',
+          logger: log,
+          ...(options.telemetryFetch === undefined ? {} : { fetch: options.telemetryFetch }),
+        });
+  const hooks =
+    rateLimitHooks === undefined && audit === undefined && telemetry === undefined
+      ? undefined
+      : mergeHooks(rateLimitHooks, audit?.hooks, telemetry?.hooks);
 
   const identityProviders =
     identity === null
@@ -305,7 +390,8 @@ async function boot(env: WorkerEnv, options: WorkerOptions): Promise<Runtime> {
   const app = createHttpApp({
     storage,
     keyring,
-    logger: log,
+    // With telemetry on, the request logs are also exported as OTLP logs (allowlisted; flushed with the next call).
+    logger: telemetry === undefined ? log : telemetry.wrapLogger(log),
     allowedHosts: settings.allowedHosts,
     ...(settings.allowedOrigins === undefined ? {} : { allowedOrigins: settings.allowedOrigins }),
     corsOrigins: settings.corsOrigins,
@@ -313,6 +399,22 @@ async function boot(env: WorkerEnv, options: WorkerOptions): Promise<Runtime> {
     callBudget: settings.callBudget,
     maxResponseBytes: settings.maxResponseBytes,
     concurrencyPerCredential: settings.concurrency,
+    ...(settings.sharedLimiter === 'on' && sharedNs !== undefined
+      ? { sharedConcurrency: createSharedConcurrency(sharedNs, { max: settings.concurrency, logger: log }) }
+      : {}),
+    // Quota counters in the shared limiter's `quota:` objects when it is on (a D1 write per call saved), else storage.
+    ...(settings.sharedLimiter === 'on' && sharedNs !== undefined
+      ? { quotaStore: createDurableQuotaStore(sharedNs, { fallback: storage.grantUsage, logger: log }) }
+      : {}),
+    queryCache: createWorkerQueryCache(settings.queryCache, keyring.queryCacheKeys(), options.queryCacheApi),
+    writeTools: settings.writeTools,
+    requireWriteApproval: settings.requireWriteApproval,
+    publicToolCatalog: settings.publicToolCatalog,
+    mcpApps: settings.mcpApps,
+    tasks: settings.tasks,
+    // MCP Tasks (P7-13): sealed task records in D1 `kv`, purged by the hourly cron with the other expired rows.
+    taskStore: storage.kv,
+    approvalStore: storage.kv,
     // Background work (audit rows) must outlive the response: the runtime cancels unawaited promises otherwise.
     waitUntil: (c, task) => c.executionCtx.waitUntil(task),
     ...(hooks === undefined ? {} : { hooks }),
@@ -347,7 +449,18 @@ async function boot(env: WorkerEnv, options: WorkerOptions): Promise<Runtime> {
   });
 
   const limiter = !settings.rateLimit ? 'off' : binding === undefined ? 'isolate' : 'binding+isolate';
+  const shared: Runtime['shared'] =
+    sharedNs === undefined
+      ? 'off'
+      : settings.sharedLimiter === 'on'
+        ? settings.rateLimit
+          ? 'rules+concurrency'
+          : 'concurrency'
+        : settings.rateLimit
+          ? 'rules'
+          : 'off';
   return {
+    shared,
     settings,
     log,
     adminApi: adminRaw !== '' || identityProviders !== undefined,
@@ -409,8 +522,10 @@ export function createWorker(options: WorkerOptions = {}): WorkerHandler {
       signIn: runtime.identity,
       audit: settings.audit.enabled ? settings.audit.nrql : 'off',
       rateLimit: runtime.limiter,
+      sharedLimiter: runtime.shared,
       passthrough: settings.passthrough,
       oauth: runtime.oauth,
+      queryCache: settings.queryCache.mode,
     });
     return runtime;
   };
@@ -513,6 +628,9 @@ export function createWorker(options: WorkerOptions = {}): WorkerHandler {
       const storage = await (options.openStorage ?? openD1Storage)(env);
       const result = await purgeExpiredKv(storage.kv, options.kvPurge, now);
       logger.info('kv purge finished', { ...result });
+      // Quota counters of long-gone periods (P7-12).
+      const usage = await purgeGrantUsage(storage.grantUsage, now());
+      if (usage > 0) logger.info('quota counters purged', { removed: usage });
     } catch (error) {
       logger.error('kv purge failed', bootFailure(error));
     }

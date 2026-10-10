@@ -5,7 +5,8 @@
 //                                                  lines (needs GITHUB_REPOSITORY, GITHUB_SHA and a GH_TOKEN that can
 //                                                  read the repository when there are no pending changesets)
 //   node scripts/release.ts notes <version>      → prints the CHANGELOG section of <version>
-//   node scripts/release.ts sync-version [--check] → writes (or checks) VERSION in packages/core/src/version.ts
+//   node scripts/release.ts sync-version [--check] → writes (or checks) VERSION in packages/core/src/version.ts and
+//                                                  the versions in the MCP Registry metadata (server.json, P7-14)
 //
 // Only the `relic-bridge` CLI package (apps/cli) is ever published.
 import { execFileSync } from 'node:child_process';
@@ -15,6 +16,8 @@ import { fileURLToPath } from 'node:url';
 export const PACKAGE_NAME = 'relic-bridge';
 export const CLI_DIR = 'apps/cli';
 export const VERSION_FILE = 'packages/core/src/version.ts';
+/** MCP Registry metadata (P7-14): its own version and the npm package's must follow the CLI package. */
+export const SERVER_JSON = 'server.json';
 
 /** Strict SemVer (no build metadata), so the value is safe to put into workflow outputs and tag names. */
 export const SEMVER_RE = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
@@ -95,6 +98,36 @@ export function writeVersionConst(source: string, version: string): string {
   if (!SEMVER_RE.test(version)) throw new Error(`Not a SemVer version: ${version}`);
   if (!VERSION_CONST_RE.test(source)) throw new Error(`No "export const VERSION = '…';" in ${VERSION_FILE}`);
   return source.replace(VERSION_CONST_RE, `export const VERSION = '${version}';`);
+}
+
+interface ServerJson {
+  version?: unknown;
+  packages?: { registryType?: unknown; identifier?: unknown; version?: unknown }[];
+}
+
+/** The versions in `server.json` that must equal the CLI version: the server's and its npm package's. */
+export function serverJsonVersions(text: string): unknown[] {
+  const doc = JSON.parse(text) as ServerJson;
+  const npm = (doc.packages ?? []).filter((p) => p.registryType === 'npm' && p.identifier === PACKAGE_NAME);
+  return [doc.version, ...npm.map((p) => p.version)];
+}
+
+/**
+ * `server.json` with the server's and the npm package's versions set to `version`. Only those `"version": "…"` values
+ * are rewritten in place, so the file keeps its formatting.
+ */
+export function writeServerJsonVersion(text: string, version: string): string {
+  if (!SEMVER_RE.test(version)) throw new Error(`Not a SemVer version: ${version}`);
+  let out = text;
+  for (const old of new Set(serverJsonVersions(text))) {
+    if (typeof old !== 'string' || old === version) continue;
+    out = out.replaceAll(`"version": ${JSON.stringify(old)}`, `"version": ${JSON.stringify(version)}`);
+  }
+  const after = serverJsonVersions(out);
+  if (after.length < 2 || after.some((v) => v !== version)) {
+    throw new Error(`${SERVER_JSON}: could not set the server and npm package versions to ${version}`);
+  }
+  return out;
 }
 
 export function cliVersion(root: string): string {
@@ -218,6 +251,8 @@ function main(argv: readonly string[]): number {
       const version = cliVersion(root);
       const file = `${root}/${VERSION_FILE}`;
       const source = readFileSync(file, 'utf8');
+      const serverFile = `${root}/${SERVER_JSON}`;
+      const serverText = readFileSync(serverFile, 'utf8');
       if (arg === '--check') {
         const current = readVersionConst(source);
         if (current !== version) {
@@ -226,9 +261,17 @@ function main(argv: readonly string[]): number {
           );
           return 1;
         }
+        const listed = serverJsonVersions(serverText);
+        if (listed.length < 2 || listed.some((v) => v !== version)) {
+          console.error(
+            `✗ ${SERVER_JSON} versions ${JSON.stringify(listed)} differ from ${CLI_DIR}/package.json '${version}'. Run node scripts/release.ts sync-version`,
+          );
+          return 1;
+        }
         return 0;
       }
       writeFileSync(file, writeVersionConst(source, version));
+      writeFileSync(serverFile, writeServerJsonVersion(serverText, version));
       return 0;
     }
     default:

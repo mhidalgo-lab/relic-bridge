@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// P4-12: the ZAP scan setup stays reviewable: image pinned by digest, every ignored rule explained, manual-only workflow.
+// P4-12: the ZAP scan setup stays reviewable: image pinned by digest, every ignored rule explained, weekly/manual-only workflow.
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { parse } from 'yaml';
@@ -26,10 +26,14 @@ describe('ZAP scan configuration', () => {
     expect(seen).toBeGreaterThan(0);
   });
 
-  it('is run only on demand, with read-only permissions and no secrets', () => {
+  it('runs only on demand and weekly, with read-only permissions and no secrets', () => {
     const text = read('.github/workflows/zap.yml');
-    const wf = parse(text) as { on: Record<string, unknown>; permissions: Record<string, string> };
-    expect(Object.keys(wf.on)).toEqual(['workflow_dispatch']);
+    const wf = parse(text) as {
+      on: Record<string, unknown>;
+      permissions: Record<string, string>;
+    };
+    expect(Object.keys(wf.on).sort()).toEqual(['schedule', 'workflow_dispatch']);
+    expect(wf.on['schedule']).toEqual([{ cron: '17 4 * * 1' }]);
     expect(wf.permissions).toEqual({ contents: 'read' });
     expect(text).not.toMatch(/secrets\./);
   });

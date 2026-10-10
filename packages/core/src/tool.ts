@@ -2,6 +2,7 @@
 import type { ToolAnnotations } from '@modelcontextprotocol/server';
 import type { z } from 'zod';
 import type { ToolContext } from './context.ts';
+import type { TaskJob } from './tasks.ts';
 
 /**
  * Tool classification policy (THREAT_MODEL T6, prior-art capability tiers):
@@ -21,6 +22,23 @@ export interface ToolOutput<O = unknown> {
   structured?: O;
   /** Extra metadata (NRQL actually run, accounts, truncation flags…). */
   meta?: Record<string, unknown>;
+  /**
+   * Continue as an MCP task (P7-13). Honoured only when `ctx.tasks?.accepted` (the client declared the extension and
+   * the host keeps tasks) and the tool has `resumeTask`; otherwise the output is returned as it is, so it must still be
+   * a complete answer (e.g. the `queryId` handle).
+   */
+  task?: TaskJob;
+  /**
+   * With `task`: the complete answer to give instead when the task can't be stored (P7-21), for tools whose plain output
+   * is only a placeholder. Run once, in the same request.
+   */
+  taskFallback?: () => Promise<ToolOutput>;
+  /**
+   * Ask the person to approve (P7-20): the server answers the call with an MCP `input_required` result carrying this
+   * elicitation, and the client calls again with the answer (`ToolContext.elicitation`). Set only by write tools when
+   * `ctx.elicitation` is present.
+   */
+  inputRequired?: { readonly key: string; readonly message: string };
 }
 
 export interface ToolDefinition<I extends InputSchema = InputSchema, O = unknown> {
@@ -32,6 +50,11 @@ export interface ToolDefinition<I extends InputSchema = InputSchema, O = unknown
   readonly inputSchema: I;
   readonly outputSchema?: z.ZodType<O>;
   readonly kind: ToolKind;
+  /**
+   * For `write` / `destructive` tools only: repeating the same call has no further effect (MCP `idempotentHint`).
+   * Read tools are always idempotent.
+   */
+  readonly idempotent?: boolean;
   /** Whether the tool reaches an external system (New Relic). Pure helpers (e.g. time math) set false. */
   readonly openWorld: boolean;
   /** Expected subrequests per call, used for budget planning (ADR-0010). */
@@ -40,7 +63,27 @@ export interface ToolDefinition<I extends InputSchema = InputSchema, O = unknown
   readonly group: string;
   /** Roadmap phase that introduced the tool. */
   readonly phase: number;
+  /**
+   * MCP Apps view for this tool's results (P7-04). Advertised in `tools/list` as `_meta.ui` only when the resource is
+   * offered on the connection. Never changes the result itself.
+   */
+  readonly ui?: { readonly resourceUri: string };
+  /**
+   * For composite tools (P6-25): the sibling tools it calls for its sections. A grant does not imply them (least
+   * privilege, T3): a section whose tool the connection lacks comes back `skipped`. The admin UI and `POST /grants` read
+   * this to warn at grant time; a test keeps it in step with the `grantedSibling` calls.
+   */
+  readonly siblingTools?: readonly string[];
   readonly handler: (input: z.infer<I>, ctx: ToolContext) => Promise<ToolOutput<O>>;
+  /**
+   * One step of a task this tool created (P7-13), run inside a `tasks/get` request with that request's context. The
+   * state is what the handler (or the previous step) put in `ToolOutput.task`; it comes back from sealed storage but
+   * must still be validated. Returns the final output, or an output with `task` set to keep working.
+   */
+  readonly resumeTask?: (
+    state: Readonly<Record<string, unknown>>,
+    ctx: ToolContext,
+  ) => Promise<ToolOutput<O>>;
 }
 
 /** Identity helper that keeps input types inferred at the definition site. */
@@ -51,12 +94,45 @@ export function defineTool<I extends InputSchema, O = unknown>(
 }
 
 /** MCP annotations derived from the classification. Never hand-written per tool, so they can't drift. */
-export function annotationsFor(def: Pick<ToolDefinition, 'kind' | 'openWorld' | 'title'>): ToolAnnotations {
+export function annotationsFor(
+  def: Pick<ToolDefinition, 'kind' | 'openWorld' | 'title'> & { readonly idempotent?: boolean | undefined },
+): ToolAnnotations {
   return {
     title: def.title,
     readOnlyHint: def.kind === 'read',
     destructiveHint: def.kind === 'destructive',
-    idempotentHint: def.kind === 'read',
+    idempotentHint: def.kind === 'read' || def.idempotent === true,
     openWorldHint: def.openWorld,
   };
+}
+
+/** Composite tool name to the sibling tools it calls (from `ToolDefinition.siblingTools`); tools without any are left out. */
+export function compositeSiblings(
+  tools: readonly Pick<ToolDefinition, 'name' | 'siblingTools'>[],
+): Readonly<Record<string, readonly string[]>> {
+  const out: Record<string, readonly string[]> = {};
+  for (const t of tools)
+    if (t.siblingTools !== undefined && t.siblingTools.length > 0) out[t.name] = t.siblingTools;
+  return Object.freeze(out);
+}
+
+/**
+ * Warnings for a grant's tool list: each composite it names whose siblings it does not (P6-25). `null` (every read tool)
+ * lacks none. Informational only: authorization is unchanged.
+ */
+export function siblingWarnings(
+  siblings: Readonly<Record<string, readonly string[]>>,
+  tools: readonly string[] | null,
+): string[] {
+  if (tools === null) return [];
+  const out: string[] = [];
+  for (const name of tools) {
+    const missing = (siblings[name] ?? []).filter((s) => !tools.includes(s));
+    if (missing.length > 0) {
+      out.push(
+        `${name} calls tools this grant does not include (those sections come back skipped): ${missing.join(', ')}`,
+      );
+    }
+  }
+  return out;
 }

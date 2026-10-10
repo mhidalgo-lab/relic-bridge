@@ -15,6 +15,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Options:** merge the stack bottom-up (retarget each PR to `main` after its parent merges), or squash-merge the
   tip into `main` in one go.
 - **Needs:** owner's merge strategy; then mark merged tasks `done` and run `pnpm tasks index`.
+- **Decision (2026-10-09):** merge one phase at a time, bottom-up into `main` (see phase-1.md, same entry).
 
 ## P5-01 — OAuth authorization server
 
@@ -25,12 +26,14 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   (D1 on Workers), plus a single-use code marker consumed with `kv.take`.
 - **Options:** keep ADR-0011; or go back to Workers KV for tokens (cheaper reads at scale) and keep only code markers in D1.
 - **Needs:** owner confirmation of ADR-0011.
+- **Decision (2026-10-09):** confirmed as assumed.
 
 ### P5-01 — the `OAUTH_KV` binding is now unused
 - **Context:** `apps/worker/wrangler.jsonc` still declares `kv_namespaces: OAUTH_KV`; Wrangler provisions it on deploy.
 - **Assumption made:** left declared (marked reserved) so existing deployments' local configs don't drift.
 - **Options:** remove the binding (and the namespace in deployed accounts) in P5-07; or keep it for a future cache.
 - **Needs:** owner decision.
+- **Decision (2026-10-09):** **change:** remove the unused binding: P5-13.
 
 ### P5-01 — no way to turn OAuth on in a deployment yet
 - **Context:** P5-01 ships the server and a consent seam, not the sign-in/consent screen.
@@ -38,6 +41,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   `RB_OAUTH` switch arrives with the consent screen (P5-04). An auto-approving consent would let any registered client
   obtain codes for a signed-in browser.
 - **Needs:** nothing unless the owner wants an earlier switch.
+- **Decision (2026-10-09):** resolved: `RB_OAUTH` switch (`packages/http-app/src/oauth/settings.ts`).
 
 ### P5-01 — rate limits of the unauthenticated OAuth endpoints on Workers
 - **Context:** the Rate Limiting binding has one fixed 600/min rule (P3-04/P4-20).
@@ -45,18 +49,22 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   a registration cap shared across isolates (D1-backed counter) is left to P5-03.
 - **Options:** D1 counter for DCR only (P5-03); a second Rate Limiting binding with a stricter rule for `/oauth/*`.
 - **Needs:** owner choice for P5-03.
+- **Update (P7-10):** P7-10 addresses this: the per-IP `oauth` rule is counted by the Durable Object limiter with `RB_SHARED_LIMITER=rules` or `on`. See docs/guide/cloudflare-limits.md#shared-limiter-durable-object-optional.
+- **Decision (2026-10-09):** resolved by P5-03 (deployment cap), P5-10 (per-address caps) and P7-10 (shared limiter `oauth` rule).
 
 ### P5-01 — strict single use of authorization codes
 - **Context:** the marker is consumed before the provider checks PKCE; a client whose exchange fails on the network
   (or sends a wrong verifier) must authorize again, and a replay revokes the grant.
 - **Assumption made:** strict (OAuth 2.1 §4.1.3 behaviour); real clients exchange once.
 - **Needs:** revisit only if P5-06 finds a client that retries code exchanges.
+- **Decision (2026-10-09):** confirmed as assumed.
 
 ### P5-01 — scope name `mcp:read`
 - **Context:** grants, not scopes, decide what a token may do; the provider needs at least one scope.
 - **Assumption made:** every token carries `mcp:read` (plus `offline_access` when asked), as in the spike. Write tools
   (Phase 7) may add `mcp:write` with step-up.
 - **Needs:** owner confirmation before clients cache the scope (P5-02 publishes it in PRM).
+- **Decision (2026-10-09):** confirmed as assumed.
 
 ## P5-02 — Protected Resource Metadata and audience binding
 
@@ -68,6 +76,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Options:** keep strict; or accept a missing `resource` on refresh only (the provider still pins the grant's
   resource, so it can't retarget — the risk is compatibility, not audience).
 - **Needs:** revisit if P5-06 finds a client (claude.ai, mobile, Desktop) that refreshes without `resource`.
+- **Decision (2026-10-09):** confirmed as assumed.
 
 ### P5-02 — discovery details clients may care about
 - **Context:** PRM and the `401` challenge are built from the path only (known/unknown slugs indistinguishable, T19).
@@ -75,6 +84,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   in every challenge, no `resource_name`, no CORS on `/.well-known/*` (same as `/oauth/*` in P5-01).
 - **Options:** add any of these if a real client needs it (P5-06 compatibility matrix).
 - **Needs:** nothing unless P5-06 finds a gap.
+- **Decision (2026-10-09):** confirmed as assumed.
 
 ## P5-03 — Client registration: CIMD and DCR
 
@@ -84,6 +94,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Assumption made:** ADR-0012 — our own resolver and policy, per-runtime fetcher (`node:https` + guarded `lookup` on
   Node, `global_fetch_strictly_public` + `redirect: 'manual'` on Workers), documents cached as provider client records.
 - **Needs:** owner confirmation of ADR-0012.
+- **Decision (2026-10-09):** confirmed as assumed.
 
 ### P5-03 — CIMD redirect URIs only on the client id's own host
 - **Context:** the draft lets the AS restrict `redirect_uris` relative to the `client_id`. Claude (claude.ai,
@@ -92,6 +103,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   This makes the client host shown on the consent screen the host that receives the code.
 - **Options:** keep; relax to the same registrable domain; allow any https host (show both hosts on consent).
 - **Needs:** revisit if P5-06 finds a client whose callback is on another host than its metadata document.
+- **Decision (2026-10-09):** confirmed as assumed.
 
 ### P5-03 — CIMD details: port 443 only, JSON media type required, 5 min floor on the cache
 - **Context:** the draft allows ports and other content types (`application/<x>+json`), and says to respect
@@ -100,6 +112,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   `application/json` or `application/*+json` only; documents are cached at least 5 minutes (even with `no-store`) so a
   record survives one authorization; at most 24 h.
 - **Needs:** revisit if a real client's document is refused for one of these (P5-06 logs the reason).
+- **Decision (2026-10-09):** confirmed as assumed.
 
 ### P5-03 — DCR stays open to any redirect host by default, capped at 30 registrations per hour per deployment
 - **Context:** DCR is anonymous by nature. An allow-list of redirect hosts (`registrationRedirectHosts`, e.g.
@@ -112,6 +125,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   client the owner uses supports CIMD.
 - **Needs:** owner choice when the `RB_OAUTH` switch lands (P5-04 exposes `registration`, `registrationLimit`,
   `registrationRedirectHosts` as settings).
+- **Decision (2026-10-09):** keep the open shipped default (30/hour). Owner action: on the owner's own deployment set `RB_OAUTH_DCR=off` (or `RB_OAUTH_DCR_REDIRECT_HOSTS=claude.ai`) once checklist step 7 confirms CIMD alone works.
 
 ### P5-03 — no global cap on CIMD fetches
 - **Context:** every authorize/token request with a new https `client_id` triggers one outbound fetch (cache misses
@@ -120,12 +134,14 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Assumption made:** no deployment-wide fetch cap (it would let one caller block CIMD for new clients).
 - **Options:** a `kv.increment` cap on fetch misses (e.g. 120/hour); a second Rate Limiting binding for `/oauth/*`.
 - **Needs:** owner decision.
+- **Decision (2026-10-09):** resolved by P5-10 (20 fetches/hour per address, 200 stored document clients).
 
 ### P5-03 — admin client list, revoke and runtime DCR switch split to P5-08
 - **Context:** P5-03's scope listed "client list in admin with revoke"; it needs admin API routes, a UI screen, OpenAPI
   and negative authz tests.
 - **Assumption made:** new task P5-08 (depends on P5-03). Until then DCR is turned off by configuration only.
 - **Needs:** owner to order P5-08 relative to P5-04/P5-05.
+- **Decision (2026-10-09):** resolved: shipped as P5-08.
 
 ## P5-04 — Login and consent screen
 
@@ -137,6 +153,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   session) and remembered approvals in our own `kv` rows (`oauth-consent:<user>:<hash>`). Documented in RESEARCH §20.
 - **Options:** keep; or adopt the provider's transaction for the page step only.
 - **Needs:** owner confirmation.
+- **Decision (2026-10-09):** confirmed as assumed.
 
 ### P5-04 — remembered approvals: opt-in, 30 days, per client + redirect URI + resource
 - **Context:** the scope asked to "remember approval per client". Remembering answers a later authorize navigation
@@ -145,6 +162,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   when the grant stops resolving. Not linked from the admin navigation yet (the consent page links it).
 - **Options:** default on; another lifetime; a nav entry / merge into the P5-05 device list.
 - **Needs:** owner preference; P5-05 should delete a device's remembered approval when the device is revoked.
+- **Decision (2026-10-09):** keep: opt-in, 30 days, per client + redirect + resource.
 
 ### P5-04 — sign-in `next` cap raised to 2048 characters
 - **Context:** an authorize URL (CIMD client id, redirect URI, state, PKCE challenge, resource) can exceed the old
@@ -152,6 +170,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Assumption made:** `safeNextPath` accepts up to 2048 (same-origin checks unchanged); longer authorize URLs get a
   `400` page instead of a sign-in redirect.
 - **Needs:** nothing unless a real client sends longer authorize URLs (P5-06).
+- **Decision (2026-10-09):** confirmed as assumed.
 
 ### P5-04 — consent page CSP widens `form-action`
 - **Context:** Chromium applies `form-action` to the redirect after the consent post (measured).
@@ -160,18 +179,21 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Options:** answer the post with a 200 page that links/meta-refreshes to the client instead (needs a click or a meta
   refresh, and the same origin must still be navigable).
 - **Needs:** nothing unless the owner prefers the interstitial page.
+- **Decision (2026-10-09):** confirmed as assumed.
 
 ### P5-04 — device label stored as provider grant metadata
 - **Context:** T25 said grant metadata stays `{}`; the device label is needed for P5-05's device list and props are
   encrypted with the token (unreadable without it).
 - **Assumption made:** `metadata: { label }` (checked plain text ≤ 60 characters, typed by the user), else `{}`.
 - **Needs:** owner confirmation (or P5-05 keeps labels elsewhere).
+- **Decision (2026-10-09):** confirmed as assumed.
 
 ### P5-04 — `RB_OAUTH` variables
 - **Context:** P5-03 left the DCR settings to the host switch.
 - **Assumption made:** `RB_OAUTH` (off), `RB_OAUTH_DCR` (on), `RB_OAUTH_DCR_LIMIT` (30/hour or `off`),
   `RB_OAUTH_DCR_REDIRECT_HOSTS` (unset = any). Token lifetimes stay at the defaults until P5-05's plan presets.
 - **Needs:** owner review of the defaults (see the P5-03 DCR entry).
+- **Decision (2026-10-09):** confirmed as assumed.
 
 
 ## P5-05 — Token lifecycle
@@ -183,6 +205,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   `RB_OAUTH_ACCESS_TTL` / `RB_OAUTH_REFRESH_TTL`.
 - **Options:** keep; or reintroduce a longer Free default if D1 quotas become a problem in practice.
 - **Needs:** owner confirmation.
+- **Decision (2026-10-09):** confirmed as assumed.
 
 ### P5-05 — strict refresh reuse detection, no grace window
 - **Context:** the provider accepts the previous refresh token once more (for clients that lost a refresh response).
@@ -193,6 +216,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Needs:** revisit if P5-06 finds a client that retries or parallelises refreshes (claude.ai, Claude Code, mobile).
 - **Update (P5-09):** P5-06 found the SDK client parallelises refreshes; superseded by ADR-0013 (30 s reuse interval by
   default, strict with `RB_OAUTH_REFRESH_REUSE_WINDOW=0`). See the P5-09 entry below.
+- **Decision (2026-10-09):** resolved: superseded by P5-09 / ADR-0013 (30 s reuse interval).
 
 ### P5-05 — every refusal at token issuance revokes the device
 - **Context:** the code exchange and each refresh re-run `resolveAccess`. Some refusals are permanent (grant revoked or
@@ -202,6 +226,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   revokes their devices for good (re-enabling does not restore them), like their sessions.
 - **Options:** answer `temporarily_unavailable` without revoking for the temporary reasons.
 - **Needs:** owner preference.
+- **Decision (2026-10-09):** keep: every refusal at token issuance revokes the device (fail closed).
 
 ### P5-05 — access grant id in provider grant metadata
 - **Context:** revoke-all needs to know which access grant a device was approved with; the props holding it are
@@ -209,6 +234,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Assumption made:** metadata `{ label?, grant: "grt_…" }` (an opaque id). Devices approved before P5-05 lack it: they
   are still revoked by user disable and project delete, and their refresh is refused once the grant is revoked.
 - **Needs:** owner confirmation (T25).
+- **Decision (2026-10-09):** confirmed as assumed.
 
 ### P5-05 — `/oauth/approvals` kept next to the device list
 - **Context:** P5-04 suggested merging remembered approvals into the device list.
@@ -216,6 +242,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   ("don't ask again" rows); disconnecting an app also forgets its approval for that project.
 - **Options:** merge both into one table in the admin UI.
 - **Needs:** owner preference (UI only).
+- **Decision (2026-10-09):** keep two lists.
 
 ## P5-06 — Client compatibility matrix
 
@@ -227,6 +254,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   (`https://claude.ai/api/mcp/auth_callback`), so a pass on claude.ai web is strong evidence for mobile; the phone check is
   still worth doing once because the in-app browser and sign-in cookies behave differently.
 - **Needs:** the owner (or a community tester) to run the checklist below and record dated results in the matrix.
+- **Decision (2026-10-09):** assumption accepted; owner action tracked in `docs/pending-decisions/owner-checklist.md`.
 
 ### P5-06 — manual verification checklist (phone + claude.ai)
 Prerequisites: a deployed relic-bridge reachable from the internet over https (Anthropic connects from `160.79.104.0/21`;
@@ -261,6 +289,7 @@ Access), `RB_OAUTH=on`, one project with a grant for your user. Keep `RB_OAUTH_D
     OAuth).
 Record per client: date, client version, registration path (CIMD/DCR), result, anything odd. Put the results in
 `docs/reference/client-compatibility.md` (change **M** cells) and tick the P5-06 criteria.
+- **Decision (2026-10-09):** assumption accepted; owner action tracked in `docs/pending-decisions/owner-checklist.md`.
 
 ### P5-06 — parallel refresh vs strict rotation (finding)
 - **Context:** the SDK client (2.2.0) does not coalesce refreshes: three parallel calls over an expired access token sent
@@ -271,6 +300,7 @@ Record per client: date, client version, registration path (CIMD/DCR), result, a
   **on by default (30 s)**, because a server that disconnects the phone on ordinary concurrent use blocks Phase 5's goal.
   The SDK's parallel refreshes now all succeed and the device stays; strict mode (`0`) still revokes. See the P5-09 entry.
 - **Needs:** owner confirmation of the default (P5-09 entry).
+- **Decision (2026-10-09):** resolved by P5-09 / ADR-0013.
 
 ### P5-06 — CIMD redirect host rule vs ChatGPT and a possible `claude.com` callback
 - **Context:** ChatGPT documents `https://chatgpt.com/connector_platform_oauth_redirect`; a web search result mentions a
@@ -280,12 +310,14 @@ Record per client: date, client version, registration path (CIMD/DCR), result, a
 - **Assumption made:** keep the rule; claude.ai's documented callback fits.
 - **Options:** allow the same registrable domain; an allow-list of (client id host -> extra redirect hosts) for known clients.
 - **Needs:** revisit only if the checklist or ChatGPT shows a refused redirect (the log says `redirect` / `no_usable_redirect_uri`).
+- **Decision (2026-10-09):** confirmed as assumed.
 
 ### P5-06 — scope tolerance
 - **Context:** claude.ai was reported (anthropics/claude-ai-mcp#1092) sending `scope=mcp offline_access` to another server.
   relic-bridge accepts any scope names and grants `mcp:read` (+ `offline_access` when asked), so that connects.
 - **Assumption made:** keep (grants, not scopes, decide access). Tested.
 - **Needs:** nothing.
+- **Decision (2026-10-09):** confirmed as assumed.
 
 ## P5-09 — Concurrent refreshes
 
@@ -303,6 +335,7 @@ Record per client: date, client version, registration path (CIMD/DCR), result, a
 - **Options:** keep 30 s; shorter (5-10 s: enough for parallel requests, not for a client retrying a lost response
   after a timeout); strict by default (`0`) and opt-in per deployment; up to 120 s.
 - **Needs:** owner confirmation, ideally after the manual checklist (step 5: does an `oauth.token.replay` row appear?).
+- **Decision (2026-10-09):** keep the 30 s default; ADR-0013 marked owner-confirmed. Re-check after checklist step 5 (does `oauth.token.replay` appear?).
 
 ### P5-09 — replay sealed with a token-derived key, not the master keyring
 - **Context:** the task suggested storing the replayed pair encrypted with the keyring, bound by AAD to the family.
@@ -311,6 +344,7 @@ Record per client: date, client version, registration path (CIMD/DCR), result, a
   hashes only); the OAuth runtime gets no keyring dependency; it matches how the provider protects props.
 - **Options:** add keyring encryption on top (defence in depth if the token leaks *and* the database leaks within 30 s).
 - **Needs:** owner confirmation (ADR-0013).
+- **Decision (2026-10-09):** confirmed as assumed.
 
 ### P5-09 — confidential clients authenticated by our own check on replays
 - **Context:** a replay bypasses the provider, so relic-bridge checks client authentication itself (`none`, or the
@@ -318,6 +352,7 @@ Record per client: date, client version, registration path (CIMD/DCR), result, a
   not name a method). A provider upgrade that changes those rules would need the same change here.
 - **Assumption made:** mirror the provider (unit-tested); a failed check is treated as reuse (revokes).
 - **Needs:** nothing unless the provider is upgraded (note for Renovate PRs of `@cloudflare/workers-oauth-provider`).
+- **Decision (2026-10-09):** confirmed as assumed.
 
 ## P5-08 — OAuth clients admin
 
@@ -329,10 +364,12 @@ Record per client: date, client version, registration path (CIMD/DCR), result, a
 - **Options:** let the setting override the environment in both directions; a longer cache (fewer D1 reads on Workers: one
   read per 5 s per isolate on `/oauth/register` and metadata only).
 - **Needs:** owner confirmation.
+- **Decision (2026-10-09):** confirmed as assumed.
 
 ### P5-08 — turning registration off, not on, is one click
 - **Assumption made:** off needs no confirmation (it only narrows); on shows a confirmation page.
 - **Needs:** nothing unless the owner wants both confirmed.
+- **Decision (2026-10-09):** confirmed as assumed.
 
 ### P5-08 — client removal scans all grants
 - **Context:** the provider keys grants by `grant:<userId>:<grantId>`, so finding every grant of one client means
@@ -340,6 +377,7 @@ Record per client: date, client version, registration path (CIMD/DCR), result, a
 - **Assumption made:** fine for a personal or small-team deployment; a secondary index would be a new task if the
   number of grants grows.
 - **Needs:** nothing now.
+- **Decision (2026-10-09):** resolved: superseded by P5-11 resumable removal (`complete: false`).
 
 ## P5-07 — docs and release
 
@@ -349,11 +387,13 @@ Record per client: date, client version, registration path (CIMD/DCR), result, a
 - **Needs:** owner: after merging the stack and walking the manual checklist with real claude.ai and a phone, follow
   `docs/dev/releasing.md`; then flip README wording from "not released yet" and update the unverified marks in
   `docs/guide/oauth-phone.md` and `docs/reference/client-compatibility.md`.
+- **Decision (2026-10-09):** assumption accepted; owner action tracked in `docs/pending-decisions/owner-checklist.md`.
 
 ### P5-07 — Claude steps are from vendor docs, unverified
 - **Assumption made:** menu names (Customize, Connectors, Add custom connector) and "mobile shows web-added connectors"
   come from Anthropic's help page of 2026-10-05; marked unverified in the guide.
 - **Needs:** owner to correct the guide after a real run (acceptance: phone + 3 computers, docs only).
+- **Decision (2026-10-09):** assumption accepted; owner action tracked in `docs/pending-decisions/owner-checklist.md`.
 
 ## Phase 5 review
 
@@ -370,6 +410,7 @@ Record per client: date, client version, registration path (CIMD/DCR), result, a
 - **Needs:** owner choice, ideally after the P5-06 manual checklist shows whether Claude web, Desktop and mobile share
   one connection (vendor docs suggest connectors are per Claude account, so one connection serves all three).
 - **Update (P5-11):** replacement kept (the reversible default); the per-user device cap below bounds the downside.
+- **Decision (2026-10-09):** resolved: P5-11 kept replacement with a per-user device cap.
 
 ### P5-11 — per-user device cap of 50, oldest replaced
 - **Context:** issuance had no cap while the listing and "disconnect all" read at most 100 devices.
@@ -379,6 +420,7 @@ Record per client: date, client version, registration path (CIMD/DCR), result, a
 - **Options:** refuse the new connection past the cap; another number; expose it as an environment variable (not wired
   to `RB_*` yet: a code option only).
 - **Needs:** owner preference.
+- **Decision (2026-10-09):** keep: 50 devices per user, oldest replaced.
 
 ### P5-11 — client removal that stops at its budget answers `complete: false`
 - **Context:** removal threw past 20,000 grant rows and a retry found no client record.
@@ -386,12 +428,14 @@ Record per client: date, client version, registration path (CIMD/DCR), result, a
   UI say "remove again" when `complete` is false. The budgets are conservative for D1 (50 operations per invocation was
   assumed; each revocation is several operations, so lower `clientRemovalBudget.revoke` if D1 limits bite).
 - **Needs:** owner confirmation of the budgets on a real Worker.
+- **Decision (2026-10-09):** assumption accepted; owner action tracked in `docs/pending-decisions/owner-checklist.md`.
 
 ### P5 review — `redirect_uri` optional at the token endpoint with PKCE
 - **Context:** the provider checks `redirect_uri` on the code exchange only when the client sends it; PKCE binds the
   code anyway and OAuth 2.1 dropped the requirement.
 - **Assumption made:** left as is (compatibility); P5-12 confirmed it (documented in `docs/dev/oauth.md`).
 - **Needs:** nothing unless the owner prefers RFC 6749 strictness.
+- **Decision (2026-10-09):** confirmed as assumed.
 
 ### P5-10 — anonymous-abuse bounds: numbers and the Workers `oauth` rule
 - **Assumption made:** per-address registrations 10/hour (`RB_OAUTH_DCR_IP_LIMIT`, counted after the provider accepted),
@@ -402,6 +446,8 @@ Record per client: date, client version, registration path (CIMD/DCR), result, a
   Durable Object limiter (P7-10).
 - **Needs:** owner: confirm the defaults, especially that shared egress addresses (a proxy, claude.ai's servers) share
   one per-address budget.
+- **Update (P7-10):** P7-10 addresses this: the `oauth` rule can be shared across isolates with `RB_SHARED_LIMITER=rules` (opt-in); the defaults question is unchanged. See docs/guide/cloudflare-limits.md#shared-limiter-durable-object-optional.
+- **Decision (2026-10-09):** confirmed as assumed.
 
 ### P5-12 — `[::1]` redirects, mixed-script names
 - **Assumption made:** an `http://[::1]` redirect gets no CSP widening; the consent post answers with a same-origin
@@ -409,3 +455,4 @@ Record per client: date, client version, registration path (CIMD/DCR), result, a
   Cyrillic/Greek letters inside one word are refused at registration (all-Cyrillic names are accepted).
 - **Options:** refuse `[::1]` redirects at registration; flag (not refuse) mixed-script names on the consent page.
 - **Needs:** owner preference; nothing blocks on it.
+- **Decision (2026-10-09):** confirmed as assumed.

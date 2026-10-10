@@ -9,6 +9,13 @@ export const TOOLS: readonly UiTool[] = [
   { name: 'get_query_result', title: 'Get a query result', group: 'query', kind: 'read' },
   { name: 'whoami', title: 'Who am I', group: 'identity', kind: 'read' },
   { name: 'list_accounts', title: 'List accounts', group: 'identity', kind: 'read' },
+  {
+    name: 'entity_health',
+    title: 'Check entity health',
+    group: 'incident-response',
+    kind: 'read',
+    siblings: ['whoami', 'list_accounts'],
+  },
   { name: 'create_change_event', title: 'Record a deployment', group: 'changes', kind: 'write' },
 ];
 
@@ -52,6 +59,16 @@ export function sample(text = ''): Sample {
         createdAt: T,
         updatedAt: T,
         disabledAt: T,
+      },
+      {
+        id: 'usr_admin2',
+        email: 'admin2@example.com',
+        displayName: null,
+        idp: 'github',
+        role: 'admin',
+        createdAt: T,
+        updatedAt: T,
+        disabledAt: null,
       },
     ],
     credentials: [
@@ -131,6 +148,7 @@ export function sample(text = ''): Sample {
         accountIds: null,
         limits: {},
         rateLimit: { requests: 60, perSeconds: 60 },
+        quota: null,
         createdAt: T,
         updatedAt: T,
         expiresAt: null,
@@ -146,6 +164,7 @@ export function sample(text = ''): Sample {
         accountIds: [3, 4],
         limits: {},
         rateLimit: null,
+        quota: null,
         createdAt: T,
         updatedAt: T,
         expiresAt: T - 1,

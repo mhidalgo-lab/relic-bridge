@@ -17,8 +17,26 @@ import { isManageArgv, parseManageArgs } from './manage/args.ts';
 import { MANAGE_HELP } from './manage/help.ts';
 import type { ManageHost } from './manage/io.ts';
 import { runManage } from './manage/run.ts';
-import { isBootError, type RunningServer, resolveDbPath, serveSettings, startServer } from './serve.ts';
-import { serveProjectOverStdio } from './stdio.ts';
+import {
+  createProcessQueryCache,
+  isBootError,
+  queryCacheSettings,
+  type RunningServer,
+  resolveDbPath,
+  serveSettings,
+  startServer,
+  WRITE_APPROVAL_CLIENT_WARNING,
+} from './serve.ts';
+import {
+  isUnconfigured,
+  serveProjectOverStdio,
+  serveSetupModeOverStdio,
+  stdioMcpApps,
+  stdioTasks,
+  stdioTelemetry,
+  stdioWriteApproval,
+  stdioWriteTools,
+} from './stdio.ts';
 import { nerdGraphFetch } from './test-hooks.ts';
 
 /** Everything `main` needs from the process, injected so it can be tested without spawning. */
@@ -27,6 +45,7 @@ export interface CliRuntime {
   readonly env: Env;
   readonly platform: string;
   readonly homeDir?: string;
+  readonly cwd?: string;
   readonly fs: ConfigFs;
   /** Only `help` and `version` write here. In stdio mode stdout is the MCP channel. */
   readonly stdout: (text: string) => void;
@@ -195,6 +214,18 @@ export function main(rt: CliRuntime): MainResult {
     };
   }
 
+  if (isUnconfigured(rt.env, args)) {
+    // Setup mode (P7-14): list the tools so clients, registries and inspectors can see them; every call explains
+    // what to configure. No key, so nothing can reach New Relic.
+    const { handle, tools } = serveSetupModeOverStdio({ logger, mcpApps: stdioMcpApps(rt.env) });
+    logger.warn('no configuration: serving the tool list only (setup mode); tool calls explain what to set', {
+      version: VERSION,
+      tools: tools.length,
+      hint: 'Set NEW_RELIC_API_KEY and NEW_RELIC_ACCOUNT_ID, or pass --config <file>.',
+    });
+    return { kind: 'serving', close: () => handle.close() };
+  }
+
   try {
     const { project, warnings } = loadConfig({
       ...(args.config === undefined ? {} : { configPath: args.config }),
@@ -205,11 +236,21 @@ export function main(rt: CliRuntime): MainResult {
       ...(rt.homeDir === undefined ? {} : { homeDir: rt.homeDir }),
     });
     for (const w of warnings) logger.warn(w);
+    const requireWriteApproval = stdioWriteApproval(rt.env);
+    const writeTools = stdioWriteTools(rt.env);
+    if (writeTools && !requireWriteApproval) logger.warn(WRITE_APPROVAL_CLIENT_WARNING);
     assertUserKey(project.apiKey);
     const fetch = nerdGraphFetch(rt.env, logger);
+    const telemetry = stdioTelemetry(rt.env, logger);
     const { handle, tools } = serveProjectOverStdio({
       project,
       logger,
+      ...(telemetry === undefined ? {} : { telemetry }),
+      queryCache: createProcessQueryCache(queryCacheSettings(rt.env)),
+      writeTools,
+      requireWriteApproval,
+      mcpApps: stdioMcpApps(rt.env),
+      tasks: stdioTasks(rt.env),
       ...(fetch === undefined ? {} : { fetch }),
     });
     logger.info('serving MCP over stdio', {
@@ -219,8 +260,16 @@ export function main(rt: CliRuntime): MainResult {
       region: project.region,
       defaultAccount: project.accounts.default,
       tools: tools.length,
+      telemetry: telemetry !== undefined,
     });
-    return { kind: 'serving', close: () => handle.close() };
+    return {
+      kind: 'serving',
+      close: async () => {
+        await handle.close();
+        telemetry?.close();
+        await telemetry?.flush();
+      },
+    };
   } catch (error) {
     if (error instanceof ConfigError) {
       logger.error(error.message, error.hint === undefined ? {} : { hint: error.hint });
@@ -271,6 +320,7 @@ function manage(rt: CliRuntime): MainResult {
         fs: rt.fs,
         platform: rt.platform,
         ...(rt.homeDir === undefined ? {} : { homeDir: rt.homeDir }),
+        ...(rt.cwd === undefined ? {} : { cwd: rt.cwd }),
         stdout: rt.stdout,
         stderr: rt.stderr,
       },

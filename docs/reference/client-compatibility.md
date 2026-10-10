@@ -91,6 +91,48 @@ the client did refresh concurrently.
   reachable from the internet. See the manual checklist.
 - **Real CIMD document fetches** (`claude.ai/oauth/...`): tests use stand-in documents shaped like the documented ones.
 
+## MCP Apps charts (P7-04, 2026-10-06)
+
+`run_nrql` and `get_query_result` link to an MCP Apps view (`ui://relic-bridge/nrql-chart`,
+[charts guide](../guide/charts.md)). Evidence: the server side (resource listing and reading, tool `_meta.ui`, grant
+filtering) is **T**; the view itself is **T** in jsdom driven through the spec's postMessage protocol (spec 2026-01-26).
+No real host rendered it. Since P7-16 the link and the view are shown only to clients that declare MCP Apps support
+(`RB_MCP_APPS=off` removes them for everyone); the declaration check is **T** on the HTTP app, the Worker and stdio.
+
+| Client | Renders the chart | Without it |
+|---|---|---|
+| Hosted Claude (web, Desktop) | D (the MCP Apps project lists Claude as a host), **M** | text table (T) |
+| Claude mobile | ? , **M** | text table |
+| Claude Code, Cursor, MCP Inspector | ? (no MCP Apps host documented) | text table (T: results unchanged) |
+| ChatGPT, VS Code | D (listed as hosts by the MCP Apps project), not tested | text table |
+
+## MCP Tasks (P7-13, 2026-10-06)
+
+With the Tasks extension (`io.modelcontextprotocol/tasks`, MCP 2026-07-28) a client gets a task for a slow `run_nrql`
+and polls `tasks/get` instead of calling `get_query_result`. Offered on the project HTTP routes of `serve` and the
+Worker only (not stdio, not pass-through). Evidence: the server side is **T** with raw 2026-07-28 JSON-RPC requests
+(`packages/http-app/test/tasks.test.ts`, authorization on the HTTP app and the Worker in
+`packages/http-app/test/authz/tasks.test.ts`). The MCP TypeScript SDK client 2.2.0 does not declare the extension, so it
+gets the `queryId` handle (T). No real client was run.
+
+| Client | Uses Tasks | Without it |
+|---|---|---|
+| Hosted Claude, Claude mobile, Claude Desktop, Claude Code | ? (no Tasks support documented), **M** | `queryId` handle + `get_query_result` (T) |
+| Cursor, VS Code, ChatGPT, MCP Inspector | ? | same |
+| `@modelcontextprotocol/ext-tasks` client sessions (0.2.x) | D (the extension's reference client), not tested | — |
+
+## Write confirmation through elicitation (P7-20, 2026-10-06)
+
+A write tool asks the person to approve the exact change when the client declares `elicitation` (form). Evidence: **T**
+with the SDK client 2.2.0 on stdio-style in-memory 2025-era connections (the SDK relays the request) and over HTTP with a
+2026-07-28 client (`input_required`, stateless, on the HTTP app and the Worker). A stateless 2025-era HTTP client is not
+asked (SDK 2.2.0 holds no capabilities there) and keeps `confirm: true`. No real client was run.
+
+| Client | Shows the form | Notes |
+|---|---|---|
+| Claude Code, Claude Desktop, VS Code, Cursor | ? , **M** | check that it shows the message and does not auto-accept |
+| Claude mobile, hosted Claude | ? , **M** | needs 2026-07-28 over HTTP |
+
 ## Re-run procedure (each minor release)
 
 1. `pnpm test && pnpm test:workers` (the suite is `packages/http-app/test/authz/client-conformance-suite.ts`, run on

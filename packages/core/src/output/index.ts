@@ -1,10 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 export {
-  decodeCursor,
-  encodeCursor,
   flattenTags,
-  type Page,
-  paginate,
   pickFields,
   type TagGroup,
   type TagInput,
@@ -36,3 +32,12 @@ export {
   type ShapeNrqlOptions,
   shapeNrqlOutcome,
 } from './nrql.ts';
+export {
+  type AnomalyHint,
+  type ColumnStats,
+  DETAIL_MODES,
+  type DetailMode,
+  type ResultSummary,
+  SUMMARY_MIN_ROWS,
+  summarizeRows,
+} from './summarize.ts';

@@ -60,7 +60,7 @@ List users
 
 Create a user
 
-Users own personal credentials and receive user grants. Login identities arrive in Phase 4.
+Users own personal credentials and receive user grants. Login identities arrive in Phase 4. Creating an admin or an owner is owner-only (`403 forbidden`, `detail: owner`, P4-21).
 
 Request body (`CreateUser`):
 
@@ -96,7 +96,7 @@ Get a user
 
 Update or disable a user
 
-Demoting or disabling the last enabled owner is refused with `409 conflict`, `detail: last_owner` (P4-16).
+Only an owner (or the admin token) promotes a user to admin or changes, demotes, disables or enables another admin: an admin session gets `403 forbidden`, `detail: owner` (P4-21). Demoting or disabling the last enabled owner is refused with `409 conflict`, `detail: last_owner` (P4-16). Re-enabling a user who holds a live grant naming a write tool is owner-only: `403 forbidden`, `detail: write_scope` (P7-32).
 
 | Parameter | In | Type | Required | Description |
 | --- | --- | --- | --- | --- |
@@ -185,7 +185,7 @@ Admins (an owner's apps: owners only). Revokes every token of that authorization
 
 Sign a user out everywhere
 
-Ends every admin session of the user at once (all devices). Members may do this for themselves only; admins for anyone but an owner. A role change or disabling a user does this automatically.
+Ends every admin session of the user at once (all devices). Members may do this for themselves only; admins for members and themselves (another admin or an owner: owners only). A role change or disabling a user does this automatically.
 
 | Parameter | In | Type | Required | Description |
 | --- | --- | --- | --- | --- |
@@ -472,7 +472,7 @@ List grants
 
 Create a grant
 
-A grant may use the project default credential, a shared one, or its own user’s. Parts the project does not allow are stored but have no effect (listed in `warnings`).
+A grant may use the project default credential, a shared one, or its own user’s. Parts the project does not allow are stored but have no effect (listed in `warnings`). A composite tool named without the sibling tools it calls is also listed there: a grant never implies them, so those sections come back skipped.
 
 Request body (`CreateGrant`):
 
@@ -486,6 +486,7 @@ Request body (`CreateGrant`):
 | `accountIds` | `integer[] \| null` | no |  |
 | `limits` | `Limits` | no | Query limits; absent fields fall back to the defaults. |
 | `rateLimit` | `RateLimit` | no |  |
+| `quota` | `Quota` | no | Caps per UTC day and UTC month. Past a cap the connection gets `RB_LIMIT_QUOTA` until the period ends. |
 | `expiresAt` | `integer \| null` | no | Epoch ms, in the future. |
 
 | Status | Body | Description |
@@ -494,6 +495,31 @@ Request body (`CreateGrant`):
 | 403 | `Error` | Session refused: role too low, missing/invalid CSRF token or cross-origin request (`forbidden`) |
 | 404 | `Error` | No such resource (`not_found`) |
 | 409 | `Error` | Conflicts with existing data (`conflict`, `read_only`) |
+| 413 | `Error` | Body too large (`payload_too_large`) |
+| 415 | `Error` | Body is not JSON (`unsupported_media_type`) |
+| 422 | `Error` | Refused by a rule (`not_permitted`) or New Relic refused the key (`key_rejected`) |
+
+### PUT /grants/{id}/quota
+
+Set or remove a grant’s usage quota
+
+Caps per UTC day and month on real NerdGraph calls and inspected events (P7-12). Takes effect at once on this process and within the access cache TTL elsewhere. Counters are kept: a cap below today’s use denies at once. Admins and owners; only owners change a grant that acts for an owner.
+
+| Parameter | In | Type | Required | Description |
+| --- | --- | --- | --- | --- |
+| `id` | path | `string` | yes |  |
+
+Request body (`SetQuota`):
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `quota` | `Quota` | yes | Caps per UTC day and UTC month. Past a cap the connection gets `RB_LIMIT_QUOTA` until the period ends. |
+
+| Status | Body | Description |
+| --- | --- | --- |
+| 200 | `GrantResponse` | The grant with its quota |
+| 403 | `Error` | Session refused: role too low, missing/invalid CSRF token or cross-origin request (`forbidden`) |
+| 404 | `Error` | No such resource (`not_found`) |
 | 413 | `Error` | Body too large (`payload_too_large`) |
 | 415 | `Error` | Body is not JSON (`unsupported_media_type`) |
 | 422 | `Error` | Refused by a rule (`not_permitted`) or New Relic refused the key (`key_rejected`) |
@@ -539,6 +565,69 @@ Revoke a grant (all its tokens stop working)
 | 200 | `GrantResponse` | Revoked |
 | 403 | `Error` | Session refused: role too low, missing/invalid CSRF token or cross-origin request (`forbidden`) |
 | 404 | `Error` | No such resource (`not_found`) |
+
+## Audit
+
+### GET /usage/quotas
+
+Usage against the quota of the grants that have one
+
+The counters of the current UTC day and month next to each grant’s caps, for at most 50 live grants with a quota (one bounded read). Admins and owners only.
+
+| Status | Body | Description |
+| --- | --- | --- |
+| 200 | `QuotaUsageResponse` | Usage |
+| 403 | `Error` | Session refused: role too low, missing/invalid CSRF token or cross-origin request (`forbidden`) |
+
+### GET /audit
+
+Query the audit log (newest first)
+
+Admins and owners read every row. A member (session) reads only rows whose `userId` is their own: the filter is forced, and asking for another `userId` is `403`.
+
+| Parameter | In | Type | Required | Description |
+| --- | --- | --- | --- | --- |
+| `kind` | query | `"tool_call" \| "admin" \| "auth"` | no |  |
+| `action` | query | `string` | no | Exact action: a tool name or `token.create`, `auth.denied`, …. |
+| `status` | query | `"ok" \| "error" \| "denied"` | no |  |
+| `projectId` | query | `string` | no | Only this project. |
+| `userId` | query | `string` | no | Only this user. |
+| `grantId` | query | `string` | no | Only this grant. |
+| `tokenId` | query | `string` | no | Only this access token. |
+| `keyId` | query | `string` | no | Pass-through rows: one key fingerprint id (`pt_…`), or `any` for all pass-through rows. |
+| `since` | query | `string` | no | Inclusive lower bound: epoch ms or an ISO 8601 date-time. |
+| `until` | query | `string` | no | Exclusive upper bound: epoch ms or an ISO 8601 date-time. |
+| `order` | query | `"newest" \| "slowest"` | no | `newest` (default) pages with `cursor`. `slowest`: rows that recorded a duration, longest first; one page of `limit` rows, no cursor. |
+| `limit` | query | `integer` | no | Page size, 1-200 (default 50). |
+| `cursor` | query | `string` | no | `nextCursor` from the previous page. |
+
+| Status | Body | Description |
+| --- | --- | --- |
+| 200 | `AuditPage` | Audit rows |
+| 403 | `Error` | Session refused: role too low, missing/invalid CSRF token or cross-origin request (`forbidden`) |
+
+### GET /audit/stats
+
+Tool-call statistics over a time window
+
+One bounded aggregate over `tool_call` rows in `[since, until)` (at most 90 days, default the last 7): calls, errors, denied, durations and inspected events per tool, project, grant, device token or day. Admins and owners only.
+
+| Parameter | In | Type | Required | Description |
+| --- | --- | --- | --- | --- |
+| `groupBy` | query | `"action" \| "project" \| "grant" \| "token" \| "day"` | no | Group tool calls by tool (`action`, default), project, grant, device token or UTC day. |
+| `since` | query | `string` | no | Inclusive lower bound (default: 7 days before `until`; at most 90 days): epoch ms or an ISO 8601 date-time. |
+| `until` | query | `string` | no | Exclusive upper bound (default: now): epoch ms or an ISO 8601 date-time. |
+| `action` | query | `string` | no | Only this tool. |
+| `projectId` | query | `string` | no | Only this project. |
+| `userId` | query | `string` | no | Only this user. |
+| `grantId` | query | `string` | no | Only this grant. |
+| `tokenId` | query | `string` | no | Only this access token. |
+| `limit` | query | `integer` | no | Groups returned, 1-100 (default 50): most calls first; `day`: newest first. |
+
+| Status | Body | Description |
+| --- | --- | --- |
+| 200 | `AuditStats` | Statistics |
+| 403 | `Error` | Session refused: role too low, missing/invalid CSRF token or cross-origin request (`forbidden`) |
 
 ## Tokens
 
@@ -629,6 +718,50 @@ Request body (`RotateKeys`):
 | 403 | `Error` | Session refused: role too low, missing/invalid CSRF token or cross-origin request (`forbidden`) |
 | 413 | `Error` | Body too large (`payload_too_large`) |
 | 415 | `Error` | Body is not JSON (`unsupported_media_type`) |
+
+## Config
+
+### POST /config/export
+
+Export projects, grants, users and settings
+
+Owner only (P7-06). Returns a `relic-bridge-config` bundle. New Relic keys are never included in plaintext: leave the body empty for an export without keys, or send `wrapKey` + `kdf` (derived by the CLI from a passphrase) to include them sealed with AES-256-GCM: shared keys and the caller's own personal keys only (the admin token, which is nobody, gets shared keys; a colleague's personal key is never exported). Access tokens, sessions, OAuth state, identity bindings and master keys are never exported. Audited as `config.export`.
+
+Request body (`ExportConfig`):
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `wrapKey` | `string` | no | The 32-byte AES wrap key (base64) the CLI derived from the passphrase (PBKDF2-HMAC-SHA-256, 600 000+ iterations). The passphrase itself is never sent. Treat like a password: send over TLS only. |
+| `kdf` | `object` | no | The KDF parameters the wrap key was derived with (stored in the bundle). |
+
+| Status | Body | Description |
+| --- | --- | --- |
+| 200 | `ExportConfigResponse` | The bundle |
+| 403 | `Error` | Session refused: role too low, missing/invalid CSRF token or cross-origin request (`forbidden`) |
+| 413 | `Error` | Body too large (`payload_too_large`) |
+| 415 | `Error` | Body is not JSON (`unsupported_media_type`) |
+
+### POST /config/import
+
+Import a configuration bundle (dry run by default)
+
+Owner only (P7-06). Validates the bundle strictly, then returns what it would create, update or skip (`apply` false, the default: nothing changes). With `apply: true` it makes those changes through the same rules as the other routes and stops at the first failure (`failed`); importing again resumes. Matching is by natural key (user email, credential owner and label, project slug, grant project and user), so a repeated import changes nothing. Never deletes or revokes; users are create-only and never owners; existing grants and stored keys are not modified. Audited as `config.import`.
+
+Request body (`ImportConfig`):
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `bundle` | `ConfigBundle` | yes | A relic-bridge configuration. Never holds plaintext New Relic keys, access tokens, sessions or OAuth state; keys appear only in `secrets`, sealed with AES-256-GCM under a passphrase-derived key. |
+| `apply` | `boolean` | no | Default false: a dry run that changes nothing. |
+| `wrapKey` | `string` | no | The 32-byte AES wrap key (base64) the CLI derived from the passphrase (PBKDF2-HMAC-SHA-256, 600 000+ iterations). The passphrase itself is never sent. Treat like a password: send over TLS only. |
+
+| Status | Body | Description |
+| --- | --- | --- |
+| 200 | `ImportConfigResponse` | The plan or the outcome |
+| 403 | `Error` | Session refused: role too low, missing/invalid CSRF token or cross-origin request (`forbidden`) |
+| 413 | `Error` | Body too large (`payload_too_large`) |
+| 415 | `Error` | Body is not JSON (`unsupported_media_type`) |
+| 422 | `Error` | Refused by a rule (`not_permitted`) or New Relic refused the key (`key_rejected`) |
 
 ## Identity
 
@@ -965,58 +1098,6 @@ Request body (`SetOAuthRegistration`):
 | 413 | `Error` | Body too large (`payload_too_large`) |
 | 415 | `Error` | Body is not JSON (`unsupported_media_type`) |
 
-## Audit
-
-### GET /audit
-
-Query the audit log (newest first)
-
-Admins and owners read every row. A member (session) reads only rows whose `userId` is their own: the filter is forced, and asking for another `userId` is `403`.
-
-| Parameter | In | Type | Required | Description |
-| --- | --- | --- | --- | --- |
-| `kind` | query | `"tool_call" \| "admin" \| "auth"` | no |  |
-| `action` | query | `string` | no | Exact action: a tool name or `token.create`, `auth.denied`, …. |
-| `status` | query | `"ok" \| "error" \| "denied"` | no |  |
-| `projectId` | query | `string` | no | Only this project. |
-| `userId` | query | `string` | no | Only this user. |
-| `grantId` | query | `string` | no | Only this grant. |
-| `tokenId` | query | `string` | no | Only this access token. |
-| `keyId` | query | `string` | no | Pass-through rows: one key fingerprint id (`pt_…`), or `any` for all pass-through rows. |
-| `since` | query | `string` | no | Inclusive lower bound: epoch ms or an ISO 8601 date-time. |
-| `until` | query | `string` | no | Exclusive upper bound: epoch ms or an ISO 8601 date-time. |
-| `order` | query | `"newest" \| "slowest"` | no | `newest` (default) pages with `cursor`. `slowest`: rows that recorded a duration, longest first; one page of `limit` rows, no cursor. |
-| `limit` | query | `integer` | no | Page size, 1-200 (default 50). |
-| `cursor` | query | `string` | no | `nextCursor` from the previous page. |
-
-| Status | Body | Description |
-| --- | --- | --- |
-| 200 | `AuditPage` | Audit rows |
-| 403 | `Error` | Session refused: role too low, missing/invalid CSRF token or cross-origin request (`forbidden`) |
-
-### GET /audit/stats
-
-Tool-call statistics over a time window
-
-One bounded aggregate over `tool_call` rows in `[since, until)` (at most 90 days, default the last 7): calls, errors, denied, durations and inspected events per tool, project, grant, device token or day. Admins and owners only.
-
-| Parameter | In | Type | Required | Description |
-| --- | --- | --- | --- | --- |
-| `groupBy` | query | `"action" \| "project" \| "grant" \| "token" \| "day"` | no | Group tool calls by tool (`action`, default), project, grant, device token or UTC day. |
-| `since` | query | `string` | no | Inclusive lower bound (default: 7 days before `until`; at most 90 days): epoch ms or an ISO 8601 date-time. |
-| `until` | query | `string` | no | Exclusive upper bound (default: now): epoch ms or an ISO 8601 date-time. |
-| `action` | query | `string` | no | Only this tool. |
-| `projectId` | query | `string` | no | Only this project. |
-| `userId` | query | `string` | no | Only this user. |
-| `grantId` | query | `string` | no | Only this grant. |
-| `tokenId` | query | `string` | no | Only this access token. |
-| `limit` | query | `integer` | no | Groups returned, 1-100 (default 50): most calls first; `day`: newest first. |
-
-| Status | Body | Description |
-| --- | --- | --- |
-| 200 | `AuditStats` | Statistics |
-| 403 | `Error` | Session refused: role too low, missing/invalid CSRF token or cross-origin request (`forbidden`) |
-
 ## Schemas
 
 ### AccessToken
@@ -1108,6 +1189,22 @@ Token metadata. The token hash is never returned.
 | `maxDurationMs` | `integer \| null` | yes |  |
 | `inspectedCount` | `integer` | yes | Events New Relic reported inspecting, summed. |
 
+### ConfigBundle
+
+A relic-bridge configuration. Never holds plaintext New Relic keys, access tokens, sessions or OAuth state; keys appear only in `secrets`, sealed with AES-256-GCM under a passphrase-derived key.
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `format` | `"relic-bridge-config"` | yes |  |
+| `version` | `1` | yes |  |
+| `exportedAt` | `string` | yes |  |
+| `users` | `object[]` | yes |  |
+| `credentials` | `object[]` | yes |  |
+| `projects` | `object[]` | yes |  |
+| `grants` | `object[]` | yes |  |
+| `settings` | `object` | yes |  |
+| `secrets` | `object` | no |  |
+
 ### CreateCredential
 
 | Field | Type | Required | Description |
@@ -1129,6 +1226,7 @@ Token metadata. The token hash is never returned.
 | `accountIds` | `integer[] \| null` | no |  |
 | `limits` | `Limits` | no | Query limits; absent fields fall back to the defaults. |
 | `rateLimit` | `RateLimit` | no |  |
+| `quota` | `Quota` | no | Caps per UTC day and UTC month. Past a cap the connection gets `RB_LIMIT_QUOTA` until the period ends. |
 | `expiresAt` | `integer \| null` | no | Epoch ms, in the future. |
 
 ### CreateMyCredential
@@ -1217,6 +1315,22 @@ Masked credential metadata. Key plaintext and ciphertext are never returned.
 | --- | --- | --- | --- |
 | `error` | `object` | yes |  |
 
+### ExportConfig
+
+Omit both for an export without New Relic keys. Give both to include them, sealed.
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `wrapKey` | `string` | no | The 32-byte AES wrap key (base64) the CLI derived from the passphrase (PBKDF2-HMAC-SHA-256, 600 000+ iterations). The passphrase itself is never sent. Treat like a password: send over TLS only. |
+| `kdf` | `object` | no | The KDF parameters the wrap key was derived with (stored in the bundle). |
+
+### ExportConfigResponse
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `data` | `ConfigBundle` | yes | A relic-bridge configuration. Never holds plaintext New Relic keys, access tokens, sessions or OAuth state; keys appear only in `secrets`, sealed with AES-256-GCM under a passphrase-derived key. |
+| `warnings` | `string[]` | yes | Non-fatal notes about the change (e.g. parts of a grant the project does not allow). |
+
 ### Grant
 
 | Field | Type | Required | Description |
@@ -1230,6 +1344,7 @@ Masked credential metadata. Key plaintext and ciphertext are never returned.
 | `accountIds` | `integer[] \| null` | yes |  |
 | `limits` | `Limits` | yes | Query limits; absent fields fall back to the defaults. |
 | `rateLimit` | `RateLimit` | yes |  |
+| `quota` | `Quota` | yes | Caps per UTC day and UTC month. Past a cap the connection gets `RB_LIMIT_QUOTA` until the period ends. |
 | `createdAt` | `integer` | yes | Created (epoch ms) |
 | `updatedAt` | `integer` | yes | Last change (epoch ms) |
 | `expiresAt` | `integer \| null` | yes | Expires (epoch ms, null = none) |
@@ -1248,6 +1363,40 @@ Masked credential metadata. Key plaintext and ciphertext are never returned.
 | --- | --- | --- | --- |
 | `data` | `Grant` | yes |  |
 | `warnings` | `string[]` | no | Non-fatal notes about the change (e.g. parts of a grant the project does not allow). |
+
+### ImportConfig
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `bundle` | `ConfigBundle` | yes | A relic-bridge configuration. Never holds plaintext New Relic keys, access tokens, sessions or OAuth state; keys appear only in `secrets`, sealed with AES-256-GCM under a passphrase-derived key. |
+| `apply` | `boolean` | no | Default false: a dry run that changes nothing. |
+| `wrapKey` | `string` | no | The 32-byte AES wrap key (base64) the CLI derived from the passphrase (PBKDF2-HMAC-SHA-256, 600 000+ iterations). The passphrase itself is never sent. Treat like a password: send over TLS only. |
+
+### ImportConfigResponse
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `data` | `ImportReport` | yes |  |
+
+### ImportPlanEntry
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `kind` | `"user" \| "credential" \| "project" \| "grant" \| "setting"` | yes |  |
+| `key` | `string` | yes |  |
+| `action` | `"create" \| "update" \| "unchanged" \| "skip"` | yes |  |
+| `fields` | `string[]` | no |  |
+| `reason` | `string` | no |  |
+
+### ImportReport
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `dryRun` | `boolean` | yes |  |
+| `entries` | `ImportPlanEntry[]` | yes |  |
+| `summary` | `object` | yes |  |
+| `warnings` | `string[]` | yes |  |
+| `failed` | `object \| null` | yes | Apply stopped at this entity; the entries before it were applied. Import again to resume. |
 
 ### KeyRotation
 
@@ -1415,6 +1564,42 @@ An app connected with OAuth (P5-05). Tokens are never returned.
 | `data` | `Project` | yes |  |
 | `warnings` | `string[]` | no | Non-fatal notes about the change (e.g. parts of a grant the project does not allow). |
 
+### Quota
+
+Caps per UTC day and UTC month. Past a cap the connection gets `RB_LIMIT_QUOTA` until the period ends.
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `day` | `QuotaPeriod` | no |  |
+| `month` | `QuotaPeriod` | no |  |
+| `warnPercent` | `integer` | no | Percent of a cap at which results carry a warning. Default 80. |
+
+### QuotaPeriod
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `queries` | `integer` | no | Real NerdGraph calls per period (cache hits are free). |
+| `inspectedEvents` | `integer` | no | Events New Relic reports as inspected by NRQL queries per period. |
+
+### QuotaUsage
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `grantId` | `string` | yes |  |
+| `projectId` | `string` | yes |  |
+| `userId` | `string \| null` | yes |  |
+| `label` | `string \| null` | yes |  |
+| `quota` | `Quota` | yes | Caps per UTC day and UTC month. Past a cap the connection gets `RB_LIMIT_QUOTA` until the period ends. |
+| `day` | `UsagePeriod` | yes |  |
+| `month` | `UsagePeriod` | yes |  |
+
+### QuotaUsageResponse
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `data` | `QuotaUsage[]` | yes |  |
+| `truncated` | `boolean` | yes | More grants have a quota than the 50 listed. |
+
 ### RateLimit
 
 | Field | Type | Required | Description |
@@ -1501,6 +1686,14 @@ An app connected with OAuth (P5-05). Tokens are never returned.
 | --- | --- | --- | --- |
 | `enabled` | `boolean` | yes |  |
 
+### SetQuota
+
+The grant's whole quota; `null` removes it. Counters are kept.
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `quota` | `Quota` | yes | Caps per UTC day and UTC month. Past a cap the connection gets `RB_LIMIT_QUOTA` until the period ends. |
+
 ### SetupLink
 
 | Field | Type | Required | Description |
@@ -1547,6 +1740,15 @@ An app connected with OAuth (P5-05). Tokens are never returned.
 | `displayName` | `string \| null` | no |  |
 | `role` | `"owner" \| "admin" \| "member"` | no |  |
 | `disabled` | `boolean` | no | true disables the user: every grant of theirs and every key they own stops. |
+
+### UsagePeriod
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `period` | `string` | yes | Period key: `d2026-10-06` (UTC day) or `m2026-10` (UTC month). |
+| `queries` | `integer` | yes |  |
+| `inspected` | `integer` | yes |  |
+| `resetsAt` | `integer` | yes | The period ends and the counters start again (epoch ms) |
 
 ### User
 

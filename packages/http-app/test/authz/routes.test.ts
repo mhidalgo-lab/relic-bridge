@@ -27,6 +27,7 @@ import {
   OAUTH_ROUTES,
   PASSTHROUGH_PRINCIPALS,
   PASSTHROUGH_ROUTES,
+  PUBLIC_CATALOG_ROUTES,
   PUBLIC_ROUTES,
   type RouteCase,
   requestFor,
@@ -256,7 +257,7 @@ function controlStatus(route: RouteCase): number {
   if (dangling) return 404;
   // OAuth is off in these apps: the client list is empty, the rest is 404 (P5-08).
   if (route.path.endsWith('/oauth/clients/remove') || route.path.endsWith('/oauth/registration')) return 404;
-  if (route.path.endsWith('/keys/rotate')) return 200;
+  if (route.path.endsWith('/keys/rotate') || route.path.includes('/config/')) return 200;
   return route.method === 'POST' ? 201 : 200;
 }
 
@@ -264,6 +265,8 @@ const UNSAFE = new Set(['POST', 'PATCH', 'PUT', 'DELETE']);
 const OWNER_ONLY = new Set([
   'POST /api/admin/v1/keys/rotate',
   'POST /api/admin/v1/setup-links',
+  'POST /api/admin/v1/config/export',
+  'POST /api/admin/v1/config/import',
   'POST /api/admin/v1/users/:id/unbind',
   'GET /api/admin/v1/oauth/clients',
   'POST /api/admin/v1/oauth/clients/remove',
@@ -506,6 +509,8 @@ describe('admin routes × session principals (P4-02)', () => {
     expect(detail(await patch(admin, owner.userId, { displayName: 'x' }))).toBe('403 owner');
     expect(detail(await post(admin, `/users/${owner.userId}/sessions/revoke`))).toBe('403 owner');
     expect(detail(await post(admin, '/users', { email: 'o2@example.com', role: 'owner' }))).toBe('403 owner');
+    // Admins are not peers (P4-21): no admin made either; an owner promotes.
+    expect(detail(await patch(admin, member.userId, { role: 'admin' }))).toBe('403 owner');
     // Members: only their own sessions.
     expect(detail(await post(member, `/users/${admin.userId}/sessions/revoke`))).toBe('403 role');
     expect(detail(await post(member, '/users/usr_none/sessions/revoke'))).toBe('403 role');
@@ -513,7 +518,7 @@ describe('admin routes × session principals (P4-02)', () => {
     expect((await me(admin)).status).toBe(200);
 
     // A role change ends every session of that user, at once.
-    expect((await patch(admin, member.userId, { role: 'admin' })).status).toBe(200);
+    expect((await patch(owner, member.userId, { role: 'admin' })).status).toBe(200);
     expect((await me(member)).status).toBe(401);
     expect((await me(memberPhone)).status).toBe(401);
     // Disabling too; and a disabled user's fresh session (minted directly) still fails.
@@ -728,6 +733,8 @@ describe.skipIf(authzHostKind() !== 'http-app')('guard: every route is in the ma
       },
       // The built-in consent screen (P5-04) adds its routes.
       oauth: {},
+      // The static tool catalog (P7-14) adds its well-known route.
+      publicToolCatalog: true,
     });
     const handlers = new Set<string>();
     const wildcards = new Set<string>();
@@ -749,6 +756,7 @@ describe.skipIf(authzHostKind() !== 'http-app')('guard: every route is in the ma
         ...UI_ROUTES,
         ...UI_ASSET_ROUTES,
         ...PUBLIC_ROUTES,
+        ...PUBLIC_CATALOG_ROUTES,
         ...OAUTH_ROUTES,
         ...CONSENT_ROUTES,
       ]
@@ -789,5 +797,94 @@ describe.skipIf(authzHostKind() !== 'http-app')('guard: every route is in the ma
     ]) {
       expect(covered.has(r), r).toBe(true);
     }
+  });
+});
+
+describe('config export / import (P7-06)', () => {
+  const KEY_OWN = 'NRAK-CONFIGOWNKEY0123456789ABCDEF';
+  const KEY_OTHER = 'NRAK-CONFIGOTHERKEY0123456789ABCD';
+  const wrapKey = btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32))));
+  const kdf = {
+    name: 'pbkdf2-sha256',
+    iterations: 600_000,
+    salt: btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(16)))),
+  };
+  const exportRoute = (): RouteCase =>
+    ADMIN_ROUTES.find((r) => r.pattern.endsWith('/config/export')) as RouteCase;
+  const importRoute = (): RouteCase =>
+    ADMIN_ROUTES.find((r) => r.pattern.endsWith('/config/import')) as RouteCase;
+  const withBody = (route: RouteCase, body: unknown): RouteCase => ({ ...route, body });
+
+  async function addKey(ownerUserId: string, key: string, label: string) {
+    const { createCredential } = await import('@relic-bridge/auth');
+    await createCredential(
+      {
+        storage: h.world.storage,
+        keyring: h.world.keyring,
+        clock: h.world.clock,
+        validate: async () => ({
+          user: { id: 7, email: 'a@example.com', name: 'A' },
+          accounts: [{ id: 1, name: 'one' }],
+        }),
+      },
+      { label, region: 'US', apiKey: new Secret(key), ownerUserId },
+    );
+  }
+
+  it("an owner session seals its own personal keys but never a colleague's", async () => {
+    const owner = await h.addSession({ role: 'owner' });
+    const other = await h.addUser('colleague@example.com', 'member');
+    await addKey(owner.userId, KEY_OWN, 'own');
+    await addKey(other, KEY_OTHER, 'theirs');
+    const res = await h.send(
+      requestFor(withBody(exportRoute(), { wrapKey, kdf }), { headers: owner.headers }),
+    );
+    expect(res.status).toBe(200);
+    const body = JSON.parse(res.text);
+    expect(body.data.credentials.map((c: { label: string }) => c.label).sort()).toContain('theirs');
+    expect(body.warnings.some((w: string) => w.includes('personal key of another user'))).toBe(true);
+    expect(res.text).not.toContain(KEY_OWN);
+    expect(res.text).not.toContain(KEY_OTHER);
+    expect(body.data.secrets.sealed.length).toBeGreaterThan(40);
+    // The audit row names who and how much, never a value.
+    const row = (await h.auditRows()).find((r) => r.action === 'config.export');
+    expect(row).toMatchObject({ status: 'ok', userId: owner.userId });
+  });
+
+  it('admin and member sessions, and callers without credentials, are refused and nothing changes', async () => {
+    for (const route of [exportRoute(), importRoute()]) {
+      for (const role of ['admin', 'member'] as const) {
+        const session = await h.addSession({ role });
+        const before = JSON.stringify(await h.world.storage.projects.list());
+        const res = await h.send(requestFor(route, { headers: session.headers }));
+        expect(res.status, `${role} ${route.pattern}`).toBe(403);
+        expect(JSON.parse(res.text).error).toMatchObject({ code: 'forbidden', detail: 'role' });
+        expect(JSON.stringify(await h.world.storage.projects.list())).toBe(before);
+      }
+      expect((await h.send(requestFor(route, { headers: {} }))).status).toBe(401);
+      expect((await h.send(requestFor(route, { headers: { authorization: 'Bearer nope' } }))).status).toBe(
+        401,
+      );
+    }
+  });
+
+  it('an apply from an admin session creates nothing', async () => {
+    const admin = await h.addSession({ role: 'admin' });
+    const bundle = {
+      format: 'relic-bridge-config',
+      version: 1,
+      exportedAt: '2026-01-01T00:00:00.000Z',
+      users: [{ email: 'intruder@example.com', displayName: null, role: 'owner' }],
+      credentials: [],
+      projects: [],
+      grants: [],
+      settings: {},
+    };
+    const users = JSON.stringify((await h.world.storage.users.list()).map((u) => u.id));
+    const res = await h.send(
+      requestFor(withBody(importRoute(), { bundle, apply: true }), { headers: admin.headers }),
+    );
+    expect(res.status).toBe(403);
+    expect(JSON.stringify((await h.world.storage.users.list()).map((u) => u.id))).toBe(users);
   });
 });

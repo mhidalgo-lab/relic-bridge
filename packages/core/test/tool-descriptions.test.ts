@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import {
   createBuiltinTools,
+  createWriteTools,
   defineTool,
   envelope,
   PROMPTS,
@@ -22,12 +23,15 @@ import {
   listed,
   scoreRouter,
   TOOLS_LIST_BUDGET,
+  TOOLS_LIST_BUDGET_WITH_WRITES,
   takesEntityName,
 } from './evals/quality.ts';
 
 const definitions = createBuiltinTools({ fetch: async () => new Response('{}') });
 const tools = listed(definitions);
 const names = new Set(tools.map((t) => t.name));
+// What a connection with write tools enabled is sent (P7-27).
+const withWrites = listed([...definitions, ...createWriteTools({ fetch: async () => new Response('{}') })]);
 
 /**
  * Offline router baseline (BM25 over name + description, 44 cases). Recorded with the P6-13 descriptions; before the
@@ -43,6 +47,16 @@ describe('tool descriptions follow the style guide (docs/dev/evals.md)', () => {
 
   it(`fit the tools/list budget (${TOOLS_LIST_BUDGET} characters of descriptions and input schemas)`, () => {
     expect(catalogueSize(tools)).toBeLessThanOrEqual(TOOLS_LIST_BUDGET);
+  });
+
+  it(`fit the write-enabled tools/list budget (${TOOLS_LIST_BUDGET_WITH_WRITES} characters, P7-27)`, () => {
+    expect(withWrites.length).toBe(tools.length + 4);
+    expect(catalogueSize(withWrites)).toBeLessThanOrEqual(TOOLS_LIST_BUDGET_WITH_WRITES);
+  });
+
+  it('keep at least 1 000 characters of headroom under both budgets (raise a budget only on purpose, P7-27)', () => {
+    expect(TOOLS_LIST_BUDGET - catalogueSize(tools)).toBeGreaterThanOrEqual(1000);
+    expect(TOOLS_LIST_BUDGET_WITH_WRITES - catalogueSize(withWrites)).toBeGreaterThanOrEqual(1000);
   });
 
   it('the lint catches what it claims to (mutated catalogue)', () => {
@@ -64,8 +78,16 @@ describe('tool descriptions follow the style guide (docs/dev/evals.md)', () => {
     }
   });
 
-  it('every confusable pair names real tools', () => {
-    for (const pair of CONFUSABLE_PAIRS) for (const n of pair) expect(names.has(n), n).toBe(true);
+  it('write tools pass every lint rule (P7-31)', () => {
+    expect(lintDescriptions(withWrites)).toEqual([]);
+  });
+
+  it('every confusable pair names real tools (in any combination of catalogs)', () => {
+    const allNames = new Set([...names, ...withWrites.map((t) => t.name)]);
+    for (const pair of CONFUSABLE_PAIRS) {
+      // Each pair must exist in the full set (read + write tools combined)
+      for (const n of pair) expect(allNames.has(n), n).toBe(true);
+    }
   });
 
   it('every tool that accepts an entity name is detected as such', () => {

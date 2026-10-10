@@ -2,7 +2,7 @@
 /** @jsxImportSource hono/jsx */
 // Users (P4-04): who may sign in, with which role. Adding a user is the invitation: the user row is the explicit allow
 // for sign-in (P4-01), whatever the self-sign-up allowlist says. Nobody changes their own role or disables themselves
-// here; only owners create or change owners (the admin API enforces both, the page hides what would be refused).
+// here; only owners create or change owners and admins (the admin API enforces both, the page hides what would be refused).
 //
 //   GET  /admin/users                  list (cursor pages)
 //   GET  /admin/users/new              add form
@@ -72,12 +72,13 @@ const EMAIL_RE = /^[^\s@<>()",;:]{1,64}@[^\s@<>()",;:]{1,255}$/;
 
 const ROLE_TEXT: Readonly<Record<Role, string>> = {
   owner: 'Owner: everything, including other owners and the master key',
-  admin: 'Admin: keys, projects, grants, devices and users (not owners)',
+  admin: 'Admin: keys, projects, grants, devices and members (not owners or other admins)',
   member: 'Member: signs in; self-service comes in a later release',
 };
 
+// Only an owner makes an owner or an admin (P4-21); an admin viewer is offered member only.
 const roleOptions = (viewer: UiPrincipal) =>
-  ROLES.filter((r) => r !== 'owner' || viewer.role === 'owner').map((r) => ({
+  ROLES.filter((r) => r === 'member' || viewer.role === 'owner').map((r) => ({
     value: r,
     label: ROLE_TEXT[r],
   }));
@@ -205,6 +206,8 @@ export function registerUsers(ui: Hono, kit: UiKit): void {
     const self = `${BASE}${adminPath`/${user.id}`}`;
     const isSelf = user.id === viewer.userId;
     const ownerOnly = user.role === 'owner' && viewer.role !== 'owner';
+    // Administrators are not peers (P4-21): an admin viewer cannot edit, sign out or disable another admin.
+    const adminLocked = user.role === 'admin' && viewer.role !== 'owner' && !isSelf;
     const t = now();
     return (
       <Layout title={`User: ${user.email}`} viewer={viewer} current={BASE} flash={opts.flash ?? null}>
@@ -226,6 +229,8 @@ export function registerUsers(ui: Hono, kit: UiKit): void {
           <h2 id="edit-heading">Name and role</h2>
           {ownerOnly ? (
             <p>Only an owner can change an owner.</p>
+          ) : adminLocked ? (
+            <p>Only an owner can change an administrator.</p>
           ) : (
             <>
               <FormError message={opts.message} />
@@ -335,7 +340,7 @@ export function registerUsers(ui: Hono, kit: UiKit): void {
           </section>
         ) : null}
 
-        {isSelf || ownerOnly ? null : (
+        {isSelf || ownerOnly || adminLocked ? null : (
           <section aria-labelledby="danger-heading">
             <h2 id="danger-heading">Sign out or disable</h2>
             <ConfirmAction

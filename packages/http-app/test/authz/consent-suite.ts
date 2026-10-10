@@ -37,7 +37,7 @@ async function pkce(): Promise<{ verifier: string; challenge: string }> {
 }
 
 /** Headers of a browser opening the authorize URL from another site (the client's page or app). */
-const navigation = (session?: SessionCaller): Record<string, string> => ({
+export const navigation = (session?: SessionCaller): Record<string, string> => ({
   ...(session ? { cookie: session.cookie } : {}),
   'sec-fetch-site': 'cross-site',
   'sec-fetch-mode': 'navigate',
@@ -63,7 +63,7 @@ const decodeHtml = (s: string): string =>
     .replaceAll('&gt;', '>');
 
 /** The consent form's action (decoded) and the grant ids it offers. */
-function parseConsent(page: Captured): { action: string; grants: string[] } {
+export function parseConsent(page: Captured): { action: string; grants: string[] } {
   const action = /<form method="post" action="(\/oauth\/consent[^"]*)"/.exec(page.text)?.[1];
   const grants = [...page.text.matchAll(/type="radio" id="grant-\d+" name="grant" value="([^"]+)"/g)].map(
     (m) => m[1] as string,
@@ -77,7 +77,7 @@ interface Started {
   readonly url: string;
 }
 
-class Browser {
+export class Browser {
   clientId = '';
   redirectUri = REDIRECT;
   constructor(
@@ -180,7 +180,7 @@ class Browser {
   }
 }
 
-function codeOf(res: Captured): string | null {
+export function codeOf(res: Captured): string | null {
   const location = res.headers.get('location');
   if (location === null || !location.startsWith('http')) return null;
   return new URL(location).searchParams.get('code');

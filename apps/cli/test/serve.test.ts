@@ -10,7 +10,15 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { parseCliArgs, UsageError } from '../src/args.ts';
 import { ConfigError } from '../src/config.ts';
 import { main } from '../src/main.ts';
-import { defaultConfigDir, defaultDataDir, resolveDbPath, serveSettings, startServer } from '../src/serve.ts';
+import {
+  createProcessQueryCache,
+  defaultConfigDir,
+  defaultDataDir,
+  queryCacheSettings,
+  resolveDbPath,
+  serveSettings,
+  startServer,
+} from '../src/serve.ts';
 import { memoryFs } from './helpers.ts';
 
 describe('serve arguments', () => {
@@ -31,8 +39,96 @@ describe('serve arguments', () => {
   });
 });
 
+describe('query cache settings (P7-02)', () => {
+  it('defaults on with a 30 s TTL; reads RB_QUERY_CACHE and RB_QUERY_CACHE_TTL', () => {
+    expect(queryCacheSettings({})).toEqual({ enabled: true, relativeTtlMs: 30_000 });
+    expect(queryCacheSettings({ RB_QUERY_CACHE: 'off', RB_QUERY_CACHE_TTL: '0' })).toEqual({
+      enabled: false,
+      relativeTtlMs: 0,
+    });
+    expect(queryCacheSettings({ RB_QUERY_CACHE_TTL: '300' }).relativeTtlMs).toBe(300_000);
+    expect(() => queryCacheSettings({ RB_QUERY_CACHE: 'maybe' })).toThrow(ConfigError);
+    expect(() => queryCacheSettings({ RB_QUERY_CACHE_TTL: '301' })).toThrow(ConfigError);
+    expect(() => queryCacheSettings({ RB_QUERY_CACHE_TTL: '-1' })).toThrow(ConfigError);
+  });
+
+  it('builds the process cache, or none when off', () => {
+    expect(createProcessQueryCache({ enabled: false, relativeTtlMs: 30_000 })).toBeNull();
+    expect(createProcessQueryCache({ enabled: true, relativeTtlMs: 10_000 })?.policy.relativeTtlMs).toBe(
+      10_000,
+    );
+  });
+});
+
 describe('serveSettings', () => {
   const base = { env: {}, platform: 'linux', homeDir: '/home/u' };
+
+  it('self-monitoring (P7-08) is off by default and validated when on', () => {
+    expect(serveSettings(base).telemetry).toBeNull();
+    const env = { RB_OTEL: 'on', RB_OTEL_ENDPOINT: 'https://otlp.example.test:4318', RB_OTEL_SAMPLE: '0.1' };
+    expect(serveSettings({ ...base, env: { ...base.env, ...env } }).telemetry).toMatchObject({
+      endpoint: 'https://otlp.example.test:4318',
+      traceSampleRate: 0.1,
+    });
+    expect(() => serveSettings({ ...base, env: { ...base.env, RB_OTEL: 'on' } })).toThrow(ConfigError);
+  });
+
+  it('MCP Tasks (P7-34): on by default, RB_TASKS=off is the kill switch, other values are refused', () => {
+    expect(serveSettings(base).tasks).toBe(true);
+    expect(serveSettings({ ...base, env: { ...base.env, RB_TASKS: 'off' } }).tasks).toBe(false);
+    expect(() => serveSettings({ ...base, env: { ...base.env, RB_TASKS: 'maybe' } })).toThrow(ConfigError);
+  });
+
+  it('MCP Apps (P7-16): on by default, RB_MCP_APPS=off turns the chart view off, other values are refused', () => {
+    expect(serveSettings(base).mcpApps).toBe(true);
+    expect(serveSettings({ ...base, env: { ...base.env, RB_MCP_APPS: 'off' } }).mcpApps).toBe(false);
+    expect(() => serveSettings({ ...base, env: { ...base.env, RB_MCP_APPS: 'maybe' } })).toThrow(ConfigError);
+  });
+
+  it('write tools (P7-09): off by default, on with RB_WRITE_TOOLS=on, refused without the audit log', () => {
+    expect(serveSettings(base).writeTools).toBe(false);
+    const on = serveSettings({ ...base, env: { ...base.env, RB_WRITE_TOOLS: 'on' } });
+    expect(on.writeTools).toBe(true);
+    expect(on.warnings.join(' ')).toContain('RB_WRITE_TOOLS=on');
+    expect(on.rateLimits?.write).toEqual({ requests: 20, perSeconds: 3600 });
+    expect(
+      serveSettings({ ...base, env: { ...base.env, RB_WRITE_TOOLS: 'on', RB_RATE_LIMIT_WRITE: '5/60' } })
+        .rateLimits?.write,
+    ).toEqual({ requests: 5, perSeconds: 60 });
+    expect(() =>
+      serveSettings({ ...base, env: { ...base.env, RB_WRITE_TOOLS: 'on', RB_AUDIT: 'off' } }),
+    ).toThrow(/RB_AUDIT/);
+    expect(() => serveSettings({ ...base, env: { ...base.env, RB_WRITE_TOOLS: 'maybe' } })).toThrow(
+      ConfigError,
+    );
+    const unlimited = serveSettings({
+      ...base,
+      env: { ...base.env, RB_WRITE_TOOLS: 'on', RB_RATE_LIMIT_WRITE: 'off' },
+    });
+    expect(unlimited.warnings.join(' ')).toContain('not rate limited');
+  });
+
+  it('RB_WRITE_APPROVAL (P7-25, P7-33): required by default, client as an explicit opt-down (with a warning), anything else refused', () => {
+    expect(serveSettings(base).requireWriteApproval).toBe(true);
+    const wt = { ...base.env, RB_WRITE_TOOLS: 'on' };
+    const unset = serveSettings({ ...base, env: wt });
+    expect(unset.requireWriteApproval).toBe(true);
+    expect(unset.warnings.join(' ')).not.toContain('RB_WRITE_APPROVAL');
+    const optDown = serveSettings({ ...base, env: { ...wt, RB_WRITE_APPROVAL: 'client' } });
+    expect(optDown.requireWriteApproval).toBe(false);
+    expect(optDown.warnings.join(' ')).toContain('RB_WRITE_APPROVAL=client');
+    expect(
+      serveSettings({ ...base, env: { ...base.env, RB_WRITE_APPROVAL: 'client' } }).warnings.join(' '),
+    ).not.toContain('RB_WRITE_APPROVAL=client');
+    expect(
+      serveSettings({ ...base, env: { ...wt, RB_WRITE_APPROVAL: 'required' } }).requireWriteApproval,
+    ).toBe(true);
+    const idle = serveSettings({ ...base, env: { ...base.env, RB_WRITE_APPROVAL: 'required' } });
+    expect(idle.warnings.join(' ')).toContain('no effect without RB_WRITE_TOOLS=on');
+    expect(() => serveSettings({ ...base, env: { ...wt, RB_WRITE_APPROVAL: 'always' } })).toThrow(
+      ConfigError,
+    );
+  });
 
   it('defaults to 127.0.0.1:8787, loopback Host allowlist and the per-user data directory', () => {
     const s = serveSettings(base);

@@ -3,7 +3,7 @@
 > relic-bridge — an unofficial, open-source MCP server that gives AI agents access to New Relic through **NerdGraph**
 > using only a User API key. Runs locally (stdio / Node / Docker) or as a **Cloudflare Worker** reachable from all your devices.
 
-Status: **Phase 6 in review** (2026-10-06; Phases 1-6 built as stacked PRs, not yet merged). Architecture: [ARCHITECTURE.md](ARCHITECTURE.md) · Decisions: [adr/](adr/) ·
+Status: **Phase 7 in review** (2026-10-07; Phases 1-7 built as stacked PRs, not yet merged). Architecture: [ARCHITECTURE.md](ARCHITECTURE.md) · Decisions: [adr/](adr/) ·
 Facts & limits: [RESEARCH.md](RESEARCH.md) · Security: [THREAT_MODEL.md](THREAT_MODEL.md) · Task rules: [tasks/README.md](tasks/README.md)
 
 ## Guiding principles
@@ -97,6 +97,7 @@ Generated from task front matter (`pnpm tasks index` once P0-05 lands). Status l
 | P1-15 | [Release pipeline and v0.1.0](tasks/phase-1-core-stdio/P1-15-release-v0-1.md) | high | P1-11, P1-12, P1-14 | done |
 | P1-16 | [Isolate the OIDC publish step and make release reruns idempotent](tasks/phase-1-core-stdio/P1-16-release-publish-isolation.md) | high | P1-15 | done |
 | P1-17 | [CLI warnings and docs accuracy follow-ups from the Phase 1 review](tasks/phase-1-core-stdio/P1-17-cli-docs-polish.md) | low | P1-11, P1-14 | done |
+| P1-18 | [Require npm staged-publish approval on top of the release environment](tasks/phase-1-core-stdio/P1-18-npm-staged-publish.md) | high | P1-16 | done |
 
 ### Phase 2
 
@@ -166,6 +167,10 @@ Generated from task front matter (`pnpm tasks index` once P0-05 lands). Status l
 | P4-18 | [Tighten member key switching and personal keys as project defaults](tasks/phase-4-identity-admin/P4-18-member-key-switch-rules.md) | low | P4-10 | done |
 | P4-19 | [Bound the storage writes signed-in users can cause](tasks/phase-4-identity-admin/P4-19-bound-self-service-writes.md) | low | P4-07, P4-10 | done |
 | P4-20 | [Phase 4 test, docs and UI hygiene from the consolidation review](tasks/phase-4-identity-admin/P4-20-phase-4-hygiene.md) | low | P4-08 | done |
+| P4-21 | [Only owners create, demote, disable or unbind administrators](tasks/phase-4-identity-admin/P4-21-owner-only-admin-management.md) | medium | P4-16 | done |
+| P4-22 | [Warn at startup when an allowlist is set but auto-provisioning is off](tasks/phase-4-identity-admin/P4-22-allowlist-without-autoprovision-warning.md) | low | P4-08 | done |
+| P4-23 | [Limit fields on the admin panel grant form](tasks/phase-4-identity-admin/P4-23-grant-form-limits.md) | low | P4-04 | done |
+| P4-24 | [Weekly schedule for the ZAP scan and browser E2E workflows](tasks/phase-4-identity-admin/P4-24-scheduled-zap-e2e.md) | low | P4-11, P4-12 | done |
 
 ### Phase 5
 
@@ -183,6 +188,7 @@ Generated from task front matter (`pnpm tasks index` once P0-05 lands). Status l
 | P5-10 | [Bound what anonymous callers can do to registration and CIMD](tasks/phase-5-oauth/P5-10-oauth-unauthenticated-abuse.md) | medium | P5-03, P5-08 | done |
 | P5-11 | [Device replacement policy and complete per-user device bounds](tasks/phase-5-oauth/P5-11-oauth-device-bounds.md) | medium | P5-05, P5-08 | done |
 | P5-12 | [OAuth protocol nits from the Phase 5 review](tasks/phase-5-oauth/P5-12-oauth-spec-nits.md) | low | P5-04 | done |
+| P5-13 | [Remove the unused OAUTH_KV Worker binding](tasks/phase-5-oauth/P5-13-remove-oauth-kv-binding.md) | low | P5-01 | done |
 
 ### Phase 6
 
@@ -212,26 +218,47 @@ Generated from task front matter (`pnpm tasks index` once P0-05 lands). Status l
 | P6-22 | [Consistent tool argument and output naming before 1.0](tasks/phase-6-tool-parity/P6-22-tool-argument-consistency.md) | medium | P6-19 | done |
 | P6-23 | [Phase 6 review nits: lint gaps, test gaps, small correctness issues](tasks/phase-6-tool-parity/P6-23-phase-6-review-nits.md) | low | P6-19 | done |
 | P6-24 | [Paging and limit parity across list tools](tasks/phase-6-tool-parity/P6-24-paging-and-limit-parity.md) | low | P6-22 | done |
+| P6-25 | [Warn in the grant editor when a composite tool lacks its sibling tools](tasks/phase-6-tool-parity/P6-25-composite-grant-warning.md) | low | P6-21, P4-23 | done |
 
 ### Phase 7
 
 | ID | Task | Priority | Depends on | Status |
 |---|---|---|---|---|
-| P7-01 | [Result shaping v2: summaries, downsampling, stats](tasks/phase-7-power-features/P7-01-result-shaping-v2.md) | medium | P6-13 | todo |
-| P7-02 | [Query cache (Cache API / in-memory LRU)](tasks/phase-7-power-features/P7-02-query-cache.md) | medium | P6-13 | todo |
-| P7-03 | [Deep links to the New Relic UI](tasks/phase-7-power-features/P7-03-deep-links.md) | low | P6-13 | todo |
-| P7-04 | [Interactive charts via MCP Apps extension](tasks/phase-7-power-features/P7-04-mcp-apps-charts.md) | medium | P6-13 | todo |
-| P7-05 | [relic-bridge doctor](tasks/phase-7-power-features/P7-05-doctor.md) | medium | P6-13 | todo |
-| P7-06 | [Config import/export](tasks/phase-7-power-features/P7-06-import-export.md) | low | P6-13 | todo |
-| P7-07 | [Claude Code plugin (MCP config + skills + commands)](tasks/phase-7-power-features/P7-07-claude-code-plugin.md) | medium | P6-13 | todo |
-| P7-08 | [Self-monitoring via OpenTelemetry (opt-in)](tasks/phase-7-power-features/P7-08-self-monitoring.md) | low | P6-13 | todo |
-| P7-09 | [Opt-in write tools](tasks/phase-7-power-features/P7-09-write-tools.md) | medium | P6-13 | todo |
-| P7-10 | [Durable Object concurrency limiter for shared keys](tasks/phase-7-power-features/P7-10-do-concurrency-limiter.md) | low | P6-13 | todo |
-| P7-11 | [OS keychain for local credentials](tasks/phase-7-power-features/P7-11-os-keychain.md) | low | P6-13 | todo |
-| P7-12 | [Per-grant quotas and usage dashboard](tasks/phase-7-power-features/P7-12-quotas-usage.md) | low | P6-13 | todo |
-| P7-13 | [Async tool runs via MCP Tasks extension](tasks/phase-7-power-features/P7-13-tasks-extension.md) | low | P6-13 | todo |
-| P7-14 | [Registry-friendly tool discovery (lazy auth)](tasks/phase-7-power-features/P7-14-lazy-auth-discovery.md) | low | P6-13 | todo |
+| P7-01 | [Result shaping v2: summaries, downsampling, stats](tasks/phase-7-power-features/P7-01-result-shaping-v2.md) | medium | P6-13 | done |
+| P7-02 | [Query cache (Cache API / in-memory LRU)](tasks/phase-7-power-features/P7-02-query-cache.md) | medium | P6-13 | done |
+| P7-03 | [Deep links to the New Relic UI](tasks/phase-7-power-features/P7-03-deep-links.md) | low | P6-13 | done |
+| P7-04 | [Interactive charts via MCP Apps extension](tasks/phase-7-power-features/P7-04-mcp-apps-charts.md) | medium | P6-13 | done |
+| P7-05 | [relic-bridge doctor](tasks/phase-7-power-features/P7-05-doctor.md) | medium | P6-13 | done |
+| P7-06 | [Config import/export](tasks/phase-7-power-features/P7-06-import-export.md) | low | P6-13 | done |
+| P7-07 | [Claude Code plugin (MCP config + skills + commands)](tasks/phase-7-power-features/P7-07-claude-code-plugin.md) | medium | P6-13 | done |
+| P7-08 | [Self-monitoring via OpenTelemetry (opt-in)](tasks/phase-7-power-features/P7-08-self-monitoring.md) | low | P6-13 | done |
+| P7-09 | [Opt-in write tools](tasks/phase-7-power-features/P7-09-write-tools.md) | medium | P6-13 | done |
+| P7-10 | [Durable Object concurrency limiter for shared keys](tasks/phase-7-power-features/P7-10-do-concurrency-limiter.md) | low | P6-13 | done |
+| P7-11 | [OS keychain for local credentials](tasks/phase-7-power-features/P7-11-os-keychain.md) | low | P6-13 | done |
+| P7-12 | [Per-grant quotas and usage dashboard](tasks/phase-7-power-features/P7-12-quotas-usage.md) | low | P6-13 | done |
+| P7-13 | [Async tool runs via MCP Tasks extension](tasks/phase-7-power-features/P7-13-tasks-extension.md) | low | P6-13 | done |
+| P7-14 | [Registry-friendly tool discovery (lazy auth)](tasks/phase-7-power-features/P7-14-lazy-auth-discovery.md) | low | P6-13 | done |
 | P7-15 | [Opt-in, validated read-only NerdGraph query tool (only if ADR-0014 is reversed)](tasks/phase-7-power-features/P7-15-opt-in-nerdgraph-query.md) | low | P6-15 | blocked |
+| P7-16 | [MCP Apps: capability-gated UI metadata and an operator switch](tasks/phase-7-power-features/P7-16-mcp-apps-gating.md) | low | P7-04 | done |
+| P7-17 | [doctor: client config files and remote token validity](tasks/phase-7-power-features/P7-17-doctor-client-configs.md) | low | P7-05 | done |
+| P7-18 | [OTLP follow-ups: logs, budget usage, stdio, trace context](tasks/phase-7-power-features/P7-18-otel-logs-budget-stdio.md) | low | P7-08 | done |
+| P7-19 | [create_dashboard write tool](tasks/phase-7-power-features/P7-19-create-dashboard-write-tool.md) | low | P7-09 | done |
+| P7-20 | [Confirm write tool calls through MCP elicitation](tasks/phase-7-power-features/P7-20-write-confirm-elicitation.md) | low | P7-09 | done |
+| P7-21 | [MCP Tasks for composite reports and multi-query tools](tasks/phase-7-power-features/P7-21-tasks-composite-reports.md) | low | P7-13 | done |
+| P7-22 | [MCP Tasks: status notifications, stdio and pass-through](tasks/phase-7-power-features/P7-22-tasks-notifications-stdio.md) | low | P7-13 | done |
+| P7-23 | [MCP Tasks for the other composite reports and multi-query tools](tasks/phase-7-power-features/P7-23-tasks-other-composites.md) | low | P7-21 | done |
+| P7-24 | [Write rate limit enforced deployment-wide on Workers](tasks/phase-7-power-features/P7-24-write-rate-limit-deployment-wide.md) | medium | P7-10 | done |
+| P7-25 | [Owner switch to require human approval (elicitation) for write tools](tasks/phase-7-power-features/P7-25-require-human-approval-for-writes.md) | medium | P7-20 | done |
+| P7-26 | [Bind write approvals to one attempt (no replay of non-idempotent writes)](tasks/phase-7-power-features/P7-26-write-approval-replay.md) | low | P7-20 | done |
+| P7-27 | [tools/list size budget with write tools enabled, and headroom](tasks/phase-7-power-features/P7-27-tools-list-budget-with-writes.md) | medium | P7-19 | done |
+| P7-28 | [Owner-only edits of write-enabled projects/grants, and audit before the mutation](tasks/phase-7-power-features/P7-28-write-project-edits-and-audit.md) | medium | P7-09 | done |
+| P7-29 | [Compare-and-swap on MCP task records](tasks/phase-7-power-features/P7-29-task-record-cas.md) | low | P7-23 | done |
+| P7-30 | [Low-severity follow-ups from the Phase 7 review](tasks/phase-7-power-features/P7-30-phase-7-review-lows.md) | low | P7-23 | done |
+| P7-31 | [Description lint for write tools](tasks/phase-7-power-features/P7-31-lint-write-tool-descriptions.md) | low | P7-27 | done |
+| P7-32 | [Owner-only re-enable of users who hold write grants](tasks/phase-7-power-features/P7-32-user-reenable-write-grants.md) | low | P7-28 | done |
+| P7-33 | [Default RB_WRITE_APPROVAL to required](tasks/phase-7-power-features/P7-33-write-approval-required-default.md) | high | P7-25 | done |
+| P7-34 | [RB_TASKS=off switch for MCP Tasks](tasks/phase-7-power-features/P7-34-tasks-kill-switch.md) | low | P7-13, P7-29 | done |
+| P7-35 | [Charge the write rate limit only for the answered elicitation round](tasks/phase-7-power-features/P7-35-elicitation-charge-answered-round.md) | low | P7-20, P7-24 | done |
 
 ### Phase 8
 
@@ -244,4 +271,8 @@ Generated from task front matter (`pnpm tasks index` once P0-05 lands). Status l
 | P8-05 | [Versioning, support and deprecation policy](tasks/phase-8-hardening-launch/P8-05-support-policy.md) | medium | P7-04, P7-09 | todo |
 | P8-06 | [1.0 launch](tasks/phase-8-hardening-launch/P8-06-launch.md) | high | P8-02, P8-03, P8-04, P8-05 | todo |
 | P8-07 | [CI supply-chain hardening follow-ups](tasks/phase-8-hardening-launch/P8-07-ci-supply-chain-hardening.md) | medium | P1-16 | todo |
+| P8-08 | [Run CI on the organization's self-hosted runners, with a hosted fallback](tasks/phase-8-hardening-launch/P8-08-self-hosted-ci-runners.md) | high | — | done |
+| P8-09 | [Fix EPERM temp-dir cleanup in the SQLite tests on Windows](tasks/phase-8-hardening-launch/P8-09-windows-sqlite-test-cleanup.md) | medium | — | done |
+| P8-10 | [Clear the failing dependency audit (sharp and two other dev-only advisories)](tasks/phase-8-hardening-launch/P8-10-sharp-advisory.md) | high | — | done |
+| P8-11 | [Make the concurrent task-poll test independent of which poll wins](tasks/phase-8-hardening-launch/P8-11-task-poll-test-order.md) | low | P7-29 | done |
 <!-- tasks:end -->

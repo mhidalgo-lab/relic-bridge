@@ -25,8 +25,9 @@ analysis is in the [threat model](../THREAT_MODEL.md).
 
 ## The agent can only read
 
-All tools are read-only (`readOnlyHint` is set on each) and no tool can change New Relic configuration, dashboards,
-alerts or data. NRQL is a read language and every query is checked against your [limits](query-limits.md).
+By default every tool is read-only (`readOnlyHint` is set on each) and no tool can change New Relic configuration,
+dashboards, alerts or data. NRQL is a read language and every query is checked against your [limits](query-limits.md).
+Three opt-in [write tools](#write-tools-opt-in) exist, off unless you turn them on at every layer.
 
 Narrow it further when you can:
 
@@ -44,9 +45,9 @@ your users or attackers. Text such as "ignore previous instructions and ..." can
 
 relic-bridge wraps every block of telemetry in an `untrusted-data` envelope with a random marker and redacts
 secret-shaped values, which helps well-behaved models. This is a **mitigation, not a guarantee** (see
-[output formats](output-formats.md)). Your protection is that the agent has no write tools: the worst a successful
-injection can do is steer the agent's queries and answers within the data it can already read, or ask you to do
-something. So:
+[output formats](output-formats.md)). Your protection is that the agent has no write tools (unless you enabled them):
+the worst a successful injection can do is steer the agent's queries and answers within the data it can already read,
+or ask you to do something. So:
 
 - Be careful about what *other* tools you give the same agent session (shell, email, browser). Combining them with
   telemetry access is where injection becomes dangerous.
@@ -58,6 +59,59 @@ something. So:
   event type for connections that should not read logs.
 - Telemetry read by the agent goes to your model provider like any other prompt content. Exclude event types that
   contain personal data (`eventTypes.deny`).
+
+## Write tools (opt-in)
+
+Four tools can change New Relic ([ADR-0015](../adr/0015-opt-in-write-tools.md)):
+
+| Tool | What it does | Undo |
+|---|---|---|
+| `create_change_event` | Records a change marker (deployment, configuration, feature flag, operational or business event) on one entity | none here (it is a marker, it changes no setting) |
+| `acknowledge_issue` | Marks an alert issue as being handled | in the New Relic UI |
+| `close_issue` | Closes an alert issue (stops its notifications) | none: New Relic opens a new issue if the condition still violates. Marked **destructive** |
+| `create_dashboard` | Creates a new **private** dashboard from NRQL queries (charts and plain-text markdown) | delete it in the New Relic UI (relic-bridge never edits or deletes dashboards) |
+
+They are **off at every layer** and each layer has to be opened on purpose:
+
+1. The server: `RB_WRITE_TOOLS=on` (stdio, `serve`, Worker). Without it the tools don't exist. `serve` and the Worker
+   also need the audit log on.
+2. The project must name the tool in its tool list, and so must the grant. "All tools" never includes a write tool.
+   Only an **owner** can add one (an admin gets `403`), and only an owner can then widen that project or grant (more
+   accounts, another default key, limits, quota, a new token, rotating its key). On stdio, name it in `RB_TOOLS` / the YAML `tools` list.
+3. The key: writes run only with a shared key or the grant user's own key, never with somebody else's personal key.
+4. OAuth apps need the `mcp:write` scope: the app must ask for it, and the consent screen shows the changes in a separate
+   box that you tick yourself. It is never remembered ("don't ask again" is hidden) and never granted silently. An app
+   approved without the box stays read-only.
+5. Pass-through connections never get write tools.
+
+Each call needs `confirm: true` (or `dry_run: true` to preview), reads its target first and refuses anything outside the
+connection's accounts, sends its change once (never retried), is limited to 20 writes per hour per grant
+(`RB_RATE_LIMIT_WRITE`; the approval question and dry runs do not count, a confirmed write uses one) and is written to the [audit log](audit-log.md) with its arguments and a before/after record.
+The audit row of the attempt is stored before the change is sent: if the audit log cannot store it, nothing is sent.
+Write calls always check access in storage, so revoking a grant stops its next write at once.
+
+`create_dashboard` has extra rules, because its widgets carry NRQL that New Relic runs whenever someone opens the
+dashboard: the dashboard is always **private** (there is no argument to share it); every widget query is checked like
+`run_nrql` (the raw-NRQL switch, so with `rawNrql: false` the tool is not offered at all; allowed and denied event
+types; the time window; `LIMIT`) and its account must be one of the connection's accounts; at most 5 pages, 20 widgets
+per page and 40 in all; names and text are bounded, and markdown widgets may not hold links, images or HTML. Its audit
+row keeps a summary (pages, widgets, accounts, event types and a SHA-256 of the exact dashboard sent), not every query.
+Once created, the dashboard's queries run in the New Relic UI under the viewer's own rights and time picker, outside
+relic-bridge's limits.
+
+That approval is mandatory by default: `RB_WRITE_APPROVAL` is `required` unless you set it (`serve`, Worker and stdio;
+only the person running the server can change it; ADR-0016). A write from a client that cannot be asked (no elicitation
+support, or a stateless HTTP client on a 2025-era protocol version) is refused: nothing is changed, the agent is told
+why, and the audit row records `confirmation: unavailable`. Such a client can dry-run but not apply a write until you set
+`RB_WRITE_APPROVAL=client`, which lets the model's own `confirm: true` through (a prompt-injected agent is then the
+only gate) and logs a warning at startup. Dry runs and read tools are unaffected, and the write tools stay listed.
+
+The agent sets `confirm: true` itself, so it is not a human approval. When your client supports MCP elicitation, relic-bridge
+also asks you in a form to approve the exact change before it is made (stdio, and HTTP with clients on protocol
+2026-07-28); decline or cancel changes nothing. Without that, a prompt-injected agent can still try a write you
+allowed. Enable only the tools you need, prefer `acknowledge_issue` over `close_issue`, and keep write-enabled grants
+apart from the ones you use with untrusted data or other powerful tools. The New Relic mutations are not verified live
+yet; try one with `dry_run` and then once by hand before relying on them.
 
 ## Report problems
 

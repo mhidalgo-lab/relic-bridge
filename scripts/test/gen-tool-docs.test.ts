@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { createBuiltinTools } from '../../packages/core/src/index.ts';
+import { createBuiltinTools, createWriteTools } from '../../packages/core/src/index.ts';
 import { renderFields, renderToolsDoc, typeLabel } from '../gen-tool-docs.ts';
 
 // Reuse a real tool's schema (scripts have no direct zod dependency) with a distinct identity.
@@ -50,6 +50,6 @@ describe('gen-tool-docs', () => {
 
   it('the committed docs/reference/tools.md is current', () => {
     const committed = readFileSync(new URL('../../docs/reference/tools.md', import.meta.url), 'utf8');
-    expect(committed).toBe(renderToolsDoc(createBuiltinTools()));
+    expect(committed).toBe(renderToolsDoc(createBuiltinTools(), createWriteTools()));
   });
 });

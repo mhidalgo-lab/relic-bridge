@@ -228,7 +228,7 @@ describe('computeAccess: limits', () => {
       );
       expect(a.limits.rawNrql).toBe(false);
       for (const t of RAW_NRQL_TOOLS) expect(a.tools).not.toContain(t);
-      expect(a.tools.length).toBe(CATALOG.length - RAW_NRQL_TOOLS.length);
+      expect(a.tools.length).toBe(CATALOG.filter((t) => !RAW_NRQL_TOOLS.includes(t)).length);
     }
   });
 

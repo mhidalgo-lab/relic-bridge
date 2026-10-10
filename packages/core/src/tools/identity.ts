@@ -6,7 +6,8 @@ import { envelope } from '../output/envelope.ts';
 import { shapeRows, truncateText } from '../output/format.ts';
 import { redact } from '../redact.ts';
 import { defineTool, type ToolDefinition } from '../tool.ts';
-import { type ToolDeps, toolClient } from './shared.ts';
+import { bindingOf, listLimit, pageList } from './paging.ts';
+import { cursorInput, type ToolDeps, toolClient, UNTRUSTED } from './shared.ts';
 
 /** Account and user names are free text set in New Relic: bounded and single-line before they reach an agent (T6). */
 const MAX_NAME_CHARS = 200;
@@ -29,7 +30,7 @@ const whoamiOutput = z.object({
   user: z.object({ id: z.number().int(), name: z.string(), email: z.string() }),
   region: z.enum(['US', 'EU', 'JP']),
   project: z.string().nullable(),
-  defaultAccount: z.number().int(),
+  defaultAccountId: z.number().int(),
   defaultAccountReachable: z.boolean(),
   accountCount: z.number().int(),
   allowedTools: z.array(z.string()).nullable(),
@@ -44,28 +45,41 @@ const whoamiOutput = z.object({
   }),
 });
 
-const listAccountsInput = z.strictObject({});
+const DEFAULT_ACCOUNTS = 100;
+const listAccountsInput = z.strictObject({
+  limit: listLimit('accounts', DEFAULT_ACCOUNTS, MAX_ACCOUNT_ROWS),
+  cursor: cursorInput,
+});
 
 const listAccountsOutput = z.object({
   accounts: z.array(accountSchema),
-  defaultAccount: z.number().int(),
+  defaultAccountId: z.number().int(),
   defaultAccountReachable: z.boolean(),
   /** Allowed accounts the key cannot read (ids only). */
-  unreachableAllowed: z.array(z.number().int()),
-  truncated: z.boolean(),
+  unreachableAccountIds: z.array(z.number().int()),
+  /** More accounts exist: pass this as cursor to read them. */
+  nextCursor: z.string().nullable(),
 });
 
-const WHOAMI_DESCRIPTION = `Show who this connection is: the New Relic user behind the key, the data-center region, the project, the default account, how many accounts are usable and which tools are granted.
+const WHOAMI_DESCRIPTION = `Show this connection's identity: the New Relic user, region, project, default account, how many accounts are usable and which tools are granted. Never returns key material.
 
-Use it first when something doesn't work (wrong region, "account not found", missing tools) or to learn the default account. It never returns key material. The user name and email come from New Relic and are inside an untrusted-data block.`;
+Use it first when something fails (wrong region, "account not found", a missing tool). For the accounts themselves use list_accounts. ${UNTRUSTED}`;
 
-const LIST_ACCOUNTS_DESCRIPTION = `List the New Relic accounts you can query through this connection, with the default marked.
+const LIST_ACCOUNTS_DESCRIPTION = `List the New Relic accounts this connection can query (id and name), with the default marked.
 
-An account is listed only when the key can read it and the connection allows it. Pass an id from this list as "accounts" to run_nrql; tools that take no account use the default. Account names come from New Relic and are inside an untrusted-data block.`;
+Pass an id as "account" (or "accounts" in run_nrql); tools without one use the default account. For the user, region and granted tools use whoami. ${UNTRUSTED}`;
 
 /** Single line, bounded, secret-shaped values redacted. For New Relic-provided free text (names, tags). */
 export function cleanName(value: string, max: number = MAX_NAME_CHARS): string {
   return truncateText(redact(value).replace(/\s+/g, ' ').trim(), max);
+}
+
+/**
+ * A note for a failed section or sub-query. New Relic error messages are free text a user in that account can shape, and
+ * notes sit outside the untrusted-data envelope, so only the error code is shown; the message goes to the log.
+ */
+export function errorNote(e: { readonly code: string }): string {
+  return `The request failed (${e.code}); run the underlying tool directly for details.`;
 }
 
 /** `m***@example.com`. Anything that is not a plain address is fully hidden. */
@@ -132,7 +146,7 @@ export function createIdentityTools(deps: ToolDeps = {}): ToolDefinition[] {
         user,
         region: ctx.credential.region,
         project,
-        defaultAccount: ctx.accounts.default,
+        defaultAccountId: ctx.accounts.default,
         defaultAccountReachable: defaultReachable,
         accountCount: accounts.length,
         allowedTools,
@@ -147,7 +161,7 @@ export function createIdentityTools(deps: ToolDeps = {}): ToolDefinition[] {
       };
       const lines = [
         `Connected to New Relic in the ${structured.region} region. Project: ${project ?? 'unknown'}.`,
-        `Default account: ${structured.defaultAccount}${defaultReachable ? '' : ' (WARNING: the key cannot read it)'}. ` +
+        `Default account: ${structured.defaultAccountId}${defaultReachable ? '' : ' (WARNING: the key cannot read it)'}. ` +
           `Usable accounts: ${accounts.length} (see list_accounts).`,
         `Query limits: up to ${ctx.limits.maxLimit} rows, ${ctx.limits.maxWindowDays} day window, ` +
           `raw NRQL ${ctx.limits.rawNrql ? 'allowed' : 'disabled'}.`,
@@ -175,11 +189,15 @@ export function createIdentityTools(deps: ToolDeps = {}): ToolDefinition[] {
     cost: 1,
     group: 'identity',
     phase: 1,
-    handler: async (_input, ctx) => {
+    handler: async (input, ctx) => {
       const reachable = await listReachableAccounts(client(ctx));
       const { accounts, unreachableAllowed, defaultReachable } = intersectAccounts(reachable, ctx.accounts);
-      const shown = accounts.slice(0, MAX_ACCOUNT_ROWS);
-      const truncated = shown.length < accounts.length;
+      const { items: shown, nextCursor } = pageList(
+        accounts,
+        await bindingOf('list_accounts', ctx.accounts.default),
+        input.cursor,
+        input.limit ?? DEFAULT_ACCOUNTS,
+      );
       const shaped = shapeRows(
         shown.map((a) => ({ id: a.id, name: a.name, default: a.default ? 'yes' : '' })),
         { format: 'table', source: 'New Relic accounts' },
@@ -196,16 +214,17 @@ export function createIdentityTools(deps: ToolDeps = {}): ToolDefinition[] {
             `(ids: ${unreachableAllowed.slice(0, 20).join(', ')}). Check the key's access and region.`,
         );
       }
-      if (truncated) lines.push(`Showing the first ${MAX_ACCOUNT_ROWS} accounts.`);
+      if (nextCursor) lines.push(`Showing ${shown.length} accounts: pass nextCursor as cursor for the rest.`);
       lines.push(shaped.text);
+      if (nextCursor) lines.push(`nextCursor: ${nextCursor}`);
       return {
         text: lines.join('\n'),
         structured: {
           accounts: shown,
-          defaultAccount: ctx.accounts.default,
+          defaultAccountId: ctx.accounts.default,
           defaultAccountReachable: defaultReachable,
-          unreachableAllowed,
-          truncated,
+          unreachableAccountIds: unreachableAllowed,
+          nextCursor,
         },
       };
     },

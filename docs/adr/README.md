@@ -20,3 +20,4 @@ Statuses: `proposed` · `accepted` · `accepted (pending spike PX-NN)` · `super
 | [0011](0011-oauth-state-in-storage-kv.md) | OAuth provider state in the storage `kv` table on both runtimes | accepted (P5-01) |
 | [0012](0012-cimd-resolved-by-relic-bridge.md) | Client ID Metadata Documents resolved by relic-bridge, per-runtime SSRF guard | accepted (P5-03) |
 | [0013](0013-refresh-token-reuse-interval.md) | Refresh token reuse interval for concurrent refreshes | accepted (P5-09, owner confirmation pending) |
+| [0014](0014-no-raw-nerdgraph-tool.md) | No raw NerdGraph passthrough tool | accepted (P6-15, owner confirmation pending) |

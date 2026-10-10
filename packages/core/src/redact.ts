@@ -26,6 +26,25 @@ const VALUE_PATTERNS: ReadonlyArray<[RegExp, (match: string, ...groups: string[]
   ],
 ];
 
+/** Secret shapes that show up in free text (log lines, error messages, URLs) beyond the value patterns above. */
+const FREE_TEXT_PATTERNS: ReadonlyArray<[RegExp, string]> = [
+  // JSON web tokens.
+  [/\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]*/g, '[REDACTED_JWT]'],
+  // AWS access key ids; GitHub, Slack, Stripe and OpenAI-style tokens.
+  [/\b(?:AKIA|ASIA)[A-Z0-9]{16}\b/g, '[REDACTED_AWS_KEY]'],
+  [/\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})/g, '[REDACTED_TOKEN]'],
+  [/\bxox[abprs]-[A-Za-z0-9-]{10,}/g, '[REDACTED_TOKEN]'],
+  [/\b(?:sk|pk|rk)_(?:live|test)_[A-Za-z0-9]{10,}/g, '[REDACTED_TOKEN]'],
+  [/\bsk-[A-Za-z0-9_-]{20,}/g, '[REDACTED_TOKEN]'],
+  // Credentials in URLs: scheme://user:password@host.
+  [/\b([a-z][a-z0-9+.-]*:\/\/)[^\s/:@]+:[^\s/@]+@/gi, '$1[REDACTED]@'],
+  // PEM private key bodies.
+  [
+    /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z ]*PRIVATE KEY-----|$)/g,
+    '[REDACTED_PRIVATE_KEY]',
+  ],
+];
+
 /** Object keys whose values are always redacted, whatever they contain. */
 const SECRET_KEY_RE =
   /^(api[-_]?key|authorization|token|access[-_]?token|refresh[-_]?token|id[-_]?token|password|secret|client[-_]?secret|master[-_]?key|cookie|set-cookie)$/i;
@@ -38,6 +57,7 @@ export function isSecretKeyName(key: string): boolean {
 export function redact(input: string): string {
   let out = input;
   for (const [re, replace] of VALUE_PATTERNS) out = out.replace(re, replace as (m: string) => string);
+  for (const [re, replacement] of FREE_TEXT_PATTERNS) out = out.replace(re, replacement);
   return out;
 }
 

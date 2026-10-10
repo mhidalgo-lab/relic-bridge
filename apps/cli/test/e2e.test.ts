@@ -81,8 +81,9 @@ class RawSession {
 
   constructor(bin: string, args: string[], env: Record<string, string>) {
     this.child = spawn(process.execPath, [bin, ...args], { env, stdio: 'pipe' });
-    this.child.stdout.on('data', (c: Buffer) => {
-      this.stdout += c.toString();
+    this.child.stdout.setEncoding('utf8');
+    this.child.stdout.on('data', (c: string) => {
+      this.stdout += c;
       for (const w of this.#waiters.splice(0)) w();
     });
     this.child.stderr.on('data', (c: Buffer) => {
@@ -91,7 +92,9 @@ class RawSession {
   }
 
   messages(): Array<Record<string, unknown>> {
-    return this.stdout
+    // Only complete lines: a large response (tools/list) arrives in several 64 KiB chunks.
+    const complete = this.stdout.slice(0, this.stdout.lastIndexOf('\n') + 1);
+    return complete
       .split('\n')
       .filter((l) => l.length > 0)
       .map((l) => JSON.parse(l) as Record<string, unknown>);
@@ -143,7 +146,7 @@ describe('relic-bridge stdio (built CLI)', () => {
     const names = list.tools.map((t) => t.name);
     expect(names).toContain('run_nrql');
     expect(names).toContain('whoami');
-    expect(names).toHaveLength(13);
+    expect(names).toHaveLength(36);
 
     const before = requests.length;
     const call = (await s.request(3, 'tools/call', { name: 'whoami', arguments: {} }))['result'] as {
@@ -151,7 +154,7 @@ describe('relic-bridge stdio (built CLI)', () => {
       structuredContent: Record<string, unknown>;
     };
     expect(call.isError).toBeFalsy();
-    expect(call.structuredContent).toMatchObject({ region: 'US', defaultAccount: 1000001, project: null });
+    expect(call.structuredContent).toMatchObject({ region: 'US', defaultAccountId: 1000001, project: null });
     expect(requests.slice(before)).toEqual([expect.objectContaining({ apiKey: FAKE_KEY })]);
 
     s.child.stdin.end();
@@ -162,6 +165,45 @@ describe('relic-bridge stdio (built CLI)', () => {
     expect(s.stderr).not.toContain(FAKE_KEY);
     expect(s.stderr).toContain('serving MCP over stdio');
     expect(s.stderr).toContain('test hook active');
+  }, 30_000);
+
+  it('prompts and resources work over stdio, text only, without reaching New Relic', async () => {
+    const s = new RawSession(
+      TEST_BIN,
+      [],
+      baseEnv({ NEW_RELIC_API_KEY: FAKE_KEY, NEW_RELIC_ACCOUNT_ID: '1000001' }),
+    );
+    await s.request(1, 'initialize', {
+      protocolVersion: '2025-06-18',
+      capabilities: {},
+      clientInfo: { name: 'e2e', version: '0' },
+    });
+    s.send({ jsonrpc: '2.0', method: 'notifications/initialized' });
+    const before = requests.length;
+
+    const prompts = (await s.request(2, 'prompts/list', {}))['result'] as { prompts: { name: string }[] };
+    expect(prompts.prompts.map((p) => p.name)).toContain('investigate_error_spike');
+    const got = (
+      await s.request(3, 'prompts/get', { name: 'investigate_incident', arguments: { issue_id: 'i-1' } })
+    )['result'] as { messages: { content: { text?: string } }[] };
+    expect(got.messages[0]?.content.text).toContain('list_recent_issues');
+
+    const resources = (await s.request(4, 'resources/list', {}))['result'] as {
+      resources: { uri: string }[];
+    };
+    expect(resources.resources.map((r) => r.uri)).toContain('relic://nrql/reference');
+    const ref = (await s.request(5, 'resources/read', { uri: 'relic://nrql/reference' }))['result'] as {
+      contents: { text?: string }[];
+    };
+    expect(ref.contents.map((c) => c.text ?? '').join('\n')).toContain('NRQL');
+    // A resource outside the effective accounts is refused over stdio too.
+    const denied = await s.request(6, 'resources/read', { uri: 'relic://accounts/42/event-types' });
+    expect(JSON.stringify(denied['error'])).toMatch(/RB_AUTH_FORBIDDEN/);
+
+    expect(requests.length).toBe(before);
+    s.child.stdin.end();
+    expect(await s.exit()).toBe(0);
+    expect(s.messages().every((m) => m['jsonrpc'] === '2.0')).toBe(true);
   }, 30_000);
 
   it('YAML mode via the SDK stdio client (modern era): project, allowlist and rawNrql filter', async () => {

@@ -9,12 +9,28 @@ import { envelope } from '../output/envelope.ts';
 import { shapeRows } from '../output/format.ts';
 import { parseTimeRange } from '../time/range.ts';
 import { defineTool, type ToolDefinition } from '../tool.ts';
-import { checkGuid, isNonNull, outOfScope, requireField } from './entities.ts';
-import { cleanName } from './identity.ts';
-import { assertWindowWithinLimit, type ToolDeps, toolClient } from './shared.ts';
+import { checkGuid, isNonNull, outOfScope, requireField } from './entity-common.ts';
+import { entityRefFields, RESOLVE_COST, refineEntityRef, resolveEntityRef } from './entity-ref.ts';
+import { createEntityResolver } from './entity-resolver.ts';
+import { cleanName, errorNote } from './identity.ts';
+import {
+  assertWindowWithinLimit,
+  NRQL_COST,
+  startableNrql,
+  type ToolDeps,
+  timeRangeInput,
+  toolClient,
+  UNTRUSTED,
+} from './shared.ts';
 
 export const DEFAULT_GOLDEN_SINCE = 'last 30 minutes';
 const DEFAULT_MAX_METRICS = 10;
+
+/** Requests `get_golden_metrics` sends for `metrics` golden metrics (entity lookup + NRQL each), name resolution aside. */
+export const goldenCost = (metrics: number): number => 1 + NRQL_COST * metrics;
+/** The golden metrics a grant of `granted` requests pays for (at least one). */
+export const goldenMetricsFor = (granted: number): number =>
+  Math.max(1, Math.floor((granted - 1) / NRQL_COST));
 const MAX_METRICS = 20;
 const MAX_QUERY_CHARS = 4096;
 /** Relative change between the two halves of the window that still counts as flat. */
@@ -32,30 +48,23 @@ const FATAL_CODES: ReadonlySet<string> = new Set([
 
 export type Trend = 'up' | 'down' | 'flat' | 'unknown';
 
-const input = z.strictObject({
-  guid: z.string().min(8).max(512).describe('Entity guid, exactly as returned by search_entities.'),
-  since: z
-    .string()
-    .min(1)
-    .max(200)
-    .optional()
-    .describe(
-      `Time window, e.g. "last 30 minutes" (default), "last 6 hours", "today". Same forms as time_range. Metrics whose query already has its own SINCE keep it.`,
-    ),
-  timeseries: z
-    .boolean()
-    .optional()
-    .describe(
-      'Fetch a time series to compute the trend (default true). False: one value per metric, no trend.',
-    ),
-  max_metrics: z
-    .number()
-    .int()
-    .min(1)
-    .max(MAX_METRICS)
-    .optional()
-    .describe(`Most golden metrics to run (default ${DEFAULT_MAX_METRICS}, max ${MAX_METRICS}).`),
-});
+const input = refineEntityRef(
+  z.strictObject({
+    ...entityRefFields('Entity guid.'),
+    time_range: timeRangeInput(DEFAULT_GOLDEN_SINCE),
+    timeseries: z
+      .boolean()
+      .optional()
+      .describe('Fetch a time series for the trend (default true); false: one value per metric.'),
+    max_metrics: z
+      .number()
+      .int()
+      .min(1)
+      .max(MAX_METRICS)
+      .optional()
+      .describe(`Most golden metrics to run (default ${DEFAULT_MAX_METRICS}, max ${MAX_METRICS}).`),
+  }),
+);
 
 const metricRow = z.object({
   title: z.string(),
@@ -82,15 +91,16 @@ const output = z.object({
     type: z.string().nullable(),
   }),
   since: z.string(),
+  until: z.string(),
   metrics: z.array(metricRow),
   /** Some metrics were not evaluated (budget) or have no value (errors, still running). */
   partial: z.boolean(),
   totalMetrics: z.number().int(),
 });
 
-const DESCRIPTION = `Health summary of one entity from its golden metrics: the handful of metrics New Relic defines as the key signals for that kind of entity (throughput, response time and error rate for a service; CPU and memory for a host; and so on).
+const DESCRIPTION = `Golden metrics of one entity (guid or name): the key signals New Relic defines for its kind (throughput, response time and error rate for a service; CPU and memory for a host...), each with its latest value, a trend (up, down, flat) and the NRQL that produced it.
 
-Pass a guid from search_entities. Each metric returns its latest value, a trend (up, down, flat: the later half of the window compared with the earlier half) and the NRQL that produced it, so you can rerun or refine it with run_nrql. since defaults to the last 30 minutes. If the request budget or a query limit stops some metrics, the others are still returned and the missing ones are marked skipped or error. Titles and values come from New Relic and are inside an untrusted-data block.`;
+Use it for current metric values, and refine any metric with run_nrql. For metrics plus issues, errors and deployments in one call use entity_health. Runs one entity lookup, then one query per metric (up to max_metrics); metrics stopped by budget or query limits are marked skipped or error. ${UNTRUSTED}`;
 
 const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 
@@ -171,6 +181,50 @@ export function withTimeClauses(
   return { nrql: parts.join(' '), timeseries: timeseries || hasSeries };
 }
 
+const SELECT_END = new Set([
+  'FROM',
+  'WHERE',
+  'FACET',
+  'SINCE',
+  'UNTIL',
+  'TIMESERIES',
+  'LIMIT',
+  'COMPARE',
+  'WITH',
+  'ORDER',
+]);
+
+/**
+ * Whether an NRQL text only aggregates: every select item is a function call, no `*`, no sub-select, no JOIN. Golden
+ * metrics can be customised in New Relic, so on a connection with `rawNrql: false` a golden query that could return raw
+ * event rows is refused (review M4). Token-level, like the query limits: a screen, not a parser.
+ */
+export function isAggregateOnlyNrql(query: string): boolean {
+  const tokens = tokenize(query).filter((t) => t.kind !== 'comment');
+  if (
+    tokens.some((t) => t.kind === 'word' && (t.value === 'JOIN' || (t.depth > 0 && t.value === 'SELECT')))
+  ) {
+    return false;
+  }
+  const start = tokens.findIndex((t) => t.kind === 'word' && t.depth === 0 && t.value === 'SELECT');
+  if (start === -1) return false;
+  let itemStart = true;
+  for (let i = start + 1; i < tokens.length; i++) {
+    const t = tokens[i] as (typeof tokens)[number];
+    if (t.depth === 0 && t.kind === 'word' && SELECT_END.has(t.value)) break;
+    if (t.depth === 0 && t.text === '*') return false;
+    if (t.depth === 0 && t.text === ',') {
+      itemStart = true;
+      continue;
+    }
+    if (itemStart) {
+      if (t.kind !== 'word' || tokens[i + 1]?.text !== '(') return false;
+      itemStart = false;
+    }
+  }
+  return !itemStart;
+}
+
 type MetricRow = z.infer<typeof metricRow>;
 
 const emptyMetric = (title: string, status: MetricRow['status'], note: string | null = null): MetricRow => ({
@@ -191,6 +245,7 @@ const pct = (r: number | null) => (r === null ? '' : `${r >= 0 ? '+' : ''}${(r *
 /** `get_golden_metrics`. */
 export function createGoldenMetricTools(deps: ToolDeps = {}): ToolDefinition[] {
   const client = toolClient(deps);
+  const resolver = deps.resolver ?? createEntityResolver(deps);
 
   async function runMetric(
     ctx: ToolContext,
@@ -203,6 +258,13 @@ export function createGoldenMetricTools(deps: ToolDeps = {}): ToolDefinition[] {
     try {
       if (query.length > MAX_QUERY_CHARS) {
         return emptyMetric(title, 'error', 'The golden metric query is too long to run.');
+      }
+      if (!ctx.limits.rawNrql && !isAggregateOnlyNrql(query)) {
+        return emptyMetric(
+          title,
+          'error',
+          'This golden metric is not a plain aggregate query and raw NRQL is disabled on this connection.',
+        );
       }
       const prepared = withTimeClauses(query, clause, wantSeries);
       const outcome = await runTrustedNrql(
@@ -235,7 +297,7 @@ export function createGoldenMetricTools(deps: ToolDeps = {}): ToolDefinition[] {
       if (!(e instanceof RbError) || FATAL_CODES.has(e.code)) throw e;
       if (e.code === ErrorCode.BudgetExhausted)
         return emptyMetric(title, 'skipped', 'Request budget exhausted.');
-      return emptyMetric(title, 'error', cleanName(e.message, 300));
+      return emptyMetric(title, 'error', errorNote(e));
     }
   }
 
@@ -247,14 +309,15 @@ export function createGoldenMetricTools(deps: ToolDeps = {}): ToolDefinition[] {
     outputSchema: output,
     kind: 'read',
     openWorld: true,
-    // One entity lookup plus one query per metric (default cap).
-    cost: 1 + DEFAULT_MAX_METRICS,
+    // One entity lookup plus one NRQL per metric (default cap), and the name resolution.
+    cost: goldenCost(DEFAULT_MAX_METRICS) + RESOLVE_COST,
     group: 'health',
     phase: 1,
-    handler: async (args, ctx) => {
+    handler: async (rawArgs, ctx) => {
+      const ref = await resolveEntityRef(resolver, ctx, rawArgs);
+      const args = { ...rawArgs, guid: ref.guid };
       const decoded = checkGuid(ctx, args.guid);
-      const sinceText = args.since ?? DEFAULT_GOLDEN_SINCE;
-      const range = parseTimeRange(sinceText, ctx.clock.now());
+      const range = parseTimeRange(args.time_range ?? DEFAULT_GOLDEN_SINCE, ctx.clock.now());
       assertWindowWithinLimit(range, ctx.limits);
       const wantSeries = args.timeseries ?? true;
 
@@ -274,8 +337,8 @@ export function createGoldenMetricTools(deps: ToolDeps = {}): ToolDefinition[] {
         .filter((m) => m.query !== '');
       const cap = args.max_metrics ?? DEFAULT_MAX_METRICS;
       const wanted = defs.slice(0, cap);
-      // Budget-aware: start only as many as the remaining budget can pay for (one request each).
-      const startable = Math.min(wanted.length, ctx.budget.remaining);
+      // Budget-aware: start only as many as the remaining budget can pay for (NRQL_COST requests each).
+      const startable = startableNrql(wanted.length, ctx.budget.remaining);
       const ran = await Promise.all(
         wanted
           .slice(0, startable)
@@ -329,8 +392,15 @@ export function createGoldenMetricTools(deps: ToolDeps = {}): ToolDefinition[] {
         );
       }
       return {
-        text: lines.join('\n'),
-        structured: { entity, since: sinceText, metrics, partial, totalMetrics: defs.length },
+        text: [...(ref.note ? [ref.note] : []), ...lines].join('\n'),
+        structured: {
+          entity,
+          since: range.since,
+          until: range.until,
+          metrics,
+          partial,
+          totalMetrics: defs.length,
+        },
       };
     },
   });

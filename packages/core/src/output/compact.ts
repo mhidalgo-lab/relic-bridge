@@ -63,7 +63,7 @@ export function encodeCursor(offset: number): string {
 export function decodeCursor(cursor: string): number {
   const invalid = () =>
     new RbError(ErrorCode.InputInvalid, 'The cursor is not valid.', {
-      hint: 'Pass next_cursor exactly as returned by the previous call, or omit it to start over.',
+      hint: 'Pass nextCursor exactly as returned by the previous call, or omit it to start over.',
     });
   if (typeof cursor !== 'string' || !CURSOR_RE.test(cursor)) throw invalid();
   let decoded: string;

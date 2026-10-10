@@ -271,9 +271,96 @@ Sources: <https://github.com/cloudflare/workers-oauth-provider>, issues #264, #3
   - `actor.entitySearch(query: "…")`, `actor.entity(guid)`, `relatedEntities`
   - `entity.goldenMetrics { metrics { title query } }`: returns NRQL to run
   - `account.aiIssues`, `account.alerts.policiesSearch` / `nrqlConditionsSearch`, `actor.errorsInbox`
+- Alerts (P6-01, from the P0-09 introspection): `AlertsAccountStitchedFields.policiesSearch(cursor, searchCriteria:
+  AlertsPoliciesSearchCriteriaInput { ids, name, nameLike })` → `{ nextCursor totalCount policies { id name accountId
+  incidentPreference entityGuid } }` (live-verified, sanitized fixture `alerts_policies.json`). `nrqlConditionsSearch(cursor,
+  searchCriteria { name, nameLike, policyId: ID, query, queryLike, termsOperator })` → `nrqlConditions` of the interface
+  `AlertsNrqlCondition` (id, name, policyId, entityGuid, enabled, type STATIC|BASELINE|OUTLIER, description, runbookUrl,
+  `nrql { query dataAccountId }`, `terms { priority operator threshold thresholdDuration thresholdOccurrences }`, `signal`,
+  `violationTimeLimitSeconds`). **Introspected only, not yet live-verified:** `nrqlConditionsSearch` results, `queryLike`
+  semantics, and the page size of both searches (no `limit` argument exists; NerdGraph chooses).
+- AI issues (P6-02, P0-09 introspection + the `ai_issues_experimental_header` probe, which returned empty lists):
+  `account.aiIssues.issues(cursor, filter: AiIssuesFilterIssues { states, priority, entityGuids, policyIds, isAcknowledged,
+  contains, ... }, timeWindow: TimeWindowInput { startTime, endTime } epoch ms)` → `{ nextCursor issues { issueId title[]
+  state priority createdAt ... accountIds[] entityGuids[] entityNames[] policyName[] ... } }`; `incidents(...)` with
+  `AiIssuesFilterIncidents { states, priority, entityGuids, entityTypes, ids }` (no text filter). Issue states: CREATED,
+  ACTIVATED, DEACTIVATED, CLOSED; incident states: CREATED, CLOSED; priority: CRITICAL, HIGH, MEDIUM, LOW. `AiIssuesIssue`
+  lists (`title`, `entityGuids`, ...) are arrays; on `AiIssuesIIncident` introspection shows `accountIds`, `entityGuids`,
+  `entityNames`, `entityTypes` as plain scalars, so the tool accepts both a list and a comma-separated string.
+  **Not live-verified with rows:** the real shape of those incident fields, the meaning of `timeWindow` (creation vs update
+  time), and the page size (no `limit` argument).
 
 ## 6b. npm publishing (P1-15)
 
+- Errors Inbox (P6-03, P0-09 introspection + the `errors_inbox` probe, which returned an empty list): `actor.errorsInbox.
+  errorGroups(cursor, entityGuids: [EntityGuid!], filter: ErrorsInboxErrorGroupSearchFilterInput { accountIds, ids, states
+  UNRESOLVED|RESOLVED|IGNORED, isAssigned, assignment, applicationVersions }, query: String, sortBy: [{ field:
+  OCCURRENCES|LAST_OCCURRENCE_IN_WINDOW|FIRST_SEEN, direction: DESC }], timeWindow)` → `{ nextCursor totalCount results {
+  id name message state issueType source isCustom entityGuid firstSeenAt lastSeenAt regressedAt eventsQuery url occurrences {
+  totalCount expectedCount firstSeenAt lastSeenAt } } }`. **Introspected only, not yet live-verified:** row shapes with real
+  groups, what `query` matches, whether `occurrences` honours `timeWindow`, and page size (no `limit`). `direction` has only
+  `DESC`. `assignment.email` is PII and not selected.
+- Change tracking (P6-04, P0-09 introspection only, no live probe; not verified against a real account):
+  `actor.changeTracking.changeTrackingSearch(filter: { accountIds: [Int!], limit, query, timeWindow { startTime endTime } })` →
+  `{ changeEvents: [ChangeTrackingEvent] }` (interface: changeTrackingId, category, type, categoryAndType, timestamp,
+  description, shortDescription, user, groupId, entity: EntityOutline; `ChangeTrackingDeploymentEvent` adds version, commit,
+  changelog, deepLink; `ChangeTrackingFeatureFlagEvent` adds featureFlagId). Per entity: `entity(guid).deploymentSearch(filter:
+  ChangeTrackingSearchFilter { limit, query, timeWindow })` → `{ results: [ChangeTrackingDeployment { deploymentId
+  deploymentType version commit changelog deepLink description user groupId entityGuid timestamp }] }`. Neither has a cursor;
+  the `limit` maximum and the syntax of `query` are unknown (`query` is not used). **Unverified:** that `Transaction` carries
+  `entityGuid` for every APM agent, and the result shape of `percentile(duration, 95) AS p95Duration` (read as a number or the
+  first numeric member of an object).
+- APM transactions (P6-05, NRQL over `Transaction`, not verified against a real account): per-application filter
+  `WHERE entityGuid = '<guid>'`, per-transaction `FACET name`, failures `error IS true`, `transactionType` `'Web'` or `'Other'`
+  (background), durations in seconds. `percentile(duration, 50)`, `(…, 95)` and `(…, 99)` are selected separately with aliases and
+  read as a number or the first numeric member of an object. **Unverified:** facet rows carrying the facet value in `facet`
+  (an array when several facets), that `ORDER BY <aggregate> DESC` after `FACET` honours non-selected-alias expressions (the
+  tool re-sorts client-side anyway), and `LIKE` being case-insensitive (the tool's description says so; check live).
+- Logs (P6-06, NRQL over `Log`, not verified against a real account): the entity filter is the `entity.guid` attribute
+  (sent backtick-quoted), the text is `message`, the severity `level`, newest first with `ORDER BY timestamp DESC`; `level`
+  values vary by forwarder (`ERROR`, `error`, `Error`, `WARNING`...), so the level filter matches a fixed list of case
+  variants (NRQL string equality is case-sensitive). Time series use `TIMESERIES <n> seconds` and rows carry
+  `beginTimeSeconds` / `endTimeSeconds`; level counts use `FACET level`. **Unverified:** `entity.guid` being set on every
+  log source, the exact `level` spellings, `LIKE` case sensitivity (the tool says "case as typed"), `TIMESERIES` in seconds
+  being accepted, and the 2000-row LIMIT ceiling for non-aggregate queries (the tool samples 1000).
+- JVM and Kafka (P6-07, not verified against a real account): Java agent timeslices are read from `Metric` with
+  `average/max/sum/count(newrelic.timeslice.value)` faceted by `metricTimesliceName` and filtered by `entity.guid` and name prefixes
+  (`Threads/SummaryState/<STATE>/Count`, `JmxBuiltIn/Threads/`, `CPU/`, `Memory/`, `GC/`, `JmxBuiltIn/GC/`, `Memory/Heap/`). Kafka uses the
+  `nri-kafka` event types: `KafkaOffsetSample` (`consumer.lag`, `consumerGroup`, `topic`, `partition`), `KafkaTopicSample`
+  (`topic.bytesInPerSec`, `topic.bytesOutPerSec`, `topic.messagesInPerSec`), `KafkaBrokerSample` (`broker.bytesInPerSecond`,
+  `broker.bytesOutPerSecond`, `broker.messagesInPerSecond`, facet `entityName`), cluster filter `clusterName`. **Unverified:** every
+  name above (a wrong one yields null aggregates, which the tools report as "no data"), timeslice units, `entity.guid` on `Metric`, and
+  Kafka via OpenTelemetry or cloud integrations (MSK/Confluent), which use other event/metric names and are not read.
+- Synthetic monitors (P6-08, not verified against a real account): monitors come from `entitySearch` with `domain = 'SYNTH' AND
+  type = 'MONITOR'` and the inline fragment `... on SyntheticMonitorEntityOutline { monitorId monitorType monitoredUrl period status }`
+  (`monitorType` SIMPLE/BROWSER/SCRIPT_API/SCRIPT_BROWSER/STEP_MONITOR, `status` ENABLED/MUTED/DISABLED, `period` in minutes). Results
+  are read from `SyntheticCheck` (`entityGuid`, `location`, `result` = SUCCESS/FAILED, `duration` in ms, `error` for failures,
+  `timestamp`) faceted by `entityGuid, location`. `monitorType`/`status` are filtered client-side because their entity-search field
+  names are not confirmed. **Unverified:** every field above, `entityGuid` on `SyntheticCheck`, `error` holding the failure message,
+  and the units of `period`. The monitor script, secure credentials and headers are deliberately never selected.
+- Dashboards (P6-09, not verified against a real account): dashboards are entities `domain = 'VIZ' AND type = 'DASHBOARD'`
+  (`... on DashboardEntityOutline { permissions }` in search). The detail is `... on DashboardEntity { description permissions pages
+  { guid name description widgets { id title visualization { id } rawConfiguration } } }`. `rawConfiguration` is a JSON scalar; the
+  tools read `nrqlQueries[].{accountId, accountIds, query}` (multi-account widgets carry an `accountIds` array; every account named
+  must be allowed, phase 6 review) and, for markdown widgets, `text`. **Unverified:** every name above and the shape of
+  `rawConfiguration` per visualization (billboard, table, line, markdown, and visualizations with other query keys give no NRQL).
+  Widget NRQL is never executed by the tools; `permissions` is PRIVATE / PUBLIC_READ_ONLY / PUBLIC_READ_WRITE.
+- Composite reports (P6-10, not verified against a real account): the issue is looked up with `aiIssues.issues(filter: { ids })`
+  (`ids` is a field of `AiIssuesFilterIssues` in the P0-09 introspection; whether `timeWindow` must still cover the issue is
+  unverified, so the lookup sends a lookback window, default 7 days). User-impact signals read `PageView`/`JavaScriptError`
+  (`entityGuid`, `duration` in seconds, `session`) and `MobileSession`/`MobileCrash` (`entityGuid`, `uuid` as the device/user id)
+  with multi-event `FROM a, b` and `filter(..., WHERE eventType() = '…')`, faceted by `entityGuid`. **Unverified:** `entityGuid` on
+  browser and mobile events (the PageView data dictionary page did not list it when checked on 2026-10-05; New Relic adds it to
+  agent events, but if it is missing every front end reads "no data"), `uuid` as a user proxy, and the related-entity types used to
+  find front ends (`BROWSER/APPLICATION`, `MOBILE/APPLICATION`, `SYNTH/MONITOR`). Impact flags use fixed thresholds: rates 1.5x the
+  window before with at least 10 JS errors / 5 crashes, load time 1.25x, volume drop below 0.75x with at least 30 before.
+- Investigation tools (P6-16, not verified against a real account): `trace_error` reads `Span` (`trace.id`, `id`, `parent.id`,
+  `name`, `entity.name`, `duration.ms`, `error.class`, `error.message`, `category`), `TransactionError` (`traceId`,
+  `error.group.guid`, `entityGuid`, `request.uri`, `request.method`, `httpResponseCode`, `transactionName`, `appName`) and `Log`
+  (`trace.id`). **Unverified:** `error.group.guid` on `TransactionError` as the link from an Errors Inbox group id, and
+  `nr.syntheticsMonitorId` as the marker of synthetic traffic on `TransactionError` (if either is wrong the group lookup finds
+  nothing and says so; `trace_id` still works). Spans are sampled: a missing trace is reported as `spans_missing`, not an error.
+  `dependency_health` signal thresholds are fixed (25% change between the two halves of the window, as in P1-09 trends).
 - **Trusted publishing** (OIDC from GitHub Actions, no long-lived npm token) needs npm CLI ≥ 11.5.1 and Node ≥ 22.14
   (Node 24 bundles npm 11), job permission `id-token: write`, and a GitHub-hosted runner. Each package has at most one
   trusted publisher (workflow file + optional environment); `npm trust github <pkg> --file release.yml --env release`
@@ -422,6 +509,14 @@ Sources: <https://developers.cloudflare.com/workers/wrangler/configuration/>,
   values are not a prediction for Workers Free.
 - What the numbers say: the D1 round trip is most of a miss (hit 6.7 vs miss 13.0 ms for `tools/list`); decrypting the
   stored key is negligible; the large-result cost scales with payload (about +6 ms from 100 KB to 500 KB).
+- **Tool schemas dominated every MCP request (found 2026-10-05, P6-10).** `@modelcontextprotocol/server` 2.2.0 converts
+  each tool's zod input *and* output schema to JSON Schema in `registerTool`, and again on every `tools/list`
+  (`standardSchemaToJsonSchema`, no cross-instance cache). With one server per request (ADR-0005) that cost grew with the
+  tool count: by P6-09 (~40 tools) `tools/list` (access-cache hit) read 10.5 ms against a 6.7 ms baseline (1.9x relative
+  to calibration), `initialize` 1.8x. Fix: `buildMcpServer` hands the SDK each schema wrapped by `withCachedJsonSchema`
+  (per-isolate `WeakMap`, frozen JSON; validation stays zod's). Tool definitions are static, not request data, so this
+  does not break T21. After: `tools/list` hit 1.6 ms, `initialize` 1.0, `whoami` 1.6, `run_nrql` 10 KB 2.1 (calibration
+  2.7). The baseline was re-taken with the fix so the gain is locked in.
 
 ## 12. Cloudflare D1 facts (P3-02, verified 2026-10-03)
 
@@ -606,3 +701,14 @@ Source: <https://docs.github.com/en/rest/apps/oauth-applications#delete-an-app-t
   sessions under concurrent `/token` requests (<https://github.com/PrefectHQ/fastmcp/issues/4901>).
 - relic-bridge (ADR-0013) is narrower than both: the replay returns the **same** successor pair (no new token per
   reuse), only while that successor is still current, only for the same client, ≤ 120 s.
+
+## 22. NRQL LIKE escapes and comment markers in identifiers (P6-23, NOT measured)
+
+Two facts the code relies on were not verified live because the run had no New Relic key:
+
+- `likePattern` (`tools/apm.ts`) escapes `%` and `_` with a backslash. Whether NRQL `LIKE` treats `\_` / `\%` as literals
+  is unconfirmed; if it does not, a value with `_` matches by wildcard (wider, never a leak) or nothing.
+- `nrql.identifier` allows `--`, `//` and `/*` inside backticks. Only `get_attributes` `event_type` takes a user value.
+
+`pnpm test:live` now carries one probe for each (`packages/core/test/live/nerdgraph.live.ts`). Run it with
+`RB_LIVE_API_KEY` / `RB_LIVE_ACCOUNT_ID`, then replace this section with the measured result.

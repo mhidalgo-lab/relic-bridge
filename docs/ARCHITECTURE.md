@@ -257,7 +257,11 @@ environment variable (`secrets.ts`); the node-only terminal pieces live in `host
 
 - **Budget**: per-invocation counter of NerdGraph calls (external `fetch`; D1/KV have their own larger Workers allowance),
   configured by `RB_PLAN` (`free` = 45, `paid` = 1000) or `RB_CALL_BUDGET`. Tools declare an expected cost and check
-  `budget.canSpend(n)`; a tool whose cost exceeds the budget is not registered. `RB_MAX_RESPONSE_BYTES` is a platform ceiling over each project's `maxResponseBytes`.
+  `budget.canSpend(n)`; a tool whose cost exceeds the budget is not registered.
+  Cost rule (P6-20): every NRQL counts as 2 requests (`NRQL_COST`: async submit + one poll, or the async attempt + the sync
+  fallback), an entity name adds up to 4 (`RESOLVE_COST`), retries are not counted (they follow a failure and each attempt
+  spends a unit, so the budget still caps them). Composites plan in these units and degrade to a partial result;
+  `tool-costs.test.ts` forces the worst case on every tool and asserts requests ≤ declared cost. `RB_MAX_RESPONSE_BYTES` is a platform ceiling over each project's `maxResponseBytes`.
 - **Concurrency**: per-credential semaphore (default 5) inside an invocation and process; ≤ 6 on Workers. Optional
   Durable Object global limiter (Phase 7).
 - **Query limits** (per project, can be tightened per grant):
@@ -280,16 +284,17 @@ environment variable (`secrets.ts`); the node-only terminal pieces live in `host
 | Group | Tools | Phase |
 |---|---|---|
 | Query | `run_nrql`, `get_query_result` | 1 |
-| Discovery | `whoami`, `list_accounts`, `search_entities`, `get_entity`, `get_related_entities`, `list_entity_types`, `decode_entity_guid`, `list_event_types`, `get_attributes`, `time_range` | 1 |
+| Discovery | `whoami`, `list_accounts`, `search_entities`, `resolve_entity`, `get_entity`, `get_related_entities`, `list_entity_types`, `decode_entity_guid`, `list_event_types`, `get_attributes`, `time_range` | 1 |
 | Health | `get_golden_metrics` | 1 |
-| Alerting | `list_alert_policies`, `list_alert_conditions`, `list_recent_issues`, `search_incidents`, `list_synthetic_monitors` | 6 |
-| Incident response | `list_error_groups`, `list_change_events`, `analyze_deployment_impact` | 6 |
-| Performance | `analyze_transactions`, `list_top_transactions`, `list_recent_logs`, `analyze_entity_logs`, `analyze_threads`, `list_gc_metrics`, `analyze_kafka_metrics` | 6 |
-| Dashboards | `list_dashboards`, `get_dashboard` | 6 |
-| Reports | `generate_alert_insights_report`, `generate_user_impact_report` | 6 |
+| Alerting | `list_alert_policies` (done), `list_alert_conditions` (done), `list_recent_issues` (done), `search_incidents` (done), `list_synthetic_monitors` (done) | 6 |
+| Incident response | `list_error_groups` (done), `list_change_events` (done), `analyze_deployment_impact` (done) | 6 |
+| Performance | `analyze_transactions` (done), `list_top_transactions` (done), `list_recent_logs` (done), `analyze_entity_logs` (done), `analyze_threads` (done), `list_gc_metrics` (done), `analyze_kafka_metrics` (done) | 6 |
+| Dashboards | `list_dashboards` (done), `get_dashboard` (done) | 6 |
+| Reports | `generate_alert_insights_report` (done), `generate_user_impact_report` (done) | 6 |
+| Investigations | `trace_error` (done), `dependency_health` (done), `entity_health` (done) | 6 |
 | Write (opt-in) | `acknowledge_issue`, `close_issue`, `create_change_event`, `create_dashboard` | 7 |
 
-Plus MCP **prompts** (investigation workflows) and **resources** (NRQL reference, per-project schema snapshot) in Phase 6,
+Plus MCP **prompts** (seven investigation workflows, P6-11, `packages/core/src/prompts.ts`, reference in `docs/reference/prompts.md`; registered by `buildMcpServer` only when a tool they use is in the connection's allowed list) and **resources** (P6-12, `packages/core/src/resources.ts`, reference in `docs/reference/resources.md`: a static NRQL cheat sheet and per-account event-type and attribute snapshots, served by the `list_event_types` / `get_attributes` handlers so account checks, limits, cache and audit are the tools' own; registered only when that tool is allowed),
 and **MCP Apps** charts in Phase 7.
 
 ## 8. Repository layout (target)

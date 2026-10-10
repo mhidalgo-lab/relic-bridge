@@ -91,10 +91,99 @@ const entity = (account: number, name: string, guid = guidOf(account, name)) => 
   },
 });
 
+/** An entity id that this NerdGraph answers honestly (the entity really is in the GUID's account): a success path. */
+export const HONEST_ID = 'honest';
+const isHonest = (guid: unknown): boolean => {
+  try {
+    return decodeEntityGuid(String(guid)).domainId === HONEST_ID;
+  } catch {
+    return false;
+  }
+};
+
 const vertex = (account: number, name: string, guid = guidOf(account, name)) => ({
   guid,
   accountId: account,
   entity: { name, domain: 'APM', type: 'APPLICATION', alertSeverity: 'WARNING', reporting: true },
+});
+
+const alertPolicy = (account: number, name: string) => ({
+  id: '8000026',
+  name,
+  accountId: account,
+  incidentPreference: 'PER_CONDITION',
+  entityGuid: guidOf(account, '8000026', 'AIOPS', 'POLICY'),
+});
+
+const alertCondition = (account: number, name: string) => ({
+  id: '9000001',
+  name,
+  policyId: '8000026',
+  entityGuid: guidOf(account, '9000001', 'AIOPS', 'CONDITION'),
+  enabled: true,
+  type: 'STATIC',
+  nrql: { query: 'FROM TransactionError SELECT count(*)', dataAccountId: account },
+  terms: [
+    {
+      priority: 'CRITICAL',
+      operator: 'ABOVE',
+      threshold: 5,
+      thresholdDuration: 300,
+      thresholdOccurrences: 'ALL',
+    },
+  ],
+});
+
+const aiIssue = (accountIds: number[], title: string, guid: string) => ({
+  issueId: `issue-${title}`,
+  title: [title],
+  description: [],
+  state: 'ACTIVATED',
+  priority: 'HIGH',
+  createdAt: 1790338648000,
+  updatedAt: 1790338700000,
+  accountIds,
+  entityGuids: [guid],
+  entityNames: [title],
+});
+
+const aiIncident = (accountIds: number[], title: string, guid: string) => ({
+  incidentId: `inc-${title}`,
+  title,
+  description: [],
+  state: 'CREATED',
+  priority: 'HIGH',
+  createdAt: 1790338648000,
+  updatedAt: 1790338700000,
+  timestamp: 1790338648000,
+  accountIds: accountIds.join(','),
+  entityGuids: guid,
+  entityNames: title,
+});
+
+const errorGroup = (guid: string | null, name: string) => ({
+  id: `eg-${name}`,
+  name,
+  message: 'boom',
+  state: 'UNRESOLVED',
+  issueType: 'ERROR',
+  entityGuid: guid,
+  firstSeenAt: 1790338648000,
+  lastSeenAt: 1790338700000,
+  occurrences: { totalCount: 3, firstSeenAt: 1790338648000, lastSeenAt: 1790338700000 },
+});
+
+const changeEvent = (guid: string | null, id: string) => ({
+  changeTrackingId: id,
+  category: 'DEPLOYMENT',
+  type: 'BASIC',
+  categoryAndType: 'DEPLOYMENT__BASIC',
+  timestamp: 1790338700000,
+  description: 'rollout',
+  shortDescription: 'deploy',
+  user: 'ci',
+  entity: guid === null ? null : { guid, name: id, accountId: 1, domain: 'APM', type: 'APPLICATION' },
+  version: '1.0',
 });
 
 /** `tenants`: API key → label shown in that tenant's replies. Unknown keys get an authentication error. */
@@ -145,6 +234,79 @@ export function hostileNerdGraph(tenants: Readonly<Record<string, string>>): Hos
           return ok({
             actor: { account: { nrqlQueryProgress: nrqlContainer([{ tenant: label, count: 1 }]) } },
           });
+        case 'RbSyntheticMonitors':
+          return ok({
+            actor: {
+              entitySearch: {
+                count: 4,
+                results: {
+                  nextCursor: null,
+                  entities: [
+                    {
+                      ...entity(1, `${label}-monitor-1`),
+                      domain: 'SYNTH',
+                      type: 'MONITOR',
+                      monitorType: 'SIMPLE',
+                    },
+                    // Another allowed account: not the one requested.
+                    { ...entity(2, `${label}-monitor-2`), domain: 'SYNTH', type: 'MONITOR' },
+                    { ...entity(FOREIGN, `${LEAK}-monitor`), domain: 'SYNTH', type: 'MONITOR' },
+                    // Reported in the requested account, but the GUID names the foreign one.
+                    {
+                      ...entity(1, `${LEAK}-forged`, guidOf(FOREIGN, 'forged')),
+                      domain: 'SYNTH',
+                      type: 'MONITOR',
+                    },
+                  ],
+                },
+              },
+            },
+          });
+        case 'RbDashboards':
+          return ok({
+            actor: {
+              entitySearch: {
+                count: 3,
+                results: {
+                  nextCursor: null,
+                  entities: [
+                    { ...entity(1, `${label}-dash-1`), domain: 'VIZ', type: 'DASHBOARD' },
+                    { ...entity(FOREIGN, `${LEAK}-dash`), domain: 'VIZ', type: 'DASHBOARD' },
+                    // Reported in the requested account, but the GUID names the foreign one.
+                    {
+                      ...entity(1, `${LEAK}-forged`, guidOf(FOREIGN, 'forged')),
+                      domain: 'VIZ',
+                      type: 'DASHBOARD',
+                    },
+                  ],
+                },
+              },
+            },
+          });
+        // A dashboard in the foreign account behind an allowed account's GUID.
+        case 'RbDashboard':
+          if (isHonest(variables['guid'])) {
+            return ok({
+              actor: {
+                entity: {
+                  ...entity(guidAccount(), `${label}-dashboard`, String(variables['guid'])),
+                  domain: 'VIZ',
+                  type: 'DASHBOARD',
+                  pages: [],
+                },
+              },
+            });
+          }
+          return ok({
+            actor: {
+              entity: {
+                ...entity(FOREIGN, `${LEAK}-dashboard`, String(variables['guid'])),
+                domain: 'VIZ',
+                type: 'DASHBOARD',
+                pages: [],
+              },
+            },
+          });
         case 'RbEntitySearch':
           return ok({
             actor: {
@@ -188,7 +350,15 @@ export function hostileNerdGraph(tenants: Readonly<Record<string, string>>): Hos
                 relatedEntities: {
                   nextCursor: null,
                   results: [
-                    { type: 'CALLS', source: self, target: vertex(2, `${label}-rel`) },
+                    {
+                      type: 'CALLS',
+                      source: self,
+                      target: vertex(
+                        2,
+                        `${label}-rel`,
+                        isHonest(variables['guid']) ? guidOf(2, HONEST_ID) : undefined,
+                      ),
+                    },
                     {
                       type: 'CALLS',
                       source: self,
@@ -205,10 +375,160 @@ export function hostileNerdGraph(tenants: Readonly<Record<string, string>>): Hos
             },
           });
         }
+        case 'RbAlertPolicies': {
+          const account = Number(variables['accountId']);
+          return ok({
+            actor: {
+              account: {
+                alerts: {
+                  policiesSearch: {
+                    nextCursor: null,
+                    totalCount: 3,
+                    policies: [
+                      alertPolicy(account, `${label}-policy`),
+                      alertPolicy(FOREIGN, `${LEAK}-policy`),
+                      // Reported in the requested account, but the GUID names the foreign one.
+                      {
+                        ...alertPolicy(account, `${LEAK}-policy-forged`),
+                        entityGuid: guidOf(FOREIGN, 'p', 'AIOPS', 'POLICY'),
+                      },
+                    ],
+                  },
+                },
+              },
+            },
+          });
+        }
+        case 'RbErrorGroups': {
+          const filter = variables['filter'] as { accountIds: number[] };
+          const account = Number(filter.accountIds[0]);
+          return ok({
+            actor: {
+              errorsInbox: {
+                errorGroups: {
+                  nextCursor: null,
+                  totalCount: 4,
+                  results: [
+                    errorGroup(guidOf(account), `${label}-error`),
+                    errorGroup(guidOf(FOREIGN), `${LEAK}-error`),
+                    errorGroup(null, `${LEAK}-error-noguid`),
+                    errorGroup('not-a-guid', `${LEAK}-error-badguid`),
+                  ],
+                },
+              },
+            },
+          });
+        }
+        case 'RbChangeEvents': {
+          const filter = variables['filter'] as { accountIds: number[] };
+          const account = Number(filter.accountIds[0]);
+          return ok({
+            actor: {
+              changeTracking: {
+                changeTrackingSearch: {
+                  changeEvents: [
+                    changeEvent(guidOf(account), `${label}-change`),
+                    changeEvent(guidOf(FOREIGN), `${LEAK}-change`),
+                    changeEvent(null, `${LEAK}-change-noentity`),
+                    changeEvent('not-a-guid', `${LEAK}-change-badguid`),
+                  ],
+                },
+              },
+            },
+          });
+        }
+        case 'RbAiIssues': {
+          const account = Number(variables['accountId']);
+          return ok({
+            actor: {
+              account: {
+                aiIssues: {
+                  issues: {
+                    nextCursor: null,
+                    issues: [
+                      aiIssue([account], `${label}-issue`, guidOf(account)),
+                      aiIssue([FOREIGN], `${LEAK}-issue`, guidOf(FOREIGN)),
+                      // Names the requested account too, but also a foreign one.
+                      aiIssue([account, FOREIGN], `${LEAK}-issue-shared`, guidOf(account)),
+                      // Reported in the requested account, but the entity GUID names the foreign one.
+                      aiIssue([account], `${LEAK}-issue-forged`, guidOf(FOREIGN)),
+                    ],
+                  },
+                },
+              },
+            },
+          });
+        }
+        case 'RbAiIncidents': {
+          const account = Number(variables['accountId']);
+          return ok({
+            actor: {
+              account: {
+                aiIssues: {
+                  incidents: {
+                    nextCursor: null,
+                    incidents: [
+                      aiIncident([account], `${label}-incident`, guidOf(account)),
+                      aiIncident([FOREIGN], `${LEAK}-incident`, guidOf(FOREIGN)),
+                      aiIncident([account, FOREIGN], `${LEAK}-incident-shared`, guidOf(account)),
+                    ],
+                  },
+                },
+              },
+            },
+          });
+        }
+        case 'RbAlertConditions': {
+          const account = Number(variables['accountId']);
+          return ok({
+            actor: {
+              account: {
+                alerts: {
+                  nrqlConditionsSearch: {
+                    nextCursor: null,
+                    totalCount: 2,
+                    nrqlConditions: [
+                      alertCondition(account, `${label}-condition`),
+                      alertCondition(FOREIGN, `${LEAK}-condition`),
+                    ],
+                  },
+                },
+              },
+            },
+          });
+        }
         // A single entity in the foreign account behind an allowed account's GUID.
         case 'RbEntity':
         case 'RbGoldenMetrics':
+          if (isHonest(variables['guid'])) {
+            return ok({
+              actor: { entity: entity(guidAccount(), `${label}-honest`, String(variables['guid'])) },
+            });
+          }
           return ok({ actor: { entity: entity(FOREIGN, `${LEAK}-entity`, String(variables['guid'])) } });
+        case 'RbEntityDeployments':
+          if (isHonest(variables['guid'])) {
+            return ok({
+              actor: {
+                entity: {
+                  ...entity(guidAccount(), `${label}-honest`, String(variables['guid'])),
+                  deploymentSearch: {
+                    results: [{ deploymentId: 'd-1', version: '9', timestamp: 1790338700000 }],
+                  },
+                },
+              },
+            });
+          }
+          return ok({
+            actor: {
+              entity: {
+                ...entity(FOREIGN, `${LEAK}-entity`, String(variables['guid'])),
+                deploymentSearch: {
+                  results: [{ deploymentId: `${LEAK}-d`, version: '9', timestamp: 1790338700000 }],
+                },
+              },
+            },
+          });
         default:
           throw new Error(`hostileNerdGraph: no reply for ${op}`);
       }

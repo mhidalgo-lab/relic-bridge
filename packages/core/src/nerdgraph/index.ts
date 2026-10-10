@@ -1,4 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
+
+export {
+  ALERT_CONDITIONS_QUERY,
+  ALERT_POLICIES_QUERY,
+  type AlertConditionData,
+  type AlertPolicyData,
+  type AlertTermData,
+} from './alerts.ts';
+export {
+  CHANGE_EVENTS_QUERY,
+  type ChangeEventData,
+  type DeploymentData,
+  ENTITY_DEPLOYMENTS_QUERY,
+} from './change-tracking.ts';
 export {
   assertUserKey,
   DEFAULT_MAX_ATTEMPTS,
@@ -13,6 +27,13 @@ export {
   type QueryOptions,
   wrongRegionError,
 } from './client.ts';
+export {
+  DASHBOARD_QUERY,
+  DASHBOARDS_QUERY,
+  type DashboardDetailData,
+  type DashboardOutline,
+  type DashboardWidgetData,
+} from './dashboards.ts';
 export {
   type DefineDocumentOptions,
   type DocumentData,
@@ -43,6 +64,10 @@ export {
   quoteEntityString,
 } from './entity-query.ts';
 export {
+  ERROR_GROUPS_QUERY,
+  type ErrorGroupData,
+} from './errors-inbox.ts';
+export {
   ACCOUNT_SCOPE,
   ACCOUNTS_QUERY,
   IDENTITY_QUERY,
@@ -50,9 +75,14 @@ export {
   listReachableAccounts,
   validateKey,
 } from './identity.ts';
+export { AI_INCIDENTS_QUERY, AI_ISSUES_QUERY, type AiIncidentData, type AiIssueData } from './issues.ts';
 export {
   createSemaphoreLimiter,
   DEFAULT_CONCURRENCY,
   LimiterPool,
   MAX_CONCURRENCY,
 } from './limiter.ts';
+export {
+  SYNTHETIC_MONITORS_QUERY,
+  type SyntheticMonitorOutline,
+} from './synthetics.ts';

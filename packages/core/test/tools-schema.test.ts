@@ -116,7 +116,7 @@ describe('list_event_types', () => {
     const base = { clock: { now: () => now } };
     const c1 = await connect(fetch, base);
     await c1.callTool({ name: 'list_event_types', arguments: {} });
-    await c1.callTool({ name: 'list_event_types', arguments: { since: 'last 1 hour' } });
+    await c1.callTool({ name: 'list_event_types', arguments: { time_range: 'last 1 hour' } });
     expect(calls).toHaveLength(2);
     now += SCHEMA_TTL_MS;
     await c1.callTool({ name: 'list_event_types', arguments: {} });
@@ -164,7 +164,10 @@ describe('list_event_types', () => {
     const client = await connect(fetch, { limits: { ...DEFAULT_LIMITS, maxWindowDays: 7 } });
     const bad = await client.callTool({ name: 'list_event_types', arguments: { accounts: [A] } });
     expect(bad.isError).toBe(true);
-    const long = await client.callTool({ name: 'list_event_types', arguments: { since: 'last 30 days' } });
+    const long = await client.callTool({
+      name: 'list_event_types',
+      arguments: { time_range: 'last 30 days' },
+    });
     expect(errorCode(long)).toBe(ErrorCode.LimitQuery);
   });
 });

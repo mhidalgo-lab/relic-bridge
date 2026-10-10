@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Admin REST API (P2-09): authentication (negative cases on every route), validation, every resource, audit rows, and
 // a scan that no response or log line ever carries key material or token hashes.
-import type { KeyValidator } from '@relic-bridge/auth';
+import { generateMasterKey, Keyring, type KeyValidator } from '@relic-bridge/auth';
 import { createLogger, ErrorCode, type Identity, RbError, Secret } from '@relic-bridge/core';
 import { type AuditRecord, StorageError } from '@relic-bridge/storage';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -13,9 +13,9 @@ import {
   MemoryRateLimiter,
   mergeHooks,
 } from '../src/index.ts';
-import { mockNerdGraph, NR_KEY, seedWorld, type World } from './fixtures.ts';
+import { mockNerdGraph, NR_KEY, randomAdminToken, seedWorld, type World } from './fixtures.ts';
 
-const ADMIN = `adm-${'k'.repeat(20)}-${'z'.repeat(20)}`;
+const ADMIN = randomAdminToken();
 /** A second key (rotation), shaped like a User key. */
 const NR_KEY_2 = 'NRAK-ROTATEDTESTKEY0123456789XYZ';
 const BASE = 'http://localhost/api/admin/v1';
@@ -64,7 +64,16 @@ const validateKey: KeyValidator = async (credential) => {
   return identity;
 };
 
-function makeApp(opts: { hooks?: HttpAppHooks; admin?: boolean; audit?: boolean; ttl?: number } = {}) {
+function makeApp(
+  opts: {
+    hooks?: HttpAppHooks;
+    admin?: boolean;
+    audit?: boolean;
+    ttl?: number;
+    keyring?: Keyring;
+    maxRotationBatch?: number;
+  } = {},
+) {
   const logger = createLogger({
     level: 'debug',
     sink: (l) => logLines.push(l),
@@ -78,7 +87,7 @@ function makeApp(opts: { hooks?: HttpAppHooks; admin?: boolean; audit?: boolean;
   });
   return createHttpApp({
     storage: world.storage,
-    keyring: world.keyring,
+    keyring: opts.keyring ?? world.keyring,
     clock: world.clock,
     fetch: mockNerdGraph().fetch,
     logger,
@@ -91,6 +100,7 @@ function makeApp(opts: { hooks?: HttpAppHooks; admin?: boolean; audit?: boolean;
             token: new Secret(ADMIN),
             storage: world.storage,
             validateKey,
+            ...(opts.maxRotationBatch === undefined ? {} : { maxRotationBatch: opts.maxRotationBatch }),
             ...(opts.audit === false ? {} : { audit: recorder }),
           },
         }),
@@ -185,6 +195,7 @@ const ROUTES: readonly [string, string, unknown?][] = [
   ['GET', '/tokens/tok_x'],
   ['POST', '/tokens/tok_x/revoke'],
   ['GET', '/audit'],
+  ['POST', '/keys/rotate', {}],
   ['GET', '/no-such-endpoint'],
 ];
 
@@ -252,10 +263,36 @@ describe('authentication (negative cases on every route)', () => {
         keyring: world.keyring,
         admin: { token: new Secret(`${'a'.repeat(40)} b`), storage: world.storage },
       }),
-    ).toThrow(/invalid characters/);
+    ).toThrow(/printable ASCII/);
   });
 
-  it('records failed admin authentication and throttles it per IP (T1)', async () => {
+  it('refuses predictable and placeholder admin tokens at construction, without echoing them (P3-13)', () => {
+    const weak = [
+      'a'.repeat(32),
+      'abc123'.repeat(6),
+      'abcdefghijklmnopqrstuvwxyz0123456789',
+      'aaaabbbbccccddddeeeeffffgggghhhh',
+      `changeme-${randomAdminToken('')}`,
+      `your-admin-token-${randomAdminToken('')}`,
+    ];
+    for (const value of weak) {
+      let message = '';
+      try {
+        createHttpApp({
+          storage: world.storage,
+          keyring: world.keyring,
+          admin: { token: new Secret(value), storage: world.storage },
+        });
+      } catch (error) {
+        message = String(error);
+      }
+      expect(message, value).toMatch(/too predictable|placeholder/);
+      expect(message).not.toContain(value);
+      expect(message).toContain('openssl rand');
+    }
+  });
+
+  it('records failed admin authentication and throttles it per IP (T1), never the valid token (P3-13)', async () => {
     const limiter = new MemoryRateLimiter({ clock: world.clock });
     const hooks = createRateLimitHooks({
       limiter,
@@ -265,26 +302,31 @@ describe('authentication (negative cases on every route)', () => {
     });
     const app = makeApp({ hooks });
     const ip = { 'x-test-ip': '203.0.113.9' };
+    const wrong = 'wrong-wrong-wrong-wrong-wrong-wrong-wrong';
     for (let i = 0; i < 3; i++) {
-      expect(
-        (await call(app, '/projects', { token: 'wrong-wrong-wrong-wrong-wrong-wrong-wrong', headers: ip }))
-          .status,
-      ).toBe(401);
+      expect((await call(app, '/projects', { token: wrong, headers: ip })).status).toBe(401);
     }
-    // Locked: even the right token is refused from this IP (no oracle), with the admin error shape.
-    const locked = await call(app, '/projects', { headers: ip });
+    // Locked for failures: a further bad token is refused with the admin error shape.
+    const locked = await call(app, '/projects', { token: wrong, headers: ip });
     expect(locked.status).toBe(429);
     expect(locked.json?.['error']?.code).toBe('rate_limited');
     expect(Number(locked.headers.get('retry-after'))).toBeGreaterThan(0);
+    expect((await call(app, '/projects', { token: null, headers: ip })).status).toBe(429);
+    // The valid admin token is still served from this IP (review M6), and does not unlock it for failures.
+    expect((await call(app, '/projects', { headers: ip })).status).toBe(200);
+    expect((await call(app, '/projects', { token: wrong, headers: ip })).status).toBe(429);
     // Another IP is fine.
-    expect((await call(app, '/projects', { headers: { 'x-test-ip': '203.0.113.10' } })).status).toBe(200);
+    expect(
+      (await call(app, '/projects', { token: wrong, headers: { 'x-test-ip': '203.0.113.10' } })).status,
+    ).toBe(401);
     await vi.waitFor(async () => {
       const denied = await world.storage.auditLog.list({ kind: 'auth' });
-      expect(denied.filter((r) => r.errorCode === 'admin_bad_token')).toHaveLength(3);
-      expect(denied.some((r) => r.action === 'request.rejected')).toBe(true);
+      // Every failure is recorded once as `auth.denied`, the throttled ones included; none as `request.rejected`.
+      expect(denied.filter((r) => r.errorCode === 'admin_bad_token')).toHaveLength(6);
+      expect(denied.some((r) => r.action === 'request.rejected')).toBe(false);
     });
-    const row = (await world.storage.auditLog.list({ kind: 'auth', action: 'auth.denied' }))[0];
-    expect(row?.details).toEqual({ ip: '203.0.113.9' });
+    const rows = await world.storage.auditLog.list({ kind: 'auth', action: 'auth.denied' });
+    expect(rows.filter((r) => (r.details as { ip?: string } | null)?.ip === '203.0.113.9')).toHaveLength(6);
   });
 });
 
@@ -981,6 +1023,173 @@ describe('refused changes and outages (P2-17)', () => {
     const expected = expiresAt === null ? 'never' : Math.round((expiresAt - world.clock.now()) / 1000);
     expect(row?.details?.['ttlSeconds']).toBe(expected);
     expect(row?.details?.['ttlSeconds']).not.toBeNull();
+  });
+});
+
+describe('master-key rotation (P3-11)', () => {
+  const K1 = generateMasterKey(1);
+  const K2 = generateMasterKey(2);
+  /** Shaped like User keys; the leak scan checks none of them reaches a response, log line or audit row. */
+  const extraKeys = [0, 1, 2, 3].map((i) => `NRAK-MASTERROTATION${String(i).padStart(12, '0')}`);
+
+  beforeEach(async () => {
+    world = await seedWorld(undefined, { keyring: await Keyring.create({ current: K1 }) });
+    for (const [i, key] of extraKeys.entries()) {
+      const id = `cred_r${i}`;
+      await world.storage.credentials.create({
+        id,
+        label: id,
+        region: 'US',
+        key: await world.keyring.encryptCredentialKey(id, key),
+      });
+    }
+  });
+
+  afterEach(() => {
+    const dump = `${bodies.join('\n')}\n${logLines.join('\n')}`;
+    for (const key of [...extraKeys, K1, K2]) expect(dump).not.toContain(key.split(':')[1]);
+  });
+
+  const versions = async () =>
+    (await world.storage.credentials.list()).map((c) => (c.key.kind === 'encrypted' ? c.key.keyVersion : 0));
+
+  async function readAll(ring: Keyring): Promise<string[]> {
+    const out: string[] = [];
+    for (const c of await world.storage.credentials.list()) {
+      if (c.key.kind !== 'encrypted') throw new Error('unexpected');
+      out.push((await ring.decryptCredentialKey(c.id, c.key)).reveal());
+    }
+    return out;
+  }
+
+  it('clamps batchSize to the server ceiling (Free-plan Workers) and still resumes via nextCursor (P3-15)', async () => {
+    const ring = await Keyring.create({ current: K2, previous: K1 });
+    const app = makeApp({ keyring: ring, maxRotationBatch: 2 });
+    const first = await admin(app, '/keys/rotate', { method: 'POST', body: { batchSize: 100 } });
+    expect(first.status).toBe(200);
+    expect(first.json?.['data'].reencrypted).toHaveLength(2);
+    expect(first.json?.['data'].nextCursor).not.toBeNull();
+    await vi.waitFor(async () =>
+      expect((await auditRows()).find((r) => r.action === 'keys.rotate')?.details?.['batchSize']).toBe(2),
+    );
+    let after = first.json?.['data'].nextCursor as string | null;
+    for (let i = 0; i < 5 && after !== null; i++) {
+      const res = await admin(app, '/keys/rotate', { method: 'POST', body: { batchSize: 100, after } });
+      after = res.json?.['data'].nextCursor;
+    }
+    expect(await versions()).toEqual([2, 2, 2, 2, 2]);
+  });
+
+  it('re-encrypts in bounded batches, every row readable after each one, and audits each call', async () => {
+    const ring = await Keyring.create({ current: K2, previous: K1 });
+    const app = makeApp({ keyring: ring });
+    const expected = await readAll(world.keyring);
+    let after: string | null = null;
+    const answers: Record<string, unknown>[] = [];
+    for (let i = 0; i < 10; i++) {
+      const res = await admin(app, '/keys/rotate', { method: 'POST', body: { batchSize: 2, after } });
+      expect(res.status).toBe(200);
+      answers.push(res.json?.['data']);
+      expect(res.json?.['data'].reencrypted.length).toBeLessThanOrEqual(2);
+      expect(await readAll(ring)).toEqual(expected);
+      after = res.json?.['data'].nextCursor;
+      if (after === null) break;
+    }
+    expect(answers).toHaveLength(3);
+    expect(answers.at(-1)).toMatchObject({ currentVersion: 2, total: 5, pending: 0, versionsInUse: [2] });
+    expect(answers.flatMap((a) => a['reencrypted'] as string[])).toHaveLength(5);
+    expect(await versions()).toEqual([2, 2, 2, 2, 2]);
+    // The previous key can go: everything reads with the new key alone.
+    expect(await readAll(await Keyring.create({ current: K2 }))).toEqual(expected);
+
+    const rows = (await auditRows()).filter((r) => r.action === 'keys.rotate');
+    expect(rows).toHaveLength(3);
+    expect(rows.every((r) => r.kind === 'admin' && r.status === 'ok' && r.targetType === 'master_key')).toBe(
+      true,
+    );
+    expect(rows.map((r) => r.targetId)).toEqual(['v2', 'v2', 'v2']);
+    expect(rows.find((r) => r.details?.['complete'] === true)?.details).toMatchObject({
+      via: 'admin_token',
+      batchSize: 2,
+      pending: 0,
+      failedCount: 0,
+    });
+
+    // Idempotent: another run changes nothing.
+    const again = await admin(app, '/keys/rotate', { method: 'POST', body: {} });
+    expect(again.json?.['data']).toMatchObject({
+      reencrypted: [],
+      alreadyCurrent: 5,
+      nextCursor: null,
+      pending: 0,
+    });
+  });
+
+  it('a wrong previous or current key answers 503 key_mismatch before touching any row', async () => {
+    // Register the v1 key check (what the server's boot check does).
+    expect((await admin(makeApp(), '/keys/rotate', { method: 'POST', body: {} })).status).toBe(200);
+    const app = makeApp({ keyring: await Keyring.create({ current: K2, previous: generateMasterKey(1) }) });
+    const res = await admin(app, '/keys/rotate', { method: 'POST', body: {} });
+    expect(res.status).toBe(503);
+    expect(res.json?.['error']).toMatchObject({ code: 'unavailable', detail: 'key_mismatch' });
+    expect(res.headers.get('retry-after')).toBe('5');
+    // A wrong current key under an existing version number fails the same way.
+    const wrongCurrent = makeApp({ keyring: await Keyring.create({ current: generateMasterKey(1) }) });
+    const res2 = await admin(wrongCurrent, '/keys/rotate', { method: 'POST', body: {} });
+    expect(res2.status).toBe(503);
+    expect(res2.json?.['error']).toMatchObject({ code: 'unavailable', detail: 'key_mismatch' });
+    expect(await versions()).toEqual([1, 1, 1, 1, 1]);
+    const row = (await auditRows()).find((r) => r.action === 'keys.rotate' && r.status === 'error');
+    expect(row).toMatchObject({ errorCode: 'unavailable', targetType: 'master_key' });
+  });
+
+  it('a retired current key is refused (SR-1)', async () => {
+    const ring = await Keyring.create({ current: K2, previous: K1 });
+    expect(
+      (await admin(makeApp({ keyring: ring }), '/keys/rotate', { method: 'POST', body: {} })).status,
+    ).toBe(200);
+    const res = await admin(makeApp(), '/keys/rotate', { method: 'POST', body: {} });
+    expect(res.status).toBe(503);
+    expect(res.json?.['error']).toMatchObject({ code: 'unavailable', detail: 'key_version_retired' });
+    expect(await versions()).toEqual([2, 2, 2, 2, 2]);
+  });
+
+  it('without the previous key, rows are reported (key_version_unknown) and left unchanged', async () => {
+    const app = makeApp({ keyring: await Keyring.create({ current: K2 }) });
+    const res = await admin(app, '/keys/rotate', { method: 'POST', body: { batchSize: 100 } });
+    expect(res.status).toBe(200);
+    expect(res.json?.['data']).toMatchObject({
+      reencrypted: [],
+      pending: 5,
+      nextCursor: null,
+      versionsInUse: [1],
+    });
+    expect(res.json?.['data'].failed).toHaveLength(5);
+    expect(new Set(res.json?.['data'].failed.map((f: { code: string }) => f.code))).toEqual(
+      new Set(['key_version_unknown']),
+    );
+    expect(await versions()).toEqual([1, 1, 1, 1, 1]);
+  });
+
+  it('validates the body and audits refused requests', async () => {
+    const app = makeApp({ keyring: await Keyring.create({ current: K2, previous: K1 }) });
+    for (const body of [
+      { batchSize: 0 },
+      { batchSize: 101 },
+      { batchSize: 1.5 },
+      { batchSize: '5' },
+      { after: 'bad cursor!' },
+      { masterKey: K2 },
+    ]) {
+      const res = await admin(app, '/keys/rotate', { method: 'POST', body });
+      expect(res.status, JSON.stringify(body)).toBe(400);
+      expect(res.json?.['error'].code).toBe('invalid_request');
+    }
+    expect((await admin(app, '/keys/rotate', { method: 'POST', raw: 'x' })).status).toBe(415);
+    expect(await versions()).toEqual([1, 1, 1, 1, 1]);
+    const refused = (await auditRows()).filter((r) => r.action === 'keys.rotate');
+    expect(refused.length).toBeGreaterThanOrEqual(6);
+    expect(refused.every((r) => r.status === 'error' && r.errorCode === 'invalid_request')).toBe(true);
   });
 });
 

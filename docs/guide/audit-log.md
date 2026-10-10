@@ -88,6 +88,11 @@ relic-bridge audit purge                       # uses RB_AUDIT_RETENTION_DAYS (d
 relic-bridge audit purge --older-than-days 30
 ```
 
+On Cloudflare Workers an hourly cron trigger (`triggers.crons` in `wrangler.jsonc`) does the same with the same
+`RB_AUDIT_RETENTION_DAYS`. It deletes oldest rows first in batches of 500, at most 20 batches (10,000 rows) per run, and
+the next run continues; a failure is logged as `audit purge failed` and never affects requests. It is recorded as
+`audit.purge` with `source: cron` when it removed rows. Delete the trigger (or set the retention to `0`) to keep history.
+
 The purge is itself recorded (`admin` / `audit.purge`, with the number of rows removed). `RB_AUDIT=off` turns recording
 off entirely (warned at start).
 

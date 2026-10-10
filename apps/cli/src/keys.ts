@@ -11,7 +11,7 @@ import {
   rotateCredentialKeys,
 } from '@relic-bridge/auth';
 import type { Logger } from '@relic-bridge/core';
-import { checkAdminToken, MAX_ADMIN_TOKEN_CHARS, MIN_ADMIN_TOKEN_CHARS } from '@relic-bridge/http-app';
+import { ADMIN_TOKEN_ADVICE, checkAdminToken, describeAdminTokenProblem } from '@relic-bridge/http-app';
 import { StorageError } from '@relic-bridge/storage';
 import { openSqliteStorage } from '@relic-bridge/storage-sqlite';
 import { ConfigError, type ConfigFs, type Env } from './config.ts';
@@ -60,7 +60,8 @@ export const ADMIN_TOKEN_ENV = 'RB_ADMIN_TOKEN';
 
 /**
  * The bootstrap admin token (P2-09) from `RB_ADMIN_TOKEN` or a `0600` file named by `RB_ADMIN_TOKEN_FILE`, or
- * `undefined` when neither is set (the admin API stays off). A token that is too short or holds spaces is refused.
+ * `undefined` when neither is set (the admin API stays off). A token that is too short, holds spaces or is predictable
+ * (`checkAdminToken`, P3-13) is refused; the error never contains the token.
  */
 export function resolveAdminToken(env: Env, fs: ConfigFs, platform: string): string | undefined {
   const direct = env[ADMIN_TOKEN_ENV]?.trim() ?? '';
@@ -77,9 +78,8 @@ export function resolveAdminToken(env: Env, fs: ConfigFs, platform: string): str
   const problem = checkAdminToken(value);
   if (problem !== null) {
     throw new ConfigError(
-      `${ADMIN_TOKEN_ENV} is ${problem.replace('_', ' ')}.`,
-      `Use ${MIN_ADMIN_TOKEN_CHARS}-${MAX_ADMIN_TOKEN_CHARS} printable characters without spaces, e.g. the output of ` +
-        '`openssl rand -base64 32`.',
+      `${ADMIN_TOKEN_ENV} is ${describeAdminTokenProblem(problem)}.`,
+      `Use a random value of at least 32 printable characters without spaces. ${ADMIN_TOKEN_ADVICE}`,
     );
   }
   return value;

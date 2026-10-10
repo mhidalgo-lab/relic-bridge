@@ -1,13 +1,23 @@
 // SPDX-License-Identifier: Apache-2.0
 // Rate limiting as `HttpAppHooks` (P2-07). Keeps the app free of limiter policy: it only knows the hook points.
-//   beforeAuth    per-IP request limit, and the per-IP auth-failure throttle (peek; refused for valid and invalid
-//                 tokens alike, so a 429 never tells an attacker whether a guess was right, T1/T19)
-//   onAuthFailure charges the failure to the IP
-//   beforeMcp     per-token and per-grant limits (only reachable with a valid token)
+//   beforeAuth         per-IP request limit; on the pass-through route also the auth-failure throttle (peek, below)
+//   refuseAuthFailure  charges a failed authentication to the IP and answers 429 instead of 401 once the IP is over
+//                      its failure budget (T1)
+//   beforeMcp          per-token and per-grant limits (only reachable with a valid token)
 //   beforePassthrough  per-key limit on the pass-through route (P2-15; only reachable with a key New Relic accepted)
+//
+// Lock-out semantics (P3-13, Phase 2 review M6): the failure throttle refuses further *failures* only. A request whose
+// MCP access token or admin token verifies is served even from an IP that sprayed bad tokens, so nobody sharing your
+// address (NAT, CGNAT, a laptop retrying a revoked token) can lock your devices out. The price is that a locked IP
+// learns whether a guess was right (served vs 429), at the per-IP request rate instead of 10 per 5 minutes. That is no
+// useful oracle: access tokens carry 256 random bits and admin tokens are refused at boot when predictable
+// (`checkAdminToken`). Verifying costs no outbound call (a digest compare, a storage read bounded by the per-IP limit),
+// and the comparison is constant time, so timing adds nothing the status code does not already say. The pass-through
+// route keeps the strict rule (refuse a locked IP before anything): checking a New Relic key asks NerdGraph, and the
+// key is the caller's, not one of our 256-bit secrets.
 import type { Logger } from '@relic-bridge/core';
 import type { Context } from 'hono';
-import type { AuthFailureInfo, HttpAppHooks, McpRequestInfo } from './app.ts';
+import type { AuthFailureInfo, AuthScope, HttpAppHooks, McpRequestInfo } from './app.ts';
 import type { PassthroughRequestInfo } from './passthrough.ts';
 import type { RateLimiter, RateLimitResult, RateLimitRule } from './rate-limit.ts';
 
@@ -93,9 +103,11 @@ export function createRateLimitHooks(options: RateLimitHooksOptions): HttpAppHoo
   };
 
   return {
-    async beforeAuth(c) {
+    async beforeAuth(c: Context, _requestId: string, scope: AuthScope) {
       const ip = ipKey(c);
-      if (rules.authFailures) {
+      // Pass-through only: a locked IP is refused before its New Relic key is sent to NerdGraph for checking (valid
+      // keys included). Token routes check the throttle on failure instead (`refuseAuthFailure`).
+      if (rules.authFailures && scope === 'passthrough_key') {
         const rule = rules.authFailures;
         const r = await guard('auth_failures', () => pre.peek(`fail:${ip}`, rule));
         if (r && !r.allowed) {
@@ -114,16 +126,17 @@ export function createRateLimitHooks(options: RateLimitHooksOptions): HttpAppHoo
       return undefined;
     },
 
-    onAuthFailure(c: Context, _info: AuthFailureInfo) {
+    // Charged before the answer is sent (not in the background) so that the failure that exhausts the budget is the
+    // last one answered 401. Once the bucket is empty nothing more is taken; it refills at the rule's rate.
+    async refuseAuthFailure(c: Context, _info: AuthFailureInfo) {
       const rule = rules.authFailures;
-      if (!rule) return;
-      const task = guard('auth_failure_charge', () => pre.take(`fail:${ipKey(c)}`, rule));
-      // The 401 is already decided; the charge may finish after the response (Workers keeps it alive).
-      try {
-        c.executionCtx.waitUntil(task);
-      } catch {
-        // Node: no execution context; `guard` never rejects.
+      if (!rule) return undefined;
+      const r = await guard('auth_failures', () => pre.take(`fail:${ipKey(c)}`, rule));
+      if (r && !r.allowed) {
+        mark(c, 'rate_limit_auth_failures');
+        return rateLimited(r.retryAfterMs);
       }
+      return undefined;
     },
 
     async beforeMcp(c: Context, info: McpRequestInfo) {
@@ -166,10 +179,21 @@ export function createRateLimitHooks(options: RateLimitHooksOptions): HttpAppHoo
 export function mergeHooks(...sets: readonly (HttpAppHooks | undefined)[]): HttpAppHooks {
   const hooks = sets.filter((s): s is HttpAppHooks => s !== undefined);
   return {
-    async beforeAuth(c, requestId) {
+    async beforeAuth(c, requestId, scope) {
       for (const h of hooks) {
-        const stop = await h.beforeAuth?.(c, requestId);
+        const stop = await h.beforeAuth?.(c, requestId, scope);
         if (stop) return stop;
+      }
+      return undefined;
+    },
+    async refuseAuthFailure(c, info) {
+      for (const h of hooks) {
+        try {
+          const stop = await h.refuseAuthFailure?.(c, info);
+          if (stop) return stop;
+        } catch {
+          // a failing hook never changes the answer
+        }
       }
       return undefined;
     },

@@ -11,7 +11,8 @@ Guide: [self-hosting](../guide/self-hosting.md#admin-api).
 ## Conventions
 
 - **Authentication**: `Authorization: Bearer <RB_ADMIN_TOKEN>` on every request. Cookies and query-string
-  credentials are never accepted; every failure is the same `401` (and counts toward the per-IP failure throttle).
+  credentials are never accepted; every failure is the same `401` and counts toward the per-IP failure throttle
+  (past it, further failures get `429 rate_limited`; the valid token is still served).
 - **Bodies**: `application/json` only (`415` otherwise; body-less actions such as `…/revoke` need no `Content-Type`), at most 64 KiB (`413`). Unknown fields are refused (`400`).
 - **Errors**: `{ "error": { "code", "message", "field"?, "detail"? } }`. Messages name fields and ids only: a 404 or an unknown-field message echoes the id or field name, redacted and truncated (64 and 100 characters), never a submitted value.
 - **Lists**: `?limit=` (1-200, default 50) and `?cursor=`; responses are `{ "data": [...], "nextCursor" }`.
@@ -491,6 +492,27 @@ Revoke an access token
 | 200 | `AccessTokenResponse` | Revoked |
 | 404 | `Error` | No such resource (`not_found`) |
 
+## Keys
+
+### POST /keys/rotate
+
+Re-encrypt stored keys under the current master key (one batch)
+
+Master-key rotation for hosts without local database access (a Worker on D1). Start the server with the new key as `RB_MASTER_KEY` and the old one as `RB_MASTER_KEY_PREVIOUS`, then call this until `nextCursor` is `null` (`relic-bridge keys rotate --remote` does). Each row is re-encrypted with a compare-and-swap, so every row stays readable, an interrupted run resumes, and a repeated run changes nothing. A wrong or retired master key answers `503 unavailable` (`detail`: `key_mismatch`, `key_version_retired`) before any row is touched. The previous key can be removed once `pending` is 0. A server may cap `batchSize` (Free-plan Workers: 40). Never returns key material.
+
+Request body (`RotateKeys`):
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `batchSize` | `integer` | no | Rows to re-encrypt in this call, 1-100 (default 25). A Worker on the Free plan lowers the ceiling to 40 (one call stays under 50 D1 queries); a larger value is reduced, not refused, and `nextCursor` resumes. |
+| `after` | `string \| null` | no | `nextCursor` of the previous call; omit to start from the first row. |
+
+| Status | Body | Description |
+| --- | --- | --- |
+| 200 | `KeyRotationResponse` | What this batch did |
+| 413 | `Error` | Body too large (`payload_too_large`) |
+| 415 | `Error` | Body is not JSON (`unsupported_media_type`) |
+
 ## Audit
 
 ### GET /audit
@@ -713,6 +735,25 @@ Masked credential metadata. Key plaintext and ciphertext are never returned.
 | `data` | `Grant` | yes |  |
 | `warnings` | `string[]` | no | Non-fatal notes about the change (e.g. parts of a grant the project does not allow). |
 
+### KeyRotation
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `currentVersion` | `integer` | yes | The version rows are re-encrypted under. |
+| `total` | `integer` | yes | Credentials with an encrypted key (whole table). |
+| `reencrypted` | `string[]` | yes | Credential ids re-encrypted by this call. |
+| `alreadyCurrent` | `integer` | yes | Rows of the range this call scanned that were already current. |
+| `failed` | `object[]` | yes | Rows left unchanged: `conflict` (changed meanwhile; run again), `key_version_unknown` (its key is not loaded: set RB_MASTER_KEY_PREVIOUS), `decrypt_failed` (damaged or tampered row). |
+| `nextCursor` | `string \| null` | yes | Send as `after` to continue; `null` once every row was visited. |
+| `pending` | `integer` | yes | Rows (whole table) not on the current version after this call. |
+| `versionsInUse` | `integer[]` | yes | Key versions stored after this call. `[currentVersion]` (or `[]`): the previous key can go. |
+
+### KeyRotationResponse
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `data` | `KeyRotation` | yes |  |
+
 ### Limits
 
 Query limits; absent fields fall back to the defaults.
@@ -784,6 +825,13 @@ Query limits; absent fields fall back to the defaults.
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `apiKey` | `string` | yes | New Relic User API key (`NRAK-…`). Accepted in the request body only; never returned. |
+
+### RotateKeys
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `batchSize` | `integer` | no | Rows to re-encrypt in this call, 1-100 (default 25). A Worker on the Free plan lowers the ceiling to 40 (one call stays under 50 D1 queries); a larger value is reduced, not refused, and `nextCursor` resumes. |
+| `after` | `string \| null` | no | `nextCursor` of the previous call; omit to start from the first row. |
 
 ### UpdateCredential
 

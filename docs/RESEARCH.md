@@ -5,13 +5,16 @@ must re-check every item marked **verify** against the real platforms before Pha
 
 ## 1. Cloudflare Workers platform limits
 
-Source: <https://developers.cloudflare.com/workers/platform/limits/>
+Sources: <https://developers.cloudflare.com/workers/platform/limits/>,
+<https://developers.cloudflare.com/changelog/post/2026-02-11-subrequests-limit/>,
+<https://developers.cloudflare.com/workers/platform/pricing/> (checked 2026-10-03, P3-03).
 
 | Limit | Free | Paid | Impact on relic-bridge |
 |---|---|---|---|
 | Requests / day | 100,000 | unlimited | Far above personal or small-team MCP usage. |
 | CPU time / request | **10 ms** | 30 s default, 5 min max | **Main risk.** Network waits do *not* count, but JSON parsing of large NRQL results, crypto, and output shaping do. |
-| Subrequests / request | **50** | 10,000 | **D1, KV and fetch calls all count.** Every NerdGraph call, async poll, D1 lookup and OAuth-token KV read uses budget. |
+| Subrequests / request | **50 external** + 1,000 to Cloudflare services | 10,000 (configurable up to 10 M via `limits.subrequests`) | **Changed 2026-02-11:** on Free, `fetch` to the Internet (every NerdGraph call and async poll) counts against the 50; D1, KV and other Cloudflare services count against a separate 1,000. Each redirect hop counts. The old assumption "D1 lookups eat the 50" no longer holds, so the access-resolve cost (one D1 batch call + a throttled write on a miss since P3-09) does not touch the NerdGraph budget. |
+| D1 rows (Free) | 5 M read / 100 k written per day | 25 B / 50 M per month included | Enforced since 2026-09-01: queries fail with a "free tier daily row read/write limit" error until 00:00 UTC. Matters for audit writes and cache misses on a busy Free deployment. |
 | Concurrent connections waiting for headers | 6 | 6 | Parallel NerdGraph fan-out from one invocation is capped at 6. |
 | Wall-clock duration (HTTP) | no limit while the client is connected | same | Async NRQL polling is fine while the MCP client keeps the connection open. |
 | Memory | 128 MB | 128 MB | Cap result sizes; never buffer unbounded responses. |
@@ -22,8 +25,10 @@ Source: <https://developers.cloudflare.com/workers/platform/limits/>
   - tokens are high-entropy random values, so they're hashed with a single SHA-256; never PBKDF2 or bcrypt on the hot path
   - AES-GCM uses a raw imported key
   - response bytes are capped before parsing
-- Every request carries a **subrequest budget** (`free` = 50, `paid` = 1000 by default; configurable). Tools
-  declare their expected cost, and combined report tools degrade gracefully (partial report plus a note) instead of failing.
+- Every request carries a **NerdGraph call budget** (`RB_PLAN=free` = 45, `paid` = 1000; overridable with `RB_CALL_BUDGET`).
+  It counts external `fetch` calls only (see the table), and Free keeps 5 below the platform's 50 for redirects. Tools
+  declare their expected cost; tools that cost more than the budget are not offered (and `whoami` says why), and combined
+  report tools degrade gracefully (partial report plus a note) instead of failing.
 - Auth and config lookups are cached in isolate memory with a short TTL (≤ 60 s) to save subrequests.
   This bounds how long a revocation takes to apply (documented trade-off; the TTL is configurable, and 0 disables the cache).
 - Docs will recommend Workers Paid for heavy use or shared teams. Spike **P0-06** measures real CPU numbers.
@@ -302,3 +307,122 @@ and known issues before Phase 1.
   Kubernetes secret volumes are root-owned and become group-readable with `fsGroup`.
 - A loopback `Host` is refused by the server unless listed in `RB_ALLOWED_HOSTS`, so the health check treats a
   `403 forbidden_host` answer as alive.
+
+## 11. Workers runtime and tooling facts (P3-01, verified 2026-10-03)
+
+Sources: <https://developers.cloudflare.com/workers/wrangler/configuration/>,
+<https://developers.cloudflare.com/workers/testing/vitest-integration/>,
+<https://developers.cloudflare.com/workers/observability/errors/>,
+<https://developers.cloudflare.com/changelog/post/2025-10-24-automatic-resource-provisioning/>,
+<https://developers.cloudflare.com/changelog/post/2026-03-24-secrets-config-property/>. Checked locally with wrangler
+4.144.0 / workerd 1.20260926.1.
+
+- **Vitest integration renamed**: `@cloudflare/vitest-pool-workers` is now `@cloudflare/vitest-plugin` (1.x, Vitest
+  ≥ 4.1), configured with the `cloudflareTest({ wrangler: { configPath }, miniflare })` Vite plugin;
+  `defineWorkersConfig` and `cloudflare:test`'s `SELF`/`env` are deprecated in favour of `exports`/`env` from
+  `cloudflare:workers`. Projects with different pools coexist in one root `vitest.config.ts`.
+- **V8 coverage cannot attach to workerd** (`node:inspector` `Session` not implemented): `pnpm test:coverage` excludes
+  the `worker` project (`--project=!worker`), and CI runs it separately (`pnpm test:workers`).
+- **Main module exports**: workerd treats every named export of the `main` module as an entrypoint and refuses to start
+  when one is not a handler (`Incorrect type for map entry …`). The entry file exports the default handler only.
+- **Cross-request I/O**: I/O started by one request belongs to that request; awaiting it from another request is unsafe
+  (a cancelled originator leaves waiters hanging, or throws "Cannot perform I/O on behalf of a different request").
+  The Worker therefore never shares an in-flight boot between requests (each cold request boots; the first finished
+  runtime is kept). Caching non-I/O results (keyring, Hono app, in-memory buckets) and binding objects is fine.
+- **`env` identity**: the same `env` object is passed to every request of an isolate (observed under `wrangler dev`),
+  so a per-isolate cache can key on it.
+- **Automatic provisioning** (wrangler ≥ 4.45, open beta): D1/KV/R2 bindings without ids work in `wrangler dev`
+  (local resources) and are created on the first `wrangler deploy`, which writes the ids back into the config file.
+  The committed `apps/worker/wrangler.jsonc` therefore has no ids.
+- **`secrets.required`** declares secret names: `wrangler deploy` fails when one is not set; `wrangler dev` then loads
+  only those names from `.dev.vars`/`.env` and warns about missing ones (the Vitest integration prints the same warning;
+  tests pass secrets through `miniflare.bindings`).
+- **Rate Limiting binding** config: `"ratelimits": [{ "name", "namespace_id", "simple": { "limit", "period": 10 | 60 } }]`
+  (GA since 2025-09); it works locally under `wrangler dev`. Semantics are per-location and eventually consistent (P3-04).
+- **Bundle size**: `wrangler deploy --dry-run --outdir dist` (no account needed) bundles the Worker: 1.75 MiB raw,
+  **339 KiB gzip** at P3-01, well under the Free plan's 3 MiB compressed limit. `pnpm build` runs this for `apps/worker`.
+- No `nodejs_compat` flag is needed: every package is web-standard (ADR-0004).
+
+## 11b. Measuring Worker CPU in CI (P3-10, 2026-10-03)
+
+- In the **local** workerd that `@cloudflare/vitest-plugin` starts, `performance.now()`/`Date.now()` advance during CPU
+  work (a 3e7-iteration busy loop read ~51 ms). Production workerd freezes timers until I/O (Spectre mitigation), so
+  this only works locally. The clock ticks in whole milliseconds: per-iteration readings are quantised, so the
+  benchmark compares a trimmed mean (fastest 90%) and times sub-millisecond work in batches.
+- `console.log` output from tests inside this pool does not reach the terminal; results travel in `task.meta`, read from
+  Vitest's JSON reporter (`--reporter=json`, `meta` per assertion).
+- Numbers (`pnpm bench:cpu`, WSL2 dev machine, warm isolate, local D1 simulator; trimmed mean, ms): calibration job
+  3.6; `crypto.decrypt` 0.013; `token.verify.d1` 4.1; `access.resolve.miss.d1` 4.7; `initialize` 4.5; `tools/list`
+  cache hit 6.7 / miss 13.0; `whoami` 5.7; `run_nrql` 10 KB 7.3, 100 KB 9.4, ~500 KB 15.3; fresh Worker boot + first
+  request 35.6. They run about 2-3x the production figures of P0-06 (2.8 ms p50 for 10 KB) because the wall time includes
+  the local D1 simulator's latency and a slower machine. Only the **ratio to the baseline** is meaningful; the absolute
+  values are not a prediction for Workers Free.
+- What the numbers say: the D1 round trip is most of a miss (hit 6.7 vs miss 13.0 ms for `tools/list`); decrypting the
+  stored key is negligible; the large-result cost scales with payload (about +6 ms from 100 KB to 500 KB).
+
+## 12. Cloudflare D1 facts (P3-02, verified 2026-10-03)
+
+Sources: <https://developers.cloudflare.com/d1/worker-api/d1-database/>,
+<https://developers.cloudflare.com/d1/reference/migrations/>, <https://developers.cloudflare.com/d1/sql-api/foreign-keys/>.
+Checked locally with wrangler 4.144.0 / `@cloudflare/vitest-plugin` 1.3.3 (Miniflare's D1); not yet against a remote
+database.
+
+- **No interactive transactions.** `batch()` sends several statements in one call and runs them as one SQL transaction
+  (a failing statement rolls the whole batch back); otherwise D1 auto-commits each statement. Atomic
+  read-decide-write therefore needs a single conditional statement.
+- **Results:** `meta.changes` counts rows written; `RETURNING` works (`INSERT/UPDATE … RETURNING *` via `.all()`).
+  BLOBs bind from `ArrayBuffer`/typed arrays and come back as byte arrays (`toBytes` normalises them).
+- **Errors** read `D1_ERROR: UNIQUE constraint failed: users.email: SQLITE_CONSTRAINT (extended: …)`, with the plain
+  SQLite message as `cause`; the constraint names match SQLite's, so one mapping serves both adapters.
+- **Foreign keys are always enforced** (`PRAGMA foreign_keys` reads 1); D1 offers `PRAGMA defer_foreign_keys = true`
+  for migrations that must violate them temporarily. SQLite ignores `PRAGMA foreign_keys` inside a transaction, so the
+  D1 migration driver skips those statements (drizzle-kit emits them around table rebuilds).
+- **Read retries:** D1 retries read-only queries (`SELECT`/`EXPLAIN`/`WITH`) up to twice on retryable errors; writes are
+  not retried (changelog 2025-09-11).
+- **`wrangler d1 migrations`** tracks applied files in its own `d1_migrations` table (`migrations_dir`,
+  `migrations_pattern` for drizzle's nested layout since 2026-06). relic-bridge does not use it: the Worker runs the
+  embedded migrations itself (ADR-0006 update P3-02).
+- **Test isolation:** in `@cloudflare/vitest-plugin` 1.3.3 the local D1 database is shared by the tests of a file;
+  tests that need an empty database drop the tables first (`wipeD1`).
+
+## 13. Workers Rate Limiting binding (P3-04, checked 2026-10-03)
+
+- GA since 2025-09-19 (`ratelimits` in Wrangler config; the `unsafe` binding still works). Config per binding:
+  `namespace_id` (string) and `simple: { limit, period }` with `period` 10 or 60 seconds only.
+- API: `await env.X.limit({ key })` returns `{ success: boolean }`. No `peek`, no cost, no remaining count, no
+  per-call limit: the limit is fixed by the binding's configuration.
+- Counted per Cloudflare location and eventually consistent (permissive by design), so it is a backstop, not an exact
+  limiter. Not verified here: whether calls count as subrequests (assumed not).
+- Local: the workers vitest pool and `wrangler dev` simulate the binding; unit tests use a fake with the same shape.
+
+## 14. Deploy button and provisioning (P3-05, checked 2026-10-03)
+
+- **Deploy to Cloudflare button:** `https://deploy.workers.cloudflare.com/?url=<repo URL>` (a `/tree/<branch>/<dir>` URL
+  selects a subdirectory). Cloudflare clones into the user's GitHub/GitLab, provisions KV/D1/R2/etc. bindings declared
+  without ids, prompts for secrets named in `.dev.vars.example` / `.env.example`, and builds with Workers Builds.
+  Not verified here: monorepo behaviour (our config aliases `../../packages/*`, so the build needs the whole clone) and
+  the default build command; no account was used.
+- **Automatic provisioning** (Wrangler >= 4.45, now in the config reference): bindings without ids are created on
+  `wrangler deploy` with the Worker name as prefix, and ids are written back **into the config file used**. The setup
+  script therefore deploys a git-ignored copy. Dashboard/Git deploys keep ids only in the dashboard.
+- **`secrets.required`** (2026-03-24): `wrangler deploy` and `versions upload` fail if a required secret isn't set on the
+  Worker, so the setup script sets secrets before the first deploy. `wrangler secret bulk` (stdin JSON when no file is
+  given) sets several at once without argv exposure. Whether `secret bulk` creates a not-yet-deployed Worker is not
+  verified (pending decision).
+- `wrangler deploy --var NAME:value` overrides a `vars` entry at deploy time; `wrangler secret list --format json` lists
+  secret names only. A missing Worker is assumed to answer with API code 10007 (not verified).
+- **Changing several secrets atomically** (P3-11, checked 2026-10-03): `wrangler secret put` creates and deploys a new
+  version per call, so two calls deploy an intermediate version. `wrangler secret bulk` (JSON on stdin) creates, updates
+  or (wrangler >= 4.97, `null` values) deletes up to 100 secrets in one request and one version; secrets not named are
+  kept ([secret bulk](https://developers.cloudflare.com/workers/wrangler/commands/workers/#secret-bulk),
+  [bulk secrets API](https://developers.cloudflare.com/changelog/post/2026-06-03-bulk-secrets-api/)). The master-key
+  rotation runbook sets `RB_MASTER_KEY` and `RB_MASTER_KEY_PREVIOUS` this way.
+
+## 15. WAF rate-limiting rules as an admin-API backstop (P3-13, checked 2026-10-03)
+
+- Rate limiting rules are zone rules (dashboard: Security > Security rules > Create rule > Rate limiting rules). Free
+  plan: 1 rule, counting characteristic preset to IP, 10 s period, action Block, 10 s mitigation; Pro 2 rules, Business 5.
+  Counting only failed responses (`http.response.code in {401 403}` under "Increment counter when") is Business and up.
+  Source: https://developers.cloudflare.com/waf/rate-limiting-rules/ (availability table) and
+  https://developers.cloudflare.com/use-cases/solutions/stop-account-takeover-attacks/.
+

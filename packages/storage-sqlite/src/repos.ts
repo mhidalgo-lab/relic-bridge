@@ -4,17 +4,23 @@
 // (cascades happen inside the engine), so it is atomic on its own.
 import type { DatabaseSync, SQLInputValue } from 'node:sqlite';
 import {
+  ACCESS_RECORDS_FIELDS,
+  ACCESS_RECORDS_SQL,
+  type AccessRecords,
+  type AccessRecordsQuery,
   type AccessTokenRecord,
   type AccessTokensRepository,
   type AuditEntry,
   type AuditLogRepository,
   type AuditQuery,
   type AuditRecord,
+  accessRecordsParams,
   type CredentialRecord,
   type CredentialsRepository,
   checkEncryptedKey,
   checkGrantPrincipal,
   checkKeyHint,
+  checkLimit,
   checkRegion,
   checkRole,
   checkTokenHash,
@@ -27,6 +33,8 @@ import {
   type KvPutOptions,
   type KvRepository,
   keyChangedError,
+  kvExpiry,
+  NO_ACCESS_RECORDS,
   NotFoundError,
   normalizeEmail,
   type ProjectRecord,
@@ -576,6 +584,7 @@ export function createRepositories(
       }),
     list: (q: AuditQuery = {}) =>
       call(() => {
+        checkLimit(q.limit, 'auditLog.limit');
         const limit = Math.min(Math.max(1, Math.trunc(q.limit ?? AUDIT_DEFAULT_LIMIT)), AUDIT_MAX_LIMIT);
         const where: string[] = [];
         const params: Params = [];
@@ -599,7 +608,16 @@ export function createRepositories(
         const sql = `SELECT * FROM audit_log${where.length ? ` WHERE ${where.join(' AND ')}` : ''} ORDER BY id DESC LIMIT ?`;
         return freeze(all(sql, [...params, limit]).map(auditOf));
       }),
-    purgeBefore: (before) => call(() => run('DELETE FROM audit_log WHERE ts < ?', [before])),
+    purgeBefore: (before, limit) =>
+      call(() => {
+        checkLimit(limit, 'auditLog.limit');
+        return limit === undefined
+          ? run('DELETE FROM audit_log WHERE ts < ?', [before])
+          : run(
+              'DELETE FROM audit_log WHERE id IN (SELECT id FROM audit_log WHERE ts < ? ORDER BY ts, id LIMIT ?)',
+              [before, limit],
+            );
+      }),
   };
 
   // --------------------------------------------------------------------------------------------- settings
@@ -651,13 +669,7 @@ export function createRepositories(
       }),
     put: (key, value, opts: KvPutOptions = {}) =>
       call(() => {
-        const t = now();
-        const expiresAt =
-          opts.expiration !== undefined
-            ? opts.expiration * 1000
-            : opts.expirationTtl !== undefined
-              ? t + opts.expirationTtl * 1000
-              : null;
+        const expiresAt = kvExpiry(opts, now());
         run(
           'INSERT INTO kv (key, value, expires_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, expires_at = excluded.expires_at',
           [key, value, expiresAt],
@@ -669,6 +681,7 @@ export function createRepositories(
       }),
     list: (opts = {}) =>
       call((): KvListResult => {
+        checkLimit(opts.limit, 'kv.limit');
         const limit = Math.min(Math.max(1, Math.trunc(opts.limit ?? KV_MAX_LIST)), KV_MAX_LIST);
         const prefix = opts.prefix ?? '';
         const after = opts.cursor === undefined ? '' : decodeCursor(opts.cursor);
@@ -691,6 +704,34 @@ export function createRepositories(
       }),
   };
 
+  // ------------------------------------------------------------------------------------------ access records
+  // The same statements as D1's batch (P3-09), in one read transaction: a consistent snapshot even with another
+  // process writing (WAL). The driver is synchronous, so nothing else on this connection runs in between.
+  const loadAccessRecords = (query: AccessRecordsQuery): Promise<AccessRecords> =>
+    call(() => {
+      db.exec('BEGIN');
+      let rows: (Row | null)[];
+      try {
+        rows = ACCESS_RECORDS_FIELDS.map((field) =>
+          one(ACCESS_RECORDS_SQL[field], [...accessRecordsParams(field, query)]),
+        );
+        db.exec('COMMIT');
+      } catch (error) {
+        if (db.isTransaction) db.exec('ROLLBACK');
+        throw error;
+      }
+      const [token, project, grant, user, credential, owner] = rows;
+      if (!token) return NO_ACCESS_RECORDS;
+      return Object.freeze({
+        token: tokenOf(token),
+        project: project ? projectOf(project) : null,
+        grant: grant ? grantOf(grant) : null,
+        user: user ? userOf(user) : null,
+        credential: credential ? credentialOf(credential) : null,
+        credentialOwner: owner ? userOf(owner) : null,
+      });
+    });
+
   return {
     users: usersRepo,
     credentials: credentialsRepo,
@@ -700,6 +741,7 @@ export function createRepositories(
     auditLog: auditRepo,
     settings: settingsRepo,
     kv: kvRepo,
+    loadAccessRecords,
   };
 }
 

@@ -33,7 +33,11 @@ const whoamiOutput = z.object({
   defaultAccountReachable: z.boolean(),
   accountCount: z.number().int(),
   allowedTools: z.array(z.string()).nullable(),
+  /** Granted tools withheld because the deployment's per-request NerdGraph budget cannot pay for them. */
+  unavailableTools: z.array(z.object({ name: z.string(), reason: z.string() })),
   limits: z.object({
+    callBudget: z.number().int(),
+    maxResponseBytes: z.number().int(),
     maxLimit: z.number().int(),
     maxWindowDays: z.number(),
     rawNrql: z.boolean(),
@@ -123,6 +127,7 @@ export function createIdentityTools(deps: ToolDeps = {}): ToolDefinition[] {
       };
       const project = ctx.connection?.project ?? null;
       const allowedTools = ctx.connection?.allowedTools ? [...ctx.connection.allowedTools] : null;
+      const unavailable = ctx.connection?.unavailableTools ?? [];
       const structured = {
         user,
         region: ctx.credential.region,
@@ -131,7 +136,10 @@ export function createIdentityTools(deps: ToolDeps = {}): ToolDefinition[] {
         defaultAccountReachable: defaultReachable,
         accountCount: accounts.length,
         allowedTools,
+        unavailableTools: unavailable.map((u) => ({ name: u.name, reason: u.reason })),
         limits: {
+          callBudget: ctx.budget.limit,
+          maxResponseBytes: ctx.limits.maxResponseBytes,
           maxLimit: ctx.limits.maxLimit,
           maxWindowDays: ctx.limits.maxWindowDays,
           rawNrql: ctx.limits.rawNrql,
@@ -144,6 +152,10 @@ export function createIdentityTools(deps: ToolDeps = {}): ToolDefinition[] {
         `Query limits: up to ${ctx.limits.maxLimit} rows, ${ctx.limits.maxWindowDays} day window, ` +
           `raw NRQL ${ctx.limits.rawNrql ? 'allowed' : 'disabled'}.`,
         `Tools: ${allowedTools ? allowedTools.join(', ') : 'unknown'}.`,
+        ...(unavailable.length > 0
+          ? [`Not offered here: ${unavailable.map((u) => `${u.name} (${u.reason})`).join('; ')}.`]
+          : []),
+        `Budget: ${ctx.budget.limit} New Relic calls per request, responses up to ${ctx.limits.maxResponseBytes} bytes.`,
         envelope(`user id: ${user.id}\nname: ${user.name}\nemail: ${user.email}`, {
           source: 'New Relic user',
         }),

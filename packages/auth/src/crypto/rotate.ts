@@ -40,7 +40,7 @@ export async function verifyKeyChecks(
   storage: Pick<Storage, 'settings' | 'credentials'>,
   keyring: Keyring,
   options: { readonly register?: boolean } = {},
-): Promise<{ readonly registered: readonly number[] }> {
+): Promise<VerifyKeyChecksResult> {
   const settings = await storage.settings.list();
   const stored = new Map<number, Uint8Array | null>();
   for (const [key, value] of Object.entries(settings)) {
@@ -87,7 +87,34 @@ export async function verifyKeyChecks(
     const bytes = typeof back === 'string' ? fromBase64(back) : null;
     if (bytes === null || !timingSafeEqual(bytes, expected)) throw mismatch(version, keyring);
   }
-  return { registered };
+  // Rows under a version the keyring does not hold can never be decrypted (an operator removed the previous key
+  // before the rotation finished). Report them so boot can warn; counts only, never ids or key material (P3-15).
+  const held = new Set(keyring.versions);
+  const missing = new Map<number, number>();
+  for (const c of rows) {
+    if (c.key.kind === 'encrypted' && !held.has(c.key.keyVersion)) {
+      missing.set(c.key.keyVersion, (missing.get(c.key.keyVersion) ?? 0) + 1);
+    }
+  }
+  const unreadable = [...missing].sort((a, b) => a[0] - b[0]).map(([version, rows]) => ({ version, rows }));
+  return { registered, unreadable };
+}
+
+export interface VerifyKeyChecksResult {
+  readonly registered: readonly number[];
+  /** Credentials stored under a key version the keyring lacks, per version (they cannot be read until it is back). */
+  readonly unreadable: readonly { readonly version: number; readonly rows: number }[];
+}
+
+/** Boot warning text for `unreadable`, or `undefined` when every row is readable. */
+export function describeUnreadableKeys(unreadable: VerifyKeyChecksResult['unreadable']): string | undefined {
+  if (unreadable.length === 0) return undefined;
+  const parts = unreadable.map((u) => `${u.rows} under version ${u.version}`).join(', ');
+  return (
+    `Stored credentials cannot be decrypted with the configured master keys (${parts}): the key they were ` +
+    'encrypted with is missing. Restore it as RB_MASTER_KEY_PREVIOUS and run `relic-bridge keys rotate`, or ' +
+    'replace those credentials (`credential rotate`).'
+  );
 }
 
 async function anyDecrypts(keyring: Keyring, rows: readonly CredentialRecord[]): Promise<boolean> {
@@ -157,7 +184,7 @@ export interface RotationReport {
  * never dropped. Key check values are verified (and the current one registered) before any row is touched.
  */
 export async function rotateCredentialKeys(
-  storage: Storage,
+  storage: Pick<Storage, 'settings' | 'credentials'>,
   keyring: Keyring,
   options: { readonly onProgress?: (done: number, total: number) => void } = {},
 ): Promise<RotationReport> {
@@ -169,46 +196,134 @@ export async function rotateCredentialKeys(
   let alreadyCurrent = 0;
   let done = 0;
   for (const row of rows) {
-    const old = row.key;
-    if (old.kind !== 'encrypted') continue;
-    if (old.keyVersion === current) {
-      alreadyCurrent++;
-    } else {
-      try {
-        const plaintext = await keyring.decryptCredentialKey(row.id, old);
-        const next = await keyring.encryptCredentialKey(row.id, plaintext.reveal());
-        const written = await storage.credentials.update(row.id, { key: next, ifKey: old });
-        // Read-back check: the stored row must decrypt to the same key before we count it. If it doesn't (a bug or
-        // a broken adapter), put the old ciphertext back, still as a compare-and-swap.
-        if (!(await readsBack(keyring, row.id, written.key, plaintext.reveal()))) {
-          if (written.key.kind === 'encrypted') {
-            await storage.credentials.update(row.id, { key: old, ifKey: written.key });
-          }
-          throw new CryptoError('decrypt_failed', `credential ${row.id} did not read back after rotation`);
-        }
-        reencrypted.push(row.id);
-      } catch (error) {
-        if (error instanceof CryptoError) failed.push({ id: row.id, code: error.code });
-        else if (error instanceof ConflictError || error instanceof NotFoundError)
-          failed.push({ id: row.id, code: 'conflict' });
-        else throw error;
-      }
-    }
+    if (row.key.kind === 'encrypted' && row.key.keyVersion === current) alreadyCurrent++;
+    else await rotateRow(storage, keyring, row, reencrypted, failed);
     done++;
     options.onProgress?.(done, rows.length);
   }
-  const versionsInUse = new Set<number>();
-  for (const c of await storage.credentials.list()) {
-    if (c.key.kind === 'encrypted') versionsInUse.add(c.key.keyVersion);
-  }
+  const { versionsInUse } = await versionsAfter(storage, current);
   return {
     currentVersion: current,
     total: rows.length,
     reencrypted,
     alreadyCurrent,
     failed,
-    versionsInUse: [...versionsInUse].sort((a, b) => a - b),
+    versionsInUse,
   };
+}
+
+/** Largest batch {@link rotateCredentialKeysBatch} accepts. */
+export const MAX_ROTATION_BATCH = 100;
+
+export interface RotationBatchReport extends RotationReport {
+  /** Pass as `after` to continue with the next batch; `null` once every row was visited. */
+  readonly nextCursor: string | null;
+  /** Rows (whole table) still not on the current version after this batch: failed or not yet visited. */
+  readonly pending: number;
+}
+
+/**
+ * One bounded step of a rotation, for hosts with per-invocation limits (a Worker on D1, P3-11): the same per-row
+ * compare-and-swap as {@link rotateCredentialKeys}, over the rows whose id sorts after `after`, stopping after
+ * `limit` rows that needed work. Rows already on the current version are skipped without I/O and don't count.
+ *
+ * Storage calls per batch: two reads for the key checks, one list, at most `limit` updates (one statement each, plus
+ * one read when a compare-and-swap misses) and one final list. Calling it again with `nextCursor` until it is `null`
+ * visits every row once; calling it again from the start (no `after`) after an interruption skips finished rows, so
+ * the operation is resumable and idempotent. `alreadyCurrent` counts the skipped rows of the range this batch scanned.
+ */
+export async function rotateCredentialKeysBatch(
+  storage: Pick<Storage, 'settings' | 'credentials'>,
+  keyring: Keyring,
+  options: { readonly after?: string | null; readonly limit: number },
+): Promise<RotationBatchReport> {
+  const { limit } = options;
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > MAX_ROTATION_BATCH) {
+    throw new CryptoError('invalid_input', `the batch size must be 1-${MAX_ROTATION_BATCH}`);
+  }
+  await verifyKeyChecks(storage, keyring);
+  const current = keyring.currentVersion;
+  const after = options.after ?? null;
+  const rows = (await storage.credentials.list())
+    .filter((c) => c.key.kind === 'encrypted')
+    .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  const reencrypted: string[] = [];
+  const failed: { id: string; code: RotationFailureCode }[] = [];
+  let alreadyCurrent = 0;
+  let worked = 0;
+  let nextCursor: string | null = null;
+  let lastVisited: string | null = null;
+  for (const row of rows) {
+    if (after !== null && row.id <= after) continue;
+    if (worked === limit) {
+      // More rows remain: resume after the last one this batch visited.
+      nextCursor = lastVisited;
+      break;
+    }
+    lastVisited = row.id;
+    if (row.key.kind === 'encrypted' && row.key.keyVersion === current) {
+      alreadyCurrent++;
+      continue;
+    }
+    worked++;
+    await rotateRow(storage, keyring, row, reencrypted, failed);
+  }
+  const { versionsInUse, pending } = await versionsAfter(storage, current);
+  return {
+    currentVersion: current,
+    total: rows.length,
+    reencrypted,
+    alreadyCurrent,
+    failed,
+    versionsInUse,
+    nextCursor,
+    pending,
+  };
+}
+
+/** Decrypt, re-encrypt and compare-and-swap one row; records the outcome in `reencrypted` or `failed`. */
+async function rotateRow(
+  storage: Pick<Storage, 'credentials'>,
+  keyring: Keyring,
+  row: CredentialRecord,
+  reencrypted: string[],
+  failed: { id: string; code: RotationFailureCode }[],
+): Promise<void> {
+  const old = row.key;
+  if (old.kind !== 'encrypted') return;
+  try {
+    const plaintext = await keyring.decryptCredentialKey(row.id, old);
+    const next = await keyring.encryptCredentialKey(row.id, plaintext.reveal());
+    const written = await storage.credentials.update(row.id, { key: next, ifKey: old });
+    // Read-back check: the stored row must decrypt to the same key before we count it. If it doesn't (a bug or
+    // a broken adapter), put the old ciphertext back, still as a compare-and-swap.
+    if (!(await readsBack(keyring, row.id, written.key, plaintext.reveal()))) {
+      if (written.key.kind === 'encrypted') {
+        await storage.credentials.update(row.id, { key: old, ifKey: written.key });
+      }
+      throw new CryptoError('decrypt_failed', `credential ${row.id} did not read back after rotation`);
+    }
+    reencrypted.push(row.id);
+  } catch (error) {
+    if (error instanceof CryptoError) failed.push({ id: row.id, code: error.code });
+    else if (error instanceof ConflictError || error instanceof NotFoundError)
+      failed.push({ id: row.id, code: 'conflict' });
+    else throw error;
+  }
+}
+
+async function versionsAfter(
+  storage: Pick<Storage, 'credentials'>,
+  current: number,
+): Promise<{ versionsInUse: number[]; pending: number }> {
+  const versions = new Set<number>();
+  let pending = 0;
+  for (const c of await storage.credentials.list()) {
+    if (c.key.kind !== 'encrypted') continue;
+    versions.add(c.key.keyVersion);
+    if (c.key.keyVersion !== current) pending++;
+  }
+  return { versionsInUse: [...versions].sort((a, b) => a - b), pending };
 }
 
 async function readsBack(

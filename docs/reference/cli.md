@@ -44,7 +44,7 @@ the key is valid.
 ```text
 relic-bridge init [--db <path>] [--master-key-file <path>] [--label <l> --region US|EU|JP [key source]]
                   [--slug <s> --default-account <id> --accounts 1,2] [--device <name>] [--url <https://host>]
-                  [--client claude-code|claude-desktop|cursor|vscode|all] [--no-config]
+                  [--client claude-code|claude-code-powershell|claude-desktop|cursor|vscode|all] [--no-config]
 relic-bridge admin-token generate
 relic-bridge user add --email <e> [--name <n>] [--role owner|admin|member] | user list [--limit <n>]
 relic-bridge credential add --label <l> --region US|EU|JP [--owner <user id>] [key source]
@@ -56,9 +56,10 @@ relic-bridge grant create --project <slug|id> [--user <id>] [--label <l>] [--cre
                   [--accounts 1,2] [--expires-in-days <n>]
 relic-bridge grant list [--project <slug|id>] [--user <id>] [--limit <n>] | grant revoke <id>
 relic-bridge token create --grant <id> --label <device> [--ttl-days <n> | --never] [--url <https://host>]
-                  [--client claude-code|claude-desktop|cursor|vscode|all] [--no-config]
+                  [--client claude-code|claude-code-powershell|claude-desktop|cursor|vscode|all] [--no-config]
 relic-bridge token list [--grant <id>] [--limit <n>] | token revoke <id>
 relic-bridge audit tail [--limit <n>] [--follow] [--kind --action --status --project --user --grant --token-id --key-id --since --until]
+relic-bridge keys rotate --remote <url> [--batch-size <1-100>]
 ```
 
 Options for every management command: `--db <path>` (local), `--remote <url>`, `--insecure`, `--json`,
@@ -66,7 +67,11 @@ Options for every management command: `--db <path>` (local), `--remote <url>`, `
 option that does not belong to the command is a usage error.
 
 The earlier maintenance commands are unchanged: `serve`, `db backup`, `keys generate|rotate`,
-`credential revalidate` (no id: every stored key, local), `audit purge`.
+`credential revalidate` (no id: every stored key, local), `audit purge`. `keys rotate` with `--remote` is a management
+command: the server re-encrypts the stored keys under its own `RB_MASTER_KEY` (reading old rows with its
+`RB_MASTER_KEY_PREVIOUS`) through `POST /api/admin/v1/keys/rotate`, in batches of `--batch-size` rows (default 25), until
+every row was visited. It needs the admin token, never a master key. Exit `0` when every credential is on the current
+version, `1` when rows are left (listed on stderr with the reason). `--json` prints each batch's answer, one per line.
 
 - **`init`**: creates the master key file unless one is configured (`--master-key-file`, default
   `~/.config/relic-bridge/master.key` (`$XDG_CONFIG_HOME`, `%APPDATA%\relic-bridge` on Windows), mode `0600`, never

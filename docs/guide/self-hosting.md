@@ -49,7 +49,7 @@ relic-bridge serve --port 9000 --db /var/lib/relic-bridge/relic-bridge.db
 | `RB_ACCESS_CACHE_TTL` | `30` | Seconds a token's resolved access is cached, `0`-`60`. A revoked token, grant or project stops working within this time; `0` disables the cache. Never longer than the token's or grant's expiry. |
 | `RB_RATE_LIMIT` | `on` | `off` disables all rate limiting (not recommended; warned at start). |
 | `RB_RATE_LIMIT_IP` | `600/60` | Requests per client IP before authentication: `<requests>/<seconds>` (bucket size / refill window) or `off`. |
-| `RB_RATE_LIMIT_AUTH_FAIL` | `10/300` | Failed authentications per client IP. Past it, **every** request from that IP gets `429` (valid token or not) until the bucket refills (one failure per 30 s with the default). |
+| `RB_RATE_LIMIT_AUTH_FAIL` | `10/300` | Failed authentications per client IP. Past it, further **failures** from that IP get `429` instead of `401` until the bucket refills (one failure per 30 s with the default); a valid token is still served. On the pass-through route every request from that IP is refused (checking a New Relic key costs a NerdGraph call). |
 | `RB_RATE_LIMIT_TOKEN` | `120/60` | Requests per access token. |
 | `RB_RATE_LIMIT_GRANT` | `300/60` | Requests per grant, unless the grant has its own `rateLimit`, which replaces this. |
 | `RB_RATE_LIMIT_PASSTHROUGH_KEY` | `120/60` | [Pass-through](#pass-through-mode) requests per New Relic key. |
@@ -58,7 +58,7 @@ relic-bridge serve --port 9000 --db /var/lib/relic-bridge/relic-bridge.db
 | `RB_AUDIT_NRQL` | `mask` | `mask` (literal values hidden), `hash`, `full` or `off`: how NRQL text is stored. |
 | `RB_AUDIT_RETENTION_DAYS` | `90` | Days to keep audit rows (`0` = forever). Purged at startup and hourly; `relic-bridge audit purge` does it by hand. |
 | `RB_AUDIT_CLIENT_IP` | `on` | Record the client address on refused requests. |
-| `RB_ADMIN_TOKEN` | unset (admin API off) | Bootstrap admin token that enables `/api/admin/v1` ([admin API](#admin-api)). 32-512 printable characters, no spaces. Or `RB_ADMIN_TOKEN_FILE` (a `0600` file). |
+| `RB_ADMIN_TOKEN` | unset (admin API off) | Bootstrap admin token that enables `/api/admin/v1` ([admin API](#admin-api)). 32-512 printable characters, no spaces, randomly generated: predictable values (fewer than 8 distinct characters, a repeated block, runs such as `abcdef…`) and placeholders (`changeme…`) are refused at start, hand-made ones start with a warning. Or `RB_ADMIN_TOKEN_FILE` (a `0600` file). |
 | `RB_PASSTHROUGH` | `off` | `on` adds `/passthrough/mcp`, where callers bring their own New Relic key ([pass-through mode](#pass-through-mode)). |
 | `RB_PASSTHROUGH_IDENTITY_TTL` | `60` | Seconds a pass-through key's reachable accounts are cached, `0`-`300` (`0` asks New Relic on every request). |
 | `RB_HSTS` | `auto` | `Strict-Transport-Security` when the request arrived over https; `true` behind a TLS-terminating proxy. |
@@ -78,10 +78,12 @@ relic-bridge serve --port 9000 --db /var/lib/relic-bridge/relic-bridge.db
   `X-Frame-Options: DENY`, `Content-Security-Policy: default-src 'none'; frame-ancestors 'none'`,
   `Cross-Origin-Resource-Policy: same-origin`, `Cache-Control: no-store`, and HSTS as configured.
 - **Rate limits** (in memory, per process): `429` with `Retry-After` and a JSON-RPC error telling the agent to slow
-  down. Per-IP request and failed-authentication limits apply before authentication and are the same for valid and
-  invalid tokens, so a `429` never tells a guesser anything; per-token and per-grant limits apply after. IPv6 clients are
-  counted per /64. `subscriptions/listen` isn't counted. Devices behind one NAT share a failure budget: a device
-  retrying an expired token can block the others for a few minutes. Several server processes each keep their own counters.
+  down. The per-IP request limit applies before authentication. Failed authentications are counted per IP; past the
+  budget, further failures get `429` instead of `401`, but a request whose token is valid is still served, so devices
+  behind one NAT (or a laptop retrying an expired token) cannot lock each other out. A locked address therefore still
+  learns whether a token is valid, at the per-IP request rate: harmless for 256-bit tokens and admin tokens that pass the
+  strength check. Per-token and per-grant limits apply after authentication. IPv6 clients are counted per /64.
+  `subscriptions/listen` isn't counted. Several server processes each keep their own counters.
 - **Audit log**: every tool call, refused request and admin change is recorded without secrets or result data, after
   the response (a failed write is logged, never surfaced). What is stored and how to tune it: [audit log](audit-log.md).
 - Storage errors answer `503` (fail closed), never "allowed".
@@ -180,7 +182,9 @@ jq -n --arg k "$NR_KEY" '{label:"main", region:"US", apiKey:$k}' |
   a long random value, keep it out of the database's backup set, and change it by restarting with a new value. It is
   never stored (only a digest in memory), logged or returned. It is not an MCP token, and MCP tokens don't work here.
 - Failed admin authentications count toward the same per-IP failure throttle as MCP requests and are audited
-  (`auth.denied`, `admin_bad_token`).
+  (`auth.denied`, `admin_bad_token`); the valid admin token is never refused by that throttle.
+- The token must look random: `serve` refuses predictable values and placeholders at start (the error names the rule,
+  never the value) and warns about hand-made ones. Use `relic-bridge admin-token generate` or `openssl rand -base64 32`.
 - New Relic keys are accepted **only in request bodies**, never in URLs, and never come back: credentials are listed as
   masked metadata (label, region, last 4 characters, validation status, reachable accounts). Token hashes are never
   returned; a new device token is shown once, in the `POST /tokens` response.

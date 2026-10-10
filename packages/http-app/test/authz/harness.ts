@@ -3,9 +3,9 @@
 // (revoked, disabled, unvalidated, …), the app under test with the admin API and the audit recorder, a hostile
 // NerdGraph stand-in and a leak scan. Web-standard only (no `node:*`): P3-06 runs the same suite under the Workers pool
 // by swapping `makeApp` for the Worker's fetch.
-import { createCredential, issueAccessToken } from '@relic-bridge/auth';
+import { createCredential, issueAccessToken, type Keyring } from '@relic-bridge/auth';
 import { createLogger, decodeEntityGuid, type FetchLike, type Identity, Secret } from '@relic-bridge/core';
-import { type AuditRecord, newId, type StoredLimits } from '@relic-bridge/storage';
+import { type AuditRecord, newId, type Storage, type StoredLimits } from '@relic-bridge/storage';
 import { vi } from 'vitest';
 import {
   createAuditRecorder,
@@ -13,16 +13,18 @@ import {
   type HttpAppHooks,
   type HttpAppOptions,
 } from '../../src/index.ts';
-import { NR_KEY, seedWorld, T0, type World } from '../fixtures.ts';
+import { type ManualClock, NR_KEY, randomAdminToken, seedWorld, T0, type World } from '../fixtures.ts';
 
 /** Bootstrap admin token of the app under test (≥ 32 printable characters). */
-export const ADMIN_TOKEN = `adm-${'m'.repeat(20)}-${'x'.repeat(20)}`;
+export const ADMIN_TOKEN: string = randomAdminToken();
 /** An account every test key can reach at New Relic but no project allows. */
 export const FOREIGN = 999;
 /** Marks every piece of foreign data the hostile NerdGraph returns; must never reach a client. */
 export const LEAK = 'FOREIGN-LEAK';
 /** A second key (another tenant), shaped like a User key. */
 export const NR_KEY_B = 'NRAK-TENANTBTESTKEY0123456789XYZ';
+/** The key the admin matrix creates and rotates credentials with (a live validation must accept it). */
+export const NR_KEY_ADMIN = 'NRAK-MATRIXTESTKEY0123456789ABCDE';
 
 export const guidOf = (account: number, id = '42', domain = 'APM', type = 'APPLICATION'): string =>
   btoa(`${account}|${domain}|${type}|${id}`).replace(/=+$/, '');
@@ -231,7 +233,7 @@ export interface Harness {
   /** Every response body the suite saw (the leak scan reads them). */
   readonly responses: string[];
   /** The app under test (one per harness; access cache off unless a test builds its own). */
-  readonly app: { fetch(request: Request): Response | Promise<Response> };
+  readonly app: AuthzApp;
   /** The audit recorder's hooks (compose with others via `mergeHooks`). */
   readonly recorderHooks: HttpAppHooks;
   makeApp(over?: Partial<HttpAppOptions>): { fetch(request: Request): Response | Promise<Response> };
@@ -287,42 +289,107 @@ const stub = (reachable: readonly number[]) => async (): Promise<Identity> => ({
   accounts: reachable.map((id) => ({ id, name: `acct ${id}` })),
 });
 
+// ---------------------------------------------------------------------------------------------------------------
+// Hosts: what the suite runs against. The default is the HTTP app on the in-memory storage; the Workers pool (P3-06)
+// installs the Worker (`createWorker` on local D1) with `useAuthzHost` from a Vitest setup file.
+// ---------------------------------------------------------------------------------------------------------------
+
+export type AuthzApp = { fetch(request: Request): Response | Promise<Response> };
+
+/** What a host gets to build the app under test. */
+export interface HostDeps {
+  readonly world: World;
+  readonly nerdGraph: HostileNerdGraph;
+  /** Log sink; the leak scan reads every line. */
+  readonly log: (line: string) => void;
+}
+
+/** The app under test with the admin API (token `ADMIN_TOKEN`) and the audit recorder on. */
+export interface HostApp {
+  makeApp(over?: Partial<HttpAppOptions>): AuthzApp;
+  /** The recorder's hooks, for tests composing their own hooks (the HTTP app host only). */
+  readonly recorderHooks: HttpAppHooks;
+  /** Wait for background work (audit rows written through `waitUntil`). */
+  settle?(): Promise<void>;
+}
+
+export interface AuthzHost {
+  readonly kind: 'http-app' | 'worker';
+  /** The storage, keyring and clock the world is seeded into (default: in-memory, random key, manual clock). */
+  prepare?(): Promise<{ storage?: Storage; keyring?: Keyring; clock?: ManualClock }>;
+  create(deps: HostDeps): HostApp;
+}
+
+const httpAppHost: AuthzHost = {
+  kind: 'http-app',
+  create({ world, nerdGraph, log }) {
+    const { storage, keyring, clock } = world;
+    const logger = createLogger({ level: 'debug', sink: log, now: () => clock.now() });
+    const recorder = createAuditRecorder({
+      storage,
+      logger,
+      clock,
+      nrql: 'full',
+      // The matrix provokes hundreds of refusals per test; the flood cap has its own tests (audit.test.ts).
+      maxAuthRowsPerMinute: 1_000_000,
+      getClientIp: () => '203.0.113.7',
+    });
+    return {
+      recorderHooks: recorder.hooks,
+      makeApp: (over = {}) =>
+        createHttpApp({
+          storage,
+          keyring,
+          clock,
+          logger,
+          fetch: nerdGraph.fetch,
+          accessCacheTtlMs: 0,
+          hooks: recorder.hooks,
+          admin: {
+            token: new Secret(ADMIN_TOKEN),
+            storage,
+            validateKey: stub([1, 2, 3]),
+            audit: recorder,
+          },
+          ...over,
+        }),
+    };
+  },
+};
+
+let host: AuthzHost = httpAppHost;
+
+/** Run the suite against another host (call from a Vitest setup file, before the tests are collected). */
+export function useAuthzHost(next: AuthzHost): void {
+  host = next;
+}
+
+/** Which host runs; lets a test that needs HTTP app internals skip itself elsewhere. */
+export const authzHostKind = (): AuthzHost['kind'] => host.kind;
+
+async function seedArgs(): Promise<Parameters<typeof seedWorld>> {
+  const prepared = (await host.prepare?.()) ?? {};
+  return [
+    prepared.storage,
+    {
+      ...(prepared.keyring && { keyring: prepared.keyring }),
+      ...(prepared.clock && { clock: prepared.clock }),
+    },
+  ];
+}
+
 export async function createHarness(opts: { tenants?: Record<string, string> } = {}): Promise<Harness> {
-  const world = await seedWorld();
+  const world = await seedWorld(...(await seedArgs()));
   const { storage, keyring, clock } = world;
-  const nerdGraph = hostileNerdGraph(opts.tenants ?? { [NR_KEY]: 'alpha', [NR_KEY_B]: 'beta' });
+  const nerdGraph = hostileNerdGraph(
+    opts.tenants ?? { [NR_KEY]: 'alpha', [NR_KEY_B]: 'beta', [NR_KEY_ADMIN]: 'gamma' },
+  );
   const logLines: string[] = [];
   const responses: string[] = [];
   const issued: string[] = [];
   const mainCredential = (await storage.projects.get(world.projectIds.prod))?.defaultCredentialId as string;
-  const logger = createLogger({ level: 'debug', sink: (l) => logLines.push(l), now: () => clock.now() });
-  const recorder = createAuditRecorder({
-    storage,
-    logger,
-    clock,
-    nrql: 'full',
-    // The matrix provokes hundreds of refusals per test; the flood cap has its own tests (audit.test.ts).
-    maxAuthRowsPerMinute: 1_000_000,
-    getClientIp: () => '203.0.113.7',
-  });
-
-  const makeApp = (over: Partial<HttpAppOptions> = {}) =>
-    createHttpApp({
-      storage,
-      keyring,
-      clock,
-      logger,
-      fetch: nerdGraph.fetch,
-      accessCacheTtlMs: 0,
-      hooks: recorder.hooks,
-      admin: {
-        token: new Secret(ADMIN_TOKEN),
-        storage,
-        validateKey: stub([1, 2, 3]),
-        audit: recorder,
-      },
-      ...over,
-    });
+  const hosted = host.create({ world, nerdGraph, log: (l) => logLines.push(l) });
+  const makeApp = hosted.makeApp;
   const app = makeApp();
 
   const harness: Harness = {
@@ -332,7 +399,7 @@ export async function createHarness(opts: { tenants?: Record<string, string> } =
     responses,
     app,
     makeApp,
-    recorderHooks: recorder.hooks,
+    recorderHooks: hosted.recorderHooks,
     async send(request, target = app) {
       const res = await target.fetch(request);
       const text = await res.text();
@@ -399,6 +466,7 @@ export async function createHarness(opts: { tenants?: Record<string, string> } =
       return { projectId, grantId, token: await harness.addToken(grantId) };
     },
     async auditRows() {
+      await hosted.settle?.();
       return storage.auditLog.list({ limit: 100_000 });
     },
     async deniedRow(requestId) {
@@ -413,7 +481,15 @@ export async function createHarness(opts: { tenants?: Record<string, string> } =
     },
     async secrets() {
       const hashes = (await storage.accessTokens.list()).map((t) => t.tokenHash);
-      return [NR_KEY, NR_KEY_B, ADMIN_TOKEN, ...Object.values(world.tokens), ...issued, ...hashes];
+      return [
+        NR_KEY,
+        NR_KEY_B,
+        NR_KEY_ADMIN,
+        ADMIN_TOKEN,
+        ...Object.values(world.tokens),
+        ...issued,
+        ...hashes,
+      ];
     },
     async scan() {
       const audit = JSON.stringify(await harness.auditRows());

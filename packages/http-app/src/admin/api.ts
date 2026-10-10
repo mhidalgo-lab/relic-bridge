@@ -21,6 +21,7 @@ import {
   revalidateCredential,
   revokeAccessToken,
   rotateCredentialKey,
+  rotateCredentialKeysBatch,
   type toTokenSummary,
   type UpdateProjectInput,
   updateProject,
@@ -64,7 +65,7 @@ export const ADMIN_TOKEN_ACTOR: 'admin_token' = 'admin_token';
 
 export type StorageForAdmin = Pick<
   Storage,
-  'users' | 'credentials' | 'projects' | 'grants' | 'accessTokens' | 'auditLog'
+  'users' | 'credentials' | 'projects' | 'grants' | 'accessTokens' | 'auditLog' | 'settings'
 >;
 
 type Vars = { requestId: string; started: number; log: Record<string, unknown> };
@@ -80,6 +81,8 @@ export interface AdminApiDeps {
   readonly clock: Clock;
   readonly logger: Logger;
   readonly maxBodyBytes: number;
+  /** Ceiling for `keys/rotate` `batchSize`; a larger request is clamped to it (the caller loops on `nextCursor`). */
+  readonly maxRotationBatch?: number;
   /** Records an admin change; never rejects. */
   readonly audit?: (event: AdminAuditEvent) => Promise<void>;
   /** Pre-authentication hook (rate limits). A returned Response stops the request. */
@@ -88,6 +91,11 @@ export interface AdminApiDeps {
     requestId: string,
   ) => Promise<Response | undefined> | Response | undefined;
   readonly onAuthFailure?: (c: Context, reason: string) => void;
+  /** After a failed admin authentication: a returned Response (429) replaces the 401 (P3-13). */
+  readonly refuseAuthFailure?: (
+    c: Context,
+    reason: string,
+  ) => Promise<Response | undefined> | Response | undefined;
   readonly onRejected?: (c: Context, status: number) => void;
   /** Background work (`waitUntil` on Workers). */
   readonly runInBackground: (c: Context, task: Promise<unknown>, what: string) => void;
@@ -543,6 +551,23 @@ const routes = {
     responses: { 200: json(S.TokenOne, 'Revoked'), ...errors(404) },
   }),
 
+  rotateKeys: route({
+    method: 'post',
+    path: '/keys/rotate',
+    tags: ['keys'],
+    summary: 'Re-encrypt stored keys under the current master key (one batch)',
+    description:
+      'Master-key rotation for hosts without local database access (a Worker on D1). Start the server with the new ' +
+      'key as `RB_MASTER_KEY` and the old one as `RB_MASTER_KEY_PREVIOUS`, then call this until `nextCursor` is ' +
+      '`null` (`relic-bridge keys rotate --remote` does). Each row is re-encrypted with a compare-and-swap, so every ' +
+      'row stays readable, an interrupted run resumes, and a repeated run changes nothing. A wrong or retired master ' +
+      'key answers `503 unavailable` (`detail`: `key_mismatch`, `key_version_retired`) before any row is touched. ' +
+      'The previous key can be removed once `pending` is 0. A server may cap `batchSize` (Free-plan Workers: 40). ' +
+      'Never returns key material.',
+    request: BODY(S.RotateKeysBody),
+    responses: { 200: json(S.KeyRotationOne, 'What this batch did'), ...errors(413, 415) },
+  }),
+
   listAudit: route({
     method: 'get',
     path: '/audit',
@@ -567,6 +592,7 @@ const REFUSAL_ROUTES: readonly (readonly [string, RegExp, string, string])[] = [
   ['PATCH', /^\/projects\/([^/]+)$/, 'project.update', 'project'],
   ['POST', /^\/grants$/, 'grant.create', 'grant'],
   ['POST', /^\/tokens$/, 'token.create', 'token'],
+  ['POST', /^\/keys\/rotate$/, 'keys.rotate', 'master_key'],
 ];
 
 function validationError(error: z.ZodError): AdminApiError {
@@ -579,6 +605,16 @@ function validationError(error: z.ZodError): AdminApiError {
       ? `unknown field${keys.length === 1 ? '' : 's'}: ${keys.join(', ')}`
       : `${path === '' ? 'request' : path}: ${issue.message}`;
   return new AdminApiError('invalid_request', message, path === '' ? {} : { field: path });
+}
+
+/** A hook's refusal in the admin API's error shape: a 429 becomes `rate_limited` with its `Retry-After`. */
+function asAdminRefusal(stop: Response): Response {
+  if (stop.status !== 429) return stop;
+  const retry = stop.headers.get('retry-after');
+  return adminErrorResponse(
+    new AdminApiError('rate_limited', 'too many requests; retry later'),
+    retry === null ? {} : { 'Retry-After': retry },
+  );
 }
 
 /** Build the admin sub-app (mounted at {@link ADMIN_API_BASE}). */
@@ -642,12 +678,7 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
       const stop = await deps.beforeAuth(c, requestId);
       if (stop) {
         deps.onRejected?.(c, stop.status);
-        if (stop.status !== 429) return stop;
-        const retry = stop.headers.get('retry-after');
-        return adminErrorResponse(
-          new AdminApiError('rate_limited', 'too many requests; retry later'),
-          retry === null ? {} : { 'Retry-After': retry },
-        );
+        return asAdminRefusal(stop);
       }
     }
     const header = c.req.header('authorization');
@@ -665,6 +696,14 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
         deps.onAuthFailure?.(c, reason);
       } catch {
         // a failing hook never changes the answer
+      }
+      // The failure throttle (P3-13) answers 429 for an address over its failure budget. Only failures get here:
+      // the valid admin token is never refused by it.
+      try {
+        const instead = await deps.refuseAuthFailure?.(c, reason);
+        if (instead) return asAdminRefusal(instead);
+      } catch {
+        // as above
       }
       return adminErrorResponse(new AdminApiError('unauthorized', 'admin authentication required'), {
         'WWW-Authenticate': ADMIN_REALM,
@@ -1125,6 +1164,51 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
       (r) => ({ projectId: r.projectId }),
     );
     return c.json({ data: tokenView(token.summary) }, 200);
+  });
+
+  // ------------------------------------------------------------------------------------------------ master key
+  api.openapi(routes.rotateKeys, async (c) => {
+    const body = c.req.valid('json');
+    const batchSize = Math.min(
+      body.batchSize ?? S.DEFAULT_ROTATION_BATCH,
+      deps.maxRotationBatch ?? S.MAX_ROTATION_BATCH_SIZE,
+    );
+    const report = await change(
+      c,
+      { action: 'keys.rotate', targetType: 'master_key', details: { batchSize } },
+      () =>
+        rotateCredentialKeysBatch(storage, deps.keyring, {
+          limit: batchSize,
+          ...(body.after == null ? {} : { after: body.after }),
+        }),
+      (r) => ({
+        targetId: `v${r.currentVersion}`,
+        // Counts and ids only (credential ids are not secret); failures capped so the row stays small.
+        details: {
+          reencrypted: r.reencrypted.length,
+          failed: r.failed.slice(0, 20).map((f) => ({ id: f.id, code: f.code })),
+          failedCount: r.failed.length,
+          pending: r.pending,
+          complete: r.nextCursor === null,
+          versionsInUse: [...r.versionsInUse],
+        },
+      }),
+    );
+    return c.json(
+      {
+        data: {
+          currentVersion: report.currentVersion,
+          total: report.total,
+          reencrypted: [...report.reencrypted],
+          alreadyCurrent: report.alreadyCurrent,
+          failed: report.failed.map((f) => ({ id: f.id, code: f.code })),
+          nextCursor: report.nextCursor,
+          pending: report.pending,
+          versionsInUse: [...report.versionsInUse],
+        },
+      },
+      200,
+    );
   });
 
   // ---------------------------------------------------------------------------------------------------- audit

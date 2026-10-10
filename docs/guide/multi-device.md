@@ -14,6 +14,9 @@ flowchart LR
   S --> N[NerdGraph]
 ```
 
+> **On Cloudflare instead of your own server?** The same flow works against a Worker (no VPS, no TLS proxy): see
+> [Deploy to Cloudflare, connect your devices](cloudflare-deploy.md#connect-your-devices).
+
 > **Phone and claude.ai (web) are not covered.** They can only connect to servers that support OAuth, which arrives
 > in Phase 5 ([roadmap](../ROADMAP.md)); a static bearer token can't be entered there. Claude Code, Cursor and VS Code
 > on your computers work today.

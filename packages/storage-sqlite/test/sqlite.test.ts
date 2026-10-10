@@ -16,10 +16,12 @@ const posix = process.platform !== 'win32';
 
 runStorageContract({
   name: 'sqlite (memory)',
+  accessRecords: true,
   create: (clock) => openSqliteStorage({ path: ':memory:', now: clock.now }),
 });
 runStorageContract({
   name: 'sqlite (file)',
+  accessRecords: true,
   create: (clock) => openSqliteStorage({ path: file(), now: clock.now }),
 });
 

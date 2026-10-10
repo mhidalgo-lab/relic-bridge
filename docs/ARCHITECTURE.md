@@ -154,12 +154,15 @@ Implemented by `createHttpApp` in `packages/http-app` (P2-06); `relic-bridge ser
 2. **Authenticate**: bearer token (format and checksum offline, then hash lookup, constant-time compare, revoked,
    expired) or, from Phase 5, an OAuth access token (audience must equal this slug's resource URL). The token is
    checked before the slug is looked at.
-3. **Resolve grant**: effective tools, accounts, limits and credential (`resolveAccess`), cached per isolate for
+3. **Resolve grant**: effective tools, accounts, limits and credential (`resolveAccess`; steps 2-3 together are
+   `authenticateAccess`, one storage call on SQL storage — one D1 `batch()` on Workers, P3-09), cached per isolate for
    0-60 s (default 30 s), never past the token's or grant's expiry, keyed by token hash + slug, holding no plaintext
    key. Every denial in steps 2-3 is the same 401; storage errors are 503.
 4. **Rate limit** (P2-07, `createRateLimitHooks` over a pluggable `RateLimiter`; bounded in-memory token bucket on
-   Node, Workers/Durable Object implementations in P3-04/P7-10). Before step 2 (`beforeAuth`): per-IP request limit and
-   the per-IP auth-failure throttle (refuses the IP whatever token it sends); failures are charged in `onAuthFailure`.
+   Node; on Workers `WorkersRateLimiter` = per-isolate bucket plus the Rate Limiting binding as shared backstop, the auth-failure throttle per isolate (P3-04); Durable Object limiter in P7-10). Before step 2 (`beforeAuth`): per-IP request limit (and,
+   on the pass-through route only, the per-IP auth-failure throttle, before a key is sent to NerdGraph). On a failed
+   authentication (`refuseAuthFailure`, P3-13) the failure is charged to the IP and, past the budget, answered 429
+   instead of 401; a credential that verifies never reaches it, so valid tokens are not locked out.
    After step 3 (`beforeMcp`): per token and per grant (the grant's `rateLimit` wins). 429 + `Retry-After`.
    `subscriptions/listen` is flagged so it isn't counted as a tool call.
 5. **Build MCP server**: one `createMcpHandler(factory, { legacy: 'stateless' })` per app; the per-request scope
@@ -201,8 +204,9 @@ environment variable (`secrets.ts`); the node-only terminal pieces live in `host
 
 ## 6. Cross-cutting concerns
 
-- **Budget**: per-invocation counter of subrequests (D1/KV/fetch), configured by `RB_PLAN` (`free` = 50, `paid` = 1000)
-  or explicit numbers. Tools declare an expected cost and check `budget.canSpend(n)`.
+- **Budget**: per-invocation counter of NerdGraph calls (external `fetch`; D1/KV have their own larger Workers allowance),
+  configured by `RB_PLAN` (`free` = 45, `paid` = 1000) or `RB_CALL_BUDGET`. Tools declare an expected cost and check
+  `budget.canSpend(n)`; a tool whose cost exceeds the budget is not registered. `RB_MAX_RESPONSE_BYTES` is a platform ceiling over each project's `maxResponseBytes`.
 - **Concurrency**: per-credential semaphore (default 5) inside an invocation and process; ≤ 6 on Workers. Optional
   Durable Object global limiter (Phase 7).
 - **Query limits** (per project, can be tightened per grant):

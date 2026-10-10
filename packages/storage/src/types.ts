@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // The persistence contract (ADR-0006). Every adapter (yaml, memory, sqlite, d1) implements `Storage`; core, auth and
 // http-app reach persistence only through it. Times are epoch milliseconds. Records are plain, frozen data.
+import type { AccessRecords, AccessRecordsQuery } from './access-records.ts';
 
 /** New Relic data-center regions. Mirrors `REGIONS` in `@relic-bridge/core` (kept in sync by a CLI test). */
 export const NR_REGIONS: readonly NrRegion[] = Object.freeze(['US', 'EU', 'JP'] as const);
@@ -374,8 +375,11 @@ export interface AuditLogRepository {
   append(entry: AuditEntry): Promise<void>;
   /** Newest first. */
   list(query?: AuditQuery): Promise<readonly AuditRecord[]>;
-  /** Retention job only: deletes rows with `ts` < `before`; returns the count. */
-  purgeBefore(before: number): Promise<number>;
+  /**
+   * Retention job only: deletes rows with `ts` < `before` (oldest first, at most `limit` when given, so a job with a
+   * time or row budget can work in batches); returns the count.
+   */
+  purgeBefore(before: number, limit?: number): Promise<number>;
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -448,5 +452,11 @@ export interface Storage {
   readonly auditLog: AuditLogRepository;
   readonly settings: SettingsRepository;
   readonly kv: KvRepository;
+  /**
+   * Optional (P3-09): the token, project, grant, user, credential and credential owner behind one access decision in
+   * ONE storage call (a D1 `batch()`, a SQLite read transaction), under the `AccessRecords` contract. Adapters
+   * without it are read repository by repository (`verifyAccessToken` + `resolveAccess`).
+   */
+  loadAccessRecords?(query: AccessRecordsQuery): Promise<AccessRecords>;
   close(): Promise<void>;
 }

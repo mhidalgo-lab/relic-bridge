@@ -145,7 +145,7 @@ export interface AuditRecorder {
   /** Record an admin action. Resolves when the write finished; never rejects (failures are logged). */
   admin(event: AdminAuditEvent): Promise<void>;
   /** Delete rows older than `retentionDays` (0 or less: keep everything). Returns how many were removed. */
-  purge(retentionDays: number): Promise<number>;
+  purge(retentionDays: number, options?: { readonly limit?: number }): Promise<number>;
 }
 
 const asNumberList = (v: unknown): number[] | null =>
@@ -366,9 +366,9 @@ export function createAuditRecorder(options: AuditRecorderOptions): AuditRecorde
         details: sanitizeDetails(event.details),
       });
     },
-    async purge(retentionDays) {
+    async purge(retentionDays, purgeOptions) {
       if (!Number.isFinite(retentionDays) || retentionDays <= 0) return 0;
-      return repo.purgeBefore(clock.now() - retentionDays * DAY_MS);
+      return repo.purgeBefore(clock.now() - retentionDays * DAY_MS, purgeOptions?.limit);
     },
   };
 }

@@ -9,6 +9,8 @@ import {
   type McpRequestContext,
 } from '@modelcontextprotocol/server';
 import {
+  type AuthenticatedAccess,
+  authenticateAccess,
   bearerToken,
   checkTokenFormat,
   type EffectiveAccess,
@@ -18,8 +20,6 @@ import {
   type KeyValidator,
   nerdGraphKeyValidator,
   openCredential,
-  resolveAccess,
-  verifyAccessToken,
 } from '@relic-bridge/auth';
 import {
   buildMcpServer,
@@ -33,6 +33,7 @@ import {
   LimiterPool,
   type Logger,
   newRequestId,
+  type QueryLimits,
   type Secret,
   silentLogger,
   systemClock,
@@ -129,14 +130,31 @@ export interface AuthFailureInfo {
 }
 
 /**
+ * Which credential a route authenticates (P3-13): an MCP access token (`/p/:slug/mcp`), the bootstrap admin token
+ * (`/api/admin/*`) or a caller's New Relic key (pass-through). Checking the first two costs no outbound call; checking
+ * a New Relic key asks NerdGraph, so hooks may treat it more strictly.
+ */
+export type AuthScope = 'mcp_token' | 'admin_token' | 'passthrough_key';
+
+/**
  * Extension points for P2-07 (rate limiting) and P2-08 (audit). Hooks receive the Hono context so runtime-specific
  * code (client IP on Node, `waitUntil` on Workers) stays in the host.
  */
 export interface HttpAppHooks {
-  /** Before authentication (e.g. per-IP throttling of auth failures). Return a Response to stop the request. */
-  beforeAuth?(c: Context, requestId: string): Promise<Response | undefined> | Response | undefined;
-  /** After an authentication/authorization failure (the 401 is already decided). Must not throw. */
+  /** Before authentication (e.g. the per-IP request limit). Return a Response to stop the request. */
+  beforeAuth?(
+    c: Context,
+    requestId: string,
+    scope: AuthScope,
+  ): Promise<Response | undefined> | Response | undefined;
+  /** After an authentication/authorization failure (the request is refused). Must not throw. */
   onAuthFailure?(c: Context, info: AuthFailureInfo): void;
+  /**
+   * After an authentication failure and `onAuthFailure`, before the 401 goes out (P3-13): a returned Response (a 429
+   * for an address over its failure budget) is sent instead. Only failures reach it, so a credential that verifies is
+   * never refused by the failure throttle. Must not throw.
+   */
+  refuseAuthFailure?(c: Context, info: AuthFailureInfo): Promise<Response | undefined> | Response | undefined;
   /** After access resolution, before the MCP handler (rate limits). Return a Response (e.g. 429) to stop. */
   beforeMcp?(c: Context, info: McpRequestInfo): Promise<Response | undefined> | Response | undefined;
   /**
@@ -181,6 +199,8 @@ export interface AdminApiOptions {
   readonly audit?: { admin(event: AdminAuditEvent): Promise<void> };
   /** Checks New Relic keys before they are stored. Default: NerdGraph `actor` query (using `fetch`). */
   readonly validateKey?: KeyValidator;
+  /** Ceiling for `keys/rotate` `batchSize` (a Free-plan Worker allows 50 D1 queries per call). Default: none beyond 100. */
+  readonly maxRotationBatch?: number;
   /** Largest admin request body. Default 64 KiB. */
   readonly maxBodyBytes?: number;
 }
@@ -205,6 +225,11 @@ export interface HttpAppOptions {
   readonly maxBodyBytes?: number;
   readonly requestTimeoutMs?: number;
   readonly callBudget?: number;
+  /**
+   * Platform ceiling for NerdGraph response bodies in bytes (Workers plan presets, P3-03). A project's own
+   * `maxResponseBytes` still applies; the smaller of the two wins. Default: no ceiling.
+   */
+  readonly maxResponseBytes?: number;
   /** NerdGraph calls in flight per credential (1-25, default 5). */
   readonly concurrencyPerCredential?: number;
   /** `'auto'` (default): HSTS when the request URL is https. `true` for a TLS-terminating proxy. */
@@ -379,6 +404,30 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
     600_000,
   );
   const callBudget = checkRange('callBudget', options.callBudget ?? DEFAULT_CALL_BUDGET, 1, 100_000);
+  const responseCeiling =
+    options.maxResponseBytes === undefined
+      ? undefined
+      : checkRange('maxResponseBytes', options.maxResponseBytes, 1024, 64 * 1024 * 1024);
+  /** Apply the platform ceiling on top of a project's limits. */
+  const capLimits = (limits: QueryLimits): QueryLimits =>
+    responseCeiling === undefined || limits.maxResponseBytes <= responseCeiling
+      ? limits
+      : Object.freeze({ ...limits, maxResponseBytes: responseCeiling });
+  /** Split granted tools into those the request budget can pay for and those it cannot (hidden, explained in whoami). */
+  const affordable = (granted: readonly ToolDefinition[]) => {
+    const tools: ToolDefinition[] = [];
+    const unavailable: { name: string; reason: string }[] = [];
+    for (const t of granted) {
+      if (t.cost <= callBudget) tools.push(t);
+      else {
+        unavailable.push({
+          name: t.name,
+          reason: `needs about ${t.cost} NerdGraph calls, above this deployment's budget of ${callBudget} per request`,
+        });
+      }
+    }
+    return { tools, unavailable: Object.freeze(unavailable.map((u) => Object.freeze(u))) };
+  };
   const cache = new AccessCache(
     options.accessCacheTtlMs ?? DEFAULT_ACCESS_CACHE_TTL_MS,
     options.accessCacheMaxEntries ?? DEFAULT_ACCESS_CACHE_ENTRIES,
@@ -421,6 +470,30 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
         Promise.resolve().then(() => hook(c, info)),
         'on_rejected',
       );
+  };
+
+  // Every authentication failure: log and audit it (`onAuthFailure`), then let `refuseAuthFailure` answer instead of
+  // the 401 (the failure throttle's 429, P3-13). Never rejects: a failing hook never changes the answer. The audit row
+  // is the `auth.denied` one already written, so a 429 here is not also recorded as `request.rejected`.
+  const denyWith = async (
+    c: Context,
+    info: AuthFailureInfo,
+    log: Record<string, unknown>,
+    fallback: () => Response,
+  ): Promise<Response> => {
+    log['deny'] = info.reason;
+    try {
+      hooks.onAuthFailure?.(c, info);
+    } catch {
+      // A failing hook never changes the answer.
+    }
+    try {
+      const instead = await hooks.refuseAuthFailure?.(c, info);
+      if (instead) return instead;
+    } catch {
+      // As above.
+    }
+    return fallback();
   };
 
   const mcp = createMcpHandler(
@@ -640,6 +713,9 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
         catalog,
         clock,
         logger,
+        ...(admin.maxRotationBatch === undefined
+          ? {}
+          : { maxRotationBatch: checkRange('admin.maxRotationBatch', admin.maxRotationBatch, 1, 100) }),
         maxBodyBytes: checkRange(
           'admin.maxBodyBytes',
           admin.maxBodyBytes ?? DEFAULT_ADMIN_MAX_BODY_BYTES,
@@ -649,9 +725,17 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
         ...(admin.audit
           ? { audit: (event: AdminAuditEvent) => admin.audit?.admin(event) ?? Promise.resolve() }
           : {}),
-        ...(hooks.beforeAuth ? { beforeAuth: hooks.beforeAuth } : {}),
+        ...(hooks.beforeAuth
+          ? { beforeAuth: (c: Context, id: string) => hooks.beforeAuth?.(c, id, 'admin_token') }
+          : {}),
         onAuthFailure: (c, reason) =>
           hooks.onAuthFailure?.(c, { requestId: c.get('requestId') as string, reason }),
+        ...(hooks.refuseAuthFailure
+          ? {
+              refuseAuthFailure: (c: Context, reason: string) =>
+                hooks.refuseAuthFailure?.(c, { requestId: c.get('requestId') as string, reason }),
+            }
+          : {}),
         onRejected: (c, status) =>
           notifyRejected(c, {
             requestId: c.get('requestId') as string,
@@ -677,22 +761,14 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
     if (tooLarge) return tooLarge;
 
     if (hooks.beforeAuth) {
-      const stop = await hooks.beforeAuth(c, requestId);
+      const stop = await hooks.beforeAuth(c, requestId, 'mcp_token');
       if (stop) {
         notifyRejected(c, { requestId, status: stop.status, reason: rejectReason(log) });
         return stop;
       }
     }
 
-    const deny = (reason: string): Response => {
-      log['deny'] = reason;
-      try {
-        hooks.onAuthFailure?.(c, { requestId, reason });
-      } catch {
-        // A failing hook never changes the answer.
-      }
-      return unauthorized();
-    };
+    const deny = (reason: string): Promise<Response> => denyWith(c, { requestId, reason }, log, unauthorized);
 
     // 6. Authenticate, then authorise for this slug. The token is checked before the slug is looked at, so slugs
     // can't be probed without a valid token (T19); every denial is the same 401.
@@ -706,25 +782,21 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
     const cacheKey = `${await hashToken(token)}\n${slug}`;
     let resolved: Omit<CachedAccess, 'expiresAt'> | undefined = cache.get(cacheKey, now);
     if (resolved === undefined) {
-      let verdict: Awaited<ReturnType<typeof verifyAccessToken>>;
-      let decision: Awaited<ReturnType<typeof resolveAccess>>;
+      // One storage call on SQL storage (D1: one batch round trip, P3-09); repository reads otherwise.
+      let auth: AuthenticatedAccess;
       try {
-        verdict = await verifyAccessToken(options.storage, token, {
+        auth = await authenticateAccess({
+          storage: options.storage,
+          token,
+          projectSlug: slug,
+          catalog,
           now,
+          onTouch: (touch) => runInBackground(c, touch, 'token_touch'),
           onTouchError: (error) =>
             logger.warn('last_used_at write failed', {
               requestId,
               error: error instanceof Error ? error.name : typeof error,
             }),
-        });
-        if (!verdict.ok) return deny(verdict.reason);
-        if (verdict.touch) runInBackground(c, verdict.touch, 'token_touch');
-        decision = await resolveAccess({
-          storage: options.storage,
-          projectSlug: slug,
-          principal: { grantId: verdict.grantId },
-          catalog,
-          now,
         });
       } catch (error) {
         // Storage trouble is never "allowed" (fail closed), and never a 401 that would make clients drop the token.
@@ -732,10 +804,12 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
         logger.error('access resolution failed', { requestId, error: log['error'] });
         return json(503, '{"error":"unavailable"}', { 'Retry-After': '5' });
       }
-      log['tokenId'] = verdict.tokenId;
-      if (!decision.ok) return deny(decision.reason);
-      resolved = { tokenId: verdict.tokenId, access: decision.access, credential: decision.credential };
-      cache.set(cacheKey, resolved, now, [verdict.expiresAt, decision.access.expiresAt]);
+      if (!auth.ok) {
+        if (auth.stage === 'access') log['tokenId'] = auth.tokenId;
+        return deny(auth.reason);
+      }
+      resolved = { tokenId: auth.tokenId, access: auth.access, credential: auth.credential };
+      cache.set(cacheKey, resolved, now, [auth.tokenExpiresAt, auth.access.expiresAt]);
     } else {
       log['cached'] = true;
     }
@@ -775,16 +849,21 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
     try {
       const credential = await openCredential(access, resolved.credential, { keyring: options.keyring });
       const toolLogger = logger.child({ requestId, project: access.projectSlug, grantId: access.grantId });
+      const granted = affordable(allTools.filter((t) => access.tools.includes(t.name)));
       scope = Object.freeze({
-        tools: allTools.filter((t) => access.tools.includes(t.name)),
+        tools: granted.tools,
         ctx: Object.freeze({
           requestId,
           credential,
           accounts: access.accounts,
           budget: createBudget(callBudget),
           limiter: limiters.for(credential.id),
-          limits: access.limits,
-          connection: Object.freeze({ project: access.projectSlug, allowedTools: access.tools }),
+          limits: capLimits(access.limits),
+          connection: Object.freeze({
+            project: access.projectSlug,
+            allowedTools: access.tools,
+            unavailableTools: granted.unavailable,
+          }),
           logger: toolLogger,
           clock,
         }),
@@ -841,9 +920,10 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
     const validateKey =
       pt.validateKey ??
       nerdGraphKeyValidator({ logger, clock, ...(options.fetch ? { fetch: options.fetch } : {}) });
-    const ptLimits = pt.limits ?? DEFAULT_LIMITS;
+    const ptLimits = capLimits(pt.limits ?? DEFAULT_LIMITS);
     // Read-only tools only, whatever the catalog grows into (a caller's own key gets no write access through here).
-    const ptTools = Object.freeze(allTools.filter((t) => t.kind === 'read'));
+    const ptGranted = affordable(allTools.filter((t) => t.kind === 'read'));
+    const ptTools = Object.freeze(ptGranted.tools);
     const ptToolNames = Object.freeze(ptTools.map((t) => t.name));
     const requireTls = pt.requireTls ?? true;
     const concurrency = options.concurrencyPerCredential ?? DEFAULT_CONCURRENCY;
@@ -869,22 +949,15 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
       if (tooLarge) return tooLarge;
 
       if (hooks.beforeAuth) {
-        const stop = await hooks.beforeAuth(c, requestId);
+        const stop = await hooks.beforeAuth(c, requestId, 'passthrough_key');
         if (stop) {
           notifyRejected(c, { requestId, status: stop.status, reason: rejectReason(log) });
           return stop;
         }
       }
 
-      const deny = (reason: string): Response => {
-        log['deny'] = reason;
-        try {
-          hooks.onAuthFailure?.(c, { requestId, reason });
-        } catch {
-          // A failing hook never changes the answer.
-        }
-        return passthroughUnauthorized();
-      };
+      const deny = (reason: string): Promise<Response> =>
+        denyWith(c, { requestId, reason }, log, passthroughUnauthorized);
 
       // The key is wrapped in a `Secret` at once; `Authorization` is not read on this route (T12).
       const presented = readPassthroughHeaders(
@@ -957,7 +1030,7 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
           // Per request: no per-key state that grows with the number of keys seen (the rate limiter bounds the rest).
           limiter: createSemaphoreLimiter(concurrency),
           limits: ptLimits,
-          connection: Object.freeze({ allowedTools: ptToolNames }),
+          connection: Object.freeze({ allowedTools: ptToolNames, unavailableTools: ptGranted.unavailable }),
           logger: logger.child({ requestId, keyId }),
           clock,
         }),

@@ -54,6 +54,8 @@ export interface ConnectionInfo {
   readonly project?: string;
   /** Names of the tools this caller may use. */
   readonly allowedTools?: readonly string[];
+  /** Granted tools withheld because their expected cost exceeds the request budget (ADR-0010), with the reason. */
+  readonly unavailableTools?: readonly { readonly name: string; readonly reason: string }[];
 }
 
 export const DEFAULT_LIMITS: QueryLimits = Object.freeze({

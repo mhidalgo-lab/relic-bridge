@@ -30,12 +30,16 @@ import {
   checkEncryptedKey,
   checkGrantPrincipal,
   checkKeyHint,
+  checkLimit,
   checkRegion,
   checkRole,
   checkTokenHash,
   checkTokenPrefix,
+  kvExpiry,
   normalizeEmail,
 } from './validate.ts';
+
+export { kvExpiry };
 
 export interface MemoryStorageOptions {
   /** Clock in epoch milliseconds (tests). */
@@ -470,6 +474,7 @@ export function createMemoryStorage(options: MemoryStorageOptions = {}): Storage
       );
     },
     async list(query: AuditQuery = {}) {
+      checkLimit(query.limit, 'auditLog.limit');
       const limit = Math.min(Math.max(1, Math.trunc(query.limit ?? AUDIT_DEFAULT_LIMIT)), AUDIT_MAX_LIMIT);
       const rows: AuditRecord[] = [];
       for (let i = audit.length - 1; i >= 0 && rows.length < limit; i--) {
@@ -490,11 +495,20 @@ export function createMemoryStorage(options: MemoryStorageOptions = {}): Storage
       }
       return out(rows);
     },
-    async purgeBefore(before) {
-      const keep = audit.filter((r) => r.ts >= before);
-      const removed = audit.length - keep.length;
+    async purgeBefore(before, limit) {
+      checkLimit(limit, 'auditLog.limit');
+      const cap = limit ?? Number.POSITIVE_INFINITY;
+      // Oldest first, like the SQL adapters (`ORDER BY ts`).
+      const doomed = new Set(
+        audit
+          .filter((r) => r.ts < before)
+          .sort((a, b) => a.ts - b.ts || a.id - b.id)
+          .slice(0, cap),
+      );
+      if (doomed.size === 0) return 0;
+      const keep = audit.filter((r) => !doomed.has(r));
       audit.splice(0, audit.length, ...keep);
-      return removed;
+      return doomed.size;
     },
   };
 
@@ -543,6 +557,7 @@ export function createMemoryStorage(options: MemoryStorageOptions = {}): Storage
       kv.delete(key);
     },
     async list(opts = {}): Promise<KvListResult> {
+      checkLimit(opts.limit, 'kv.limit');
       const limit = Math.min(Math.max(1, Math.trunc(opts.limit ?? KV_MAX_LIST)), KV_MAX_LIST);
       const prefix = opts.prefix ?? '';
       const after = opts.cursor === undefined ? undefined : decodeCursor(opts.cursor);
@@ -575,13 +590,6 @@ export function createMemoryStorage(options: MemoryStorageOptions = {}): Storage
     kv: kvRepo,
     async close() {},
   });
-}
-
-/** KV expiry in epoch ms from Workers-style options (`expiration` in epoch seconds wins over `expirationTtl`). */
-export function kvExpiry(opts: KvPutOptions, nowMs: number): number | null {
-  if (opts.expiration !== undefined) return opts.expiration * 1000;
-  if (opts.expirationTtl !== undefined) return nowMs + opts.expirationTtl * 1000;
-  return null;
 }
 
 /** Opaque list cursor (base64url of the last key). */

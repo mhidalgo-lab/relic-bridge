@@ -1,0 +1,159 @@
+# Cloudflare limits and plan presets
+
+On Cloudflare Workers, relic-bridge adapts to the plan you run on. Set `RB_PLAN=free` (default) or `RB_PLAN=paid`
+in `vars`; each plan is a preset you can override one number at a time. Sources and measurements:
+[RESEARCH §1](../RESEARCH.md), [ADR-0010](../adr/0010-platform-limits-strategy.md).
+
+## Presets
+
+| Setting | `free` | `paid` | Variable to override | Why |
+|---|---|---|---|---|
+| NerdGraph calls per MCP request | 45 | 1000 | `RB_CALL_BUDGET` | Free allows 50 external subrequests; 5 spare for redirects. Retries and async polls spend from it. |
+| Response size ceiling | 512 KiB | 8 MiB | `RB_MAX_RESPONSE_BYTES` | Reading and parsing a body costs about 5 ms CPU per MB; Free has 10 ms. Applied while streaming, before parse. |
+| NerdGraph calls in flight per credential | 5 | 5 | `RB_CONCURRENCY` | Workers allows 6 simultaneous outgoing connections per request; the value is limited to 6. |
+
+D1 and KV calls (token lookup, access resolution, audit rows) do **not** use the 50: Cloudflare counts them against a
+separate allowance of 1,000 per request on Free. An access-cache miss costs one D1 call (a batch of reads) plus at
+most one background `last_used_at` write per token every 5 minutes; a hit costs none.
+
+A project's own `maxResponseBytes` still applies; the smaller of the two wins. Overrides that are malformed or out of
+range stop the Worker booting (it answers `503` and logs which variable is wrong). A Free deployment configured past
+the platform limits logs a warning at start.
+
+## What happens at the limits
+
+- **Budget runs out mid-call:** tools return what they have. `run_nrql` stops polling and returns the query handle
+  (`status: pending`, use `get_query_result` later); `get_golden_metrics` marks the metrics it could not start as
+  skipped. Anything else is a normal tool error with `RB_BUDGET_EXHAUSTED` and a hint, never an HTTP 500.
+- **Tool too expensive for the budget:** a tool whose declared cost is above `RB_CALL_BUDGET` is not offered at all,
+  and `whoami` lists it under "Not offered here" with the reason. With the presets this never happens
+  (the most expensive tool, `get_golden_metrics`, needs 11).
+- **Response too large:** `RB_LIMIT_RESPONSE_TOO_LARGE`; narrow the query (fewer rows or attributes, shorter window).
+- **D1 daily quota (Free: 5 M rows read, 100 k rows written):** Cloudflare fails D1 queries until 00:00 UTC. Reads fail
+  closed (503); audit writes are logged and skipped.
+
+## What fits on Free
+
+Measured on a real Free Worker (P0-06): warm CPU per call is about 3 ms for 10-100 KB of NerdGraph response and about
+10 ms for 1 MB; a cold isolate adds 17-35 ms once. Cloudflare tolerated overruns up to 61 ms without killing requests
+during the spike, but that is not a guarantee, so the Free preset keeps calls near 5 ms.
+
+The repository benchmarks these paths in CI against a committed baseline (`pnpm bench:cpu`, see `docs/dev/testing.md`)
+so a change that makes a call much more expensive is noticed before it reaches a Free account. It runs in a local
+workerd, so its absolute numbers are higher than production and only the trend matters.
+
+| Tool / payload | Free | Notes |
+|---|---|---|
+| `whoami`, `list_accounts`, `time` | fine | 0-1 calls |
+| `search_entities`, `get_entity`, schema tools | fine | 1-2 calls, small responses |
+| `run_nrql` up to 512 KiB (about 200 rows of a typical result) | fine | 1 call, plus up to 3 polls for slow queries |
+| `run_nrql` returning more than 512 KiB | refused | Narrow the query, or move to Paid |
+| `get_golden_metrics` (up to 10 metrics) | fine | 11 calls out of 45; partial result if the budget is short |
+| Several tool calls in parallel from one client | fine | Each MCP request has its own budget |
+| Payloads of 1-8 MiB | Paid | Raise the ceiling only with `RB_PLAN=paid` (CPU about 10-45 ms) |
+
+Move to Workers Paid for large result sets, shared teams or heavy use; it also lifts the 100,000 requests per day
+and 10 ms CPU limits.
+
+## Costs
+
+Prices from Cloudflare's pricing pages, **checked 2026-10-03** (they change; confirm before you rely on them):
+[Workers](https://developers.cloudflare.com/workers/platform/pricing/) (page updated 2026-10-02),
+[D1](https://developers.cloudflare.com/workers/platform/pricing/#d1), [KV](https://developers.cloudflare.com/workers/platform/pricing/#workers-kv).
+There are no egress or bandwidth charges on either plan.
+
+| Resource | Workers Free ($0) | Workers Paid ($5 per month per account) |
+|---|---|---|
+| Worker requests | 100,000 per day | 10 M per month included, then $0.30 per million |
+| Worker CPU | 10 ms per request | 30 M CPU-ms per month included, then $0.02 per million CPU-ms |
+| D1 rows read | 5 M per day | 25 B per month included, then $0.001 per million |
+| D1 rows written | 100,000 per day | 50 M per month included, then $1.00 per million |
+| D1 storage | 5 GB total | 5 GB included, then $0.75 per GB-month |
+| KV (used by Phase 5 only) | 100,000 reads, 1,000 writes per day | 10 M reads, 1 M writes per month included, then $0.50 and $5.00 per million |
+| Rate Limiting binding | no separate charge listed on the pricing page | same |
+
+Free-plan quotas reset at 00:00 UTC. Subrequests (the NerdGraph calls) are not billed.
+
+### What a personal or small-team deployment costs (estimates)
+
+The figures below are **estimates** from the P0-06 CPU measurements and the D1 call pattern, not measurements of a
+billed account. Assumptions: 10 ms billed CPU and 3 requests (initialize, tools/list, tool call) per tool call; one D1
+read batch per cache miss, and an audit row per call (each indexed row counts as more than one row written).
+
+| Usage | Requests per month | Plan | Estimated cost |
+|---|---|---|---|
+| One person, 200 tool calls a day | about 18,000 | Free | $0 |
+| Three devices, 1,000 tool calls a day | about 90,000 | Free (about 3,000 requests per day, 3% of the quota) | $0 |
+| A team of 10, 20,000 tool calls a day | about 1.8 M | Paid | $5 (inside the included 10 M requests and 30 M CPU-ms: 1.8 M x 10 ms = 18 M) |
+| Heavy automation, 500,000 tool calls a day | about 45 M | Paid | $5 + (45 M - 10 M) x $0.30/M + (450 M - 30 M) x $0.02/M = about $24 |
+
+D1 stays far inside the allowances: audit rows are the main writes (several rows written per call once indexes count, so the
+100,000 per day on Free is tens of thousands of calls, not hundreds of thousands), and the hourly purge bounds storage (90 days by default). Cron-trigger invocations are a handful per day.
+The Free-plan D1 write quota is the first limit a busy Free deployment reaches, not requests: if audit writes fail, they
+are logged and skipped and the calls still work (see "What happens at the limits"). To see your real usage, use the
+Workers and D1 metrics in the dashboard (D1: Metrics, Row Metrics).
+
+To cap a surprise bill on Paid, set a CPU limit (`limits.cpu_ms` in `wrangler.jsonc`, or Settings, CPU Limits) and keep
+the rate limits on ([Cloudflare: custom limits](https://developers.cloudflare.com/workers/platform/pricing/)); T20 in the
+[threat model](../THREAT_MODEL.md) covers abuse of a public instance.
+
+### When to upgrade to Workers Paid
+
+| Sign | Why it matters on Free | Paid |
+|---|---|---|
+| Queries return `RB_LIMIT_RESPONSE_TOO_LARGE` and narrowing is not an option | Free keeps responses at 512 KiB because parsing costs CPU against a 10 ms limit | 8 MiB ceiling |
+| Calls fail with D1 "daily row write limit" errors | 100,000 rows written per day, mostly audit rows | 50 M per month included |
+| More than about 100,000 requests a day (several people, automation, scripts) | Hard daily quota | 10 M per month included |
+| Requests are killed with `exceededCpu` | 10 ms CPU limit per request | 30 s default |
+| A tool needs more than 45 NerdGraph calls | 50 external subrequests per request | 1,000 (up to 10,000) |
+
+Upgrading is an account change: set `RB_PLAN=paid` (`pnpm cf:setup --plan paid`) afterwards so the Worker uses the larger
+limits. Without that, the Worker keeps behaving as on Free.
+
+## Rate limiting on Workers
+
+relic-bridge applies the same rate limits as on Node (per IP 600/min, failed authentications per IP 10 per 5 min, per
+token 120/min, per grant 300/min unless the grant sets its own, per pass-through key 120/min), in two layers:
+
+| Layer | What it does | Weakness |
+|---|---|---|
+| Per-isolate token bucket | Enforces the exact rule (including a grant's own `rateLimit`) with no I/O; provides the "peek" the auth-failure throttle needs. | Each isolate counts alone, so the effective limit is up to (isolates x limit). |
+| Workers Rate Limiting binding `RATE_LIMITER` (`ratelimits` in `wrangler.jsonc`, default 600 per 60 s per key) | Shared backstop for the `ip:`, `token:`, `grant:` and `key:` buckets; a refusal answers `429` with `Retry-After: 60`. | One fixed limit and period (10 or 60 s) per binding; counted per Cloudflare location and eventually consistent, so it is permissive by design; cannot be peeked. |
+
+- **Auth-failure throttle** is per isolate only: the binding cannot report a count without consuming, so failed
+  authentications are not shared across isolates or locations. An attacker spread over many isolates gets more guesses
+  than on Node, but access tokens carry 256 bits of entropy and the admin token is refused at boot when predictable
+  (P3-13). The Durable Object limiter (P7-10) closes this gap; until then, a WAF rate-limiting rule on `/api/admin/*`
+  is a cheap shared backstop ([deploy guide](cloudflare-deploy.md#harden-the-admin-api)). As on Node, the throttle
+  refuses further *failures* only: a valid MCP or admin token is served from an address that sprayed bad ones (P3-13,
+  Phase 2 review M6).
+- **Client address** is `CF-Connecting-IP`, which Cloudflare sets and clients cannot override. Requests without it
+  share one `unknown` bucket.
+- **Fail open:** if the binding throws, the request is allowed and an error is logged; authentication still applies.
+- To tighten the shared backstop, change `limit`/`period` of the `RATE_LIMITER` entry in `wrangler.jsonc`.
+  `RB_RATE_LIMIT=off` turns all of it off (not recommended).
+- Without the binding the Worker still starts (isolate buckets only) and logs a warning.
+
+### Optional: a WAF rate-limiting rule in front
+
+Cloudflare's own rate limiting runs before the Worker is invoked, so refused requests cost no Worker request. It needs a
+zone (a custom domain), not a `workers.dev` name. In the dashboard: *Security > WAF > Rate limiting rules > Create rule*.
+
+| Field | Suggested value |
+|---|---|
+| If incoming requests match | URI Path starts with `/p/` or equals `/passthrough/mcp` or starts with `/oauth` |
+| Characteristic | IP |
+| Requests / period | 100 per 10 seconds |
+| Action | Block for 1 minute (or Managed Challenge is not suitable: clients are not browsers) |
+
+The rule is an addition, not a replacement: it cannot see tokens or grants.
+
+### Pass-through on Workers
+
+`RB_PASSTHROUGH=on` enables `/passthrough/mcp` on Workers. Because per-key limits must be shared, boot fails (503, the
+log names the variable) unless:
+
+1. `RB_FINGERPRINT_SECRET` is set: `openssl rand -base64 32 | wrangler secret put RB_FINGERPRINT_SECRET`. Every isolate
+   hashes a New Relic key with this secret, so one key maps to one limiter bucket everywhere. Without a shared
+   secret each isolate would have its own random one. Keep it like the master key: changing it only resets counters.
+2. The `RATE_LIMITER` binding is present, and `RB_RATE_LIMIT` is not `off`.

@@ -42,37 +42,43 @@ export type ResolvedAccess =
   | { readonly ok: false; readonly reason: DenyReason };
 
 /**
- * Resolve a request's effective access from storage (at most five reads, three round trips). Storage errors propagate:
- * the caller must treat them as a denial (fail closed), never as "no restriction".
+ * The request-shape checks `resolveAccess` makes before any read: a malformed slug denies like an unknown one, and a
+ * missing or oversized grant id is an invalid request. Null when the request may go on.
  */
-export async function resolveAccess(input: ResolveAccessInput): Promise<ResolvedAccess> {
-  const { storage, projectSlug, principal } = input;
-  if (typeof projectSlug !== 'string' || !SLUG_RE.test(projectSlug))
-    return { ok: false, reason: 'project_not_found' };
+export function precheckAccess(projectSlug: unknown, principal: Principal | undefined): DenyReason | null {
+  if (typeof projectSlug !== 'string' || !SLUG_RE.test(projectSlug)) return 'project_not_found';
   const grantId = principal?.grantId;
-  if (typeof grantId !== 'string' || grantId === '' || grantId.length > MAX_ID_CHARS) {
-    return { ok: false, reason: 'invalid_request' };
-  }
-  const [project, grant] = await Promise.all([
-    storage.projects.getBySlug(projectSlug),
-    storage.grants.get(grantId),
-  ]);
+  if (typeof grantId !== 'string' || grantId === '' || grantId.length > MAX_ID_CHARS)
+    return 'invalid_request';
+  return null;
+}
+
+/** The rows `decideAccess` decides on (see `AccessRecords` in `@relic-bridge/storage` for which are loaded when). */
+export interface LoadedAccessRecords {
+  readonly project: ProjectRecord | null;
+  readonly grant: GrantRecord | null;
+  readonly user: UserRecord | null;
+  readonly credential: CredentialRecord | null;
+  /** Undefined when not looked up (no owner, or the grant's user owns the key); null when looked up and missing. */
+  readonly credentialOwner?: UserRecord | null;
+}
+
+/**
+ * The decision on loaded rows, shared by `resolveAccess` and `authenticateAccess` (P3-09) so both paths decide
+ * identically: project, grant and project/grant binding first, then the pure `computeAccess`. Pure.
+ */
+export function decideAccess(
+  input: Omit<ResolveAccessInput, 'storage' | 'projectSlug'>,
+  rows: LoadedAccessRecords,
+): ResolvedAccess {
+  const { project, grant, user, credential, credentialOwner } = rows;
   if (project === null) return { ok: false, reason: 'project_not_found' };
   if (grant === null) return { ok: false, reason: 'grant_not_found' };
-  // Don't read anything else for a grant of another project (T2).
   if (grant.projectId !== project.id) return { ok: false, reason: 'grant_wrong_project' };
-
-  const credentialId = credentialIdFor(project, grant);
-  const [user, credential] = await Promise.all([
-    grant.userId === null ? Promise.resolve(null) : storage.users.get(grant.userId),
-    credentialId === null ? Promise.resolve(null) : storage.credentials.get(credentialId),
-  ]);
-  // A third read only for a key owned by someone other than the grant's user (team default or shared-by-owner key).
-  const ownerId = credential?.ownerUserId ?? null;
-  const credentialOwner =
-    ownerId === null || ownerId === grant.userId ? undefined : await storage.users.get(ownerId);
   const decision = computeAccess({
-    ...input,
+    principal: input.principal,
+    catalog: input.catalog,
+    now: input.now,
     project,
     grant,
     user,
@@ -83,6 +89,41 @@ export async function resolveAccess(input: ResolveAccessInput): Promise<Resolved
   // computeAccess denies when the credential is missing; this narrows the type.
   if (credential === null) return { ok: false, reason: 'credential_not_found' };
   return { ok: true, access: decision.access, credential };
+}
+
+/**
+ * Resolve a request's effective access from storage repository by repository (at most five reads, three round trips).
+ * Storage errors propagate: the caller must treat them as a denial (fail closed), never as "no restriction".
+ */
+export async function resolveAccess(input: ResolveAccessInput): Promise<ResolvedAccess> {
+  const { storage, projectSlug, principal } = input;
+  const invalid = precheckAccess(projectSlug, principal);
+  if (invalid !== null) return { ok: false, reason: invalid };
+  const [project, grant] = await Promise.all([
+    storage.projects.getBySlug(projectSlug),
+    storage.grants.get(principal.grantId),
+  ]);
+  // Don't read anything else for a grant of another project (T2).
+  if (project === null || grant === null || grant.projectId !== project.id) {
+    return decideAccess(input, { project, grant, user: null, credential: null });
+  }
+
+  const credentialId = credentialIdFor(project, grant);
+  const [user, credential] = await Promise.all([
+    grant.userId === null ? Promise.resolve(null) : storage.users.get(grant.userId),
+    credentialId === null ? Promise.resolve(null) : storage.credentials.get(credentialId),
+  ]);
+  // A third read only for a key owned by someone other than the grant's user (team default or shared-by-owner key).
+  const ownerId = credential?.ownerUserId ?? null;
+  const credentialOwner =
+    ownerId === null || ownerId === grant.userId ? undefined : await storage.users.get(ownerId);
+  return decideAccess(input, {
+    project,
+    grant,
+    user,
+    credential,
+    ...(credentialOwner === undefined ? {} : { credentialOwner }),
+  });
 }
 
 export interface OpenCredentialOptions {

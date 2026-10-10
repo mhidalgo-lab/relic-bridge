@@ -16,6 +16,15 @@ import type { Hono } from 'hono';
 /** Shaped like a User key so redaction is exercised; obviously fake. */
 export const NR_KEY = 'NRAK-HTTPAPPTESTKEY0123456789ABC';
 export const CATALOG: readonly string[] = createBuiltinTools().map((t) => t.name);
+/**
+ * A random admin token as `admin-token generate` would make one (P3-13 refuses predictable tokens at boot). Random per
+ * run so no high-entropy literal sits in the repository.
+ */
+export function randomAdminToken(prefix = 'adm-'): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(32));
+  return prefix + Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
 export const T0 = 1_800_000_000_000;
 
 export class ManualClock implements Clock {
@@ -49,9 +58,13 @@ export interface World {
   readonly grantIds: { readonly prod: string };
 }
 
-export async function seedWorld(storage: Storage = createMemoryStorage({ now: () => T0 })): Promise<World> {
-  const clock = new ManualClock();
-  const keyring = await Keyring.create({ current: generateMasterKey(1) });
+/** `parts` lets a host bring its own keyring (the Worker's master key) and a clock that also moves the system time. */
+export async function seedWorld(
+  storage: Storage = createMemoryStorage({ now: () => T0 }),
+  parts: { readonly keyring?: Keyring; readonly clock?: ManualClock } = {},
+): Promise<World> {
+  const clock = parts.clock ?? new ManualClock();
+  const keyring = parts.keyring ?? (await Keyring.create({ current: generateMasterKey(1) }));
   await storage.users.create({ id: 'usr_a', email: 'a@example.com', role: 'owner' });
   const validate = async (): Promise<Identity> => ({
     user: { id: 7, email: 'a@example.com', name: 'A' },

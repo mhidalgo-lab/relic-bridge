@@ -1,0 +1,5 @@
+# Local secrets for `wrangler dev` (copy to .dev.vars, which git ignores). Generate real values with
+# `relic-bridge keys generate` and `openssl rand -base64 32`; production secrets go through
+# `wrangler secret put`, never this file.
+RB_MASTER_KEY=v1:REPLACE_WITH_relic-bridge_keys_generate_OUTPUT
+RB_ADMIN_TOKEN=REPLACE_WITH_A_32_TO_512_CHARACTER_TOKEN

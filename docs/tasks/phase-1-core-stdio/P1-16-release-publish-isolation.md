@@ -2,7 +2,7 @@
 id: P1-16
 title: Isolate the OIDC publish step and make release reruns idempotent
 phase: 1
-status: review
+status: done
 priority: high
 depends_on: [P1-15]
 adr: []

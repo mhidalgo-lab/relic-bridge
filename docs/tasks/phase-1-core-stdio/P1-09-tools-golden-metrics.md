@@ -2,7 +2,7 @@
 id: P1-09
 title: "Tool: get_golden_metrics"
 phase: 1
-status: review
+status: done
 priority: high
 depends_on: [P1-06, P1-08]
 adr: []

@@ -2,7 +2,7 @@
 id: P1-07
 title: "Tools: whoami, list_accounts, time_range"
 phase: 1
-status: review
+status: done
 priority: high
 depends_on: [P1-02]
 adr: []

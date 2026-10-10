@@ -2,7 +2,7 @@
 id: P6-02
 title: "Tools: list_recent_issues, search_incidents"
 phase: 6
-status: review
+status: done
 priority: high
 depends_on: [P5-07]
 adr: []

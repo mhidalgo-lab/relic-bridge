@@ -2,7 +2,7 @@
 id: P4-09
 title: "Sign-in operations: identity re-binding, setup-link CLI, Worker setup for IdP secrets"
 phase: 4
-status: review
+status: done
 priority: medium
 depends_on: [P4-01]
 adr: [0009]

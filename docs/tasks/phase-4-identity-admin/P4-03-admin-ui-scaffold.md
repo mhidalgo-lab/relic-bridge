@@ -2,7 +2,7 @@
 id: P4-03
 title: "Admin UI scaffold (Hono JSX, strict CSP)"
 phase: 4
-status: review
+status: done
 priority: high
 depends_on: [P4-02]
 adr: [0004]

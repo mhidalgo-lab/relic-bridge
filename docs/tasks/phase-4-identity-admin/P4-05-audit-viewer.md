@@ -2,7 +2,7 @@
 id: P4-05
 title: "Audit log viewer and usage stats"
 phase: 4
-status: review
+status: done
 priority: medium
 depends_on: [P4-04, P2-08]
 adr: []

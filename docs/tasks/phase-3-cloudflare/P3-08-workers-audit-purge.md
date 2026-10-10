@@ -2,7 +2,7 @@
 id: P3-08
 title: Audit retention purge on Workers (cron trigger)
 phase: 3
-status: review
+status: done
 priority: medium
 depends_on: [P3-02]
 adr: []

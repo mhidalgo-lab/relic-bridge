@@ -2,7 +2,7 @@
 id: P6-14
 title: "Fuzzy entity-name resolution with per-credential cache"
 phase: 6
-status: review
+status: done
 priority: medium
 depends_on: [P5-07]
 adr: []

@@ -2,7 +2,7 @@
 id: P2-04
 title: Access model and effective-permission resolver
 phase: 2
-status: review
+status: done
 priority: high
 depends_on: [P2-01, P2-03]
 adr: [0008]

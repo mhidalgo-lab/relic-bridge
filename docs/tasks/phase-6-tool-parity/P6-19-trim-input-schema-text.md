@@ -2,7 +2,7 @@
 id: P6-19
 title: "Trim tool input schema text (tools/list size)"
 phase: 6
-status: review
+status: done
 priority: low
 depends_on: [P6-13]
 adr: []

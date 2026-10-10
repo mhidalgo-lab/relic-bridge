@@ -2,7 +2,7 @@
 id: P5-04
 title: "Login and consent screen"
 phase: 5
-status: review
+status: done
 priority: high
 depends_on: [P5-03]
 adr: [0009, 0011, 0012]

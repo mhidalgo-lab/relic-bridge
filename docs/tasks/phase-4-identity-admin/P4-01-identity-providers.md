@@ -2,7 +2,7 @@
 id: P4-01
 title: "Identity providers: Google, GitHub, Cloudflare Access, generic OIDC"
 phase: 4
-status: review
+status: done
 priority: high
 depends_on: [P3-07]
 adr: [0009]

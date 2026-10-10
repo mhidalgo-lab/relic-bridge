@@ -2,7 +2,7 @@
 id: P6-06
 title: "Tools: list_recent_logs, analyze_entity_logs"
 phase: 6
-status: review
+status: done
 priority: high
 depends_on: [P5-07]
 adr: []

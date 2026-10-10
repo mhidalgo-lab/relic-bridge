@@ -2,7 +2,7 @@
 id: P6-17
 title: "Accept an entity name in guid-taking tools via the shared resolver"
 phase: 6
-status: review
+status: done
 priority: low
 depends_on: [P6-14]
 adr: []

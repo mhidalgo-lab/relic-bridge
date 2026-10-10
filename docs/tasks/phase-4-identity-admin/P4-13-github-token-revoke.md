@@ -2,7 +2,7 @@
 id: P4-13
 title: "Revoke the GitHub OAuth token after the identity lookup"
 phase: 4
-status: review
+status: done
 priority: low
 depends_on: [P4-01]
 adr: [0009]

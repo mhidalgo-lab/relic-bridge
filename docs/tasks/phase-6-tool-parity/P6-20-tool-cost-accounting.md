@@ -2,7 +2,7 @@
 id: P6-20
 title: "Honest tool costs and budget planning (polls, retries, resolution)"
 phase: 6
-status: review
+status: done
 priority: medium
 depends_on: [P6-18]
 adr: [ADR-0010]

@@ -2,7 +2,7 @@
 id: P6-23
 title: "Phase 6 review nits: lint gaps, test gaps, small correctness issues"
 phase: 6
-status: review
+status: done
 priority: low
 depends_on: [P6-19]
 adr: []

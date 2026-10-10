@@ -2,7 +2,7 @@
 id: P6-01
 title: "Tools: list_alert_policies, list_alert_conditions"
 phase: 6
-status: review
+status: done
 priority: high
 depends_on: [P5-07]
 adr: []

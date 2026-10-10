@@ -2,7 +2,7 @@
 id: P6-18
 title: "Accept an entity name in the report, investigation and signal tools"
 phase: 6
-status: review
+status: done
 priority: low
 depends_on: [P6-17]
 adr: []

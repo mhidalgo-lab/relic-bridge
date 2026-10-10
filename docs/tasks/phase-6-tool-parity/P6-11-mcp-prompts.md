@@ -2,7 +2,7 @@
 id: P6-11
 title: "MCP prompts: investigation workflows"
 phase: 6
-status: review
+status: done
 priority: medium
 depends_on: [P6-10]
 adr: []

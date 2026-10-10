@@ -2,7 +2,7 @@
 id: P4-17
 title: "Cap live sessions per user and revoke them in bounded batches"
 phase: 4
-status: review
+status: done
 priority: medium
 depends_on: [P4-02]
 adr: []

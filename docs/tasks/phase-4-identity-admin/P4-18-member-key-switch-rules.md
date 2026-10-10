@@ -2,7 +2,7 @@
 id: P4-18
 title: "Tighten member key switching and personal keys as project defaults"
 phase: 4
-status: review
+status: done
 priority: low
 depends_on: [P4-10]
 adr: []

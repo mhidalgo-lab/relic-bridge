@@ -2,7 +2,7 @@
 id: P5-03
 title: "Client registration: CIMD and DCR"
 phase: 5
-status: review
+status: done
 priority: high
 depends_on: [P5-02]
 adr: [0009, 0011, 0012]

@@ -2,7 +2,7 @@
 id: P6-07
 title: "Tools: analyze_threads, list_gc_metrics, analyze_kafka_metrics"
 phase: 6
-status: review
+status: done
 priority: medium
 depends_on: [P5-07]
 adr: []

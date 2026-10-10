@@ -2,7 +2,7 @@
 id: P2-09
 title: Admin REST API (API-first management)
 phase: 2
-status: review
+status: done
 priority: high
 depends_on: [P2-04, P2-05, P2-08]
 adr: [0008, 0009]

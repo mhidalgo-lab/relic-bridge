@@ -2,7 +2,7 @@
 id: P4-04
 title: "Admin screens: credentials, projects, grants, tokens, users"
 phase: 4
-status: review
+status: done
 priority: high
 depends_on: [P4-03]
 adr: [0008]

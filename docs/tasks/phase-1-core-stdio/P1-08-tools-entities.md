@@ -2,7 +2,7 @@
 id: P1-08
 title: "Tools: search_entities, get_entity, get_related_entities, list_entity_types"
 phase: 1
-status: review
+status: done
 priority: high
 depends_on: [P1-04, P1-05]
 adr: []

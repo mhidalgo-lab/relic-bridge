@@ -2,7 +2,7 @@
 id: P1-14
 title: Docs — quickstart and client setup guides
 phase: 1
-status: review
+status: done
 priority: high
 depends_on: [P1-11]
 adr: []

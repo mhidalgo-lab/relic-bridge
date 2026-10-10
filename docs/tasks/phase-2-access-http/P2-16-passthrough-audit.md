@@ -2,7 +2,7 @@
 id: P2-16
 title: Audit tool calls on the pass-through route
 phase: 2
-status: review
+status: done
 priority: low
 depends_on: [P2-08, P2-15]
 adr: [0008]

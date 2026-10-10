@@ -2,7 +2,7 @@
 id: P2-07
 title: Rate limiting (pluggable)
 phase: 2
-status: review
+status: done
 priority: high
 depends_on: [P2-06]
 adr: [0010]

@@ -2,7 +2,7 @@
 id: P4-16
 title: "Bind identities atomically and keep at least one owner"
 phase: 4
-status: review
+status: done
 priority: medium
 depends_on: [P4-01, P4-09]
 adr: []

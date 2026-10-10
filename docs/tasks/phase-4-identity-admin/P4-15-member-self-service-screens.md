@@ -2,7 +2,7 @@
 id: P4-15
 title: "Member self-service screens in the admin panel"
 phase: 4
-status: review
+status: done
 priority: medium
 depends_on: [P4-10, P4-04]
 adr: [0009]

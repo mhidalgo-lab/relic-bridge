@@ -2,7 +2,7 @@
 id: P3-11
 title: Master-key rotation for a D1 database
 phase: 3
-status: review
+status: done
 priority: medium
 depends_on: [P3-02, P3-05]
 adr: [0007]

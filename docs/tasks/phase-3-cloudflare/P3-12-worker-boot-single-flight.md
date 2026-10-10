@@ -2,7 +2,7 @@
 id: P3-12
 title: Single-flight Worker boot with failure backoff
 phase: 3
-status: review
+status: done
 priority: medium
 depends_on: [P3-01]
 adr: []

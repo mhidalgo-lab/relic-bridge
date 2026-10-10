@@ -2,7 +2,7 @@
 id: P3-03
 title: Workers plan presets (budget, CPU, connections)
 phase: 3
-status: review
+status: done
 priority: high
 depends_on: [P3-01]
 adr: [0010]

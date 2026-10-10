@@ -2,7 +2,7 @@
 id: P2-12
 title: Authorization and isolation test suite
 phase: 2
-status: review
+status: done
 priority: high
 depends_on: [P2-06, P2-09]
 adr: [0008]

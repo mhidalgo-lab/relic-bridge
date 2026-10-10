@@ -2,7 +2,7 @@
 id: P6-16
 title: "Investigation workflow tools (error trace, dependency health)"
 phase: 6
-status: review
+status: done
 priority: medium
 depends_on: [P6-05, P6-06, P6-03]
 adr: [0010]

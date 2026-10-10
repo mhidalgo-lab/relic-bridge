@@ -2,7 +2,7 @@
 id: P1-18
 title: Require npm staged-publish approval on top of the release environment
 phase: 1
-status: review
+status: done
 priority: high
 depends_on: [P1-16]
 adr: []

@@ -2,7 +2,7 @@
 id: P6-15
 title: "Decide on a raw NerdGraph tool (ADR)"
 phase: 6
-status: review
+status: done
 priority: low
 depends_on: [P5-07]
 adr: [0014]

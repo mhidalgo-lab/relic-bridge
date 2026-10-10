@@ -2,7 +2,7 @@
 id: P5-10
 title: "Bound what anonymous callers can do to registration and CIMD"
 phase: 5
-status: review
+status: done
 priority: medium
 depends_on: [P5-03, P5-08]
 adr: [0012]

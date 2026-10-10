@@ -2,7 +2,7 @@
 id: P6-24
 title: "Paging and limit parity across list tools"
 phase: 6
-status: review
+status: done
 priority: low
 depends_on: [P6-22]
 adr: []

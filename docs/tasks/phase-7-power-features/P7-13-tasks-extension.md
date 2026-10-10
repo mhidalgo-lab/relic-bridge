@@ -2,7 +2,7 @@
 id: P7-13
 title: "Async tool runs via MCP Tasks extension"
 phase: 7
-status: review
+status: done
 priority: low
 depends_on: [P6-13]
 adr: []

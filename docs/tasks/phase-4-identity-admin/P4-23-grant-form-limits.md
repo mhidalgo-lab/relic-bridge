@@ -2,7 +2,7 @@
 id: P4-23
 title: Limit fields on the admin panel grant form
 phase: 4
-status: review
+status: done
 priority: low
 depends_on: [P4-04]
 adr: []

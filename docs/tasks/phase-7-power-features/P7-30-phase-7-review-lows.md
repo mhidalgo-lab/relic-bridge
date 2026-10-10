@@ -2,7 +2,7 @@
 id: P7-30
 title: "Low-severity follow-ups from the Phase 7 review"
 phase: 7
-status: review
+status: done
 priority: low
 depends_on: [P7-23]
 adr: []

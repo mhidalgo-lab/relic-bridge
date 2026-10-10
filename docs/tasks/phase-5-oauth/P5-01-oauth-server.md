@@ -2,7 +2,7 @@
 id: P5-01
 title: "OAuth 2.1 authorization server integration"
 phase: 5
-status: review
+status: done
 priority: high
 depends_on: [P4-08]
 adr: [0009, 0011]

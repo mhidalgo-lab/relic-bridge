@@ -2,7 +2,7 @@
 id: P7-23
 title: "MCP Tasks for the other composite reports and multi-query tools"
 phase: 7
-status: review
+status: done
 priority: low
 depends_on: [P7-21]
 adr: []

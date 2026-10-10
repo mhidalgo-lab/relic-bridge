@@ -2,7 +2,7 @@
 id: P5-07
 title: "Docs — connecting from phone and claude.ai; release v0.5"
 phase: 5
-status: review
+status: done
 priority: high
 depends_on: [P5-06]
 adr: []

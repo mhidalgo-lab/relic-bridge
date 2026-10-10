@@ -2,7 +2,7 @@
 id: P6-03
 title: "Tool: list_error_groups (Errors Inbox)"
 phase: 6
-status: review
+status: done
 priority: high
 depends_on: [P5-07]
 adr: []

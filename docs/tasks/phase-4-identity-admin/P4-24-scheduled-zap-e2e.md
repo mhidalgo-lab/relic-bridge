@@ -2,7 +2,7 @@
 id: P4-24
 title: Weekly schedule for the ZAP scan and browser E2E workflows
 phase: 4
-status: review
+status: done
 priority: low
 depends_on: [P4-11, P4-12]
 adr: []

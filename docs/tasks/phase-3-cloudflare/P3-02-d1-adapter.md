@@ -2,7 +2,7 @@
 id: P3-02
 title: D1 storage adapter
 phase: 3
-status: review
+status: done
 priority: high
 depends_on: [P3-01]
 adr: [0006]

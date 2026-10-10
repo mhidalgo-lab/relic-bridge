@@ -2,7 +2,7 @@
 id: P7-22
 title: "MCP Tasks: status notifications, stdio and pass-through"
 phase: 7
-status: review
+status: done
 priority: low
 depends_on: [P7-13]
 adr: []

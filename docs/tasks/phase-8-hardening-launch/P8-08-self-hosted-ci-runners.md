@@ -2,7 +2,7 @@
 id: P8-08
 title: Run CI on the organization's self-hosted runners, with a hosted fallback
 phase: 8
-status: review
+status: done
 priority: high
 depends_on: []
 adr: []

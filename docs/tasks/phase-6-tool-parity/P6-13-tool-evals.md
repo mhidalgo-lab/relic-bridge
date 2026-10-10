@@ -2,7 +2,7 @@
 id: P6-13
 title: "Tool description quality and agent evals"
 phase: 6
-status: review
+status: done
 priority: medium
 depends_on: [P6-10]
 adr: []

@@ -2,7 +2,7 @@
 id: P7-28
 title: "Owner-only edits of write-enabled projects/grants, and audit before the mutation"
 phase: 7
-status: review
+status: done
 priority: medium
 depends_on: [P7-09]
 adr: [ADR-0015]

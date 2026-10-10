@@ -2,7 +2,7 @@
 id: P7-24
 title: "Write rate limit enforced deployment-wide on Workers"
 phase: 7
-status: review
+status: done
 priority: medium
 depends_on: [P7-10]
 adr: [ADR-0015]

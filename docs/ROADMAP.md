@@ -67,7 +67,7 @@ Generated from task front matter (`pnpm tasks index` once P0-05 lands). Status l
 | P0-01 | [Bootstrap the monorepo](tasks/phase-0-foundations/P0-01-repo-bootstrap.md) | high | — | done |
 | P0-02 | [License and community files](tasks/phase-0-foundations/P0-02-license-community.md) | high | P0-01 | done |
 | P0-03 | [CI pipeline](tasks/phase-0-foundations/P0-03-ci-pipeline.md) | high | P0-01 | done |
-| P0-04 | [Security tooling baseline](tasks/phase-0-foundations/P0-04-security-tooling.md) | high | P0-03 | review |
+| P0-04 | [Security tooling baseline](tasks/phase-0-foundations/P0-04-security-tooling.md) | high | P0-03 | done |
 | P0-05 | [AI-agent workflow and task tooling](tasks/phase-0-foundations/P0-05-agent-workflow.md) | high | P0-01 | done |
 | P0-06 | [Spike: Workers free-plan CPU and subrequest budget](tasks/phase-0-foundations/P0-06-spike-workers-limits.md) | high | P0-01 | done |
 | P0-07 | [Spike: MCP SDK v2 dual-era handler on Workers and Node with real clients](tasks/phase-0-foundations/P0-07-spike-mcp-sdk-v2.md) | high | P0-01 | done |
@@ -84,181 +84,181 @@ Generated from task front matter (`pnpm tasks index` once P0-05 lands). Status l
 | P1-02 | [NerdGraph client (regions, retries, limiter, budget)](tasks/phase-1-core-stdio/P1-02-nerdgraph-client.md) | high | P1-01 | done |
 | P1-03 | [NRQL execution engine (sync, async, cross-account)](tasks/phase-1-core-stdio/P1-03-nrql-engine.md) | high | P1-02 | done |
 | P1-04 | [NRQL safety (escaping) and query limits](tasks/phase-1-core-stdio/P1-04-nrql-safety-limits.md) | high | P1-03 | done |
-| P1-05 | [Output shaping v1 and untrusted-data envelope](tasks/phase-1-core-stdio/P1-05-output-shaping.md) | high | P1-03 | review |
-| P1-06 | [Tools: run_nrql and get_query_result](tasks/phase-1-core-stdio/P1-06-tools-query.md) | high | P1-04, P1-05 | review |
-| P1-07 | [Tools: whoami, list_accounts, time_range](tasks/phase-1-core-stdio/P1-07-tools-identity-accounts.md) | high | P1-02 | review |
-| P1-08 | [Tools: search_entities, get_entity, get_related_entities, list_entity_types](tasks/phase-1-core-stdio/P1-08-tools-entities.md) | high | P1-04, P1-05 | review |
-| P1-09 | [Tool: get_golden_metrics](tasks/phase-1-core-stdio/P1-09-tools-golden-metrics.md) | high | P1-06, P1-08 | review |
-| P1-10 | [Tools: list_event_types, get_attributes](tasks/phase-1-core-stdio/P1-10-tools-schema-discovery.md) | high | P1-06 | review |
-| P1-11 | [CLI with stdio mode (env and YAML config)](tasks/phase-1-core-stdio/P1-11-cli-stdio.md) | high | P1-06, P1-07 | review |
-| P1-12 | [Test harness (fixtures, MCP contract tests, optional live suite)](tasks/phase-1-core-stdio/P1-12-test-harness.md) | high | P1-01 | review |
-| P1-13 | [Generated tool reference docs](tasks/phase-1-core-stdio/P1-13-tool-reference-generator.md) | medium | P1-06 | review |
-| P1-14 | [Docs — quickstart and client setup guides](tasks/phase-1-core-stdio/P1-14-docs-quickstart.md) | high | P1-11 | review |
-| P1-15 | [Release pipeline and v0.1.0](tasks/phase-1-core-stdio/P1-15-release-v0-1.md) | high | P1-11, P1-12, P1-14 | review |
-| P1-16 | [Isolate the OIDC publish step and make release reruns idempotent](tasks/phase-1-core-stdio/P1-16-release-publish-isolation.md) | high | P1-15 | review |
-| P1-17 | [CLI warnings and docs accuracy follow-ups from the Phase 1 review](tasks/phase-1-core-stdio/P1-17-cli-docs-polish.md) | low | P1-11, P1-14 | review |
-| P1-18 | [Require npm staged-publish approval on top of the release environment](tasks/phase-1-core-stdio/P1-18-npm-staged-publish.md) | high | P1-16 | review |
+| P1-05 | [Output shaping v1 and untrusted-data envelope](tasks/phase-1-core-stdio/P1-05-output-shaping.md) | high | P1-03 | done |
+| P1-06 | [Tools: run_nrql and get_query_result](tasks/phase-1-core-stdio/P1-06-tools-query.md) | high | P1-04, P1-05 | done |
+| P1-07 | [Tools: whoami, list_accounts, time_range](tasks/phase-1-core-stdio/P1-07-tools-identity-accounts.md) | high | P1-02 | done |
+| P1-08 | [Tools: search_entities, get_entity, get_related_entities, list_entity_types](tasks/phase-1-core-stdio/P1-08-tools-entities.md) | high | P1-04, P1-05 | done |
+| P1-09 | [Tool: get_golden_metrics](tasks/phase-1-core-stdio/P1-09-tools-golden-metrics.md) | high | P1-06, P1-08 | done |
+| P1-10 | [Tools: list_event_types, get_attributes](tasks/phase-1-core-stdio/P1-10-tools-schema-discovery.md) | high | P1-06 | done |
+| P1-11 | [CLI with stdio mode (env and YAML config)](tasks/phase-1-core-stdio/P1-11-cli-stdio.md) | high | P1-06, P1-07 | done |
+| P1-12 | [Test harness (fixtures, MCP contract tests, optional live suite)](tasks/phase-1-core-stdio/P1-12-test-harness.md) | high | P1-01 | done |
+| P1-13 | [Generated tool reference docs](tasks/phase-1-core-stdio/P1-13-tool-reference-generator.md) | medium | P1-06 | done |
+| P1-14 | [Docs — quickstart and client setup guides](tasks/phase-1-core-stdio/P1-14-docs-quickstart.md) | high | P1-11 | done |
+| P1-15 | [Release pipeline and v0.1.0](tasks/phase-1-core-stdio/P1-15-release-v0-1.md) | high | P1-11, P1-12, P1-14 | done |
+| P1-16 | [Isolate the OIDC publish step and make release reruns idempotent](tasks/phase-1-core-stdio/P1-16-release-publish-isolation.md) | high | P1-15 | done |
+| P1-17 | [CLI warnings and docs accuracy follow-ups from the Phase 1 review](tasks/phase-1-core-stdio/P1-17-cli-docs-polish.md) | low | P1-11, P1-14 | done |
+| P1-18 | [Require npm staged-publish approval on top of the release environment](tasks/phase-1-core-stdio/P1-18-npm-staged-publish.md) | high | P1-16 | done |
 
 ### Phase 2
 
 | ID | Task | Priority | Depends on | Status |
 |---|---|---|---|---|
-| P2-01 | [Storage interface, Drizzle schema and migrations](tasks/phase-2-access-http/P2-01-storage-interface-schema.md) | high | P1-15 | review |
-| P2-02 | [SQLite adapter for Node](tasks/phase-2-access-http/P2-02-sqlite-adapter.md) | high | P2-01 | review |
-| P2-03 | [Secrets encryption and master-key rotation](tasks/phase-2-access-http/P2-03-secrets-encryption.md) | high | P2-01 | review |
-| P2-04 | [Access model and effective-permission resolver](tasks/phase-2-access-http/P2-04-access-model.md) | high | P2-01, P2-03 | review |
-| P2-05 | [Access tokens (per device)](tasks/phase-2-access-http/P2-05-access-tokens.md) | high | P2-04 | review |
-| P2-06 | [HTTP app (Hono) with per-project MCP endpoints](tasks/phase-2-access-http/P2-06-http-app.md) | high | P2-05 | review |
-| P2-07 | [Rate limiting (pluggable)](tasks/phase-2-access-http/P2-07-rate-limiting.md) | high | P2-06 | review |
-| P2-08 | [Audit log](tasks/phase-2-access-http/P2-08-audit-log.md) | high | P2-06 | review |
-| P2-09 | [Admin REST API (API-first management)](tasks/phase-2-access-http/P2-09-admin-api.md) | high | P2-04, P2-05, P2-08 | review |
-| P2-10 | [CLI management commands (local and remote)](tasks/phase-2-access-http/P2-10-cli-management.md) | high | P2-09 | review |
-| P2-11 | [Docker image (signed, SBOM)](tasks/phase-2-access-http/P2-11-docker-image.md) | medium | P2-06, P2-02 | review |
-| P2-12 | [Authorization and isolation test suite](tasks/phase-2-access-http/P2-12-authz-isolation-tests.md) | high | P2-06, P2-09 | review |
-| P2-13 | [Docs — self-hosting, access model, multi-device setup](tasks/phase-2-access-http/P2-13-docs-self-hosting.md) | high | P2-10, P2-11 | review |
-| P2-14 | [Core tool consistency and envelope coverage clean-up](tasks/phase-2-access-http/P2-14-core-output-consistency.md) | low | — | review |
-| P2-15 | [Pass-through mode (client-supplied New Relic key)](tasks/phase-2-access-http/P2-15-passthrough-mode.md) | low | P2-06, P2-07 | review |
-| P2-16 | [Audit tool calls on the pass-through route](tasks/phase-2-access-http/P2-16-passthrough-audit.md) | low | P2-08, P2-15 | review |
-| P2-17 | [Admin API audit and error-model follow-ups](tasks/phase-2-access-http/P2-17-admin-audit-followups.md) | medium | P2-09 | review |
-| P2-18 | [Phase 2 docs accuracy sweep](tasks/phase-2-access-http/P2-18-docs-accuracy-sweep.md) | medium | P2-13 | review |
-| P2-19 | [Docker release hardening and an end-to-end image smoke test](tasks/phase-2-access-http/P2-19-docker-release-hardening.md) | medium | P2-11 | review |
+| P2-01 | [Storage interface, Drizzle schema and migrations](tasks/phase-2-access-http/P2-01-storage-interface-schema.md) | high | P1-15 | done |
+| P2-02 | [SQLite adapter for Node](tasks/phase-2-access-http/P2-02-sqlite-adapter.md) | high | P2-01 | done |
+| P2-03 | [Secrets encryption and master-key rotation](tasks/phase-2-access-http/P2-03-secrets-encryption.md) | high | P2-01 | done |
+| P2-04 | [Access model and effective-permission resolver](tasks/phase-2-access-http/P2-04-access-model.md) | high | P2-01, P2-03 | done |
+| P2-05 | [Access tokens (per device)](tasks/phase-2-access-http/P2-05-access-tokens.md) | high | P2-04 | done |
+| P2-06 | [HTTP app (Hono) with per-project MCP endpoints](tasks/phase-2-access-http/P2-06-http-app.md) | high | P2-05 | done |
+| P2-07 | [Rate limiting (pluggable)](tasks/phase-2-access-http/P2-07-rate-limiting.md) | high | P2-06 | done |
+| P2-08 | [Audit log](tasks/phase-2-access-http/P2-08-audit-log.md) | high | P2-06 | done |
+| P2-09 | [Admin REST API (API-first management)](tasks/phase-2-access-http/P2-09-admin-api.md) | high | P2-04, P2-05, P2-08 | done |
+| P2-10 | [CLI management commands (local and remote)](tasks/phase-2-access-http/P2-10-cli-management.md) | high | P2-09 | done |
+| P2-11 | [Docker image (signed, SBOM)](tasks/phase-2-access-http/P2-11-docker-image.md) | medium | P2-06, P2-02 | done |
+| P2-12 | [Authorization and isolation test suite](tasks/phase-2-access-http/P2-12-authz-isolation-tests.md) | high | P2-06, P2-09 | done |
+| P2-13 | [Docs — self-hosting, access model, multi-device setup](tasks/phase-2-access-http/P2-13-docs-self-hosting.md) | high | P2-10, P2-11 | done |
+| P2-14 | [Core tool consistency and envelope coverage clean-up](tasks/phase-2-access-http/P2-14-core-output-consistency.md) | low | — | done |
+| P2-15 | [Pass-through mode (client-supplied New Relic key)](tasks/phase-2-access-http/P2-15-passthrough-mode.md) | low | P2-06, P2-07 | done |
+| P2-16 | [Audit tool calls on the pass-through route](tasks/phase-2-access-http/P2-16-passthrough-audit.md) | low | P2-08, P2-15 | done |
+| P2-17 | [Admin API audit and error-model follow-ups](tasks/phase-2-access-http/P2-17-admin-audit-followups.md) | medium | P2-09 | done |
+| P2-18 | [Phase 2 docs accuracy sweep](tasks/phase-2-access-http/P2-18-docs-accuracy-sweep.md) | medium | P2-13 | done |
+| P2-19 | [Docker release hardening and an end-to-end image smoke test](tasks/phase-2-access-http/P2-19-docker-release-hardening.md) | medium | P2-11 | done |
 
 ### Phase 3
 
 | ID | Task | Priority | Depends on | Status |
 |---|---|---|---|---|
-| P3-01 | [Cloudflare Worker entry and bindings](tasks/phase-3-cloudflare/P3-01-worker-entry.md) | high | P2-13 | review |
-| P3-02 | [D1 storage adapter](tasks/phase-3-cloudflare/P3-02-d1-adapter.md) | high | P3-01 | review |
-| P3-03 | [Workers plan presets (budget, CPU, connections)](tasks/phase-3-cloudflare/P3-03-workers-limits.md) | high | P3-01 | review |
-| P3-04 | [Rate limiting on Workers](tasks/phase-3-cloudflare/P3-04-workers-rate-limit.md) | medium | P3-01, P2-07 | review |
-| P3-05 | [Deploy to Cloudflare button and setup script](tasks/phase-3-cloudflare/P3-05-deploy-button-setup.md) | high | P3-02 | review |
-| P3-06 | [Workers integration tests in CI](tasks/phase-3-cloudflare/P3-06-workers-tests.md) | high | P3-02 | review |
-| P3-07 | [Docs — Cloudflare deployment, limits and costs](tasks/phase-3-cloudflare/P3-07-docs-cloudflare.md) | high | P3-05, P3-03 | review |
-| P3-08 | [Audit retention purge on Workers (cron trigger)](tasks/phase-3-cloudflare/P3-08-workers-audit-purge.md) | medium | P3-02 | review |
-| P3-09 | [Resolve access in one D1 round trip](tasks/phase-3-cloudflare/P3-09-d1-single-query-access.md) | medium | P3-02 | review |
-| P3-10 | [CPU benchmark per tool to catch regressions](tasks/phase-3-cloudflare/P3-10-cpu-benchmark.md) | low | P3-03 | review |
-| P3-11 | [Master-key rotation for a D1 database](tasks/phase-3-cloudflare/P3-11-d1-master-key-rotation.md) | medium | P3-02, P3-05 | review |
-| P3-12 | [Single-flight Worker boot with failure backoff](tasks/phase-3-cloudflare/P3-12-worker-boot-single-flight.md) | medium | P3-01 | review |
-| P3-13 | [Admin token strength check and auth-failure throttle that cannot lock out valid tokens](tasks/phase-3-cloudflare/P3-13-admin-token-strength-failure-throttle.md) | medium | P3-04 | review |
-| P3-14 | [cf:setup follow-ups (config refresh, rate-limit namespace, Windows docs, README button)](tasks/phase-3-cloudflare/P3-14-cf-setup-followups.md) | low | P3-05 | review |
-| P3-15 | [Key-rotation guards (unreadable rows warning, Free-plan batch size, kv TTL validation)](tasks/phase-3-cloudflare/P3-15-rotation-guards.md) | low | P3-11 | review |
+| P3-01 | [Cloudflare Worker entry and bindings](tasks/phase-3-cloudflare/P3-01-worker-entry.md) | high | P2-13 | done |
+| P3-02 | [D1 storage adapter](tasks/phase-3-cloudflare/P3-02-d1-adapter.md) | high | P3-01 | done |
+| P3-03 | [Workers plan presets (budget, CPU, connections)](tasks/phase-3-cloudflare/P3-03-workers-limits.md) | high | P3-01 | done |
+| P3-04 | [Rate limiting on Workers](tasks/phase-3-cloudflare/P3-04-workers-rate-limit.md) | medium | P3-01, P2-07 | done |
+| P3-05 | [Deploy to Cloudflare button and setup script](tasks/phase-3-cloudflare/P3-05-deploy-button-setup.md) | high | P3-02 | done |
+| P3-06 | [Workers integration tests in CI](tasks/phase-3-cloudflare/P3-06-workers-tests.md) | high | P3-02 | done |
+| P3-07 | [Docs — Cloudflare deployment, limits and costs](tasks/phase-3-cloudflare/P3-07-docs-cloudflare.md) | high | P3-05, P3-03 | done |
+| P3-08 | [Audit retention purge on Workers (cron trigger)](tasks/phase-3-cloudflare/P3-08-workers-audit-purge.md) | medium | P3-02 | done |
+| P3-09 | [Resolve access in one D1 round trip](tasks/phase-3-cloudflare/P3-09-d1-single-query-access.md) | medium | P3-02 | done |
+| P3-10 | [CPU benchmark per tool to catch regressions](tasks/phase-3-cloudflare/P3-10-cpu-benchmark.md) | low | P3-03 | done |
+| P3-11 | [Master-key rotation for a D1 database](tasks/phase-3-cloudflare/P3-11-d1-master-key-rotation.md) | medium | P3-02, P3-05 | done |
+| P3-12 | [Single-flight Worker boot with failure backoff](tasks/phase-3-cloudflare/P3-12-worker-boot-single-flight.md) | medium | P3-01 | done |
+| P3-13 | [Admin token strength check and auth-failure throttle that cannot lock out valid tokens](tasks/phase-3-cloudflare/P3-13-admin-token-strength-failure-throttle.md) | medium | P3-04 | done |
+| P3-14 | [cf:setup follow-ups (config refresh, rate-limit namespace, Windows docs, README button)](tasks/phase-3-cloudflare/P3-14-cf-setup-followups.md) | low | P3-05 | done |
+| P3-15 | [Key-rotation guards (unreadable rows warning, Free-plan batch size, kv TTL validation)](tasks/phase-3-cloudflare/P3-15-rotation-guards.md) | low | P3-11 | done |
 
 ### Phase 4
 
 | ID | Task | Priority | Depends on | Status |
 |---|---|---|---|---|
-| P4-01 | [Identity providers: Google, GitHub, Cloudflare Access, generic OIDC](tasks/phase-4-identity-admin/P4-01-identity-providers.md) | high | P3-07 | review |
-| P4-02 | [Admin sessions, CSRF and roles](tasks/phase-4-identity-admin/P4-02-admin-sessions.md) | high | P4-01 | review |
-| P4-03 | [Admin UI scaffold (Hono JSX, strict CSP)](tasks/phase-4-identity-admin/P4-03-admin-ui-scaffold.md) | high | P4-02 | review |
-| P4-04 | [Admin screens: credentials, projects, grants, tokens, users](tasks/phase-4-identity-admin/P4-04-admin-screens.md) | high | P4-03 | review |
-| P4-05 | [Audit log viewer and usage stats](tasks/phase-4-identity-admin/P4-05-audit-viewer.md) | medium | P4-04, P2-08 | review |
-| P4-06 | [Connect page: client config snippets](tasks/phase-4-identity-admin/P4-06-connect-page.md) | high | P4-04 | review |
-| P4-07 | [Admin panel security review](tasks/phase-4-identity-admin/P4-07-admin-security-review.md) | high | P4-04 | review |
-| P4-08 | [Docs — admin guide and release v0.4](tasks/phase-4-identity-admin/P4-08-docs-admin.md) | medium | P4-05, P4-06, P4-07 | review |
-| P4-09 | [Sign-in operations: identity re-binding, setup-link CLI, Worker setup for IdP secrets](tasks/phase-4-identity-admin/P4-09-sign-in-operations.md) | medium | P4-01 | review |
-| P4-10 | [Member self-service API: own credentials, grants and device tokens](tasks/phase-4-identity-admin/P4-10-member-self-service.md) | medium | P4-02 | review |
-| P4-11 | [Admin panel in a real browser: Playwright E2E and guide screenshots](tasks/phase-4-identity-admin/P4-11-admin-browser-e2e.md) | medium | P4-04 | review |
-| P4-12 | [ZAP baseline scan of the admin panel](tasks/phase-4-identity-admin/P4-12-zap-baseline-scan.md) | low | P4-07 | review |
-| P4-13 | [Revoke the GitHub OAuth token after the identity lookup](tasks/phase-4-identity-admin/P4-13-github-token-revoke.md) | low | P4-01 | review |
-| P4-14 | [Move a user to another provider from the admin panel](tasks/phase-4-identity-admin/P4-14-unbind-in-admin-ui.md) | low | P4-09, P4-04 | review |
-| P4-15 | [Member self-service screens in the admin panel](tasks/phase-4-identity-admin/P4-15-member-self-service-screens.md) | medium | P4-10, P4-04 | review |
-| P4-16 | [Bind identities atomically and keep at least one owner](tasks/phase-4-identity-admin/P4-16-atomic-binding-last-owner.md) | medium | P4-01, P4-09 | review |
-| P4-17 | [Cap live sessions per user and revoke them in bounded batches](tasks/phase-4-identity-admin/P4-17-session-cap-batched-revoke.md) | medium | P4-02 | review |
-| P4-18 | [Tighten member key switching and personal keys as project defaults](tasks/phase-4-identity-admin/P4-18-member-key-switch-rules.md) | low | P4-10 | review |
-| P4-19 | [Bound the storage writes signed-in users can cause](tasks/phase-4-identity-admin/P4-19-bound-self-service-writes.md) | low | P4-07, P4-10 | review |
-| P4-20 | [Phase 4 test, docs and UI hygiene from the consolidation review](tasks/phase-4-identity-admin/P4-20-phase-4-hygiene.md) | low | P4-08 | review |
-| P4-21 | [Only owners create, demote, disable or unbind administrators](tasks/phase-4-identity-admin/P4-21-owner-only-admin-management.md) | medium | P4-16 | review |
-| P4-22 | [Warn at startup when an allowlist is set but auto-provisioning is off](tasks/phase-4-identity-admin/P4-22-allowlist-without-autoprovision-warning.md) | low | P4-08 | review |
-| P4-23 | [Limit fields on the admin panel grant form](tasks/phase-4-identity-admin/P4-23-grant-form-limits.md) | low | P4-04 | review |
-| P4-24 | [Weekly schedule for the ZAP scan and browser E2E workflows](tasks/phase-4-identity-admin/P4-24-scheduled-zap-e2e.md) | low | P4-11, P4-12 | review |
+| P4-01 | [Identity providers: Google, GitHub, Cloudflare Access, generic OIDC](tasks/phase-4-identity-admin/P4-01-identity-providers.md) | high | P3-07 | done |
+| P4-02 | [Admin sessions, CSRF and roles](tasks/phase-4-identity-admin/P4-02-admin-sessions.md) | high | P4-01 | done |
+| P4-03 | [Admin UI scaffold (Hono JSX, strict CSP)](tasks/phase-4-identity-admin/P4-03-admin-ui-scaffold.md) | high | P4-02 | done |
+| P4-04 | [Admin screens: credentials, projects, grants, tokens, users](tasks/phase-4-identity-admin/P4-04-admin-screens.md) | high | P4-03 | done |
+| P4-05 | [Audit log viewer and usage stats](tasks/phase-4-identity-admin/P4-05-audit-viewer.md) | medium | P4-04, P2-08 | done |
+| P4-06 | [Connect page: client config snippets](tasks/phase-4-identity-admin/P4-06-connect-page.md) | high | P4-04 | done |
+| P4-07 | [Admin panel security review](tasks/phase-4-identity-admin/P4-07-admin-security-review.md) | high | P4-04 | done |
+| P4-08 | [Docs — admin guide and release v0.4](tasks/phase-4-identity-admin/P4-08-docs-admin.md) | medium | P4-05, P4-06, P4-07 | done |
+| P4-09 | [Sign-in operations: identity re-binding, setup-link CLI, Worker setup for IdP secrets](tasks/phase-4-identity-admin/P4-09-sign-in-operations.md) | medium | P4-01 | done |
+| P4-10 | [Member self-service API: own credentials, grants and device tokens](tasks/phase-4-identity-admin/P4-10-member-self-service.md) | medium | P4-02 | done |
+| P4-11 | [Admin panel in a real browser: Playwright E2E and guide screenshots](tasks/phase-4-identity-admin/P4-11-admin-browser-e2e.md) | medium | P4-04 | done |
+| P4-12 | [ZAP baseline scan of the admin panel](tasks/phase-4-identity-admin/P4-12-zap-baseline-scan.md) | low | P4-07 | done |
+| P4-13 | [Revoke the GitHub OAuth token after the identity lookup](tasks/phase-4-identity-admin/P4-13-github-token-revoke.md) | low | P4-01 | done |
+| P4-14 | [Move a user to another provider from the admin panel](tasks/phase-4-identity-admin/P4-14-unbind-in-admin-ui.md) | low | P4-09, P4-04 | done |
+| P4-15 | [Member self-service screens in the admin panel](tasks/phase-4-identity-admin/P4-15-member-self-service-screens.md) | medium | P4-10, P4-04 | done |
+| P4-16 | [Bind identities atomically and keep at least one owner](tasks/phase-4-identity-admin/P4-16-atomic-binding-last-owner.md) | medium | P4-01, P4-09 | done |
+| P4-17 | [Cap live sessions per user and revoke them in bounded batches](tasks/phase-4-identity-admin/P4-17-session-cap-batched-revoke.md) | medium | P4-02 | done |
+| P4-18 | [Tighten member key switching and personal keys as project defaults](tasks/phase-4-identity-admin/P4-18-member-key-switch-rules.md) | low | P4-10 | done |
+| P4-19 | [Bound the storage writes signed-in users can cause](tasks/phase-4-identity-admin/P4-19-bound-self-service-writes.md) | low | P4-07, P4-10 | done |
+| P4-20 | [Phase 4 test, docs and UI hygiene from the consolidation review](tasks/phase-4-identity-admin/P4-20-phase-4-hygiene.md) | low | P4-08 | done |
+| P4-21 | [Only owners create, demote, disable or unbind administrators](tasks/phase-4-identity-admin/P4-21-owner-only-admin-management.md) | medium | P4-16 | done |
+| P4-22 | [Warn at startup when an allowlist is set but auto-provisioning is off](tasks/phase-4-identity-admin/P4-22-allowlist-without-autoprovision-warning.md) | low | P4-08 | done |
+| P4-23 | [Limit fields on the admin panel grant form](tasks/phase-4-identity-admin/P4-23-grant-form-limits.md) | low | P4-04 | done |
+| P4-24 | [Weekly schedule for the ZAP scan and browser E2E workflows](tasks/phase-4-identity-admin/P4-24-scheduled-zap-e2e.md) | low | P4-11, P4-12 | done |
 
 ### Phase 5
 
 | ID | Task | Priority | Depends on | Status |
 |---|---|---|---|---|
-| P5-01 | [OAuth 2.1 authorization server integration](tasks/phase-5-oauth/P5-01-oauth-server.md) | high | P4-08 | review |
-| P5-02 | [Per-slug Protected Resource Metadata and audience binding](tasks/phase-5-oauth/P5-02-protected-resource-metadata.md) | high | P5-01 | review |
-| P5-03 | [Client registration: CIMD and DCR](tasks/phase-5-oauth/P5-03-client-registration.md) | high | P5-02 | review |
-| P5-04 | [Login and consent screen](tasks/phase-5-oauth/P5-04-consent-screen.md) | high | P5-03 | review |
-| P5-05 | [Token lifecycle: expiry, refresh rotation, revocation](tasks/phase-5-oauth/P5-05-token-lifecycle.md) | high | P5-04 | review |
-| P5-06 | [Client compatibility matrix (incl. Claude mobile)](tasks/phase-5-oauth/P5-06-client-compat-matrix.md) | high | P5-05 | review |
-| P5-07 | [Docs — connecting from phone and claude.ai; release v0.5](tasks/phase-5-oauth/P5-07-docs-oauth.md) | high | P5-06 | review |
-| P5-08 | [Admin: OAuth client list, revoke and DCR switch](tasks/phase-5-oauth/P5-08-admin-oauth-clients.md) | medium | P5-03 | review |
-| P5-09 | [Decide and handle concurrent refreshes from real clients](tasks/phase-5-oauth/P5-09-refresh-concurrency.md) | medium | P5-06 | review |
-| P5-10 | [Bound what anonymous callers can do to registration and CIMD](tasks/phase-5-oauth/P5-10-oauth-unauthenticated-abuse.md) | medium | P5-03, P5-08 | review |
-| P5-11 | [Device replacement policy and complete per-user device bounds](tasks/phase-5-oauth/P5-11-oauth-device-bounds.md) | medium | P5-05, P5-08 | review |
-| P5-12 | [OAuth protocol nits from the Phase 5 review](tasks/phase-5-oauth/P5-12-oauth-spec-nits.md) | low | P5-04 | review |
-| P5-13 | [Remove the unused OAUTH_KV Worker binding](tasks/phase-5-oauth/P5-13-remove-oauth-kv-binding.md) | low | P5-01 | review |
+| P5-01 | [OAuth 2.1 authorization server integration](tasks/phase-5-oauth/P5-01-oauth-server.md) | high | P4-08 | done |
+| P5-02 | [Per-slug Protected Resource Metadata and audience binding](tasks/phase-5-oauth/P5-02-protected-resource-metadata.md) | high | P5-01 | done |
+| P5-03 | [Client registration: CIMD and DCR](tasks/phase-5-oauth/P5-03-client-registration.md) | high | P5-02 | done |
+| P5-04 | [Login and consent screen](tasks/phase-5-oauth/P5-04-consent-screen.md) | high | P5-03 | done |
+| P5-05 | [Token lifecycle: expiry, refresh rotation, revocation](tasks/phase-5-oauth/P5-05-token-lifecycle.md) | high | P5-04 | done |
+| P5-06 | [Client compatibility matrix (incl. Claude mobile)](tasks/phase-5-oauth/P5-06-client-compat-matrix.md) | high | P5-05 | done |
+| P5-07 | [Docs — connecting from phone and claude.ai; release v0.5](tasks/phase-5-oauth/P5-07-docs-oauth.md) | high | P5-06 | done |
+| P5-08 | [Admin: OAuth client list, revoke and DCR switch](tasks/phase-5-oauth/P5-08-admin-oauth-clients.md) | medium | P5-03 | done |
+| P5-09 | [Decide and handle concurrent refreshes from real clients](tasks/phase-5-oauth/P5-09-refresh-concurrency.md) | medium | P5-06 | done |
+| P5-10 | [Bound what anonymous callers can do to registration and CIMD](tasks/phase-5-oauth/P5-10-oauth-unauthenticated-abuse.md) | medium | P5-03, P5-08 | done |
+| P5-11 | [Device replacement policy and complete per-user device bounds](tasks/phase-5-oauth/P5-11-oauth-device-bounds.md) | medium | P5-05, P5-08 | done |
+| P5-12 | [OAuth protocol nits from the Phase 5 review](tasks/phase-5-oauth/P5-12-oauth-spec-nits.md) | low | P5-04 | done |
+| P5-13 | [Remove the unused OAUTH_KV Worker binding](tasks/phase-5-oauth/P5-13-remove-oauth-kv-binding.md) | low | P5-01 | done |
 
 ### Phase 6
 
 | ID | Task | Priority | Depends on | Status |
 |---|---|---|---|---|
-| P6-01 | [Tools: list_alert_policies, list_alert_conditions](tasks/phase-6-tool-parity/P6-01-tools-alerts.md) | high | P5-07 | review |
-| P6-02 | [Tools: list_recent_issues, search_incidents](tasks/phase-6-tool-parity/P6-02-tools-issues.md) | high | P5-07 | review |
-| P6-03 | [Tool: list_error_groups (Errors Inbox)](tasks/phase-6-tool-parity/P6-03-tools-errors-inbox.md) | high | P5-07 | review |
-| P6-04 | [Tools: list_change_events, analyze_deployment_impact](tasks/phase-6-tool-parity/P6-04-tools-change-tracking.md) | high | P5-07 | review |
-| P6-05 | [Tools: analyze_transactions, list_top_transactions](tasks/phase-6-tool-parity/P6-05-tools-apm.md) | high | P5-07 | review |
-| P6-06 | [Tools: list_recent_logs, analyze_entity_logs](tasks/phase-6-tool-parity/P6-06-tools-logs.md) | high | P5-07 | review |
-| P6-07 | [Tools: analyze_threads, list_gc_metrics, analyze_kafka_metrics](tasks/phase-6-tool-parity/P6-07-tools-runtime.md) | medium | P5-07 | review |
-| P6-08 | [Tool: list_synthetic_monitors (+ recent results)](tasks/phase-6-tool-parity/P6-08-tools-synthetics.md) | medium | P5-07 | review |
-| P6-09 | [Tools: list_dashboards, get_dashboard](tasks/phase-6-tool-parity/P6-09-tools-dashboards.md) | medium | P5-07 | review |
-| P6-10 | [Composite reports: alert insights and user impact](tasks/phase-6-tool-parity/P6-10-composite-reports.md) | medium | P6-02, P6-04, P6-06 | review |
-| P6-11 | [MCP prompts: investigation workflows](tasks/phase-6-tool-parity/P6-11-mcp-prompts.md) | medium | P6-10 | review |
-| P6-12 | [MCP resources: NRQL reference and schema snapshots](tasks/phase-6-tool-parity/P6-12-mcp-resources.md) | medium | P6-11 | review |
-| P6-13 | [Tool description quality and agent evals](tasks/phase-6-tool-parity/P6-13-tool-evals.md) | medium | P6-10 | review |
-| P6-14 | [Fuzzy entity-name resolution with per-credential cache](tasks/phase-6-tool-parity/P6-14-fuzzy-entity-resolution.md) | medium | P5-07 | review |
-| P6-15 | [Decide on a raw NerdGraph tool (ADR)](tasks/phase-6-tool-parity/P6-15-raw-nerdgraph-decision.md) | low | P5-07 | review |
-| P6-16 | [Investigation workflow tools (error trace, dependency health)](tasks/phase-6-tool-parity/P6-16-investigation-workflow-tools.md) | medium | P6-05, P6-06, P6-03 | review |
-| P6-17 | [Accept an entity name in guid-taking tools via the shared resolver](tasks/phase-6-tool-parity/P6-17-name-input-on-entity-tools.md) | low | P6-14 | review |
-| P6-18 | [Accept an entity name in the report, investigation and signal tools](tasks/phase-6-tool-parity/P6-18-name-input-on-report-and-signal-tools.md) | low | P6-17 | review |
-| P6-19 | [Trim tool input schema text (tools/list size)](tasks/phase-6-tool-parity/P6-19-trim-input-schema-text.md) | low | P6-13 | review |
-| P6-20 | [Honest tool costs and budget planning (polls, retries, resolution)](tasks/phase-6-tool-parity/P6-20-tool-cost-accounting.md) | medium | P6-18 | review |
-| P6-21 | [Untrusted-text and scope hardening follow-ups from the Phase 6 review](tasks/phase-6-tool-parity/P6-21-untrusted-text-hardening.md) | medium | P6-19 | review |
-| P6-22 | [Consistent tool argument and output naming before 1.0](tasks/phase-6-tool-parity/P6-22-tool-argument-consistency.md) | medium | P6-19 | review |
-| P6-23 | [Phase 6 review nits: lint gaps, test gaps, small correctness issues](tasks/phase-6-tool-parity/P6-23-phase-6-review-nits.md) | low | P6-19 | review |
-| P6-24 | [Paging and limit parity across list tools](tasks/phase-6-tool-parity/P6-24-paging-and-limit-parity.md) | low | P6-22 | review |
-| P6-25 | [Warn in the grant editor when a composite tool lacks its sibling tools](tasks/phase-6-tool-parity/P6-25-composite-grant-warning.md) | low | P6-21, P4-23 | review |
+| P6-01 | [Tools: list_alert_policies, list_alert_conditions](tasks/phase-6-tool-parity/P6-01-tools-alerts.md) | high | P5-07 | done |
+| P6-02 | [Tools: list_recent_issues, search_incidents](tasks/phase-6-tool-parity/P6-02-tools-issues.md) | high | P5-07 | done |
+| P6-03 | [Tool: list_error_groups (Errors Inbox)](tasks/phase-6-tool-parity/P6-03-tools-errors-inbox.md) | high | P5-07 | done |
+| P6-04 | [Tools: list_change_events, analyze_deployment_impact](tasks/phase-6-tool-parity/P6-04-tools-change-tracking.md) | high | P5-07 | done |
+| P6-05 | [Tools: analyze_transactions, list_top_transactions](tasks/phase-6-tool-parity/P6-05-tools-apm.md) | high | P5-07 | done |
+| P6-06 | [Tools: list_recent_logs, analyze_entity_logs](tasks/phase-6-tool-parity/P6-06-tools-logs.md) | high | P5-07 | done |
+| P6-07 | [Tools: analyze_threads, list_gc_metrics, analyze_kafka_metrics](tasks/phase-6-tool-parity/P6-07-tools-runtime.md) | medium | P5-07 | done |
+| P6-08 | [Tool: list_synthetic_monitors (+ recent results)](tasks/phase-6-tool-parity/P6-08-tools-synthetics.md) | medium | P5-07 | done |
+| P6-09 | [Tools: list_dashboards, get_dashboard](tasks/phase-6-tool-parity/P6-09-tools-dashboards.md) | medium | P5-07 | done |
+| P6-10 | [Composite reports: alert insights and user impact](tasks/phase-6-tool-parity/P6-10-composite-reports.md) | medium | P6-02, P6-04, P6-06 | done |
+| P6-11 | [MCP prompts: investigation workflows](tasks/phase-6-tool-parity/P6-11-mcp-prompts.md) | medium | P6-10 | done |
+| P6-12 | [MCP resources: NRQL reference and schema snapshots](tasks/phase-6-tool-parity/P6-12-mcp-resources.md) | medium | P6-11 | done |
+| P6-13 | [Tool description quality and agent evals](tasks/phase-6-tool-parity/P6-13-tool-evals.md) | medium | P6-10 | done |
+| P6-14 | [Fuzzy entity-name resolution with per-credential cache](tasks/phase-6-tool-parity/P6-14-fuzzy-entity-resolution.md) | medium | P5-07 | done |
+| P6-15 | [Decide on a raw NerdGraph tool (ADR)](tasks/phase-6-tool-parity/P6-15-raw-nerdgraph-decision.md) | low | P5-07 | done |
+| P6-16 | [Investigation workflow tools (error trace, dependency health)](tasks/phase-6-tool-parity/P6-16-investigation-workflow-tools.md) | medium | P6-05, P6-06, P6-03 | done |
+| P6-17 | [Accept an entity name in guid-taking tools via the shared resolver](tasks/phase-6-tool-parity/P6-17-name-input-on-entity-tools.md) | low | P6-14 | done |
+| P6-18 | [Accept an entity name in the report, investigation and signal tools](tasks/phase-6-tool-parity/P6-18-name-input-on-report-and-signal-tools.md) | low | P6-17 | done |
+| P6-19 | [Trim tool input schema text (tools/list size)](tasks/phase-6-tool-parity/P6-19-trim-input-schema-text.md) | low | P6-13 | done |
+| P6-20 | [Honest tool costs and budget planning (polls, retries, resolution)](tasks/phase-6-tool-parity/P6-20-tool-cost-accounting.md) | medium | P6-18 | done |
+| P6-21 | [Untrusted-text and scope hardening follow-ups from the Phase 6 review](tasks/phase-6-tool-parity/P6-21-untrusted-text-hardening.md) | medium | P6-19 | done |
+| P6-22 | [Consistent tool argument and output naming before 1.0](tasks/phase-6-tool-parity/P6-22-tool-argument-consistency.md) | medium | P6-19 | done |
+| P6-23 | [Phase 6 review nits: lint gaps, test gaps, small correctness issues](tasks/phase-6-tool-parity/P6-23-phase-6-review-nits.md) | low | P6-19 | done |
+| P6-24 | [Paging and limit parity across list tools](tasks/phase-6-tool-parity/P6-24-paging-and-limit-parity.md) | low | P6-22 | done |
+| P6-25 | [Warn in the grant editor when a composite tool lacks its sibling tools](tasks/phase-6-tool-parity/P6-25-composite-grant-warning.md) | low | P6-21, P4-23 | done |
 
 ### Phase 7
 
 | ID | Task | Priority | Depends on | Status |
 |---|---|---|---|---|
-| P7-01 | [Result shaping v2: summaries, downsampling, stats](tasks/phase-7-power-features/P7-01-result-shaping-v2.md) | medium | P6-13 | review |
-| P7-02 | [Query cache (Cache API / in-memory LRU)](tasks/phase-7-power-features/P7-02-query-cache.md) | medium | P6-13 | review |
-| P7-03 | [Deep links to the New Relic UI](tasks/phase-7-power-features/P7-03-deep-links.md) | low | P6-13 | review |
-| P7-04 | [Interactive charts via MCP Apps extension](tasks/phase-7-power-features/P7-04-mcp-apps-charts.md) | medium | P6-13 | review |
-| P7-05 | [relic-bridge doctor](tasks/phase-7-power-features/P7-05-doctor.md) | medium | P6-13 | review |
-| P7-06 | [Config import/export](tasks/phase-7-power-features/P7-06-import-export.md) | low | P6-13 | review |
-| P7-07 | [Claude Code plugin (MCP config + skills + commands)](tasks/phase-7-power-features/P7-07-claude-code-plugin.md) | medium | P6-13 | review |
-| P7-08 | [Self-monitoring via OpenTelemetry (opt-in)](tasks/phase-7-power-features/P7-08-self-monitoring.md) | low | P6-13 | review |
-| P7-09 | [Opt-in write tools](tasks/phase-7-power-features/P7-09-write-tools.md) | medium | P6-13 | review |
-| P7-10 | [Durable Object concurrency limiter for shared keys](tasks/phase-7-power-features/P7-10-do-concurrency-limiter.md) | low | P6-13 | review |
-| P7-11 | [OS keychain for local credentials](tasks/phase-7-power-features/P7-11-os-keychain.md) | low | P6-13 | review |
-| P7-12 | [Per-grant quotas and usage dashboard](tasks/phase-7-power-features/P7-12-quotas-usage.md) | low | P6-13 | review |
-| P7-13 | [Async tool runs via MCP Tasks extension](tasks/phase-7-power-features/P7-13-tasks-extension.md) | low | P6-13 | review |
-| P7-14 | [Registry-friendly tool discovery (lazy auth)](tasks/phase-7-power-features/P7-14-lazy-auth-discovery.md) | low | P6-13 | review |
+| P7-01 | [Result shaping v2: summaries, downsampling, stats](tasks/phase-7-power-features/P7-01-result-shaping-v2.md) | medium | P6-13 | done |
+| P7-02 | [Query cache (Cache API / in-memory LRU)](tasks/phase-7-power-features/P7-02-query-cache.md) | medium | P6-13 | done |
+| P7-03 | [Deep links to the New Relic UI](tasks/phase-7-power-features/P7-03-deep-links.md) | low | P6-13 | done |
+| P7-04 | [Interactive charts via MCP Apps extension](tasks/phase-7-power-features/P7-04-mcp-apps-charts.md) | medium | P6-13 | done |
+| P7-05 | [relic-bridge doctor](tasks/phase-7-power-features/P7-05-doctor.md) | medium | P6-13 | done |
+| P7-06 | [Config import/export](tasks/phase-7-power-features/P7-06-import-export.md) | low | P6-13 | done |
+| P7-07 | [Claude Code plugin (MCP config + skills + commands)](tasks/phase-7-power-features/P7-07-claude-code-plugin.md) | medium | P6-13 | done |
+| P7-08 | [Self-monitoring via OpenTelemetry (opt-in)](tasks/phase-7-power-features/P7-08-self-monitoring.md) | low | P6-13 | done |
+| P7-09 | [Opt-in write tools](tasks/phase-7-power-features/P7-09-write-tools.md) | medium | P6-13 | done |
+| P7-10 | [Durable Object concurrency limiter for shared keys](tasks/phase-7-power-features/P7-10-do-concurrency-limiter.md) | low | P6-13 | done |
+| P7-11 | [OS keychain for local credentials](tasks/phase-7-power-features/P7-11-os-keychain.md) | low | P6-13 | done |
+| P7-12 | [Per-grant quotas and usage dashboard](tasks/phase-7-power-features/P7-12-quotas-usage.md) | low | P6-13 | done |
+| P7-13 | [Async tool runs via MCP Tasks extension](tasks/phase-7-power-features/P7-13-tasks-extension.md) | low | P6-13 | done |
+| P7-14 | [Registry-friendly tool discovery (lazy auth)](tasks/phase-7-power-features/P7-14-lazy-auth-discovery.md) | low | P6-13 | done |
 | P7-15 | [Opt-in, validated read-only NerdGraph query tool (only if ADR-0014 is reversed)](tasks/phase-7-power-features/P7-15-opt-in-nerdgraph-query.md) | low | P6-15 | blocked |
-| P7-16 | [MCP Apps: capability-gated UI metadata and an operator switch](tasks/phase-7-power-features/P7-16-mcp-apps-gating.md) | low | P7-04 | review |
-| P7-17 | [doctor: client config files and remote token validity](tasks/phase-7-power-features/P7-17-doctor-client-configs.md) | low | P7-05 | review |
-| P7-18 | [OTLP follow-ups: logs, budget usage, stdio, trace context](tasks/phase-7-power-features/P7-18-otel-logs-budget-stdio.md) | low | P7-08 | review |
-| P7-19 | [create_dashboard write tool](tasks/phase-7-power-features/P7-19-create-dashboard-write-tool.md) | low | P7-09 | review |
-| P7-20 | [Confirm write tool calls through MCP elicitation](tasks/phase-7-power-features/P7-20-write-confirm-elicitation.md) | low | P7-09 | review |
-| P7-21 | [MCP Tasks for composite reports and multi-query tools](tasks/phase-7-power-features/P7-21-tasks-composite-reports.md) | low | P7-13 | review |
-| P7-22 | [MCP Tasks: status notifications, stdio and pass-through](tasks/phase-7-power-features/P7-22-tasks-notifications-stdio.md) | low | P7-13 | review |
-| P7-23 | [MCP Tasks for the other composite reports and multi-query tools](tasks/phase-7-power-features/P7-23-tasks-other-composites.md) | low | P7-21 | review |
-| P7-24 | [Write rate limit enforced deployment-wide on Workers](tasks/phase-7-power-features/P7-24-write-rate-limit-deployment-wide.md) | medium | P7-10 | review |
-| P7-25 | [Owner switch to require human approval (elicitation) for write tools](tasks/phase-7-power-features/P7-25-require-human-approval-for-writes.md) | medium | P7-20 | review |
-| P7-26 | [Bind write approvals to one attempt (no replay of non-idempotent writes)](tasks/phase-7-power-features/P7-26-write-approval-replay.md) | low | P7-20 | review |
-| P7-27 | [tools/list size budget with write tools enabled, and headroom](tasks/phase-7-power-features/P7-27-tools-list-budget-with-writes.md) | medium | P7-19 | review |
-| P7-28 | [Owner-only edits of write-enabled projects/grants, and audit before the mutation](tasks/phase-7-power-features/P7-28-write-project-edits-and-audit.md) | medium | P7-09 | review |
-| P7-29 | [Compare-and-swap on MCP task records](tasks/phase-7-power-features/P7-29-task-record-cas.md) | low | P7-23 | review |
-| P7-30 | [Low-severity follow-ups from the Phase 7 review](tasks/phase-7-power-features/P7-30-phase-7-review-lows.md) | low | P7-23 | review |
-| P7-31 | [Description lint for write tools](tasks/phase-7-power-features/P7-31-lint-write-tool-descriptions.md) | low | P7-27 | review |
-| P7-32 | [Owner-only re-enable of users who hold write grants](tasks/phase-7-power-features/P7-32-user-reenable-write-grants.md) | low | P7-28 | review |
-| P7-33 | [Default RB_WRITE_APPROVAL to required](tasks/phase-7-power-features/P7-33-write-approval-required-default.md) | high | P7-25 | review |
-| P7-34 | [RB_TASKS=off switch for MCP Tasks](tasks/phase-7-power-features/P7-34-tasks-kill-switch.md) | low | P7-13, P7-29 | review |
-| P7-35 | [Charge the write rate limit only for the answered elicitation round](tasks/phase-7-power-features/P7-35-elicitation-charge-answered-round.md) | low | P7-20, P7-24 | review |
+| P7-16 | [MCP Apps: capability-gated UI metadata and an operator switch](tasks/phase-7-power-features/P7-16-mcp-apps-gating.md) | low | P7-04 | done |
+| P7-17 | [doctor: client config files and remote token validity](tasks/phase-7-power-features/P7-17-doctor-client-configs.md) | low | P7-05 | done |
+| P7-18 | [OTLP follow-ups: logs, budget usage, stdio, trace context](tasks/phase-7-power-features/P7-18-otel-logs-budget-stdio.md) | low | P7-08 | done |
+| P7-19 | [create_dashboard write tool](tasks/phase-7-power-features/P7-19-create-dashboard-write-tool.md) | low | P7-09 | done |
+| P7-20 | [Confirm write tool calls through MCP elicitation](tasks/phase-7-power-features/P7-20-write-confirm-elicitation.md) | low | P7-09 | done |
+| P7-21 | [MCP Tasks for composite reports and multi-query tools](tasks/phase-7-power-features/P7-21-tasks-composite-reports.md) | low | P7-13 | done |
+| P7-22 | [MCP Tasks: status notifications, stdio and pass-through](tasks/phase-7-power-features/P7-22-tasks-notifications-stdio.md) | low | P7-13 | done |
+| P7-23 | [MCP Tasks for the other composite reports and multi-query tools](tasks/phase-7-power-features/P7-23-tasks-other-composites.md) | low | P7-21 | done |
+| P7-24 | [Write rate limit enforced deployment-wide on Workers](tasks/phase-7-power-features/P7-24-write-rate-limit-deployment-wide.md) | medium | P7-10 | done |
+| P7-25 | [Owner switch to require human approval (elicitation) for write tools](tasks/phase-7-power-features/P7-25-require-human-approval-for-writes.md) | medium | P7-20 | done |
+| P7-26 | [Bind write approvals to one attempt (no replay of non-idempotent writes)](tasks/phase-7-power-features/P7-26-write-approval-replay.md) | low | P7-20 | done |
+| P7-27 | [tools/list size budget with write tools enabled, and headroom](tasks/phase-7-power-features/P7-27-tools-list-budget-with-writes.md) | medium | P7-19 | done |
+| P7-28 | [Owner-only edits of write-enabled projects/grants, and audit before the mutation](tasks/phase-7-power-features/P7-28-write-project-edits-and-audit.md) | medium | P7-09 | done |
+| P7-29 | [Compare-and-swap on MCP task records](tasks/phase-7-power-features/P7-29-task-record-cas.md) | low | P7-23 | done |
+| P7-30 | [Low-severity follow-ups from the Phase 7 review](tasks/phase-7-power-features/P7-30-phase-7-review-lows.md) | low | P7-23 | done |
+| P7-31 | [Description lint for write tools](tasks/phase-7-power-features/P7-31-lint-write-tool-descriptions.md) | low | P7-27 | done |
+| P7-32 | [Owner-only re-enable of users who hold write grants](tasks/phase-7-power-features/P7-32-user-reenable-write-grants.md) | low | P7-28 | done |
+| P7-33 | [Default RB_WRITE_APPROVAL to required](tasks/phase-7-power-features/P7-33-write-approval-required-default.md) | high | P7-25 | done |
+| P7-34 | [RB_TASKS=off switch for MCP Tasks](tasks/phase-7-power-features/P7-34-tasks-kill-switch.md) | low | P7-13, P7-29 | done |
+| P7-35 | [Charge the write rate limit only for the answered elicitation round](tasks/phase-7-power-features/P7-35-elicitation-charge-answered-round.md) | low | P7-20, P7-24 | done |
 
 ### Phase 8
 
@@ -271,8 +271,8 @@ Generated from task front matter (`pnpm tasks index` once P0-05 lands). Status l
 | P8-05 | [Versioning, support and deprecation policy](tasks/phase-8-hardening-launch/P8-05-support-policy.md) | medium | P7-04, P7-09 | todo |
 | P8-06 | [1.0 launch](tasks/phase-8-hardening-launch/P8-06-launch.md) | high | P8-02, P8-03, P8-04, P8-05 | todo |
 | P8-07 | [CI supply-chain hardening follow-ups](tasks/phase-8-hardening-launch/P8-07-ci-supply-chain-hardening.md) | medium | P1-16 | todo |
-| P8-08 | [Run CI on the organization's self-hosted runners, with a hosted fallback](tasks/phase-8-hardening-launch/P8-08-self-hosted-ci-runners.md) | high | — | review |
-| P8-09 | [Fix EPERM temp-dir cleanup in the SQLite tests on Windows](tasks/phase-8-hardening-launch/P8-09-windows-sqlite-test-cleanup.md) | medium | — | review |
-| P8-10 | [Clear the failing dependency audit (sharp and two other dev-only advisories)](tasks/phase-8-hardening-launch/P8-10-sharp-advisory.md) | high | — | review |
-| P8-11 | [Make the concurrent task-poll test independent of which poll wins](tasks/phase-8-hardening-launch/P8-11-task-poll-test-order.md) | low | P7-29 | review |
+| P8-08 | [Run CI on the organization's self-hosted runners, with a hosted fallback](tasks/phase-8-hardening-launch/P8-08-self-hosted-ci-runners.md) | high | — | done |
+| P8-09 | [Fix EPERM temp-dir cleanup in the SQLite tests on Windows](tasks/phase-8-hardening-launch/P8-09-windows-sqlite-test-cleanup.md) | medium | — | done |
+| P8-10 | [Clear the failing dependency audit (sharp and two other dev-only advisories)](tasks/phase-8-hardening-launch/P8-10-sharp-advisory.md) | high | — | done |
+| P8-11 | [Make the concurrent task-poll test independent of which poll wins](tasks/phase-8-hardening-launch/P8-11-task-poll-test-order.md) | low | P7-29 | done |
 <!-- tasks:end -->

@@ -2,7 +2,7 @@
 id: P7-18
 title: "OTLP follow-ups: logs, budget usage, stdio, trace context"
 phase: 7
-status: review
+status: done
 priority: low
 depends_on: [P7-08]
 adr: []

@@ -2,7 +2,7 @@
 id: P6-05
 title: "Tools: analyze_transactions, list_top_transactions"
 phase: 6
-status: review
+status: done
 priority: high
 depends_on: [P5-07]
 adr: []

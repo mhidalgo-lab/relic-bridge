@@ -2,7 +2,7 @@
 id: P3-14
 title: cf:setup follow-ups (config refresh, rate-limit namespace, Windows docs, README button)
 phase: 3
-status: review
+status: done
 priority: low
 depends_on: [P3-05]
 adr: []

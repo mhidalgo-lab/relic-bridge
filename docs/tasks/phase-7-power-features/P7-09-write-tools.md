@@ -2,7 +2,7 @@
 id: P7-09
 title: "Opt-in write tools"
 phase: 7
-status: review
+status: done
 priority: medium
 depends_on: [P6-13]
 adr: [0008, 0014, 0015]

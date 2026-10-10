@@ -2,7 +2,7 @@
 id: P6-22
 title: "Consistent tool argument and output naming before 1.0"
 phase: 6
-status: review
+status: done
 priority: medium
 depends_on: [P6-19]
 adr: []

@@ -2,7 +2,7 @@
 id: P7-05
 title: "relic-bridge doctor"
 phase: 7
-status: review
+status: done
 priority: medium
 depends_on: [P6-13]
 adr: []

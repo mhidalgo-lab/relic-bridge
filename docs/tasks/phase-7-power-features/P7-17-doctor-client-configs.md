@@ -2,7 +2,7 @@
 id: P7-17
 title: "doctor: client config files and remote token validity"
 phase: 7
-status: review
+status: done
 priority: low
 depends_on: [P7-05]
 adr: []

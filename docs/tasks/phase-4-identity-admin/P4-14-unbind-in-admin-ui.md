@@ -2,7 +2,7 @@
 id: P4-14
 title: "Move a user to another provider from the admin panel"
 phase: 4
-status: review
+status: done
 priority: low
 depends_on: [P4-09, P4-04]
 adr: []

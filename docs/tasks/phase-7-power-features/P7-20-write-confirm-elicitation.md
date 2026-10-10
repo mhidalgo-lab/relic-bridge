@@ -2,7 +2,7 @@
 id: P7-20
 title: "Confirm write tool calls through MCP elicitation"
 phase: 7
-status: review
+status: done
 priority: low
 depends_on: [P7-09]
 adr: [0005, 0015]

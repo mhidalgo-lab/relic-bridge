@@ -2,7 +2,7 @@
 id: P5-09
 title: "Decide and handle concurrent refreshes from real clients"
 phase: 5
-status: review
+status: done
 priority: medium
 depends_on: [P5-06]
 adr: [0009, 0011, 0013]

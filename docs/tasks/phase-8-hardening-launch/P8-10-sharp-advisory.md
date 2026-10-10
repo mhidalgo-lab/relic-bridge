@@ -2,7 +2,7 @@
 id: P8-10
 title: Clear the failing dependency audit (sharp and two other dev-only advisories)
 phase: 8
-status: review
+status: done
 priority: high
 depends_on: []
 adr: []

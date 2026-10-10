@@ -2,7 +2,7 @@
 id: P7-07
 title: "Claude Code plugin (MCP config + skills + commands)"
 phase: 7
-status: review
+status: done
 priority: medium
 depends_on: [P6-13]
 adr: []

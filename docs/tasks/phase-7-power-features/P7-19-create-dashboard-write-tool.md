@@ -2,7 +2,7 @@
 id: P7-19
 title: "create_dashboard write tool"
 phase: 7
-status: review
+status: done
 priority: low
 depends_on: [P7-09]
 adr: [0015]

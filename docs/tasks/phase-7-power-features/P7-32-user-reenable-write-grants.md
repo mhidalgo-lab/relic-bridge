@@ -2,7 +2,7 @@
 id: P7-32
 title: "Owner-only re-enable of users who hold write grants"
 phase: 7
-status: review
+status: done
 priority: low
 depends_on: [P7-28]
 adr: [ADR-0015]

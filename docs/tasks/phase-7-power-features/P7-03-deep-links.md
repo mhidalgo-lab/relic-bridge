@@ -2,7 +2,7 @@
 id: P7-03
 title: "Deep links to the New Relic UI"
 phase: 7
-status: review
+status: done
 priority: low
 depends_on: [P6-13]
 adr: []

@@ -2,7 +2,7 @@
 id: P7-26
 title: "Bind write approvals to one attempt (no replay of non-idempotent writes)"
 phase: 7
-status: review
+status: done
 priority: low
 depends_on: [P7-20]
 adr: [ADR-0015]

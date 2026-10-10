@@ -2,7 +2,7 @@
 id: P2-19
 title: Docker release hardening and an end-to-end image smoke test
 phase: 2
-status: review
+status: done
 priority: medium
 depends_on: [P2-11]
 adr: []

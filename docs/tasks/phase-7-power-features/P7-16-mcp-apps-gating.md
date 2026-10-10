@@ -2,7 +2,7 @@
 id: P7-16
 title: "MCP Apps: capability-gated UI metadata and an operator switch"
 phase: 7
-status: review
+status: done
 priority: low
 depends_on: [P7-04]
 adr: []

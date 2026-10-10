@@ -2,7 +2,7 @@
 id: P8-11
 title: Make the concurrent task-poll test independent of which poll wins
 phase: 8
-status: review
+status: done
 priority: low
 depends_on: [P7-29]
 adr: []

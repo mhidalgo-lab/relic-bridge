@@ -2,7 +2,7 @@
 id: P1-06
 title: "Tools: run_nrql and get_query_result"
 phase: 1
-status: review
+status: done
 priority: high
 depends_on: [P1-04, P1-05]
 adr: []

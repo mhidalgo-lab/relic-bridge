@@ -2,7 +2,7 @@
 id: P5-05
 title: "Token lifecycle: expiry, refresh rotation, revocation"
 phase: 5
-status: review
+status: done
 priority: high
 depends_on: [P5-04]
 adr: [0009, 0011]

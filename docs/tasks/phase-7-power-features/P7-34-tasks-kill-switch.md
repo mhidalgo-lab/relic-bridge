@@ -2,7 +2,7 @@
 id: P7-34
 title: RB_TASKS=off switch for MCP Tasks
 phase: 7
-status: review
+status: done
 priority: low
 depends_on: [P7-13, P7-29]
 adr: []

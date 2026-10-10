@@ -2,7 +2,7 @@
 id: P7-14
 title: "Registry-friendly tool discovery (lazy auth)"
 phase: 7
-status: review
+status: done
 priority: low
 depends_on: [P6-13]
 adr: []

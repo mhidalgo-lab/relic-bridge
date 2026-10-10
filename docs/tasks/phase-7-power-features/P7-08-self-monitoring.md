@@ -2,7 +2,7 @@
 id: P7-08
 title: "Self-monitoring via OpenTelemetry (opt-in)"
 phase: 7
-status: review
+status: done
 priority: low
 depends_on: [P6-13]
 adr: []

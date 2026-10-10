@@ -2,7 +2,7 @@
 id: P7-31
 title: "Description lint for write tools"
 phase: 7
-status: review
+status: done
 priority: low
 depends_on: [P7-27]
 adr: []

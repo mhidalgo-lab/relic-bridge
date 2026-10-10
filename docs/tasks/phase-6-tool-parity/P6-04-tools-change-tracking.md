@@ -2,7 +2,7 @@
 id: P6-04
 title: "Tools: list_change_events, analyze_deployment_impact"
 phase: 6
-status: review
+status: done
 priority: high
 depends_on: [P5-07]
 adr: []

@@ -2,7 +2,7 @@
 id: P7-27
 title: "tools/list size budget with write tools enabled, and headroom"
 phase: 7
-status: review
+status: done
 priority: medium
 depends_on: [P7-19]
 adr: []

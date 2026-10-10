@@ -2,7 +2,7 @@
 id: P7-10
 title: "Durable Object concurrency limiter for shared keys"
 phase: 7
-status: review
+status: done
 priority: low
 depends_on: [P6-13]
 adr: [0010]

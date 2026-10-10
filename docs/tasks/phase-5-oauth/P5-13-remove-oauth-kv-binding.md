@@ -2,7 +2,7 @@
 id: P5-13
 title: Remove the unused OAUTH_KV Worker binding
 phase: 5
-status: review
+status: done
 priority: low
 depends_on: [P5-01]
 adr: ["0011"]

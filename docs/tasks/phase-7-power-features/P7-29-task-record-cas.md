@@ -2,7 +2,7 @@
 id: P7-29
 title: "Compare-and-swap on MCP task records"
 phase: 7
-status: review
+status: done
 priority: low
 depends_on: [P7-23]
 adr: []

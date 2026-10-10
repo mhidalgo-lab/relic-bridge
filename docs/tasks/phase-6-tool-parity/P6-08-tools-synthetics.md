@@ -2,7 +2,7 @@
 id: P6-08
 title: "Tool: list_synthetic_monitors (+ recent results)"
 phase: 6
-status: review
+status: done
 priority: medium
 depends_on: [P5-07]
 adr: []

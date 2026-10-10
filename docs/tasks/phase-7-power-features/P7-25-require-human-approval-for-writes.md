@@ -2,7 +2,7 @@
 id: P7-25
 title: "Owner switch to require human approval (elicitation) for write tools"
 phase: 7
-status: review
+status: done
 priority: medium
 depends_on: [P7-20]
 adr: [ADR-0015]

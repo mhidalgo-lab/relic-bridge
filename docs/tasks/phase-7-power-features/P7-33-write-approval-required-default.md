@@ -2,7 +2,7 @@
 id: P7-33
 title: Default RB_WRITE_APPROVAL to required
 phase: 7
-status: review
+status: done
 priority: high
 depends_on: [P7-25]
 adr: ["0015", "0016"]

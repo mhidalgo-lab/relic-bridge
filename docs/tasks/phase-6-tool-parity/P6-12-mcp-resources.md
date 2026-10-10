@@ -2,7 +2,7 @@
 id: P6-12
 title: "MCP resources: NRQL reference and schema snapshots"
 phase: 6
-status: review
+status: done
 priority: medium
 depends_on: [P6-11]
 adr: []

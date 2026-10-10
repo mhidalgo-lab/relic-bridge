@@ -2,7 +2,7 @@
 id: P6-10
 title: "Composite reports: alert insights and user impact"
 phase: 6
-status: review
+status: done
 priority: medium
 depends_on: [P6-02, P6-04, P6-06]
 adr: [0010]

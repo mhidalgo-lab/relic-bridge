@@ -2,7 +2,7 @@
 id: P7-04
 title: "Interactive charts via MCP Apps extension"
 phase: 7
-status: review
+status: done
 priority: medium
 depends_on: [P6-13]
 adr: []

@@ -2,7 +2,7 @@
 id: P7-02
 title: "Query cache (Cache API / in-memory LRU)"
 phase: 7
-status: review
+status: done
 priority: medium
 depends_on: [P6-13]
 adr: []

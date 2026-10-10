@@ -2,7 +2,7 @@
 id: P7-01
 title: "Result shaping v2: summaries, downsampling, stats"
 phase: 7
-status: review
+status: done
 priority: medium
 depends_on: [P6-13]
 adr: []

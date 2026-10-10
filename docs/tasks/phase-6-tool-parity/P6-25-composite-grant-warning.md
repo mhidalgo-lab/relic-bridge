@@ -2,7 +2,7 @@
 id: P6-25
 title: Warn in the grant editor when a composite tool lacks its sibling tools
 phase: 6
-status: review
+status: done
 priority: low
 depends_on: [P6-21, P4-23]
 adr: []

@@ -2,7 +2,7 @@
 id: P4-21
 title: Only owners create, demote, disable or unbind administrators
 phase: 4
-status: review
+status: done
 priority: medium
 depends_on: [P4-16]
 adr: []

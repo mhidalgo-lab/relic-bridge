@@ -2,7 +2,7 @@
 id: P6-21
 title: "Untrusted-text and scope hardening follow-ups from the Phase 6 review"
 phase: 6
-status: review
+status: done
 priority: medium
 depends_on: [P6-19]
 adr: []

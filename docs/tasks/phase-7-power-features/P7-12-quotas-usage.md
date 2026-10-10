@@ -2,7 +2,7 @@
 id: P7-12
 title: "Per-grant quotas and usage dashboard"
 phase: 7
-status: review
+status: done
 priority: low
 depends_on: [P6-13]
 adr: []

@@ -17,6 +17,8 @@ caller (stdio CLI / http-app)
 On HTTP the context reaches the server factory through `createMcpHandler`'s `authInfo.extra` (ADR-0005); never through
 module state (THREAT_MODEL T21). stdio keeps one server per connection, so `apps/cli` passes `ctx` as a **factory**
 (`() => ToolContext`) that `buildMcpServer` calls once per tool call: every call gets a fresh request id and budget.
+HTTP (`packages/http-app`) passes `toolsListChanged: false`: a per-request server never pushes a list change, so the SDK
+acknowledges a `subscriptions/listen` with an empty filter and closes it at once.
 
 ## Writing a tool
 
@@ -74,6 +76,15 @@ Codes live in `ErrorCode` (`src/errors.ts`). They are a public contract, so add 
 
 Everything request-specific comes from `ctx`: credential, accounts, budget, limiter, limits, logger, clock. Module-level
 values must be immutable (definitions, constants). Tests assert two concurrent servers never see each other's context.
+
+### Conventions shared by the built-in tools
+
+- Tool inputs use `snake_case` (`query_id`, `max_rows`); `structuredContent` uses `camelCase` (`queryId`, `totalRows`).
+- Shared helpers live in `packages/core/src/tools/shared.ts`: `toolClient(deps)` (per-request NerdGraph client),
+  `accountIdSchema`, `assertWindowWithinLimit(range, limits)` and `DAY_MS`. Use them instead of local copies.
+- Any value New Relic supplies that reaches the text result (including NRDB messages, field warnings and query
+  handles) is enveloped, validated against a strict charset, or both. A returned entity's account must match the
+  account decoded from the GUID.
 
 ## Calling NerdGraph
 

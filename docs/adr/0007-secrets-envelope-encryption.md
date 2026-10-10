@@ -18,3 +18,17 @@
 
 ## Consequences
 - Losing `RB_MASTER_KEY` means all credentials must be re-entered. Documented prominently, with a backup recommendation.
+
+## Update (P2-03): implementation details
+
+Within this decision, P2-03 fixed the details left open:
+- The data key is **derived**, not wrapped: HKDF-SHA-256 from the master key (salt `relic-bridge/master-key/v1`,
+  info `relic-bridge/credential-key/aes-256-gcm`), non-extractable. A second HKDF output (info
+  `relic-bridge/key-check`) is a key check value stored in `settings` per version, to detect a wrong key at boot.
+- The version travels with the key: `RB_MASTER_KEY=v<N>:<base64>` (a bare base64 value is version 1), so the process
+  knows which version each key is without extra configuration.
+- AAD encoding: `u32 len ‖ "relic-bridge/credential-key/v1" ‖ u32 len ‖ credential id (UTF-8) ‖ u32 key version`
+  (big-endian lengths, injective).
+- Rotation re-encrypts row by row with a storage compare-and-swap instead of one transaction, so it works the same on
+  D1 (no interactive transactions) and is resumable.
+- On Node the key may also come from `RB_MASTER_KEY_FILE` (must not be group/other-readable).

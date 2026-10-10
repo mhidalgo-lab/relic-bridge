@@ -2,7 +2,7 @@
 import { z } from 'zod';
 import type { ToolContext } from '../context.ts';
 import { ErrorCode, RbError } from '../errors.ts';
-import { graphQLErrorToRbError, type NerdGraphResult, nerdGraphFor } from '../nerdgraph/client.ts';
+import { graphQLErrorToRbError, type NerdGraphResult } from '../nerdgraph/client.ts';
 import {
   ENTITY_QUERY,
   ENTITY_SEARCH_QUERY,
@@ -19,7 +19,7 @@ import { envelope } from '../output/envelope.ts';
 import { shapeRows } from '../output/format.ts';
 import { defineTool, type ToolDefinition } from '../tool.ts';
 import { cleanName } from './identity.ts';
-import type { ToolDeps } from './query.ts';
+import { accountIdSchema as accountId, type ToolDeps, toolClient } from './shared.ts';
 
 /** Most entities per search call: NerdGraph's page size (P0-09). */
 export const MAX_ENTITY_RESULTS = 200;
@@ -35,7 +35,6 @@ const CODE_RE = /^[A-Za-z0-9_]{1,64}$/;
 export const ENTITY_TYPES_TTL_MS: number = 10 * 60_000;
 const ENTITY_TYPES_CACHE_MAX = 64;
 
-const accountId = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
 const guid = z.string().min(8).max(512).describe('Entity guid, exactly as returned by search_entities.');
 // Upper-cased by the handlers (no zod transforms: input schemas must convert to JSON Schema).
 const domainField = z.string().regex(/^[A-Za-z][A-Za-z0-9_]{0,31}$/);
@@ -237,6 +236,19 @@ export function checkGuid(ctx: ToolContext, value: string): DecodedEntityGuid {
   return decoded;
 }
 
+/**
+ * Whether a returned entity's GUID agrees with the account NerdGraph reported for it. A GUID encodes its account, so a
+ * mismatch is inconsistent data and the row can't be vouched for (T3). GUIDs that don't decode are judged by the
+ * reported account alone.
+ */
+function guidAgrees(guid: string, account: number): boolean {
+  try {
+    return decodeEntityGuid(guid).accountId === account;
+  } catch {
+    return true;
+  }
+}
+
 export function outOfScope(account: number): RbError {
   return new RbError(
     ErrorCode.AuthForbidden,
@@ -285,11 +297,7 @@ interface TypesCacheEntry {
 
 /** `search_entities`, `get_entity`, `get_related_entities`, `list_entity_types`, `decode_entity_guid`. */
 export function createEntityTools(deps: ToolDeps = {}): ToolDefinition[] {
-  const client = (ctx: ToolContext) =>
-    nerdGraphFor(ctx, {
-      ...(deps.fetch ? { fetch: deps.fetch } : {}),
-      ...(deps.sleep ? { sleep: deps.sleep } : {}),
-    });
+  const client = toolClient(deps);
   // Per tool-set instance (≈ per isolate). Holds no credentials; the key includes the credential id and account set.
   const typesCache = new Map<string, TypesCacheEntry>();
 
@@ -323,14 +331,18 @@ export function createEntityTools(deps: ToolDeps = {}): ToolDefinition[] {
       const es = requireField(result.data.actor.entitySearch, result, ctx);
       const scope = new Set(accounts);
       const all = (es.results?.entities ?? []).filter(isNonNull);
+      const inScope = (e: (typeof all)[number]) =>
+        typeof e.accountId === 'number' &&
+        scope.has(e.accountId) &&
+        typeof e.guid === 'string' &&
+        guidAgrees(e.guid, e.accountId);
       // Defence in depth (T3): the filter already names the accounts; drop anything else NerdGraph returns.
       const entities = all
-        .filter(
-          (e) => typeof e.accountId === 'number' && scope.has(e.accountId) && typeof e.guid === 'string',
-        )
+        .filter(inScope)
         .slice(0, limit)
         .map((e) => toRow(e));
-      const hidden = all.length - entities.length > 0;
+      // Only scope drops count: NerdGraph may legitimately return more than `limit` rows.
+      const hidden = all.some((e) => !inScope(e));
       // Echoed in the text outside the envelope: only an opaque cursor-shaped value is passed back.
       const rawCursor = es.results?.nextCursor;
       const nextCursor = typeof rawCursor === 'string' && CURSOR_RE.test(rawCursor) ? rawCursor : null;
@@ -379,7 +391,8 @@ export function createEntityTools(deps: ToolDeps = {}): ToolDefinition[] {
       const result = await client(ctx).query(ENTITY_QUERY, { guid: input.guid });
       const e = requireField(result.data.actor.entity, result, ctx);
       const account = e.accountId ?? decoded.accountId;
-      if (!ctx.accounts.allowed.includes(account)) throw outOfScope(account);
+      // The GUID's own account was checked offline; NerdGraph must agree (T3).
+      if (!ctx.accounts.allowed.includes(account) || account !== decoded.accountId) throw outOfScope(account);
 
       const allTags = flattenTags(
         (e.tags ?? []).filter(isNonNull).map((t) => ({
@@ -442,7 +455,7 @@ export function createEntityTools(deps: ToolDeps = {}): ToolDefinition[] {
     group: 'entities',
     phase: 1,
     handler: async (input, ctx) => {
-      checkGuid(ctx, input.guid);
+      const decoded = checkGuid(ctx, input.guid);
       const limit = input.limit ?? DEFAULT_RELATED_RESULTS;
       const filter: RelatedEntitiesVariables['filter'] = {
         direction: input.direction ?? 'BOTH',
@@ -459,7 +472,13 @@ export function createEntityTools(deps: ToolDeps = {}): ToolDefinition[] {
       };
       const result = await client(ctx).query(RELATED_ENTITIES_QUERY, { guid: input.guid, filter, limit });
       const entity = requireField(result.data.actor.entity, result, ctx);
-      if (typeof entity.accountId === 'number' && !ctx.accounts.allowed.includes(entity.accountId)) {
+      // No account, or a different one than the GUID's, means we can't vouch for the scope: refuse (T3).
+      if (typeof entity.accountId !== 'number') {
+        throw new RbError(ErrorCode.NerdGraphError, 'NerdGraph returned the entity without an account.', {
+          hint: 'Retry; if this persists the entity cannot be checked against this connection.',
+        });
+      }
+      if (!ctx.accounts.allowed.includes(entity.accountId) || entity.accountId !== decoded.accountId) {
         throw outOfScope(entity.accountId);
       }
       const self = entity.guid ?? input.guid;
@@ -472,7 +491,11 @@ export function createEntityTools(deps: ToolDeps = {}): ToolDefinition[] {
         const other = outgoing ? edge.target : edge.source;
         if (!other || typeof other.guid !== 'string') continue;
         const account = other.accountId ?? other.entity?.accountId;
-        if (typeof account !== 'number' || !ctx.accounts.allowed.includes(account)) {
+        if (
+          typeof account !== 'number' ||
+          !ctx.accounts.allowed.includes(account) ||
+          !guidAgrees(other.guid, account)
+        ) {
           hiddenOutsideScope = true;
           continue;
         }

@@ -1,13 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 import { z } from 'zod';
-import type { AccountScope, ToolContext } from '../context.ts';
-import { nerdGraphFor } from '../nerdgraph/client.ts';
+import type { AccountScope } from '../context.ts';
 import { listReachableAccounts, validateKey } from '../nerdgraph/identity.ts';
 import { envelope } from '../output/envelope.ts';
 import { shapeRows, truncateText } from '../output/format.ts';
 import { redact } from '../redact.ts';
 import { defineTool, type ToolDefinition } from '../tool.ts';
-import type { ToolDeps } from './query.ts';
+import { type ToolDeps, toolClient } from './shared.ts';
 
 /** Account and user names are free text set in New Relic: bounded and single-line before they reach an agent (T6). */
 const MAX_NAME_CHARS = 200;
@@ -100,11 +99,7 @@ export function intersectAccounts(
 
 /** `whoami` and `list_accounts`. */
 export function createIdentityTools(deps: ToolDeps = {}): ToolDefinition[] {
-  const client = (ctx: ToolContext) =>
-    nerdGraphFor(ctx, {
-      ...(deps.fetch ? { fetch: deps.fetch } : {}),
-      ...(deps.sleep ? { sleep: deps.sleep } : {}),
-    });
+  const client = toolClient(deps);
 
   const whoami = defineTool({
     name: 'whoami',

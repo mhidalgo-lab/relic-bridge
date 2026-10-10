@@ -2,7 +2,14 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "types": [],
-    "lib": ["es2023", "webworker"]
+    "lib": ["es2023", "webworker"],
+    // Type-checks sibling packages from source, which are not isolatedDeclarations-clean.
+    "isolatedDeclarations": false,
+    "paths": {
+      "@relic-bridge/auth": ["../auth/src/index.ts"],
+      "@relic-bridge/core": ["../core/src/index.ts"],
+      "@relic-bridge/storage": ["../storage/src/index.ts"]
+    }
   },
   "include": ["src", "test"]
 }

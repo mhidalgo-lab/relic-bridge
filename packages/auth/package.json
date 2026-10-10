@@ -23,6 +23,11 @@
     "runtime": "web"
   },
   "devDependencies": {
+    "fast-check": "4.10.2",
     "tsdown": "0.23.0"
+  },
+  "dependencies": {
+    "@relic-bridge/core": "workspace:*",
+    "@relic-bridge/storage": "workspace:*"
   }
 }

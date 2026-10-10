@@ -75,7 +75,7 @@
 | **B. stdio, config file** | `yaml` (read-only; keys taken from env/keychain) | none | Several projects locally, no server |
 | **C. Self-hosted HTTP** (`relic-bridge serve`, Docker) | `sqlite` | tokens → OAuth | Home server, VPS, company network |
 | **D. Cloudflare Worker** | `d1` + KV (OAuth) | tokens → OAuth | Reachable from every device including phone; no server to run |
-| **E. Pass-through** (optional flag on C/D) | none for credentials | client sends its NR key in a header | Shared public instance; the server stores no NR keys |
+| **E. Pass-through** (optional flag on C/D, off by default) | none for credentials | client sends its NR key in `X-NewRelic-Api-Key` on `/passthrough/mcp` (P2-15) | Shared instance; the server stores no NR keys |
 
 Mode D is the main remote target. C and D share all code except the storage adapter and entry point.
 
@@ -107,45 +107,97 @@ Access token (static bearer, per device)   or   OAuth client session (per device
 tools    = project.enabledTools ∩ grant.tools
 accounts = credential.reachableAccounts ∩ project.allowedAccounts ∩ grant.accounts
 key      = grant.credential ?? project.defaultCredential   (must exist, else 403)
+limits   = project.limits tightened by grant.limits        (min of numbers, rawNrql AND, allow ∩, deny ∪)
 ```
+
+Implemented by the pure resolver in `packages/auth/src/access` (P2-04): anything missing, disabled, revoked, expired,
+unvalidated or malformed denies, and a grant may only use the project's default credential, a shared (unowned) one or
+its own user's. Details and examples: [access model guide](guide/access-model.md).
 
 - Tools a client may not use are **not listed** at all; the MCP server is built per request with only the allowed tools.
   Calls to them are rejected anyway, as defence in depth.
-- Each device gets its own token or OAuth session, so losing a device means revoking one entry.
+- Each device gets its own token or OAuth session, so losing a device means revoking one entry. Static tokens
+  (`packages/auth/src/tokens`, P2-05) are `rb_<env>_<43 base62, 256-bit>_<CRC-32 in 6 base62>`; the checksum is
+  checked before any storage read, then the SHA-256 is looked up and compared in constant time, then revocation and
+  expiry; `last_used_at` is written at most once per 5 minutes.
 - **Bring-your-own-key** team pattern: each member's grant points at their own credential, which keeps NR RBAC
   and per-user concurrency (see RESEARCH §2).
 - A token is bound to **one project** (its audience). Using it at another slug is rejected with 401.
 
 ### Data model (SQLite / D1)
 
+Source of truth: `packages/storage/src/schema.ts` (Drizzle, SQLite dialect); migrations in `packages/storage/migrations`.
+Times are epoch milliseconds, ids are caller-generated text, lists/objects are JSON text. See [`dev/storage.md`](dev/storage.md).
+
 | Table | Key columns |
 |---|---|
-| `users` | id, email, idp, idp_subject, role (`owner` \| `admin` \| `member`), disabled_at |
-| `credentials` | id, owner_user_id, label, region, key_ciphertext, key_iv, key_version, nr_user_email, reachable_accounts (json), validated_at |
-| `projects` | id, slug (unique), name, default_account_id, allowed_account_ids (json), enabled_tools (json), limits (json), default_credential_id |
-| `grants` | id, project_id, user_id (nullable for service grants), credential_id (nullable → project default), tools (json), accounts (json), rate_limit (json), expires_at, revoked_at |
-| `access_tokens` | id, grant_id, prefix, hash, label (device), created_at, expires_at, last_used_at, revoked_at |
-| `oauth_*` | Managed by the OAuth server (KV on Workers; adapter on Node). Token props carry `grant_id` and audience. |
-| `audit_log` | ts, user_id, grant_id, token_id/client_id, project_id, tool, nrql_redacted, accounts, status, duration_ms, inspected_count, error_code |
-| `schema_migrations` | version, applied_at |
+| `users` | id, email (lowercase, unique), display_name, idp + idp_subject (unique), role (`owner` \| `admin` \| `member`), created_at, updated_at, disabled_at |
+| `credentials` | id, owner_user_id, label, region, key_ciphertext, key_iv, key_version, key_hint (last 4), validation_status (`unvalidated` \| `valid` \| `invalid`), validation_error_code, validated_at, nr_user_id, nr_user_email, reachable_account_ids (json), created_at, updated_at, revoked_at |
+| `projects` | id, slug (unique), name, default_account_id, allowed_account_ids (json), enabled_tools (json, null = all), limits (json), default_credential_id, created_at, updated_at, disabled_at |
+| `grants` | id, project_id, user_id (null for service grants, which need a label), label, credential_id (null → project default), tools (json, null = project's), account_ids (json, null = project's), limits (json, tightening), rate_limit (json), created_at, updated_at, expires_at, revoked_at |
+| `access_tokens` | id, grant_id, prefix, token_hash (SHA-256 hex, unique), label (device), created_at, expires_at, last_used_at, revoked_at |
+| `oauth_*` | Managed by the OAuth server (KV on Workers; the `kv` table on Node). Token props carry `grant_id` and audience. |
+| `audit_log` | id, ts, kind (`tool_call` \| `auth` \| `admin`), action, status (`ok` \| `error` \| `denied`), request_id, user_id, grant_id, token_id, key_id (pass-through key fingerprint `pt_…`), client_id, project_id, account_ids, nrql (masked), duration_ms, inspected_count, error_code, target_type, target_id, details (json). No foreign keys. |
+| `settings` | key, value (json), updated_at |
+| `kv` | key, value, expires_at — Workers-KV-compatible store for the OAuth provider on Node (ADR-0009) |
+| `schema_migrations` | version, name, checksum, applied_at (owned by the migration runner) |
+
+Deleting a project removes its grants and their tokens; deleting a grant removes its tokens; a credential that a
+project or grant still references can't be deleted (revoke it instead).
 
 ## 5. Request flow (remote MCP call)
 
-1. `POST /p/{slug}/mcp` reaches the Hono app. Security headers, body-size limit, request id.
-2. **Authenticate**: bearer token (hash lookup, constant-time compare) or OAuth access token (provider validation;
-   audience must equal this slug's resource URL).
-3. **Resolve grant**: effective tools, accounts and credential (isolate cache ≤ 60 s).
-4. **Rate limit**: per grant/token (Workers Rate Limiting binding or in-memory on Node).
-5. **Build MCP server**: `createMcpHandler(factory, { legacy: 'stateless' })`. The factory registers only allowed tools,
-   with a `ToolContext { credential, accounts, budget, limiter, limits, logger }`.
+Implemented by `createHttpApp` in `packages/http-app` (P2-06); `relic-bridge serve` hosts it on Node.
+
+1. `POST /p/{slug}/mcp` reaches the Hono app: request id, security headers (on every response), `Host` / `Origin`
+   allowlists (DNS rebinding, T24), CORS only when configured, declared body size ≤ 1 MiB.
+2. **Authenticate**: bearer token (format and checksum offline, then hash lookup, constant-time compare, revoked,
+   expired) or, from Phase 5, an OAuth access token (audience must equal this slug's resource URL). The token is
+   checked before the slug is looked at.
+3. **Resolve grant**: effective tools, accounts, limits and credential (`resolveAccess`), cached per isolate for
+   0-60 s (default 30 s), never past the token's or grant's expiry, keyed by token hash + slug, holding no plaintext
+   key. Every denial in steps 2-3 is the same 401; storage errors are 503.
+4. **Rate limit** (P2-07, `createRateLimitHooks` over a pluggable `RateLimiter`; bounded in-memory token bucket on
+   Node, Workers/Durable Object implementations in P3-04/P7-10). Before step 2 (`beforeAuth`): per-IP request limit and
+   the per-IP auth-failure throttle (refuses the IP whatever token it sends); failures are charged in `onAuthFailure`.
+   After step 3 (`beforeMcp`): per token and per grant (the grant's `rateLimit` wins). 429 + `Retry-After`.
+   `subscriptions/listen` is flagged so it isn't counted as a tool call.
+5. **Build MCP server**: one `createMcpHandler(factory, { legacy: 'stateless' })` per app; the per-request scope
+   (granted tool definitions + `ToolContext { credential (decrypted for this request), accounts, budget, limiter,
+   limits, connection, logger }`) travels in `authInfo.extra`. The factory registers only allowed tools and
+   advertises `tools.listChanged: false`, so a `subscriptions/listen` is acknowledged and closed at once.
 6. **Tool execution** in core:
    - validate input (JSON Schema)
    - build NRQL with escaped values
    - apply query limits
    - NerdGraph call(s) with explicit timeout and backoff on 429
    - async polling within budget
-7. **Shape output**: format, caps, truncation notice, "untrusted telemetry" envelope.
-8. **Audit**: write a redacted record (async, `waitUntil` on Workers).
+7. **Shape output**: format, caps, truncation notice, "untrusted telemetry" envelope. The whole exchange, including a
+   streamed response, is bounded by a request deadline (180 s).
+8. **Audit** (P2-08, `createAuditRecorder` hooks, each write run in the background, `waitUntil` on Workers): one row per
+   tool call (`onToolCall`, fed by `buildMcpServer`'s observer), per refusal (`onAuthFailure`, `onRejected`) and per
+   ungranted tool (`afterMcp`); admin actions call `recorder.admin(...)`. A failed write is logged, never surfaced.
+
+### Admin API (P2-09)
+
+`/api/admin/v1/*` (`packages/http-app/src/admin`, `@hono/zod-openapi`) is mounted by `createHttpApp` only when an admin
+token is configured. Its own middleware runs after the shared request id, security headers and Host/Origin checks:
+declared body size → `beforeAuth` hooks (per-IP limits) → bootstrap admin token (digest compare; failures go to
+`onAuthFailure`, so they are throttled and audited like MCP failures) → JSON content type and streamed body cap →
+strict zod validation → handler. Handlers call the same domain services as the CLI (`createCredential`,
+`rotateCredentialKey`, `revalidateCredential`, `createProject`, `updateProject`, `createGrant`, `issueAccessToken`,
+`revokeAccessToken`), write one `admin` audit row per change (in the background) and clear the access cache. The
+OpenAPI 3.1 document is generated from the route schemas and served at `/api/admin/v1/openapi.json`;
+`docs/reference/admin-api.md` is generated from it. Phase 4 adds IdP sessions next to the bootstrap token.
+
+### Management CLI (P2-10)
+
+`apps/cli/src/manage` implements `init`, `admin-token`, `user|credential|project|grant|token` and `audit tail` once,
+against an `AdminClient` (`call(method, path, {query, body})`). Two transports: `remoteClient` (`fetch` to
+`/api/admin/v1`, https only, `redirect: 'error'`) and `openLocalClient`, which mounts `createAdminApi` in-process over
+`openSqliteStorage` with a per-process random bearer, so local and remote share validation, rule refusals, masking and
+audit (local rows carry `via: cli` and the OS user). Secrets are read only from a hidden prompt, stdin, a file or an
+environment variable (`secrets.ts`); the node-only terminal pieces live in `host.ts` behind the `ManageHost` interface.
 
 ## 6. Cross-cutting concerns
 

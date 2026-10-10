@@ -12,6 +12,7 @@ connection) or from a **YAML file** (one or more projects). This page is the ref
 
 ```text
 relic-bridge [stdio] [--config <file> [--project <slug>]] [--log-level <level>]
+relic-bridge db backup <file> [--db <path>]
 relic-bridge --help | --version
 ```
 
@@ -20,6 +21,10 @@ relic-bridge --help | --version
 | `--config <file>` | `RB_CONFIG` | YAML config file. Use an absolute path in client configs (`~/` is expanded). Without it, env mode is used. |
 | `--project <slug>` | `RB_PROJECT` | Project to serve from the file. Optional when the file has one project. |
 | `--log-level <level>` | `RB_LOG_LEVEL` | `debug`, `info` (default), `warn`, `error`. |
+| `--db <path>` | `RB_DB_PATH` | SQLite database for `serve`, the management commands, `db backup`, `keys rotate`, `credential revalidate` and `audit purge`; default `<data dir>/relic-bridge.db` (`RB_DATA_DIR`, see [self-hosting](self-hosting.md)). |
+| — | `RB_MASTER_KEY` / `RB_MASTER_KEY_FILE` | Master key that encrypts stored New Relic keys (remote modes, `keys rotate`, `credential revalidate`). See [secrets](secrets.md). |
+| — | `RB_MASTER_KEY_PREVIOUS` / `RB_MASTER_KEY_PREVIOUS_FILE` | Previous master key, only while rotating. |
+| `--key-version <n>` | — | Version written into a key by `keys generate` (default 1). |
 
 Flags win over env vars. There is deliberately **no flag for the API key**: command lines show up in process lists and
 shell history. Unknown flags are refused.

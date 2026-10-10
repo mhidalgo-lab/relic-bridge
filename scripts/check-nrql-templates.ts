@@ -18,8 +18,11 @@ const NRQL_TEXT_RE = /\b(?:SELECT|FROM)\s|\bSHOW\s+EVENT\s+TYPES\b/;
 const TEMPLATE_RE = /([\w$.]*)\s*`((?:[^`\\]|\\.)*)`/g;
 /** Single- or double-quoted string literals. */
 const STRING_RE = /'((?:[^'\\\n]|\\.)*)'|"((?:[^"\\\n]|\\.)*)"/g;
-/** Files allowed to handle NRQL text directly: the tag itself and the tokenizer. */
-const EXEMPT = [/packages\/core\/src\/nrql\/(template|tokenize)\.ts$/];
+/**
+ * Files allowed to handle NRQL text directly: the tag itself and the tokenizer. `packages/storage/src` and `packages/storage-sqlite/src` hold SQL for
+ * the local database (same SELECT/FROM keywords), never NRQL: storage does not talk to NerdGraph (P2-01).
+ */
+const EXEMPT = [/packages\/core\/src\/nrql\/(template|tokenize)\.ts$/, /packages\/storage(-sqlite)?\/src\//];
 
 export interface Violation {
   file: string;

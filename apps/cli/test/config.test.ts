@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
-import { DEFAULT_LIMITS, redact } from '@relic-bridge/core';
+import { DEFAULT_LIMITS, REGIONS, redact } from '@relic-bridge/core';
+import { NR_REGIONS } from '@relic-bridge/storage';
 import { describe, expect, it } from 'vitest';
 import {
   ConfigError,
@@ -333,5 +334,11 @@ describe('parseConfigFile', () => {
     expect(Object.keys(shape).sort()).toEqual(
       ['accounts', 'apiKey', 'defaultAccount', 'limits', 'name', 'region', 'slug', 'tools'].sort(),
     );
+  });
+});
+
+describe('storage parity', () => {
+  it('storage regions match core regions', () => {
+    expect([...NR_REGIONS]).toEqual([...REGIONS]);
   });
 });

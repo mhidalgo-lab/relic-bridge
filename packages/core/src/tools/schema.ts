@@ -2,7 +2,6 @@
 import { z } from 'zod';
 import type { ToolContext } from '../context.ts';
 import { ErrorCode, RbError } from '../errors.ts';
-import { nerdGraphFor } from '../nerdgraph/client.ts';
 import { type NrqlComplete, resolveAccounts, runNrql } from '../nrql/engine.ts';
 import { enforceQueryLimits } from '../nrql/limits.ts';
 import { type NrqlQuery, nrql } from '../nrql/template.ts';
@@ -10,7 +9,12 @@ import { shapeRows } from '../output/format.ts';
 import { parseTimeRange } from '../time/range.ts';
 import { defineTool, type ToolDefinition } from '../tool.ts';
 import { cleanName } from './identity.ts';
-import type { ToolDeps } from './query.ts';
+import {
+  accountIdSchema as accountId,
+  assertWindowWithinLimit,
+  type ToolDeps,
+  toolClient,
+} from './shared.ts';
 
 export const DEFAULT_SCHEMA_SINCE = 'last 24 hours';
 /** Schema cache lifetime (per tool-set instance). */
@@ -18,12 +22,10 @@ export const SCHEMA_TTL_MS: number = 5 * 60_000;
 const SCHEMA_CACHE_MAX = 64;
 const MAX_EVENT_TYPES = 1000;
 const MAX_ATTRIBUTES = 1000;
-const DAY_MS = 86_400_000;
 const MAX_NAME_CHARS = 255;
 const SAMPLE_VALUE_CHARS = 300;
 const EVENT_TYPE_RE = /^[A-Za-z_][A-Za-z0-9_.:\-/]{0,254}$/;
 
-const accountId = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
 const accountField = accountId
   .optional()
   .describe("Account to inspect (must be one of list_accounts). Default: the connection's default account.");
@@ -107,13 +109,7 @@ function createCache<T>() {
 function timeClause(sinceText: string, ctx: ToolContext): NrqlQuery {
   const now = ctx.clock.now();
   const range = parseTimeRange(sinceText, now);
-  if (range.windowMs > ctx.limits.maxWindowDays * DAY_MS) {
-    throw new RbError(
-      ErrorCode.LimitQuery,
-      `The window is longer than the ${ctx.limits.maxWindowDays}-day limit of this connection.`,
-      { hint: `Use a shorter window, e.g. "last ${ctx.limits.maxWindowDays} days".` },
-    );
-  }
+  assertWindowWithinLimit(range, ctx.limits);
   const ago = Math.max(1, Math.ceil((now - range.sinceMs) / 1000));
   const untilAgo = Math.max(0, Math.floor((now - range.untilMs) / 1000));
   return untilAgo > 0
@@ -168,11 +164,7 @@ const complete = (o: { status: string }): NrqlComplete => {
 
 /** `list_event_types` and `get_attributes`. */
 export function createSchemaTools(deps: ToolDeps = {}): ToolDefinition[] {
-  const client = (ctx: ToolContext) =>
-    nerdGraphFor(ctx, {
-      ...(deps.fetch ? { fetch: deps.fetch } : {}),
-      ...(deps.sleep ? { sleep: deps.sleep } : {}),
-    });
+  const client = toolClient(deps);
   const run = async (ctx: ToolContext, account: number, query: NrqlQuery) =>
     complete(
       await runNrql(

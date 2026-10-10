@@ -1,6 +1,7 @@
 # Client setup guides
 
-Every client below starts relic-bridge as a **local stdio** server. Read the [local quickstart](quickstart-local.md)
+The sections below start relic-bridge as a **local stdio** server. To connect to a server you host (Phase 2) instead,
+see [remote servers](#remote-servers-self-hosted-http). For stdio, read the [local quickstart](quickstart-local.md)
 first for the key, account id and region. In the examples replace `<your User key>` with your `NRAK-…` key and
 `1234567` with your account id.
 
@@ -120,6 +121,114 @@ never sits in the file:
 
 Start the server from the *Start* code lens above it in the file (or *MCP: List Servers*), then pick the tools in
 Copilot Chat in **Agent** mode.
+
+## Remote servers (self-hosted HTTP)
+
+A server started with `relic-bridge serve` ([self-hosting](self-hosting.md), [multi-device setup](multi-device.md))
+is reached over Streamable HTTP at `https://<your host>/p/<project>/mcp` with a per-device token in an
+`Authorization: Bearer rb_live_…` header. Nothing runs on the device, and the New Relic key never leaves the server.
+**Use https**: a token sent over plain HTTP can be read on the way. Create a token per device with
+`relic-bridge token create` (it prints these snippets with your values filled in, once).
+
+| Client | Remote config |
+|---|---|
+| Claude Code | `claude mcp add --transport http` (below) |
+| Cursor | `url` + `headers` in `mcp.json` |
+| VS Code | `"type": "http"` + `headers` in `mcp.json` |
+| Claude Desktop | through the `mcp-remote` bridge (below) |
+| claude.ai web, Claude mobile | Not yet: they need OAuth (Phase 5) |
+
+### Claude Code
+
+```sh
+claude mcp add --transport http --scope user relic-prod https://mcp.example.com/p/prod/mcp \
+  --header "Authorization: Bearer rb_live_<your device token>"
+```
+
+This line contains the token, so it ends up in your shell history (and `relic-bridge token create` prints it that way
+too). Keep it out: start the command with a space (bash with `HISTCONTROL=ignorespace`, zsh with
+`setopt HIST_IGNORE_SPACE`), or skip the literal token and use the `${RELIC_BRIDGE_TOKEN}` JSON form below, or read it
+from a file (`--header "Authorization: Bearer $(cat ~/.config/relic-bridge/prod.token)"`, file mode `0600`). If a token
+did land in history, remove that entry and revoke the token (`relic-bridge token revoke <id>`).
+
+The same in a JSON file (`.mcp.json`, or `~/.claude.json` for user scope). Claude Code expands `${VAR}` in `headers`,
+so the token can stay in the environment; define `RELIC_BRIDGE_TOKEN` where Claude Code starts (a shell profile, or a
+user environment variable on Windows) and restart it:
+
+```json
+{
+  "mcpServers": {
+    "relic-prod": {
+      "type": "http",
+      "url": "https://mcp.example.com/p/prod/mcp",
+      "headers": { "Authorization": "Bearer ${RELIC_BRIDGE_TOKEN}" }
+    }
+  }
+}
+```
+
+`--scope project` writes `.mcp.json` into the repository: use it only with the `${VAR}` form, never with the literal
+token. Check with `claude mcp list` or `/mcp`. (Checked against Claude Code's current documentation and its
+`claude mcp add --help`.)
+
+### Cursor
+
+`~/.cursor/mcp.json` (or `.cursor/mcp.json`). Cursor expands `${env:NAME}` in `url` and `headers`:
+
+```json
+{
+  "mcpServers": {
+    "relic-prod": {
+      "url": "https://mcp.example.com/p/prod/mcp",
+      "headers": { "Authorization": "Bearer ${env:RELIC_BRIDGE_TOKEN}" }
+    }
+  }
+}
+```
+
+### VS Code
+
+`.vscode/mcp.json` or the user configuration. Let VS Code prompt for the token once and keep it out of the file:
+
+```json
+{
+  "inputs": [
+    { "type": "promptString", "id": "relic-token", "description": "relic-bridge device token", "password": true }
+  ],
+  "servers": {
+    "relic-prod": {
+      "type": "http",
+      "url": "https://mcp.example.com/p/prod/mcp",
+      "headers": { "Authorization": "Bearer ${input:relic-token}" }
+    }
+  }
+}
+```
+
+### Claude Desktop
+
+Desktop's built-in connectors are added in claude.ai and use OAuth, so a bearer token goes through the
+[`mcp-remote`](https://www.npmjs.com/package/mcp-remote) bridge, which Desktop starts as a stdio server. The header is
+passed through `env` so the token is not a visible command-line argument (and a space-free `--header` value works on
+Windows):
+
+```json
+{
+  "mcpServers": {
+    "relic-prod": {
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "https://mcp.example.com/p/prod/mcp", "--header", "Authorization:${RB_AUTH}"],
+      "env": { "RB_AUTH": "Bearer rb_live_<your device token>" }
+    }
+  }
+}
+```
+
+Restart Desktop fully after editing; the `command`/`PATH` notes in the Claude Desktop section above apply.
+
+Only the Claude Code snippet was checked (against its documentation and its CLI). The Cursor, VS Code and Claude
+Desktop snippets follow each client's documentation but haven't been run by the maintainers. For
+problems, see [troubleshooting](troubleshooting.md#hosted-self-hosted-server).
 
 ## Other clients and MCP Inspector
 

@@ -2,11 +2,11 @@
 id: P2-14
 title: Core tool consistency and envelope coverage clean-up
 phase: 2
-status: todo
+status: done
 priority: low
 depends_on: []
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P2-14 — Core tool consistency and envelope coverage clean-up
@@ -31,9 +31,9 @@ the HTTP app (P2-06) multiplies the callers. Found in the Phase 1 consolidation 
 - Naming: document the convention (snake_case inputs, camelCase `structuredContent`) in `docs/dev/core.md`.
 
 ## Acceptance criteria
-- [ ] Tests: messages/warnings with injected instructions appear only inside the envelope; a forged `queryId` is
+- [x] Tests: messages/warnings with injected instructions appear only inside the envelope; a forged `queryId` is
       rejected; GUID/account mismatch refused for `get_entity` and `get_related_entities` with no further request.
-- [ ] No behaviour change in `docs/reference/tools.md` other than the envelope placement (regenerated).
+- [x] No behaviour change in `docs/reference/tools.md` other than the envelope placement (regenerated).
 
 ## Security notes
 T3 (account scope), T6 (prompt injection envelope). Update THREAT_MODEL §5a.

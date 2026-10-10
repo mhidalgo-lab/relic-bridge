@@ -1,0 +1,20 @@
+{
+  "name": "@relic-bridge/storage-sqlite",
+  "version": "0.0.0",
+  "description": "SQLite adapter for the Storage interface on Node (node:sqlite)",
+  "license": "Apache-2.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24.11.0"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "relicBridge": {
+    "runtime": "node"
+  },
+  "dependencies": {
+    "@relic-bridge/storage": "workspace:*"
+  }
+}

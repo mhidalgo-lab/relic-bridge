@@ -19,7 +19,13 @@ export {
   maskEmail,
   type ScopedAccount,
 } from './identity.ts';
-export { createQueryTools, MAX_NRQL_CHARS, MAX_QUERY_ACCOUNTS, type ToolDeps } from './query.ts';
+export {
+  createQueryTools,
+  MAX_NRQL_CHARS,
+  MAX_QUERY_ACCOUNTS,
+  RAW_NRQL_TOOLS,
+  type ToolDeps,
+} from './query.ts';
 export {
   createSchemaTools,
   DEFAULT_SCHEMA_SINCE,

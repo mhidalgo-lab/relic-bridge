@@ -134,6 +134,26 @@ Sources: <https://modelcontextprotocol.io/specification/2026-07-28/basic/authori
   - 2026-07-28 output is opt-in, so dual-era serving must be configured explicitly
 - **Verified (P0-07, local):** SDK 2.2.0's handler runs unchanged under Hono on Node and workerd, plus stdio, for both eras
   (see ADR-0005). Real clients (Claude Desktop, claude.ai, mobile, Cursor, VS Code) are still pending deployment approval (P5-06).
+- **SDK 2.2.0 details used by P2-06** (read from the package source, 2026-10-03):
+  - `createMcpHandler` serves `subscriptions/listen` itself: it acknowledges with the *honoured* subset of the requested
+    filter, where `toolsListChanged` is honoured only if the server advertises `tools.listChanged: true`. With nothing
+    honoured, it writes the ack plus the empty (graceful) listen result and closes the stream at once. `McpServer`
+    advertises `listChanged: true` by default unless the constructor's `capabilities` already set it.
+  - Modern-era requests must carry `Mcp-Method` (and `Mcp-Name` for named methods) matching the body, or the handler
+    rejects them, so these headers are trustworthy for routing and rate-limit keys once the handler accepts the request.
+    **Not for legacy (2025-era) requests** (verified in P2-12 from the 2.2.0 source and a probe): the classifier
+    cross-checks the headers only for modern requests and notifications, so a legacy `tools/call` can carry any
+    `Mcp-Method` / `Mcp-Name` values. Anything that keys on them (rate limiting, audit) must read the body instead.
+  - The 2025-era stateless path still accepts **JSON-RPC batches** (an array body; batching was removed from MCP in
+    2025-06-18) and runs every call in it within one HTTP request (P2-12 probe: three `tools/call` in one POST, three
+    NerdGraph calls). relic-bridge refuses batches before the handler.
+  - 2025-era (stateless) `tools/call` answers with an SSE response whose headers arrive before the tool finishes; a
+    request deadline must bound the body, not only the time to headers.
+  - `maxRequestBodySize` (default 4 MiB) bounds bodies read by the handler, checking `Content-Length` first;
+    `validateHostHeader` / `validateOriginHeader` are port-agnostic hostname allowlists (missing `Origin` passes, `null`
+    is refused).
+  - `@hono/node-server` 2.1.3 builds the request URL from the `Host` header; a `Request` built in-process carries no
+    `Host` header (it is a forbidden header for `fetch`), so the app falls back to the URL's host.
 
 ## 5. Cloudflare OAuth tooling
 
@@ -217,3 +237,68 @@ These are all single-user, local, one key from an environment variable. relic-br
 and credentials, a hosted Worker *or* local deployment, an access model with per-tool grants, OAuth for mobile/web
 clients, an admin panel, an audit log, and security as a documented feature. Task **P0-11** reviews their tool designs
 and known issues before Phase 1.
+
+## 8. Drizzle ORM and drizzle-kit (P2-01, checked 2026-10-03)
+
+- npm `latest`: `drizzle-orm` 0.45.3 and `drizzle-kit` 0.31.11 (both 2026-09-21). The 1.0 line is still a release
+  candidate (`rc` tag 1.0.0-rc.4, nightly `rc5` builds); 1.0 adds a `node:sqlite` driver and changes the migration
+  folder layout (no `_journal.json`). We pin the stable 0.x line.
+- `sqliteTable(name, columns, (t) => [index(), uniqueIndex(), check()])` is the current extra-config form; `check()`
+  renders as table-qualified `CHECK("table"."col" …)`, which SQLite accepts (verified with `node:sqlite`).
+- `drizzle-kit generate` writes `migrations/NNNN_tag.sql` with `--> statement-breakpoint` separators plus
+  `meta/_journal.json` and snapshots. D1 runs the same SQL.
+- `drizzle-kit` 0.31 still depends on the deprecated `@esbuild-kit/*` loader, which pulls esbuild 0.18
+  (GHSA-67mh-4wv8-2f99, dev-server only). Overridden to esbuild 0.25.12 in `pnpm-workspace.yaml`; generation works.
+- Sources: npm registry metadata; orm.drizzle.team docs (SQLite column types, indexes & constraints).
+
+## 9. WebCrypto AES-GCM and HKDF (P2-03, checked 2026-10-03)
+
+- `crypto.subtle` AES-GCM: `encrypt({ name: 'AES-GCM', iv, additionalData, tagLength: 128 })` returns
+  `ciphertext || tag` in one buffer; `decrypt` takes the same layout and rejects with `OperationError` on any
+  authentication failure (no partial plaintext). Same API and behaviour on Node 24 and Workers.
+- A 96-bit IV is the recommended size (NIST SP 800-38D §8.2); with random IVs the limit is 2^32 encryptions per key,
+  far above the number of stored NR keys (each write and rotation is one encryption).
+- HKDF: import the master key as `'HKDF'` (non-extractable, `deriveKey`/`deriveBits` only); `deriveKey` straight into
+  a non-extractable AES-GCM key; `deriveBits(…, 256)` for the key check value. Different `info` labels give
+  independent outputs (RFC 5869).
+- `Uint8Array.fromBase64` is not in Node 24 (only newer releases), so base64 uses `atob`/`btoa`.
+- Under `@types/node`, `CryptoKey` is a value, not a global type; use
+  `Awaited<ReturnType<typeof crypto.subtle.importKey>>` in code type-checked under both libs.
+- Known answers: NIST GCM test cases 13, 14, 16 (McGrew & Viega, *The Galois/Counter Mode of Operation*); our own
+  format vectors were cross-checked with OpenSSL through `node:crypto` (`hkdfSync`, `aes-256-gcm`).
+- Sources: W3C Web Cryptography API; MDN SubtleCrypto (encrypt, deriveKey, deriveBits); NIST SP 800-38D; RFC 5869.
+
+## 10. `@hono/zod-openapi` (P2-09, checked 2026-10-03)
+
+- `@hono/zod-openapi` 1.6.3 (npm `latest`, 2026-09-04) peers on `zod ^4` and `hono >=4.10`; it wraps
+  `@hono/zod-validator` 0.9 and `@asteasolutions/zod-to-openapi` 9.1 (all MIT). `import { z } from '@hono/zod-openapi'`
+  adds `.openapi()` to zod 4 schemas; `getOpenAPI31Document()` emits OpenAPI 3.1 (`type: ['string', 'null']` for
+  nullable fields). Web-standard: runs on Node and Workers.
+- Validation failures go to the app's `defaultHook` (or a per-route hook); throwing from it reaches `onError`. Malformed
+  JSON is Hono's own `HTTPException(400)`; a JSON body whose `Content-Type` isn't JSON is not validated as JSON, so the
+  admin API checks the content type itself (`415`).
+- Query parameters reach the validator as strings (arrays when repeated); `z.coerce.number()` turns `limit=` into `0`.
+- A sub-app's `onError` applies to its routes when mounted with `app.route()`; the parent's `notFound` applies to
+  unmatched paths, so the admin API ends with its own catch-all for its error shape.
+- With `isolatedDeclarations` (tsdown's fast DTS path) every exported value needs an explicit type, so the zod schemas
+  are not re-exported from the package entry; only constants and functions with declared types are.
+- Sources: package README and type definitions in `node_modules/@hono/zod-openapi`; Hono docs (validation, `route()`).
+
+## Docker image facts (P2-11, verified 2026-10-03)
+
+- `gcr.io/distroless/nodejs24-debian13:nonroot` (uid 65532) ships Node 24 at `/nodejs/bin/node` with `node:sqlite`; no shell,
+  so the `HEALTHCHECK` is a Node one-liner. `node:24-trixie-slim` provides corepack for the pnpm version in `packageManager`.
+- The production dependencies of `relic-bridge` are pure JavaScript, so the build stage runs on the builder's
+  architecture (`FROM --platform=$BUILDPLATFORM`) and the arm64 image needs no QEMU.
+- `pnpm deploy --legacy` (no `inject-workspace-packages`) produces the production tree; the workspace packages are bundled
+  into `dist/index.mjs`, so only 6 third-party packages are copied into the image.
+- Events created with `GITHUB_TOKEN` (the GitHub Release made by `release.yml`) do not start other workflows, so the
+  image workflow listens to `workflow_run` of `Release` and re-checks that `v<version>` is a published release at that
+  commit.
+- Ubuntu runners include Skopeo 1.13 and Docker Buildx; `skopeo copy --all --preserve-digests` pushes a multi-arch OCI
+  archive without changing its digest, which lets the build job (no credentials) and the publish job (no project code)
+  be separate.
+- Docker/Compose bind-mounted and file-based secrets keep the host owner and mode (`uid`/`mode` are Swarm-only);
+  Kubernetes secret volumes are root-owned and become group-readable with `fsGroup`.
+- A loopback `Host` is refused by the server unless listed in `RB_ALLOWED_HOSTS`, so the health check treats a
+  `403 forbidden_host` answer as alive.

@@ -1,0 +1,57 @@
+# relic-bridge behind Caddy (automatic TLS). Copy this directory, then:
+#
+#   1. Create the master key file, readable only by the image user (uid 65532):
+#        docker run --rm ghcr.io/matiashidalgo/relic-bridge:0.1.0 keys generate 2>/dev/null > master.key
+#        sudo chown 65532:65532 master.key && sudo chmod 0400 master.key     # see docs/guide/self-hosting.md
+#   2. Put MCP_HOSTNAME=mcp.example.com in a .env file next to this one.
+#   3. docker compose -f docker-compose.example.yml up -d
+#
+# Back up master.key separately from the data volume: losing it means re-entering every New Relic key.
+services:
+  relic-bridge:
+    # Pin the digest of the release you verified (cosign verify, see the self-hosting guide): ...:0.1.0@sha256:...
+    image: ghcr.io/matiashidalgo/relic-bridge:0.1.0
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ['no-new-privileges:true']
+    environment:
+      RB_MASTER_KEY_FILE: /run/secrets/rb_master_key
+      RB_ALLOWED_HOSTS: ${MCP_HOSTNAME:?set MCP_HOSTNAME in .env}
+      RB_TRUSTED_PROXY_HOPS: '1' # Caddy is one proxy hop
+      RB_HSTS: 'true' # Caddy terminates TLS: send HSTS, and let pass-through (RB_PASSTHROUGH) accept requests
+      # RB_ADMIN_TOKEN_FILE: /run/secrets/rb_admin_token   # enables the admin API (same 0400 / uid 65532 rule)
+    secrets: [rb_master_key]
+    volumes:
+      - relic-bridge-data:/data
+    expose: ['8787'] # not published on the host: only Caddy reaches it
+
+  caddy:
+    image: caddy:2.11-alpine@sha256:881bbc60f9986d5ab8e7cfd6cf7e4ef3c9c0439fef2429d035d065577882f028
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    security_opt: ['no-new-privileges:true']
+    environment:
+      MCP_HOSTNAME: ${MCP_HOSTNAME:?set MCP_HOSTNAME in .env}
+    ports:
+      - '80:80'
+      - '443:443'
+      - '443:443/udp'
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      relic-bridge:
+        condition: service_healthy # the image's HEALTHCHECK: Caddy starts only once the server answers
+
+secrets:
+  rb_master_key:
+    file: ./master.key
+
+volumes:
+  relic-bridge-data:
+  caddy-data:
+  caddy-config:

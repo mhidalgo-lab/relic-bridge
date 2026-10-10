@@ -1,0 +1,572 @@
+// SPDX-License-Identifier: Apache-2.0
+// The authorization matrix (P2-12): every route the HTTP app serves and every kind of caller. Data only; the tests in
+// `routes.test.ts` cross them, and the guard test fails when the app gains a route that is not listed here.
+//
+// Adding a route: add it to MCP_ROUTES / ADMIN_ROUTES / PUBLIC_ROUTES (pattern exactly as Hono registers it, a sample
+// path and a body valid enough to reach authentication). Adding a way to authenticate (OAuth, sessions): add the
+// principals that misuse it, with the stable deny reason the audit row must carry.
+import { generateTokenString } from '@relic-bridge/auth';
+import { NR_KEY, T0 } from '../fixtures.ts';
+import { ADMIN_TOKEN, type Harness } from './harness.ts';
+
+export interface RouteCase {
+  readonly method: string;
+  /** As Hono registers it (`/api/admin/v1/users/:id`). */
+  readonly pattern: string;
+  /** A concrete path for the request (`{slug}` is replaced for MCP routes). */
+  readonly path: string;
+  readonly body?: unknown;
+}
+
+const INITIALIZE = {
+  jsonrpc: '2.0',
+  id: 1,
+  method: 'initialize',
+  params: { protocolVersion: '2025-11-25', capabilities: {}, clientInfo: { name: 'authz', version: '0' } },
+};
+
+export const MCP_ROUTES: readonly RouteCase[] = [
+  { method: 'POST', pattern: '/p/:slug/mcp', path: '/p/{slug}/mcp', body: INITIALIZE },
+  { method: 'GET', pattern: '/p/:slug/mcp', path: '/p/{slug}/mcp' },
+  { method: 'DELETE', pattern: '/p/:slug/mcp', path: '/p/{slug}/mcp' },
+];
+
+/** The pass-through route (P2-15): registered only when `passthrough` is configured, else 404. */
+export const PASSTHROUGH_ROUTES: readonly RouteCase[] = [
+  { method: 'POST', pattern: '/passthrough/mcp', path: '/passthrough/mcp', body: INITIALIZE },
+  { method: 'GET', pattern: '/passthrough/mcp', path: '/passthrough/mcp' },
+  { method: 'DELETE', pattern: '/passthrough/mcp', path: '/passthrough/mcp' },
+];
+
+const A = '/api/admin/v1';
+/** Ids that don't exist: a control request with the admin token must not change anything worth scanning. */
+export const ADMIN_ROUTES: readonly RouteCase[] = [
+  { method: 'GET', pattern: `${A}/openapi.json`, path: `${A}/openapi.json` },
+  { method: 'GET', pattern: `${A}/users`, path: `${A}/users` },
+  { method: 'POST', pattern: `${A}/users`, path: `${A}/users`, body: { email: 'new@example.com' } },
+  { method: 'GET', pattern: `${A}/users/:id`, path: `${A}/users/usr_none` },
+  { method: 'PATCH', pattern: `${A}/users/:id`, path: `${A}/users/usr_none`, body: { disabled: true } },
+  { method: 'GET', pattern: `${A}/credentials`, path: `${A}/credentials` },
+  {
+    method: 'POST',
+    pattern: `${A}/credentials`,
+    path: `${A}/credentials`,
+    body: { label: 'k', region: 'US', apiKey: 'NRAK-MATRIXTESTKEY0123456789ABCDE' },
+  },
+  { method: 'GET', pattern: `${A}/credentials/:id`, path: `${A}/credentials/cred_none` },
+  {
+    method: 'PATCH',
+    pattern: `${A}/credentials/:id`,
+    path: `${A}/credentials/cred_none`,
+    body: { label: 'x' },
+  },
+  { method: 'DELETE', pattern: `${A}/credentials/:id`, path: `${A}/credentials/cred_none` },
+  {
+    method: 'POST',
+    pattern: `${A}/credentials/:id/rotate`,
+    path: `${A}/credentials/cred_none/rotate`,
+    body: { apiKey: 'NRAK-MATRIXTESTKEY0123456789ABCDE' },
+  },
+  {
+    method: 'POST',
+    pattern: `${A}/credentials/:id/revalidate`,
+    path: `${A}/credentials/cred_none/revalidate`,
+  },
+  { method: 'GET', pattern: `${A}/projects`, path: `${A}/projects` },
+  {
+    method: 'POST',
+    pattern: `${A}/projects`,
+    path: `${A}/projects`,
+    body: { slug: 'matrix-new', defaultAccountId: 1, allowedAccountIds: [1] },
+  },
+  { method: 'GET', pattern: `${A}/projects/:id`, path: `${A}/projects/prj_none` },
+  { method: 'PATCH', pattern: `${A}/projects/:id`, path: `${A}/projects/prj_none`, body: { disabled: true } },
+  { method: 'DELETE', pattern: `${A}/projects/:id`, path: `${A}/projects/prj_none` },
+  { method: 'GET', pattern: `${A}/grants`, path: `${A}/grants` },
+  {
+    method: 'POST',
+    pattern: `${A}/grants`,
+    path: `${A}/grants`,
+    body: { projectId: 'prj_none', label: 'bot' },
+  },
+  { method: 'GET', pattern: `${A}/grants/:id`, path: `${A}/grants/grt_none` },
+  { method: 'POST', pattern: `${A}/grants/:id/revoke`, path: `${A}/grants/grt_none/revoke` },
+  { method: 'DELETE', pattern: `${A}/grants/:id`, path: `${A}/grants/grt_none` },
+  { method: 'GET', pattern: `${A}/tokens`, path: `${A}/tokens` },
+  {
+    method: 'POST',
+    pattern: `${A}/tokens`,
+    path: `${A}/tokens`,
+    body: { grantId: 'grt_none', label: 'laptop' },
+  },
+  { method: 'GET', pattern: `${A}/tokens/:id`, path: `${A}/tokens/tok_none` },
+  { method: 'POST', pattern: `${A}/tokens/:id/revoke`, path: `${A}/tokens/tok_none/revoke` },
+  { method: 'GET', pattern: `${A}/audit`, path: `${A}/audit` },
+  // Not a registered route: the admin catch-all (`ALL /api/admin/v1/*`) must authenticate before saying 404.
+  { method: 'GET', pattern: `${A}/*`, path: `${A}/no-such-endpoint` },
+];
+
+export const PUBLIC_ROUTES: readonly RouteCase[] = [
+  { method: 'GET', pattern: '/health', path: '/health' },
+  { method: 'GET', pattern: '/version', path: '/version' },
+];
+
+/**
+ * `ALL` entries in Hono's route table (middleware and catch-alls), with why each is safe. A new one fails the guard.
+ */
+export const WILDCARD_ROUTES: Readonly<Record<string, string>> = {
+  '/passthrough/mcp':
+    'CORS middleware of the pass-through route (on when CORS origins are configured); the handlers are matrix rows',
+  '/*': 'global middleware: request id, security headers, Host/Origin checks (no handler of its own)',
+  [`${A}/*`]:
+    'admin authentication middleware and the authenticated 404 catch-all (matrix row GET /no-such-endpoint)',
+};
+
+// ---------------------------------------------------------------------------------------------------------------
+// Principals
+// ---------------------------------------------------------------------------------------------------------------
+
+/** What a caller presents. */
+export interface Presented {
+  readonly headers: Readonly<Record<string, string>>;
+  /** MCP routes only: the project slug in the path. */
+  readonly slug: string;
+  /** Appended to the path (credentials in the query string). */
+  readonly query?: string;
+  /** Records the baseline created, for `broken` to break. */
+  readonly ids?: Readonly<Record<string, string>>;
+}
+
+const id = (p: Presented, key: string): string => {
+  const value = p.ids?.[key];
+  if (value === undefined) throw new Error(`baseline has no ${key}`);
+  return value;
+};
+
+const bearer = (token: string): Record<string, string> => ({ authorization: `Bearer ${token}` });
+const mutate = (t: string): string => t.slice(0, -1) + (t.endsWith('A') ? 'B' : 'A');
+
+/**
+ * An MCP caller: `valid` builds a working baseline (the positive control answers it), `broken` applies the one defect
+ * under test to it. `reason` is the stable deny code the audit row carries (never shown to the client).
+ */
+export interface McpPrincipal {
+  readonly name: string;
+  readonly reason: string;
+  valid(h: Harness): Promise<Presented>;
+  broken(h: Harness, valid: Presented): Promise<Presented>;
+}
+
+/** A baseline on a fresh project of its own, so a defect can't disturb the other principals. */
+async function tenant(h: Harness, slug: string): Promise<Presented> {
+  const t = await h.addTenant(slug);
+  return { headers: bearer(t.token.value), slug, ids: { projectId: t.projectId, grantId: t.grantId } };
+}
+
+const prod = async (h: Harness): Promise<Presented> => ({
+  headers: bearer(h.world.tokens.prod),
+  slug: 'prod',
+});
+const token = (p: Presented): string => (p.headers['authorization'] ?? '').replace(/^Bearer /, '');
+
+export const MCP_PRINCIPALS: readonly McpPrincipal[] = [
+  // --- credentials missing or malformed (offline checks) ---
+  {
+    name: 'no credentials',
+    reason: 'missing_token',
+    valid: prod,
+    broken: async (_h, p) => ({ ...p, headers: {} }),
+  },
+  {
+    name: 'Basic scheme',
+    reason: 'malformed_header',
+    valid: prod,
+    broken: async (_h, p) => ({ ...p, headers: { authorization: `Basic ${btoa(`u:${token(p)}`)}` } }),
+  },
+  {
+    name: 'empty bearer',
+    reason: 'malformed_header',
+    valid: prod,
+    broken: async (_h, p) => ({ ...p, headers: { authorization: 'Bearer ' } }),
+  },
+  {
+    name: 'token without scheme',
+    reason: 'malformed_header',
+    valid: prod,
+    broken: async (_h, p) => ({ ...p, headers: { authorization: token(p) } }),
+  },
+  {
+    name: 'garbage token',
+    reason: 'malformed',
+    valid: prod,
+    broken: async (_h, p) => ({ ...p, headers: bearer('not-a-token') }),
+  },
+  {
+    name: 'bad checksum',
+    reason: 'bad_checksum',
+    valid: prod,
+    broken: async (_h, p) => ({ ...p, headers: bearer(mutate(token(p))) }),
+  },
+  {
+    name: 'well-formed unknown token',
+    reason: 'unknown',
+    valid: prod,
+    broken: async (_h, p) => ({ ...p, headers: bearer(generateTokenString()) }),
+  },
+  {
+    name: 'New Relic key as token',
+    reason: 'malformed',
+    valid: prod,
+    broken: async (_h, p) => ({ ...p, headers: bearer(NR_KEY) }),
+  },
+  {
+    name: 'admin token on MCP',
+    reason: 'malformed',
+    valid: prod,
+    broken: async (_h, p) => ({ ...p, headers: bearer(ADMIN_TOKEN) }),
+  },
+  {
+    name: 'token in a cookie',
+    reason: 'missing_token',
+    valid: prod,
+    broken: async (_h, p) => ({ ...p, headers: { cookie: `token=${token(p)}; rb=${token(p)}` } }),
+  },
+  {
+    name: 'token in the query string',
+    reason: 'missing_token',
+    valid: prod,
+    broken: async (_h, p) => ({ ...p, headers: {}, query: `access_token=${token(p)}&token=${token(p)}` }),
+  },
+  {
+    name: 'token in another header',
+    reason: 'missing_token',
+    valid: prod,
+    broken: async (_h, p) => ({ ...p, headers: { 'x-api-key': token(p), 'api-key': token(p) } }),
+  },
+  // --- the token itself ---
+  {
+    name: 'expired token',
+    reason: 'expired',
+    valid: async (h) => {
+      const t = await h.addToken(h.world.grantIds.prod, { ttl: 60_000 });
+      return { headers: bearer(t.value), slug: 'prod' };
+    },
+    broken: async (h, p) => {
+      h.world.clock.advance(60_000);
+      return p;
+    },
+  },
+  {
+    name: 'revoked token',
+    reason: 'revoked',
+    valid: async (h) => {
+      const t = await h.addToken(h.world.grantIds.prod);
+      return { headers: bearer(t.value), slug: 'prod', ids: { tokenId: t.id } };
+    },
+    broken: async (h, p) => {
+      await h.world.storage.accessTokens.revoke(id(p, 'tokenId'), T0);
+      return p;
+    },
+  },
+  // --- the project ---
+  {
+    name: 'token of another project',
+    reason: 'grant_wrong_project',
+    valid: async (h) => ({ headers: bearer(h.world.tokens.eu), slug: 'eu' }),
+    broken: async (_h, p) => ({ ...p, slug: 'prod' }),
+  },
+  {
+    name: 'unknown slug',
+    reason: 'project_not_found',
+    valid: prod,
+    broken: async (_h, p) => ({ ...p, slug: 'no-such-project' }),
+  },
+  {
+    name: 'malformed slug',
+    reason: 'project_not_found',
+    valid: prod,
+    broken: async (_h, p) => ({ ...p, slug: 'Bad..Slug' }),
+  },
+  {
+    name: 'disabled project',
+    reason: 'project_disabled',
+    valid: (h) => tenant(h, 'p-disabled'),
+    broken: async (h, p) => {
+      await h.world.storage.projects.update(id(p, 'projectId'), { disabledAt: T0 });
+      return p;
+    },
+  },
+  // --- the grant ---
+  {
+    name: 'revoked grant',
+    reason: 'grant_revoked',
+    valid: (h) => tenant(h, 'g-revoked'),
+    broken: async (h, p) => {
+      await h.world.storage.grants.update(id(p, 'grantId'), { revokedAt: T0 });
+      return p;
+    },
+  },
+  {
+    name: 'expired grant',
+    reason: 'grant_expired',
+    valid: (h) => tenant(h, 'g-expired'),
+    broken: async (h, p) => {
+      await h.world.storage.grants.update(id(p, 'grantId'), { expiresAt: T0 - 1 });
+      return p;
+    },
+  },
+  {
+    name: 'grant without a usable tool',
+    reason: 'no_tools',
+    valid: (h) => tenant(h, 'g-notools'),
+    broken: async (h, p) => {
+      await h.world.storage.projects.update(id(p, 'projectId'), { enabledTools: ['list_accounts'] });
+      await h.world.storage.grants.update(id(p, 'grantId'), { tools: ['whoami'] });
+      return p;
+    },
+  },
+  {
+    name: 'grant without a usable account',
+    reason: 'no_accounts',
+    valid: (h) => tenant(h, 'g-noaccounts'),
+    broken: async (h, p) => {
+      // Account 3 is reachable by the key but not allowed by the project.
+      await h.world.storage.grants.update(id(p, 'grantId'), { accountIds: [3] });
+      return p;
+    },
+  },
+  {
+    name: 'raw NRQL tools only, raw NRQL off',
+    reason: 'no_tools',
+    valid: (h) => tenant(h, 'g-rawoff'),
+    broken: async (h, p) => {
+      await h.world.storage.grants.update(id(p, 'grantId'), { tools: ['run_nrql', 'get_query_result'] });
+      await h.world.storage.projects.update(id(p, 'projectId'), { limits: { rawNrql: false } });
+      return p;
+    },
+  },
+  // --- the user ---
+  {
+    name: 'disabled user',
+    reason: 'user_disabled',
+    valid: async (h) => {
+      const userId = await h.addUser('disabled@example.com');
+      const grantId = await h.addGrant(h.world.projectIds.prod, { userId });
+      return { headers: bearer((await h.addToken(grantId)).value), slug: 'prod', ids: { userId } };
+    },
+    broken: async (h, p) => {
+      await h.world.storage.users.update(id(p, 'userId'), { disabledAt: T0 });
+      return p;
+    },
+  },
+  // --- the credential ---
+  ...(
+    [
+      ['revoked credential', 'credential_revoked', { revokedAt: T0 }],
+      [
+        'credential New Relic refused',
+        'credential_invalid',
+        {
+          validation: {
+            validationStatus: 'invalid',
+            validationErrorCode: 'RB_AUTH_INVALID_KEY',
+            validatedAt: T0,
+          },
+        },
+      ],
+      [
+        'unvalidated credential',
+        'credential_unvalidated',
+        { validation: { validationStatus: 'unvalidated', validatedAt: T0, reachableAccountIds: null } },
+      ],
+    ] as const
+  ).map(
+    ([name, reason, patch]): McpPrincipal => ({
+      name,
+      reason,
+      valid: async (h) => {
+        const credentialId = await h.addCredential();
+        const slug = `c-${reason.replaceAll('_', '-')}`;
+        const projectId = await h.addProject(slug, { credentialId });
+        const grantId = await h.addGrant(projectId);
+        return { headers: bearer((await h.addToken(grantId)).value), slug, ids: { credentialId } };
+      },
+      broken: async (h, p) => {
+        await h.world.storage.credentials.update(id(p, 'credentialId'), patch);
+        return p;
+      },
+    }),
+  ),
+  {
+    name: 'credential owner disabled',
+    reason: 'credential_owner_disabled',
+    valid: async (h) => {
+      const ownerId = await h.addUser('owner@example.com');
+      const credentialId = await h.addCredential({ ownerUserId: ownerId });
+      const projectId = await h.addProject('c-owner', { credentialId });
+      const grantId = await h.addGrant(projectId);
+      return { headers: bearer((await h.addToken(grantId)).value), slug: 'c-owner', ids: { ownerId } };
+    },
+    broken: async (h, p) => {
+      await h.world.storage.users.update(id(p, 'ownerId'), { disabledAt: T0 });
+      return p;
+    },
+  },
+  {
+    name: "grant on someone else's personal key",
+    reason: 'credential_not_permitted',
+    valid: (h) => tenant(h, 'c-personal'),
+    broken: async (h, p) => {
+      const otherId = await h.addUser('other@example.com');
+      const credentialId = await h.addCredential({ ownerUserId: otherId });
+      await h.world.storage.grants.update(id(p, 'grantId'), { credentialId });
+      return p;
+    },
+  },
+];
+
+/** An admin API caller and the deny reason its audit row carries. */
+/**
+ * A pass-through caller presenting something other than a usable New Relic User key. The positive control is the
+ * same request with `X-NewRelic-Api-Key: NR_KEY`. `reachesNerdGraph`: the key is well-formed, so validating it costs
+ * one NerdGraph call (bounded by the per-IP failure throttle).
+ */
+export interface PassthroughPrincipal {
+  readonly name: string;
+  readonly reason: string;
+  readonly reachesNerdGraph?: boolean;
+  present(h: Harness): Presented | Promise<Presented>;
+}
+
+const ptKey = (key: string): Record<string, string> => ({ 'x-newrelic-api-key': key });
+
+export const PASSTHROUGH_PRINCIPALS: readonly PassthroughPrincipal[] = [
+  { name: 'no key', reason: 'passthrough_missing_key', present: () => ({ headers: {}, slug: '' }) },
+  {
+    name: 'blank key header',
+    reason: 'passthrough_missing_key',
+    present: () => ({ headers: ptKey('   '), slug: '' }),
+  },
+  {
+    name: 'device token as bearer (no key)',
+    reason: 'passthrough_missing_key',
+    present: (h) => ({ headers: bearer(h.world.tokens.prod), slug: '' }),
+  },
+  {
+    name: 'admin token as bearer (no key)',
+    reason: 'passthrough_missing_key',
+    present: () => ({ headers: bearer(ADMIN_TOKEN), slug: '' }),
+  },
+  {
+    name: 'NR key as bearer instead of the key header',
+    reason: 'passthrough_missing_key',
+    present: () => ({ headers: bearer(NR_KEY), slug: '' }),
+  },
+  {
+    name: 'NR key in the query string',
+    reason: 'passthrough_missing_key',
+    present: () => ({ headers: {}, slug: '', query: `api_key=${encodeURIComponent(NR_KEY)}` }),
+  },
+  {
+    name: 'NR key in a cookie',
+    reason: 'passthrough_missing_key',
+    present: () => ({ headers: { cookie: `x-newrelic-api-key=${NR_KEY}` }, slug: '' }),
+  },
+  {
+    name: 'device token in the key header',
+    reason: 'passthrough_malformed_key',
+    present: (h) => ({ headers: ptKey(h.world.tokens.prod), slug: '' }),
+  },
+  {
+    name: 'not a User key (ingest key shape)',
+    reason: 'passthrough_malformed_key',
+    present: () => ({ headers: ptKey('NRII-FAKETESTINGESTKEY0123456789'), slug: '' }),
+  },
+  {
+    name: 'User key with a trailing garbage character',
+    reason: 'passthrough_malformed_key',
+    present: () => ({ headers: ptKey(`${NR_KEY}!`), slug: '' }),
+  },
+  {
+    name: 'well-formed key New Relic refuses',
+    reason: 'passthrough_invalid_key',
+    reachesNerdGraph: true,
+    present: () => ({ headers: ptKey('NRAK-UNKNOWNTESTKEY0123456789ABC'), slug: '' }),
+  },
+];
+
+export interface AdminPrincipal {
+  readonly name: string;
+  readonly reason: string;
+  present(
+    h: Harness,
+  ): Promise<{ readonly headers: Readonly<Record<string, string>>; readonly query?: string }>;
+}
+
+export const ADMIN_PRINCIPALS: readonly AdminPrincipal[] = [
+  { name: 'no credentials', reason: 'admin_missing_token', present: async () => ({ headers: {} }) },
+  {
+    name: 'Basic scheme',
+    reason: 'admin_malformed_header',
+    present: async () => ({ headers: { authorization: `Basic ${btoa(`admin:${ADMIN_TOKEN}`)}` } }),
+  },
+  {
+    name: 'token without scheme',
+    reason: 'admin_malformed_header',
+    present: async () => ({ headers: { authorization: ADMIN_TOKEN } }),
+  },
+  {
+    name: 'wrong admin token',
+    reason: 'admin_bad_token',
+    present: async () => ({ headers: bearer(`${ADMIN_TOKEN}x`) }),
+  },
+  {
+    name: 'truncated admin token',
+    reason: 'admin_bad_token',
+    present: async () => ({ headers: bearer(ADMIN_TOKEN.slice(0, -1)) }),
+  },
+  {
+    name: 'valid MCP token',
+    reason: 'admin_bad_token',
+    present: async (h) => ({ headers: bearer(h.world.tokens.prod) }),
+  },
+  {
+    name: 'limited MCP token',
+    reason: 'admin_bad_token',
+    present: async (h) => ({ headers: bearer(h.world.tokens.limited) }),
+  },
+  { name: 'New Relic key', reason: 'admin_bad_token', present: async () => ({ headers: bearer(NR_KEY) }) },
+  {
+    name: 'admin token in a cookie',
+    reason: 'admin_missing_token',
+    present: async () => ({ headers: { cookie: `rb_admin=${ADMIN_TOKEN}; token=${ADMIN_TOKEN}` } }),
+  },
+  {
+    name: 'admin token in the query string',
+    reason: 'admin_missing_token',
+    present: async () => ({ headers: {}, query: `token=${ADMIN_TOKEN}&access_token=${ADMIN_TOKEN}` }),
+  },
+];
+
+/** Build the request for a route and a caller. */
+export function requestFor(
+  route: RouteCase,
+  presented: {
+    readonly headers: Readonly<Record<string, string>>;
+    readonly slug?: string;
+    readonly query?: string;
+  },
+): Request {
+  const path = route.path.replace('{slug}', presented.slug ?? 'prod');
+  const url = `http://localhost${path}${presented.query ? `?${presented.query}` : ''}`;
+  const headers: Record<string, string> = {
+    accept: 'application/json, text/event-stream',
+    ...presented.headers,
+  };
+  if (route.body !== undefined) headers['content-type'] = 'application/json';
+  return new Request(url, {
+    method: route.method,
+    headers,
+    ...(route.body === undefined ? {} : { body: JSON.stringify(route.body) }),
+  });
+}

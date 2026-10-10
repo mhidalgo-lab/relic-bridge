@@ -8,8 +8,25 @@ import {
   redact,
   Secret,
 } from '@relic-bridge/core';
-import { parse as parseYaml, YAMLError } from 'yaml';
-import { z } from 'zod';
+import {
+  accountIdSchema as accountId,
+  type CredentialKeyMaterial,
+  ENV_REF_RE,
+  LIMIT_BOUNDS,
+  limitsSchema,
+  type ProjectRecord,
+  parseYamlConfig,
+  projectSchema,
+  regionSchema as region,
+  type StoredLimits,
+  TOOL_NAME_RE,
+  YamlConfigError,
+  type YamlLimits,
+  type YamlRecords,
+  yamlConfigSchema,
+  yamlRecords,
+} from '@relic-bridge/storage';
+import type { z } from 'zod';
 
 /** A configuration problem: printed on stderr, exit code 1. Messages never contain key values. */
 export class ConfigError extends Error {
@@ -45,64 +62,18 @@ export interface LoadedConfig {
 
 export type Env = Readonly<Record<string, string | undefined>>;
 
-/** Upper bounds for configurable limits: generous, but they keep a typo from disabling a guard. */
-export const LIMIT_BOUNDS = Object.freeze({
-  maxLimit: 5000,
-  maxWindowDays: 3660,
-  minResponseBytes: 1024,
-  maxResponseBytes: 16 * 1024 * 1024,
-});
+// The YAML schema lives in `@relic-bridge/storage` (the `yaml` adapter, P2-01); re-exported for the CLI and its tests.
+export { LIMIT_BOUNDS, limitsSchema, projectSchema };
+/** The YAML config file (`relic-bridge.yaml`). Strict: unknown keys are errors, so typos don't silently do nothing. */
+export const configFileSchema: typeof yamlConfigSchema = yamlConfigSchema;
 
 /** Largest config file accepted. Real files are a few KiB. */
 export const MAX_CONFIG_BYTES = 1024 * 1024;
 
-const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,62}$/;
-const TOOL_NAME_RE = /^[a-z][a-z0-9_]{1,63}$/;
-const EVENT_TYPE_RE = /^[A-Za-z_][A-Za-z0-9_.:-]{0,254}$/;
-const ENV_REF_RE = /^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$/;
-
-const accountId = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
-const region = z
-  .string()
-  .transform((s) => s.trim().toUpperCase())
-  .pipe(z.enum(REGIONS as unknown as [Region, ...Region[]]));
-const eventTypeList = z.array(z.string().regex(EVENT_TYPE_RE, 'must be an event type name')).max(500);
-
-export const limitsSchema = z.strictObject({
-  maxLimit: z.number().int().min(1).max(LIMIT_BOUNDS.maxLimit).optional(),
-  maxWindowDays: z.number().int().min(1).max(LIMIT_BOUNDS.maxWindowDays).optional(),
-  rawNrql: z.boolean().optional(),
-  maxResponseBytes: z
-    .number()
-    .int()
-    .min(LIMIT_BOUNDS.minResponseBytes)
-    .max(LIMIT_BOUNDS.maxResponseBytes)
-    .optional(),
-  eventTypes: z.strictObject({ allow: eventTypeList.optional(), deny: eventTypeList.optional() }).optional(),
-});
-
-export const projectSchema = z.strictObject({
-  slug: z.string().regex(SLUG_RE, 'must be lowercase letters, digits and dashes (max 63)'),
-  name: z.string().min(1).max(100).optional(),
-  region: region.default('US'),
-  /** `${ENV_VAR}` (recommended) or a literal key (warned about). */
-  apiKey: z.string().min(1).max(512),
-  defaultAccount: accountId,
-  accounts: z.array(accountId).min(1).max(1000).optional(),
-  tools: z.array(z.string().regex(TOOL_NAME_RE, 'must be a tool name')).max(200).optional(),
-  limits: limitsSchema.optional(),
-});
-
-/** The YAML config file (`relic-bridge.yaml`). Strict: unknown keys are errors, so typos don't silently do nothing. */
-export const configFileSchema = z.strictObject({
-  version: z.literal(1).optional(),
-  projects: z.array(projectSchema).min(1).max(100),
-});
-
 export type ProjectConfig = z.infer<typeof projectSchema>;
 export type ConfigFile = z.infer<typeof configFileSchema>;
 
-function buildLimits(input: z.infer<typeof limitsSchema> | undefined): QueryLimits {
+function buildLimits(input: StoredLimits | YamlLimits | undefined): QueryLimits {
   const allow = input?.eventTypes?.allow;
   const deny = input?.eventTypes?.deny;
   return Object.freeze({
@@ -136,13 +107,10 @@ function accountScope(
   return Object.freeze({ allowed: Object.freeze(allowed), default: defaultAccount });
 }
 
-function formatIssues(error: z.ZodError, prefix: string): string {
-  return error.issues
+function formatIssues(issues: readonly { path: string; message: string }[], prefix: string): string {
+  return issues
     .slice(0, 10)
-    .map((i) => {
-      const path = i.path.length > 0 ? i.path.join('.') : '(root)';
-      return `${prefix}${path}: ${i.message}`;
-    })
+    .map((i) => `${prefix}${i.path}: ${i.message}`)
     .join('\n');
 }
 
@@ -264,28 +232,24 @@ export function loadEnvConfig(env: Env): LoadedConfig {
 
 /** Parse and validate the YAML text. Parser messages are not echoed (they quote source lines, which may hold a key). */
 export function parseConfigFile(text: string, file: string): ConfigFile {
-  let doc: unknown;
   try {
-    doc = parseYaml(text, { maxAliasCount: 50, uniqueKeys: true, prettyErrors: false });
+    return parseYamlConfig(text);
   } catch (error) {
-    if (error instanceof YAMLError) {
-      const line = error.linePos?.[0]?.line;
-      throw new ConfigError(
-        `${file}: invalid YAML (${error.code}${line === undefined ? '' : ` at line ${line}`}).`,
-      );
+    if (!(error instanceof YamlConfigError)) throw new ConfigError(`${file}: invalid YAML.`);
+    const p = error.problem;
+    switch (p.kind) {
+      case 'syntax':
+        throw new ConfigError(
+          p.code === undefined
+            ? `${file}: invalid YAML.`
+            : `${file}: invalid YAML (${p.code}${p.line === undefined ? '' : ` at line ${p.line}`}).`,
+        );
+      case 'schema':
+        throw new ConfigError(`${file} is not a valid relic-bridge config:\n${formatIssues(p.issues, '  ')}`);
+      case 'duplicate_slug':
+        throw new ConfigError(`${file}: duplicate project slug "${p.slug}".`);
     }
-    throw new ConfigError(`${file}: invalid YAML.`);
   }
-  const parsed = configFileSchema.safeParse(doc);
-  if (!parsed.success) {
-    throw new ConfigError(`${file} is not a valid relic-bridge config:\n${formatIssues(parsed.error, '  ')}`);
-  }
-  const seen = new Set<string>();
-  for (const p of parsed.data.projects) {
-    if (seen.has(p.slug)) throw new ConfigError(`${file}: duplicate project slug "${p.slug}".`);
-    seen.add(p.slug);
-  }
-  return parsed.data;
 }
 
 /** Resolve `apiKey`: `${VAR}` reads the environment; anything else is a literal key (allowed, but warned about). */
@@ -312,16 +276,18 @@ export function resolveApiKey(
   return { secret: new Secret(apiKey.trim()), plaintext: true };
 }
 
-export function resolveProject(config: ConfigFile, slug: string | undefined, file: string): ProjectConfig {
-  const slugs = config.projects.map((p) => p.slug);
+/** Pick the project: `--project` / RB_PROJECT, or the only one. */
+export function resolveProject(records: YamlRecords, slug: string | undefined, file: string): ProjectRecord {
+  const all = [...records.projects.values()];
+  const slugs = all.map((p) => p.slug);
   if (slug === undefined) {
-    if (config.projects.length === 1) return config.projects[0] as ProjectConfig;
+    if (all.length === 1) return all[0] as ProjectRecord;
     throw new ConfigError(
-      `${file} has ${config.projects.length} projects; choose one with --project.`,
+      `${file} has ${all.length} projects; choose one with --project.`,
       `Available: ${slugs.join(', ')}. Configure one MCP server entry per project.`,
     );
   }
-  const found = config.projects.find((p) => p.slug === slug);
+  const found = records.projects.get(slug);
   if (!found) {
     throw new ConfigError(
       `Project "${redact(slug).slice(0, 63)}" is not in ${file}.`,
@@ -329,6 +295,13 @@ export function resolveProject(config: ConfigFile, slug: string | undefined, fil
     );
   }
   return found;
+}
+
+/** The `apiKey` text a YAML credential came from: `${VAR}` for references, the literal otherwise. */
+function apiKeyText(key: CredentialKeyMaterial): string {
+  if (key.kind === 'env') return `\${${key.variable}}`;
+  if (key.kind === 'inline') return key.reveal();
+  throw new ConfigError('A YAML project cannot hold an encrypted key.');
 }
 
 /** File access the YAML loader needs; injected so tests don't touch the disk. */
@@ -383,10 +356,14 @@ export function loadYamlConfig(options: LoadConfigOptions & { configPath: string
   } catch {
     throw new ConfigError(`Config file ${file} could not be read.`);
   }
-  const config = parseConfigFile(text, file);
-  const selected = resolveProject(config, options.project ?? envString(options.env, 'RB_PROJECT'), file);
+  // Read through the `yaml` storage adapter's records (P2-01): one mapping from file to projects/credentials.
+  const records = yamlRecords(parseConfigFile(text, file));
+  const selected = resolveProject(records, options.project ?? envString(options.env, 'RB_PROJECT'), file);
+  const credential =
+    selected.defaultCredentialId === null ? undefined : records.credentials.get(selected.defaultCredentialId);
+  if (credential === undefined) throw new ConfigError(`${file} project "${selected.slug}" has no apiKey.`);
   const where = `${file} project "${selected.slug}"`;
-  const key = resolveApiKey(selected.apiKey, options.env, where);
+  const key = resolveApiKey(apiKeyText(credential.key), options.env, where);
   if (key.plaintext) {
     warnings.push(
       // Worded so the redacting logger leaves the suggestion readable (an `…API_KEY: ${…}` pair would be redacted).
@@ -396,13 +373,13 @@ export function loadYamlConfig(options: LoadConfigOptions & { configPath: string
   return {
     project: Object.freeze({
       slug: selected.slug,
-      ...(selected.name === undefined ? {} : { name: selected.name }),
+      ...(selected.name === null ? {} : { name: selected.name }),
       source: 'yaml' as const,
-      credentialId: `project:${selected.slug}`,
-      region: selected.region,
+      credentialId: credential.id,
+      region: credential.region,
       apiKey: key.secret,
-      accounts: accountScope(selected.defaultAccount, selected.accounts, where),
-      ...(selected.tools === undefined ? {} : { tools: Object.freeze([...selected.tools]) }),
+      accounts: accountScope(selected.defaultAccountId, selected.allowedAccountIds, where),
+      ...(selected.enabledTools === null ? {} : { tools: Object.freeze([...selected.enabledTools]) }),
       limits: buildLimits(selected.limits),
     }),
     warnings,

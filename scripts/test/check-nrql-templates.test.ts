@@ -50,4 +50,11 @@ describe('check-nrql-templates', () => {
     // biome-ignore lint/suspicious/noTemplateCurlyInString: source code under test
     expect(checkSource('packages/core/src/nrql/template.ts', 'const q = `SELECT ${x}`;')).toEqual([]);
   });
+
+  it('exempts storage SQL (never NRQL) but nothing next to it', () => {
+    const sql = "const q = 'SELECT max(version) FROM schema_migrations';";
+    expect(checkSource('packages/storage/src/migrate.ts', sql)).toEqual([]);
+    expect(checkSource('packages/storage/test/x.test.ts', sql)).toHaveLength(1);
+    expect(checkSource('packages/core/src/storage/x.ts', sql)).toHaveLength(1);
+  });
 });

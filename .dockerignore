@@ -1,0 +1,23 @@
+# Allowlist-style: the build context is only what the image build needs (P2-11).
+**
+!package.json
+!pnpm-lock.yaml
+!pnpm-workspace.yaml
+!tsconfig.base.json
+!apps/cli
+!packages
+!scripts/release.ts
+# never from the host
+**/node_modules
+**/dist
+**/dist-e2e*
+**/coverage
+**/.env
+**/.env.*
+**/*.db
+**/*.sqlite
+**/*.sqlite-*
+**/*.tsbuildinfo
+**/test
+**/*.test.ts
+packages/admin-ui

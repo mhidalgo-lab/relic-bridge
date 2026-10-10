@@ -1,0 +1,101 @@
+// SPDX-License-Identifier: Apache-2.0
+import { CryptoError } from '@relic-bridge/auth';
+import type { Logger } from '@relic-bridge/core';
+import { StorageError } from '@relic-bridge/storage';
+import { UsageError } from '../args.ts';
+import { ConfigError } from '../config.ts';
+import { nerdGraphFetch } from '../test-hooks.ts';
+import type { ManageArgs } from './args.ts';
+import { type AdminClient, ApiError, parseRemoteUrl, remoteClient } from './client.ts';
+import { adminTokenGenerate, HANDLERS, type Rec } from './commands.ts';
+import { initCommand } from './init.ts';
+import type { ManageContext } from './io.ts';
+import { openLocalClient } from './local.ts';
+import { readAdminToken } from './secrets.ts';
+
+// ---------------------------------------------------------------------------------------------------------------
+// Connection
+// ---------------------------------------------------------------------------------------------------------------
+
+const NEEDS_KEY = new Set(['credential add', 'credential rotate', 'credential revalidate']);
+
+/** Remote when `--remote` / `RB_REMOTE` is given, otherwise the local database. */
+export async function connect(
+  ctx: ManageContext,
+  args: ManageArgs,
+  logger: Logger,
+  forceLocal = false,
+): Promise<AdminClient> {
+  const remote = (args.values.remote ?? ctx.env['RB_REMOTE'] ?? '').trim();
+  if (remote !== '' && !forceLocal) {
+    if (args.values.db !== undefined) throw new UsageError('--db and --remote cannot be combined.');
+    const url = parseRemoteUrl(remote, args.values.insecure === true);
+    const token = await readAdminToken(ctx);
+    return remoteClient(ctx.host, url, token);
+  }
+  if (args.values.insecure === true) throw new UsageError('--insecure only applies with --remote.');
+  const fetch = ctx.host.nerdGraphFetch ?? nerdGraphFetch(ctx.env, logger);
+  return openLocalClient({
+    ctx,
+    logger,
+    ...(args.values.db === undefined ? {} : { db: args.values.db }),
+    needsKey: NEEDS_KEY.has(args.command),
+    ...(fetch === undefined ? {} : { nerdGraphFetch: fetch }),
+  });
+}
+
+/** Run a parsed management command and return its exit code (0 ok, 1 failed, 2 usage). */
+export async function runManage(ctx: ManageContext, args: ManageArgs, logger: Logger): Promise<number> {
+  const json = args.values.json === true;
+  const fail = (code: string, message: string, extra: Rec = {}): number => {
+    ctx.stderr(json ? JSON.stringify({ error: { code, message, ...extra } }) : `error ${code}: ${message}`);
+    return 1;
+  };
+  let client: AdminClient | undefined;
+  try {
+    if (args.command === 'admin-token generate') return adminTokenGenerate(ctx, json);
+    if (args.command === 'init') return await initCommand(ctx, args, logger);
+    client = await connect(ctx, args, logger);
+    const handler = HANDLERS[args.command];
+    if (handler === undefined) throw new UsageError(`Unknown command "${args.command}".`);
+    return await handler({ ctx, args, client, json });
+  } catch (error) {
+    if (error instanceof UsageError) {
+      ctx.stderr(`relic-bridge: ${error.message}`);
+      return 2;
+    }
+    if (error instanceof ApiError) {
+      const hint = hintFor(error);
+      return fail(
+        error.code,
+        `${error.message}${error.field ? ` (${error.field})` : ''}${error.detail ? ` [${error.detail}]` : ''}${hint ? `. ${hint}` : ''}`,
+        { status: error.status },
+      );
+    }
+    if (error instanceof ConfigError) {
+      return fail('config', `${error.message}${error.hint ? ` ${error.hint}` : ''}`);
+    }
+    if (error instanceof CryptoError) return fail(error.code, error.message);
+    if (error instanceof StorageError) return fail(error.code, error.message);
+    throw error;
+  } finally {
+    await client?.close();
+  }
+}
+
+function hintFor(error: ApiError): string {
+  switch (error.status) {
+    case 401:
+      return 'Check the admin token (RB_ADMIN_TOKEN) and that the server was started with the same one';
+    case 404:
+      return error.code === 'not_found'
+        ? ''
+        : 'Is the admin API enabled on that server (RB_ADMIN_TOKEN set)?';
+    case 429:
+      return 'Too many requests; wait and retry';
+    case 502:
+      return 'New Relic could not be reached; nothing was changed. Retry later';
+    default:
+      return '';
+  }
+}

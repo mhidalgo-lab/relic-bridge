@@ -130,6 +130,11 @@ function shapeComplete(outcome: NrqlComplete, options: ShapeNrqlOptions): ToolOu
   if (outcome.otherResult) {
     trailer.push(`Other (rows outside the facets shown): ${JSON.stringify(outcome.otherResult)}`);
   }
+  // NRDB messages and GraphQL field warnings are New Relic text too (T6): inside the envelope as well.
+  trailer.push(
+    ...outcome.messages.map((m) => `New Relic: ${m}`),
+    ...outcome.warnings.map((w) => `Warning: ${w}`),
+  );
   const shaped = shapeRows(outcome.results, {
     narrowHint: NRQL_NARROW_HINT,
     source: 'NRQL results',
@@ -145,13 +150,7 @@ function shapeComplete(outcome: NrqlComplete, options: ShapeNrqlOptions): ToolOu
       ? '.'
       : `; ${outcome.stats.inspectedCount.toLocaleString('en-US')} events inspected.`);
 
-  const lines = [
-    summary,
-    ...outcome.notes.map((n) => `Note: ${n}`),
-    ...outcome.messages.map((m) => `New Relic: ${m}`),
-    ...outcome.warnings.map((w) => `Warning: ${w}`),
-    shaped.text,
-  ];
+  const lines = [summary, ...outcome.notes.map((n) => `Note: ${n}`), shaped.text];
   const clean = (v: Record<string, unknown>) =>
     (options.redactSecrets ?? true) ? (redactValue(v) as Record<string, unknown>) : v;
   const md = outcome.metadata;

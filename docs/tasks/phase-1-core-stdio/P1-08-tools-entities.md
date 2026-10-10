@@ -2,32 +2,68 @@
 id: P1-08
 title: "Tools: search_entities, get_entity, get_related_entities, list_entity_types"
 phase: 1
-status: todo
+status: done
 priority: high
 depends_on: [P1-04, P1-05]
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P1-08 — Tools: entity discovery
 
 ## Scope
-- `search_entities { name?, type?, domain?, tags?: {key: value}, account?, limit? }` → builds an `entitySearch` query string with **escaped** values. Entity search uses single-quoted strings, and escaping a `'` inside a value is undocumented, so escape `\` and `'` with a backslash, the rule confirmed live in P0-09 (`''` and unbalanced quotes are rejected by NerdGraph). Implement an `entityQuery` helper with tests.
-- `get_entity { guid }` → core fields, tags, alert severity, reporting status, golden-metric titles.
-- `get_related_entities { guid, direction?, types? }` → `relatedEntities` one hop.
-- `list_entity_types` → domain/type catalogue (cache per isolate).
-- `decode_entity_guid { guid }` → offline decode (account id, domain, type) — no subrequest; also used to enforce the account allowlist.
-- Results restricted to allowed accounts (filter by `accountId`).
+- **`entityQuery` helper** (`packages/core/src/nerdgraph/entity-query.ts`): a tagged template that builds entity-search
+  query strings, the only way tools build them. Strings are single-quoted with `\` and `'` backslash-escaped (the rule
+  confirmed live in P0-09: `''` and unbalanced quotes are rejected by NerdGraph); control characters, lone surrogates
+  and over-long values are rejected; numbers must be safe integers; arrays render as `IN (…)` lists;
+  `entityQuery.tag(key)` renders `tags.<key>` from a strict key charset. `%` has no documented escape: it stays inside
+  the literal and acts as a `LIKE` wildcard. The finished string travels only as a GraphQL variable (`$query`).
+- **`decodeEntityGuid(guid)`**: offline decode (base64 `accountId|DOMAIN|TYPE|domainId`) with strict validation. Used
+  to check a GUID's account against `ctx.accounts.allowed` **before** any request.
+- `search_entities { name?, type?, domain?, tags?: {key: value}, account?, limit?, cursor? }` (`group: entities`):
+  `name` is a substring match (`LIKE '%…%'`), `type` / `domain` exact (upper-cased, strict charset). The query always
+  carries `accountId IN (…)` (the requested account, which must be allowed, or every allowed account), and results are
+  filtered again by `accountId` client-side. Up to 200 per call; NerdGraph's `nextCursor` is passed back as `next_cursor`.
+- `get_entity { guid }`: core fields, tags (flattened, capped), alert severity, reporting status, permalink and
+  golden-metric titles. A golden-metrics field error doesn't fail the call (noted instead).
+- `get_related_entities { guid, direction?, types?, limit? }`: `relatedEntities` one hop (`INBOUND` / `OUTBOUND` /
+  `BOTH`, optional `{domain, type}` include filter), each edge shown with its direction relative to the entity.
+- `list_entity_types { account? }`: domain/type catalogue with counts (`entitySearch.types`) for the allowed accounts,
+  cached per tool-set instance (≈ per isolate) for 10 minutes, keyed by credential id, region and account set.
+- `decode_entity_guid { guid }`: pure (no subrequest, `openWorld: false`), returns account id, domain, type, domain id
+  and whether the account is allowed on this connection.
+- Every entity from a non-allowed account is dropped (search, related entities) or refused with `RB_AUTH_FORBIDDEN`
+  (`get_entity`, `get_related_entities` on a GUID from another account, checked offline first). Names, tags and other
+  New Relic free text go inside the untrusted-data envelope.
 
 ## Acceptance criteria
-- [ ] Escaping tests for entity search strings (quotes, `%`, `'`).
-- [ ] Entities from non-allowed accounts never returned (test).
+- [x] Escaping tests for entity search strings (quotes, backslash, `%`, control characters, tag-key charset), including
+      an injection attempt (`x' OR name LIKE '%`) staying one literal.
+- [x] Entities from non-allowed accounts never returned (search, related) and GUIDs from other accounts refused
+      without a request (test).
+- [x] Every value reaches NerdGraph as a GraphQL variable (documents are static; tests inspect the request).
+- [x] GUID decode: valid, padded/unpadded, malformed, non-numeric account rejected with `RB_INPUT_INVALID`.
+- [x] `list_entity_types` cache: a second call for the same credential/accounts spends no subrequest; a different
+      account set or credential misses.
+- [x] Listing: all five tools `readOnlyHint: true`; `decode_entity_guid` has `openWorldHint: false`; strict inputs
+      reject unknown arguments; exhausted budget sends no request.
 
 ## Security notes
-T3, T4 (entity search injection).
+T3 (account filtering), T4 (entity search injection), T6 (entity names and tags are untrusted data), T21 (the
+type cache is keyed by credential and account set, never shared across them).
 
 ## Docs to update
-- Tool reference.
+- [x] THREAT_MODEL.md (implementation status), RESEARCH.md (entity-search notes), `docs/pending-decisions/phase-1.md`.
+- [ ] Tool reference: generated by P1-13 (`pnpm docs:tools`, not there yet) from `createBuiltinTools()`.
+
+## Notes for the next tasks
+- `createBuiltinTools()` now also returns the five entity tools (`createEntityTools(deps)`, `group: entities`).
+- Reuse `decodeEntityGuid` + the offline account check pattern (`checkGuid` in tools/entities.ts) for any tool taking
+  a guid (P1-09 golden metrics). Build entity-search filters only with `entityQuery` (nerdgraph/entity-query.ts).
+- `cleanName(value, max?)` is now exported from tools/identity.ts for New Relic free text.
+- Live checks pending (see `docs/pending-decisions/phase-1.md`): `accountId IN (…)`, `options.limit`, related filter.
 
 ## Out of scope
 - Dashboards (P6-09).
+- Tag keys outside `[A-Za-z0-9_.]` (backtick quoting in entity search is undocumented).
+- Golden metric values (P1-09).

@@ -4,7 +4,8 @@ relic-bridge checks every NRQL query before sending it to New Relic. This covers
 (`run_nrql`) and the queries built by the purpose-built tools. The limits keep queries cheap and bounded: they protect
 your New Relic account's query capacity and keep responses small enough for the agent (and for the Workers free plan).
 
-Limits are set per connection (project). Later releases will let a grant tighten them further (P4).
+Limits are set per connection (project): `limits:` in the YAML config or `RB_LIMITS_*` env vars, see
+[configuration](configuration.md). Later releases will let a grant tighten them further (P4).
 
 ## The limits
 
@@ -13,7 +14,7 @@ Limits are set per connection (project). Later releases will let a grant tighten
 | `maxLimit` | 1000 | `LIMIT n` above it is lowered to `maxLimit`, at any depth (subqueries too). `LIMIT MAX` is replaced by `maxLimit`. Only one top-level LIMIT is allowed, and the value must be plain digits or MAX. A raw event query (`SELECT *` or plain attributes, no FACET) without a LIMIT gets `LIMIT 10`: NRQL's own default (measured), made explicit, or `maxLimit` if that is lower. |
 | `maxWindowDays` | 7 | Queries that can reach further back are rejected with `RB_LIMIT_QUERY` and a hint. The window is `SINCE` to `UNTIL`, plus `COMPARE WITH`. Without a SINCE, NRQL's 1-hour default counts. |
 | `eventTypes.allow` / `eventTypes.deny` | none | Event types in any `FROM` (including subqueries and JOINs) are checked. NRQL event types are case-sensitive, so allow lists match exactly; deny lists ignore case and surrounding spaces, which also blocks near-miss spellings. A denied or non-allowed type is rejected. With an allow list, a query that names no event type (e.g. `SHOW EVENT TYPES`) is rejected. |
-| `rawNrql` | on | When off, `run_nrql` (arbitrary NRQL) is disabled (`RB_TOOL_DISABLED`). The purpose-built tools still work. |
+| `rawNrql` | on | When off, `run_nrql` (arbitrary NRQL) and `get_query_result` are not offered at all by the stdio CLI, and refuse with `RB_TOOL_DISABLED` if reached another way. The purpose-built tools still work. |
 | `maxResponseBytes` | 512 KiB | Larger responses are cut off while streaming → `RB_LIMIT_RESPONSE_TOO_LARGE`. |
 
 Adjustments (a lowered or added LIMIT) are reported back to the agent as notes, so it knows the result was capped.

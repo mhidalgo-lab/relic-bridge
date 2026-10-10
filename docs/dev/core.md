@@ -15,7 +15,8 @@ caller (stdio CLI / http-app)
 ```
 
 On HTTP the context reaches the server factory through `createMcpHandler`'s `authInfo.extra` (ADR-0005); never through
-module state (THREAT_MODEL T21).
+module state (THREAT_MODEL T21). stdio keeps one server per connection, so `apps/cli` passes `ctx` as a **factory**
+(`() => ToolContext`) that `buildMcpServer` calls once per tool call: every call gets a fresh request id and budget.
 
 ## Writing a tool
 

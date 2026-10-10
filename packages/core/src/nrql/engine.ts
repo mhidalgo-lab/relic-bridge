@@ -68,6 +68,10 @@ export interface NrqlComplete {
   readonly polls: number;
   /** Adjustments made by query limits (e.g. a lowered LIMIT). Surface them to the agent. */
   readonly notes: readonly string[];
+  /** The NRQL actually sent (after limits). Absent when only polling a handle (`getQueryResult`). */
+  readonly nrql?: string;
+  /** Wall time of this call (submit + polls), measured with `ctx.clock`. */
+  readonly durationMs?: number;
 }
 
 export interface NrqlPending {
@@ -81,6 +85,10 @@ export interface NrqlPending {
   readonly polls: number;
   /** Adjustments made by query limits (e.g. a lowered LIMIT). Surface them to the agent. */
   readonly notes: readonly string[];
+  /** The NRQL actually sent (after limits). Absent when only polling a handle (`getQueryResult`). */
+  readonly nrql?: string;
+  /** Wall time of this call (submit + polls), measured with `ctx.clock`. */
+  readonly durationMs?: number;
 }
 
 export type NrqlOutcome = NrqlComplete | NrqlPending;
@@ -240,7 +248,12 @@ function pending(container: NrdbContainer, account: number, polls: number): Nrql
     queryId: p.queryId,
     account,
     retryAfterS: Math.max(MIN_POLL_WAIT_S, Math.ceil(p.retryAfter ?? MIN_POLL_WAIT_S)),
-    ...(p.resultExpiration ? { expiresAt: new Date(p.resultExpiration).toISOString() } : {}),
+    // Ignore an unreadable expiration rather than failing the whole call with RB_INTERNAL.
+    ...(typeof p.resultExpiration === 'number' &&
+    Number.isFinite(p.resultExpiration) &&
+    Math.abs(p.resultExpiration) < 8.64e15
+      ? { expiresAt: new Date(p.resultExpiration).toISOString() }
+      : {}),
     polls,
     notes: [],
   };
@@ -282,6 +295,20 @@ export async function runRawNrql(
   return run(ctx, input, input.nrql, deps);
 }
 
+/**
+ * Run NRQL that New Relic itself supplied (e.g. golden-metric queries), never text from the agent. Skips the
+ * raw-NRQL switch, but query limits (window, LIMIT, length, comment rejection) are enforced exactly as for `run_nrql`.
+ */
+export async function runTrustedNrql(
+  ctx: ToolContext,
+  input: RawNrqlInput,
+  deps: NrqlDeps = {},
+): Promise<NrqlOutcome> {
+  if (typeof input.nrql !== 'string')
+    throw new RbError(ErrorCode.InputInvalid, 'The NRQL query must be a string.');
+  return run(ctx, input, input.nrql, deps);
+}
+
 async function run(
   ctx: ToolContext,
   input: Omit<RunNrqlInput, 'nrql'>,
@@ -292,8 +319,14 @@ async function run(
   const accounts = resolveAccounts(ctx, input.accounts);
   const checked = enforceQueryLimits(text, ctx.limits, ctx.clock.now());
   if (checked.notes.length > 0) ctx.logger.info('nrql adjusted by limits', { notes: checked.notes });
+  const started = ctx.clock.now();
   const outcome = await execute(ctx, { ...input, nrql: checked.nrql }, accounts, deps);
-  return { ...outcome, notes: checked.notes };
+  return {
+    ...outcome,
+    notes: checked.notes,
+    nrql: checked.nrql,
+    durationMs: Math.max(0, ctx.clock.now() - started),
+  };
 }
 
 async function execute(
@@ -400,7 +433,8 @@ export async function getQueryResult(
   if (typeof input.queryId !== 'string' || !/^[A-Za-z0-9._:-]{1,256}$/.test(input.queryId)) {
     throw new RbError(ErrorCode.InputInvalid, 'queryId is not a valid query handle.');
   }
-  return pollOnce(
+  const started = ctx.clock.now();
+  const outcome = await pollOnce(
     ctx,
     deps.client ?? nerdGraphFor(ctx),
     account as number,
@@ -408,4 +442,5 @@ export async function getQueryResult(
     input.stats ?? false,
     1,
   );
+  return { ...outcome, durationMs: Math.max(0, ctx.clock.now() - started) };
 }

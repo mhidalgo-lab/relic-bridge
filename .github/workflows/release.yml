@@ -1,0 +1,268 @@
+# Release (P1-15, P1-16). Actions are pinned by commit SHA; Renovate keeps them updated.
+#
+# Flow: a changeset on `main` → the `version` job opens/updates the "Version Packages" PR. Merging it leaves no
+# changesets and a version npm doesn't have (`plan` mode `publish`) → the `build` job installs, checks, builds and
+# packs `relic-bridge` and uploads the tarball, SBOM and SHA256SUMS → the `publish` job verifies them, attests,
+# publishes with npm trusted publishing (OIDC, no npm token) and creates the GitHub Release `v<version>`.
+# Mode `release` (version on npm, no GitHub Release: an earlier run failed after `npm publish`) rebuilds, checks the
+# tarball is identical to the one on npm and creates only the GitHub Release.
+#
+# Safety rails (THREAT_MODEL T18): never runs on pull requests; build/publish run only on `main`, only when the
+# repository variable RB_RELEASE_ENABLED is 'true', and publish only after a reviewer approves the protected `release`
+# environment. Only the `publish` job can mint an OIDC token, and it never checks out the repository, installs
+# dependencies or runs project code (scripts/test/release.test.ts asserts this). `plan` and `publish` refuse a
+# `v<version>` tag that points at another commit.
+name: Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    name: Plan
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      mode: ${{ steps.plan.outputs.mode }}
+      version: ${{ steps.plan.outputs.version }}
+    steps:
+      - uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - id: plan
+        name: Pending changesets, unpublished version or missing GitHub Release?
+        # Explicit bash enables pipefail, so a failing plan fails the step instead of passing with empty outputs.
+        # No dependencies are installed: release.ts only uses Node built-ins, npm and gh (read-only token).
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/release.ts plan | tee -a "$GITHUB_OUTPUT"
+
+  version:
+    name: Version PR
+    needs: plan
+    if: needs.plan.outputs.mode == 'version'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - run: pnpm install --frozen-lockfile
+      # Commits through the GitHub API (signed by GitHub), so no git credentials are persisted in the checkout.
+      - uses: changesets/action/version@ae32849d5ba541f9ae29e40e22a623bc13562f51 # v2.1.2
+        with:
+          script: pnpm version-packages
+          commit-message: 'chore(release): version packages'
+          pr-title: 'chore(release): version packages'
+
+  # Everything that runs dependency or project code lives here, without `id-token` and with a read-only token.
+  build:
+    name: Build release artifacts
+    needs: plan
+    if: >-
+      github.ref == 'refs/heads/main' && vars.RB_RELEASE_ENABLED == 'true' &&
+      (needs.plan.outputs.mode == 'publish' || needs.plan.outputs.mode == 'release')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    outputs:
+      artifact-id: ${{ steps.upload.outputs.artifact-id }}
+      sums-sha256: ${{ steps.sums.outputs.sums-sha256 }}
+    env:
+      VERSION: ${{ needs.plan.outputs.version }}
+    steps:
+      - uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      # No dependency cache in the release jobs: a poisoned cache must not reach the published build.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Re-check the planned version
+        run: |
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || { echo "::error::bad version"; exit 1; }
+          test "$(node -p 'require("./apps/cli/package.json").version')" = "$VERSION"
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm test
+      - name: Release build (test hooks compiled out)
+        run: pnpm build
+        env:
+          RB_TEST_HOOKS: '0'
+      - name: Pack and verify the tarball
+        run: node scripts/check-package.ts --out release
+      - name: Release notes
+        run: |
+          mkdir -p release-meta
+          node scripts/release.ts notes "$VERSION" > release-meta/release-notes.md
+      - id: sums
+        name: SBOM and checksums
+        run: |
+          pnpm --filter relic-bridge sbom --sbom-format cyclonedx --sbom-type application --prod \
+            --out "release/relic-bridge-${VERSION}.cdx.json"
+          cd release && sha256sum -- * > SHA256SUMS && cat SHA256SUMS
+          echo "sums-sha256=$(sha256sum SHA256SUMS | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+      - id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-${{ needs.plan.outputs.version }}
+          path: |
+            release/
+            release-meta/
+          if-no-files-found: error
+          retention-days: 7
+
+  # Holds the OIDC token. No checkout, no install, no project scripts: only setup-node, the artifact, sha256sum, npm
+  # and gh. Keep it that way (scripts/test/release.test.ts fails otherwise).
+  publish:
+    name: Publish to npm and GitHub
+    needs: [plan, build]
+    if: >-
+      github.ref == 'refs/heads/main' && vars.RB_RELEASE_ENABLED == 'true' &&
+      (needs.plan.outputs.mode == 'publish' || needs.plan.outputs.mode == 'release')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: release
+      url: https://www.npmjs.com/package/relic-bridge
+    permissions:
+      contents: write # create the tag and GitHub Release
+      id-token: write # npm trusted publishing + provenance, Sigstore attestations
+      attestations: write
+      artifact-metadata: write
+    env:
+      VERSION: ${{ needs.plan.outputs.version }}
+      MODE: ${{ needs.plan.outputs.mode }}
+      ARTIFACT_ID: ${{ needs.build.outputs.artifact-id }}
+      SUMS_SHA256: ${{ needs.build.outputs.sums-sha256 }}
+    steps:
+      - uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
+        with:
+          egress-policy: audit
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+          package-manager-cache: false
+      - name: Check the inputs
+        run: |
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || { echo "::error::bad version"; exit 1; }
+          [[ "$MODE" == publish || "$MODE" == release ]] || { echo "::error::bad mode"; exit 1; }
+          [[ "$ARTIFACT_ID" =~ ^[0-9]+$ ]] || { echo "::error::bad artifact id"; exit 1; }
+          [[ "$SUMS_SHA256" =~ ^[0-9a-f]{64}$ ]] || { echo "::error::bad checksum digest"; exit 1; }
+      # Downloads by id from this run; the action fails on an artifact digest mismatch.
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          artifact-ids: ${{ needs.build.outputs.artifact-id }}
+          path: dist-release
+          merge-multiple: true
+      - name: Verify the checksums
+        working-directory: dist-release/release
+        run: |
+          echo "${SUMS_SHA256}  SHA256SUMS" | sha256sum -c --strict -
+          sha256sum -c --strict SHA256SUMS
+          # Every file is covered by SHA256SUMS, and the tarball is there.
+          test "$(find . -type f ! -name SHA256SUMS | wc -l)" = "$(wc -l < SHA256SUMS)"
+          test -f "relic-bridge-${VERSION}.tgz"
+      - name: Refuse a v<version> tag on another commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ref="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/v${VERSION}" 2>"$RUNNER_TEMP/gh-err.txt")" || {
+            grep -q 'HTTP 404' "$RUNNER_TEMP/gh-err.txt" || { cat "$RUNNER_TEMP/gh-err.txt" >&2; exit 1; }
+            echo "tag v${VERSION} does not exist yet"; exit 0
+          }
+          for _ in 1 2 3 4 5; do
+            type="$(jq -r .object.type <<<"$ref")"; sha="$(jq -r .object.sha <<<"$ref")"
+            [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::unexpected tag data"; exit 1; }
+            [[ "$type" == tag ]] || break
+            ref="$(gh api "repos/${GITHUB_REPOSITORY}/git/tags/${sha}" --jq '{object: .object}')"
+          done
+          [[ "$type" == commit && "$sha" == "$GITHUB_SHA" ]] || {
+            echo "::error::tag v${VERSION} points at ${type} ${sha}, not ${GITHUB_SHA}"; exit 1
+          }
+      # Decided here, not only by `plan`: "Re-run failed jobs" reuses the old plan outputs, so a rerun after a failed
+      # `gh release create` arrives with mode `publish` for a version that is already on npm.
+      - id: npm
+        name: Already on npm? Then the tarball must be identical
+        working-directory: dist-release/release
+        run: |
+          if published="$(npm view "relic-bridge@${VERSION}" dist.integrity 2>"$RUNNER_TEMP/npm-err.txt")"; then :; else
+            grep -q E404 "$RUNNER_TEMP/npm-err.txt" || { cat "$RUNNER_TEMP/npm-err.txt" >&2; exit 1; }
+            published=""
+          fi
+          if [[ -z "$published" ]]; then
+            [[ "$MODE" == publish ]] || { echo "::error::mode release but relic-bridge@${VERSION} is not on npm"; exit 1; }
+            echo "published=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          rebuilt="sha512-$(openssl dgst -sha512 -binary "relic-bridge-${VERSION}.tgz" | base64 -w0)"
+          [[ "$published" == "$rebuilt" ]] || {
+            echo "::error::rebuilt tarball differs from relic-bridge@${VERSION} on npm; finish the release by hand"
+            exit 1
+          }
+          echo "relic-bridge@${VERSION} is already on npm with this tarball; only the GitHub Release is missing"
+          echo "published=true" >> "$GITHUB_OUTPUT"
+      - name: Attest build provenance (tarball, SBOM, checksums)
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: dist-release/release/*
+      - name: Attest SBOM (tarball)
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: dist-release/release/relic-bridge-${{ needs.plan.outputs.version }}.tgz
+          sbom-path: dist-release/release/relic-bridge-${{ needs.plan.outputs.version }}.cdx.json
+      # npm >= 11.5.1 (bundled with Node 24) exchanges the OIDC token for a short-lived publish credential.
+      # --ignore-scripts: nothing from the tarball runs here.
+      - name: Publish (trusted publishing, provenance)
+        if: steps.npm.outputs.published == 'false'
+        run: npm publish "dist-release/release/relic-bridge-${VERSION}.tgz" --provenance --access public --ignore-scripts
+      - name: GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if draft="$(gh release view "v${VERSION}" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft 2>/dev/null)"; then
+            [[ "$draft" == false ]] || { echo "::error::a draft release v${VERSION} exists; delete it and rerun"; exit 1; }
+            echo "GitHub Release v${VERSION} already exists"; exit 0
+          fi
+          gh release create "v${VERSION}" dist-release/release/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "v${VERSION}" \
+            --notes-file dist-release/release-meta/release-notes.md

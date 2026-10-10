@@ -96,6 +96,15 @@ describe('runNrql: sync and fields', () => {
     });
   });
 
+  it('reports the NRQL actually sent and the duration (P1-05 meta)', async () => {
+    const { ctx: base, deps } = setup([fixtureResponse('nrql_sync_1')]);
+    let t = 1000;
+    const ctx = { ...base, clock: { now: () => (t += 250) } };
+    const out = (await runRawNrql(ctx, { nrql: 'SELECT * FROM Log', mode: 'sync' }, deps)) as NrqlComplete;
+    expect(out.nrql).toBe('SELECT * FROM Log LIMIT 10');
+    expect(out.durationMs).toBe(250);
+  });
+
   it('selects only lean fields and never chart URLs (T26)', () => {
     for (const doc of [ACCOUNT_NRQL, CROSS_ACCOUNT_NRQL, NRQL_PROGRESS]) {
       for (const field of ['staticChartUrl', 'embeddedChartUrl', 'eventDefinitions', 'suggestedQueries']) {
@@ -215,8 +224,29 @@ describe('runNrql: async', () => {
       expiresAt: new Date(EXPIRES).toISOString(),
       polls: 2,
       notes: [],
+      nrql: NRQL,
+      durationMs: 0,
     });
     expect(calls).toHaveLength(3);
+  });
+
+  it('ignores an unreadable resultExpiration instead of failing (review P1-R)', async () => {
+    const bad = json({
+      data: {
+        actor: {
+          account: {
+            nrql: {
+              ...progress(false),
+              queryProgress: { ...progress(false).queryProgress, resultExpiration: 1e300 },
+            },
+          },
+        },
+      },
+    });
+    const { ctx, deps } = setup([bad]);
+    const out = (await runRawNrql(ctx, { nrql: NRQL, mode: 'async' }, deps)) as NrqlPending;
+    expect(out.status).toBe('pending');
+    expect(out.expiresAt).toBeUndefined();
   });
 
   it('caps the wait between polls', async () => {

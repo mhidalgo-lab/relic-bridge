@@ -161,7 +161,8 @@ key      = grant.credential ?? project.defaultCredential   (must exist, else 403
   - max response bytes
 - **Output contract**: every tool returns a short human summary plus a structured result (`structuredContent` with an
   output schema where useful), plus `meta` (accounts, NRQL actually run, inspected count, truncated flag, NR UI link
-  when available).
+  when available) under `_meta["relic-bridge/result"]`. Data is capped and wrapped in an untrusted-data envelope
+  (`packages/core/src/output`, [output formats guide](guide/output-formats.md)).
 - **Errors**: stable error codes (`RB_AUTH_*`, `RB_LIMIT_*`, `RB_NERDGRAPH_*`, `RB_BUDGET_EXHAUSTED`, …), mapped to
   MCP tool errors with actionable messages for the agent. Secrets are never echoed.
 - **Observability**: structured JSON logs (redacted); optional OpenTelemetry export (Phase 7).
@@ -172,7 +173,7 @@ key      = grant.credential ?? project.defaultCredential   (must exist, else 403
 | Group | Tools | Phase |
 |---|---|---|
 | Query | `run_nrql`, `get_query_result` | 1 |
-| Discovery | `whoami`, `list_accounts`, `search_entities`, `get_entity`, `get_related_entities`, `list_entity_types`, `list_event_types`, `get_attributes`, `time_range` | 1 |
+| Discovery | `whoami`, `list_accounts`, `search_entities`, `get_entity`, `get_related_entities`, `list_entity_types`, `decode_entity_guid`, `list_event_types`, `get_attributes`, `time_range` | 1 |
 | Health | `get_golden_metrics` | 1 |
 | Alerting | `list_alert_policies`, `list_alert_conditions`, `list_recent_issues`, `search_incidents`, `list_synthetic_monitors` | 6 |
 | Incident response | `list_error_groups`, `list_change_events`, `analyze_deployment_impact` | 6 |

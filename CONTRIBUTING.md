@@ -53,7 +53,36 @@ See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) §2 and §8. In short:
 - Every commit must be signed off under the [Developer Certificate of Origin](https://developercertificate.org/):
   use `git commit -s`, which adds `Signed-off-by: Your Name <you@example.com>`. The commit-msg hook and CI check it.
 - Every source file starts with `// SPDX-License-Identifier: Apache-2.0` (after a shebang line, if any).
-- If a change affects a published package, add a changeset: `pnpm changeset`.
+- If a change affects the published `relic-bridge` package (`apps/cli`, or `packages/core`, which it bundles), add a
+  changeset for `relic-bridge`: `pnpm changeset`. Internal workspace packages are private and never published.
+
+## Releases
+
+Maintainers only. `.github/workflows/release.yml` does the work; nobody publishes from a laptop.
+
+1. Changesets merged into `main` make the release workflow open a **"chore(release): version packages"** PR
+   (`pnpm version-packages`: bumps `apps/cli/package.json`, writes `apps/cli/CHANGELOG.md`, syncs `VERSION` in
+   `packages/core/src/version.ts`).
+2. Merging that PR leaves no changesets and a version npm doesn't have, so `plan` returns `publish`. The release
+   jobs run only on `main` and only when the repository variable `RB_RELEASE_ENABLED` is `true`.
+3. **build** (`contents: read`, no OIDC token) installs dependencies and runs lint/typecheck/tests, the release build,
+   `scripts/check-package.ts` (tarball allowlist, manifest, secrets scan, packed-install smoke test, test hooks
+   compiled out), writes the release notes, a CycloneDX SBOM and `SHA256SUMS`, and uploads them as a workflow
+   artifact.
+4. **publish** waits for a reviewer to approve the protected `release` environment. It is the only job with
+   `id-token: write`, and it never checks out the repository, installs dependencies or runs project scripts (a test in
+   `scripts/test/release.test.ts` enforces this). It downloads the artifact by id, checks `SHA256SUMS` against the
+   digest `build` reported, refuses a `v<version>` tag that points at another commit, attests the files (Sigstore),
+   publishes the tarball with npm trusted publishing (`--provenance --ignore-scripts`, no npm token) and creates the
+   GitHub Release `v<version>` from the CHANGELOG entry.
+
+Reruns are safe. If `npm publish` succeeded but the GitHub Release did not, rerun the workflow (failed jobs or all
+jobs): `plan` returns `release` (on npm, no GitHub Release), and `publish` skips `npm publish` when npm already has
+the version, as long as the rebuilt tarball is byte-identical to the published one (`dist.integrity`). Otherwise it
+stops and the release must be finished by hand. A leftover draft release `v<version>` must be deleted first. `plan`
+fails when `v<version>` exists on a commit other than the one being released.
+
+Check the tarball locally at any time: `pnpm build && pnpm check:package` (`--skip-install` offline).
 
 ## Pull request checklist
 
@@ -73,9 +102,19 @@ See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) §2 and §8. In short:
 
 ## Testing
 
-- Unit and contract tests with Vitest (`pnpm test`).
-- NerdGraph is mocked with **sanitized** fixtures (`packages/core/test/fixtures/`). Never commit real data.
-- Optional live tests (`pnpm test:live`, from P1-12) read real data using your own key from env vars.
+- `pnpm test` runs unit and contract tests with Vitest. `pnpm test:coverage` adds the coverage gate for
+  `packages/core` (85% lines/statements/functions, 75% branches); CI runs it.
+- NerdGraph is never called over the network in tests. Tools take an injected `fetch`; tests replay **sanitized**
+  fixtures (`packages/core/test/fixtures/nerdgraph/`, loaded through `test/helpers/nerdgraph.ts`) or the routed mock in
+  `test/helpers/mock-nerdgraph.ts`. Never commit real data. (We use an injected `fetch` rather than msw: the core is
+  runtime-agnostic and has no HTTP-interception layer to hook.)
+- **MCP contract tests** (`packages/core/test/contract.test.ts`) iterate the tool registry and drive every tool through
+  an in-memory MCP client (`test/helpers/mcp.ts`): listing, annotations, schemas, a sample call whose structured output
+  must validate, and rejection of bad arguments. Adding a tool without a sample call in that file fails the suite.
+- **Live suite** (`pnpm test:live`, optional, read-only): set `RB_LIVE_API_KEY` (a User key), `RB_LIVE_ACCOUNT_ID` and
+  optionally `RB_LIVE_REGION` (`US` default, `EU`, `JP`). Without them every test is skipped. It never prints the key.
+  It is not part of `pnpm test` or PR CI; the manual `Live` workflow runs it from a protected `live` environment.
+- A new tool or route also needs negative authorization tests.
 
 ## License
 

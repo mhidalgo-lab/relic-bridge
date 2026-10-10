@@ -16,6 +16,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   tip into `main` in one go.
 - **Needs:** owner's merge strategy; then mark merged tasks `done` and run `pnpm tasks index`.
 - **Decision (2026-10-09):** merge one phase at a time, bottom-up into `main` (see phase-1.md, same entry).
+- **Outcome (2026-10-10):** merged into `main` phase by phase (#170-#176), squash merges, tasks marked done; no release in between — first release will be 0.7.0.
 
 ## P2-01 — Storage
 
@@ -441,7 +442,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   `pnpm test`; nothing in the repository settings was changed.
 - **Options:** add `Authorization suite` to the required status checks of `main`; rely on the `check` job (already
   runs it) being required.
-- **Needs:** the owner to add the required check once the stack is merged.
+- **Needs:** the owner to add the required check (now possible: the stack is merged).
 - **Decision (2026-10-09):** assumption accepted; owner action tracked in `docs/pending-decisions/owner-checklist.md`.
 
 ## P2-15 — Pass-through mode
@@ -495,9 +496,9 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 ### P2-13 — Release v0.2.0 and docs that name the pre-release
 - **Context:** the task scope listed "Release v0.2.0". Tags, npm/GHCR publishing and the changelog are the owner's call
   and the series is still stacked PRs, so nothing was released. The new docs say "pre-release: build from a clone"
-  (as the v0.1 docs do) and the compose example and Docker guide still reference image tag `0.1.0`.
+  (as the v0.1 docs do) and the compose example and Docker guide still reference image tag `0.1.0` (now `0.7.0`, the first release).
 - **Assumption made:** docs describe v0.2 features as implemented but not released (README says so).
-- **Needs:** after the stack is merged and v0.2.0 is cut: bump the image tag in `deploy/docker-compose.example.yml` and
+- **Needs:** the stack is merged; v0.2.0 will not be cut separately (the cut is the 0.7.0 release). At that release: bump the image tag in `deploy/docker-compose.example.yml` and
   the self-hosting guide, drop the pre-release notes, and tick the last P2-13 acceptance criterion.
 - **Decision (2026-10-09):** assumption accepted; owner action tracked in `docs/pending-decisions/owner-checklist.md`.
 

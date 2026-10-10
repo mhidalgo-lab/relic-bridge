@@ -69,6 +69,6 @@ fixture text (no New Relic data, no credentials) to the model.
 - Follow-up: P6-19 (trim input schema text, the larger part of `tools/list`).
 
 ## Out of scope
-- Cutting the v0.6.0 release (owner, after the Phase 6 stack is merged; see `docs/dev/releasing.md`).
+- Cutting the release (owner; the Phase 6 stack is merged, and the first release is 0.7.0; see `docs/dev/releasing.md`).
 - Running the LLM evals in CI (needs a paid key and a budget decision).
 - Tool renames or schema changes (breaking; a new task if an eval shows one is needed).

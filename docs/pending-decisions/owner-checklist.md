@@ -5,26 +5,35 @@ accounts, live keys). Each item names the pending-decision entries it closes. Ti
 drift, open a task.
 
 ## 0. Unblock CI and merging
-- [ ] Fix GitHub Actions billing/quota, then re-run CI on every PR from #60 upward (phase-4 "ALL — GitHub Actions quota").
-- [ ] Merge **one phase at a time**, bottom-up into `main`; mark merged tasks `done`, run `pnpm tasks index`
-      (all phases, "ALL — stacked PRs").
+- [x] Fix GitHub Actions billing/quota, then re-run CI on every PR from #60 upward (phase-4 "ALL — GitHub Actions quota").
+      Done 2026-10-10; Linux CI runs on the organization's self-hosted runners (P8-08).
+- [x] Merge **one phase at a time**, bottom-up into `main`; mark merged tasks `done`, run `pnpm tasks index`
+      (all phases, "ALL — stacked PRs"). Done 2026-10-10: #170-#176, plus #177 (P8-12).
+- [x] Allow GitHub Actions to create and approve pull requests (needed for the changesets Version PR; default workflow
+      permissions stay read). Done 2026-10-10.
 - [ ] Required checks / branch protection: authorization suite (P2-12), Workers runtime tests (P3-01), staging smoke
       (P3-06).
 
-## 1. Release v0.1 (Phase 1)
-- [ ] P1-16 merged before `RB_RELEASE_ENABLED=true`; implement P1-18 (npm staged publish) before the first publish.
+## 1. First release (0.7.0; covers Phases 1-7)
+Nothing has been published. 0.1.0-0.6.x were never released; the first published version is 0.7.0 (owner decision
+2026-10-10).
+- [ ] Merge (or regenerate) the changesets version PR as **0.7.0** (P8-14).
+- [x] P1-16 merged before `RB_RELEASE_ENABLED=true`; implement P1-18 (npm staged publish) before the first publish.
+      Done (both are on `main`).
 - [ ] Make the repository public (attestations, npm provenance; also unblocks the README Deploy button, P3-14).
 - [ ] **Before** making it public: set the repository variable `CI_RUNS_ON` to `["ubuntu-latest"]` (or restrict fork
       pull-request workflows); self-hosted runners must only serve a private repository (P8-08, THREAT_MODEL T18).
 - [ ] npm trusted publisher for `relic-bridge` (workflow `release.yml`, env `release`, staged publishing allowed);
       publishing access "Require 2FA and disallow tokens".
-- [ ] GitHub: `release` environment (required reviewer, `main` only), allow Actions to create PRs, tag ruleset `v*`,
+- [ ] GitHub: `release` environment (required reviewer, `main` only), tag ruleset `v*`,
       GHCR package visibility (P2-11, P2-19).
 - [ ] `live` environment: `main` only, required reviewer, secrets `RB_LIVE_*` (P1-12, P1-review).
 - [ ] Set `RB_RELEASE_ENABLED=true`, approve the deployment, approve the staged publish on npmjs.com, verify
       provenance (`npm audit signatures`, `gh attestation verify`).
 - [ ] Smoke test `npx -y relic-bridge --version` + quickstart on macOS, Windows, Linux; remove pre-release notes
       (P1-14, P1-15).
+- [ ] Also at this release: update the compose image tag to 0.7.0 (P2-13); Cloudflare Worker deploy (section 4,
+      P3-07); verify the admin panel and identity flows (section 5, P4-08); OAuth checks (section 6, P5-07).
 
 ## 2. Live New Relic runs (one User key)
 - [ ] `pnpm test:live` against an account with APM, logs, errors, deployments, synthetics, issues — closes P1-07
@@ -34,32 +43,29 @@ drift, open a task.
 - [ ] `claude mcp add` quickstart with a real key in Claude Code + one JSON-config client (P1-11, P1-14).
 - [ ] Open one NRQL and one issue link in US and EU; fix `packages/core/src/links.ts` (P7-03).
 
-## 3. Self-hosted and clients (v0.2)
+## 3. Self-hosted and clients
 - [ ] Walk through the self-hosting guide on the three devices; run each client snippet with a real token; fix
       `docs/guide/clients.md` (P2-10, P2-13, P4-06).
-- [ ] Cut v0.2.0 (update the compose image tag) (P2-13).
 
-## 4. Cloudflare real account (v0.3)
+## 4. Cloudflare real account
 - [ ] `pnpm cf:setup` on a clean account incl. `--keep-vars`, `--name`, `--sign-in`, two Workers with separate rate
       limit counters; remote D1 applies migrations (P3-02, P3-05, P3-14, P4-09, review entries).
 - [ ] Staging Worker + `STAGING_URL` / `STAGING_ADMIN_TOKEN`; decide whether nightly also deploys (P3-06).
 - [ ] Master-key rotation runbook once via `wrangler secret bulk` (P3-11); optional cold-start CPU re-measure and
-      benchmark baseline refresh on GitHub runners (P3-03, P3-10).
-- [ ] Cut v0.3.0 (P3-07).
+      benchmark baseline refresh (the bench job runs on the `CI_RUNS_ON` runners) (P3-03, P3-10).
 
-## 5. Identity (v0.4)
+## 5. Identity
 - [ ] Google and GitHub OAuth apps end to end, optionally Cloudflare Access (P4-01).
-- [ ] Cut v0.4.0 (separately or as one train with v0.2/v0.3) (P4-08).
 
-## 6. OAuth and phone (v0.5)
+## 6. OAuth and phone
 - [ ] Run the P5-06 checklist on claude.ai web, a phone, Desktop, Claude Code, Cursor/VS Code; update the **M** cells
       in `docs/reference/client-compatibility.md` and the unverified marks in `docs/guide/oauth-phone.md` (P5-06, P5-07).
 - [ ] Step 5: does `oauth.token.replay` appear? Re-check the 30 s reuse window (P5-09, ADR-0013).
 - [ ] After step 7 confirms CIMD alone works: set `RB_OAUTH_DCR=off` (or redirect hosts `claude.ai`) on your
       deployment (P5-03).
-- [ ] Check client-removal budgets against D1 on a real Worker (P5-11). Cut v0.5.0.
+- [ ] Check client-removal budgets against D1 on a real Worker (P5-11).
 
-## 7. Power features (v0.7+)
+## 7. Power features
 - [ ] MCP Apps chart in claude.ai / Desktop (theme) (P7-04, P7-16); a real Tasks client (P7-13, P7-21..P7-23).
 - [ ] `keychain set/status/delete` on macOS, Windows, Linux desktop (P7-11).
 - [ ] Real Node→Worker export/import (P7-06); OTLP export and `/v1/logs` against New Relic (P7-08, P7-18).

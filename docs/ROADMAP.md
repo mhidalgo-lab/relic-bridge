@@ -3,7 +3,7 @@
 > relic-bridge — an unofficial, open-source MCP server that gives AI agents access to New Relic through **NerdGraph**
 > using only a User API key. Runs locally (stdio / Node / Docker) or as a **Cloudflare Worker** reachable from all your devices.
 
-Status: **Phase 7 in review** (2026-10-07; Phases 1-7 built as stacked PRs, not yet merged). Architecture: [ARCHITECTURE.md](ARCHITECTURE.md) · Decisions: [adr/](adr/) ·
+Status: **Phases 0-7 merged on `main`** (#170-#177), **Phase 8 in progress**; nothing is released yet and the first release will be **0.7.0** (2026-10-10). Architecture: [ARCHITECTURE.md](ARCHITECTURE.md) · Decisions: [adr/](adr/) ·
 Facts & limits: [RESEARCH.md](RESEARCH.md) · Security: [THREAT_MODEL.md](THREAT_MODEL.md) · Task rules: [tasks/README.md](tasks/README.md)
 
 ## Guiding principles
@@ -28,6 +28,9 @@ Facts & limits: [RESEARCH.md](RESEARCH.md) · Security: [THREAT_MODEL.md](THREAT
 | **6** | Tool parity | Alerts, issues, errors inbox, deployments, logs, APM, JVM, Kafka, synthetics, dashboards, reports, prompts, resources | v0.6 |
 | **7** | Power features | Charts (MCP Apps), cache, deep links, doctor, import/export, Claude Code plugin, self-monitoring, opt-in write tools, DO limiter, keychain, quotas, Tasks | v0.7–0.9 |
 | **8** | Hardening + launch | Final threat-model review, independent security review, benchmarks, docs site, support policy | **v1.0** |
+
+> Release numbers per phase are the original plan. Nothing was published along the way: phases 1-7 ship together as the
+> first release, **0.7.0**; v1.0 follows Phase 8.
 
 ```mermaid
 flowchart LR
@@ -54,10 +57,12 @@ flowchart LR
 | 2026-10-01 | BYO-key recommended for teams (NerdGraph concurrency is per NR user) | RESEARCH §2, ADR-0008 |
 | 2026-10-03 | Phase 0 spikes complete. **GO for Phase 1.** claude.ai / mobile client checks deferred to P5-06 | P0-11 |
 | 2026-10-03 | Phase 1 (core + stdio) and Phase 2 (access model + HTTP) built; open owner questions in `pending-decisions/` | [reviews](reviews/) |
+| 2026-10-09 | Owner reviewed all pending decisions (ADR-0016); repository moved to `mhidalgo-lab/relic-bridge`; Linux CI runs on the organization's self-hosted runners | [pending-decisions](pending-decisions/), ADR-0016, P8-08, P8-13 |
+| 2026-10-10 | Phases landed on `main` one at a time via squash merges (#170-#177); nothing was released in between, so the first release is numbered **0.7.0** (v1.0 after Phase 8) | P8-13, P8-14 |
 
 ## Task index
 
-Generated from task front matter (`pnpm tasks index` once P0-05 lands). Status lives in each task file.
+Generated from task front matter (`pnpm tasks index`). Status lives in each task file.
 
 <!-- tasks:start -->
 ### Phase 0
@@ -275,5 +280,6 @@ Generated from task front matter (`pnpm tasks index` once P0-05 lands). Status l
 | P8-09 | [Fix EPERM temp-dir cleanup in the SQLite tests on Windows](tasks/phase-8-hardening-launch/P8-09-windows-sqlite-test-cleanup.md) | medium | — | done |
 | P8-10 | [Clear the failing dependency audit (sharp and two other dev-only advisories)](tasks/phase-8-hardening-launch/P8-10-sharp-advisory.md) | high | — | done |
 | P8-11 | [Make the concurrent task-poll test independent of which poll wins](tasks/phase-8-hardening-launch/P8-11-task-poll-test-order.md) | low | P7-29 | done |
-| P8-12 | [Full-history checkout for the release Version PR job](tasks/phase-8-hardening-launch/P8-12-version-pr-full-clone.md) | high | P1-16 | review |
+| P8-12 | [Full-history checkout for the release Version PR job](tasks/phase-8-hardening-launch/P8-12-version-pr-full-clone.md) | high | P1-16 | done |
+| P8-13 | [Point everything at mhidalgo-lab/relic-bridge and refresh docs after all phases landed](tasks/phase-8-hardening-launch/P8-13-repo-move-and-docs-refresh.md) | high | P8-12 | review |
 <!-- tasks:end -->

@@ -45,8 +45,10 @@ owner: "claude-agent"
       the npm trusted publisher, the `release` environment and an actual release; see pending decisions)*
 
 ## Status notes
+- The merge to `main` is done (#170, 2026-10-10). The first release will be numbered 0.7.0 (owner decision
+  2026-10-10), not v0.1.0.
 - Not published on purpose (autonomous run): the last criterion needs the npm trusted publisher, the protected
-  `release` environment, `RB_RELEASE_ENABLED=true`, a public repo and a merge to `main`. The owner's checklist is in
+  `release` environment, `RB_RELEASE_ENABLED=true`, a public repo (the merge to `main` is done). The owner's checklist is in
   `docs/pending-decisions/phase-1.md` (P1-15). Local dry-run results are recorded there too.
 
 ## Security notes

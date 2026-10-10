@@ -75,5 +75,5 @@ Secrets (never accepted as option values):
   A new device token is printed once on stdout (snippets for MCP clients go to stderr).
 
 Exit codes: 0 ok, 1 failed, 2 usage error.
-Docs: https://github.com/matiashidalgo/relic-bridge/blob/main/docs/reference/cli.md
+Docs: https://github.com/mhidalgo-lab/relic-bridge/blob/main/docs/reference/cli.md
 `;

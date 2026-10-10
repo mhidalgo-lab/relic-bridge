@@ -16,6 +16,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   tip into `main` in one go.
 - **Needs:** owner's merge strategy; then mark merged tasks `done` and run `pnpm tasks index`.
 - **Decision (2026-10-09):** merge **one phase at a time**, bottom-up into `main` (retarget each PR after its parent merges), mark merged tasks `done`, run `pnpm tasks index`, release, then move to the next phase.
+- **Outcome (2026-10-10):** merged into `main` phase by phase (#170-#176), squash merges, tasks marked done; no release in between — first release will be 0.7.0.
 
 ## P1-05 — Output shaping
 
@@ -219,19 +220,19 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Options:** environment approval (current) vs npm **staged publishing** (`npm stage publish`, approve with 2FA on
   npmjs.com) or both; publish `@relic-bridge/core` as a library later (needs its own build and a new task).
 - **Needs (owner, in order):**
-  1. Merge the stack into `main` (the release workflow only runs there).
+  1. Merge the stack into `main` (the release workflow only runs there). *(done 2026-10-10, #170-#176)*
   2. Make the repository public before the first release (attestations in private repos need GitHub Enterprise; npm
      provenance links to a public source repo).
-  3. npm: on `relic-bridge` → *Settings → Trusted publisher*, add GitHub Actions `matiashidalgo/relic-bridge`, workflow
+  3. npm: on `relic-bridge` → *Settings → Trusted publisher*, add GitHub Actions `mhidalgo-lab/relic-bridge`, workflow
      `release.yml`, environment `release`, allowed actions `npm stage publish` only (or `npm trust github relic-bridge
-     --repo matiashidalgo/relic-bridge --file release.yml --env release --allow-stage-publish`; P1-18). Then set *Publishing access* to "Require 2FA and disallow tokens".
+     --repo mhidalgo-lab/relic-bridge --file release.yml --env release --allow-stage-publish`; P1-18). Then set *Publishing access* to "Require 2FA and disallow tokens".
   4. GitHub: create environment `release` with a required reviewer (you), deployment branches limited to `main`; enable
-     *Settings → Actions → Allow GitHub Actions to create and approve pull requests* (version PRs); add a tag ruleset
+     *Settings → Actions → Allow GitHub Actions to create and approve pull requests* (version PRs; done 2026-10-10); add a tag ruleset
      protecting `v*` (only the release workflow / admins create them).
   5. Set repository variable `RB_RELEASE_ENABLED=true`, push/merge to `main` (or run the workflow manually on `main`),
      approve the `release` deployment, approve the staged version on npmjs.com (*Staged Packages*), run the workflow again
      to create the GitHub Release (docs/dev/releasing.md), and check the npm page shows the provenance badge
-     (`npm audit signatures`, `gh attestation verify relic-bridge-0.1.0.tgz --repo matiashidalgo/relic-bridge`).
+     (`npm audit signatures`, `gh attestation verify relic-bridge-0.1.0.tgz --repo mhidalgo-lab/relic-bridge`).
   6. Smoke test on macOS, Windows and Linux: `npx -y relic-bridge --version`, then the quickstart with a real key.
   7. After it is live: remove the pre-release notes in `docs/guide/quickstart-local.md`, `docs/guide/clients.md`
      and the root `README.md` Install section, tick the last P1-15 criterion and mark it `done`.

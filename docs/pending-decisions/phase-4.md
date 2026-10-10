@@ -16,6 +16,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   tip into `main` in one go.
 - **Needs:** owner's merge strategy; then mark merged tasks `done` and run `pnpm tasks index`.
 - **Decision (2026-10-09):** merge one phase at a time, bottom-up into `main` (see phase-1.md, same entry).
+- **Outcome (2026-10-10):** merged into `main` phase by phase (#170-#176), squash merges, tasks marked done; no release in between — first release will be 0.7.0.
 
 ### ALL — GitHub Actions quota exhausted
 - **Context:** From PR #60 onward, CI did not run: GitHub Actions jobs fail within seconds because of the account's
@@ -24,6 +25,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   `pnpm bench:cpu`, the Docker image build when available) was run locally only.
 - **Options:** fix billing, then re-run CI on every PR from #60 onward (bottom of the stack first).
 - **Needs:** owner: fix billing and re-run CI on all PRs from #60 onward.
+- **Outcome (2026-10-10):** billing fixed, CI re-run; all phases passed CI when they landed on `main`.
 - **Decision (2026-10-09):** assumption accepted; owner action tracked in `docs/pending-decisions/owner-checklist.md`.
 
 ## P4-01 — Identity providers
@@ -175,7 +177,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   `Sec-Fetch-Site: same-origin` plus CSRF token instead (weaker, not chosen).
 - **Needs:** owner: confirm the policy change, and choose when to run the browser job in CI. Screenshots show demo data
   only; regenerate with `pnpm e2e:screenshots` after UI changes.
-- **Decision (2026-10-09):** confirmed (manual for now, `same-origin` Referrer-Policy kept); weekly schedule added by P4-24 once Actions billing works.
+- **Decision (2026-10-09):** confirmed (manual for now, `same-origin` Referrer-Policy kept); weekly schedule added by P4-24 (done; billing is fixed).
 
 ### P4-04 — Reloading the one-time token page issues another token
 - **Context:** A new token is rendered on the answer to the POST that created it (never in a redirect, URL or
@@ -297,7 +299,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Decision (2026-10-09):** confirmed as assumed.
 
 ### P4-07 — ZAP baseline scan moved to P4-12
-- **Context:** The original P4-07 scope included a ZAP baseline scan in CI; CI is unavailable (billing).
+- **Context:** The original P4-07 scope included a ZAP baseline scan in CI; CI was unavailable (billing; fixed 2026-10-10).
 - **Assumption made:** Manual review plus probe suites now; the scan is task P4-12 (low priority).
 - **Needs:** owner choice of CI job vs. manual run when CI is back.
 - **Decision (2026-10-09):** resolved: ZAP scan moved to P4-12 (`.github/workflows/zap.yml`).
@@ -404,7 +406,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Assumption made:** `.github/workflows/zap.yml` is `workflow_dispatch` only. It has not run on GitHub; the same command
   ran locally via Docker Desktop (WSL), with a relay container because the VM's localhost is not the host's.
 - **Needs:** owner choice: keep manual, or add a weekly `schedule` (like `bench.yml`) once minutes allow.
-- **Decision (2026-10-09):** **change:** weekly schedule for ZAP (and browser E2E) once Actions billing is fixed: P4-24.
+- **Decision (2026-10-09):** **change:** weekly schedule for ZAP (and browser E2E) once Actions billing is fixed: P4-24 (done).
 
 ### P4-12 — Only Medium/High alerts fail the run
 - **Assumption made:** Low and Informational alerts are printed; the Informational ones seen are ignored with reasons.

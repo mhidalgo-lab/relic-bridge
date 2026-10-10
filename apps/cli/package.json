@@ -1,17 +1,17 @@
 {
   "name": "relic-bridge",
   "version": "0.1.0",
-  "mcpName": "io.github.matiashidalgo/relic-bridge",
+  "mcpName": "io.github.mhidalgo-lab/relic-bridge",
   "description": "Unofficial MCP server for New Relic via NerdGraph: query telemetry from AI agents with a User API key",
   "license": "Apache-2.0",
   "author": "Matias Hidalgo",
-  "homepage": "https://github.com/matiashidalgo/relic-bridge#readme",
+  "homepage": "https://github.com/mhidalgo-lab/relic-bridge#readme",
   "bugs": {
-    "url": "https://github.com/matiashidalgo/relic-bridge/issues"
+    "url": "https://github.com/mhidalgo-lab/relic-bridge/issues"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/matiashidalgo/relic-bridge.git",
+    "url": "git+https://github.com/mhidalgo-lab/relic-bridge.git",
     "directory": "apps/cli"
   },
   "type": "module",

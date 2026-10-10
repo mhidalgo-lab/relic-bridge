@@ -361,5 +361,5 @@ Master key (serve / keys rotate / credential revalidate):
 Keys are never accepted as command-line flags. MCP clients don't reliably pass your
 shell environment to stdio servers: set NEW_RELIC_* in the client's "env" block.
 
-Docs: https://github.com/matiashidalgo/relic-bridge/blob/main/docs/guide/configuration.md
+Docs: https://github.com/mhidalgo-lab/relic-bridge/blob/main/docs/guide/configuration.md
 `;

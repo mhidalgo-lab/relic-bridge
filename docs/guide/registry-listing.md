@@ -41,7 +41,7 @@ at the first tool call. Leave the setting off if your clients behave better with
 The repository root holds [`server.json`](../../server.json) for the
 [official MCP Registry](https://github.com/modelcontextprotocol/registry) (schema `2025-12-11`): the npm package
 `relic-bridge` over stdio, with its environment variables (`NEW_RELIC_API_KEY` marked secret). The npm package carries
-the matching `mcpName` (`io.github.matiashidalgo/relic-bridge`), which the registry checks to verify the namespace.
+the matching `mcpName` (`io.github.mhidalgo-lab/relic-bridge`), which the registry checks to verify the namespace.
 `node scripts/release.ts sync-version` keeps its versions equal to the CLI package's, and `pnpm lint` checks it.
 
 There is no `remotes` entry: every self-hosted deployment has its own URL. Publishing (`mcp-publisher login github`,

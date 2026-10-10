@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "description": "Investigate New Relic with relic-bridge: MCP server config, investigation skills and slash commands.",
   "author": { "name": "relic-bridge contributors" },
-  "homepage": "https://github.com/matiashidalgo/relic-bridge",
+  "homepage": "https://github.com/mhidalgo-lab/relic-bridge",
   "license": "Apache-2.0",
   "keywords": ["new-relic", "nerdgraph", "nrql", "observability", "mcp"]
 }

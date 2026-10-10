@@ -20,18 +20,18 @@ JSON-config clients use `"command": "npx", "args": ["-y", "relic-bridge"]` with 
 
 ## Documentation
 
-- [Local quickstart](https://github.com/matiashidalgo/relic-bridge/blob/main/docs/guide/quickstart-local.md)
-- [Client setup](https://github.com/matiashidalgo/relic-bridge/blob/main/docs/guide/clients.md) ·
-  [configuration](https://github.com/matiashidalgo/relic-bridge/blob/main/docs/guide/configuration.md) ·
-  [security basics](https://github.com/matiashidalgo/relic-bridge/blob/main/docs/guide/security-basics.md) ·
-  [tool reference](https://github.com/matiashidalgo/relic-bridge/blob/main/docs/reference/tools.md)
-- [Changelog](https://github.com/matiashidalgo/relic-bridge/blob/main/apps/cli/CHANGELOG.md)
+- [Local quickstart](https://github.com/mhidalgo-lab/relic-bridge/blob/main/docs/guide/quickstart-local.md)
+- [Client setup](https://github.com/mhidalgo-lab/relic-bridge/blob/main/docs/guide/clients.md) ·
+  [configuration](https://github.com/mhidalgo-lab/relic-bridge/blob/main/docs/guide/configuration.md) ·
+  [security basics](https://github.com/mhidalgo-lab/relic-bridge/blob/main/docs/guide/security-basics.md) ·
+  [tool reference](https://github.com/mhidalgo-lab/relic-bridge/blob/main/docs/reference/tools.md)
+- [Changelog](https://github.com/mhidalgo-lab/relic-bridge/blob/main/apps/cli/CHANGELOG.md)
 
 ## Verifying a release
 
 Every version is published from GitHub Actions with npm provenance (`npm audit signatures`). The GitHub Release for
 each version carries the same tarball, a CycloneDX SBOM and `SHA256SUMS`, all with a GitHub build attestation
-(`gh attestation verify relic-bridge-<version>.tgz --repo matiashidalgo/relic-bridge`).
+(`gh attestation verify relic-bridge-<version>.tgz --repo mhidalgo-lab/relic-bridge`).
 
 ## Disclaimer
 

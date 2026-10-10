@@ -276,4 +276,5 @@ Generated from task front matter (`pnpm tasks index` once P0-05 lands). Status l
 | P8-10 | [Clear the failing dependency audit (sharp and two other dev-only advisories)](tasks/phase-8-hardening-launch/P8-10-sharp-advisory.md) | high | — | done |
 | P8-11 | [Make the concurrent task-poll test independent of which poll wins](tasks/phase-8-hardening-launch/P8-11-task-poll-test-order.md) | low | P7-29 | done |
 | P8-12 | [Full-history checkout for the release Version PR job](tasks/phase-8-hardening-launch/P8-12-version-pr-full-clone.md) | high | P1-16 | review |
+| P8-13 | [Point everything at mhidalgo-lab/relic-bridge and refresh docs after all phases landed](tasks/phase-8-hardening-launch/P8-13-repo-move-and-docs-refresh.md) | high | P8-12 | in-progress |
 <!-- tasks:end -->

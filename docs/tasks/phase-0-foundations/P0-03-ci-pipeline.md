@@ -37,5 +37,5 @@ T18 (supply chain). Document the workflow security rules in CONTRIBUTING.
 ## Progress notes
 - 2026-10-01: `.github/workflows/ci.yml` (Node 24 + 26 matrix, lint/typecheck/test/build/license check, DCO, PR title,
   actionlint), all actions pinned by SHA, harden-runner (audit mode), `persist-credentials: false`. actionlint passes locally.
-- 2026-10-02: verified on private repo `matiashidalgo/relic-bridge`: PR #1 (unsigned commit) → DCO failed, every other
+- 2026-10-02: verified on private repo `matiashidalgo/relic-bridge` (now `mhidalgo-lab/relic-bridge`): PR #1 (unsigned commit) → DCO failed, every other
   check passed; main is green. Private-repo limits are documented in `docs/security/repo-settings.md`.

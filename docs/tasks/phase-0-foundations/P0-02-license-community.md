@@ -40,4 +40,4 @@ SECURITY.md must never ask reporters to open public issues.
 - 2026-10-01: LICENSE (official text), NOTICE, README, CONTRIBUTING (DCO), CODE_OF_CONDUCT (Contributor Covenant 2.1),
   SECURITY.md (GitHub private reporting), PR + issue templates, `scripts/check-spdx.ts`.
 - Code of Conduct contact set to `me@mhidalgo.ar` (2026-10-02). GitHub repo
-  `matiashidalgo/relic-bridge` created (private) for badges and links.
+  `matiashidalgo/relic-bridge` created (private) for badges and links (moved to the `mhidalgo-lab` organization on 2026-10-09: `mhidalgo-lab/relic-bridge`).

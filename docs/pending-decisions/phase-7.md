@@ -130,7 +130,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Options:** publish to a community marketplace and the MCP Registry; use plugin `userConfig` prompts instead of
   environment variables; bundle both servers; add the plugin to the release version sync.
 - **Needs:** owner decides whether/where to publish (after the v0.1 npm release), the GitHub owner/repo name in
-  `plugin.json` (`homepage` assumes `matiashidalgo/relic-bridge`), and whether to sync the plugin version in releases.
+  `plugin.json` (`homepage` assumes `mhidalgo-lab/relic-bridge`), and whether to sync the plugin version in releases.
   Also a real `/plugin install` smoke test with a live key, which this run could not do.
 - **Decision (2026-10-09):** assumption accepted; owner action tracked in `docs/pending-decisions/owner-checklist.md`.
 
@@ -270,7 +270,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   `/.well-known/relic-bridge/tools.json`. The list is the built-in read-only tools, not the deployment's affordable
   subset (the Workers Free plan budget may hide a few tools after sign-in) and never write tools. (3) `server.json`
   lists the npm package only (no `remotes`, no OCI image: the image is a self-hosted HTTP server that needs a master key
-  and a URL, which the registry cannot describe usefully), under `io.github.matiashidalgo/relic-bridge`. (4) No MCP
+  and a URL, which the registry cannot describe usefully), under `io.github.mhidalgo-lab/relic-bridge`. (4) No MCP
   Server Card (SEP-2127 is a draft with no settled path).
 - **Options:** keep stdio failing fast (setup mode behind a flag such as `--list-only`); serve the public catalog on a
   separate path (e.g. `/mcp`) instead of the project routes; include the deployment's affordable subset; add the OCI

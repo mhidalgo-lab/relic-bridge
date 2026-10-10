@@ -167,7 +167,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
      (d) `curl <url>/health` answers and the first request creates the schema (migrations incl. any `PRAGMA foreign_keys`
      statements accepted by real D1: RESEARCH §12 says the D1 driver skips them, confirm no boot error);
      (e) re-run `pnpm cf:setup`: it keeps the secrets and redeploys.
-  2. Deploy button: open `https://deploy.workers.cloudflare.com/?url=https://github.com/matiashidalgo/relic-bridge/tree/main/apps/worker`
+  2. Deploy button: open `https://deploy.workers.cloudflare.com/?url=https://github.com/mhidalgo-lab/relic-bridge/tree/main/apps/worker`
      (needs the repo public; use a fork before). Check that the build can reach `../../packages/*` (monorepo; the
      alias in `wrangler.jsonc`) and that the root `pnpm install` runs. If not, the subdirectory build needs a build command
      such as `pnpm install --frozen-lockfile && npx wrangler deploy` in the setup page, or the button should be dropped.

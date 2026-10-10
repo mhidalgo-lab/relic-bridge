@@ -47,7 +47,7 @@ describe('server.json (MCP Registry metadata)', () => {
     expect(doc.name.length).toBeGreaterThanOrEqual(3);
     expect(doc.name.length).toBeLessThanOrEqual(200);
     // A GitHub namespace: verified by signing in to the registry as that account.
-    expect(doc.name.startsWith('io.github.matiashidalgo/')).toBe(true);
+    expect(doc.name.startsWith('io.github.mhidalgo-lab/')).toBe(true);
     expect(doc.description.length).toBeGreaterThan(0);
     expect(doc.description.length).toBeLessThanOrEqual(100);
     expect((doc.title ?? '').length).toBeLessThanOrEqual(100);
@@ -55,7 +55,7 @@ describe('server.json (MCP Registry metadata)', () => {
     expect(doc.version).toMatch(/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/);
     expect(() => new URL(doc.websiteUrl ?? '')).not.toThrow();
     expect(doc.repository).toMatchObject({
-      url: 'https://github.com/matiashidalgo/relic-bridge',
+      url: 'https://github.com/mhidalgo-lab/relic-bridge',
       source: 'github',
     });
     // Each deployment has its own URL: no `remotes` entry (P7-14 scope).

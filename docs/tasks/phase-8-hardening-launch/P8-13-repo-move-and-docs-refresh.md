@@ -2,7 +2,7 @@
 id: P8-13
 title: Point everything at mhidalgo-lab/relic-bridge and refresh docs after all phases landed
 phase: 8
-status: in-progress
+status: review
 priority: high
 depends_on: [P8-12]
 adr: []
@@ -27,9 +27,9 @@ describe the real state: everything merged, nothing released yet, first release 
   that say "planned"/"until v0.1", repo-settings and THREAT_MODEL T18 runner list.
 
 ## Acceptance criteria
-- [ ] No reference to the old repository path remains outside dated history.
-- [ ] Docs describe: Phases 0-7 on `main`, Phase 8 in progress, nothing published, first release 0.7.0.
-- [ ] `pnpm lint && pnpm typecheck` pass; affected tests pass.
+- [x] No reference to the old repository path remains outside dated history.
+- [x] Docs describe: Phases 0-7 on `main`, Phase 8 in progress, nothing published, first release 0.7.0.
+- [x] `pnpm lint && pnpm typecheck` pass; affected tests pass.
 
 ## Security notes
 T18: repo-settings guidance matches the enabled "Actions may create PRs" setting (needed for the Version PR) and the

@@ -31,7 +31,7 @@ no-referrer`); the fix (`same-origin` on HTML pages) is part of this task.
 
 ## Acceptance criteria
 - [x] The spec passes locally (desktop and 320 px) with zero CSP / Trusted Types violations and console errors. The CI
-      setup is a manual workflow that could not be run (Actions billing).
+      setup is a manual workflow that could not be run when this task was done (Actions billing, since fixed); `e2e.yml` now runs weekly (P4-24) and on demand.
 - [x] The admin guide shows current screenshots (`docs/guide/images/`, light and dark; tokens and snippets masked).
 
 ## Security notes

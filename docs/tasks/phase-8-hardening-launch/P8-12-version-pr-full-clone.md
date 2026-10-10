@@ -2,7 +2,7 @@
 id: P8-12
 title: Full-history checkout for the release Version PR job
 phase: 8
-status: review
+status: done
 priority: high
 depends_on: [P1-16]
 adr: []
@@ -22,8 +22,8 @@ checkout uses `persist-credentials: false`, and the repository is private (`coul
 
 ## Acceptance criteria
 - [x] `version` job checks out full history without persisted credentials; release workflow tests pass.
-- [ ] After merge, the `Version PR` job on `main` opens (or updates) the version PR — needs the repository setting
-      "Allow GitHub Actions to create and approve pull requests" (owner checklist §1).
+- [x] After merge (and once the setting was enabled), the `Version PR` job on `main` opens (or updates) the version PR — needs the repository setting
+      "Allow GitHub Actions to create and approve pull requests" (owner checklist §1). Version PR #178 was opened.
 
 ## Security notes
 T18: no credential is persisted; the job's permissions are unchanged.

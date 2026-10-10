@@ -230,8 +230,7 @@ jq -n --arg k "$NR_KEY" '{label:"main", region:"US", apiKey:$k}' |
 ## Docker
 
 The image is `ghcr.io/mhidalgo-lab/relic-bridge` (linux/amd64 and linux/arm64), published with each GitHub Release as
-`:<version>` (and `:latest` for stable releases). **No image is published yet**: `0.1.0` in the examples below stands for
-the first published version, so until then build the image yourself (see the end of this section). It is built from distroless Node 24: no shell, no package manager, runs as
+`:<version>` (and `:latest` for stable releases). **No image is published yet**: it is published with the first release, 0.7.0, which the examples below use, so until then build the image yourself (see the end of this section). It is built from distroless Node 24: no shell, no package manager, runs as
 uid/gid `65532`, and works with a read-only root filesystem. Its entrypoint is the CLI, so everything in this guide
 applies: `docker run IMAGE keys generate`, `docker run IMAGE serve`, `docker exec CONTAINER /nodejs/bin/node /app/dist/index.mjs db backup /data/backup.db`.
 

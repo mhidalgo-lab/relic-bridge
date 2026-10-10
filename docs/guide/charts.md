@@ -77,5 +77,5 @@ answer in the conversation is still complete; please report it with the client n
 
 ## Turning it off
 
-There is no switch yet: clients without MCP Apps ignore the view. An operator switch and capability-based advertising
-are planned (P7-16). A connection without `run_nrql` never sees the view.
+Set `RB_MCP_APPS=off` to remove the view for every client (see above); clients without MCP Apps ignore it anyway. A
+connection without `run_nrql` never sees the view.

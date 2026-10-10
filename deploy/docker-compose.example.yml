@@ -1,7 +1,7 @@
 # relic-bridge behind Caddy (automatic TLS). Copy this directory, then:
 #
 #   1. Create the master key file, readable only by the image user (uid 65532):
-#        docker run --rm ghcr.io/mhidalgo-lab/relic-bridge:0.1.0 keys generate 2>/dev/null > master.key
+#        docker run --rm ghcr.io/mhidalgo-lab/relic-bridge:0.7.0 keys generate 2>/dev/null > master.key
 #        sudo chown 65532:65532 master.key && sudo chmod 0400 master.key     # see docs/guide/self-hosting.md
 #   2. Put MCP_HOSTNAME=mcp.example.com in a .env file next to this one.
 #   3. docker compose -f docker-compose.example.yml up -d
@@ -9,8 +9,8 @@
 # Back up master.key separately from the data volume: losing it means re-entering every New Relic key.
 services:
   relic-bridge:
-    # Pin the digest of the release you verified (cosign verify, see the self-hosting guide): ...:0.1.0@sha256:...
-    image: ghcr.io/mhidalgo-lab/relic-bridge:0.1.0
+    # Pin the digest of the release you verified (cosign verify, see the self-hosting guide): ...:0.7.0@sha256:...
+    image: ghcr.io/mhidalgo-lab/relic-bridge:0.7.0
     restart: unless-stopped
     read_only: true
     cap_drop: [ALL]

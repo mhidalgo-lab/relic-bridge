@@ -5,7 +5,7 @@ see [remote servers](#remote-servers-self-hosted-http). For stdio, read the [loc
 first for the key, account id and region. In the examples replace `<your User key>` with your `NRAK-…` key and
 `1234567` with your account id.
 
-> **Pre-release.** Until v0.1 is on npm, replace `npx -y relic-bridge` with
+> **Pre-release.** Until relic-bridge is published to npm (first release: 0.7.0), replace `npx -y relic-bridge` with
 > `node /absolute/path/to/relic-bridge/apps/cli/dist/index.mjs` (after `pnpm install && pnpm build`). In JSON configs
 > that means `"command": "node"` and `"args": ["/absolute/path/to/relic-bridge/apps/cli/dist/index.mjs"]`.
 

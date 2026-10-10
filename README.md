@@ -1,9 +1,10 @@
 # relic-bridge
 
-> **Status: alpha.** v0.1 (local stdio) is the released line. The self-hosted multi-device server (Phase 2, v0.2), the
-> Cloudflare Worker (Phase 3, v0.3) and the sign-in and admin panel (Phase 4, v0.4) are implemented on the development
-> branches and documented here; none of them is released yet. OAuth (Phase 5, v0.5) is implemented and documented for
-> claude.ai and Claude mobile, but has **not** been verified with the real apps ([compatibility](docs/reference/client-compatibility.md)).
+> **Status: alpha, not released yet.** Phases 1-7 (local stdio, self-hosted HTTP, Cloudflare Worker, sign-in and admin
+> panel, OAuth, more tools, power features) are on `main`. Nothing is published yet (no npm package, image or Worker
+> deploy); the first release will be **0.7.0**, and v1.0 follows Phase 8 (hardening and launch). OAuth is implemented
+> and documented for claude.ai and Claude mobile, but has **not** been verified with the real apps
+> ([compatibility](docs/reference/client-compatibility.md)).
 
 [![CI](https://github.com/mhidalgo-lab/relic-bridge/actions/workflows/ci.yml/badge.svg)](https://github.com/mhidalgo-lab/relic-bridge/actions/workflows/ci.yml)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/mhidalgo-lab/relic-bridge/badge)](https://scorecard.dev/viewer/?uri=github.com/mhidalgo-lab/relic-bridge)
@@ -13,14 +14,16 @@ An open-source [Model Context Protocol](https://modelcontextprotocol.io) server 
 Claude Desktop, claude.ai, Claude mobile, Cursor, VS Code, …) query **New Relic** through the **NerdGraph** API using
 only a **User API key** — no account-level MCP enablement required.
 
-**Available in v0.1 (local stdio):**
+**On `main`, first release 0.7.0 (not yet published):**
+
+**Local stdio:**
 
 - **Local stdio** (`npx`): your MCP client starts the server; one connection from env vars, or one project per
   process from a YAML file.
 - **Secure by default:** read-only tools, query limits, redacted logs, documented [threat model](docs/THREAT_MODEL.md).
   The key is read from the environment (`${VAR}` references in YAML) and is never a tool argument.
 
-**Implemented for v0.2 (self-hosted HTTP; not released yet, [multi-device guide](docs/guide/multi-device.md)):**
+**Self-hosted HTTP ([multi-device guide](docs/guide/multi-device.md)):**
 
 - `relic-bridge serve`: a Node / [Docker](docs/guide/self-hosting.md#docker) HTTP server (SQLite) that your devices
   reach over TLS, with several projects at their own URLs (`/p/{slug}/mcp`).
@@ -31,13 +34,13 @@ only a **User API key** — no account-level MCP enablement required.
 - A [management CLI](docs/reference/cli.md) and an [admin API](docs/reference/admin-api.md), plus an optional
   [pass-through mode](docs/guide/self-hosting.md#pass-through-mode) where callers bring their own key.
 
-**Implemented for v0.3 (Cloudflare; not released yet):**
+**Cloudflare:**
 
 - A Cloudflare Worker deployment on D1, one setup command or a Deploy button
   ([guide](docs/guide/cloudflare-deploy.md), [limits and costs](docs/guide/cloudflare-limits.md)). The guide has not yet
   been validated on a clean Cloudflare account.
 
-**Implemented for v0.4 (sign-in and admin panel; not released yet, [admin guide](docs/guide/admin-guide.md)):**
+**Sign-in and admin panel ([admin guide](docs/guide/admin-guide.md)):**
 
 - **Sign in** with Google, GitHub, Cloudflare Access or any OpenID Connect provider, with deny-by-default allow-lists,
   optional auto-provisioning, and a one-time setup link for the first owner ([identity providers](docs/guide/identity-providers.md)).
@@ -47,7 +50,7 @@ only a **User API key** — no account-level MCP enablement required.
   members, who bring their own keys ([panel guide](docs/guide/admin-panel.md)).
 - Contributor checks: a Playwright browser run (`pnpm test:e2e`) and an OWASP ZAP baseline scan (`pnpm scan:zap`).
 
-**Implemented for v0.5 (OAuth for claude.ai and your phone; not released yet, [phone guide](docs/guide/oauth-phone.md)):**
+**OAuth for claude.ai and your phone ([phone guide](docs/guide/oauth-phone.md)):**
 
 - **OAuth 2.1** (`RB_OAUTH=on`): claude.ai on the web and the Claude mobile apps connect to `/p/{slug}/mcp` without a
   token. Discovery, client metadata documents and dynamic registration, a consent screen where you choose the grant,
@@ -57,15 +60,16 @@ only a **User API key** — no account-level MCP enablement required.
 - Tested with SDK clients shaped like the real ones; the real claude.ai and mobile apps are still to be checked
   ([client compatibility](docs/reference/client-compatibility.md)).
 
-**In review, not released** (see the [roadmap](docs/ROADMAP.md)):
+**More tools and power features** (Phases 6 and 7): official-server tool parity, write tools, Tasks, `doctor`, config
+import/export, OS keychain, quotas, OTLP export and the Claude Code plugin.
 
-- Phases 6 (more tools) and 7 (power features: write tools, Tasks, doctor, config import/export, OS keychain, quotas,
-  OTLP export, the Claude Code plugin) are built and in review as stacked PRs; they are not released yet.
+**Planned (Phase 8 / 1.0)** (see the [roadmap](docs/ROADMAP.md)): hardening, performance and security review, launch
+and the first published release.
 
 ## Install
 
-Node.js 24.11 or later and a New Relic **User** API key. relic-bridge v0.1 is a local stdio server that your MCP
-client starts:
+Node.js 24.11 or later and a New Relic **User** API key. the simplest setup is a local stdio server that your MCP
+client starts (the same CLI also offers `serve` for self-hosting, management commands, an OS keychain and `doctor`):
 
 ```sh
 claude mcp add relic \
@@ -75,7 +79,7 @@ claude mcp add relic \
   -- npx -y relic-bridge
 ```
 
-> Until v0.1.0 is on npm (the release is prepared, not yet published), `npx -y relic-bridge` fetches a placeholder:
+> Until 0.7.0 is on npm (the first release; not yet published), `npx -y relic-bridge` fetches a placeholder:
 > build from a clone as the [quickstart](docs/guide/quickstart-local.md) explains.
 
 Other clients and the multi-project YAML mode: [local quickstart](docs/guide/quickstart-local.md). Releases are

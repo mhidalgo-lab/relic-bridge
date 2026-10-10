@@ -16,6 +16,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   tip into `main` in one go.
 - **Needs:** owner's merge strategy; then mark merged tasks `done` and run `pnpm tasks index`.
 - **Decision (2026-10-09):** merge one phase at a time, bottom-up into `main` (see phase-1.md, same entry).
+- **Outcome (2026-10-10):** merged into `main` phase by phase (#170-#176), squash merges, tasks marked done; no release in between — first release will be 0.7.0.
 
 ## P3-01 — Worker entry
 

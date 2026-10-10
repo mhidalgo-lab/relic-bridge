@@ -3,7 +3,7 @@
 The Cloudflare Worker host for relic-bridge: the same HTTP app as `relic-bridge serve` (`@relic-bridge/http-app`),
 with Workers bindings. Private package; it is deployed with Wrangler, not published to npm.
 
-> **Status (Phase 3, in review; not released).** The Worker serves MCP, the admin API and `/health` on D1, with plan
+> **Status (Phase 3, merged on `main`; not released or deployed).** The Worker serves MCP, the admin API and `/health` on D1, with plan
 > presets, rate limiting, the audit purge cron and a setup script. Deploy with `pnpm cf:setup` (see the
 > [deployment guide](../../docs/guide/cloudflare-deploy.md); costs and limits: [Cloudflare limits](../../docs/guide/cloudflare-limits.md)).
 

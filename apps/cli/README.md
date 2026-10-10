@@ -6,7 +6,9 @@ API key. Read-only tools, query limits, untrusted-data envelopes and secret reda
 
 ## Install and run
 
-Requires Node.js 24.11 or later. The package is a local stdio MCP server; your MCP client starts it:
+Requires Node.js 24.11 or later. The package is a local stdio MCP server that your MCP client starts. The same CLI also provides `relic-bridge serve`
+(self-hosted HTTP server), management commands for projects, grants and device tokens, `doctor` diagnostics and OS
+keychain storage for keys:
 
 ```sh
 claude mcp add relic \

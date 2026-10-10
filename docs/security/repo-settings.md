@@ -2,9 +2,10 @@
 
 Settings that can't be committed as files. Apply them when the GitHub repository is created, and re-check before each release.
 
-## While the repository is private (free personal plan)
+## While the repository is private (organization repository on the free plan)
 
-Some controls only exist for public repos (or with GitHub Advanced Security). Until the repo goes public:
+Some controls only exist for public repos, with GitHub Advanced Security, or with a paid plan (on the free plan, branch
+protection and rulesets are not available for private repositories). Until the repo goes public:
 - Rulesets / branch protection, secret-scanning push protection and private vulnerability reporting are **unavailable**.
   The local lefthook hooks (DCO + gitleaks) and the CI gitleaks job are the stand-ins.
 - CodeQL runs with `upload: never` (analysis still fails the job on errors). Scorecard and dependency review are skipped (PAT / GHAS needed on private repos); `scripts/check-licenses.ts` and
@@ -32,9 +33,13 @@ Some controls only exist for public repos (or with GitHub Advanced Security). Un
 - CodeQL: on through `.github/workflows/security.yml` (not "default setup", so the two don't conflict).
 
 ## Actions
-- Workflow permissions: **read repository contents** by default; don't allow Actions to create or approve PRs.
+- Workflow permissions: **read repository contents** by default; Actions **may create and approve pull requests**
+  (enabled; the changesets Version PR needs it). A PR opened with the workflow token does not trigger CI: close and
+  reopen it to run the checks.
 - Allow only actions pinned by SHA from: GitHub, verified creators, and the allowlist used in our workflows.
-- Fork PR workflows: require approval for first-time contributors.
+- Fork PR workflows: require approval for first-time contributors. Pull-request CI runs on self-hosted runners only
+  while the repository is private; before going public, switch it to GitHub-hosted runners via the `CI_RUNS_ON`
+  variable (THREAT_MODEL T18).
 - Environments: `release` (npm trusted publishing, required reviewer) and `staging` (Workers smoke tests,
   required reviewer). Secrets live only in environments, never at repository level.
 

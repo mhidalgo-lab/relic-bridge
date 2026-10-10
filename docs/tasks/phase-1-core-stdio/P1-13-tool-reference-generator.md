@@ -2,7 +2,7 @@
 id: P1-13
 title: Generated tool reference docs
 phase: 1
-status: review
+status: done
 priority: medium
 depends_on: [P1-06]
 adr: []

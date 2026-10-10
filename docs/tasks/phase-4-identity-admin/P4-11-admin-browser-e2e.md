@@ -2,7 +2,7 @@
 id: P4-11
 title: "Admin panel in a real browser: Playwright E2E and guide screenshots"
 phase: 4
-status: review
+status: done
 priority: medium
 depends_on: [P4-04]
 adr: []

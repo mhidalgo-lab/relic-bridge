@@ -2,7 +2,7 @@
 id: P4-02
 title: "Admin sessions, CSRF and roles"
 phase: 4
-status: review
+status: done
 priority: high
 depends_on: [P4-01]
 adr: [0009]

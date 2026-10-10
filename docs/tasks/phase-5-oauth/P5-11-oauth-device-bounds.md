@@ -2,7 +2,7 @@
 id: P5-11
 title: "Device replacement policy and complete per-user device bounds"
 phase: 5
-status: review
+status: done
 priority: medium
 depends_on: [P5-05, P5-08]
 adr: [0011]

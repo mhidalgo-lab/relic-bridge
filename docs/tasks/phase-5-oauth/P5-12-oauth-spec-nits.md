@@ -2,7 +2,7 @@
 id: P5-12
 title: "OAuth protocol nits from the Phase 5 review"
 phase: 5
-status: review
+status: done
 priority: low
 depends_on: [P5-04]
 adr: []

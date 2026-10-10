@@ -2,7 +2,7 @@
 id: P3-07
 title: Docs — Cloudflare deployment, limits and costs
 phase: 3
-status: review
+status: done
 priority: high
 depends_on: [P3-05, P3-03]
 adr: []

@@ -2,7 +2,7 @@
 id: P4-06
 title: "Connect page: client config snippets"
 phase: 4
-status: review
+status: done
 priority: high
 depends_on: [P4-04]
 adr: []

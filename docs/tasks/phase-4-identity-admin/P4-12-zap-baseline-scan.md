@@ -2,7 +2,7 @@
 id: P4-12
 title: "ZAP baseline scan of the admin panel"
 phase: 4
-status: review
+status: done
 priority: low
 depends_on: [P4-07]
 adr: []

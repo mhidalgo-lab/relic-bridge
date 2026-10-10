@@ -2,7 +2,7 @@
 id: P4-07
 title: "Admin panel security review"
 phase: 4
-status: review
+status: done
 priority: high
 depends_on: [P4-04]
 adr: []

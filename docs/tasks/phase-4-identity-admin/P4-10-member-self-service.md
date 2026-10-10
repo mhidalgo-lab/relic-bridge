@@ -2,7 +2,7 @@
 id: P4-10
 title: "Member self-service API: own credentials, grants and device tokens"
 phase: 4
-status: review
+status: done
 priority: medium
 depends_on: [P4-02]
 adr: [0008, 0009]

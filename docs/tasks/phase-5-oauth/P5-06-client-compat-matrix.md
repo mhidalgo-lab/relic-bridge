@@ -2,7 +2,7 @@
 id: P5-06
 title: "Client compatibility matrix (incl. Claude mobile)"
 phase: 5
-status: review
+status: done
 priority: high
 depends_on: [P5-05]
 adr: []

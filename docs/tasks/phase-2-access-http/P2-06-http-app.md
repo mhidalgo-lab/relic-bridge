@@ -2,7 +2,7 @@
 id: P2-06
 title: HTTP app (Hono) with per-project MCP endpoints
 phase: 2
-status: review
+status: done
 priority: high
 depends_on: [P2-05]
 adr: [0004, 0005]

@@ -2,7 +2,7 @@
 id: P4-19
 title: "Bound the storage writes signed-in users can cause"
 phase: 4
-status: review
+status: done
 priority: low
 depends_on: [P4-07, P4-10]
 adr: []

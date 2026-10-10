@@ -2,7 +2,7 @@
 id: P5-08
 title: "Admin: OAuth client list, revoke and DCR switch"
 phase: 5
-status: review
+status: done
 priority: medium
 depends_on: [P5-03]
 adr: [0011, 0012]

@@ -2,7 +2,7 @@
 id: P4-20
 title: "Phase 4 test, docs and UI hygiene from the consolidation review"
 phase: 4
-status: review
+status: done
 priority: low
 depends_on: [P4-08]
 adr: []

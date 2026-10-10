@@ -17,7 +17,7 @@ drift, open a task.
 ## 1. First release (0.7.0; covers Phases 1-7)
 Nothing has been published. 0.1.0-0.6.x were never released; the first published version is 0.7.0 (owner decision
 2026-10-10).
-- [ ] Merge (or regenerate) the changesets version PR as **0.7.0** (P8-14).
+- [x] Merge (or regenerate) the changesets version PR as **0.7.0** (P8-14).
 - [x] P1-16 merged before `RB_RELEASE_ENABLED=true`; implement P1-18 (npm staged publish) before the first publish.
       Done (both are on `main`).
 - [ ] Make the repository public (attestations, npm provenance; also unblocks the README Deploy button, P3-14).

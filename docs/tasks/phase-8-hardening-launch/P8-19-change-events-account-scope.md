@@ -2,7 +2,7 @@
 id: P8-19
 title: Include APM deployments in account-scope list_change_events and fill type
 phase: 8
-status: review
+status: done
 priority: high
 depends_on: []
 adr: []

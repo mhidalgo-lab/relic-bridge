@@ -57,7 +57,7 @@ const ERROR_LIMIT = 10;
 const MAX_TEXT = 300;
 const DEFAULT_DEPENDENCIES = 3;
 const MAX_DEPENDENCIES = 5;
-const DEFAULT_METRICS = 3;
+const DEFAULT_METRICS = 2;
 const MAX_METRICS = 5;
 /** Relationships per page and pages read before choosing neighbours (BUG-10: choose from all of them, within budget). */
 const RELATED_FETCH = 100;

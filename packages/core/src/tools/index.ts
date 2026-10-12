@@ -42,6 +42,7 @@ export {
 } from './entity-resolver.ts';
 export { createErrorTools } from './errors.ts';
 export {
+  compareTrend,
   createGoldenMetricTools,
   DEFAULT_GOLDEN_SINCE,
   isAggregateOnlyNrql,

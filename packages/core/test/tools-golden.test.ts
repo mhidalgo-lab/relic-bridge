@@ -4,6 +4,7 @@ import { InMemoryTransport } from '@modelcontextprotocol/server';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   buildMcpServer,
+  compareTrend,
   createBudget,
   createGoldenMetricTools,
   DEFAULT_LIMITS,
@@ -81,7 +82,18 @@ function routedFetch(routes: Record<string, () => Response>, entity: () => Respo
     if (body.query.includes('RbGoldenMetrics')) return entity();
     if ('queryId' in body.variables) return (routes['__poll'] ?? entity)();
     const nrql = String(body.variables['nrql']);
-    for (const [needle, make] of Object.entries(routes)) if (nrql.includes(needle)) return make();
+    // `compare:<needle>` routes answer the COMPARE WITH query, plain needles the others.
+    const comparing = nrql.includes('COMPARE WITH');
+    for (const [key, make] of Object.entries(routes)) {
+      if (
+        key.startsWith('compare:')
+          ? comparing && nrql.includes(key.slice(8))
+          : !comparing && nrql.includes(key)
+      ) {
+        return make();
+      }
+    }
+    if (comparing) return nrqlBody([]);
     throw new Error(`unrouted NRQL: ${nrql}`);
   };
   return { fetch, calls };
@@ -169,18 +181,39 @@ describe('summarizeSeries', () => {
   });
 });
 
+describe('compareTrend', () => {
+  it('reads current against previous and handles a zero or missing baseline', () => {
+    const rows = (cur: number | null, prev: number | null) => [
+      { comparison: 'current', x: cur },
+      { comparison: 'previous', x: prev },
+    ];
+    expect(compareTrend(rows(120, 100))).toMatchObject({ trend: 'up', changeRatio: 0.2 });
+    expect(compareTrend(rows(80, 100))).toMatchObject({ trend: 'down' });
+    expect(compareTrend(rows(102, 100))).toMatchObject({ trend: 'flat' });
+    expect(compareTrend(rows(3, 0))).toEqual({ trend: 'up', changeRatio: null });
+    expect(compareTrend(rows(3, null))).toBeNull();
+    expect(compareTrend([{ comparison: 'current', x: 1 }])).toBeNull();
+  });
+});
+
 describe('withTimeClauses', () => {
   it('adds the window and a time series, but keeps what the query already has', () => {
     expect(withTimeClauses('FROM Metric SELECT x', 'SINCE 30 minutes ago', true)).toEqual({
       nrql: 'FROM Metric SELECT x SINCE 30 minutes ago TIMESERIES AUTO',
       timeseries: true,
+      ownWindow: false,
     });
     expect(
       withTimeClauses('FROM Metric SELECT x SINCE 1 hour ago TIMESERIES 1 minute', 'SINCE 9 days ago', true),
-    ).toEqual({ nrql: 'FROM Metric SELECT x SINCE 1 hour ago TIMESERIES 1 minute', timeseries: true });
+    ).toEqual({
+      nrql: 'FROM Metric SELECT x SINCE 1 hour ago TIMESERIES 1 minute',
+      timeseries: true,
+      ownWindow: true,
+    });
     expect(withTimeClauses('FROM Metric SELECT x', 'SINCE 30 minutes ago', false)).toEqual({
       nrql: 'FROM Metric SELECT x SINCE 30 minutes ago',
       timeseries: false,
+      ownWindow: false,
     });
   });
 
@@ -194,6 +227,7 @@ describe('withTimeClauses', () => {
     ).toEqual({
       nrql: expect.not.stringContaining('TIMESERIES'),
       timeseries: false,
+      ownWindow: false,
     });
     const out = withTimeClauses(
       "FROM Metric SELECT average(a) WHERE n = 'TIMESERIES' TIMESERIES AUTO",
@@ -238,14 +272,18 @@ describe('get_golden_metrics', () => {
     // Entity guid and NRQL are variables; the NRQL carries the window and series the query lacked.
     expect(calls[0]?.variables).toEqual({ guid: GUID });
     expect(calls[0]?.query).not.toContain(GUID);
+    // Metrics 1 and 3 add a COMPARE WITH query; metric 2 has its own SINCE (halves method).
     const nrqlCalls = calls.slice(1);
-    expect(nrqlCalls).toHaveLength(3);
+    expect(nrqlCalls).toHaveLength(5);
     for (const c of nrqlCalls) {
       expect(c.variables['accountId']).toBe(A);
       expect(c.query).not.toContain('rate(');
     }
     expect(s.metrics[0]?.nrql).toContain('SINCE 30 minutes ago TIMESERIES AUTO');
     expect(s.metrics[1]?.nrql).toContain('SINCE 5 minutes ago TIMESERIES AUTO');
+    expect(
+      nrqlCalls.filter((c) => String(c.variables['nrql']).includes('COMPARE WITH 1800 seconds ago')),
+    ).toHaveLength(2);
     expect(text(r)).toContain('<untrusted-data');
   });
 
@@ -261,6 +299,56 @@ describe('get_golden_metrics', () => {
     const s = r.structuredContent as Out;
     expect(s.metrics[0]).toMatchObject({ status: 'ok', value: 7, trend: 'unknown' });
     expect(String(calls[1]?.variables['nrql'])).toMatch(/SINCE 2 hours ago$/);
+  });
+
+  // BUG-06 (live test run 2026-10-12): the later half of the window was lower, the window as a whole was up.
+  it('compares the window with the previous equal window, not its own halves (BUG-06)', async () => {
+    const { fetch, calls } = routedFetch(
+      {
+        'rate(count(a)': () => nrqlBody(series(9, 9, 5, 5)),
+        'compare:rate(count(a)': () =>
+          nrqlBody([
+            { comparison: 'current', Throughput: 7 },
+            { comparison: 'previous', Throughput: 4 },
+          ]),
+      },
+      () => entityBody([THREE[0]]),
+    );
+    const client = await connect(fetch);
+    const r = await client.callTool({ name: 'get_golden_metrics', arguments: { entity_guid: GUID } });
+    const m = (r.structuredContent as Out).metrics[0];
+    expect(m).toMatchObject({ status: 'ok', trend: 'up', note: null, value: 5 });
+    expect((m as unknown as { changeRatio: number }).changeRatio).toBeCloseTo(0.75);
+    const nrql = String(calls[2]?.variables['nrql']);
+    expect(nrql).toMatch(/SINCE 30 minutes ago COMPARE WITH 1800 seconds ago$/);
+    expect(nrql).not.toContain('TIMESERIES');
+  });
+
+  it('falls back to the halves with a note when the previous window is beyond the limit (P8-24)', async () => {
+    const { fetch, calls } = routedFetch({ 'rate(count(a)': () => nrqlBody(series(1, 1, 2, 2)) }, () =>
+      entityBody([THREE[0]]),
+    );
+    const client = await connect(fetch, { limits: { ...DEFAULT_LIMITS, maxWindowDays: 1 } });
+    const r = await client.callTool({
+      name: 'get_golden_metrics',
+      arguments: { entity_guid: GUID, time_range: 'last 20 hours' },
+    });
+    const s = r.structuredContent as Out & { notes: string[] };
+    expect(s.metrics[0]).toMatchObject({ status: 'ok', trend: 'up' });
+    expect(s.notes).toEqual([expect.stringContaining('halves of the window')]);
+    expect(calls).toHaveLength(2);
+  });
+
+  it('falls back to the halves when the comparison returns nothing usable', async () => {
+    const { fetch } = routedFetch({ 'rate(count(a)': () => nrqlBody(series(1, 1, 2, 2)) }, () =>
+      entityBody([THREE[0]]),
+    );
+    const client = await connect(fetch);
+    const r = await client.callTool({ name: 'get_golden_metrics', arguments: { entity_guid: GUID } });
+    expect((r.structuredContent as Out).metrics[0]).toMatchObject({
+      trend: 'up',
+      note: expect.stringContaining('halves'),
+    });
   });
 
   it('does not send TIMESERIES when timeseries=false, even if the golden query has one (BUG-26)', async () => {
@@ -315,14 +403,14 @@ describe('get_golden_metrics', () => {
       },
       () => entityBody(THREE),
     );
-    // One request for the entity, two NRQL queries (two requests each); the third metric is skipped without a request.
-    const client = await connect(fetch, { budget: createBudget(5) });
+    // The entity (1), then two requests per query and two queries (series + comparison) per metric: two metrics fit.
+    const client = await connect(fetch, { budget: createBudget(9) });
     const r = await client.callTool({ name: 'get_golden_metrics', arguments: { entity_guid: GUID } });
     expect(r.isError).toBeFalsy();
     const s = r.structuredContent as Out;
     expect(s.metrics.map((m) => m.status)).toEqual(['ok', 'ok', 'skipped']);
     expect(s.partial).toBe(true);
-    expect(calls).toHaveLength(3);
+    expect(calls).toHaveLength(4);
     expect(text(r)).toContain('Partial result');
   });
 
@@ -376,7 +464,7 @@ describe('get_golden_metrics', () => {
     const r = await client.callTool({ name: 'get_golden_metrics', arguments: { entity_guid: GUID } });
     const s = r.structuredContent as Out;
     expect(s.metrics.map((m) => m.status)).toEqual(['error', 'ok', 'ok']);
-    expect(calls).toHaveLength(3);
+    expect(calls).toHaveLength(5);
     // The comment is dropped before the window and series clauses are added, so it can't swallow them.
     expect(s.metrics[1]?.nrql).not.toContain('--');
     expect(s.metrics[1]?.nrql).toContain('TIMESERIES AUTO');
@@ -456,7 +544,7 @@ describe('get_golden_metrics', () => {
       },
       () => entityBody(THREE.slice(0, 2)),
     );
-    const c2 = await connect(mixed.fetch, { budget: createBudget(5) });
+    const c2 = await connect(mixed.fetch, { budget: createBudget(9) });
     const r2 = await c2.callTool({ name: 'get_golden_metrics', arguments: { entity_guid: GUID } });
     expect((r2.structuredContent as Out).metrics.map((m) => m.status)).toEqual(['no_data', 'pending']);
   });
@@ -471,7 +559,7 @@ describe('get_golden_metrics', () => {
       arguments: { entity_guid: GUID, max_metrics: 1 },
     });
     expect((r.structuredContent as Out).metrics).toHaveLength(1);
-    expect(calls).toHaveLength(2);
+    expect(calls).toHaveLength(3);
     expect(text(r)).toContain('more golden metric');
   });
 

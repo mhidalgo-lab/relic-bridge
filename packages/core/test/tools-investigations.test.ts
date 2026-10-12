@@ -451,7 +451,7 @@ describe('dependency_health', () => {
 
   it('plans against the budget: entity first, neighbours skipped when nothing is left', async () => {
     const ng = nerdGraph({ related });
-    const client = await connect(ng.fetch, { budget: createBudget(1 + 4) });
+    const client = await connect(ng.fetch, { budget: createBudget(1 + 4 + 2) });
     const r = await client.callTool({
       name: 'dependency_health',
       arguments: { entity_guid: MOCK_GUID, max_dependencies: 2, max_metrics: 3 },
@@ -501,7 +501,7 @@ describe('entity_health', () => {
 
   it('skips what the budget cannot pay for, in priority order', async () => {
     const ng = nerdGraph();
-    const client = await connect(ng.fetch, { budget: createBudget(4) });
+    const client = await connect(ng.fetch, { budget: createBudget(6) });
     const r = await client.callTool({ name: 'entity_health', arguments: { entity_guid: MOCK_GUID } });
     const s = r.structuredContent as {
       sections: { name: string; status: string }[];

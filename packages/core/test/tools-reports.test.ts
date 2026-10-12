@@ -347,7 +347,7 @@ describe('generate_alert_insights_report', () => {
 
   it('plans against the remaining budget: reduces golden metrics, skips the rest and says so', async () => {
     const ng = nerdGraph();
-    const client = await connect(ng.fetch, { budget: createBudget(7) });
+    const client = await connect(ng.fetch, { budget: createBudget(11) });
     const r = await client.callTool({
       name: 'generate_alert_insights_report',
       arguments: { issue_id: 'issue-1' },
@@ -369,7 +369,7 @@ describe('generate_alert_insights_report', () => {
     });
     expect(s.notes.join(' ')).toContain('Golden metrics reduced to 2');
     expect(resultText(r)).toContain('Partial report');
-    expect(ng.calls.length).toBeLessThanOrEqual(7);
+    expect(ng.calls.length).toBeLessThanOrEqual(11);
   });
 
   it('runs only the requested sections', async () => {

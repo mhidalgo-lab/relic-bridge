@@ -26,14 +26,16 @@ import {
 export const DEFAULT_GOLDEN_SINCE = 'last 30 minutes';
 const DEFAULT_MAX_METRICS = 10;
 
-/** Requests `get_golden_metrics` sends for `metrics` golden metrics (entity lookup + NRQL each), name resolution aside. */
-export const goldenCost = (metrics: number): number => 1 + NRQL_COST * metrics;
+/** Requests per golden metric: the time series, plus the comparison query for the previous window (P8-30). */
+const METRIC_COST = 2 * NRQL_COST;
+/** Requests `get_golden_metrics` sends for `metrics` golden metrics (entity lookup + two NRQL each), name resolution aside. */
+export const goldenCost = (metrics: number): number => 1 + METRIC_COST * metrics;
 /** The golden metrics a grant of `granted` requests pays for (at least one). */
 export const goldenMetricsFor = (granted: number): number =>
-  Math.max(1, Math.floor((granted - 1) / NRQL_COST));
+  Math.max(1, Math.floor((granted - 1) / METRIC_COST));
 const MAX_METRICS = 20;
 const MAX_QUERY_CHARS = 4096;
-/** Relative change between the two halves of the window that still counts as flat. */
+/** Relative change between the two compared periods that still counts as flat. */
 export const FLAT_BAND = 0.05;
 /** Fewest data points needed to call a trend. */
 export const MIN_TREND_POINTS = 4;
@@ -74,11 +76,11 @@ const metricRow = z.object({
   /** The result column the value came from. */
   column: z.string().nullable(),
   trend: z.enum(['up', 'down', 'flat', 'unknown']),
-  /** Mean of the later half of the complete buckets relative to the earlier half (equal lengths), as a fraction (0.12 = +12%). */
+  /** Change of the window against the previous equal window (halves of the window as fallback), as a fraction (0.12 = +12%). */
   changeRatio: z.number().nullable(),
   points: z.number().int(),
   nrql: z.string().nullable(),
-  /** Why the metric has no value (no data, query error, skipped for budget…). */
+  /** Why the metric has no value (no data, query error, skipped for budget…), or that its trend uses the halves method. */
   note: z.string().nullable(),
 });
 
@@ -102,7 +104,7 @@ const output = z.object({
 
 const DESCRIPTION = `Golden metrics of one entity (guid or name): the key signals New Relic defines for its kind (throughput, response time and error rate for a service; CPU and memory for a host...), each with its latest value, a trend (up, down, flat) and the NRQL that produced it.
 
-Value and trend use complete time buckets only (the one still filling is ignored); the trend compares the later half of the window with the earlier. timeseries=false: one aggregate per metric, no trend. Refine any metric with run_nrql. For metrics plus issues, errors and deployments in one call use entity_health. Runs one entity lookup, then one query per metric (up to max_metrics); metrics stopped by budget or query limits are marked skipped or error. ${UNTRUSTED}`;
+Value uses complete time buckets only (the one still filling is ignored); the trend compares with the previous equal window (halves of the window if that is beyond the limit). timeseries=false: one aggregate per metric, no trend. Refine any metric with run_nrql. For metrics plus issues, errors and deployments in one call use entity_health. Runs one entity lookup, then two queries per metric (up to max_metrics); metrics stopped by budget or limits are marked skipped or error. ${UNTRUSTED}`;
 
 const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 
@@ -128,6 +130,32 @@ export interface SeriesSummary {
   readonly points: number;
 }
 
+/** Trend and relative change from the earlier and the later period (a zero baseline has no ratio). */
+function trendOf(before: number, after: number): { trend: Trend; changeRatio: number | null } {
+  if (before === 0) return { trend: after === 0 ? 'flat' : after > 0 ? 'up' : 'down', changeRatio: null };
+  const changeRatio = (after - before) / Math.abs(before);
+  return {
+    trend: Math.abs(changeRatio) <= FLAT_BAND ? 'flat' : changeRatio > 0 ? 'up' : 'down',
+    changeRatio,
+  };
+}
+
+/**
+ * Trend of the window against the previous equal window from the two rows `COMPARE WITH` returns (`comparison`
+ * current / previous). Null when either row or its value is missing. Pure.
+ */
+export function compareTrend(
+  rows: readonly Record<string, unknown>[],
+): { trend: Trend; changeRatio: number | null } | null {
+  const valueFor = (which: string) => {
+    const row = rows.find((r) => r['comparison'] === which);
+    return row ? (rowValue(row)?.value ?? null) : null;
+  };
+  const current = valueFor('current');
+  const previous = valueFor('previous');
+  return current === null || previous === null ? null : trendOf(previous, current);
+}
+
 const mean = (xs: readonly number[]) => xs.reduce((a, b) => a + b, 0) / xs.length;
 
 /** The bucket end (epoch seconds) of a time series row, when it carries one. */
@@ -139,8 +167,9 @@ const bucketEnd = (row: Record<string, unknown>): number | null => {
 /**
  * Latest value and trend of NRQL result rows (a time series when `timeseries`, else the first row). Pure.
  * `nowMs`: buckets that end after it are still filling (BUG-26: an empty last bucket read as value 0, a partial one skews
- * the trend), so they are left out of the value and the trend. The trend compares the later half of the remaining
- * buckets with the earlier half: two windows of equal length (an odd middle bucket is left out).
+ * the trend), so they are left out of the value and the trend. The trend here is the fallback when the previous window
+ * cannot be compared (`compareTrend`): the later half of the remaining buckets against the earlier half, equal lengths
+ * (an odd middle bucket is left out).
  */
 export function summarizeSeries(
   rows: readonly Record<string, unknown>[],
@@ -169,13 +198,7 @@ export function summarizeSeries(
   const half = Math.floor(series.length / 2);
   const before = mean(series.slice(0, half));
   const after = mean(series.slice(series.length - half));
-  if (before === 0) {
-    const trend: Trend = after === 0 ? 'flat' : after > 0 ? 'up' : 'down';
-    return { column, value: last, trend, changeRatio: null, points: series.length };
-  }
-  const changeRatio = (after - before) / Math.abs(before);
-  const trend: Trend = Math.abs(changeRatio) <= FLAT_BAND ? 'flat' : changeRatio > 0 ? 'up' : 'down';
-  return { column, value: last, trend, changeRatio, points: series.length };
+  return { column, value: last, ...trendOf(before, after), points: series.length };
 }
 
 const CLAUSE_STARTS = new Set([
@@ -215,7 +238,7 @@ export function withTimeClauses(
   query: string,
   clause: string,
   timeseries: boolean,
-): { nrql: string; timeseries: boolean } {
+): { nrql: string; timeseries: boolean; ownWindow: boolean } {
   const tokens = tokenize(query);
   // A trailing `--` comment would swallow the clauses appended below: drop comments first (limits strip them anyway).
   let source = query;
@@ -233,7 +256,12 @@ export function withTimeClauses(
   const parts = [source.trim()];
   if (!hasWindow) parts.push(clause);
   if (timeseries && !hasSeries && !top.has('COMPARE')) parts.push('TIMESERIES AUTO');
-  return { nrql: parts.join(' '), timeseries: timeseries || hasSeries };
+  // A query with its own SINCE/UNTIL or COMPARE has no window of ours to compare with the previous one.
+  return {
+    nrql: parts.join(' '),
+    timeseries: timeseries || hasSeries,
+    ownWindow: hasWindow || top.has('COMPARE'),
+  };
 }
 
 const SELECT_END = new Set([
@@ -294,6 +322,8 @@ const emptyMetric = (title: string, status: MetricRow['status'], note: string | 
   note,
 });
 
+const HALVES_NOTE = 'Trend compares the halves of the window: the previous window could not be read.';
+
 const fmt = (v: number | null) => (v === null ? '' : String(Number(v.toPrecision(4))));
 const pct = (r: number | null) => (r === null ? '' : `${r >= 0 ? '+' : ''}${(r * 100).toFixed(1)}%`);
 
@@ -310,6 +340,7 @@ export function createGoldenMetricTools(deps: ToolDeps = {}): ToolDefinition[] {
     clause: string,
     wantSeries: boolean,
     adjustments: Set<string>,
+    previousSeconds: number | null,
   ): Promise<MetricRow> {
     try {
       if (query.length > MAX_QUERY_CHARS) {
@@ -349,7 +380,31 @@ export function createGoldenMetricTools(deps: ToolDeps = {}): ToolDefinition[] {
       if (s.value === null) {
         return { ...emptyMetric(title, 'no_data', 'No data in this window.'), nrql: sent };
       }
-      return { title, status: 'ok', ...s, nrql: sent, note: null };
+      if (previousSeconds === null || !wantSeries || prepared.ownWindow) {
+        return { title, status: 'ok', ...s, nrql: sent, note: null };
+      }
+      // The trend compares the window with the previous equal window, as analyze_transactions does (BUG-06).
+      const flat = withTimeClauses(query, clause, false).nrql;
+      try {
+        const compared = await runTrustedNrql(
+          ctx,
+          {
+            nrql: [flat, 'COMPARE WITH', previousSeconds, 'seconds ago'].join(' '),
+            accounts: [account],
+            mode: 'auto',
+            maxPolls: 1,
+          },
+          { client: client(ctx), ...(deps.sleep ? { sleep: deps.sleep } : {}) },
+        );
+        if (compared.status === 'complete') {
+          for (const n of compared.notes) adjustments.add(n);
+          const t = compareTrend(compared.results);
+          if (t) return { title, status: 'ok', ...s, ...t, nrql: sent, note: null };
+        }
+      } catch (e) {
+        if (!(e instanceof RbError) || FATAL_CODES.has(e.code)) throw e;
+      }
+      return { title, status: 'ok', ...s, nrql: sent, note: HALVES_NOTE };
     } catch (e) {
       if (!(e instanceof RbError) || FATAL_CODES.has(e.code)) throw e;
       if (e.code === ErrorCode.BudgetExhausted)
@@ -394,13 +449,36 @@ export function createGoldenMetricTools(deps: ToolDeps = {}): ToolDefinition[] {
         .filter((m) => m.query !== '');
       const cap = args.max_metrics ?? DEFAULT_MAX_METRICS;
       const wanted = defs.slice(0, cap);
-      // Budget-aware: start only as many as the remaining budget can pay for (NRQL_COST requests each).
-      const startable = startableNrql(wanted.length, ctx.budget.remaining);
       const adjustments = new Set<string>();
+      // The previous equal window must itself be inside the connection's limits, else the halves method is the trend.
+      let previousSeconds: number | null = null;
+      if (wantSeries) {
+        try {
+          const width = range.windowMs;
+          assertWindowWithinLimit(
+            { sinceMs: range.sinceMs - width, windowMs: 2 * width },
+            ctx.limits,
+            ctx.clock.now(),
+          );
+          previousSeconds = Math.round(width / 1000);
+        } catch (e) {
+          if (!(e instanceof RbError) || e.code !== ErrorCode.LimitQuery) throw e;
+          adjustments.add(
+            'Trend compares the halves of the window: the previous window is beyond the window limit.',
+          );
+        }
+      }
+      // Budget-aware: start only as many as the remaining budget can pay for (two queries each when comparing).
+      const startable = startableNrql(
+        wanted.length,
+        Math.floor(ctx.budget.remaining / (previousSeconds === null ? 1 : 2)),
+      );
       const ran = await Promise.all(
         wanted
           .slice(0, startable)
-          .map((m) => runMetric(ctx, account, m.title, m.query, range.clause, wantSeries, adjustments)),
+          .map((m) =>
+            runMetric(ctx, account, m.title, m.query, range.clause, wantSeries, adjustments, previousSeconds),
+          ),
       );
       const skipped = wanted
         .slice(startable)

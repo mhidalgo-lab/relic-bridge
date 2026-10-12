@@ -59,9 +59,17 @@ const MESSAGE_FALLBACKS = ['log', 'logged_message'] as const;
 /** Attributes shown in the summary of a line without any text field, and the longest value shown. */
 const SUMMARY_ATTRIBUTES = 6;
 const SUMMARY_VALUE_CHARS = 60;
+/**
+ * The columns `list_recent_logs` reads (never `SELECT *`: Log events can hold hundreds of attributes and multi-KB
+ * payloads, which pushes a page over the response limit; BUG-25 follow-up). Text columns are cut at New Relic.
+ * `CONTEXT_COLUMNS` is the small fixed set that feeds the `key=value` summary of a line without any text field.
+ */
+const TEXT_COLUMNS = ['message', ...MESSAGE_FALLBACKS] as const;
+const LEVEL_COLUMNS = ['level', 'severity', 'log.level'] as const;
+const CONTEXT_COLUMNS = ['service.name', 'hostname', 'logger', 'request_id', 'trace.id'] as const;
 /** Attributes that say nothing about what a line is: never part of the summary. */
 const SUMMARY_SKIP =
-  /^(timestamp|level|message|log|logged_message|messageId|entity\.|newrelic\.|plugin\.|nr\.)/i;
+  /^(timestamp|level|severity|log\.level|message|log|logged_message|messageId|entity\.|newrelic\.|plugin\.|nr\.)/i;
 
 const LEVELS = [
   'fatal',
@@ -236,10 +244,20 @@ export function recentQuery(
 ): NrqlQuery {
   const { since, until } = bounds(sinceMs, untilMs);
   const contains = pattern === undefined ? nrql`` : nrql`AND message LIKE ${pattern}`;
+  const column = (name: string, chars: number) =>
+    nrql`substring(${nrql.identifier(name)}, 0, ${chars}) AS ${nrql.identifier(name)}`;
+  const columns = [
+    nrql`${nrql.identifier('timestamp')}`,
+    ...LEVEL_COLUMNS.map((c) => nrql`${nrql.identifier(c)}`),
+    nrql`${nrql.identifier('messageId')}`,
+    ...TEXT_COLUMNS.map((c) => column(c, MAX_MESSAGE_CHARS)),
+    ...CONTEXT_COLUMNS.map((c) => column(c, SUMMARY_VALUE_CHARS)),
+  ];
+  const select = columns.reduce((acc, c) => nrql`${acc}, ${c}`);
   // SINCE/UNTIL are whole seconds, rounded outward: the exact bounds are repeated on `timestamp` so no line outside the
   // window is read (BUG-24). A page cursor lowers the upper bound to the last instant shown.
   const upper = Math.min(untilMs, atOrBeforeMs ?? untilMs);
-  return nrql`SELECT * FROM Log WHERE timestamp IS NOT NULL AND timestamp >= ${sinceMs} AND timestamp <= ${upper} ${scope(guid)} ${levelFilter(level)} ${contains} ORDER BY timestamp DESC LIMIT ${limit} SINCE ${since} UNTIL ${until}`;
+  return nrql`SELECT ${select} FROM Log WHERE timestamp IS NOT NULL AND timestamp >= ${sinceMs} AND timestamp <= ${upper} ${scope(guid)} ${levelFilter(level)} ${contains} ORDER BY timestamp DESC LIMIT ${limit} SINCE ${since} UNTIL ${until}`;
 }
 
 export function levelCountQuery(guid: string, sinceMs: number, untilMs: number): NrqlQuery {
@@ -495,7 +513,7 @@ export function createLogTools(deps: ToolDeps = {}): ToolDefinition[] {
         return {
           timestamp: ts === null ? null : new Date(ts).toISOString(),
           level: (() => {
-            const l = r['level'];
+            const l = LEVEL_COLUMNS.map((c) => r[c]).find((v) => typeof v === 'string' && v !== '');
             return typeof l === 'string' ? label(l) : null;
           })(),
           message: cleanLogMessage(lineText(r)),

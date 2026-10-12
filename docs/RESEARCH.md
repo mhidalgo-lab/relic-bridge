@@ -1075,3 +1075,12 @@ Sources: [server.json format](https://github.com/modelcontextprotocol/registry/b
   New Relic refuses to mix them with account data ("Global event types cannot be mixed with account data").
   The list in `tools/schema.ts` is a heuristic, not an API.
 - Several statements in one NRQL string are not supported; NerdGraph reports it as a confusing "more than one SINCE".
+
+## NerdGraph schema snapshot (P8-32, live test run 2026-10-12)
+- No introspected schema was committed before this task (the P0-09 spike introspects at run time and keeps nothing).
+  `pnpm nerdgraph:schema` now writes one: the standard `getIntrospectionQuery` without descriptions, gzipped, from the
+  owner's User key (`RB_LIVE_API_KEY`, `RB_LIVE_REGION`).
+- Document validity is checked offline with `graphql` `validate` (devDependency only). Header-gated features such as
+  the aiIssues opt-in still appear in introspection, so the check cannot tell whether a header is needed.
+- Not yet verified against the live endpoint: whether NerdGraph accepts the standard introspection query unchanged
+  (the spike used a trimmed one). The first run by the owner confirms it; adjust `INTROSPECTION_QUERY` if not.

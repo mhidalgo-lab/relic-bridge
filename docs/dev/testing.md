@@ -92,6 +92,24 @@ In GitHub, the manual **Live** workflow (`.github/workflows/live.yml`, `workflow
 from the protected `live` environment, which holds the `RB_LIVE_API_KEY` and `RB_LIVE_ACCOUNT_ID` secrets and the
 `RB_LIVE_REGION` variable. It never runs on pull requests, so fork PRs cannot reach the secrets.
 
+## NerdGraph schema check
+
+Every static GraphQL document (`defineDocument`) is validated with the `graphql` package against a committed
+introspection snapshot, `scripts/fixtures/nerdgraph-schema.json.gz`, in `pnpm test`
+(`scripts/test/nerdgraph-documents.test.ts`). It catches stale or misspelt fields, wrong arguments and wrong variable
+types before they reach a live account (BUG-02 of the live test run 2026-10-12). A guard in the same test fails if a
+document is defined somewhere the check cannot see it (define documents at module level).
+
+Generate or refresh the snapshot with your own User key (it is read from the environment only, never printed or
+written, and sent only to the NerdGraph endpoint):
+
+```sh
+RB_LIVE_API_KEY=NRAK-… pnpm nerdgraph:schema        # RB_LIVE_REGION=US (default), EU or JP
+```
+
+Commit the resulting file. Until a snapshot exists the check is skipped with a message; once it is present the check
+fails on any invalid document. Refresh it when New Relic changes the schema or when a document starts failing live.
+
 ## CI runners
 
 Pull-request CI (`ci.yml` except the macOS/Windows SQLite matrix, `security.yml`, `bench.yml`, `e2e.yml`, and the

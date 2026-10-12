@@ -2,7 +2,7 @@
 id: P8-32
 title: Validate NerdGraph documents against a schema snapshot
 phase: 8
-status: in-progress
+status: review
 priority: high
 depends_on: []
 adr: []
@@ -26,13 +26,13 @@ document the repo sends to NerdGraph against a committed introspection snapshot,
 - Owner step documented in `docs/dev/testing.md` and `docs/pending-decisions/owner-checklist.md`.
 
 ## Acceptance criteria
-- [ ] `pnpm nerdgraph:schema` writes a deterministic gzipped snapshot and refuses to run without a key.
-- [ ] The key is never printed (also not in errors) and never written to the snapshot.
-- [ ] Every `defineDocument` call in `packages/*/src` is covered by the check (a count guard fails otherwise).
-- [ ] Documents are validated with `validate`; a stale field, wrong argument or wrong variable type fails (tested
+- [x] `pnpm nerdgraph:schema` writes a deterministic gzipped snapshot and refuses to run without a key.
+- [x] The key is never printed (also not in errors) and never written to the snapshot.
+- [x] Every `defineDocument` call in `packages/*/src` is covered by the check (a count guard fails otherwise).
+- [x] Documents are validated with `validate`; a stale field, wrong argument or wrong variable type fails (tested
       against a synthetic schema).
-- [ ] Absent snapshot: skip with a message. Present snapshot: the check runs and fails on errors.
-- [ ] Docs updated; `pnpm lint`, `pnpm typecheck`, tests pass.
+- [x] Absent snapshot: skip with a message. Present snapshot: the check runs and fails on errors.
+- [x] Docs updated; `pnpm lint`, `pnpm typecheck`, tests pass.
 
 ## Security notes
 No product code changes. The script sends the key only as the `API-Key` header to the fixed NerdGraph endpoints

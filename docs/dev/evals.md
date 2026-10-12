@@ -39,19 +39,19 @@ by 30% or more (Jaccard) must be a declared confusable pair.
 
 ## tools/list budget
 
-Every client sends the whole `tools/list` to the model on every conversation (about 4 characters per token, so 56 000
+Every client sends the whole `tools/list` to the model on every conversation (about 4 characters per token, so 56 300
 characters is roughly 14 000 tokens of context before the user types anything), and some clients truncate or defer
 long tool lists. So the size is a tested budget, in `packages/core/test/evals/quality.ts`:
 
 | Budget | Covers | Ceiling | Size now | Headroom |
 |---|---|---|---|---|
-| `TOOLS_LIST_BUDGET` | built-in (read) tools, the default `tools/list` | 56 000 | 54 941 | 1 059 |
-| `TOOLS_LIST_BUDGET_WITH_WRITES` | built-ins plus the four write tools (`RB_WRITE_TOOLS=on`) | 64 000 | 62 674 | 1 326 |
+| `TOOLS_LIST_BUDGET` | built-in (read) tools, the default `tools/list` | 56 300 | 55 217 | 1 083 |
+| `TOOLS_LIST_BUDGET_WITH_WRITES` | built-ins plus the four write tools (`RB_WRITE_TOOLS=on`) | 64 300 | 62 950 | 1 350 |
 
 History: 65 683 before P6-13, 61 291 after it, 51 980 after P6-19, then growth from P6-24 (`limit` and `cursor` on every
 list), P7-02 and P7-03; P7-27 trimmed 1 467 from the built-ins and 553 from the write tools (shared `name`, `time_range`
 and write-input wording, and the redundant `"maximum": 9007199254740991` that `inputJsonSchema` now omits: the server
-still validates it). P8-20 added optional `domain` and `type` to the 13 tools that take a name (budgets raised by 1 600 on purpose).
+still validates it). P8-20 added optional `domain` and `type` to the 13 tools that take a name (budgets raised by 1 900 on purpose).
 
 Policy:
 

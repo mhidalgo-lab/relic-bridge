@@ -2,7 +2,7 @@
 id: P8-20
 title: Name lookup - optional domain/type, APM preference for APM-only tools
 phase: 8
-status: review
+status: done
 priority: high
 depends_on: []
 adr: []
@@ -18,7 +18,7 @@ Every APM app with browser monitoring has a same-named BROWSER entity, so `name`
 - Add optional `domain` and `type` inputs (only valid together with `name`) to every tool that accepts `name`: the `NAME_INPUT` adapter tools and `get_entity`, `get_related_entities`, `get_golden_metrics`.
 - APM-only tools (`list_top_transactions`, `analyze_transactions`, `analyze_deployment_impact`, `analyze_threads`, `list_gc_metrics`) stay pinned to the APM domain, so a bare name picks the APM candidate; no extra inputs there. `get_dashboard` stays pinned to dashboards.
 - Ambiguity errors still list candidates; their hint now suggests `domain`.
-- Keep the `tools/list` size budget (P7-27) green: both budgets raised by 1 600 on purpose (13 tools x two inputs).
+- Keep the `tools/list` size budget (P7-27) green: both budgets raised by 1 900 on purpose (13 tools x two inputs).
 
 ## Acceptance criteria
 - [x] `domain`/`type` accepted with `name`, refused with `entity_guid` or alone, validated as plain identifiers.

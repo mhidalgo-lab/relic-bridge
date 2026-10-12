@@ -1009,3 +1009,11 @@ Sources: [server.json format](https://github.com/modelcontextprotocol/registry/b
   with the previous window, so it can differ from tools that use `COMPARE WITH` or two windows.
 - Golden queries from NerdGraph may already carry `TIMESERIES` (with `SLIDE BY`): `timeseries: false` strips it.
 - The limits layer notes (`LIMIT MAX replaced with …`) are the same for every metric of an entity: shown once.
+
+## Same-named entities across domains (P8-20, live test run 2026-10-12)
+
+- An APM application with browser monitoring has a BROWSER/APPLICATION entity with the same name in the same account, so a
+  name search without a domain matches both. `domain` and `type` are entity-search filters (`domain = 'APM'`), sent through
+  `entityQuery` and part of the resolver cache key.
+- Tools that only make sense for APM (transactions, deployment impact, threads, GC) pin the search to `domain = 'APM'`;
+  other name-taking tools take an optional `domain` / `type` and report ambiguity (with candidates) otherwise.

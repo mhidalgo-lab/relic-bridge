@@ -15,32 +15,42 @@ export const RESOLVE_COST: number = RESOLVE_CALLS;
 /** One wording for the `name` input of every entity tool (P6-19). Keep the prefix: the description lint keys on it. */
 const NAME_DESCRIPTION = 'Entity name instead of guid. Ambiguous: nothing runs, candidates returned.';
 const NAME_ACCOUNT_DESCRIPTION = 'With name: this account only.';
+// Short descriptions and no JSON-schema pattern on `domain` / `type`: they sit on a dozen tools and tools/list is size-budgeted
+// (P7-27). The identifier check is a refinement (server-side only); the ambiguity error tells the model when to use them.
+const IDENTIFIER = /^[A-Za-z][A-Za-z0-9_]{0,63}$/;
+const identifier = z
+  .string()
+  .refine((v) => IDENTIFIER.test(v), 'Use a plain identifier such as APM or APPLICATION.');
+const domainSchema = identifier;
+const typeSchema = identifier;
 
 /** Input fields for a tool that takes an entity. Add `.refine(exactlyOneEntityRef…)` through `refineEntityRef`. */
 export function entityRefFields(guidDescription: string): {
   entity_guid: z.ZodOptional<z.ZodString>;
   name: z.ZodOptional<z.ZodString>;
   account: z.ZodOptional<z.ZodNumber>;
+  domain: z.ZodOptional<z.ZodString>;
+  type: z.ZodOptional<z.ZodString>;
 } {
   return {
     entity_guid: z.string().min(8).max(512).optional().describe(guidDescription),
     name: z.string().min(1).max(256).optional().describe(NAME_DESCRIPTION),
     account: accountIdSchema.optional().describe(NAME_ACCOUNT_DESCRIPTION),
+    domain: domainSchema.optional().describe('With name: APM, BROWSER, ...'),
+    type: typeSchema.optional().describe('With name: APPLICATION, ...'),
   };
 }
 
 /** Exactly one of entity_guid or name; `account` only with a name. */
 export function refineEntityRef<T extends z.ZodObject<z.ZodRawShape>>(schema: T): T {
   return schema.superRefine((v, c) => {
-    const { entity_guid, name, account } = v as { entity_guid?: string; name?: string; account?: number };
+    const { entity_guid, name, ...filters } = v as Record<string, unknown>;
     if ((entity_guid === undefined) === (name === undefined)) {
       c.addIssue({ code: 'custom', message: 'Give exactly one of "entity_guid" or "name".' });
-    } else if (account !== undefined && entity_guid !== undefined) {
-      c.addIssue({
-        code: 'custom',
-        message: '"account" only applies together with "name".',
-        path: ['account'],
-      });
+    } else if (entity_guid !== undefined) {
+      for (const f of ['account', 'domain', 'type'])
+        if (filters[f] !== undefined)
+          c.addIssue({ code: 'custom', message: `"${f}" only applies together with "name".`, path: [f] });
     }
   });
 }
@@ -91,7 +101,7 @@ export async function resolveEntityRef(
       ErrorCode.InputInvalid,
       `The name matches ${r.totalCandidates} entities (${r.matchedBy?.replace('_', ' ')} match); none was chosen.`,
       {
-        hint: 'Call again with "entity_guid" set to one of the candidates, or narrow the name or "account".',
+        hint: 'Call again with "entity_guid" set to one of the candidates, or narrow with "domain" (e.g. APM), "type" or "account".',
         details: {
           candidates: r.candidates.slice(0, MAX_RESOLVE_CANDIDATES).map((c) => ({
             guid: c.guid,
@@ -148,6 +158,15 @@ export function withEntityName(
   shape[field] = required ? original.optional() : original;
   shape['name'] = extra.name;
   if (!hadAccount) shape['account'] = extra.account;
+  // A tool pinned to a domain/type (APM-only tools, dashboards) keeps it; the others let the caller narrow (BUG-04).
+  const filterFields = [
+    ...(options.domain === undefined ? (['domain'] as const) : []),
+    ...(options.type === undefined && options.domain === undefined ? (['type'] as const) : []),
+  ];
+  for (const f of filterFields) {
+    if (f in shape) throw new Error(`withEntityName: ${def.name} already has "${f}".`);
+    shape[f] = extra[f];
+  }
   const inputSchema = z.strictObject(shape).superRefine((v, c) => {
     const o = v as Record<string, unknown>;
     const hasGuid = o[field] !== undefined;
@@ -156,11 +175,19 @@ export function withEntityName(
       c.addIssue({ code: 'custom', message: `Give "${field}" or "name", not both.` });
     } else if (required && !hasGuid && !hasName) {
       c.addIssue({ code: 'custom', message: `Give exactly one of "${field}" or "name".` });
-    } else if (!hadAccount && o['account'] !== undefined && !hasName) {
+    } else if (
+      !hasName &&
+      (['account', ...filterFields] as const).some(
+        (f) => (f !== 'account' || !hadAccount) && o[f] !== undefined,
+      )
+    ) {
+      const f = (['account', ...filterFields] as const).find(
+        (k) => (k !== 'account' || !hadAccount) && o[k] !== undefined,
+      );
       c.addIssue({
         code: 'custom',
-        message: '"account" only applies together with "name".',
-        path: ['account'],
+        message: `"${f}" only applies together with "name".`,
+        path: [f as string],
       });
     } else if (hasName && options.conflictsWith && o[options.conflictsWith] !== undefined) {
       c.addIssue({ code: 'custom', message: `Give "name" or "${options.conflictsWith}", not both.` });
@@ -175,12 +202,13 @@ export function withEntityName(
     handler: async (raw, ctx) => {
       const { name, ...rest } = raw as Record<string, unknown>;
       if (!hadAccount) delete rest['account'];
+      for (const f of filterFields) delete rest[f];
       if (name === undefined) return def.handler(rest, ctx);
       const ref = await resolveEntityRef(resolver, ctx, {
         name: name as string,
         account: raw['account'] as number | undefined,
-        ...(options.domain === undefined ? {} : { domain: options.domain }),
-        ...(options.type === undefined ? {} : { type: options.type }),
+        domain: options.domain ?? (raw['domain'] as string | undefined),
+        type: options.type ?? (raw['type'] as string | undefined),
       });
       const out = await def.handler({ ...rest, [field]: ref.guid }, ctx);
       return ref.note ? { ...out, text: `${ref.note}\n${out.text}` } : out;

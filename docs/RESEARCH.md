@@ -994,3 +994,13 @@ Sources: [server.json format](https://github.com/modelcontextprotocol/registry/b
 - Form schemas are restricted to flat primitives; a single boolean `confirm` is used. Whether a client shows `message`
   as plain text or Markdown is unknown; the message is therefore plain lines with quoted values.
 - Not verified: Claude Code, Claude Desktop, VS Code and mobile behaviour with these forms.
+
+## Golden metrics and time buckets (P8-21, live test run 2026-10-12)
+
+- A `TIMESERIES` result ends with a bucket that is still filling: its `endTimeSeconds` lies after "now" and its value is
+  partial, or empty (a rate read as 0). `get_golden_metrics` leaves such buckets out (compared with the server clock)
+  before taking the latest value and the trend; a window with an explicit past `UNTIL` has none.
+- The trend compares the later half of the complete buckets with the earlier half (equal lengths). It is not a comparison
+  with the previous window, so it can differ from tools that use `COMPARE WITH` or two windows.
+- Golden queries from NerdGraph may already carry `TIMESERIES` (with `SLIDE BY`): `timeseries: false` strips it.
+- The limits layer notes (`LIMIT MAX replaced with …`) are the same for every metric of an entity: shown once.

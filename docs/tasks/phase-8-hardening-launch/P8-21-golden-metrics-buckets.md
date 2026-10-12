@@ -2,7 +2,7 @@
 id: P8-21
 title: Golden metrics read complete buckets, honour timeseries false, state limit notes once
 phase: 8
-status: in-progress
+status: review
 priority: high
 depends_on: []
 adr: []
@@ -25,12 +25,12 @@ metric (BUG-20).
 - Tool description and generated docs state the trend definition.
 
 ## Acceptance criteria
-- [ ] The bucket still filling never supplies `value` and never enters the trend.
-- [ ] The trend compares equal-length halves of the complete buckets; the description says so.
-- [ ] `timeseries: false` sends NRQL without `TIMESERIES`.
-- [ ] No double signs in health signals.
-- [ ] Limit adjustments appear once at the top level, not on each metric row.
-- [ ] Tests: regression tests for each of the above (fail before the fix).
+- [x] The bucket still filling never supplies `value` and never enters the trend.
+- [x] The trend compares equal-length halves of the complete buckets; the description says so.
+- [x] `timeseries: false` sends NRQL without `TIMESERIES`.
+- [x] No double signs in health signals.
+- [x] Limit adjustments appear once at the top level, not on each metric row.
+- [x] Tests: regression tests for each of the above (fail before the fix).
 
 ## Security notes
 None: no access behaviour changes; the NRQL text still goes only through the existing limit/tokenizer path.

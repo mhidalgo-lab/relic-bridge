@@ -22,6 +22,7 @@ const A = 1000001;
 const OTHER = 1000007;
 const guidOf = (account: number, id = '42') => btoa(`${account}|APM|APPLICATION|${id}`).replace(/=+$/, '');
 const GUID = guidOf(A);
+const NOW_MS = 1_000_000_000;
 
 type CallResult = Awaited<ReturnType<Client['callTool']>>;
 let clients: Client[] = [];
@@ -87,7 +88,13 @@ function routedFetch(routes: Record<string, () => Response>, entity: () => Respo
 }
 
 async function connect(fetch: FetchLike, overrides: Partial<ToolContext> = {}) {
-  const ctx = testContext({ accounts: { allowed: [A], default: A }, budget: createBudget(50), ...overrides });
+  const ctx = testContext({
+    accounts: { allowed: [A], default: A },
+    budget: createBudget(50),
+    // After every bucket of `series()` (the last ends at 60 * n seconds): none is still filling unless a test says so.
+    clock: { now: () => NOW_MS },
+    ...overrides,
+  });
   const server = buildMcpServer({ tools: createGoldenMetricTools({ fetch, sleep: async () => {} }), ctx });
   const [clientT, serverT] = InMemoryTransport.createLinkedPair();
   await server.connect(serverT);
@@ -137,6 +144,24 @@ describe('summarizeSeries', () => {
     expect(summarizeSeries([], true).value).toBeNull();
   });
 
+  it('ignores the bucket still filling (BUG-26)', () => {
+    const rows = series(10, 10, 10, 10, 0);
+    // The last bucket ends at 300 s: at 250 s it is still filling, and its 0 is not the latest value.
+    expect(summarizeSeries(rows, true, 250_000)).toMatchObject({ value: 10, trend: 'flat', points: 4 });
+    expect(summarizeSeries(rows, true, 300_000)).toMatchObject({ value: 0, points: 5 });
+    // Without a clock nothing is dropped.
+    expect(summarizeSeries(rows, true).value).toBe(0);
+  });
+
+  it('compares equal halves of the complete buckets (BUG-06)', () => {
+    // 5 complete buckets: the middle one is left out, 2 vs 2; the partial 6th (huge) does not skew the trend.
+    expect(summarizeSeries(series(10, 10, 99, 5, 5, 1000), true, 340_000)).toMatchObject({
+      trend: 'down',
+      changeRatio: -0.5,
+      value: 5,
+    });
+  });
+
   it('skips null buckets, reads percentile objects and handles a zero baseline', () => {
     expect(summarizeSeries(series(null, 1, 1, 3, 3), true)).toMatchObject({ trend: 'up', value: 3 });
     expect(summarizeSeries([{ 'percentile.duration': { '95': 1.5 } }], false).value).toBe(1.5);
@@ -157,6 +182,31 @@ describe('withTimeClauses', () => {
       nrql: 'FROM Metric SELECT x SINCE 30 minutes ago',
       timeseries: false,
     });
+  });
+
+  it('drops the queries own TIMESERIES clause when one aggregate is wanted (BUG-26)', () => {
+    expect(
+      withTimeClauses(
+        'FROM Metric SELECT rate(count(a), 1 minute) WHERE x = 1 TIMESERIES 1 minute SLIDE BY 5 minutes LIMIT 5',
+        'SINCE 1 hour ago',
+        false,
+      ),
+    ).toEqual({
+      nrql: expect.not.stringContaining('TIMESERIES'),
+      timeseries: false,
+    });
+    const out = withTimeClauses(
+      "FROM Metric SELECT average(a) WHERE n = 'TIMESERIES' TIMESERIES AUTO",
+      'SINCE 1 hour ago',
+      false,
+    );
+    expect(out.nrql.replace(/\s+/g, ' ')).toBe(
+      "FROM Metric SELECT average(a) WHERE n = 'TIMESERIES' SINCE 1 hour ago",
+    );
+    expect(
+      withTimeClauses('FROM Metric SELECT x SINCE 1 hour ago TIMESERIES 1 minute', 'SINCE 9 days ago', true)
+        .timeseries,
+    ).toBe(true);
   });
 
   it('ignores SINCE inside strings and subqueries', () => {
@@ -211,6 +261,50 @@ describe('get_golden_metrics', () => {
     const s = r.structuredContent as Out;
     expect(s.metrics[0]).toMatchObject({ status: 'ok', value: 7, trend: 'unknown' });
     expect(String(calls[1]?.variables['nrql'])).toMatch(/SINCE 2 hours ago$/);
+  });
+
+  it('does not send TIMESERIES when timeseries=false, even if the golden query has one (BUG-26)', async () => {
+    const q = {
+      title: 'Throughput',
+      query: 'FROM Metric SELECT rate(count(a), 1 minute) TIMESERIES 1 minute',
+    };
+    const { fetch, calls } = routedFetch({ 'rate(count(a)': () => nrqlBody([{ Throughput: 120 }]) }, () =>
+      entityBody([q]),
+    );
+    const client = await connect(fetch);
+    const r = await client.callTool({
+      name: 'get_golden_metrics',
+      arguments: { entity_guid: GUID, time_range: 'last 1 hour', timeseries: false },
+    });
+    expect(String(calls[1]?.variables['nrql'])).not.toContain('TIMESERIES');
+    expect((r.structuredContent as Out).metrics[0]).toMatchObject({ value: 120, trend: 'unknown' });
+  });
+
+  it('reads the last complete bucket, not the one still filling (BUG-26)', async () => {
+    // Buckets end at 60..300 s; at 250 s the last (0) is still filling.
+    const { fetch } = routedFetch({ 'rate(count(a)': () => nrqlBody(series(7, 7, 7, 7, 0)) }, () =>
+      entityBody([THREE[0]]),
+    );
+    const client = await connect(fetch, { clock: { now: () => 250_000 } });
+    const r = await client.callTool({ name: 'get_golden_metrics', arguments: { entity_guid: GUID } });
+    expect((r.structuredContent as Out).metrics[0]).toMatchObject({ value: 7, trend: 'flat', points: 4 });
+  });
+
+  it('states a limit adjustment once, not on every metric (BUG-20)', async () => {
+    const qs = [
+      { title: 'A', query: 'FROM Metric SELECT average(a) FACET host LIMIT MAX' },
+      { title: 'B', query: 'FROM Metric SELECT average(b) FACET host LIMIT MAX' },
+    ];
+    const { fetch } = routedFetch(
+      { 'average(a)': () => nrqlBody(series(1, 1, 1, 1)), 'average(b)': () => nrqlBody(series(1, 1, 1, 1)) },
+      () => entityBody(qs),
+    );
+    const client = await connect(fetch);
+    const r = await client.callTool({ name: 'get_golden_metrics', arguments: { entity_guid: GUID } });
+    const s = r.structuredContent as Out & { notes: string[] };
+    expect(s.notes).toEqual([expect.stringContaining('LIMIT MAX replaced')]);
+    expect(s.metrics.every((m) => m.note === null || !m.note.includes('LIMIT'))).toBe(true);
+    expect(text(r).match(/LIMIT MAX replaced/g)).toHaveLength(1);
   });
 
   it('returns a partial result when the budget only covers some metrics', async () => {

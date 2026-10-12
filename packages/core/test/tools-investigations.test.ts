@@ -161,7 +161,7 @@ describe('pure helpers', () => {
         'CRITICAL',
         false,
       ),
-    ).toEqual(['alert_critical', 'not_reporting', 'Error rate up +50%', 'Throughput down -40%']);
+    ).toEqual(['alert_critical', 'not_reporting', 'Error rate up 50%', 'Throughput down 40%']);
     expect(healthSignals([], 'NOT_ALERTING', true)).toEqual([]);
   });
 

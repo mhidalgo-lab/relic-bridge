@@ -2,7 +2,7 @@
 id: P8-17
 title: Fix list_synthetic_monitors stale NerdGraph status field
 phase: 8
-status: review
+status: done
 priority: high
 depends_on: []
 adr: []

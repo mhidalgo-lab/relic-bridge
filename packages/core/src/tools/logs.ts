@@ -44,31 +44,91 @@ const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
 const MAX_MESSAGE_CHARS = 500;
 const MAX_PATTERN_CHARS = 200;
-/** Lines sampled for message patterns (NRQL's own LIMIT ceiling is 2000). */
-const SAMPLE_LINES = 1000;
-const MAX_PATTERNS = 10;
+/** Lines sampled for message patterns, and characters kept of each (cut in NRQL, before the answer is sent: BUG-03). */
+const SAMPLE_LINES = 500;
+const SAMPLE_CHARS = 300;
+/** Smaller sample asked once when the first answer is over the response limit. */
+const SMALL_SAMPLE_LINES = 150;
+const SMALL_SAMPLE_CHARS = 100;
+const MAX_PATTERNS = 20;
 const BUCKETS = 24;
 /** Characters of a raw message that are looked at at all: bounds regex work on hostile input. */
 const MAX_RAW_CHARS = 4000;
+/** Fields tried, in order, when `message` is empty (structured logs). */
+const MESSAGE_FALLBACKS = ['log', 'logged_message'] as const;
+/** Attributes shown in the summary of a line without any text field, and the longest value shown. */
+const SUMMARY_ATTRIBUTES = 6;
+const SUMMARY_VALUE_CHARS = 60;
+/** Attributes that say nothing about what a line is: never part of the summary. */
+const SUMMARY_SKIP =
+  /^(timestamp|level|message|log|logged_message|messageId|entity\.|newrelic\.|plugin\.|nr\.)/i;
 
-const LEVELS = ['fatal', 'error', 'warn', 'info', 'debug', 'trace'] as const;
-type Level = (typeof LEVELS)[number];
+const LEVELS = [
+  'fatal',
+  'critical',
+  'alert',
+  'emergency',
+  'error',
+  'warn',
+  'warning',
+  'notice',
+  'info',
+  'debug',
+  'trace',
+] as const;
+export type Level = (typeof LEVELS)[number];
 
-/** Spellings seen in New Relic logs per level (NRQL equality is case-sensitive; unverified, see RESEARCH). */
+/**
+ * One level vocabulary for both tools: the plain names and the Monolog/PSR-3 and syslog names. A name selects the
+ * spellings listed here (NRQL equality is case-sensitive). `fatal` is the umbrella for the severest levels;
+ * `warn` and `warning` are the same filter. Level counts report the lowercase name with abbreviations expanded
+ * (err -> error, warn -> warning, crit -> critical, emerg -> emergency), all of which are accepted as input.
+ */
+const spell = (w: string): string[] => [
+  w.toUpperCase(),
+  w.toLowerCase(),
+  w.charAt(0).toUpperCase() + w.slice(1).toLowerCase(),
+];
+const abbr = (w: string): string[] => [w.toUpperCase(), w.toLowerCase()];
+const FATAL = [
+  ...spell('fatal'),
+  ...spell('critical'),
+  ...abbr('crit'),
+  ...spell('alert'),
+  ...spell('emergency'),
+  ...abbr('emerg'),
+];
+const WARN = [...spell('warn'), ...spell('warning')];
 const LEVEL_VARIANTS: Record<Level, readonly string[]> = {
-  fatal: ['FATAL', 'fatal', 'Fatal', 'CRITICAL', 'critical', 'Critical'],
-  error: ['ERROR', 'error', 'Error', 'ERR', 'err'],
-  warn: ['WARN', 'warn', 'Warn', 'WARNING', 'warning', 'Warning'],
-  info: ['INFO', 'info', 'Info'],
-  debug: ['DEBUG', 'debug', 'Debug'],
-  trace: ['TRACE', 'trace', 'Trace'],
+  fatal: FATAL,
+  critical: [...spell('critical'), ...abbr('crit')],
+  alert: spell('alert'),
+  emergency: [...spell('emergency'), ...abbr('emerg')],
+  error: [...spell('error'), ...abbr('err')],
+  warn: WARN,
+  warning: WARN,
+  notice: spell('notice'),
+  info: spell('info'),
+  debug: spell('debug'),
+  trace: spell('trace'),
+};
+const LEVEL_ALIASES: Readonly<Record<string, string>> = {
+  err: 'error',
+  warn: 'warning',
+  crit: 'critical',
+  emerg: 'emergency',
+};
+/** The reported name of a level value: lowercase, abbreviations expanded. */
+export const canonicalLevel = (raw: string): string => {
+  const l = raw.toLowerCase();
+  return LEVEL_ALIASES[l] ?? l;
 };
 
 const RANGE_FIELD = timeRangeInput(DEFAULT_WINDOW);
 const LEVEL_FIELD = z
   .enum(LEVELS)
   .optional()
-  .describe('Only lines of this level (case variants such as ERROR/error are matched).');
+  .describe('Only this level (any case); fatal includes critical, alert, emergency.');
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Scrubbing and pattern normalisation (pure)
@@ -176,8 +236,10 @@ export function recentQuery(
 ): NrqlQuery {
   const { since, until } = bounds(sinceMs, untilMs);
   const contains = pattern === undefined ? nrql`` : nrql`AND message LIKE ${pattern}`;
-  const upTo = atOrBeforeMs === undefined ? nrql`` : nrql`AND timestamp <= ${atOrBeforeMs}`;
-  return nrql`SELECT timestamp, level, message FROM Log WHERE timestamp IS NOT NULL ${scope(guid)} ${levelFilter(level)} ${contains} ${upTo} ORDER BY timestamp DESC LIMIT ${limit} SINCE ${since} UNTIL ${until}`;
+  // SINCE/UNTIL are whole seconds, rounded outward: the exact bounds are repeated on `timestamp` so no line outside the
+  // window is read (BUG-24). A page cursor lowers the upper bound to the last instant shown.
+  const upper = Math.min(untilMs, atOrBeforeMs ?? untilMs);
+  return nrql`SELECT * FROM Log WHERE timestamp IS NOT NULL AND timestamp >= ${sinceMs} AND timestamp <= ${upper} ${scope(guid)} ${levelFilter(level)} ${contains} ORDER BY timestamp DESC LIMIT ${limit} SINCE ${since} UNTIL ${until}`;
 }
 
 export function levelCountQuery(guid: string, sinceMs: number, untilMs: number): NrqlQuery {
@@ -190,9 +252,12 @@ export function sampleQuery(
   level: Level | undefined,
   sinceMs: number,
   untilMs: number,
+  lines: number = SAMPLE_LINES,
+  chars: number = SAMPLE_CHARS,
 ): NrqlQuery {
   const { since, until } = bounds(sinceMs, untilMs);
-  return nrql`SELECT message FROM Log WHERE timestamp IS NOT NULL ${scope(guid)} ${levelFilter(level)} ORDER BY timestamp DESC LIMIT ${SAMPLE_LINES} SINCE ${since} UNTIL ${until}`;
+  // The message is cut at New Relic: multi-KB payloads on a busy entity would otherwise exceed the response limit.
+  return nrql`SELECT substring(message, 0, ${chars}) AS message FROM Log WHERE timestamp IS NOT NULL ${scope(guid)} ${levelFilter(level)} ORDER BY timestamp DESC LIMIT ${lines} SINCE ${since} UNTIL ${until}`;
 }
 
 export function seriesQuery(
@@ -253,9 +318,9 @@ const listOutput = z.object({
   nextCursor: z.string().nullable(),
 });
 
-const LIST_DESCRIPTION = `Read the most recent log lines (newest first) of one account or one entity (guid or name), optionally only one level or lines containing some text. Default: the last hour, ${DEFAULT_LIMIT} lines, max ${MAX_LIMIT}; older lines: page with cursor (keeps the first window).
+const LIST_DESCRIPTION = `Read the most recent log lines (newest first) of one account or one entity (guid or name), optionally only one level or lines containing some text. Default: the last hour, ${DEFAULT_LIMIT} lines, max ${MAX_LIMIT}; older lines: page with cursor (the window stays fixed).
 
-Use it to read what was logged around an incident. For counts by level, common message patterns and bursts use analyze_entity_logs; for the lines of one failing request use trace_error. There is no "lines around this error" mode: set a narrow time_range around the error's time instead. Messages are cut to ${MAX_MESSAGE_CHARS} characters and scrubbed of credential-like strings, but may still hold personal data. ${UNTRUSTED}`;
+For counts by level, common message patterns and bursts use analyze_entity_logs; for the lines of one failing request use trace_error. For lines around an error, use a narrow time_range. Messages are cut to ${MAX_MESSAGE_CHARS} characters and scrubbed of credential-like strings, but may still hold personal data. ${UNTRUSTED}`;
 
 // ---------------------------------------------------------------------------------------------------------------------
 // analyze_entity_logs
@@ -267,9 +332,7 @@ const analyzeInput = z.strictObject({
     .min(1)
     .max(256)
     .describe('The entity whose logs to analyse (guid from search_entities). Its account is queried.'),
-  level: LEVEL_FIELD.describe(
-    'Restrict message patterns and bursts to this level. Level counts always cover all.',
-  ),
+  level: LEVEL_FIELD.describe('Only for patterns and bursts; level counts always cover all.'),
   time_range: RANGE_FIELD,
 });
 
@@ -294,7 +357,7 @@ const analyzeOutput = z.object({
 
 const ANALYZE_DESCRIPTION = `Summarise an entity's logs (guid or name): line counts by level, the most common message patterns (numbers, ids, times and addresses replaced by placeholders, so similar lines group together) and bursts (time buckets far above the usual rate).
 
-Runs 3 requests; a stopped part leaves the others (partial). Patterns come from the newest ${SAMPLE_LINES} lines of the window, so for a busy entity narrow time_range or set level. To read actual lines use list_recent_logs. Messages are cut and scrubbed of credential-like strings, but may still hold personal data. ${UNTRUSTED}`;
+Runs 3 requests; a stopped part leaves the others (partial). Patterns come from the first ${SAMPLE_CHARS} characters of the newest ${SAMPLE_LINES} lines: on busy entities narrow time_range or set level. To read actual lines use list_recent_logs. Messages are cut and scrubbed of credential-like strings, but may still hold personal data. ${UNTRUSTED}`;
 
 const iso = (seconds: number) => new Date(seconds * 1000).toISOString();
 
@@ -302,6 +365,37 @@ function messageOf(row: Record<string, unknown>): string {
   const m = row['message'];
   return typeof m === 'string' ? m : '';
 }
+
+const text = (v: unknown): string | null => (typeof v === 'string' && v.trim() !== '' ? v : null);
+
+/**
+ * What to show for a line: `message`, else `log`, else `logged_message` (structured loggers), else a compact `key=value`
+ * summary of its other scalar attributes (BUG-25). Raw text; the caller scrubs it like any message.
+ */
+export function lineText(row: Record<string, unknown>): string {
+  const direct = text(row['message']);
+  if (direct !== null) return direct;
+  for (const key of MESSAGE_FALLBACKS) {
+    const v = text(row[key]);
+    if (v !== null) return v;
+  }
+  const parts: string[] = [];
+  for (const [key, value] of Object.entries(row)) {
+    if (parts.length >= SUMMARY_ATTRIBUTES) break;
+    if (SUMMARY_SKIP.test(key)) continue;
+    if (typeof value !== 'string' && typeof value !== 'number' && typeof value !== 'boolean') continue;
+    const shown = String(value).slice(0, SUMMARY_VALUE_CHARS);
+    if (shown.trim() === '') continue;
+    parts.push(`${key.slice(0, SUMMARY_VALUE_CHARS)}=${shown}`);
+  }
+  return parts.length === 0 ? '' : `(no message) ${parts.join(' ')}`;
+}
+
+/** A row id usable as a cursor tiebreaker, or null. */
+const rowId = (row: Record<string, unknown>): string | null => {
+  const id = row['messageId'];
+  return typeof id === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(id) ? id : null;
+};
 
 /** `list_recent_logs` and `analyze_entity_logs` (read-only, Log events). */
 export function createLogTools(deps: ToolDeps = {}): ToolDefinition[] {
@@ -365,8 +459,9 @@ export function createLogTools(deps: ToolDeps = {}): ToolDefinition[] {
         args.contains,
       );
       const pos = args.cursor === undefined ? null : readTimeCursor(binding, args.cursor);
+      // The window is frozen by the cursor (both ends): it neither slides nor shrinks between pages (BUG-24).
       const sinceMs = pos?.s ?? range.sinceMs;
-      const untilMs = pos === null ? range.untilMs : pos.t + 1;
+      const untilMs = pos?.e ?? range.untilMs;
       if (pos !== null)
         assertWindowWithinLimit({ windowMs: untilMs - sinceMs, sinceMs }, ctx.limits, ctx.clock.now());
       const fetchSize = timeFetchSize(limit, pos);
@@ -378,14 +473,20 @@ export function createLogTools(deps: ToolDeps = {}): ToolDefinition[] {
           recentQuery(args.entity_guid, args.level, pattern, fetchSize, sinceMs, untilMs, pos?.t),
         ),
       );
+      // Never show a line outside the reported window, whatever the upstream rounding returned.
+      const inWindow = done.results.filter((r) => {
+        const ts = num(r['timestamp']);
+        return ts === null || (ts >= sinceMs && ts <= untilMs);
+      });
       const paged = pageByTime(
-        done.results,
+        inWindow,
         (r) => num(r['timestamp']),
         pos,
         limit,
         done.results.length >= fetchSize,
+        rowId,
       );
-      const next = paged.more ? nextTimePosition(paged.times, pos, sinceMs) : null;
+      const next = paged.more ? nextTimePosition(paged.times, pos, sinceMs, untilMs, paged.ids) : null;
       const nextCursor = next === null ? null : timeCursor(binding, next);
       const since = pos === null ? range.since : new Date(sinceMs).toISOString();
       const until = pos === null ? range.until : new Date(untilMs).toISOString();
@@ -397,7 +498,7 @@ export function createLogTools(deps: ToolDeps = {}): ToolDefinition[] {
             const l = r['level'];
             return typeof l === 'string' ? label(l) : null;
           })(),
-          message: cleanLogMessage(messageOf(r)),
+          message: cleanLogMessage(lineText(r)),
         };
       });
       const logs = args.minimal_output
@@ -435,13 +536,15 @@ export function createLogTools(deps: ToolDeps = {}): ToolDefinition[] {
     },
   });
 
-  type Part<T> = { ok: true; value: T } | { ok: false; note: string };
+  type Part<T> = { ok: true; value: T } | { ok: false; note: string; tooLarge?: boolean };
 
   async function part<T>(
     ctx: ToolContext,
     account: number,
     query: NrqlQuery,
     read: (rows: Record<string, unknown>[]) => T,
+    /** Report an over-the-limit answer in the result (so the caller can retry smaller) instead of as a note only. */
+    flagTooLarge = false,
   ): Promise<Part<T>> {
     try {
       const outcome = await run(ctx, account, query);
@@ -452,6 +555,8 @@ export function createLogTools(deps: ToolDeps = {}): ToolDefinition[] {
       // Credential, authorization and connection-limit errors (e.g. Log not allowed) hit every part alike.
       if (!(e instanceof RbError) || FATAL_CODES.has(e.code) || e.code === ErrorCode.LimitQuery) throw e;
       if (e.code === ErrorCode.BudgetExhausted) return { ok: false, note: 'Request budget exhausted.' };
+      if (flagTooLarge && e.code === ErrorCode.LimitResponseTooLarge)
+        return { ok: false, note: errorNote(e), tooLarge: true };
       return { ok: false, note: errorNote(e) };
     }
   }
@@ -464,7 +569,7 @@ export function createLogTools(deps: ToolDeps = {}): ToolDefinition[] {
     outputSchema: analyzeOutput,
     kind: 'read',
     openWorld: true,
-    // Level counts, a message sample and a time series (one NRQL each).
+    // Level counts, a message sample and a time series (one NRQL each); a smaller sample retry only if budget remains.
     cost: 3 * NRQL_COST,
     group: 'performance',
     phase: 6,
@@ -478,6 +583,7 @@ export function createLogTools(deps: ToolDeps = {}): ToolDefinition[] {
 
       // Budget-aware, most useful first: level counts, then patterns, then bursts.
       const startable = startableNrql(3, ctx.budget.remaining);
+      let sampleRetry = false;
       const jobs: Array<() => Promise<unknown>> = [
         () =>
           part(ctx, account, levelCountQuery(guid, range.sinceMs, range.untilMs), (rows) => {
@@ -486,16 +592,41 @@ export function createLogTools(deps: ToolDeps = {}): ToolDefinition[] {
               const facet = Array.isArray(r['facet']) ? r['facet'][0] : (r['facet'] ?? r['level']);
               const count = num(r['lines']);
               if (count === null) continue;
-              const key = typeof facet === 'string' ? (label(facet)?.toLowerCase() ?? 'other') : 'unknown';
+              const key =
+                typeof facet === 'string' ? (label(facet) ? canonicalLevel(facet) : 'other') : 'unknown';
               byLevel.set(key, (byLevel.get(key) ?? 0) + count);
             }
             return [...byLevel].map(([level, count]) => ({ level, count })).sort((a, b) => b.count - a.count);
           }),
-        () =>
-          part(ctx, account, sampleQuery(guid, args.level, range.sinceMs, range.untilMs), (rows) => ({
+        async () => {
+          const readSample = (rows: Record<string, unknown>[]) => ({
             lines: rows.length,
             patterns: topPatterns(rows.map(messageOf)),
-          })),
+          });
+          const first = await part(
+            ctx,
+            account,
+            sampleQuery(guid, args.level, range.sinceMs, range.untilMs),
+            readSample,
+            true,
+          );
+          if (first.ok || first.tooLarge !== true || ctx.budget.remaining < NRQL_COST) return first;
+          // Still over the response limit: shrink the sample instead of dropping the section.
+          sampleRetry = true;
+          return part(
+            ctx,
+            account,
+            sampleQuery(
+              guid,
+              args.level,
+              range.sinceMs,
+              range.untilMs,
+              SMALL_SAMPLE_LINES,
+              SMALL_SAMPLE_CHARS,
+            ),
+            readSample,
+          );
+        },
         () =>
           part(
             ctx,
@@ -529,8 +660,13 @@ export function createLogTools(deps: ToolDeps = {}): ToolDefinition[] {
       const spikes = seriesPart.ok ? findSpikes(seriesPart.value) : [];
       if (levelsPart.ok && total === 0)
         notes.push('No log lines in the window. Check the guid, the window and that the entity sends logs.');
-      if (sampledLines !== null && sampledLines >= SAMPLE_LINES)
-        notes.push(`Patterns come from the newest ${SAMPLE_LINES} lines of the window only.`);
+      const sampleCap = sampleRetry ? SMALL_SAMPLE_LINES : SAMPLE_LINES;
+      if (sampledLines !== null && sampledLines >= sampleCap)
+        notes.push(`Patterns come from the newest ${sampleCap} lines of the window only.`);
+      if (sampleRetry && patternsPart.ok)
+        notes.push(
+          `The pattern sample was too large for the response limit: it was repeated with ${SMALL_SAMPLE_LINES} lines of ${SMALL_SAMPLE_CHARS} characters. Narrow time_range or set level for a fuller picture.`,
+        );
 
       const out = [
         `Logs of the entity in account ${account}, ${range.since} to ${range.until} (UTC)${args.level ? `, patterns and bursts for level ${args.level}` : ''}.${total === null ? '' : ` ${total} line${total === 1 ? '' : 's'} in total.`}${partial ? ' Partial result: see notes.' : ''}`,

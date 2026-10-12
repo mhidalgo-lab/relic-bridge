@@ -101,6 +101,8 @@ function epochMs(n: number): number | undefined {
   if (n >= 1e12 && n < 1e13) return n;
   return undefined;
 }
+/** Whole-second rounding (and a little clock drift) tolerated on epoch-second SINCE/UNTIL literals. */
+const SECOND_ROUNDING_SLACK_MS = 2000;
 /** `WITH TIMEZONE` moves quoted dates by up to this much (UTC−12 … UTC+14). */
 const TIMEZONE_SLACK_MS = 14 * HOUR;
 /** Words that may follow an event type in a FROM list. */
@@ -134,7 +136,12 @@ function parseTime(
     if (ms === undefined) {
       throw limitError(`${a.text} is not an epoch timestamp in seconds or milliseconds.`, UNSUPPORTED_TIME);
     }
-    return { agoMs: Math.max(0, now - ms), absoluteMs: ms };
+    // Epoch seconds cannot express a millisecond bound: a caller that rounds its window outward to whole seconds (and
+    // a clock that moved on since) must still fit "exactly N days" (BUG-23). The slack moves a second-granular SINCE
+    // closer to now by SECOND_ROUNDING_SLACK_MS: it covers the floor of SINCE plus the ceil of UNTIL (width) and the
+    // floor plus clock drift (lookback).
+    const slack = role === 'since' && ms === n * 1000 ? SECOND_ROUNDING_SLACK_MS : 0;
+    return { agoMs: Math.max(0, now - ms - slack), absoluteMs: ms };
   }
   if (a?.kind === 'string' && role !== 'compare') {
     const iso = /[zZ]|[+-]\d\d:?\d\d$/.test(a.value) ? a.value : `${a.value.replace(' ', 'T')}Z`;

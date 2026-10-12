@@ -43,7 +43,10 @@ export function decodeSnapshot(bytes: Uint8Array): GraphQLSchema {
   const parsed = JSON.parse(gunzipSync(bytes).toString('utf8')) as IntrospectionQuery & {
     data?: IntrospectionQuery;
   };
-  return buildClientSchema(parsed.data ?? parsed);
+  // assumeValid: NerdGraph's own schema breaks a type-system rule that graphql-js enforces (an implementation field is
+  // deprecated while its interface field is not), so validating the schema itself would fail before any of our
+  // documents is checked. Documents are still validated in full against it.
+  return buildClientSchema(parsed.data ?? parsed, { assumeValid: true });
 }
 
 /** The committed schema, or null while no snapshot has been generated yet. A corrupt snapshot throws. */
@@ -106,7 +109,7 @@ export async function main(
     return 2;
   }
   const introspection = await fetchIntrospection({ apiKey, region, fetchImpl });
-  buildClientSchema(introspection); // fail before writing anything if the result is not a usable schema
+  buildClientSchema(introspection, { assumeValid: true }); // fail before writing anything if the result is not a usable schema
   const bytes = encodeSnapshot(introspection);
   mkdirSync(dirname(path), { recursive: true }); // first run: scripts/fixtures/ does not exist yet
   writeFileSync(path, bytes);

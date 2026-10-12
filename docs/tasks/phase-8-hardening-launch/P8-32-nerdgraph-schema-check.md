@@ -2,7 +2,7 @@
 id: P8-32
 title: Validate NerdGraph documents against a schema snapshot
 phase: 8
-status: review
+status: done
 priority: high
 depends_on: []
 adr: []

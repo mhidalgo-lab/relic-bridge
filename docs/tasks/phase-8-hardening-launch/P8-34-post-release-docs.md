@@ -2,7 +2,7 @@
 id: P8-34
 title: Update docs after the 0.7.0 release
 phase: 8
-status: review
+status: done
 priority: medium
 depends_on: []
 adr: []

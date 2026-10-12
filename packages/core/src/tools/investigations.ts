@@ -175,7 +175,8 @@ export function healthSignals(
   if (reporting === false) out.push('not_reporting');
   for (const m of metrics) {
     if (m.status !== 'ok' || m.changeRatio === null) continue;
-    const pct = `${m.changeRatio >= 0 ? '+' : ''}${(m.changeRatio * 100).toFixed(0)}%`;
+    // The word already carries the direction: no sign ("down 39%", not "down -39%").
+    const pct = `${Math.abs(m.changeRatio * 100).toFixed(0)}%`;
     if (m.trend === 'up' && m.changeRatio >= SIGNAL_CHANGE && LATENCY_TITLE.test(m.title))
       out.push(`${m.title} up ${pct}`);
     else if (m.trend === 'down' && m.changeRatio <= -SIGNAL_CHANGE && VOLUME_TITLE.test(m.title))

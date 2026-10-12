@@ -69,16 +69,16 @@ const input = refineEntityRef(
 const metricRow = z.object({
   title: z.string(),
   status: z.enum(['ok', 'no_data', 'pending', 'error', 'skipped']),
-  /** Latest value (last bucket with data when a time series was fetched). */
+  /** Latest value (last complete bucket with data when a time series was fetched; the bucket still filling is ignored). */
   value: z.number().nullable(),
   /** The result column the value came from. */
   column: z.string().nullable(),
   trend: z.enum(['up', 'down', 'flat', 'unknown']),
-  /** Mean of the later half of the series relative to the earlier half, as a fraction (0.12 = +12%). */
+  /** Mean of the later half of the complete buckets relative to the earlier half (equal lengths), as a fraction (0.12 = +12%). */
   changeRatio: z.number().nullable(),
   points: z.number().int(),
   nrql: z.string().nullable(),
-  /** Why the metric has no value (limit adjustments, query error, skipped for budget…). */
+  /** Why the metric has no value (no data, query error, skipped for budget…). */
   note: z.string().nullable(),
 });
 
@@ -93,6 +93,8 @@ const output = z.object({
   since: z.string(),
   until: z.string(),
   metrics: z.array(metricRow),
+  /** Adjustments made to the golden queries (limits), the same for every metric: stated once here. */
+  notes: z.array(z.string()),
   /** Some metrics were not evaluated (budget) or have no value (errors, still running). */
   partial: z.boolean(),
   totalMetrics: z.number().int(),
@@ -100,7 +102,7 @@ const output = z.object({
 
 const DESCRIPTION = `Golden metrics of one entity (guid or name): the key signals New Relic defines for its kind (throughput, response time and error rate for a service; CPU and memory for a host...), each with its latest value, a trend (up, down, flat) and the NRQL that produced it.
 
-Use it for current metric values, and refine any metric with run_nrql. For metrics plus issues, errors and deployments in one call use entity_health. Runs one entity lookup, then one query per metric (up to max_metrics); metrics stopped by budget or query limits are marked skipped or error. ${UNTRUSTED}`;
+Value and trend use complete time buckets only (the one still filling is ignored); the trend compares the later half of the window with the earlier half. timeseries=false: one aggregate per metric, no trend. Use it for current metric values, and refine any metric with run_nrql. For metrics plus issues, errors and deployments in one call use entity_health. Runs one entity lookup, then one query per metric (up to max_metrics); metrics stopped by budget or query limits are marked skipped or error. ${UNTRUSTED}`;
 
 const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 
@@ -128,14 +130,33 @@ export interface SeriesSummary {
 
 const mean = (xs: readonly number[]) => xs.reduce((a, b) => a + b, 0) / xs.length;
 
-/** Latest value and trend of NRQL result rows (a time series when `timeseries`, else the first row). Pure. */
+/** The bucket end (epoch seconds) of a time series row, when it carries one. */
+const bucketEnd = (row: Record<string, unknown>): number | null => {
+  const v = row['endTimeSeconds'];
+  return isNum(v) ? v : null;
+};
+
+/**
+ * Latest value and trend of NRQL result rows (a time series when `timeseries`, else the first row). Pure.
+ * `nowMs`: buckets that end after it are still filling (BUG-26: an empty last bucket read as value 0, a partial one skews
+ * the trend), so they are left out of the value and the trend. The trend compares the later half of the remaining
+ * buckets with the earlier half: two windows of equal length (an odd middle bucket is left out).
+ */
 export function summarizeSeries(
   rows: readonly Record<string, unknown>[],
   timeseries: boolean,
+  nowMs: number | null = null,
 ): SeriesSummary {
   const series: number[] = [];
   let column: string | null = null;
-  for (const row of timeseries ? rows : rows.slice(0, 1)) {
+  const complete =
+    timeseries && nowMs !== null
+      ? rows.filter((row) => {
+          const end = bucketEnd(row);
+          return end === null || end * 1000 <= nowMs;
+        })
+      : rows;
+  for (const row of timeseries ? complete : rows.slice(0, 1)) {
     const v = rowValue(row);
     if (!v) continue;
     column ??= v.column;
@@ -157,6 +178,35 @@ export function summarizeSeries(
   return { column, value: last, trend, changeRatio, points: series.length };
 }
 
+const CLAUSE_STARTS = new Set([
+  'SELECT',
+  'FROM',
+  'WHERE',
+  'FACET',
+  'SINCE',
+  'UNTIL',
+  'LIMIT',
+  'OFFSET',
+  'COMPARE',
+  'ORDER',
+  'EXTRAPOLATE',
+  'WITH',
+]);
+
+/** Remove the top-level `TIMESERIES …` clause (including `SLIDE BY …`) from comment-free NRQL text. */
+function stripTimeseries(source: string): string {
+  const tokens = tokenize(source);
+  const at = tokens.findIndex((t) => t.kind === 'word' && t.depth === 0 && t.value === 'TIMESERIES');
+  const first = tokens[at];
+  if (!first) return source;
+  let end = first.end;
+  for (const t of tokens.slice(at + 1)) {
+    if (t.depth === 0 && t.kind === 'word' && CLAUSE_STARTS.has(t.value)) break;
+    end = t.end;
+  }
+  return `${source.slice(0, first.start)} ${source.slice(end)}`;
+}
+
 /**
  * Add the time window and time series clauses a golden query lacks. Golden queries from New Relic often carry neither;
  * ones that already set SINCE/UNTIL/TIMESERIES keep them. Throws RB_INPUT_INVALID when the text can't be tokenized.
@@ -174,7 +224,12 @@ export function withTimeClauses(
   }
   const top = new Set(tokens.filter((t) => t.kind === 'word' && t.depth === 0).map((t) => t.value));
   const hasWindow = top.has('SINCE') || top.has('UNTIL');
-  const hasSeries = top.has('TIMESERIES');
+  let hasSeries = top.has('TIMESERIES');
+  if (!timeseries && hasSeries) {
+    // The caller wants one aggregate: drop the query's own TIMESERIES clause (and its SLIDE BY) rather than ignore the flag.
+    source = stripTimeseries(source);
+    hasSeries = false;
+  }
   const parts = [source.trim()];
   if (!hasWindow) parts.push(clause);
   if (timeseries && !hasSeries && !top.has('COMPARE')) parts.push('TIMESERIES AUTO');
@@ -254,6 +309,7 @@ export function createGoldenMetricTools(deps: ToolDeps = {}): ToolDefinition[] {
     query: string,
     clause: string,
     wantSeries: boolean,
+    adjustments: Set<string>,
   ): Promise<MetricRow> {
     try {
       if (query.length > MAX_QUERY_CHARS) {
@@ -274,7 +330,8 @@ export function createGoldenMetricTools(deps: ToolDeps = {}): ToolDefinition[] {
         { client: client(ctx), ...(deps.sleep ? { sleep: deps.sleep } : {}) },
       );
       const sent = outcome.nrql ?? prepared.nrql;
-      const notes = outcome.notes.join(' ') || null;
+      // Query adjustments (limits) are the same for every metric: reported once on the result, not per row (BUG-20).
+      for (const n of outcome.notes) adjustments.add(n);
       if (outcome.status === 'pending') {
         return {
           ...emptyMetric(title, 'pending', 'Still running at New Relic; try again shortly.'),
@@ -288,11 +345,11 @@ export function createGoldenMetricTools(deps: ToolDeps = {}): ToolDefinition[] {
           nrql: sent,
         };
       }
-      const s = summarizeSeries(done.results, prepared.timeseries);
+      const s = summarizeSeries(done.results, prepared.timeseries, ctx.clock.now());
       if (s.value === null) {
-        return { ...emptyMetric(title, 'no_data', notes ?? 'No data in this window.'), nrql: sent };
+        return { ...emptyMetric(title, 'no_data', 'No data in this window.'), nrql: sent };
       }
-      return { title, status: 'ok', ...s, nrql: sent, note: notes };
+      return { title, status: 'ok', ...s, nrql: sent, note: null };
     } catch (e) {
       if (!(e instanceof RbError) || FATAL_CODES.has(e.code)) throw e;
       if (e.code === ErrorCode.BudgetExhausted)
@@ -339,10 +396,11 @@ export function createGoldenMetricTools(deps: ToolDeps = {}): ToolDefinition[] {
       const wanted = defs.slice(0, cap);
       // Budget-aware: start only as many as the remaining budget can pay for (NRQL_COST requests each).
       const startable = startableNrql(wanted.length, ctx.budget.remaining);
+      const adjustments = new Set<string>();
       const ran = await Promise.all(
         wanted
           .slice(0, startable)
-          .map((m) => runMetric(ctx, account, m.title, m.query, range.clause, wantSeries)),
+          .map((m) => runMetric(ctx, account, m.title, m.query, range.clause, wantSeries, adjustments)),
       );
       const skipped = wanted
         .slice(startable)
@@ -359,6 +417,7 @@ export function createGoldenMetricTools(deps: ToolDeps = {}): ToolDefinition[] {
         type: typeof e.type === 'string' && /^[A-Za-z0-9_]{1,64}$/.test(e.type) ? e.type : null,
       };
       const count = (s: MetricRow['status']) => metrics.filter((m) => m.status === s).length;
+      const notes = [...adjustments];
       const lines = [
         `${metrics.length} golden metric${metrics.length === 1 ? '' : 's'} for ${entity.domain ?? 'entity'}/${entity.type ?? ''} ` +
           `in account ${account}, ${range.clause.toLowerCase()}: ${count('ok')} with data` +
@@ -367,6 +426,7 @@ export function createGoldenMetricTools(deps: ToolDeps = {}): ToolDefinition[] {
           `${count('error') ? `, ${count('error')} failed` : ''}` +
           `${count('skipped') ? `, ${count('skipped')} skipped (budget)` : ''}.`,
       ];
+      for (const n of notes) lines.push(`Note: ${n}`);
       if (defs.length === 0)
         lines.push('This entity has no golden metrics. Use run_nrql for custom queries.');
       if (notRun > 0)
@@ -398,6 +458,7 @@ export function createGoldenMetricTools(deps: ToolDeps = {}): ToolDefinition[] {
           since: range.since,
           until: range.until,
           metrics,
+          notes,
           partial,
           totalMetrics: defs.length,
         },

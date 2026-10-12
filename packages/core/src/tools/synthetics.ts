@@ -306,7 +306,7 @@ export function createSyntheticTools(deps: ToolDeps = {}): ToolDefinition[] {
       const matches = scoped.filter(
         (e) =>
           (args.monitor_type === undefined || e.monitorType === args.monitor_type) &&
-          (args.status === undefined || e.status === args.status),
+          (args.status === undefined || e.monitorSummary?.status === args.status),
       );
       const nextCursor = page.nextCursor;
       const total = num(count);
@@ -349,7 +349,7 @@ export function createSyntheticTools(deps: ToolDeps = {}): ToolDefinition[] {
           guid,
           name: cleanName(e.name ?? ''),
           monitorType: label(e.monitorType),
-          status: label(e.status),
+          status: label(e.monitorSummary?.status),
           periodMinutes: period !== null && Number.isFinite(period) ? period : null,
           alertSeverity: label(e.alertSeverity),
           checks: resultsRead ? (r?.checks ?? 0) : null,

@@ -2,7 +2,7 @@
 id: P8-17
 title: Fix list_synthetic_monitors stale NerdGraph status field
 phase: 8
-status: in-progress
+status: review
 priority: high
 depends_on: []
 adr: []
@@ -22,10 +22,10 @@ owner: claude-agent
 - Record the correction in `docs/RESEARCH.md`.
 
 ## Acceptance criteria
-- [ ] The query selects `monitorSummary { status }` and no bare `status` on the outline fragment.
-- [ ] Tool output `status` and the `status` filter use the nested value (tests).
-- [ ] Live suite has a schema-validation check for the tool; RESEARCH.md updated.
-- [ ] Changeset added.
+- [x] The query selects `monitorSummary { status }` and no bare `status` on the outline fragment.
+- [x] Tool output `status` and the `status` filter use the nested value (tests).
+- [x] Live suite has a schema-validation check for the tool; RESEARCH.md updated.
+- [x] Changeset added.
 
 ## Security notes
 none (selection still holds no script, credential or header field; every value stays a variable).

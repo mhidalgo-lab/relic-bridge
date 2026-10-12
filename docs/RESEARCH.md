@@ -359,8 +359,11 @@ Sources: <https://github.com/cloudflare/workers-oauth-provider>, issues #264, #3
   name above (a wrong one yields null aggregates, which the tools report as "no data"), timeslice units, `entity.guid` on `Metric`, and
   Kafka via OpenTelemetry or cloud integrations (MSK/Confluent), which use other event/metric names and are not read.
 - Synthetic monitors (P6-08, not verified against a real account): monitors come from `entitySearch` with `domain = 'SYNTH' AND
-  type = 'MONITOR'` and the inline fragment `... on SyntheticMonitorEntityOutline { monitorId monitorType monitoredUrl period status }`
-  (`monitorType` SIMPLE/BROWSER/SCRIPT_API/SCRIPT_BROWSER/STEP_MONITOR, `status` ENABLED/MUTED/DISABLED, `period` in minutes). Results
+  type = 'MONITOR'` and the inline fragment `... on SyntheticMonitorEntityOutline { monitorId monitorType monitoredUrl period monitorSummary { status } }`
+  (`monitorType` SIMPLE/BROWSER/SCRIPT_API/SCRIPT_BROWSER/STEP_MONITOR, `monitorSummary.status` ENABLED/MUTED/DISABLED, `period` in minutes).
+  **Corrected (live test run 2026-10-12, BUG-02):** NerdGraph rejects a bare `status` on `SyntheticMonitorEntityOutline` (`Cannot query
+  field "status" on type "SyntheticMonitorEntityOutline"`, suggestion `tags`); the status lives under `monitorSummary { status }`. The repo
+  holds no committed schema snapshot, so this is guarded by a document test and the live suite (`pnpm test:live`). Results
   are read from `SyntheticCheck` (`entityGuid`, `location`, `result` = SUCCESS/FAILED, `duration` in ms, `error` for failures,
   `timestamp`) faceted by `entityGuid, location`. `monitorType`/`status` are filtered client-side because their entity-search field
   names are not confirmed. **Unverified:** every field above, `entityGuid` on `SyntheticCheck`, `error` holding the failure message,

@@ -2,7 +2,7 @@
 id: P8-21
 title: Golden metrics read complete buckets, honour timeseries false, state limit notes once
 phase: 8
-status: review
+status: done
 priority: high
 depends_on: []
 adr: []

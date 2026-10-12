@@ -2,7 +2,7 @@
 id: P8-31
 title: Add z-scores to latency verdicts
 phase: 8
-status: in-progress
+status: review
 priority: medium
 depends_on: []
 adr: []

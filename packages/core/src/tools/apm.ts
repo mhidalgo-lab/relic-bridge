@@ -74,6 +74,7 @@ export function txStats(row: Record<string, unknown> | undefined): TxStats {
     p50Duration: numberOf(r['p50Duration']),
     p95Duration: numberOf(r['p95Duration']),
     p99Duration: numberOf(r['p99Duration']),
+    stdDuration: numberOf(r['stdDuration']),
   };
 }
 
@@ -82,7 +83,7 @@ const perMinute = (requests: number | null, minutes: number): number | null =>
   requests === null || minutes <= 0 ? null : rounded(requests / minutes);
 
 /** The aggregates shared by both tools (`FROM Transaction`). Durations are seconds. */
-const AGGREGATES = nrql`count(*) AS requests, filter(count(*), WHERE error IS true) AS errors, percentage(count(*), WHERE error IS true) AS errorRate, average(duration) AS avgDuration, percentile(duration, 50) AS p50Duration, percentile(duration, 95) AS p95Duration, percentile(duration, 99) AS p99Duration`;
+const AGGREGATES = nrql`count(*) AS requests, filter(count(*), WHERE error IS true) AS errors, percentage(count(*), WHERE error IS true) AS errorRate, average(duration) AS avgDuration, percentile(duration, 50) AS p50Duration, percentile(duration, 95) AS p95Duration, percentile(duration, 99) AS p99Duration, stddev(duration) AS stdDuration`;
 
 const AGG_REST_NO_ERRORS = nrql`percentage(count(*), WHERE error IS true) AS errorRate, average(duration) AS avgDuration, percentile(duration, 50) AS p50Duration, percentile(duration, 95) AS p95Duration, percentile(duration, 99) AS p99Duration`;
 const AGG_REST_NO_P95 = nrql`percentage(count(*), WHERE error IS true) AS errorRate, average(duration) AS avgDuration, percentile(duration, 50) AS p50Duration, percentile(duration, 99) AS p99Duration`;

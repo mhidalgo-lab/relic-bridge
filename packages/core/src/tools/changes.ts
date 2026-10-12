@@ -71,6 +71,8 @@ export const ERROR_MIN_DELTA = 5;
 export const LATENCY_MIN_DELTA_S = 0.005;
 /** |z| of the throughput (Poisson) test that counts as a real shift. */
 export const THROUGHPUT_Z = 3;
+/** |z| of the latency test (Welch on averages; approximate for p95) that counts as a real change. */
+export const LATENCY_Z = 3;
 /** A control comparison explains a change when it moved the same way by at least this fraction of it. */
 export const BASELINE_EXPLAINS = 0.5;
 /** |z| of the two-proportion test that counts as a real change in error rate (about p < 0.003). */
@@ -326,6 +328,8 @@ export interface WindowStats {
   readonly errorRate: number | null;
   readonly avgDuration: number | null;
   readonly p95Duration: number | null;
+  /** Standard deviation of duration (seconds); absent = no latency z-score. */
+  readonly stdDuration?: number | null;
 }
 
 const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
@@ -345,6 +349,7 @@ export function windowStats(rows: readonly Record<string, unknown>[]): WindowSta
     errorRate: numberOf(r['errorRate']),
     avgDuration: numberOf(r['avgDuration']),
     p95Duration: numberOf(r['p95Duration']),
+    stdDuration: numberOf(r['stdDuration']),
   };
 }
 
@@ -361,6 +366,25 @@ export function errorRateZ(before: WindowStats, after: WindowStats): number | nu
   const pooled = (p1 * n1 + p2 * n2) / (n1 + n2);
   const se = Math.sqrt(pooled * (1 - pooled) * (1 / n1 + 1 / n2));
   return se === 0 ? 0 : (p2 - p1) / se;
+}
+
+/** Standard error of a 95th percentile under a normal approximation: sigma * sqrt(.95 * .05) / (phi(1.645) * sqrt(n)). */
+const P95_SE_FACTOR = 2.113;
+
+/**
+ * Welch z of a latency change. `kind` average compares means; p95 uses the normal-approximation standard error of the
+ * percentile (a rough spread). Null when the standard deviation or sample size is missing. Pure.
+ */
+export function latencyZ(kind: 'avg' | 'p95', before: WindowStats, after: WindowStats): number | null {
+  const { requests: n1, stdDuration: s1 } = before;
+  const { requests: n2, stdDuration: s2 } = after;
+  const [b, a] =
+    kind === 'avg' ? [before.avgDuration, after.avgDuration] : [before.p95Duration, after.p95Duration];
+  if (n1 == null || n2 == null || s1 == null || s2 == null || b === null || a === null) return null;
+  if (n1 <= 0 || n2 <= 0) return null;
+  const k = kind === 'avg' ? 1 : P95_SE_FACTOR;
+  const se = k * Math.sqrt((s1 * s1) / n1 + (s2 * s2) / n2);
+  return se === 0 ? (a === b ? 0 : Math.sign(a - b) * Infinity) : (a - b) / se;
 }
 
 export interface MetricOut {
@@ -501,7 +525,7 @@ export function compareWindows(
   }
   const err = metric('error_rate', 'percent', before.errorRate, after.errorRate, errVerdict, errNote);
 
-  const latency = (name: string, b: number | null, a: number | null) => {
+  const latency = (name: string, b: number | null, a: number | null, z: number | null) => {
     if (!enough || b === null || a === null) return metric(name, 'seconds', b, a, 'inconclusive', few);
     const r = ratio(b, a);
     if (r === null) return metric(name, 'seconds', b, a, 'inconclusive', 'No baseline latency.');
@@ -516,17 +540,45 @@ export function compareWindows(
         'similar',
         `Beyond the ${LATENCY_BAND * 100}% band but under ${LATENCY_MIN_DELTA_S * 1000} ms.`,
       );
+    if (z === null)
+      return metric(
+        name,
+        'seconds',
+        b,
+        a,
+        r > 0 ? 'worse' : 'better',
+        `Rule: beyond the ${LATENCY_BAND * 100}% band and at least ${LATENCY_MIN_DELTA_S * 1000} ms (no spread data for a z-score).`,
+      );
+    if (Math.abs(z) < LATENCY_Z)
+      return metric(
+        name,
+        'seconds',
+        b,
+        a,
+        'similar',
+        `Beyond the ${LATENCY_BAND * 100}% band but |z| = ${Math.abs(z).toFixed(1)} < ${LATENCY_Z}: within normal variation.`,
+      );
     return metric(
       name,
       'seconds',
       b,
       a,
       r > 0 ? 'worse' : 'better',
-      `Rule: beyond the ${LATENCY_BAND * 100}% band and at least ${LATENCY_MIN_DELTA_S * 1000} ms.`,
+      `Rule: beyond the ${LATENCY_BAND * 100}% band, at least ${LATENCY_MIN_DELTA_S * 1000} ms and |z| = ${Number.isFinite(z) ? Math.abs(z).toFixed(1) : '>100'} >= ${LATENCY_Z}.`,
     );
   };
-  const avg = latency('avg_response_time', before.avgDuration, after.avgDuration);
-  const p95 = latency('p95_response_time', before.p95Duration, after.p95Duration);
+  const avg = latency(
+    'avg_response_time',
+    before.avgDuration,
+    after.avgDuration,
+    latencyZ('avg', before, after),
+  );
+  const p95 = latency(
+    'p95_response_time',
+    before.p95Duration,
+    after.p95Duration,
+    latencyZ('p95', before, after),
+  );
 
   let metrics = [tput, err, avg, p95];
   if (control) {
@@ -610,7 +662,7 @@ export function parseInstant(value: string): number | null {
 const windowQuery = (guid: string, sinceMs: number, untilMs: number): NrqlQuery => {
   const since = Math.floor(sinceMs / 1000);
   const until = Math.ceil(untilMs / 1000);
-  return nrql`SELECT count(*) AS requests, percentage(count(*), WHERE error IS true) AS errorRate, average(duration) AS avgDuration, percentile(duration, 95) AS p95Duration FROM Transaction WHERE entityGuid = ${guid} SINCE ${since} UNTIL ${until}`;
+  return nrql`SELECT count(*) AS requests, percentage(count(*), WHERE error IS true) AS errorRate, average(duration) AS avgDuration, percentile(duration, 95) AS p95Duration, stddev(duration) AS stdDuration FROM Transaction WHERE entityGuid = ${guid} SINCE ${since} UNTIL ${until}`;
 };
 
 /** Errors that make every window fail the same way: abort instead of reporting two identical failures. */

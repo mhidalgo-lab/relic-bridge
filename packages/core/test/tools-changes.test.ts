@@ -14,6 +14,7 @@ import {
 import {
   compareWindows,
   errorRateZ,
+  latencyZ,
   parseInstant,
   type WindowStats,
   windowStats,
@@ -698,12 +699,15 @@ describe('analysis helpers', () => {
       errorRate: 1,
       avgDuration: 0.1,
       p95Duration: 0.3,
+      stdDuration: null,
     });
+    expect(windowStats([{ stdDuration: 0.2 }]).stdDuration).toBe(0.2);
     expect(windowStats([])).toEqual({
       requests: null,
       errorRate: null,
       avgDuration: null,
       p95Duration: null,
+      stdDuration: null,
     });
   });
 
@@ -788,6 +792,62 @@ describe('BUG-07: verdict rules and seasonal baseline (live test run 2026-10-12)
     expect(compareWindows(w(3000, 1, 0.2, 0.42), drop, 30).overall).toBe('regression_suspected');
   });
 
+  it('latency needs |z| >= 3: a noisy 20% rise is similar, a tight one is worse (no z without spread data)', () => {
+    const ws = (n: number, avg: number, p95: number, std: number): WindowStats => ({
+      requests: n,
+      errorRate: 1,
+      avgDuration: avg,
+      p95Duration: p95,
+      stdDuration: std,
+    });
+    // Heavy spread (std 1 s) over 40 requests: +0.2 s on 1 s is z = 0.9.
+    const noisy = compareWindows(ws(40, 1, 3, 1), ws(40, 1.2, 3.6, 1), 30);
+    expect(verdicts(noisy)).toMatchObject({ avg_response_time: 'similar', p95_response_time: 'similar' });
+    expect(noisy.metrics.find((m) => m.metric === 'avg_response_time')?.note).toMatch(/\|z\| = 0\.9 < 3/);
+    expect(noisy.overall).toBe('no_significant_change');
+    // Tight spread over 3000 requests: same +20% is far beyond noise.
+    const tight = compareWindows(ws(3000, 1, 3, 0.2), ws(3000, 1.2, 3.6, 0.2), 30);
+    expect(verdicts(tight)).toMatchObject({ avg_response_time: 'worse', p95_response_time: 'worse' });
+    expect(tight.metrics.find((m) => m.metric === 'avg_response_time')?.note).toMatch(/\|z\| = 38\.7 >= 3/);
+    expect(compareWindows(ws(3000, 1.2, 3.6, 0.2), ws(3000, 1, 3, 0.2), 30).overall).toBe('improvement');
+    // The old absolute floor still applies.
+    expect(verdicts(compareWindows(ws(3000, 0.001, 0.002, 0), ws(3000, 0.003, 0.004, 0), 30))).toMatchObject({
+      avg_response_time: 'similar',
+    });
+    // Without spread data the band rule decides, and says so.
+    const old = compareWindows(w(3000, 1, 1, 3), w(3000, 1, 1.2, 3.6), 30);
+    expect(verdicts(old)['avg_response_time']).toBe('worse');
+    expect(old.metrics.find((m) => m.metric === 'avg_response_time')?.note).toContain('no spread data');
+  });
+
+  it('latencyZ: Welch z for averages, wider standard error for p95, null without spread', () => {
+    const a: WindowStats = { requests: 100, errorRate: 0, avgDuration: 1, p95Duration: 2, stdDuration: 1 };
+    const b: WindowStats = { ...a, avgDuration: 1.5, p95Duration: 3 };
+    expect(latencyZ('avg', a, b)).toBeCloseTo(0.5 / Math.sqrt(0.02), 6);
+    expect(latencyZ('p95', a, b)).toBeCloseTo(1 / (2.113 * Math.sqrt(0.02)), 6);
+    expect(latencyZ('avg', a, { ...b, stdDuration: null })).toBeNull();
+    expect(latencyZ('avg', a, { requests: 100, errorRate: 0, avgDuration: 1, p95Duration: 2 })).toBeNull();
+    expect(latencyZ('avg', a, { ...b, requests: 0 })).toBeNull();
+  });
+
+  it('a noisy latency swing seen only by chance does not flag a regression', () => {
+    const ws = (n: number, avg: number, p95: number, std: number): WindowStats => ({
+      requests: n,
+      errorRate: 1,
+      avgDuration: avg,
+      p95Duration: p95,
+      stdDuration: std,
+    });
+    const control = {
+      before: ws(3000, 0.2, 0.42, 0.3),
+      after: ws(1900, 0.24, 0.5, 0.3),
+      label: 'same windows 1 day earlier',
+    };
+    const r = compareWindows(ws(3000, 0.2, 0.42, 0.3), ws(1860, 0.238, 0.5, 0.3), 30, control);
+    expect(verdicts(r)).toMatchObject({ avg_response_time: 'warning' });
+    expect(r.overall).not.toBe('regression_suspected');
+  });
+
   it('keeps a real regression the control does not show', () => {
     const control = {
       before: w(3000, 1, 0.2, 0.4),
@@ -849,6 +909,13 @@ describe('BUG-07: verdict rules and seasonal baseline (live test run 2026-10-12)
     });
     // 1 lookup + 2 windows + 2 control windows.
     expect(calls).toHaveLength(5);
+  });
+
+  it('asks the window query for the standard deviation of duration', async () => {
+    const { fetch, calls } = byWindow({}, stats(3000, 1, 0.2, 0.4));
+    const client = await connect(fetch);
+    await call(client);
+    expect(JSON.stringify(calls)).toContain('stddev(duration)');
   });
 
   it('uses no control (3 requests) without a large throughput shift', async () => {

@@ -2,7 +2,7 @@
 id: P8-25
 title: Short permalinks instead of truncated launcher URLs
 phase: 8
-status: review
+status: done
 priority: medium
 depends_on: []
 adr: []

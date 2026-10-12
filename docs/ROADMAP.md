@@ -298,5 +298,6 @@ Generated from task front matter (`pnpm tasks index`). Status lives in each task
 | P8-27 | [Error contracts and polish](tasks/phase-8-hardening-launch/P8-27-contracts-and-polish.md) | medium | — | done |
 | P8-28 | [list_recent_logs reads a fixed column set](tasks/phase-8-hardening-launch/P8-28-recent-logs-columns.md) | high | — | done |
 | P8-29 | [Stabilise timing-sensitive tests (PBKDF2 config-transfer, Windows SQLite)](tasks/phase-8-hardening-launch/P8-29-flaky-tests.md) | medium | — | done |
+| P8-32 | [Validate NerdGraph documents against a schema snapshot](tasks/phase-8-hardening-launch/P8-32-nerdgraph-schema-check.md) | high | — | done |
 | P8-34 | [Update docs after the 0.7.0 release](tasks/phase-8-hardening-launch/P8-34-post-release-docs.md) | medium | — | done |
 <!-- tasks:end -->

@@ -294,5 +294,6 @@ Generated from task front matter (`pnpm tasks index`). Status lives in each task
 | P8-23 | [Logs fixes (pattern size, level vocabulary, window boundary, stable paging, empty messages)](tasks/phase-8-hardening-launch/P8-23-logs-fixes.md) | high | — | done |
 | P8-24 | [Enforce maxWindowDays as lookback as well as width](tasks/phase-8-hardening-launch/P8-24-window-lookback-limit.md) | high | — | done |
 | P8-25 | [Short permalinks instead of truncated launcher URLs](tasks/phase-8-hardening-launch/P8-25-short-permalinks.md) | medium | — | done |
+| P8-26 | [Report and issue fields](tasks/phase-8-hardening-launch/P8-26-report-and-issue-fields.md) | medium | — | done |
 | P8-27 | [Error contracts and polish](tasks/phase-8-hardening-launch/P8-27-contracts-and-polish.md) | medium | — | done |
 <!-- tasks:end -->

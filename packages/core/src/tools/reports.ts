@@ -448,14 +448,14 @@ const MOBILE_CRASH = nrql`eventType() = 'MobileCrash'`;
 export function browserQuery(guids: readonly string[], sinceMs: number, untilMs: number): NrqlQuery {
   const { since, until } = secondsOf(sinceMs, untilMs);
   const session = nrql.identifier('session');
-  return nrql`SELECT filter(count(*), WHERE ${PAGE_VIEW}) AS pageViews, filter(average(${nrql.identifier('duration')}), WHERE ${PAGE_VIEW}) AS avgLoadSeconds, filter(uniqueCount(${session}), WHERE ${PAGE_VIEW}) AS sessions, filter(count(*), WHERE ${JS_ERROR}) AS jsErrors, filter(uniqueCount(${session}), WHERE ${JS_ERROR}) AS sessionsWithErrors FROM PageView, JavaScriptError WHERE ${nrql.identifier('entityGuid')} IN ${guids} FACET entityGuid LIMIT ${FACET_ROWS} SINCE ${since} UNTIL ${until}`;
+  return nrql`SELECT filter(count(*), WHERE ${PAGE_VIEW}) AS pageViews, filter(average(${nrql.identifier('duration')}), WHERE ${PAGE_VIEW}) AS avgLoadSeconds, filter(uniqueCount(${session}), WHERE ${PAGE_VIEW}) AS sessions, filter(count(*), WHERE ${JS_ERROR}) AS jsErrors, filter(uniqueCount(${session}), WHERE ${JS_ERROR}) AS sessionsWithErrors, latest(${nrql.identifier('appName')}) AS appName FROM PageView, JavaScriptError WHERE ${nrql.identifier('entityGuid')} IN ${guids} FACET entityGuid LIMIT ${FACET_ROWS} SINCE ${since} UNTIL ${until}`;
 }
 
 /** Mobile signals per app (unverified attribute names, see RESEARCH). Only the `nrql` tag builds it (T4). */
 export function mobileQuery(guids: readonly string[], sinceMs: number, untilMs: number): NrqlQuery {
   const { since, until } = secondsOf(sinceMs, untilMs);
   const uuid = nrql.identifier('uuid');
-  return nrql`SELECT filter(count(*), WHERE ${MOBILE_SESSION}) AS sessions, filter(uniqueCount(${uuid}), WHERE ${MOBILE_SESSION}) AS users, filter(count(*), WHERE ${MOBILE_CRASH}) AS crashes, filter(uniqueCount(${uuid}), WHERE ${MOBILE_CRASH}) AS usersWithCrashes FROM MobileSession, MobileCrash WHERE ${nrql.identifier('entityGuid')} IN ${guids} FACET entityGuid LIMIT ${FACET_ROWS} SINCE ${since} UNTIL ${until}`;
+  return nrql`SELECT filter(count(*), WHERE ${MOBILE_SESSION}) AS sessions, filter(uniqueCount(${uuid}), WHERE ${MOBILE_SESSION}) AS users, filter(count(*), WHERE ${MOBILE_CRASH}) AS crashes, filter(uniqueCount(${uuid}), WHERE ${MOBILE_CRASH}) AS usersWithCrashes, latest(${nrql.identifier('appName')}) AS appName FROM MobileSession, MobileCrash WHERE ${nrql.identifier('entityGuid')} IN ${guids} FACET entityGuid LIMIT ${FACET_ROWS} SINCE ${since} UNTIL ${until}`;
 }
 
 const BROWSER_FIELDS = ['pageViews', 'avgLoadSeconds', 'sessions', 'jsErrors', 'sessionsWithErrors'] as const;
@@ -479,6 +479,22 @@ export function readFacetNumbers(
       values[k] = v === null ? null : Number(v.toPrecision(6));
     }
     out.set(guid, values);
+  }
+  return out;
+}
+
+/** App names per guid from facet rows (`appName` column), for front ends the issue or lookup gave no name. Pure. */
+export function readFacetNames(
+  rows: readonly Record<string, unknown>[],
+  wanted: ReadonlySet<string>,
+): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const r of rows) {
+    const f = r['facet'];
+    const guid = typeof f === 'string' ? f : Array.isArray(f) ? f[0] : r['entityGuid'];
+    const name = r['appName'];
+    if (typeof guid === 'string' && wanted.has(guid) && typeof name === 'string' && name !== '')
+      out.set(guid, name.slice(0, 200));
   }
   return out;
 }
@@ -656,6 +672,7 @@ const jobResult = z.strictObject({
   note: z.string().max(5000).nullable(),
   numbers: z.record(z.string(), z.record(z.string(), z.number().nullable())).nullable(),
   checks: z.record(z.string(), z.record(z.string(), z.unknown())).nullable(),
+  names: z.record(z.string(), z.string().max(200)).optional(),
   rowCount: z.number().int(),
 });
 type JobResult = z.infer<typeof jobResult>;
@@ -1225,6 +1242,7 @@ export function createReportTools(deps: ToolDeps = {}): ToolDefinition[] {
       ran: true,
       note: null,
       numbers: Object.fromEntries(readFacetNumbers(r.rows, fields, wanted)),
+      names: Object.fromEntries(readFacetNames(r.rows, wanted)),
       checks: null,
       rowCount: r.rows.length,
     };
@@ -1284,11 +1302,13 @@ export function createReportTools(deps: ToolDeps = {}): ToolDefinition[] {
       if (j.name.startsWith('cur|synthetic') && r?.ran && r.note === null && r.rowCount >= SYNTH_ROWS)
         notes.push(`Synthetic results are based on the first ${SYNTH_ROWS} monitor/location rows.`);
     }
+    let sessionsUnknown = false;
     const frontEnds: z.infer<typeof frontEndSchema>[] = measured.map((f) => {
       const key = `${f.kind}:${f.accountId}`;
       const cur = byName.get(`cur|${key}`);
       const prev = byName.get(`prev|${key}`);
-      const base2 = { guid: f.guid, name: f.name, kind: f.kind, accountId: f.accountId, via: f.via };
+      const name = f.name ?? cur?.names?.[f.guid] ?? prev?.names?.[f.guid] ?? null;
+      const base2 = { guid: f.guid, name, kind: f.kind, accountId: f.accountId, via: f.via };
       if (!cur?.ran || cur.note !== null)
         return { ...base2, status: 'not_run' as const, current: null, previous: null, signals: [] };
       if (f.kind === 'synthetic') {
@@ -1321,13 +1341,22 @@ export function createReportTools(deps: ToolDeps = {}): ToolDefinition[] {
       }
       const fields = f.kind === 'browser' ? BROWSER_FIELDS : MOBILE_FIELDS;
       const empty = Object.fromEntries(fields.map((k) => [k, 0])) as Numbers;
-      const current = cur.numbers?.[f.guid] ?? empty;
+      const current = { ...(cur.numbers?.[f.guid] ?? empty) };
+      // JavaScriptError events without a session attribute make the count 0 whatever the errors are (BUG-13).
+      if (f.kind === 'browser' && (current['jsErrors'] ?? 0) > 0 && current['sessionsWithErrors'] === 0) {
+        current['sessionsWithErrors'] = null;
+        sessionsUnknown = true;
+      }
       const previous = prev?.ran && prev.note === null ? (prev.numbers?.[f.guid] ?? empty) : null;
       const signals =
         f.kind === 'browser' ? browserSignals(current, previous) : mobileSignals(current, previous);
       return { ...base2, status: 'ok' as const, current, previous, signals };
     });
 
+    if (sessionsUnknown)
+      notes.push(
+        'sessionsWithErrors is null where JavaScript errors exist: the error events carry no session id, so the count is unknown (not 0).',
+      );
     const sum = (kind: FrontEndKind, field: string): number | null => {
       const rows = frontEnds.filter((f) => f.kind === kind && f.current !== null);
       if (rows.length === 0) return null;

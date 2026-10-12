@@ -117,7 +117,8 @@ function toRow(g: ErrorGroupData, ctx: ToolContext) {
     occurrences: num(occ?.totalCount),
     expectedOccurrences: num(occ?.expectedCount),
     firstSeenAt: iso(g.firstSeenAt),
-    lastSeenAt: iso(g.lastSeenAt),
+    // The group-level time is sometimes null for groups with occurrences in the window (BUG-30): use the window one.
+    lastSeenAt: iso(g.lastSeenAt) ?? iso(occ?.lastSeenAt),
     firstSeenInWindowAt: iso(occ?.firstSeenAt),
     lastSeenInWindowAt: iso(occ?.lastSeenAt),
     regressedAt: iso(g.regressedAt),

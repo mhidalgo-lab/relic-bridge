@@ -299,6 +299,19 @@ export function groupTraceQuery(
   return nrql`SELECT traceId, ${nrql.identifier('timestamp')} FROM TransactionError WHERE ${nrql.identifier('error.group.guid')} = ${groupId} AND traceId IS NOT NULL ${entity} ${synthetic} ORDER BY timestamp DESC LIMIT 1 SINCE ${Math.floor(sinceMs / 1000)} UNTIL ${Math.ceil(untilMs / 1000)}`;
 }
 
+/** Cheap check for any trace data (BUG-12): spans and error events with a trace id, optionally for one entity. */
+export function tracingCheckQuery(
+  entityGuid: string | undefined,
+  sinceMs: number,
+  untilMs: number,
+): NrqlQuery {
+  const entity =
+    entityGuid === undefined
+      ? nrql``
+      : nrql`WHERE ${nrql.identifier('entity.guid')} = ${entityGuid} OR ${nrql.identifier('entityGuid')} = ${entityGuid}`;
+  return nrql`SELECT filter(count(*), WHERE eventType() = 'Span') AS spans, filter(count(*), WHERE eventType() = 'TransactionError' AND traceId IS NOT NULL) AS tracedErrors FROM Span, TransactionError ${entity} SINCE ${Math.floor(sinceMs / 1000)} UNTIL ${Math.ceil(untilMs / 1000)}`;
+}
+
 // ---------------------------------------------------------------------------------------------------------------------
 // dependency_health
 // ---------------------------------------------------------------------------------------------------------------------
@@ -603,7 +616,23 @@ export function createInvestigationTools(deps: ToolDeps = {}): ToolDefinition[] 
         }
         const id = found.rows[0]?.['traceId'];
         if (typeof id === 'string' && TRACE_ID_RE.test(id)) traceId = id;
-        else notes.push('No traced occurrence of this error group was found in the window.');
+        else {
+          notes.push('No traced occurrence of this error group was found in the window.');
+          if (ctx.budget.remaining >= NRQL_COST) {
+            const check = await query(
+              ctx,
+              account,
+              tracingCheckQuery(args.entity_guid, range.sinceMs, range.untilMs),
+            );
+            if ('rows' in check) {
+              const row = check.rows[0] ?? {};
+              if ((num(row['spans']) ?? 0) === 0 && (num(row['tracedErrors']) ?? 0) === 0)
+                notes.push(
+                  `No Span events or error events with a trace id exist${args.entity_guid ? ' for this entity' : ' in this account'} in the window: distributed tracing appears to be disabled.`,
+                );
+            }
+          }
+        }
       }
 
       const empty = { total: 0, services: [], errorSpans: 0, root: null, shown: [], truncated: false };

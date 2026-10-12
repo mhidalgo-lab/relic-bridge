@@ -70,6 +70,13 @@ const body = (results: unknown[], nextCursor: string | null = null, totalCount =
   json({ data: { actor: { errorsInbox: { errorGroups: { nextCursor, totalCount, results } } } } });
 
 describe('list_error_groups', () => {
+  it('fills lastSeenAt from the window when the group has none (BUG-30)', async () => {
+    const { client } = await setup([body([group(A, 'g1', 'TypeError', { lastSeenAt: null })])]);
+    const r = await client.callTool({ name: 'list_error_groups', arguments: {} });
+    const s = r.structuredContent as { errorGroups: { lastSeenAt: string | null }[] };
+    expect(s.errorGroups[0]?.lastSeenAt).toBe(new Date(NOW - 60_000).toISOString());
+  });
+
   it('sends every filter as a variable with a 24 hour default window', async () => {
     const { client, calls } = await setup([body([group(A, 'g1', 'TypeError')], 'CUR_2', 40)]);
     const contains = "o'; } query { evil";

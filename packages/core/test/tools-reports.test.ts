@@ -545,6 +545,41 @@ describe('generate_user_impact_report', () => {
     expect(dump).not.toContain(FOREIGN_BROWSER);
   });
 
+  it('names a front end from its events and reports unknown sessions, not 0 (BUG-13)', async () => {
+    const ng = nerdGraph({
+      nrql: (q) =>
+        q.includes('FROM PageView')
+          ? nrqlBody([
+              {
+                facet: BROWSER,
+                appName: '<APP>',
+                pageViews: 500,
+                avgLoadSeconds: 1,
+                sessions: 200,
+                jsErrors: 80,
+                sessionsWithErrors: 0,
+              },
+            ])
+          : undefined,
+    });
+    const client = await connect(ng.fetch);
+    const r = await client.callTool({
+      name: 'generate_user_impact_report',
+      arguments: { entity_guid: BROWSER, compare_previous: false },
+    });
+    expect(r.isError, resultText(r)).toBeFalsy();
+    const s = r.structuredContent as {
+      frontEnds: { name: string | null; current: Record<string, unknown>; signals: string[] }[];
+      totals: Record<string, number | null>;
+      notes: string[];
+    };
+    expect(s.frontEnds[0]?.name).toBe('<APP>');
+    expect(s.frontEnds[0]?.current['sessionsWithErrors']).toBeNull();
+    expect(s.notes.join(' ')).toContain('sessionsWithErrors is null');
+    expect(s.totals['browserSessionsWithErrors']).toBe(0);
+    expect(ng.calls.some((c) => String(c.variables['nrql']).includes('latest(`appName`)'))).toBe(true);
+  });
+
   it('uses the issue window and its entities; compare false skips the previous window', async () => {
     const ng = nerdGraph({
       issues: [issueRow({ entityGuids: [BROWSER], entityNames: ['shop web'] })],

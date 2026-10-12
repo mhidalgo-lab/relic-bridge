@@ -31,6 +31,8 @@ const API = guidOf(A, 'APM', 'APPLICATION', '2');
 const DB = guidOf(A, 'INFRA', 'HOST', '1');
 const FOREIGN = guidOf(OTHER, 'APM', 'APPLICATION', '4');
 
+/** The real domain and type, as NerdGraph reports them for a vertex (the tools filter on these, not on the guid). */
+const kindOf = (guid: string): string[] => atob(guid).split('|').slice(1, 3);
 const vertex = (guid: string, account: number, name: string, severity: string | null = null) => ({
   guid,
   accountId: account,
@@ -38,8 +40,8 @@ const vertex = (guid: string, account: number, name: string, severity: string | 
     guid,
     name,
     accountId: account,
-    domain: 'X',
-    type: 'Y',
+    domain: kindOf(guid)[0],
+    type: kindOf(guid)[1],
     alertSeverity: severity,
     reporting: true,
   },

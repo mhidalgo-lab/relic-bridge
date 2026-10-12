@@ -59,7 +59,20 @@ const DEFAULT_DEPENDENCIES = 3;
 const MAX_DEPENDENCIES = 5;
 const DEFAULT_METRICS = 3;
 const MAX_METRICS = 5;
-const RELATED_FETCH = 25;
+/** Relationships per page and pages read before choosing neighbours (BUG-10: choose from all of them, within budget). */
+const RELATED_FETCH = 100;
+const RELATED_PAGES = 3;
+/** Neighbours that are not dependencies: key transactions, SLIs, alerting objects, workloads, dashboards (BUG-10). */
+const NOT_DEPENDENCY = [/^EXT\/(KEY_TRANSACTION|SERVICE_LEVEL)$/, /^AIOPS\//, /^NR1\/WORKLOAD$/, /^VIZ\//];
+const isDependency = (domain: string | null, type: string | null): boolean => {
+  const kind = `${(domain ?? '').toUpperCase()}/${(type ?? '').toUpperCase()}`;
+  return !NOT_DEPENDENCY.some((re) => re.test(kind));
+};
+/** 0 = a host or a called service (HOSTS/CALLS edge to APM or INFRA), 1 = anything else that is a dependency. */
+const dependencyRank = (r: { domain: string | null; relationship: string | null }): number =>
+  (r.domain === 'APM' || r.domain === 'INFRA') && (r.relationship === 'HOSTS' || r.relationship === 'CALLS')
+    ? 0
+    : 1;
 const HEALTH_METRICS = 5;
 const DEFAULT_LOOKBACK_DAYS = 7;
 /** Relative change of a golden metric that counts as a signal. */
@@ -303,7 +316,7 @@ const depInput = z.strictObject({
     .max(MAX_DEPENDENCIES)
     .optional()
     .describe(
-      `Most neighbours to measure (default ${DEFAULT_DEPENDENCIES}, max ${MAX_DEPENDENCIES}); alerting ones are chosen first.`,
+      `Most neighbours to measure (default ${DEFAULT_DEPENDENCIES}, max ${MAX_DEPENDENCIES}); hosts and called services first, then alerting ones (key transactions, SLIs, workloads, dashboards skipped).`,
     ),
   max_metrics: z
     .number()
@@ -344,9 +357,9 @@ const depOutput = z.object({
 });
 
 /** One relationship lookup, then the golden metrics of the entity and of each dependency (default depth). */
-const DEP_COST = 1 + goldenCost(DEFAULT_METRICS) * (1 + DEFAULT_DEPENDENCIES);
+const DEP_COST = RELATED_PAGES + goldenCost(DEFAULT_METRICS) * (1 + DEFAULT_DEPENDENCIES);
 
-const DEP_DESCRIPTION = `Is the problem in this entity or in what it depends on? For an entity (guid or name) it measures the golden metrics of the entity and of its directly related entities (alerting ones first) side by side, flagging clear signals (alerting, not reporting, rising error rate, latency, CPU or memory, throughput down 25% or more).
+const DEP_DESCRIPTION = `Is the problem in this entity or in what it depends on? For an entity (guid or name) it measures the golden metrics of the entity and of its directly related entities (hosts and called services first, then alerting ones) side by side, flagging clear signals (alerting, not reporting, rising error rate, latency, CPU or memory, throughput down 25% or more).
 
 Use it for "is it my dependency?". Runs about ${DEP_COST} requests by default (fewer with max_dependencies or max_metrics); what does not fit is marked skipped (partial: true). Neighbours in accounts outside this connection are left out (hiddenOutsideScope). For the entity alone use entity_health; for the plain list of neighbours use get_related_entities. ${UNTRUSTED}`;
 
@@ -765,15 +778,7 @@ export function createInvestigationTools(deps: ToolDeps = {}): ToolDefinition[] 
     const maxDeps = args.max_dependencies ?? DEFAULT_DEPENDENCIES;
     const notes: string[] = [];
     const relatedTool = tool('get_related_entities');
-    const rel = await relatedTool.handler(
-      relatedTool.inputSchema.parse({
-        entity_guid: args.entity_guid,
-        limit: RELATED_FETCH,
-        ...(args.direction ? { direction: args.direction } : {}),
-      }),
-      ctx,
-    );
-    const relData = rel.structured as {
+    type RelData = {
       entity: { guid: string; name: string | null };
       related: {
         guid: string;
@@ -789,18 +794,48 @@ export function createInvestigationTools(deps: ToolDeps = {}): ToolDefinition[] 
       hiddenOutsideScope: boolean;
       nextCursor: string | null;
     };
+    // Read every page (up to RELATED_PAGES) before choosing: the first page alone may hold only key transactions.
+    let relData: RelData | undefined;
+    let cursor: string | undefined;
+    for (let page = 0; page < RELATED_PAGES; page++) {
+      const rel = await relatedTool.handler(
+        relatedTool.inputSchema.parse({
+          entity_guid: args.entity_guid,
+          limit: RELATED_FETCH,
+          ...(args.direction ? { direction: args.direction } : {}),
+          ...(cursor ? { cursor } : {}),
+        }),
+        ctx,
+      );
+      const data = rel.structured as RelData;
+      relData = relData
+        ? {
+            ...data,
+            related: [...relData.related, ...data.related],
+            hiddenOutsideScope: relData.hiddenOutsideScope || data.hiddenOutsideScope,
+          }
+        : data;
+      if (!data.nextCursor) break;
+      cursor = data.nextCursor;
+    }
+    if (!relData) throw new RbError(ErrorCode.NerdGraphError, 'NerdGraph returned no relationships.');
     const seen = new Set<string>([args.entity_guid]);
     const candidates = relData.related
       .filter((r) => {
-        if (seen.has(r.guid)) return false;
+        if (seen.has(r.guid) || !isDependency(r.domain, r.type)) return false;
         seen.add(r.guid);
         return true;
       })
-      .sort((a, b) => severityRank(a.alertSeverity) - severityRank(b.alertSeverity));
+      .sort(
+        (a, b) =>
+          dependencyRank(a) - dependencyRank(b) ||
+          severityRank(a.alertSeverity) - severityRank(b.alertSeverity),
+      );
     const chosen = candidates.slice(0, maxDeps);
     if (relData.hiddenOutsideScope)
       notes.push('Relationships into accounts this connection does not allow were left out.');
-    if (relData.nextCursor) notes.push(`Only the first ${RELATED_FETCH} relationships were read.`);
+    if (relData.nextCursor)
+      notes.push(`Only the first ${RELATED_PAGES * RELATED_FETCH} relationships were read.`);
     return {
       account: decoded.accountId,
       since: range.since,

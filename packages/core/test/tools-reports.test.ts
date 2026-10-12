@@ -92,10 +92,12 @@ const nrqlBody = (rows: Record<string, unknown>[]) =>
     },
   });
 
+/** The real domain and type, as NerdGraph reports them for a vertex (the tools filter on these, not on the guid). */
+const kindOf = (guid: string): string[] => atob(guid).split('|').slice(1, 3);
 const vertex = (guid: string, account: number, name: string) => ({
   guid,
   accountId: account,
-  entity: { guid, name, accountId: account, domain: 'X', type: 'Y' },
+  entity: { guid, name, accountId: account, domain: kindOf(guid)[0], type: kindOf(guid)[1] },
 });
 
 interface Overrides {

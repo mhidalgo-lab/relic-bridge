@@ -303,3 +303,69 @@ describe('analyze_transactions', () => {
     expect(calls).toHaveLength(0);
   });
 });
+
+describe('analyze_transactions: BUG-07 verdict rules and baseline (live test run 2026-10-12)', () => {
+  const DAY = 86_400_000;
+  const untilSec = (nrql: string) => Number(/UNTIL (\d+)/.exec(nrql)?.[1]);
+  const at = (offsetMs: number) => Math.floor((NOW + offsetMs) / 1000);
+  type Out = {
+    baseline: { used: string; automatic: boolean } | null;
+    comparison: { overall: string; metrics: { metric: string; verdict: string; note: string | null }[] };
+  };
+  const run = (client: Client, extra: Record<string, unknown> = {}) =>
+    client.callTool({ name: 'analyze_transactions', arguments: { entity_guid: guidOf(A), ...extra } });
+
+  it('a strong z-score under half a point is a change, and the note names the rule', async () => {
+    const { fetch } = recording((nrql) =>
+      nrqlBody([untilSec(nrql) === at(-60 * MIN) ? agg(20000, 60, 0.2, 0.4) : agg(20000, 106, 0.2, 0.4)]),
+    );
+    const s = (await run(await connect(fetch))).structuredContent as Out;
+    const err = s.comparison.metrics.find((m) => m.metric === 'error_rate');
+    expect(err?.verdict).toBe('worse');
+    expect(err?.note).toContain('errors more than expected');
+    expect(s.comparison.overall).toBe('regression_suspected');
+  });
+
+  // The window before the current one sits in the evening peak; the day before looks the same: no regression.
+  const seasonal = (nrql: string) => {
+    const u = untilSec(nrql);
+    if (u === at(-60 * MIN)) return agg(6000, 60, 0.2, 0.42); // previous
+    if (u === at(0)) return agg(3700, 37, 0.238, 0.5); // current
+    if (u === at(-60 * MIN - DAY)) return agg(6200, 62, 0.2, 0.42);
+    if (u === at(-DAY)) return agg(3800, 38, 0.24, 0.5);
+    return agg(1, 0, 0, 0);
+  };
+
+  it('CONTROL: a traffic drop that also happened the day before is a warning, not a regression', async () => {
+    const { fetch, calls } = recording((nrql) => nrqlBody([seasonal(nrql)]));
+    const s = (await run(await connect(fetch))).structuredContent as Out;
+    expect(s.baseline).toMatchObject({ used: 'same_window_1d_ago', automatic: true });
+    expect(s.comparison.overall).not.toBe('regression_suspected');
+    expect(s.comparison.metrics.find((m) => m.metric === 'throughput')?.verdict).toBe('warning');
+    expect(calls).toHaveLength(4);
+  });
+
+  it('baseline previous_window runs no control and keeps the false positive visible', async () => {
+    const { fetch, calls } = recording((nrql) => nrqlBody([seasonal(nrql)]));
+    const s = (await run(await connect(fetch), { baseline: 'previous_window' })).structuredContent as Out;
+    expect(s.baseline).toMatchObject({ used: 'previous_window', automatic: false });
+    expect(s.comparison.overall).toBe('regression_suspected');
+    expect(calls).toHaveLength(2);
+  });
+
+  it('no control without a large throughput shift, and the 7 day baseline is honoured', async () => {
+    const flat = recording(() => nrqlBody([agg(3000, 30, 0.2, 0.4)]));
+    const s = (await run(await connect(flat.fetch))).structuredContent as Out;
+    expect(s.baseline).toMatchObject({ used: 'previous_window', automatic: true });
+    expect(flat.calls).toHaveLength(2);
+    const week = recording(() => nrqlBody([agg(3000, 30, 0.2, 0.4)]));
+    const w = (
+      await run(await connect(week.fetch, { limits: { ...testContext().limits, maxWindowDays: 30 } }), {
+        baseline: 'same_window_7d_ago',
+      })
+    ).structuredContent as Out;
+    expect(w.baseline).toMatchObject({ used: 'same_window_7d_ago', automatic: false });
+    expect(week.calls).toHaveLength(4);
+    expect((await run(await connect(week.fetch), { baseline: 'last_year' })).isError).toBe(true);
+  });
+});

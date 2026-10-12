@@ -1023,3 +1023,15 @@ Sources: [server.json format](https://github.com/modelcontextprotocol/registry/b
   `entityQuery` and part of the resolver cache key.
 - Tools that only make sense for APM (transactions, deployment impact, threads, GC) pin the search to `domain = 'APM'`;
   other name-taking tools take an optional `domain` / `type` and report ambiguity (with candidates) otherwise.
+
+## Window verdicts and seasonality (P8-22, live test run 2026-10-12)
+
+- Comparing two adjacent windows across a daily traffic trough (or peak) moves throughput and latency without any
+  deployment: the control run (same time of day one day earlier, nothing deployed) gave the same "regression".
+- Rules: error rate changed when |z| >= 3 (pooled two-proportion) and at least 5 errors more or fewer than the before
+  rate predicts; throughput changed when beyond 25% and |z| >= 3 (Poisson, equal windows: (n2 - n1) / sqrt(n1 + n2));
+  latency changed beyond 15% and 5 ms. Latency has no z-score: that needs a standard deviation in the window query.
+- Baseline control: the same pair of windows 1 or 7 days earlier (2 extra NRQL). A move that the control shows too
+  (same direction, at least half the size) is a `warning`. Chosen automatically (1 day) when throughput shifted a lot.
+  A control reaching past `maxWindowDays` is skipped with a note. Not verified: holidays and weekly cycles (use
+  `same_window_7d_ago`).

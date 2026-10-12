@@ -65,8 +65,14 @@ export const MIN_SAMPLES = 30;
 export const LATENCY_BAND = 0.15;
 /** Throughput moves smaller than this fraction count as noise. */
 export const THROUGHPUT_BAND = 0.25;
-/** Error rate moves smaller than this many percentage points count as noise. */
-export const ERROR_RATE_MIN_PP = 0.5;
+/** Fewest extra (or missing) errors, against the before rate, for an error rate change to count (with |z| >= 3). */
+export const ERROR_MIN_DELTA = 5;
+/** Latency moves smaller than this many seconds count as noise, whatever the ratio. */
+export const LATENCY_MIN_DELTA_S = 0.005;
+/** |z| of the throughput (Poisson) test that counts as a real shift. */
+export const THROUGHPUT_Z = 3;
+/** A control comparison explains a change when it moved the same way by at least this fraction of it. */
+export const BASELINE_EXPLAINS = 0.5;
 /** |z| of the two-proportion test that counts as a real change in error rate (about p < 0.003). */
 export const ERROR_RATE_Z = 3;
 
@@ -183,6 +189,37 @@ const MINIMAL_FIELDS = ['id', 'time', 'type', 'entityGuid', 'version', 'shortDes
 // analyze_deployment_impact
 // ---------------------------------------------------------------------------------------------------------------------
 
+export const BASELINES = ['previous_window', 'same_window_1d_ago', 'same_window_7d_ago'] as const;
+export type Baseline = (typeof BASELINES)[number];
+const BASELINE_OFFSET_MS: Record<Baseline, number> = {
+  previous_window: 0,
+  same_window_1d_ago: 86_400_000,
+  same_window_7d_ago: 7 * 86_400_000,
+};
+export const baselineOffsetMs = (b: Baseline): number => BASELINE_OFFSET_MS[b];
+
+/** Shared `baseline` input of the tools that compare windows. */
+export const baselineField: z.ZodOptional<z.ZodType<Baseline>> = z
+  .enum(BASELINES)
+  .optional()
+  .describe(
+    'Control for daily traffic swings: previous_window (none), or the same windows 1 or 7 days earlier (2 more queries; a change seen there too is a warning). Default: 1d when throughput shifted a lot.',
+  );
+
+/** The baseline that was applied, as reported. */
+export const baselineOut: z.ZodType<BaselineOut> = z.object({
+  /** What ran: previous_window means no control comparison. */
+  used: z.enum(BASELINES),
+  /** Chosen by the automatic rule (no baseline input). */
+  automatic: z.boolean(),
+  reason: z.string(),
+});
+export interface BaselineOut {
+  used: Baseline;
+  automatic: boolean;
+  reason: string;
+}
+
 const analyzeInput = z.strictObject({
   entity_guid: z
     .string()
@@ -214,9 +251,18 @@ const analyzeInput = z.strictObject({
     .describe(
       `Where to find the latest deployment when deployment_time is omitted. Default "${DEFAULT_WINDOW}".`,
     ),
+  baseline: baselineField,
 });
 
-export const VERDICTS = ['worse', 'better', 'similar', 'changed', 'inconclusive', 'not_run'] as const;
+export const VERDICTS = [
+  'worse',
+  'better',
+  'similar',
+  'changed',
+  'warning',
+  'inconclusive',
+  'not_run',
+] as const;
 export type Verdict = (typeof VERDICTS)[number];
 
 const metricOut = z.object({
@@ -262,6 +308,8 @@ const analyzeOutput = z.object({
   overall: z
     .enum(['regression_suspected', 'improvement', 'no_significant_change', 'inconclusive'])
     .nullable(),
+  /** The control that was applied (null when nothing was compared). */
+  baseline: baselineOut.nullable(),
   /** A window was not queried (budget) or failed. */
   partial: z.boolean(),
   notes: z.array(z.string()),
@@ -269,7 +317,7 @@ const analyzeOutput = z.object({
 
 const ANALYZE_DESCRIPTION = `Compare an APM application's throughput, error rate and response time in equal windows before and after a deployment, with a verdict per metric (worse, better, similar, changed, inconclusive) and an overall call.
 
-Takes the application (guid or name). Uses its latest deployment of the last 7 days (see list_change_events) unless deployment_time is given, e.g. for an unrecorded rollout. Windows default to 30 minutes each, shorter for a recent deployment. Runs about 3 requests; a stopped window leaves the other (partial). An indication, not proof: traffic shifts and other changes also move these numbers; verdicts need at least ${MIN_SAMPLES} transactions per window. APM applications only. Without a deployment, compare with the previous window using analyze_transactions. ${UNTRUSTED}`;
+Takes the application (guid or name). Uses its latest deployment of the last 7 days (see list_change_events) unless deployment_time is given, e.g. for an unrecorded rollout. Windows default to 30 minutes each, shorter for a recent deployment. Runs about 3 requests (+2 for a baseline control); a stopped window leaves the other (partial). Changes need |z| >= 3 and a minimum delta; notes name the rule. With a large throughput shift the same windows 1 day earlier act as a control (see baseline). An indication, not proof: traffic shifts and other changes also move these numbers; verdicts need at least ${MIN_SAMPLES} transactions per window. APM applications only. Without a deployment, compare with the previous window using analyze_transactions. ${UNTRUSTED}`;
 
 export interface WindowStats {
   /** Transactions counted. */
@@ -344,6 +392,36 @@ const metric = (
   note,
 });
 
+/** The same pair of windows one or seven days earlier: what a change looks like with no deployment. */
+export interface ControlWindows {
+  readonly before: WindowStats | null;
+  readonly after: WindowStats | null;
+  /** For notes, e.g. "same windows 1 day earlier". */
+  readonly label: string;
+}
+
+const CHANGED = new Set<Verdict>(['worse', 'better', 'changed']);
+
+/** A change the control comparison shows too (same direction, at least half the size) is a warning. Pure. */
+function explainByControl(m: MetricOut, c: MetricOut, label: string): MetricOut {
+  if (!CHANGED.has(m.verdict) || m.delta === null) return m;
+  if (!CHANGED.has(c.verdict) || c.delta === null) {
+    return c.verdict === 'inconclusive' || c.verdict === 'not_run'
+      ? { ...m, note: `${m.note ?? ''} Baseline (${label}) could not judge it.`.trim() }
+      : { ...m, note: `${m.note ?? ''} Not seen in the baseline (${label}).`.trim() };
+  }
+  const same =
+    Math.sign(c.delta) === Math.sign(m.delta) && Math.abs(c.delta) >= BASELINE_EXPLAINS * Math.abs(m.delta);
+  if (!same) return { ...m, note: `${m.note ?? ''} Not seen in the baseline (${label}).`.trim() };
+  const shown =
+    c.changeRatio === null ? '' : ` (${c.changeRatio >= 0 ? '+' : ''}${(c.changeRatio * 100).toFixed(0)}%)`;
+  return {
+    ...m,
+    verdict: 'warning',
+    note: `Warning, not a regression: the same move${shown} appears in the baseline (${label}), so it is likely a normal swing.`,
+  };
+}
+
 /**
  * Compare two windows. Pure: no clock, no I/O. `before`/`after` null = that window was not evaluated.
  * Verdicts need MIN_SAMPLES transactions in both windows (except throughput, which is the sample size itself).
@@ -352,6 +430,7 @@ export function compareWindows(
   before: WindowStats | null,
   after: WindowStats | null,
   minutes: number,
+  control: ControlWindows | null = null,
 ): {
   metrics: MetricOut[];
   overall: 'regression_suspected' | 'improvement' | 'no_significant_change' | 'inconclusive';
@@ -380,13 +459,25 @@ export function compareWindows(
   const tput0 = before.requests === null ? null : before.requests / minutes;
   const tput1 = after.requests === null ? null : after.requests / minutes;
   const tputChange = ratio(tput0, tput1);
+  // Equal-length windows: the difference of two Poisson counts has z = (n2 - n1) / sqrt(n1 + n2).
+  const n1 = before.requests ?? 0;
+  const n2 = after.requests ?? 0;
+  const tputZ = n1 + n2 === 0 ? 0 : (n2 - n1) / Math.sqrt(n1 + n2);
+  const tputBig = tputChange !== null && Math.abs(tputChange) > THROUGHPUT_BAND;
+  const tputChanged = tputBig && Math.abs(tputZ) >= THROUGHPUT_Z;
   const tput = metric(
     'throughput',
     'requests/min',
     tput0,
     tput1,
-    tputChange === null ? 'inconclusive' : Math.abs(tputChange) > THROUGHPUT_BAND ? 'changed' : 'similar',
-    tputChange === null ? 'No traffic in the before window.' : null,
+    tputChange === null ? 'inconclusive' : tputChanged ? 'changed' : 'similar',
+    tputChange === null
+      ? 'No traffic in the before window.'
+      : tputChanged
+        ? `Rule: beyond the ${THROUGHPUT_BAND * 100}% band and |z| >= ${THROUGHPUT_Z} (z = ${tputZ.toFixed(1)}).`
+        : tputBig
+          ? `Beyond the ${THROUGHPUT_BAND * 100}% band but |z| = ${Math.abs(tputZ).toFixed(1)} < ${THROUGHPUT_Z}: too few requests to call it.`
+          : null,
   );
 
   let errVerdict: Verdict = 'inconclusive';
@@ -394,9 +485,19 @@ export function compareWindows(
   if (enough && before.errorRate !== null && after.errorRate !== null) {
     const z = errorRateZ(before, after);
     const pp = after.errorRate - before.errorRate;
-    errNote = z === null ? null : `z = ${z.toFixed(1)}`;
-    if (z === null || Math.abs(z) < ERROR_RATE_Z || Math.abs(pp) < ERROR_RATE_MIN_PP) errVerdict = 'similar';
-    else errVerdict = pp > 0 ? 'worse' : 'better';
+    // Errors beyond (or short of) what the before rate predicts for the after window.
+    const extra = ((after.errorRate - before.errorRate) / 100) * (after.requests ?? 0);
+    if (z === null) errVerdict = 'similar';
+    else if (Math.abs(z) < ERROR_RATE_Z) {
+      errVerdict = 'similar';
+      errNote = `Rule: |z| = ${Math.abs(z).toFixed(1)} < ${ERROR_RATE_Z}.`;
+    } else if (Math.abs(extra) < ERROR_MIN_DELTA) {
+      errVerdict = 'similar';
+      errNote = `|z| = ${Math.abs(z).toFixed(1)} >= ${ERROR_RATE_Z} but only ${Math.abs(extra).toFixed(1)} errors more or fewer than expected (minimum ${ERROR_MIN_DELTA}).`;
+    } else {
+      errVerdict = pp > 0 ? 'worse' : 'better';
+      errNote = `Rule: |z| = ${Math.abs(z).toFixed(1)} >= ${ERROR_RATE_Z} and ${Math.abs(extra).toFixed(0)} errors ${pp > 0 ? 'more' : 'fewer'} than expected (minimum ${ERROR_MIN_DELTA}).`;
+    }
   }
   const err = metric('error_rate', 'percent', before.errorRate, after.errorRate, errVerdict, errNote);
 
@@ -404,19 +505,35 @@ export function compareWindows(
     if (!enough || b === null || a === null) return metric(name, 'seconds', b, a, 'inconclusive', few);
     const r = ratio(b, a);
     if (r === null) return metric(name, 'seconds', b, a, 'inconclusive', 'No baseline latency.');
+    if (Math.abs(r) <= LATENCY_BAND)
+      return metric(name, 'seconds', b, a, 'similar', `Rule: within the ${LATENCY_BAND * 100}% band.`);
+    if (Math.abs(a - b) < LATENCY_MIN_DELTA_S)
+      return metric(
+        name,
+        'seconds',
+        b,
+        a,
+        'similar',
+        `Beyond the ${LATENCY_BAND * 100}% band but under ${LATENCY_MIN_DELTA_S * 1000} ms.`,
+      );
     return metric(
       name,
       'seconds',
       b,
       a,
-      Math.abs(r) <= LATENCY_BAND ? 'similar' : r > 0 ? 'worse' : 'better',
+      r > 0 ? 'worse' : 'better',
+      `Rule: beyond the ${LATENCY_BAND * 100}% band and at least ${LATENCY_MIN_DELTA_S * 1000} ms.`,
     );
   };
   const avg = latency('avg_response_time', before.avgDuration, after.avgDuration);
   const p95 = latency('p95_response_time', before.p95Duration, after.p95Duration);
 
-  const metrics = [tput, err, avg, p95];
-  const judged = [err, avg, p95];
+  let metrics = [tput, err, avg, p95];
+  if (control) {
+    const ctl = compareWindows(control.before, control.after, minutes).metrics;
+    metrics = metrics.map((m, i) => explainByControl(m, ctl[i] as MetricOut, control.label));
+  }
+  const judged = metrics.slice(1);
   const overall = judged.some((m) => m.verdict === 'worse')
     ? 'regression_suspected'
     : judged.every((m) => m.verdict === 'inconclusive')
@@ -426,6 +543,52 @@ export function compareWindows(
         : 'no_significant_change';
   return { metrics, overall };
 }
+
+/**
+ * Which baseline to apply after the first comparison. An explicit request wins; otherwise the automatic rule picks
+ * `same_window_1d_ago` when throughput shifted a lot between the windows (a traffic trough or peak can fake a
+ * regression), else `previous_window` (no control). Pure.
+ */
+export function chooseBaseline(requested: Baseline | undefined, first: readonly MetricOut[]): BaselineOut {
+  if (requested !== undefined) {
+    return { used: requested, automatic: false, reason: 'Requested in the baseline input.' };
+  }
+  const tput = first.find((m) => m.metric === 'throughput');
+  if (tput?.verdict === 'changed') {
+    const pctText = tput.changeRatio === null ? '' : ` (${(tput.changeRatio * 100).toFixed(0)}%)`;
+    return {
+      used: 'same_window_1d_ago',
+      automatic: true,
+      reason: `Throughput shifted a lot between the windows${pctText}, so the same windows one day earlier act as a control.`,
+    };
+  }
+  return {
+    used: 'previous_window',
+    automatic: true,
+    reason: 'No large throughput shift between the windows.',
+  };
+}
+
+/** Control windows as epoch ms, or null when the baseline is previous_window or reaches past the window limit. */
+export function controlRange(
+  baseline: Baseline,
+  win: { sinceMs: number; untilMs: number },
+  limits: { maxWindowDays: number },
+  now: number,
+): { sinceMs: number; untilMs: number } | null {
+  const off = baselineOffsetMs(baseline);
+  if (off === 0) return null;
+  const range = { sinceMs: win.sinceMs - off, untilMs: win.untilMs - off };
+  try {
+    assertWindowWithinLimit({ windowMs: range.untilMs - range.sinceMs, sinceMs: range.sinceMs }, limits, now);
+  } catch {
+    return null;
+  }
+  return range;
+}
+
+export const controlLabel = (b: Baseline): string =>
+  b === 'same_window_7d_ago' ? 'same windows 7 days earlier' : 'same windows 1 day earlier';
 
 /** ISO 8601 date-time (UTC when no offset is given) to epoch ms, or null. */
 export function parseInstant(value: string): number | null {
@@ -744,7 +907,7 @@ export function createChangeTools(deps: ToolDeps = {}): ToolDefinition[] {
     kind: 'read',
     openWorld: true,
     // One deployments lookup plus one NRQL for each of the two windows.
-    cost: 1 + 2 * NRQL_COST,
+    cost: 1 + 4 * NRQL_COST,
     group: 'incident-response',
     phase: 6,
     handler: async (args, ctx) => {
@@ -818,7 +981,7 @@ export function createChangeTools(deps: ToolDeps = {}): ToolDefinition[] {
                 : best;
             }, undefined);
 
-      const base = { entity, metrics: [] as MetricOut[], overall: null, partial: false };
+      const base = { entity, metrics: [] as MetricOut[], overall: null, baseline: null, partial: false };
       if (explicitAt === null && target < 0) {
         const notes = ['No deployment is recorded for this entity in the lookback window.'];
         return {
@@ -872,12 +1035,44 @@ export function createChangeTools(deps: ToolDeps = {}): ToolDefinition[] {
       const notes: string[] = [];
       if (!beforeO.ok) notes.push(`Before window: ${beforeO.note}`);
       if (!afterO.ok) notes.push(`After window: ${afterO.note}`);
-      const { metrics, overall } = compareWindows(
-        beforeO.ok ? beforeO.stats : null,
-        afterO.ok ? afterO.stats : null,
-        minutes,
-      );
-      const partial = !beforeO.ok || !afterO.ok;
+      const beforeStats = beforeO.ok ? beforeO.stats : null;
+      const afterStats = afterO.ok ? afterO.stats : null;
+      let { metrics, overall } = compareWindows(beforeStats, afterStats, minutes);
+      let partial = !beforeO.ok || !afterO.ok;
+      let baseline: BaselineOut | null = null;
+      if (beforeStats && afterStats) {
+        baseline = chooseBaseline(args.baseline, metrics);
+        const cb = controlRange(baseline.used, beforeWin, ctx.limits, now);
+        const ca = controlRange(baseline.used, afterWin, ctx.limits, now);
+        if (baseline.used !== 'previous_window' && (!cb || !ca)) {
+          notes.push(
+            `The ${controlLabel(baseline.used)} fall outside this connection's window limit: no control was run.`,
+          );
+          baseline = { ...baseline, used: 'previous_window' };
+        } else if (cb && ca) {
+          if (startableNrql(2, ctx.budget.remaining) < 2) {
+            notes.push('Request budget too low for the baseline control: no control was run.');
+            baseline = { ...baseline, used: 'previous_window' };
+            partial = true;
+          } else {
+            const [cbO, caO] = await Promise.all([
+              runWindow(ctx, account, args.entity_guid, cb.sinceMs, cb.untilMs),
+              runWindow(ctx, account, args.entity_guid, ca.sinceMs, ca.untilMs),
+            ]);
+            if (cbO.ok && caO.ok) {
+              ({ metrics, overall } = compareWindows(beforeStats, afterStats, minutes, {
+                before: cbO.stats,
+                after: caO.stats,
+                label: controlLabel(baseline.used),
+              }));
+            } else {
+              notes.push(`Baseline control (${controlLabel(baseline.used)}) failed: no control was applied.`);
+              baseline = { ...baseline, used: 'previous_window' };
+              partial = true;
+            }
+          }
+        }
+      }
       if (afterMs < compareMs) {
         notes.push(
           `Only ${Math.round(minutes)} minutes have passed since the deployment, so both windows are ${Math.round(minutes)} minutes long.`,
@@ -899,6 +1094,7 @@ export function createChangeTools(deps: ToolDeps = {}): ToolDefinition[] {
         `Deployment impact for the application (account ${account}), deployment at ${deployment.time}${deployment.recorded ? '' : ' (not recorded in change tracking; time as given)'}: ${windows.minutes} minutes before vs after.`,
         `Overall: ${overall.replaceAll('_', ' ')}.${partial ? ' Partial result: see notes.' : ''}`,
       ];
+      if (baseline) lines.push(`Baseline: ${baseline.used.replaceAll('_', ' ')}. ${baseline.reason}`);
       for (const n of notes) lines.push(`Note: ${n}`);
       lines.push(
         shapeRows(
@@ -943,6 +1139,7 @@ export function createChangeTools(deps: ToolDeps = {}): ToolDefinition[] {
           windows,
           metrics,
           overall,
+          baseline,
           partial,
           notes,
         },

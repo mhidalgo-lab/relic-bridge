@@ -290,5 +290,6 @@ Generated from task front matter (`pnpm tasks index`). Status lives in each task
 | P8-19 | [Include APM deployments in account-scope list_change_events and fill type](tasks/phase-8-hardening-launch/P8-19-change-events-account-scope.md) | high | — | done |
 | P8-20 | [Name lookup - optional domain/type, APM preference for APM-only tools](tasks/phase-8-hardening-launch/P8-20-name-domain-filter.md) | high | — | done |
 | P8-21 | [Golden metrics read complete buckets, honour timeseries false, state limit notes once](tasks/phase-8-hardening-launch/P8-21-golden-metrics-buckets.md) | high | — | done |
+| P8-22 | [Verdicts honour z-scores; seasonal baseline for window comparisons](tasks/phase-8-hardening-launch/P8-22-verdict-rules-baseline.md) | high | — | done |
 | P8-24 | [Enforce maxWindowDays as lookback as well as width](tasks/phase-8-hardening-launch/P8-24-window-lookback-limit.md) | high | — | done |
 <!-- tasks:end -->

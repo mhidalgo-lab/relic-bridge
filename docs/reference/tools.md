@@ -134,6 +134,8 @@ Start here for "what is alerting?" or "what broke?": states ["ACTIVATED"] gives 
 | `cursor` | `string` | no | Previous nextCursor. |
 | `minimal_output` | `boolean` | no | Only id, title, state, priority, created and entities. |
 | `name` | `string` | no | Entity name instead of guid. Ambiguous: nothing runs, candidates returned. |
+| `domain` | `string` | no | With name: APM, BROWSER, ... |
+| `type` | `string` | no | With name: APPLICATION, ... |
 
 ### Output
 
@@ -212,6 +214,8 @@ Use it to drill into what triggered an issue or to find one entity's violations;
 | `cursor` | `string` | no | Previous nextCursor. |
 | `minimal_output` | `boolean` | no | Only id, title, state, priority, created and entities. |
 | `name` | `string` | no | Entity name instead of guid. Ambiguous: nothing runs, candidates returned. |
+| `domain` | `string` | no | With name: APM, BROWSER, ... |
+| `type` | `string` | no | With name: APPLICATION, ... |
 
 ### Output
 
@@ -374,6 +378,8 @@ For metric values use get_golden_metrics; for a full health check (metrics, issu
 | `entity_guid` | `string` | no | Entity guid. |
 | `name` | `string` | no | Entity name instead of guid. Ambiguous: nothing runs, candidates returned. |
 | `account` | `integer` | no | With name: this account only. |
+| `domain` | `string` | no | With name: APM, BROWSER, ... |
+| `type` | `string` | no | With name: APPLICATION, ... |
 
 ### Output
 
@@ -412,6 +418,8 @@ Use it to map dependencies. Each relationship has a direction (incoming/outgoing
 | `entity_guid` | `string` | no | Entity guid. |
 | `name` | `string` | no | Entity name instead of guid. Ambiguous: nothing runs, candidates returned. |
 | `account` | `integer` | no | With name: this account only. |
+| `domain` | `string` | no | With name: APM, BROWSER, ... |
+| `type` | `string` | no | With name: APPLICATION, ... |
 | `direction` | `"INBOUND" \| "OUTBOUND" \| "BOTH"` | no | INBOUND (callers), OUTBOUND (what it calls or runs on) or BOTH (default). |
 | `types` | `object[]` | no | Only related entities of these kinds, e.g. [{"domain": "APM", "type": "APPLICATION"}]. |
 | `limit` | `integer` | no | Most relationships, default 50. |
@@ -578,6 +586,8 @@ Start here for "is this service healthy?". Runs about 15 requests in that priori
 | `max_metrics` | `integer` | no | Golden metrics to run (default 5, max 10). |
 | `name` | `string` | no | Entity name instead of guid. Ambiguous: nothing runs, candidates returned. |
 | `account` | `integer` | no | With name: this account only. |
+| `domain` | `string` | no | With name: APM, BROWSER, ... |
+| `type` | `string` | no | With name: APPLICATION, ... |
 
 ### Output
 
@@ -611,6 +621,8 @@ Value and trend use complete time buckets only (the one still filling is ignored
 | `entity_guid` | `string` | no | Entity guid. |
 | `name` | `string` | no | Entity name instead of guid. Ambiguous: nothing runs, candidates returned. |
 | `account` | `integer` | no | With name: this account only. |
+| `domain` | `string` | no | With name: APM, BROWSER, ... |
+| `type` | `string` | no | With name: APPLICATION, ... |
 | `time_range` | `string` | no | E.g. "last 6 hours" or "2026-10-01 to 2026-10-02" (UTC). Default "last 30 minutes"; capped by the connection. |
 | `timeseries` | `boolean` | no | Fetch a time series for the trend (default true); false: one value per metric. |
 | `max_metrics` | `integer` | no | Most golden metrics to run (default 10, max 20). |
@@ -747,6 +759,8 @@ Use it for "is it my dependency?". Runs about 31 requests by default (fewer with
 | `time_range` | `string` | no | E.g. "last 6 hours" or "2026-10-01 to 2026-10-02" (UTC). Default "last 30 minutes"; capped by the connection. |
 | `name` | `string` | no | Entity name instead of guid. Ambiguous: nothing runs, candidates returned. |
 | `account` | `integer` | no | With name: this account only. |
+| `domain` | `string` | no | With name: APM, BROWSER, ... |
+| `type` | `string` | no | With name: APPLICATION, ... |
 
 ### Output
 
@@ -822,6 +836,8 @@ By default it also measures the equal window before and flags clear changes (js_
 | `compare_previous` | `boolean` | no | Also measure the window before, to flag changes (default true; one more request per kind). |
 | `max_entities` | `integer` | no | Most front ends to measure (default 20, max 50). |
 | `name` | `string` | no | Entity name instead of guid. Ambiguous: nothing runs, candidates returned. |
+| `domain` | `string` | no | With name: APM, BROWSER, ... |
+| `type` | `string` | no | With name: APPLICATION, ... |
 
 ### Output
 
@@ -861,6 +877,8 @@ Use it for "what changed before things broke?". With an entity (guid or name) it
 | `account` | `integer` | no | Account id (list_accounts). Default: the default. |
 | `minimal_output` | `boolean` | no | Only id, time, type, entity, version and a short description. |
 | `name` | `string` | no | Entity name instead of guid. Ambiguous: nothing runs, candidates returned. |
+| `domain` | `string` | no | With name: APM, BROWSER, ... |
+| `type` | `string` | no | With name: APPLICATION, ... |
 
 ### Output
 
@@ -901,6 +919,8 @@ Use it for "which errors hurt us?" (sort_by "occurrences") or "what new errors a
 | `cursor` | `string` | no | Previous nextCursor. |
 | `minimal_output` | `boolean` | no | Only id, name, state, occurrences, last seen and entity. |
 | `name` | `string` | no | Entity name instead of guid. Ambiguous: nothing runs, candidates returned. |
+| `domain` | `string` | no | With name: APM, BROWSER, ... |
+| `type` | `string` | no | With name: APPLICATION, ... |
 
 ### Output
 
@@ -937,6 +957,8 @@ Use it for "follow this error" or "where did this request fail?". Runs 3 queries
 | `time_range` | `string` | no | E.g. "last 6 hours" or "2026-10-01 to 2026-10-02" (UTC). Default "last 24 hours"; capped by the connection. |
 | `account` | `integer` | no | Account id (list_accounts). Default: the default. |
 | `name` | `string` | no | Entity name instead of guid. Ambiguous: nothing runs, candidates returned. |
+| `domain` | `string` | no | With name: APM, BROWSER, ... |
+| `type` | `string` | no | With name: APPLICATION, ... |
 
 ### Output
 
@@ -1004,6 +1026,8 @@ Runs 3 requests; a stopped part leaves the others (partial). Patterns come from 
 | `time_range` | `string` | no | E.g. "last 6 hours" or "2026-10-01 to 2026-10-02" (UTC). Default "last 1 hour"; capped by the connection. |
 | `name` | `string` | no | Entity name instead of guid. Ambiguous: nothing runs, candidates returned. |
 | `account` | `integer` | no | With name: this account only. |
+| `domain` | `string` | no | With name: APM, BROWSER, ... |
+| `type` | `string` | no | With name: APPLICATION, ... |
 
 ### Output
 
@@ -1195,6 +1219,8 @@ Use it to read what was logged around an incident. For counts by level, common m
 | `cursor` | `string` | no | Previous nextCursor. |
 | `minimal_output` | `boolean` | no | Only timestamp, level and message. |
 | `name` | `string` | no | Entity name instead of guid. Ambiguous: nothing runs, candidates returned. |
+| `domain` | `string` | no | With name: APM, BROWSER, ... |
+| `type` | `string` | no | With name: APPLICATION, ... |
 
 ### Output
 

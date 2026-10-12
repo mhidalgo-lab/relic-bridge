@@ -88,7 +88,11 @@ jobs:
       - uses: changesets/action/version@ae32849d5ba541f9ae29e40e22a623bc13562f51 # v2.1.2
         with:
           script: pnpm version-packages
-          commit-message: 'chore(release): version packages'
+          # DCO check (ci.yml) needs a Signed-off-by trailer on every commit, including this bot commit.
+          commit-message: |
+            chore(release): version packages
+
+            Signed-off-by: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>
           pr-title: 'chore(release): version packages'
 
   # Everything that runs dependency or project code lives here, without `id-token` and with a read-only token.

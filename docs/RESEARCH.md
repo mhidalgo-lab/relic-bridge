@@ -283,6 +283,11 @@ Sources: <https://github.com/cloudflare/workers-oauth-provider>, issues #264, #3
   `EntitySearch.types { domain type entityType count }`; `EntitySearchOptions { limit, tagFilter, caseSensitiveTagMatching }`.
   GUIDs are base64 of `accountId|DOMAIN|TYPE|domainId`. Not yet verified live: `accountId IN (…)` in a search filter,
   `options.limit` semantics (P1-08 pending decision).
+- Relationships (live test run 2026-10-12, P8-18): the `entityDomainTypes` include filter of `relatedEntities` returned no
+  hosts although the unfiltered call listed them, so the server no longer sends it; it filters on each neighbour's own
+  `entity { domain type }` and pages up to 5 times. The type segment of an infra host GUID is `NA` (not `HOST`), so never
+  match or report a kind from the GUID alone (`decode_entity_guid` infers HOST for INFRA/NA). A service's neighbours include
+  non-dependencies (EXT/KEY_TRANSACTION, EXT/SERVICE_LEVEL, AIOPS/*, NR1/WORKLOAD, VIZ/*) and can include the entity itself.
 - `aiIssues` worked **with and without** the opt-in header (P0-09). Send it anyway, as documented.
 - `Actor.accounts(scope: RegionScope)`: account listing takes a region scope. Pass it explicitly when validating keys.
 - `embeddedChartUrl` creates a **shareable public chart URL**, and **selecting `staticChartUrl` generates a token-signed public

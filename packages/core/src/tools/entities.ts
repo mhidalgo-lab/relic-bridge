@@ -54,6 +54,8 @@ export const MAX_ENTITY_RESULTS = 200;
 const DEFAULT_ENTITY_RESULTS = 25;
 const MAX_RELATED_RESULTS = 100;
 const DEFAULT_RELATED_RESULTS = 50;
+/** Upstream pages read per call when `types` filters on this side (each page up to MAX_RELATED_RESULTS edges). */
+export const RELATED_FILTER_PAGES = 5;
 const MAX_TAG_FILTERS = 10;
 const MAX_TAGS_SHOWN = 100;
 const MAX_TAG_CHARS = 300;
@@ -196,6 +198,8 @@ const decodeOutput = z.object({
   type: z.string(),
   domainId: z.string(),
   allowed: z.boolean(),
+  /** Set when the type segment is `NA` and the real type is inferred from the domain (infra hosts). */
+  note: z.string().nullable(),
 });
 
 const SEARCH_DESCRIPTION = `Find New Relic entities (services, hosts, browser and mobile apps, monitors, dashboards...) by name substring, domain, type and tags: a paged list.
@@ -208,7 +212,7 @@ For metric values use get_golden_metrics; for a full health check (metrics, issu
 
 const RELATED_DESCRIPTION = `List the entities directly related to one entity (guid or name), one hop: services it calls or is called by, hosts it runs on, containers, monitors...
 
-Use it to map dependencies. Each relationship has a direction (incoming/outgoing) and a type (CALLS, HOSTS, CONTAINS...). Relationships into accounts outside this connection are left out. Page with cursor. To measure whether the neighbours are healthy use dependency_health. ${UNTRUSTED}`;
+Use it to map dependencies. Each relationship has a direction (incoming/outgoing) and a type (CALLS, HOSTS, CONTAINS...). Relationships into accounts outside this connection are left out, and so are edges from the entity to itself. With types, the kind is matched on each neighbour's real domain and type and up to ${RELATED_FILTER_PAGES} pages are read (a name lookup adds more requests). Runs 1 request without types. Page with cursor. To measure whether the neighbours are healthy use dependency_health. ${UNTRUSTED}`;
 
 const LIST_TYPES_DESCRIPTION = `List the entity domain/type pairs present in this connection's accounts, with how many entities of each.
 
@@ -216,7 +220,7 @@ Use it to learn the domain and type values search_entities accepts. Cached for 1
 
 const DECODE_DESCRIPTION = `Decode an entity guid offline: account id, domain, type and domain id, and whether this connection can read that account. Nothing is sent to New Relic.
 
-Use it to tell which account a guid belongs to; for the entity's details use get_entity.`;
+Infra hosts encode their type as NA in the guid; they are reported as HOST with a note. Use it to tell which account a guid belongs to; for the entity's details use get_entity.`;
 
 interface TypesCacheEntry {
   readonly at: number;
@@ -392,6 +396,8 @@ export function createEntityTools(deps: ToolDeps = {}): ToolDefinition[] {
     outputSchema: relatedOutput,
     kind: 'read',
     openWorld: true,
+    // One request without `types`; with `types` up to RELATED_FILTER_PAGES, which the per-request budget bounds (the
+    // declared cost stays small so that the tool is still offered on a small budget).
     cost: 1 + RESOLVE_COST,
     group: 'entities',
     phase: 1,
@@ -400,37 +406,53 @@ export function createEntityTools(deps: ToolDeps = {}): ToolDefinition[] {
       const input = { ...rawInput, guid: ref.guid };
       const decoded = checkGuid(ctx, input.guid);
       const limit = input.limit ?? DEFAULT_RELATED_RESULTS;
-      const filter: RelatedEntitiesVariables['filter'] = {
-        direction: input.direction ?? 'BOTH',
-        ...(input.types
-          ? {
-              entityDomainTypes: {
-                include: input.types.map((t) => ({
-                  domain: t.domain.toUpperCase(),
-                  type: t.type.toUpperCase(),
-                })),
-              },
-            }
-          : {}),
-      };
+      // The `types` filter is applied here, on the vertex's own domain and type, never on the GUID's encoded type
+      // segment (infra hosts carry `NA` there) and not by NerdGraph's `entityDomainTypes`: a live run (2026-10-12,
+      // BUG-16) got `[]` for hosts the unfiltered call returned. Nothing is pushed upstream but the direction; pages
+      // are read until `limit` matches are found or the page budget is spent.
+      const wanted = input.types?.map((t) => ({
+        domain: t.domain.toUpperCase(),
+        type: t.type.toUpperCase(),
+      }));
+      const filter: RelatedEntitiesVariables['filter'] = { direction: input.direction ?? 'BOTH' };
+      const bindingFilter = { ...filter, ...(wanted ? { types: wanted } : {}) };
+      const matches = (
+        v: { entity?: { domain?: string | null; type?: string | null } | null } | null | undefined,
+      ) =>
+        wanted === undefined ||
+        wanted.some(
+          (w) => v?.entity?.domain?.toUpperCase() === w.domain && v.entity.type?.toUpperCase() === w.type,
+        );
       let entity = undefined as NonNullable<RelatedEntitiesData['actor']['entity']> | undefined;
       const page = await pageUpstream({
-        binding: await bindingOf('get_related_entities', decoded.accountId, input.guid, filter),
+        binding: await bindingOf('get_related_entities', decoded.accountId, input.guid, bindingFilter),
         cursor: input.cursor,
         limit,
-        fetchPage: async (upstream) => {
-          const result = await client(ctx).query(RELATED_ENTITIES_QUERY, {
-            guid: input.guid,
-            filter,
-            limit,
-            cursor: upstream,
-          });
-          const found = requireField(result.data.actor.entity, result, ctx);
-          entity = found;
-          return {
-            items: (found.relatedEntities?.results ?? []).filter(isNonNull),
-            next: found.relatedEntities?.nextCursor,
-          };
+        fetchPage: async (start) => {
+          type Edge = NonNullable<
+            NonNullable<NonNullable<RelatedEntitiesData['actor']['entity']>['relatedEntities']>['results']
+          >[number] &
+            object;
+          const items: Edge[] = [];
+          let upstream = start;
+          for (let pages = 0; pages < (wanted ? RELATED_FILTER_PAGES : 1); pages++) {
+            const result = await client(ctx).query(RELATED_ENTITIES_QUERY, {
+              guid: input.guid,
+              filter,
+              limit: wanted ? MAX_RELATED_RESULTS : limit,
+              cursor: upstream,
+            });
+            const found = requireField(result.data.actor.entity, result, ctx);
+            entity = found;
+            const self0 = found.guid ?? input.guid;
+            for (const edge of (found.relatedEntities?.results ?? []).filter(isNonNull)) {
+              const other = edge.source?.guid === self0 ? edge.target : edge.source;
+              if (matches(other)) items.push(edge);
+            }
+            upstream = found.relatedEntities?.nextCursor ?? null;
+            if (upstream === null || items.length >= limit) break;
+          }
+          return { items, next: upstream };
         },
       });
       if (entity === undefined) throw new RbError(ErrorCode.NerdGraphError, 'NerdGraph returned no entity.');
@@ -446,11 +468,17 @@ export function createEntityTools(deps: ToolDeps = {}): ToolDefinition[] {
       const self = entity.guid ?? input.guid;
       const edges = page.items;
       let hiddenOutsideScope = false;
+      let selfEdges = 0;
       const rows: z.infer<typeof relatedOutput>['related'] = [];
       for (const edge of edges) {
         const outgoing = edge.source?.guid === self;
         const other = outgoing ? edge.target : edge.source;
         if (!other || typeof other.guid !== 'string') continue;
+        // An edge from the entity to itself (BUG-17) says nothing about its neighbours: leave it out and say so.
+        if (other.guid === self) {
+          selfEdges++;
+          continue;
+        }
         const account = other.accountId ?? other.entity?.accountId;
         if (
           typeof account !== 'number' ||
@@ -484,6 +512,11 @@ export function createEntityTools(deps: ToolDeps = {}): ToolDefinition[] {
       const lines = [`${rows.length} related entit${rows.length === 1 ? 'y' : 'ies'} (one hop).`];
       if (hiddenOutsideScope) {
         lines.push('Note: relationships into accounts this connection does not allow were left out.');
+      }
+      if (selfEdges > 0) {
+        lines.push(
+          `Note: ${selfEdges} relationship${selfEdges === 1 ? '' : 's'} from the entity to itself left out.`,
+        );
       }
       if (nextCursor)
         lines.push(
@@ -577,16 +610,20 @@ export function createEntityTools(deps: ToolDeps = {}): ToolDefinition[] {
     group: 'entities',
     phase: 1,
     handler: async (input, ctx) => {
-      const d = decodeEntityGuid(input.entity_guid);
+      const decodedGuid = decodeEntityGuid(input.entity_guid);
+      // Infra host guids encode the type as `NA`; the entity's real type is HOST (BUG-14).
+      const inferHost = decodedGuid.domain === 'INFRA' && decodedGuid.type === 'NA';
+      const d = inferHost ? { ...decodedGuid, type: 'HOST' } : decodedGuid;
+      const note = inferHost ? 'inferred: INFRA guids encode the type as NA; the entity type is HOST' : null;
       const allowed = ctx.accounts.allowed.includes(d.accountId);
       // The domain id is free text from the guid, and a guid can come from telemetry: keep it in the envelope (T6).
       return {
         text: [
           `Account ${d.accountId} (${allowed ? 'available on this connection' : 'NOT available on this connection'}), ` +
-            `domain ${d.domain}, type ${d.type}.`,
+            `domain ${d.domain}, type ${d.type}${note ? ` (${note})` : ''}.`,
           envelope(`domain id: ${d.domainId}`, { source: 'Entity guid' }),
         ].join('\n'),
-        structured: { ...d, allowed },
+        structured: { ...d, allowed, note },
       };
     },
   });

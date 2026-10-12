@@ -2,7 +2,7 @@
 id: P8-18
 title: Fix relationship type filter, self-edges, dependency selection and host GUID decode
 phase: 8
-status: in-progress
+status: review
 priority: high
 depends_on: []
 adr: []
@@ -21,12 +21,12 @@ Four bugs from the live test run (2026-10-12) make the relationship tools return
 - Tool descriptions, declared costs, RESEARCH.md, generated docs, changeset.
 
 ## Acceptance criteria
-- [ ] `types` filter matches hosts whose GUID encodes `NA`, across pages, with no `entityDomainTypes` sent upstream.
-- [ ] Self-edges are dropped with a note.
-- [ ] `dependency_health` never picks excluded kinds and prefers HOSTS/CALLS to APM/INFRA after reading all pages (within budget).
-- [ ] `decode_entity_guid` returns type HOST plus a note for INFRA/NA.
-- [ ] Regression tests for each bug fail before the fix, pass after; existing authz tests still pass.
-- [ ] Docs regenerated; RESEARCH.md updated; changeset added.
+- [x] `types` filter matches hosts whose GUID encodes `NA`, across pages, with no `entityDomainTypes` sent upstream.
+- [x] Self-edges are dropped with a note.
+- [x] `dependency_health` never picks excluded kinds and prefers HOSTS/CALLS to APM/INFRA after reading all pages (within budget).
+- [x] `decode_entity_guid` returns type HOST plus a note for INFRA/NA.
+- [x] Regression tests for each bug fail before the fix, pass after; existing authz tests still pass.
+- [x] Docs regenerated; RESEARCH.md updated; changeset added.
 
 ## Security notes
 No access change: scope checks on every neighbour are unchanged and run on all pages read (T3).

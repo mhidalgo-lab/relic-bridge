@@ -389,15 +389,57 @@ describe('get_related_entities', () => {
     expect(r.isError).toBeFalsy();
     expect(calls[0]?.body.variables).toEqual({
       guid: GUID_A,
-      limit: 20,
+      limit: 100,
       cursor: null,
-      filter: { direction: 'BOTH', entityDomainTypes: { include: [{ domain: 'APM', type: 'APPLICATION' }] } },
+      filter: { direction: 'BOTH' },
     });
     const s = r.structuredContent as { related: { name: string; direction: string; relationship: string }[] };
     expect(s.related.map((x) => [x.name, x.direction, x.relationship])).toEqual([
       ['payments', 'outgoing', 'CALLS'],
       ['web', 'incoming', 'CALLS'],
     ]);
+  });
+
+  const hostVertex = (id: string, name: string) => ({
+    guid: guidOf(A, 'INFRA', 'NA', id),
+    accountId: A,
+    entity: { name, domain: 'INFRA', type: 'HOST', alertSeverity: null, reporting: true },
+  });
+
+  it('filters types on the entity domain/type over several pages, not on the GUID type segment (BUG-16)', async () => {
+    const noise = Array.from({ length: 3 }, (_, i) => ({
+      type: 'CONTAINS',
+      source: self,
+      target: vertex(A, `mon-${i}`),
+    }));
+    const { client, calls } = await setup([
+      relatedBody(noise, 'c1'),
+      relatedBody([{ type: 'HOSTS', source: hostVertex('h1', 'host-1'), target: self }]),
+    ]);
+    const r = await client.callTool({
+      name: 'get_related_entities',
+      arguments: { entity_guid: GUID_A, types: [{ domain: 'INFRA', type: 'HOST' }] },
+    });
+    expect(r.isError, text(r)).toBeFalsy();
+    const s = r.structuredContent as { related: { name: string; domain: string; type: string }[] };
+    expect(s.related.map((x) => [x.name, x.domain, x.type])).toEqual([['host-1', 'INFRA', 'HOST']]);
+    expect(calls).toHaveLength(2);
+    for (const c of calls) expect(c.body.variables).toMatchObject({ filter: { direction: 'BOTH' } });
+    expect(JSON.stringify(calls[0]?.body.variables)).not.toContain('entityDomainTypes');
+    expect(calls[1]?.body.variables).toMatchObject({ cursor: 'c1' });
+  });
+
+  it('drops edges from the entity to itself and says so (BUG-17)', async () => {
+    const { client } = await setup([
+      relatedBody([
+        { type: 'CALLS', source: self, target: self },
+        { type: 'CALLS', source: self, target: vertex(A, 'payments') },
+      ]),
+    ]);
+    const r = await client.callTool({ name: 'get_related_entities', arguments: { entity_guid: GUID_A } });
+    const s = r.structuredContent as { related: { name: string }[] };
+    expect(s.related.map((x) => x.name)).toEqual(['payments']);
+    expect(text(r)).toContain('1 relationship from the entity to itself left out');
   });
 
   it('drops related entities in non-allowed accounts', async () => {
@@ -543,6 +585,7 @@ describe('decode_entity_guid', () => {
       type: 'APPLICATION',
       domainId: '42',
       allowed: true,
+      note: null,
     });
     const other = await client.callTool({
       name: 'decode_entity_guid',
@@ -556,6 +599,15 @@ describe('decode_entity_guid', () => {
     });
     expect(errorCode(bad)).toBe(ErrorCode.InputInvalid);
     expect(calls).toHaveLength(0);
+  });
+
+  it('reports INFRA host guids (encoded type NA) as HOST with a note (BUG-14)', async () => {
+    const { client } = await setup([searchBody([])], { budget: createBudget(0) });
+    const host = guidOf(A, 'INFRA', 'NA', 'h-1');
+    const r = await client.callTool({ name: 'decode_entity_guid', arguments: { entity_guid: host } });
+    expect(r.structuredContent).toMatchObject({ domain: 'INFRA', type: 'HOST' });
+    expect((r.structuredContent as { note: string }).note).toContain('inferred');
+    expect(text(r)).toContain('type HOST (inferred');
   });
 
   it('keeps the free-text domain id inside the untrusted-data envelope (review P1-R)', async () => {

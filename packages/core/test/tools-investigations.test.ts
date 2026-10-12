@@ -41,15 +41,22 @@ interface Recorded {
   variables: Record<string, unknown>;
 }
 
-const vertex = (guid: string, account: number, name: string, severity: string | null = null) => ({
+const vertex = (
+  guid: string,
+  account: number,
+  name: string,
+  severity: string | null = null,
+  domain = 'X',
+  type = 'Y',
+) => ({
   guid,
   accountId: account,
   entity: {
     guid,
     name,
     accountId: account,
-    domain: 'X',
-    type: 'Y',
+    domain,
+    type,
     alertSeverity: severity,
     reporting: true,
   },
@@ -57,6 +64,8 @@ const vertex = (guid: string, account: number, name: string, severity: string | 
 
 interface Overrides {
   related?: unknown[];
+  /** Relationship pages: the cursor `p<n>` selects page n (page 0 has no cursor). */
+  relatedPages?: unknown[][];
   nrql?: (nrql: string) => Response | undefined;
 }
 
@@ -67,6 +76,25 @@ function nerdGraph(o: Overrides = {}): { fetch: FetchLike; calls: Recorded[] } {
     const body = JSON.parse(String(init.body)) as { query: string; variables: Record<string, unknown> };
     const op = /query (Rb\w+)/.exec(body.query)?.[1] ?? 'unknown';
     calls.push({ op, variables: body.variables });
+    if (op === 'RbRelatedEntities' && o.relatedPages) {
+      const pages = o.relatedPages;
+      const at = typeof body.variables['cursor'] === 'string' ? Number(body.variables['cursor'].slice(1)) : 0;
+      return json({
+        data: {
+          actor: {
+            entity: {
+              guid: body.variables['guid'],
+              accountId: A,
+              name: 'checkout',
+              relatedEntities: {
+                nextCursor: at + 1 < pages.length ? `p${at + 1}` : null,
+                results: pages[at],
+              },
+            },
+          },
+        },
+      });
+    }
     if (op === 'RbRelatedEntities' && o.related) {
       return json({
         data: {
@@ -338,6 +366,72 @@ describe('dependency_health', () => {
     expect(JSON.stringify(ok)).not.toContain(FOREIGN);
     // no NerdGraph request ever mentions the foreign neighbour
     expect(JSON.stringify(ng.calls)).not.toContain(FOREIGN);
+  });
+
+  it('skips key transactions and other non-dependencies and reads every page before choosing (BUG-10)', async () => {
+    const kt = (n: number, domain = 'EXT', type = 'KEY_TRANSACTION') => ({
+      type: 'SERVES',
+      source: vertex(`kt-${n}`, A, `kt-${n}`, 'CRITICAL', domain, type),
+      target: vertex(MOCK_GUID, A, 'checkout'),
+    });
+    const host = {
+      type: 'HOSTS',
+      source: vertex(CACHE, A, 'host-1', null, 'INFRA', 'HOST'),
+      target: vertex(MOCK_GUID, A, 'checkout'),
+    };
+    const ng = nerdGraph({
+      relatedPages: [
+        [
+          kt(1),
+          kt(2, 'EXT', 'SERVICE_LEVEL'),
+          kt(3, 'AIOPS', 'ISSUE'),
+          kt(4, 'NR1', 'WORKLOAD'),
+          kt(5, 'VIZ', 'X'),
+        ],
+        [
+          host,
+          {
+            type: 'CALLS',
+            source: vertex(MOCK_GUID, A, 'checkout'),
+            target: vertex(API, A, 'payments', null, 'APM', 'APPLICATION'),
+          },
+        ],
+      ],
+    });
+    const client = await connect(ng.fetch);
+    const r = await client.callTool({
+      name: 'dependency_health',
+      arguments: { entity_guid: MOCK_GUID, max_dependencies: 5 },
+    });
+    expect(r.isError, resultText(r)).toBeFalsy();
+    const s = r.structuredContent as { dependencies: { guid: string }[]; notMeasured: number };
+    expect(s.dependencies.map((d) => d.guid).sort()).toEqual([API, CACHE].sort());
+    expect(s.notMeasured).toBe(0);
+    expect(ng.calls.filter((c) => c.op === 'RbRelatedEntities')).toHaveLength(2);
+  });
+
+  it('prefers HOSTS/CALLS edges to APM and INFRA over alerting neighbours of other kinds (BUG-10)', async () => {
+    const ng = nerdGraph({
+      related: [
+        {
+          type: 'CONTAINS',
+          source: vertex(MOCK_GUID, A, 'checkout'),
+          target: vertex(DB, A, 'mon', 'CRITICAL', 'SYNTH', 'MONITOR'),
+        },
+        {
+          type: 'HOSTS',
+          source: vertex(CACHE, A, 'host-1', null, 'INFRA', 'HOST'),
+          target: vertex(MOCK_GUID, A, 'checkout'),
+        },
+      ],
+    });
+    const client = await connect(ng.fetch);
+    const r = await client.callTool({
+      name: 'dependency_health',
+      arguments: { entity_guid: MOCK_GUID, max_dependencies: 1 },
+    });
+    const s = r.structuredContent as { dependencies: { guid: string }[] };
+    expect(s.dependencies.map((d) => d.guid)).toEqual([CACHE]);
   });
 
   it('plans against the budget: entity first, neighbours skipped when nothing is left', async () => {

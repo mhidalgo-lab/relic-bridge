@@ -355,7 +355,7 @@ const INSIGHTS_COST = 1 + 1 + goldenCost(DEFAULT_REPORT_METRICS) + 1 + 3 * NRQL_
 
 const INSIGHTS_DESCRIPTION = `Investigation report for one alert issue (issue_id from list_recent_issues): the issue, then for its first entity the details, golden metrics, Errors Inbox groups and a log summary over the issue window (${DEFAULT_BEFORE_MINUTES} minutes before it opened until it closed, or now), the changes in the ${DEFAULT_CHANGE_LOOKBACK_HOURS} hours before, and the related entities.
 
-Each section is the result of the matching tool (get_entity, get_golden_metrics, list_error_groups, analyze_entity_logs, list_change_events, get_related_entities): drill in with those. Runs up to ${INSIGHTS_COST} requests in that priority order; what does not fit or fails is marked skipped or error (partial: true): ask for fewer sections or max_metrics. For an entity without a specific issue use entity_health. Uses New Relic's experimental aiIssues API. ${UNTRUSTED}`;
+Use it to start investigating a specific alert. Each section is the result of the matching tool (get_entity, get_golden_metrics, list_error_groups, analyze_entity_logs, list_change_events, get_related_entities): drill in with those. Runs up to ${INSIGHTS_COST} requests in that priority order; what does not fit or fails is marked skipped or error (partial: true): ask for fewer sections or max_metrics. For an entity without a specific issue use entity_health. Uses New Relic's experimental aiIssues API. ${UNTRUSTED}`;
 
 /** Sections run per `tasks/get` of an insights task (P7-21). */
 const STEP_SECTIONS = 3;

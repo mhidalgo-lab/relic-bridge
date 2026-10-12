@@ -273,7 +273,7 @@ const traceOutput = z.object({
 
 const TRACE_DESCRIPTION = `Follow one failing request through the system: from a trace_id, or from an error group (error_group_id from list_error_groups: its latest occurrence with a trace), get the trace's spans (services, root, error and slowest spans), the error events with request attributes (class, message, path, method, status) and the log lines with that trace id.
 
-Use it for "follow this error" or "where did this request fail?". Runs 3 queries (4 with error_group_id); a part that fails or does not fit is noted (partial: true). spansMissing means the trace was sampled out or is outside time_range (default last 24 hours); errors and logs still help. Only log lines with the trace id are returned: for other lines use list_recent_logs with a narrow time_range. One account per call (an entity, by entity_guid or name, implies it); synthetic traffic is skipped unless include_synthetic; query strings are removed from paths. ${UNTRUSTED}`;
+Runs 3 queries (4 with error_group_id); a part that fails or does not fit is noted (partial: true). spansMissing means the trace was sampled out or is outside time_range (default last 24 hours); errors and logs still help. Only log lines with the trace id are returned: for other lines use list_recent_logs with a narrow time_range. One account per call (an entity, by entity_guid or name, implies it); synthetic traffic is skipped unless include_synthetic; query strings are removed from paths. ${UNTRUSTED}`;
 
 const spanQuery = (traceId: string, sinceMs: number, untilMs: number): NrqlQuery =>
   nrql`SELECT ${nrql.identifier('timestamp')}, id, ${nrql.identifier('parent.id')} AS parentId, name, ${nrql.identifier('entity.name')} AS service, category, ${nrql.identifier('duration.ms')} AS durationMs, ${nrql.identifier('error.class')} AS errorClass, ${nrql.identifier('error.message')} AS errorMessage FROM Span WHERE ${nrql.identifier('trace.id')} = ${traceId} LIMIT ${SPAN_LIMIT} SINCE ${Math.floor(sinceMs / 1000)} UNTIL ${Math.ceil(untilMs / 1000)}`;
@@ -374,7 +374,7 @@ const DEP_COST = RELATED_PAGES + goldenCost(DEFAULT_METRICS) * (1 + DEFAULT_DEPE
 
 const DEP_DESCRIPTION = `Is the problem in this entity or in what it depends on? For an entity (guid or name) it measures the golden metrics of the entity and of its directly related entities (hosts and called services first, then alerting ones) side by side, flagging clear signals (alerting, not reporting, rising error rate, latency, CPU or memory, throughput down 25% or more).
 
-Use it for "is it my dependency?". Runs about ${DEP_COST} requests by default (fewer with max_dependencies or max_metrics); what does not fit is marked skipped (partial: true). Neighbours in accounts outside this connection are left out (hiddenOutsideScope). For the entity alone use entity_health; for the plain list of neighbours use get_related_entities. ${UNTRUSTED}`;
+Runs about ${DEP_COST} requests by default (fewer with max_dependencies or max_metrics); what does not fit is marked skipped (partial: true). Neighbours in accounts outside this connection are left out (hiddenOutsideScope). For the entity alone use entity_health; for the plain list of neighbours use get_related_entities. ${UNTRUSTED}`;
 
 // ---------------------------------------------------------------------------------------------------------------------
 // entity_health

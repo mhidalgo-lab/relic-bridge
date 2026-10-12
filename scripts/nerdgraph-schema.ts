@@ -8,7 +8,8 @@
 // endpoint. It is never printed, never part of an error message and never written to the snapshot. The snapshot holds
 // schema metadata (no descriptions) as gzipped introspection JSON; the document check in
 // scripts/test/nerdgraph-documents.test.ts validates every static document against it.
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { gunzipSync, gzipSync } from 'node:zlib';
 import {
@@ -107,6 +108,7 @@ export async function main(
   const introspection = await fetchIntrospection({ apiKey, region, fetchImpl });
   buildClientSchema(introspection); // fail before writing anything if the result is not a usable schema
   const bytes = encodeSnapshot(introspection);
+  mkdirSync(dirname(path), { recursive: true }); // first run: scripts/fixtures/ does not exist yet
   writeFileSync(path, bytes);
   out(
     `Wrote ${path} (${(bytes.length / 1024).toFixed(0)} KiB, ${introspection.__schema.types.length} types).`,

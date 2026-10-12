@@ -2,7 +2,7 @@
 id: P8-24
 title: Enforce maxWindowDays as lookback as well as width
 phase: 8
-status: review
+status: done
 priority: high
 depends_on: []
 adr: []

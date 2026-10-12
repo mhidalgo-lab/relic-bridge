@@ -287,5 +287,5 @@ Generated from task front matter (`pnpm tasks index`). Status lives in each task
 | P8-16 | [Fix list_top_transactions NRQL (no ORDER BY after FACET)](tasks/phase-8-hardening-launch/P8-16-list-top-transactions-nrql.md) | high | — | done |
 | P8-17 | [Fix list_synthetic_monitors stale NerdGraph status field](tasks/phase-8-hardening-launch/P8-17-synthetic-monitor-status.md) | high | — | done |
 | P8-21 | [Golden metrics read complete buckets, honour timeseries false, state limit notes once](tasks/phase-8-hardening-launch/P8-21-golden-metrics-buckets.md) | high | — | done |
-| P8-24 | [Enforce maxWindowDays as lookback as well as width](tasks/phase-8-hardening-launch/P8-24-window-lookback-limit.md) | high | — | review |
+| P8-24 | [Enforce maxWindowDays as lookback as well as width](tasks/phase-8-hardening-launch/P8-24-window-lookback-limit.md) | high | — | done |
 <!-- tasks:end -->

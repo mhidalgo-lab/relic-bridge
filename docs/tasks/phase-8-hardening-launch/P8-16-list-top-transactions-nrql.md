@@ -2,7 +2,7 @@
 id: P8-16
 title: Fix list_top_transactions NRQL (no ORDER BY after FACET)
 phase: 8
-status: review
+status: done
 priority: high
 depends_on: []
 adr: []

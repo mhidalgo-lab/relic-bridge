@@ -109,6 +109,9 @@ RB_LIVE_API_KEY=NRAK-… pnpm nerdgraph:schema        # RB_LIVE_REGION=US (defau
 
 Commit the resulting file. Until a snapshot exists the check is skipped with a message; once it is present the check
 fails on any invalid document. Refresh it when New Relic changes the schema or when a document starts failing live.
+The snapshot is loaded with graphql-js `assumeValid`: NerdGraph's own schema breaks one type-system rule (a deprecated
+implementation field whose interface field is not deprecated), so only our documents are validated, not New Relic's
+schema.
 
 ## CI runners
 

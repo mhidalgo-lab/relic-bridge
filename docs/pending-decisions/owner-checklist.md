@@ -38,9 +38,9 @@ drift, open a task.
 ## 2. Live New Relic runs (one User key)
 - [ ] `pnpm test:live` against an account with APM, logs, errors, deployments, synthetics, issues — closes P1-07
       (`IN_REGION`), P1-08, P1-09, P1-10, P6-01..P6-08, P6-10, P6-16, P6-23 (record RESEARCH §22).
-- [ ] `RB_LIVE_API_KEY=… pnpm nerdgraph:schema` once, commit
+- [x] `RB_LIVE_API_KEY=… pnpm nerdgraph:schema` once, commit
       `scripts/fixtures/nerdgraph-schema.json.gz`; this turns on the document-vs-schema check in `pnpm test`, then fix
-      any document it reports (P8-32, docs/dev/testing.md).
+      any document it reports (P8-32, docs/dev/testing.md). Done 2026-10-12 (P8-37): first snapshot committed, every document valid.
 - [ ] `ANTHROPIC_API_KEY=… pnpm eval:tools` once; record the baseline in `docs/dev/evals.md` and pick the gate
       (P6-13, P6-19, P6-22).
 - [ ] `claude mcp add` quickstart with a real key in Claude Code + one JSON-config client (P1-11, P1-14).

@@ -130,7 +130,7 @@ describe('time window', () => {
     ['no SINCE (1 hour default)', 'SELECT count(*) FROM T'],
     ['7 days', 'SELECT count(*) FROM T SINCE 7 days ago'],
     ['1 week', 'SELECT count(*) FROM T SINCE 1 week ago'],
-    ['UNTIL narrows', 'SELECT count(*) FROM T SINCE 9 days ago UNTIL 3 days ago'],
+    ['UNTIL narrows', 'SELECT count(*) FROM T SINCE 7 days ago UNTIL 3 days ago'],
     ['calendar', 'SELECT count(*) FROM T SINCE yesterday UNTIL today'],
     ['this week', 'SELECT count(*) FROM T SINCE this week'],
     ['epoch ms', `SELECT count(*) FROM T SINCE ${NOW - 2 * DAY}`],
@@ -156,6 +156,53 @@ describe('time window', () => {
     const error = rejection(q);
     expect(error.code).toBe(ErrorCode.LimitQuery);
     expect(error.hint).toContain('SINCE 7 days ago');
+  });
+
+  // BUG-22 (live test run 2026-10-12): maxWindowDays also limits how far back a query reads, not only its width.
+  it.each([
+    ['relative, UNTIL in the past', 'SELECT count(*) FROM T SINCE 60 days ago UNTIL 59 days ago'],
+    ['relative, lowercase', 'select count(*) from T since 60 days ago until 59 days ago'],
+    ['quoted dates', "SELECT count(*) FROM T SINCE '2026-07-25 00:00:00' UNTIL '2026-07-26 00:00:00'"],
+    ['quoted ISO dates', "SELECT count(*) FROM T SINCE '2026-07-25T00:00:00Z' UNTIL '2026-07-26T00:00:00Z'"],
+    ['epoch ms', `SELECT count(*) FROM T SINCE ${NOW - 80 * DAY} UNTIL ${NOW - 79 * DAY}`],
+    [
+      'epoch seconds',
+      `SELECT count(*) FROM T SINCE ${(NOW - 80 * DAY) / 1000} UNTIL ${(NOW - 79 * DAY) / 1000}`,
+    ],
+    ['months then days', 'SELECT count(*) FROM T SINCE 3 months ago UNTIL 89 days ago'],
+    ['weeks', 'SELECT count(*) FROM T SINCE 3 weeks ago UNTIL 2 weeks ago'],
+    ['calendar keyword', 'SELECT count(*) FROM T SINCE last month UNTIL this month'],
+    [
+      'compare offset counts',
+      'SELECT count(*) FROM T SINCE 2 days ago UNTIL 1 day ago COMPARE WITH 6 days ago',
+    ],
+    [
+      'subquery in the past',
+      'SELECT max(c) FROM (SELECT count(*) AS c FROM T SINCE 60 days ago UNTIL 59 days ago)',
+    ],
+    ['metric', 'SELECT average(v) FROM Metric SINCE 60 days ago UNTIL 59 days ago'],
+    [
+      'with timezone',
+      "SELECT count(*) FROM T SINCE '2026-09-26 12:00:00' UNTIL '2026-09-27' WITH TIMEZONE 'UTC'",
+    ],
+  ])('rejects a narrow window that starts too far back: %s', (_name, q) => {
+    const error = rejection(q);
+    expect(error.code).toBe(ErrorCode.LimitQuery);
+    expect(error.message).toMatch(/days/);
+  });
+
+  it('allows exactly maxWindowDays of lookback (inclusive boundary) and rejects a millisecond more', () => {
+    expect(() => check(`SELECT count(*) FROM T SINCE ${NOW - 7 * DAY} UNTIL ${NOW - 6 * DAY}`)).not.toThrow();
+    expect(() => check(`SELECT count(*) FROM T SINCE ${NOW - 7 * DAY - 1} UNTIL ${NOW - 6 * DAY}`)).toThrow(
+      RbError,
+    );
+    expect(() => check('SELECT count(*) FROM T SINCE 7 days ago UNTIL 6 days ago')).not.toThrow();
+  });
+
+  it('honours a raised limit for lookback', () => {
+    expect(() =>
+      check('SELECT count(*) FROM T SINCE 60 days ago UNTIL 59 days ago', { maxWindowDays: 90 }),
+    ).not.toThrow();
   });
 
   it.each([

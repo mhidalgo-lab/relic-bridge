@@ -460,7 +460,7 @@ export function createChangeTools(deps: ToolDeps = {}): ToolDefinition[] {
     handler: async (args, ctx) => {
       const limit = args.limit ?? DEFAULT_LIMIT;
       const range = parseTimeRange(args.time_range ?? DEFAULT_WINDOW, ctx.clock.now());
-      assertWindowWithinLimit(range, ctx.limits);
+      assertWindowWithinLimit(range, ctx.limits, ctx.clock.now());
 
       // A cursor keeps the window of the first call and the instant the last page ended at; the window is checked
       // against the limits again, and nothing else (account, entity) is ever taken from a cursor (T3).
@@ -469,7 +469,8 @@ export function createChangeTools(deps: ToolDeps = {}): ToolDefinition[] {
         const pos = args.cursor === undefined ? null : readTimeCursor(binding, args.cursor);
         const sinceMs = pos?.s ?? range.sinceMs;
         const untilMs = pos === null ? range.untilMs : pos.t + 1;
-        if (pos !== null) assertWindowWithinLimit({ windowMs: untilMs - sinceMs }, ctx.limits);
+        if (pos !== null)
+          assertWindowWithinLimit({ windowMs: untilMs - sinceMs, sinceMs }, ctx.limits, ctx.clock.now());
         return { binding, pos, sinceMs, untilMs };
       };
 
@@ -675,10 +676,14 @@ export function createChangeTools(deps: ToolDeps = {}): ToolDefinition[] {
         };
       } else {
         const lookback = parseTimeRange(args.lookback ?? DEFAULT_WINDOW, now);
-        assertWindowWithinLimit(lookback, ctx.limits);
+        assertWindowWithinLimit(lookback, ctx.limits, ctx.clock.now());
         search = { startTime: lookback.sinceMs, endTime: lookback.untilMs };
       }
-      assertWindowWithinLimit({ windowMs: 2 * compareMs }, ctx.limits);
+      assertWindowWithinLimit(
+        { windowMs: 2 * compareMs, sinceMs: explicitAt ?? search.startTime },
+        ctx.limits,
+        now,
+      );
 
       const result = await client(ctx).query(ENTITY_DEPLOYMENTS_QUERY, {
         guid: args.entity_guid,

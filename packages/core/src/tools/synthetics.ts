@@ -271,7 +271,7 @@ export function createSyntheticTools(deps: ToolDeps = {}): ToolDefinition[] {
       const account = singleAccount(ctx, args.account);
       const wantResults = args.include_results !== false;
       const range = wantResults ? parseTimeRange(args.time_range ?? DEFAULT_WINDOW, ctx.clock.now()) : null;
-      if (range) assertWindowWithinLimit(range, ctx.limits);
+      if (range) assertWindowWithinLimit(range, ctx.limits, ctx.clock.now());
       const limit = args.limit ?? DEFAULT_LIMIT;
 
       const parts = [

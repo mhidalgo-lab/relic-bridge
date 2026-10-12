@@ -43,7 +43,9 @@ export function createTimeTools(): ToolDefinition[] {
     phase: 1,
     handler: async (input, ctx) => {
       const range = parseTimeRange(input.expression, ctx.clock.now());
-      const exceeds = range.windowMs > ctx.limits.maxWindowDays * DAY_MS;
+      const exceeds =
+        range.windowMs > ctx.limits.maxWindowDays * DAY_MS ||
+        ctx.clock.now() - range.sinceMs > ctx.limits.maxWindowDays * DAY_MS;
       const lines = [
         `Range: ${range.since} to ${range.until} (UTC), ${formatDuration(range.windowMs)}.`,
         `sinceMs: ${range.sinceMs}, untilMs: ${range.untilMs}`,
@@ -51,7 +53,7 @@ export function createTimeTools(): ToolDefinition[] {
       ];
       if (exceeds) {
         lines.push(
-          `Warning: this window is longer than the ${ctx.limits.maxWindowDays}-day limit of this connection; queries over it will be refused.`,
+          `Warning: this window is longer than, or starts further back than, the ${ctx.limits.maxWindowDays}-day limit of this connection; queries over it will be refused.`,
         );
       }
       return {

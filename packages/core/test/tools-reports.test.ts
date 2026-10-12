@@ -229,6 +229,21 @@ describe('issueWindow', () => {
     expect((long?.untilMs ?? 0) - (long?.sinceMs ?? 0)).toBe(max);
     expect(issueWindow({ activatedAt: null, createdAt: null, closedAt: null }, NOW, 0, max)).toBeNull();
   });
+
+  it('never starts further back than the lookback limit, even for a short old issue (BUG-22)', () => {
+    const old = issueWindow(
+      {
+        activatedAt: new Date(NOW - 30 * 86_400_000).toISOString(),
+        createdAt: null,
+        closedAt: new Date(NOW - 30 * 86_400_000 + 10 * MIN).toISOString(),
+      },
+      NOW,
+      30 * MIN,
+      max,
+    );
+    expect(old?.cut).toBe(true);
+    expect(old?.sinceMs).toBe(NOW - max);
+  });
 });
 
 describe('user impact helpers', () => {

@@ -260,13 +260,25 @@ function checkWindow(
   });
   const top = Math.max(0, (since ?? DEFAULT_WINDOW_MS) - until) + compare;
   const windowMs = Math.max(top, widest);
+  // How far back the query reads: the earliest instant it can touch. COMPARE WITH shifts the whole window back, so
+  // its offset counts toward the lookback; subquery SINCEs are measured from now. UNTIL in the past does not help.
+  const lookbackMs = Math.max(Math.max(since ?? DEFAULT_WINDOW_MS, until) + compare, widest);
   const maxMs = limits.maxWindowDays * DAY;
+  // Inclusive boundary: exactly maxWindowDays is allowed (shared with every tool through assertWindowWithinLimit).
   if (windowMs > maxMs) {
     const days = Math.round((windowMs / DAY) * 10) / 10;
     throw limitError(
       `The query covers about ${days} days; this connection allows up to ${limits.maxWindowDays}.`,
       `Use a shorter SINCE (e.g. SINCE ${limits.maxWindowDays} days ago), or split the range into several queries.`,
       { windowDays: days, maxWindowDays: limits.maxWindowDays },
+    );
+  }
+  if (lookbackMs > maxMs) {
+    const days = Math.round((lookbackMs / DAY) * 10) / 10;
+    throw limitError(
+      `The query reads data from about ${days} days ago; this connection only allows looking back ${limits.maxWindowDays} days.`,
+      `Use a SINCE no further back than ${limits.maxWindowDays} days ago (an UNTIL in the past does not move the limit).`,
+      { lookbackDays: days, maxWindowDays: limits.maxWindowDays },
     );
   }
   // Fixed only when both ends are absolute and nothing nested (a subquery has its own, possibly relative, window).

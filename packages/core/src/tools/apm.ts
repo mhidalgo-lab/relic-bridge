@@ -273,7 +273,7 @@ export function createApmTools(deps: ToolDeps = {}): ToolDefinition[] {
       const decoded = checkGuid(ctx, args.entity_guid);
       const account = singleAccount(ctx, decoded.accountId);
       const range = parseTimeRange(args.time_range ?? DEFAULT_WINDOW, ctx.clock.now());
-      assertWindowWithinLimit(range, ctx.limits);
+      assertWindowWithinLimit(range, ctx.limits, ctx.clock.now());
       const limit = args.limit ?? DEFAULT_LIMIT;
       const sortBy = args.sort_by ?? 'slowest';
       const pattern = args.name_contains === undefined ? undefined : likePattern(args.name_contains);
@@ -390,7 +390,7 @@ export function createApmTools(deps: ToolDeps = {}): ToolDefinition[] {
       const decoded = checkGuid(ctx, args.entity_guid);
       const account = singleAccount(ctx, decoded.accountId);
       const range = parseTimeRange(args.time_range ?? DEFAULT_WINDOW, ctx.clock.now());
-      assertWindowWithinLimit(range, ctx.limits);
+      assertWindowWithinLimit(range, ctx.limits, ctx.clock.now());
       const minutes = range.windowMs / MINUTE_MS;
       const compare = args.compare_previous ?? true;
       const prev = { sinceMs: range.sinceMs - range.windowMs, untilMs: range.sinceMs };

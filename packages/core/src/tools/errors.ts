@@ -160,7 +160,7 @@ export function createErrorTools(deps: ToolDeps = {}): ToolDefinition[] {
         account = singleAccount(ctx, args.account);
       }
       const range = parseTimeRange(args.time_range ?? DEFAULT_WINDOW, ctx.clock.now());
-      assertWindowWithinLimit(range, ctx.limits);
+      assertWindowWithinLimit(range, ctx.limits, ctx.clock.now());
 
       const filter = {
         accountIds: [account],
@@ -173,7 +173,12 @@ export function createErrorTools(deps: ToolDeps = {}): ToolDefinition[] {
         cursor: args.cursor,
         limit: args.limit ?? DEFAULT_LIMIT,
         window: range,
-        checkWindow: (w) => assertWindowWithinLimit({ windowMs: w.untilMs - w.sinceMs }, ctx.limits),
+        checkWindow: (w) =>
+          assertWindowWithinLimit(
+            { windowMs: w.untilMs - w.sinceMs, sinceMs: w.sinceMs },
+            ctx.limits,
+            ctx.clock.now(),
+          ),
         fetchPage: async (upstream, w) => {
           const result = await client(ctx).query(ERROR_GROUPS_QUERY, {
             cursor: upstream,

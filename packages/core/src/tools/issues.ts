@@ -192,7 +192,7 @@ function target(
     account = singleAccount(ctx, input.account);
   }
   const range = parseTimeRange(input.time_range ?? DEFAULT_WINDOW, ctx.clock.now());
-  assertWindowWithinLimit(range, ctx.limits);
+  assertWindowWithinLimit(range, ctx.limits, ctx.clock.now());
   return { account, guid, range };
 }
 
@@ -348,7 +348,12 @@ export function createIssueTools(deps: ToolDeps = {}): ToolDefinition[] {
         cursor: input.cursor,
         limit: input.limit ?? DEFAULT_LIMIT,
         window: range,
-        checkWindow: (w) => assertWindowWithinLimit({ windowMs: w.untilMs - w.sinceMs }, ctx.limits),
+        checkWindow: (w) =>
+          assertWindowWithinLimit(
+            { windowMs: w.untilMs - w.sinceMs, sinceMs: w.sinceMs },
+            ctx.limits,
+            ctx.clock.now(),
+          ),
         fetchPage: async (upstream, w) => {
           const result = await client(ctx).query(AI_ISSUES_QUERY, {
             accountId: account,
@@ -442,7 +447,12 @@ export function createIssueTools(deps: ToolDeps = {}): ToolDefinition[] {
         cursor: input.cursor,
         limit: input.limit ?? DEFAULT_LIMIT,
         window: range,
-        checkWindow: (w) => assertWindowWithinLimit({ windowMs: w.untilMs - w.sinceMs }, ctx.limits),
+        checkWindow: (w) =>
+          assertWindowWithinLimit(
+            { windowMs: w.untilMs - w.sinceMs, sinceMs: w.sinceMs },
+            ctx.limits,
+            ctx.clock.now(),
+          ),
         fetchPage: async (upstream, w) => {
           const result = await client(ctx).query(AI_INCIDENTS_QUERY, {
             accountId: account,

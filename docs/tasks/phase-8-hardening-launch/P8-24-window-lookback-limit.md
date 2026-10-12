@@ -2,7 +2,7 @@
 id: P8-24
 title: Enforce maxWindowDays as lookback as well as width
 phase: 8
-status: in-progress
+status: review
 priority: high
 depends_on: []
 adr: []
@@ -42,3 +42,7 @@ T5: `maxWindowDays` is a data-access limit, not only a cost limit.
 
 ## Out of scope
 - BUG-23 padding in `list_recent_logs` (P8-23); only the inclusive rule in the shared code is kept here.
+
+## Notes
+- Tools that derive a window from an old issue (`issueWindow`) now start it no earlier than the lookback limit and say it was cut, instead of failing.
+- The tool-level check allows 60 s of clock drift between resolving "last N days" and checking it; the NRQL check is exact.

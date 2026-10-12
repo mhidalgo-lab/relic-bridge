@@ -2,7 +2,7 @@
 id: P8-33
 title: list_recent_issues group_by
 phase: 8
-status: review
+status: done
 priority: low
 depends_on: []
 adr: []

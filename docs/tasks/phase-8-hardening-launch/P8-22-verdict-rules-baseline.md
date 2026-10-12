@@ -2,7 +2,7 @@
 id: P8-22
 title: Verdicts honour z-scores; seasonal baseline for window comparisons
 phase: 8
-status: review
+status: done
 priority: high
 depends_on: []
 adr: []

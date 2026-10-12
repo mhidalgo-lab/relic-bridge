@@ -14,6 +14,8 @@ import {
   deriveWrapKey,
   exportConfig,
   importConfig,
+  KDF_ITERATIONS,
+  MIN_KDF_ITERATIONS,
   newKdf,
   openCredentialKeys,
   validateBundle,
@@ -106,6 +108,12 @@ const sealedOpts = () => ({ wrap: { key: wrap, kdf }, keyOwnerUserId: 'usr_m' })
 const summary = (r: { summary: unknown }) => JSON.stringify(r.summary);
 
 describe('wrap key derivation', () => {
+  it('keeps the production cost at 600 000 iterations and refuses anything weaker', () => {
+    expect(KDF_ITERATIONS).toBe(600_000);
+    expect(MIN_KDF_ITERATIONS).toBe(600_000);
+    expect(newKdf().iterations).toBe(600_000);
+  });
+
   it('is PBKDF2-HMAC-SHA-256 over the NFC passphrase', async () => {
     const salt = new TextEncoder().encode('relic-bridge-tes');
     const key = await deriveWrapKey(PASS, {

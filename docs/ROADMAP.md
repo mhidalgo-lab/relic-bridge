@@ -296,5 +296,6 @@ Generated from task front matter (`pnpm tasks index`). Status lives in each task
 | P8-25 | [Short permalinks instead of truncated launcher URLs](tasks/phase-8-hardening-launch/P8-25-short-permalinks.md) | medium | — | done |
 | P8-26 | [Report and issue fields](tasks/phase-8-hardening-launch/P8-26-report-and-issue-fields.md) | medium | — | done |
 | P8-27 | [Error contracts and polish](tasks/phase-8-hardening-launch/P8-27-contracts-and-polish.md) | medium | — | done |
+| P8-29 | [Stabilise timing-sensitive tests (PBKDF2 config-transfer, Windows SQLite)](tasks/phase-8-hardening-launch/P8-29-flaky-tests.md) | medium | — | review |
 | P8-34 | [Update docs after the 0.7.0 release](tasks/phase-8-hardening-launch/P8-34-post-release-docs.md) | medium | — | done |
 <!-- tasks:end -->

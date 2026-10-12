@@ -2,7 +2,7 @@
 id: P8-18
 title: Fix relationship type filter, self-edges, dependency selection and host GUID decode
 phase: 8
-status: review
+status: done
 priority: high
 depends_on: []
 adr: []

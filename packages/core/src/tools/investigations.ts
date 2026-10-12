@@ -316,7 +316,7 @@ const depInput = z.strictObject({
     .max(MAX_DEPENDENCIES)
     .optional()
     .describe(
-      `Most neighbours to measure (default ${DEFAULT_DEPENDENCIES}, max ${MAX_DEPENDENCIES}); hosts and called services are chosen first, then alerting ones; key transactions, service levels, alert objects, workloads and dashboards are skipped.`,
+      `Most neighbours to measure (default ${DEFAULT_DEPENDENCIES}, max ${MAX_DEPENDENCIES}); hosts and called services first, then alerting ones (key transactions, SLIs, workloads, dashboards skipped).`,
     ),
   max_metrics: z
     .number()

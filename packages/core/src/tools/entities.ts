@@ -212,7 +212,7 @@ For metric values use get_golden_metrics; for a full health check (metrics, issu
 
 const RELATED_DESCRIPTION = `List the entities directly related to one entity (guid or name), one hop: services it calls or is called by, hosts it runs on, containers, monitors...
 
-Use it to map dependencies. Each relationship has a direction (incoming/outgoing) and a type (CALLS, HOSTS, CONTAINS...). Relationships into accounts outside this connection are left out, and so are edges from the entity to itself. With types, the kind is matched on each neighbour's real domain and type and up to ${RELATED_FILTER_PAGES} pages are read (a name lookup adds more requests). Runs 1 request without types. Page with cursor. To measure whether the neighbours are healthy use dependency_health. ${UNTRUSTED}`;
+Use it to map dependencies. Each relationship has a direction (incoming/outgoing) and a type (CALLS, HOSTS, CONTAINS...). Relationships into other accounts and to the entity itself are left out. types matches each neighbour's real domain/type over up to ${RELATED_FILTER_PAGES} pages. Runs 1 request without types. Page with cursor. To measure whether the neighbours are healthy use dependency_health. ${UNTRUSTED}`;
 
 const LIST_TYPES_DESCRIPTION = `List the entity domain/type pairs present in this connection's accounts, with how many entities of each.
 
@@ -220,7 +220,7 @@ Use it to learn the domain and type values search_entities accepts. Cached for 1
 
 const DECODE_DESCRIPTION = `Decode an entity guid offline: account id, domain, type and domain id, and whether this connection can read that account. Nothing is sent to New Relic.
 
-Infra hosts encode their type as NA in the guid; they are reported as HOST with a note. Use it to tell which account a guid belongs to; for the entity's details use get_entity.`;
+Infra host guids encode type NA: reported as HOST (inferred). Use it to tell which account a guid belongs to; for the entity's details use get_entity.`;
 
 interface TypesCacheEntry {
   readonly at: number;

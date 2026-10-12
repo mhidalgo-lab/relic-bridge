@@ -8,10 +8,6 @@ work. Use a dedicated key ([security basics](security-basics.md)).
 Your region is where your account lives: `US` for `one.newrelic.com`, `EU` for `one.eu.newrelic.com`, `JP` if New
 Relic set you up in Japan. Your account id is shown in the account picker of the New Relic UI.
 
-> Until relic-bridge is published to npm (first release: 0.7.0), build from a clone instead of `npx`:
-> `pnpm install && pnpm build`, then use `node /path/to/relic-bridge/apps/cli/dist/index.mjs` wherever the examples say
-> `npx -y relic-bridge`.
-
 ## 1. One account: env mode
 
 Give the client the key, your account id and the region (`US`, `EU` or `JP`) in the server's `env` block. Clients

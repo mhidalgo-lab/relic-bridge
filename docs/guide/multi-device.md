@@ -26,9 +26,6 @@ What you need: a machine that is always on and reachable from your devices (a VP
 (`mcp.example.com` below), Node.js 24.11 or later or Docker, and a New Relic **User** API key
 ([quickstart](quickstart-local.md) explains where to find the key, its region and your account id).
 
-> **Pre-release.** Until the package is published to npm, build from a clone (`pnpm install && pnpm build`) and replace
-> `relic-bridge` in the commands below with `node /path/to/relic-bridge/apps/cli/dist/index.mjs`.
-
 ## TLS is required
 
 Device tokens and New Relic data cross the network on every request. **Serve MCP over https for every address that is

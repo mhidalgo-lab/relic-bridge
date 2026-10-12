@@ -15,23 +15,23 @@ drift, open a task.
       (P3-06).
 
 ## 1. First release (0.7.0; covers Phases 1-7)
-Nothing has been published. 0.1.0-0.6.x were never released; the first published version is 0.7.0 (owner decision
+0.7.0 is published (2026-10-12). 0.1.0-0.6.x were never released; the first published version is 0.7.0 (owner decision
 2026-10-10).
 - [x] Merge (or regenerate) the changesets version PR as **0.7.0** (P8-14).
 - [x] P1-16 merged before `RB_RELEASE_ENABLED=true`; implement P1-18 (npm staged publish) before the first publish.
       Done (both are on `main`).
-- [ ] Make the repository public (attestations, npm provenance; also unblocks the README Deploy button, P3-14).
-- [ ] **Before** making it public: set the repository variable `CI_RUNS_ON` to `["ubuntu-latest"]` (or restrict fork
-      pull-request workflows); self-hosted runners must only serve a private repository (P8-08, THREAT_MODEL T18).
-- [ ] npm trusted publisher for `relic-bridge` (workflow `release.yml`, env `release`, staged publishing allowed);
-      publishing access "Require 2FA and disallow tokens".
-- [ ] GitHub: `release` environment (required reviewer, `main` only), tag ruleset `v*`,
-      GHCR package visibility (P2-11, P2-19).
+- [x] Make the repository public (attestations, npm provenance; also unblocks the README Deploy button, P3-14). Done.
+- [x] **Before** making it public: set the repository variable `CI_RUNS_ON` to `["ubuntu-latest"]` (or restrict fork
+      pull-request workflows); self-hosted runners must only serve a private repository (P8-08, THREAT_MODEL T18). Done.
+- [x] npm trusted publisher for `relic-bridge` (workflow `release.yml`, env `release`, staged publishing allowed);
+      publishing access "Require 2FA and disallow tokens". Done.
+- [x] GitHub: `release` environment (required reviewer, `main` only), tag ruleset `v*`,
+      GHCR package visibility (P2-11, P2-19). Done 2026-10-12 (0.7.0 published; provenance verified; GHCR image public and signed).
 - [ ] `live` environment: `main` only, required reviewer, secrets `RB_LIVE_*` (P1-12, P1-review).
-- [ ] Set `RB_RELEASE_ENABLED=true`, approve the deployment, approve the staged publish on npmjs.com, verify
-      provenance (`npm audit signatures`, `gh attestation verify`).
-- [ ] Smoke test `npx -y relic-bridge --version` + quickstart on macOS, Windows, Linux; remove pre-release notes
-      (P1-14, P1-15).
+- [x] Set `RB_RELEASE_ENABLED=true`, approve the deployment, approve the staged publish on npmjs.com, verify
+      provenance (`npm audit signatures`, `gh attestation verify`). Done 2026-10-12 (0.7.0 published; provenance verified; GHCR image public and signed).
+- [ ] Smoke test `npx -y relic-bridge --version` + quickstart on macOS, Windows, Linux (pre-release notes are
+      already removed, P8-34; P1-14, P1-15).
 - [ ] Also at this release: update the compose image tag to 0.7.0 (P2-13); Cloudflare Worker deploy (section 4,
       P3-07); verify the admin panel and identity flows (section 5, P4-08); OAuth checks (section 6, P5-07).
 

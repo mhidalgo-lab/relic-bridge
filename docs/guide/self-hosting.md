@@ -246,7 +246,7 @@ docker run -d --name relic-bridge --read-only --cap-drop ALL --security-opt no-n
   -v relic-bridge-data:/data -p 127.0.0.1:8787:8787 \
   -e RB_MASTER_KEY_FILE=/run/secrets/master_key -v "$PWD/master.key:/run/secrets/master_key:ro" \
   -e RB_ALLOWED_HOSTS=mcp.example.com -e RB_TRUSTED_PROXY_HOPS=1 -e RB_HSTS=true \
-  ghcr.io/mhidalgo-lab/relic-bridge:0.1.0
+  ghcr.io/mhidalgo-lab/relic-bridge:0.7.0
 ```
 
 **Key files and the `0600` rule.** The server refuses a key file that group or others can read, and the container user
@@ -266,14 +266,15 @@ check passes (`depends_on: condition: service_healthy`).
 **Maintainers:** the release path relies on repository settings (a `release` environment with required reviewers and a
 `main`-only deployment rule, and more). They are listed in [`docs/dev/releasing.md`](../dev/releasing.md).
 
-**Verify before you run it.** Images are signed with cosign keyless signing (GitHub OIDC), carry an SBOM (syft,
+**Verify before you run it.** This needs **cosign v3 or later**: v2 reports "no signatures found" for the v3 bundle
+format the release uses. Images are signed with cosign keyless signing (GitHub OIDC), carry an SBOM (syft,
 CycloneDX) and a build provenance attestation. Pin what you verified by digest, not by tag: in production (and in
-compose or Kubernetes manifests) use `ghcr.io/mhidalgo-lab/relic-bridge:0.1.0@sha256:...` (the `cosign verify`
+compose or Kubernetes manifests) use `ghcr.io/mhidalgo-lab/relic-bridge:0.7.0@sha256:...` (the `cosign verify`
 output prints the digest). Tags are immutable by convention, and `:latest` moves with every stable release (never
 backwards), so it is for trying things out only.
 
 ```bash
-IMAGE=ghcr.io/mhidalgo-lab/relic-bridge:0.1.0
+IMAGE=ghcr.io/mhidalgo-lab/relic-bridge:0.7.0
 cosign verify "$IMAGE" \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
   --certificate-identity https://github.com/mhidalgo-lab/relic-bridge/.github/workflows/docker.yml@refs/heads/main

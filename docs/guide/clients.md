@@ -5,10 +5,6 @@ see [remote servers](#remote-servers-self-hosted-http). For stdio, read the [loc
 first for the key, account id and region. In the examples replace `<your User key>` with your `NRAK-…` key and
 `1234567` with your account id.
 
-> **Pre-release.** Until relic-bridge is published to npm (first release: 0.7.0), replace `npx -y relic-bridge` with
-> `node /absolute/path/to/relic-bridge/apps/cli/dist/index.mjs` (after `pnpm install && pnpm build`). In JSON configs
-> that means `"command": "node"` and `"args": ["/absolute/path/to/relic-bridge/apps/cli/dist/index.mjs"]`.
-
 Two rules apply to every client:
 
 1. **Put `NEW_RELIC_*` in the server's `env` block.** Clients start stdio servers with a minimal environment (see
@@ -62,8 +58,7 @@ Open *Settings > Developer > Edit Config*, which opens `claude_desktop_config.js
 Quit and restart Claude Desktop completely after editing. The tools appear under the connectors/tools menu of a new
 chat. Logs: `~/Library/Logs/Claude/mcp-server-relic.log` (macOS) or `%APPDATA%\Claude\logs\` (Windows).
 
-Desktop doesn't use your shell's `PATH`: if `npx` isn't found, use the absolute path to `npx` (or to `node` in the
-pre-release setup) as `command`. On Windows, if `npx` fails to start, use `"command": "cmd"` with
+Desktop doesn't use your shell's `PATH`: if `npx` isn't found, use the absolute path to `npx` as `command`. On Windows, if `npx` fails to start, use `"command": "cmd"` with
 `"args": ["/c", "npx", "-y", "relic-bridge"]`.
 
 ## Cursor

@@ -86,8 +86,7 @@ Goal: a MacBook, a PC and a Windows 365 desktop, all running Claude Code, each w
 The New Relic key lives only in D1 (encrypted); the devices hold a token that can be revoked alone.
 
 **1. Create the project and the first tokens, from any machine with the CLI.** The admin token is read from
-`RB_ADMIN_TOKEN` or a hidden prompt, never a flag. Until the package is on npm, run the CLI from a clone
-(`pnpm build`, then `node apps/cli/dist/index.mjs` instead of `relic-bridge`).
+`RB_ADMIN_TOKEN` or a hidden prompt, never a flag.
 
 ```sh
 export RB_REMOTE=https://relic-bridge.<your-subdomain>.workers.dev

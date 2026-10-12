@@ -1,8 +1,9 @@
 # relic-bridge
 
-> **Status: alpha, not released yet.** Phases 1-7 (local stdio, self-hosted HTTP, Cloudflare Worker, sign-in and admin
-> panel, OAuth, more tools, power features) are on `main`. Nothing is published yet (no npm package, image or Worker
-> deploy); the first release will be **0.7.0**, and v1.0 follows Phase 8 (hardening and launch). OAuth is implemented
+> **Status: alpha, 0.7.0 released.** Phases 1-7 (local stdio, self-hosted HTTP, Cloudflare Worker, sign-in and admin
+> panel, OAuth, more tools, power features) shipped in **0.7.0**: the [npm package](https://www.npmjs.com/package/relic-bridge)
+> (with provenance), the GitHub Release and the signed `ghcr.io/mhidalgo-lab/relic-bridge:0.7.0` image are published.
+> 0.8.0 (fixes from a live test run) is next, and v1.0 follows Phase 8 (hardening and launch). OAuth is implemented
 > and documented for claude.ai and Claude mobile, but has **not** been verified with the real apps
 > ([compatibility](docs/reference/client-compatibility.md)).
 
@@ -14,7 +15,7 @@ An open-source [Model Context Protocol](https://modelcontextprotocol.io) server 
 Claude Desktop, claude.ai, Claude mobile, Cursor, VS Code, …) query **New Relic** through the **NerdGraph** API using
 only a **User API key** — no account-level MCP enablement required.
 
-**On `main`, first release 0.7.0 (not yet published):**
+**Features (0.7.0):**
 
 **Local stdio:**
 
@@ -78,9 +79,6 @@ claude mcp add relic \
   --env NEW_RELIC_REGION=US \
   -- npx -y relic-bridge
 ```
-
-> Until 0.7.0 is on npm (the first release; not yet published), `npx -y relic-bridge` fetches a placeholder:
-> build from a clone as the [quickstart](docs/guide/quickstart-local.md) explains.
 
 Other clients and the multi-project YAML mode: [local quickstart](docs/guide/quickstart-local.md). Releases are
 published from GitHub Actions with npm provenance; each [GitHub Release](https://github.com/mhidalgo-lab/relic-bridge/releases)

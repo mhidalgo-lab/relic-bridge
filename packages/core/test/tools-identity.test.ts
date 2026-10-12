@@ -82,6 +82,16 @@ describe('tool listing', () => {
   });
 });
 
+describe('whoami budget (BUG-28)', () => {
+  it('reports calls used and remaining, and says the budget is per tool call', async () => {
+    const { client } = await setup([fixtureResponse('identity_A')], { budget: createBudget(10) });
+    const r = await client.callTool({ name: 'whoami', arguments: {} });
+    const limits = (r.structuredContent as { limits: Record<string, number> }).limits;
+    expect(limits).toMatchObject({ callBudget: 10, callsUsed: 1, callsRemaining: 9 });
+    expect(text(r)).toMatch(/10 New Relic calls per tool call.*1 used.*9 left/);
+  });
+});
+
 describe('list_accounts', () => {
   it('lists only the intersection: credential reaches 3, connection allows 2', async () => {
     const { client, calls } = await setup([

@@ -209,6 +209,7 @@ export function createBudget(limit: number): Budget {
         throw new RbError(ErrorCode.BudgetExhausted, `Request budget exhausted before ${what}.`, {
           hint: 'Narrow the request (fewer entities, shorter window) or ask for a partial result.',
           details: { limit, used },
+          localDetails: true,
         });
       }
       used += n;

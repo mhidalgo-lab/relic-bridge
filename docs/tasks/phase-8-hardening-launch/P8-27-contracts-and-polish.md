@@ -2,7 +2,7 @@
 id: P8-27
 title: Error contracts and polish
 phase: 8
-status: in-progress
+status: review
 priority: medium
 depends_on: []
 adr: []
@@ -27,10 +27,10 @@ BUG-28, BUG-08, BUG-21, plus a check that `run_nrql` `format:"csv"` changes the 
 - `format:"csv"`: verify the text block changes.
 
 ## Acceptance criteria
-- [ ] Each bug has a regression test that fails before the fix.
-- [ ] `RB_QUERY_NOT_FOUND` is documented in the error reference.
-- [ ] Tool descriptions stay within the size budgets; generated docs are regenerated.
-- [ ] Changeset added.
+- [x] Each bug has a regression test that fails before the fix.
+- [x] `RB_QUERY_NOT_FOUND` is documented in the error reference.
+- [x] Tool descriptions stay within the size budgets; generated docs are regenerated.
+- [x] Changeset added.
 
 ## Security notes
 T6: only details known to be locally produced skip the untrusted-data envelope; the default stays enveloped.

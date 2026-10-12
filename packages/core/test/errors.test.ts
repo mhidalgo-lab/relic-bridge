@@ -36,6 +36,16 @@ describe('toToolErrorResult', () => {
     expect(outside).not.toContain('IGNORE PREVIOUS INSTRUCTIONS');
   });
 
+  it('shows details raised locally as plain text (BUG-29), and still envelopes the default', () => {
+    const local = toToolErrorResult(
+      new RbError(ErrorCode.LimitQuery, 'Too wide.', { details: { windowDays: 40 }, localDetails: true }),
+      'req-3',
+    );
+    const t = (local.content[0] as { text: string }).text;
+    expect(t).toContain('Details: {"windowDays":40}');
+    expect(t).not.toContain('untrusted');
+  });
+
   it('hides unknown errors behind RB_INTERNAL with a reference', () => {
     const r = toToolErrorResult(new TypeError('secret internals at /srv/app.ts:12'), 'req-9');
     const text = (r.content[0] as { text: string }).text;

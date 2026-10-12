@@ -336,7 +336,13 @@ Sources: <https://github.com/cloudflare/workers-oauth-provider>, issues #264, #3
   changelog, deepLink; `ChangeTrackingFeatureFlagEvent` adds featureFlagId). Per entity: `entity(guid).deploymentSearch(filter:
   ChangeTrackingSearchFilter { limit, query, timeWindow })` → `{ results: [ChangeTrackingDeployment { deploymentId
   deploymentType version commit changelog deepLink description user groupId entityGuid timestamp }] }`. Neither has a cursor;
-  the `limit` maximum and the syntax of `query` are unknown (`query` is not used). **Unverified:** that `Transaction` carries
+  the `limit` maximum and the syntax of `query` are unknown (`query` is not used).
+  **Live test run (2026-10-12, BUG-09):** account-wide `changeTrackingSearch` returned no events for an account whose
+  APM applications had deployments in the same window (`entity(guid).deploymentSearch` returned them, `FROM Deployment`
+  was empty), and returned `type: null` on events: deployments recorded through the APM deployment API are not in the
+  account feed. `list_change_events` in account scope therefore also enumerates APM applications (`entitySearch`, first
+  50) and reads `actor.entities(guids: [..25]).deploymentSearch` per batch, deduping against the feed and filling `type`
+  from `categoryAndType`/`category`. Applications beyond 50 are reported in `notes`. **Unverified:** that `Transaction` carries
   `entityGuid` for every APM agent, and the result shape of `percentile(duration, 95) AS p95Duration` (read as a number or the
   first numeric member of an object).
 - APM transactions (P6-05, NRQL over `Transaction`, not verified against a real account): per-application filter

@@ -86,3 +86,35 @@ export const ENTITY_DEPLOYMENTS_QUERY: GraphQLDocument<EntityDeploymentsData, En
       'entity(guid: $guid) { guid name accountId domain type deploymentSearch(filter: $filter) { results { ' +
       'deploymentId deploymentType version commit changelog deepLink description user groupId entityGuid timestamp } } } } }',
   );
+
+export interface EntitiesDeploymentsData {
+  actor: {
+    entities?:
+      | (
+          | (EntityOutlineData & {
+              readonly deploymentSearch?: { results?: (DeploymentData | null)[] | null } | null;
+            })
+          | null
+        )[]
+      | null;
+  };
+}
+
+export interface EntitiesDeploymentsVariables extends Record<string, unknown> {
+  guids: string[];
+  filter: { limit: number; timeWindow: { startTime: number; endTime: number } };
+}
+
+/**
+ * The deployments of several entities in one request (at most 25 guids, the `entities` limit). Account-wide change
+ * tracking search does not return the deployments recorded through the APM deployment marker API (live test run
+ * 2026-10-12, BUG-09), so account scope also reads them per APM application.
+ */
+export const ENTITIES_DEPLOYMENTS_QUERY: GraphQLDocument<
+  EntitiesDeploymentsData,
+  EntitiesDeploymentsVariables
+> = defineDocument(
+  'query RbEntitiesDeployments($guids: [EntityGuid!]!, $filter: ChangeTrackingSearchFilter) { actor { ' +
+    'entities(guids: $guids) { guid name accountId domain type deploymentSearch(filter: $filter) { results { ' +
+    'deploymentId deploymentType version commit changelog deepLink description user groupId entityGuid timestamp } } } } }',
+);

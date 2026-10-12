@@ -2,7 +2,7 @@
 id: P8-27
 title: Error contracts and polish
 phase: 8
-status: review
+status: done
 priority: medium
 depends_on: []
 adr: []

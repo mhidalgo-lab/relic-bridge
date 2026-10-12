@@ -1020,8 +1020,12 @@ Sources: [server.json format](https://github.com/modelcontextprotocol/registry/b
 - A `TIMESERIES` result ends with a bucket that is still filling: its `endTimeSeconds` lies after "now" and its value is
   partial, or empty (a rate read as 0). `get_golden_metrics` leaves such buckets out (compared with the server clock)
   before taking the latest value and the trend; a window with an explicit past `UNTIL` has none.
-- The trend compares the later half of the complete buckets with the earlier half (equal lengths). It is not a comparison
-  with the previous window, so it can differ from tools that use `COMPARE WITH` or two windows.
+- The halves of one window are only the fallback trend (P8-30): they can contradict tools that compare with the previous
+  window (a window that is up overall but lower in its later half). The trend is now one extra aggregate query per metric,
+  `<golden NRQL> SINCE … COMPARE WITH <window seconds> ago`, whose two rows (`comparison` current / previous) give the change.
+  Counted in the declared cost (two queries per metric) and checked against `maxWindowDays` (width and lookback, P8-24)
+  first; beyond the limit, with a golden query that has its own SINCE/UNTIL/COMPARE, or when the query fails, the halves
+  method applies and says so. The `seconds` unit in `COMPARE WITH` is accepted by the limits layer; not yet measured live.
 - Golden queries from NerdGraph may already carry `TIMESERIES` (with `SLIDE BY`): `timeseries: false` strips it.
 - The limits layer notes (`LIMIT MAX replaced with …`) are the same for every metric of an entity: shown once.
 

@@ -48,7 +48,7 @@ workerd, so its absolute numbers are higher than production and only the trend m
 | `search_entities`, `get_entity`, schema tools | fine | 1-2 calls, small responses |
 | `run_nrql` up to 512 KiB (about 200 rows of a typical result) | fine | 1 call, plus up to 3 polls for slow queries |
 | `run_nrql` returning more than 512 KiB | refused | Narrow the query, or move to Paid |
-| `get_golden_metrics` (up to 10 metrics) | fine | 11 calls out of 45; partial result if the budget is short |
+| `get_golden_metrics` (up to 10 metrics) | fine | up to 41 calls out of 45 (two queries per metric); partial result if the budget is short |
 | Several tool calls in parallel from one client | fine | Each MCP request has its own budget |
 | Payloads of 1-8 MiB | Paid | Raise the ceiling only with `RB_PLAN=paid` (CPU about 10-45 ms) |
 

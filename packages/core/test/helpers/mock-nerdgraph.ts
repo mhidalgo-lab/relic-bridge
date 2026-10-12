@@ -254,6 +254,9 @@ export function mockNerdGraph(): { fetch: FetchLike; calls: RecordedCall[] } {
         },
       });
     }
+    if (has('RbEntitiesDeployments')) {
+      return json({ data: { actor: { entities: [{ ...entity, deploymentSearch: { results: [] } }] } } });
+    }
     if (has('RbEntityDeployments')) {
       return json({
         data: {

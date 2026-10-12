@@ -106,8 +106,9 @@ describe('list_change_events', () => {
     const client = await connect(fetch);
     const r = await client.callTool({ name: 'list_change_events', arguments: { limit: 10 } });
     expect(r.isError ?? false).toBe(false);
-    expect(calls).toHaveLength(1);
-    expect(calls[0]?.variables).toEqual({
+    const feed = calls.filter((c) => c.query.includes('RbChangeEvents'));
+    expect(feed).toHaveLength(1);
+    expect(feed[0]?.variables).toEqual({
       filter: { accountIds: [A], limit: 11, timeWindow: { startTime: NOW - 7 * 86_400_000, endTime: NOW } },
     });
     const s = r.structuredContent as {
@@ -140,7 +141,7 @@ describe('list_change_events', () => {
       arguments: { limit: 2, cursor: s.nextCursor as string },
     });
     // The window of the first call is kept: same start, ends right after the last event shown.
-    expect(calls[1]?.variables['filter']).toMatchObject({
+    expect(calls.filter((c) => c.query.includes('RbChangeEvents'))[1]?.variables['filter']).toMatchObject({
       timeWindow: { startTime: NOW - 7 * 86_400_000, endTime: NOW - 2 * MIN + 1 },
     });
     const s2 = r2.structuredContent as { events: { id: string }[]; nextCursor: string | null };
@@ -172,6 +173,144 @@ describe('list_change_events', () => {
     expect(s.events.map((e) => e.id)).toEqual(['ok']);
     expect(s.hiddenOutsideScope).toBe(true);
     expect(JSON.stringify(r)).not.toContain('LEAK');
+  });
+
+  describe('account scope with APM deployments (BUG-09)', () => {
+    const app = (id: string, account = A) => ({
+      guid: guidOf(account, id),
+      name: `app-${id}`,
+      accountId: account,
+      domain: 'APM',
+      type: 'APPLICATION',
+    });
+    const dep = (id: string, guid: string, ts: number, extra: Record<string, unknown> = {}) => ({
+      deploymentId: id,
+      deploymentType: null,
+      version: 'v9',
+      commit: null,
+      changelog: null,
+      deepLink: null,
+      description: 'rollout',
+      user: 'ci',
+      groupId: null,
+      entityGuid: guid,
+      timestamp: ts,
+      ...extra,
+    });
+    function route(apps: ReturnType<typeof app>[], perApp: Record<string, unknown[]>, feed: unknown[] = []) {
+      return recording((body) => {
+        if (body.query.includes('RbChangeEvents')) return eventsBody(feed);
+        if (body.query.includes('RbEntitySearch'))
+          return json({
+            data: {
+              actor: { entitySearch: { count: apps.length, results: { nextCursor: null, entities: apps } } },
+            },
+          });
+        const guids = body.variables['guids'] as string[];
+        return json({
+          data: {
+            actor: {
+              entities: apps
+                .filter((a) => guids.includes(a.guid))
+                .map((a) => ({ ...a, deploymentSearch: { results: perApp[a.guid] ?? [] } })),
+            },
+          },
+        });
+      });
+    }
+
+    it('merges APM deployments into an empty change feed and fills type', async () => {
+      const a1 = app('1');
+      const a2 = app('2');
+      const { fetch, calls } = route([a1, a2], {
+        [a1.guid]: [dep('d1', a1.guid, NOW - 2 * MIN)],
+        [a2.guid]: [dep('d2', a2.guid, NOW - MIN, { deploymentType: 'BLUE_GREEN' })],
+      });
+      const client = await connect(fetch);
+      const r = await client.callTool({ name: 'list_change_events', arguments: {} });
+      const s = r.structuredContent as {
+        scope: string;
+        events: { id: string; type: string; category: string; entityName: string }[];
+        notes: string[];
+      };
+      expect(s.scope).toBe('account');
+      expect(s.events.map((e) => [e.id, e.type, e.category, e.entityName])).toEqual([
+        ['d2', 'BLUE_GREEN', 'DEPLOYMENT', 'app-2'],
+        ['d1', 'DEPLOYMENT', 'DEPLOYMENT', 'app-1'],
+      ]);
+      expect(s.notes).toEqual([]);
+      const search = calls.find((c) => c.query.includes('RbEntitySearch'));
+      expect(search?.variables['query']).toContain("domain = 'APM'");
+      const batch = calls.find((c) => c.query.includes('RbEntitiesDeployments'));
+      expect(batch?.variables).toEqual({
+        guids: [a1.guid, a2.guid],
+        filter: { limit: 26, timeWindow: { startTime: NOW - 7 * 86_400_000, endTime: NOW } },
+      });
+      for (const c of calls) expect(c.query).not.toContain(a1.guid);
+    });
+
+    it('shows a deployment once when the feed has it too and derives type from categoryAndType', async () => {
+      const a1 = app('1');
+      const { fetch } = route([a1], { [a1.guid]: [dep('same', a1.guid, NOW - MIN)] }, [
+        event(A, 'same', NOW - MIN, {
+          type: null,
+          category: null,
+          categoryAndType: 'DEPLOYMENT__BASIC',
+          entity: { guid: a1.guid, name: 'app-1', accountId: A },
+        }),
+        event(A, 'flag', NOW - 2 * MIN, { type: null, category: 'FEATURE_FLAG', categoryAndType: null }),
+      ]);
+      const client = await connect(fetch);
+      const r = await client.callTool({ name: 'list_change_events', arguments: {} });
+      const s = r.structuredContent as { events: { id: string; type: string | null }[] };
+      expect(s.events.map((e) => [e.id, e.type])).toEqual([
+        ['same', 'BASIC'],
+        ['flag', 'FEATURE_FLAG'],
+      ]);
+    });
+
+    it('drops deployments of entities it did not ask for and applications of another account', async () => {
+      const a1 = app('1');
+      const foreign = app('9', OTHER);
+      const { fetch } = route([a1, foreign], {
+        [a1.guid]: [dep('mine', a1.guid, NOW - MIN), dep('stray', guidOf(OTHER, '5'), NOW - MIN)],
+        [foreign.guid]: [dep('leak', foreign.guid, NOW - MIN)],
+      });
+      const client = await connect(fetch);
+      const r = await client.callTool({ name: 'list_change_events', arguments: {} });
+      const s = r.structuredContent as { events: { id: string }[] };
+      expect(s.events.map((e) => e.id)).toEqual(['mine']);
+      expect(JSON.stringify(r)).not.toContain('leak');
+    });
+
+    it('keeps the feed and says so when the application lookup fails, and names unchecked applications', async () => {
+      const failing = recording((body) =>
+        body.query.includes('RbChangeEvents')
+          ? eventsBody([event(A, 'c1', NOW - MIN)])
+          : json({ errors: [{ message: 'boom' }] }),
+      );
+      const c1 = await connect(failing.fetch);
+      const r1 = await c1.callTool({ name: 'list_change_events', arguments: {} });
+      const s1 = r1.structuredContent as { events: { id: string }[]; notes: string[] };
+      expect(s1.events.map((e) => e.id)).toEqual(['c1']);
+      expect(s1.notes[0]).toContain('APM deployments could not be read');
+
+      const many = recording((body) => {
+        if (body.query.includes('RbChangeEvents')) return eventsBody([]);
+        if (body.query.includes('RbEntitySearch'))
+          return json({
+            data: {
+              actor: { entitySearch: { count: 80, results: { nextCursor: 'n', entities: [app('1')] } } },
+            },
+          });
+        return json({ data: { actor: { entities: [] } } });
+      });
+      const c2 = await connect(many.fetch);
+      const r2 = await c2.callTool({ name: 'list_change_events', arguments: {} });
+      const s2 = r2.structuredContent as { notes: string[] };
+      expect(s2.notes[0]).toContain('of 80 APM applications');
+      expect(text(r2)).toContain('Note: Deployments of 1 of 80');
+    });
   });
 
   it('lists the deployments of an entity and checks the entity account', async () => {

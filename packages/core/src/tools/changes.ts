@@ -6,9 +6,12 @@ import {
   CHANGE_EVENTS_QUERY,
   type ChangeEventData,
   type DeploymentData,
+  ENTITIES_DEPLOYMENTS_QUERY,
   ENTITY_DEPLOYMENTS_QUERY,
 } from '../nerdgraph/change-tracking.ts';
+import { ENTITY_SEARCH_QUERY } from '../nerdgraph/entities.ts';
 import { decodeEntityGuid } from '../nerdgraph/entity-guid.ts';
+import { entityQuery } from '../nerdgraph/entity-query.ts';
 import { type NrqlComplete, runNrql } from '../nrql/engine.ts';
 import { type NrqlQuery, nrql } from '../nrql/template.ts';
 import { pickFields } from '../output/compact.ts';
@@ -16,6 +19,7 @@ import { shapeRows } from '../output/format.ts';
 import { parseTimeRange } from '../time/range.ts';
 import { defineTool, type ToolDefinition } from '../tool.ts';
 import { checkGuid, guidAgrees, isNonNull, outOfScope, requireField } from './entities.ts';
+import { accountFilter } from './entity-common.ts';
 import { cleanName, errorNote, maskEmail } from './identity.ts';
 import {
   bindingOf,
@@ -46,6 +50,9 @@ const DEFAULT_LIMIT = 25;
 const MAX_LIMIT = 100;
 const MAX_TEXT_CHARS = 500;
 const MINUTE_MS = 60_000;
+/** APM applications whose deployments account scope reads (two batched requests of 25). */
+const APM_APP_BUDGET = 50;
+const ENTITIES_BATCH = 25;
 const DEFAULT_COMPARE_MINUTES = 30;
 const MAX_COMPARE_MINUTES = 720;
 /** The after window must be at least this long before a comparison means anything. */
@@ -108,18 +115,27 @@ const listOutput = z.object({
   /** Older events in the window exist: pass this as cursor (same filters) to read them. */
   nextCursor: z.string().nullable(),
   hiddenOutsideScope: z.boolean(),
+  /** Limits of this answer (for example more APM applications than were checked). */
+  notes: z.array(z.string()),
 });
 
 const LIST_DESCRIPTION = `List change events, newest first: deployments, feature flag and configuration changes and other change-tracking markers, with time, type, user, entity, description and, for deployments, version, commit, changelog and link.
 
-Use it for "what changed before things broke?". With an entity (guid or name) it lists that entity's deployments; without one, every change event of one account. Older events: page with cursor (keeps the first window). To judge whether a deployment hurt use analyze_deployment_impact. It cannot record a change. ${UNTRUSTED}`;
+Use it for "what changed before things broke?". With an entity (guid or name) it lists that entity's deployments; without one, the account's change events plus deployments of up to 50 APM applications (beyond that, see notes; use entity_guid). Older events: page with cursor (keeps the first window). To judge whether a deployment hurt use analyze_deployment_impact. It cannot record a change. ${UNTRUSTED}`;
+
+/** NerdGraph leaves `type` null on some events: fall back to what `categoryAndType` ("DEPLOYMENT__BASIC") or `category` say. */
+function typeFromCategory(e: ChangeEventData): string | null {
+  const split = typeof e.categoryAndType === 'string' ? e.categoryAndType.split('__') : [];
+  const fromPair = split.length > 1 ? split.slice(1).join('__') : '';
+  return label(fromPair !== '' ? fromPair : e.category) ?? (e.version != null ? 'DEPLOYMENT' : null);
+}
 
 function eventRow(e: ChangeEventData, entityGuid: string | null) {
   return {
     id: cleanName(e.changeTrackingId ?? '', 128),
     time: instant(e.timestamp),
     category: label(e.category),
-    type: label(e.type),
+    type: label(e.type) ?? typeFromCategory(e),
     categoryAndType: label(e.categoryAndType),
     entityGuid,
     entityName: text(e.entity?.name, 200),
@@ -140,7 +156,7 @@ function deploymentRow(d: DeploymentData, entityName: string | null) {
     id: cleanName(d.deploymentId ?? '', 128),
     time: instant(d.timestamp),
     category: 'DEPLOYMENT',
-    type: label(d.deploymentType),
+    type: label(d.deploymentType) ?? 'DEPLOYMENT',
     categoryAndType: null,
     entityGuid: d.entityGuid ?? null,
     entityName,
@@ -158,6 +174,9 @@ function deploymentRow(d: DeploymentData, entityName: string | null) {
 
 type EventRow = ReturnType<typeof eventRow>;
 const newestFirst = (a: EventRow, b: EventRow) => (b.time ?? '').localeCompare(a.time ?? '');
+/** The same change reported by the feed and by deployment search is shown once. */
+const dedupeKey = (r: EventRow): string =>
+  r.id !== '' ? `${r.entityGuid ?? ''}|${r.id}` : `${r.entityGuid ?? ''}|${r.time}|${r.version ?? ''}`;
 const MINIMAL_FIELDS = ['id', 'time', 'type', 'entityGuid', 'version', 'shortDescription'] as const;
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -446,6 +465,61 @@ const pct = (r: number | null) => (r === null ? '' : `${r >= 0 ? '+' : ''}${(r *
 export function createChangeTools(deps: ToolDeps = {}): ToolDefinition[] {
   const client = toolClient(deps);
 
+  /** Deployments of the account's APM applications (account scope). Every guid is checked against the account (T3). */
+  async function apmDeployments(
+    ctx: ToolContext,
+    account: number,
+    fetchSize: number,
+    sinceMs: number,
+    untilMs: number,
+    notes: string[],
+  ): Promise<{ rows: EventRow[]; full: boolean }> {
+    const query = entityQuery.and([
+      accountFilter([account]),
+      entityQuery`domain = ${'APM'}`,
+      entityQuery`type = ${'APPLICATION'}`,
+    ]);
+    const search = await client(ctx).query(ENTITY_SEARCH_QUERY, {
+      query: query.text,
+      cursor: null,
+      options: { limit: APM_APP_BUDGET },
+    });
+    const es = requireField(search.data.actor.entitySearch, search, ctx);
+    const apps = (es.results?.entities ?? [])
+      .filter(isNonNull)
+      .flatMap((e) =>
+        typeof e.guid === 'string' && e.accountId === account && guidAgrees(e.guid, account)
+          ? [{ guid: e.guid, name: typeof e.name === 'string' ? cleanName(e.name, 200) : null }]
+          : [],
+      );
+    const total = typeof es.count === 'number' ? es.count : apps.length;
+    if (total > apps.length || es.results?.nextCursor)
+      notes.push(
+        `Deployments of ${apps.length} of ${Math.max(total, apps.length)} APM applications are included; pass entity_guid for the others.`,
+      );
+    const rows: EventRow[] = [];
+    let full = false;
+    const names = new Map(apps.map((a) => [a.guid, a.name]));
+    for (let i = 0; i < apps.length; i += ENTITIES_BATCH) {
+      const guids = apps.slice(i, i + ENTITIES_BATCH).map((a) => a.guid);
+      const result = await client(ctx).query(ENTITIES_DEPLOYMENTS_QUERY, {
+        guids,
+        filter: { limit: fetchSize, timeWindow: { startTime: sinceMs, endTime: untilMs } },
+      });
+      for (const entity of (result.data.actor.entities ?? []).filter(isNonNull)) {
+        const guid = entity.guid;
+        if (typeof guid !== 'string' || !names.has(guid)) continue;
+        const results = (entity.deploymentSearch?.results ?? []).filter(isNonNull);
+        if (results.length >= fetchSize) full = true;
+        for (const d of results) {
+          if (d.entityGuid != null && d.entityGuid !== guid) continue;
+          rows.push(deploymentRow({ ...d, entityGuid: guid }, names.get(guid) ?? null));
+        }
+      }
+    }
+    return { rows, full };
+  }
+
   const listChangeEvents = defineTool({
     name: 'list_change_events',
     title: 'List change events',
@@ -477,6 +551,7 @@ export function createChangeTools(deps: ToolDeps = {}): ToolDefinition[] {
       let account: number;
       let rows: EventRow[];
       let hiddenOutsideScope = false;
+      const notes: string[] = [];
       let upstreamFull: boolean;
       let scope: 'account' | 'entity_deployments';
       let at: Awaited<ReturnType<typeof position>>;
@@ -544,6 +619,26 @@ export function createChangeTools(deps: ToolDeps = {}): ToolDefinition[] {
         hiddenOutsideScope = all.length > vouched.length;
         rows = vouched;
         upstreamFull = all.length >= fetchSize;
+
+        // Deployments recorded through the APM deployment API are missing from the account-wide feed (BUG-09): read
+        // them per APM application, within a fixed request budget. A failure here leaves the feed's events in place.
+        try {
+          const apm = await apmDeployments(ctx, account, fetchSize, at.sinceMs, at.untilMs, notes);
+          const seen = new Set(rows.map(dedupeKey));
+          for (const r of apm.rows) {
+            const k = dedupeKey(r);
+            if (!seen.has(k)) {
+              seen.add(k);
+              rows.push(r);
+            }
+          }
+          if (apm.full) upstreamFull = true;
+        } catch (e) {
+          if (!(e instanceof RbError) || e.code === ErrorCode.AuthForbidden) throw e;
+          notes.push(
+            `APM deployments could not be read. ${errorNote(e)} Only the account change feed is shown.`,
+          );
+        }
       }
       const paged = pageByTime(
         rows.sort(newestFirst),
@@ -568,6 +663,7 @@ export function createChangeTools(deps: ToolDeps = {}): ToolDefinition[] {
         `${rows.length} change event${rows.length === 1 ? '' : 's'} ${scope === 'entity_deployments' ? '(deployments of the entity) ' : ''}in account ${account}, ${since} to ${until} (UTC), newest first.`,
       ];
       if (hiddenOutsideScope) lines.push("Note: events outside this connection's accounts were left out.");
+      for (const n of notes) lines.push(`Note: ${n}`);
       if (nextCursor)
         lines.push(
           'Older events exist: call again with the same filters and cursor set to the nextCursor below.',
@@ -606,6 +702,7 @@ export function createChangeTools(deps: ToolDeps = {}): ToolDefinition[] {
           events,
           nextCursor,
           hiddenOutsideScope,
+          notes,
         },
       };
     },

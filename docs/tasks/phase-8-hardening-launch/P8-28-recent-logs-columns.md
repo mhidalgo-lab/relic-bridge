@@ -2,7 +2,7 @@
 id: P8-28
 title: list_recent_logs reads a fixed column set
 phase: 8
-status: in-progress
+status: review
 priority: high
 depends_on: []
 adr: []
@@ -23,10 +23,10 @@ accounts with very wide Log events (hundreds of attributes, multi-KB payloads) c
 - Keep BUG-24 paging/tiebreaker behaviour and the BUG-25 fallback order. No description or schema growth.
 
 ## Acceptance criteria
-- [ ] The generated NRQL never contains `SELECT *`; long text columns are cut in NRQL.
-- [ ] A fixture of very wide rows stays under the response cap; level aliases are shown when `level` is absent.
-- [ ] Tool description sizes stay within the existing budgets (no budget change).
-- [ ] RESEARCH.md updated; changeset added.
+- [x] The generated NRQL never contains `SELECT *`; long text columns are cut in NRQL.
+- [x] A fixture of very wide rows stays under the response cap; level aliases are shown when `level` is absent.
+- [x] Tool description sizes stay within the existing budgets (no budget change).
+- [x] RESEARCH.md updated; changeset added.
 
 ## Security notes
 T4: column names go through `nrql.identifier()`, lengths are template numbers. No access behaviour changes.

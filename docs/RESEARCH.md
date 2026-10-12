@@ -1051,11 +1051,19 @@ Sources: [server.json format](https://github.com/modelcontextprotocol/registry/b
   with the 1000-line message sample, so the sample is cut in NRQL (`substring(message, 0, 300) AS message`, 500 lines) and
   repeated once smaller (150 lines of 100 characters) on `RB_LIMIT_RESPONSE_TOO_LARGE`. Log level values seen include the
   Monolog/syslog names (`WARNING`, `NOTICE`, `CRITICAL`, `ALERT`, `EMERGENCY`); the tools accept those names. Structured
-  logs often carry the text in `log` or `logged_message` and an empty `message`; `list_recent_logs` reads `SELECT *` rows and
+  logs often carry the text in `log` or `logged_message` and an empty `message`; `list_recent_logs` reads a fixed column list (P8-28, see below) and
   falls back to those fields, then to a short attribute summary. Log rows carry `messageId`, used as the tiebreaker for lines
   with the same millisecond (an equal-timestamp order is not stable between queries). `SINCE`/`UNTIL` take whole seconds, so
   the exact bounds are repeated on `timestamp` in the WHERE clause. **Unverified:** `substring()` with a bound variable length
   and the exact response size of `SELECT *` pages on very wide Log events.
+
+- **Fixed column list (P8-28):** Log events can have hundreds of attributes, so `SELECT *` pages can pass
+  `maxResponseBytes`. `list_recent_logs` selects `timestamp`, `level`, `severity`, `log.level`, `messageId`,
+  `substring(x, 0, 500)` of `message`, `log` and `logged_message`, and `substring(x, 0, 60)` of five context attributes
+  (`service.name`, `hostname`, `logger`, `request_id`, `trace.id`) for the `key=value` summary. Worst case is about 2.4 KB a
+  row, so 101 rows stay near 250 KB against the 512 KB cap. **Unverified:** `substring()` on a non-string context
+  attribute (assumed to return null, so numeric context is not summarised); attributes outside the list no longer appear in
+  the summary.
 
 ## Error contracts (P8-27, live test run 2026-10-12)
 

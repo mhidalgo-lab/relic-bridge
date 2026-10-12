@@ -2,7 +2,7 @@
 id: P8-30
 title: Golden-metric trend compares the window with the previous window
 phase: 8
-status: review
+status: done
 priority: medium
 depends_on: []
 adr: []

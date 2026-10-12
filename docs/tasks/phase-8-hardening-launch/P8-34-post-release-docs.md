@@ -2,7 +2,7 @@
 id: P8-34
 title: Update docs after the 0.7.0 release
 phase: 8
-status: in-progress
+status: review
 priority: medium
 depends_on: []
 adr: []
@@ -24,10 +24,10 @@ say "not published yet" and tell readers to build from a clone; make them say it
 - ROADMAP status line: 0.7.0 released; 0.8.0 pending with the live-test fixes P8-16..P8-27 and follow-ups.
 
 ## Acceptance criteria
-- [ ] No remaining "not yet published" or "until on npm" notes in README, guides or CLI README.
-- [ ] Pinned examples use 0.7.0; `cosign verify` sections require cosign v3 or later.
-- [ ] Owner checklist and ROADMAP status updated.
-- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` pass.
+- [x] No remaining "not yet published" or "until on npm" notes in README, guides or CLI README.
+- [x] Pinned examples use 0.7.0; `cosign verify` sections require cosign v3 or later.
+- [x] Owner checklist and ROADMAP status updated.
+- [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` pass.
 
 ## Security notes
 none (documentation only).

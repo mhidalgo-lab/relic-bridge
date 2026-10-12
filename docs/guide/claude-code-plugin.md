@@ -5,8 +5,7 @@ configuration, investigation skills and slash commands. It lives in `plugins/rel
 a marketplace manifest (`.claude-plugin/marketplace.json`).
 
 > **Status.** Not published to any marketplace or to the MCP Registry yet (owner decision). Install it from a checkout.
-> The MCP config uses `npx -y relic-bridge`, which works once relic-bridge is published to npm (first release: 0.7.0); before that, edit
-> `plugins/relic-bridge/.mcp.json` to run `node /absolute/path/to/apps/cli/dist/index.mjs` (see [clients](clients.md)).
+> The MCP config uses `npx -y relic-bridge`, which fetches the published npm package (0.7.0 or later).
 
 ## Install (from a checkout or the GitHub repo)
 

@@ -72,6 +72,9 @@ const perMinute = (requests: number | null, minutes: number): number | null =>
 /** The aggregates shared by both tools (`FROM Transaction`). Durations are seconds. */
 const AGGREGATES = nrql`count(*) AS requests, filter(count(*), WHERE error IS true) AS errors, percentage(count(*), WHERE error IS true) AS errorRate, average(duration) AS avgDuration, percentile(duration, 50) AS p50Duration, percentile(duration, 95) AS p95Duration, percentile(duration, 99) AS p99Duration`;
 
+const AGG_REST_NO_ERRORS = nrql`percentage(count(*), WHERE error IS true) AS errorRate, average(duration) AS avgDuration, percentile(duration, 50) AS p50Duration, percentile(duration, 95) AS p95Duration, percentile(duration, 99) AS p99Duration`;
+const AGG_REST_NO_P95 = nrql`percentage(count(*), WHERE error IS true) AS errorRate, average(duration) AS avgDuration, percentile(duration, 50) AS p50Duration, percentile(duration, 99) AS p99Duration`;
+
 const bounds = (sinceMs: number, untilMs: number) => ({
   since: Math.floor(sinceMs / 1000),
   until: Math.ceil(untilMs / 1000),
@@ -104,13 +107,15 @@ export function topQuery(
 ): NrqlQuery {
   const { since, until } = bounds(sinceMs, untilMs);
   const byName = pattern === undefined ? nrql`` : nrql`AND name LIKE ${pattern}`;
-  const order =
+  // NRDB rejects `ORDER BY <aggregate>` after FACET: a faceted query ranks (and LIMITs) its groups by the FIRST selected
+  // aggregate, descending. So the ranking aggregate leads the SELECT list; the others follow in a fixed order.
+  const select =
     sortBy === 'errors'
-      ? nrql`filter(count(*), WHERE error IS true)`
+      ? nrql`filter(count(*), WHERE error IS true) AS errors, count(*) AS requests, ${AGG_REST_NO_ERRORS}`
       : sortBy === 'throughput'
-        ? nrql`count(*)`
-        : nrql`percentile(duration, 95)`;
-  return nrql`SELECT ${AGGREGATES} FROM Transaction WHERE entityGuid = ${guid} ${byName} ${typeFilter(type)} FACET name ORDER BY ${order} DESC LIMIT ${limit} SINCE ${since} UNTIL ${until}`;
+        ? nrql`count(*) AS requests, filter(count(*), WHERE error IS true) AS errors, ${AGG_REST_NO_ERRORS}`
+        : nrql`percentile(duration, 95) AS p95Duration, count(*) AS requests, filter(count(*), WHERE error IS true) AS errors, ${AGG_REST_NO_P95}`;
+  return nrql`SELECT ${select} FROM Transaction WHERE entityGuid = ${guid} ${byName} ${typeFilter(type)} FACET name LIMIT ${limit} SINCE ${since} UNTIL ${until}`;
 }
 
 /** `%` and `_` the user typed must match literally in a LIKE pattern. */

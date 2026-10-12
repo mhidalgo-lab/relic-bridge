@@ -740,3 +740,153 @@ describe('analysis helpers', () => {
     ).toBeNull();
   });
 });
+
+describe('BUG-07: verdict rules and seasonal baseline (live test run 2026-10-12)', () => {
+  const w = (requests: number, errorRate: number, avg: number, p95: number): WindowStats => ({
+    requests,
+    errorRate,
+    avgDuration: avg,
+    p95Duration: p95,
+  });
+  const verdicts = (r: ReturnType<typeof compareWindows>) =>
+    Object.fromEntries(r.metrics.map((m) => [m.metric, m.verdict]));
+
+  it('calls a strong z-score a change even when the rate moves under half a point', () => {
+    // 0.30% to 0.53% over 20k requests: +46 errors, z about 4.
+    const r = compareWindows(w(20000, 0.3, 0.2, 0.4), w(20000, 0.53, 0.2, 0.4), 30);
+    const err = r.metrics.find((m) => m.metric === 'error_rate');
+    expect(err?.verdict).toBe('worse');
+    expect(err?.note).toMatch(/\|z\| = 3\.\d >= 3 and 46 errors more than expected/);
+    expect(r.overall).toBe('regression_suspected');
+    // 0 to 11 errors over 4000 requests each: z 3.3, a 0.28 point move.
+    const low = compareWindows(w(4000, 0, 0.2, 0.4), w(4000, 0.275, 0.2, 0.4), 30);
+    expect(verdicts(low)['error_rate']).toBe('worse');
+    const fewer = compareWindows(w(20000, 0.53, 0.2, 0.4), w(20000, 0.3, 0.2, 0.4), 30);
+    expect(verdicts(fewer)['error_rate']).toBe('better');
+  });
+
+  it('names the rule when a change is not strong enough', () => {
+    const r = compareWindows(w(3000, 1, 0.2, 0.4), w(3000, 1.2, 0.2, 0.4), 30);
+    const err = r.metrics.find((m) => m.metric === 'error_rate');
+    expect(err?.verdict).toBe('similar');
+    expect(err?.note).toContain('|z|');
+    const tiny = compareWindows(w(3000, 1, 0.001, 0.002), w(3000, 1, 0.003, 0.004), 30);
+    expect(verdicts(tiny)['avg_response_time']).toBe('similar');
+  });
+
+  it('turns a change the control shows too into a warning', () => {
+    const drop = w(1860, 1, 0.238, 0.5);
+    const control = {
+      before: w(3000, 1, 0.2, 0.42),
+      after: w(1900, 1, 0.24, 0.5),
+      label: 'same windows 1 day earlier',
+    };
+    const r = compareWindows(w(3000, 1, 0.2, 0.42), drop, 30, control);
+    expect(verdicts(r)).toMatchObject({ throughput: 'warning', avg_response_time: 'warning' });
+    expect(r.overall).not.toBe('regression_suspected');
+    // The same data without a control is a regression (the false positive of the live test run).
+    expect(compareWindows(w(3000, 1, 0.2, 0.42), drop, 30).overall).toBe('regression_suspected');
+  });
+
+  it('keeps a real regression the control does not show', () => {
+    const control = {
+      before: w(3000, 1, 0.2, 0.4),
+      after: w(3000, 1, 0.2, 0.4),
+      label: 'same windows 1 day earlier',
+    };
+    const r = compareWindows(w(3000, 0.5, 0.2, 0.4), w(3000, 4, 0.4, 1.2), 30, control);
+    expect(r.overall).toBe('regression_suspected');
+    expect(verdicts(r)['error_rate']).toBe('worse');
+  });
+
+  /** Replies by the UNTIL second of the window: `rows` maps an offset from DEPLOYED (minutes) to window stats. */
+  const byWindow = (
+    rows: Record<string, Record<string, unknown>>,
+    fallback: Record<string, unknown>,
+    base = DEPLOYED,
+  ) =>
+    recording((body) => {
+      if (body.query.includes('RbEntityDeployments')) return entityBody([]);
+      const nrql = String(body.variables['nrql']);
+      const until = Number(/UNTIL (\d+)/.exec(nrql)?.[1]);
+      return nrqlBody(rows[String(until - Math.ceil(base / 1000))] ?? fallback);
+    });
+  const DAY = 86_400;
+  const call = (client: Client, extra: Record<string, unknown> = {}) =>
+    client.callTool({
+      name: 'analyze_deployment_impact',
+      arguments: {
+        entity_guid: guidOf(A),
+        deployment_time: new Date(DEPLOYED).toISOString(),
+        ...extra,
+      },
+    });
+  type Out = {
+    overall: string;
+    partial: boolean;
+    notes: string[];
+    baseline: { used: string; automatic: boolean; reason: string } | null;
+    metrics: { metric: string; verdict: string }[];
+  };
+
+  // Overnight traffic drop, and nothing was deployed: the day before looks the same.
+  const night = {
+    [String(0)]: stats(3000, 1, 0.2, 0.42),
+    [String(30 * 60)]: stats(1860, 1, 0.238, 0.5),
+    [String(0 - DAY)]: stats(3100, 1, 0.2, 0.42),
+    [String(30 * 60 - DAY)]: stats(1900, 1, 0.24, 0.5),
+  };
+
+  it('CONTROL: an overnight drop with no deployment is not regression_suspected', async () => {
+    const { fetch, calls } = byWindow(night, stats(1, 0, 0, 0));
+    const client = await connect(fetch);
+    const s = (await call(client)).structuredContent as Out;
+    expect(s.overall).not.toBe('regression_suspected');
+    expect(s.baseline).toMatchObject({ used: 'same_window_1d_ago', automatic: true });
+    expect(Object.fromEntries(s.metrics.map((m) => [m.metric, m.verdict]))).toMatchObject({
+      throughput: 'warning',
+      avg_response_time: 'warning',
+    });
+    // 1 lookup + 2 windows + 2 control windows.
+    expect(calls).toHaveLength(5);
+  });
+
+  it('uses no control (3 requests) without a large throughput shift', async () => {
+    const { fetch, calls } = byWindow({}, stats(3000, 1, 0.2, 0.4));
+    const client = await connect(fetch);
+    const s = (await call(client)).structuredContent as Out;
+    expect(s.baseline).toMatchObject({ used: 'previous_window', automatic: true });
+    expect(calls).toHaveLength(3);
+  });
+
+  it('honours baseline previous_window and same_window_7d_ago', async () => {
+    const rows = {
+      ...night,
+      [String(0 - 7 * DAY)]: night['0'] as Record<string, unknown>,
+      [String(30 * 60 - 7 * DAY)]: night[String(30 * 60)] as Record<string, unknown>,
+    };
+    const { fetch, calls } = byWindow(rows, stats(1, 0, 0, 0));
+    const client = await connect(fetch, {}, 30);
+    const none = (await call(client, { baseline: 'previous_window' })).structuredContent as Out;
+    expect(none.overall).toBe('regression_suspected');
+    expect(none.baseline).toMatchObject({ used: 'previous_window', automatic: false });
+    expect(calls).toHaveLength(3);
+    const week = (await call(client, { baseline: 'same_window_7d_ago' })).structuredContent as Out;
+    expect(week.baseline).toMatchObject({ used: 'same_window_7d_ago', automatic: false });
+    expect(week.overall).not.toBe('regression_suspected');
+    expect((await call(client, { baseline: 'yesterday' })).isError).toBe(true);
+  });
+
+  it('skips the control with a note when it reaches past the window limit', async () => {
+    const { fetch, calls } = byWindow(night, stats(1, 0, 0, 0), NOW - 3 * 3_600_000);
+    const client = await connect(fetch, {}, 1);
+    const r = await client.callTool({
+      name: 'analyze_deployment_impact',
+      arguments: { entity_guid: guidOf(A), deployment_time: new Date(NOW - 3 * 3_600_000).toISOString() },
+    });
+    const s = r.structuredContent as Out;
+    expect(s.baseline?.used).toBe('previous_window');
+    expect(s.notes.join(' ')).toContain('window limit');
+    expect(calls.length).toBeLessThanOrEqual(3);
+  });
+});

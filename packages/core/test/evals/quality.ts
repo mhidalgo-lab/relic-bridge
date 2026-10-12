@@ -10,15 +10,15 @@ export const MAX_DESCRIPTION_CHARS = 1200;
 export const MAX_PURPOSE_CHARS = 450;
 /**
  * Ceiling of the whole catalogue as agents see it: every description plus its input JSON Schema (characters, roughly 4
- * per token). 65 683 before P6-13, 61 291 after it, 51 980 after P6-19, 53 1xx after P6-24 (a `limit` and a `cursor` on every list, about 110 characters per tool), 53 587 after P7-02 (`run_nrql` `cache: "bypass"`), 54 367 after P7-03 (`get_ui_link`, one tool of 770 characters), 54 941 after P8-20 (`domain` and `type` on 13 name-taking tools, raised to 56 300 on purpose); raise it only on purpose, every tool list is paid in every conversation.
+ * per token). 65 683 before P6-13, 61 291 after it, 51 980 after P6-19, 53 1xx after P6-24 (a `limit` and a `cursor` on every list, about 110 characters per tool), 53 587 after P7-02 (`run_nrql` `cache: "bypass"`), 54 367 after P7-03 (`get_ui_link`, one tool of 770 characters), 54 941 after P8-20 (`domain` and `type` on 13 name-taking tools, raised to 56 300 on purpose), 56 270 after P8-22 (`baseline` on two tools, raised to 57 300 on purpose); raise it only on purpose, every tool list is paid in every conversation.
  */
-export const TOOLS_LIST_BUDGET = 56_300;
+export const TOOLS_LIST_BUDGET = 57_300;
 /**
  * The same ceiling for a `tools/list` with the write tools enabled (P7-27): the built-ins plus `create_change_event`,
  * `acknowledge_issue`, `close_issue` and `create_dashboard`. Built-ins were 54 367 and the write tools about 8 100 before
  * P7-27 trimmed both (52 900 and 7 583 after), so this is the built-in budget plus 8 000. Policy: docs/dev/evals.md.
  */
-export const TOOLS_LIST_BUDGET_WITH_WRITES = 64_300;
+export const TOOLS_LIST_BUDGET_WITH_WRITES = 65_300;
 /** Tools that run this many requests or more must say so ("Runs ..."). */
 export const COST_HINT_FROM = 8;
 /** Two descriptions this similar (Jaccard of their content words) must be a declared confusable pair. */

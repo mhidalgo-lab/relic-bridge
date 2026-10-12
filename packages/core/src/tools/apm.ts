@@ -8,7 +8,19 @@ import { pickFields } from '../output/compact.ts';
 import { shapeRows } from '../output/format.ts';
 import { parseTimeRange } from '../time/range.ts';
 import { defineTool, type ToolDefinition } from '../tool.ts';
-import { compareWindows, FATAL_CODES, numberOf, type WindowStats } from './changes.ts';
+import {
+  type Baseline,
+  type BaselineOut,
+  baselineField,
+  baselineOut,
+  chooseBaseline,
+  compareWindows,
+  controlLabel,
+  controlRange,
+  FATAL_CODES,
+  numberOf,
+  type WindowStats,
+} from './changes.ts';
 import { checkGuid } from './entities.ts';
 import { cleanName, errorNote } from './identity.ts';
 import { listLimit } from './paging.ts';
@@ -180,6 +192,7 @@ const analyzeInput = z.strictObject({
     .boolean()
     .optional()
     .describe('Also compare with the equal window before (default true; false saves a request).'),
+  baseline: baselineField,
 });
 
 const statsOut = z.object({
@@ -219,6 +232,8 @@ const analyzeOutput = z.object({
       ),
     })
     .nullable(),
+  /** The control that was applied (null when not compared). */
+  baseline: baselineOut.nullable(),
   /** A window was not queried (budget) or failed. */
   partial: z.boolean(),
   notes: z.array(z.string()),
@@ -226,7 +241,7 @@ const analyzeOutput = z.object({
 
 const ANALYZE_DESCRIPTION = `Summarise the performance of an APM application (guid or name), or of one transaction in it: requests, throughput per minute, error rate, and average, p50, p95 and p99 duration, compared by default with the equal window before (worse, better or similar per metric).
 
-Runs 2 requests (1 with compare_previous false); a stopped earlier window leaves the current one (partial). Verdicts need at least 30 requests per window. To pick a transaction_name use list_top_transactions; to compare around a specific deployment use analyze_deployment_impact. ${UNTRUSTED}`;
+Runs 2 requests (1 with compare_previous false; +2 for a baseline control); a stopped earlier window leaves the current one (partial). Verdicts need 30 requests per window, |z| >= 3 and a minimum delta; notes name the rule. With a large throughput shift the same windows 1 day earlier act as a control (see baseline). To pick a transaction_name use list_top_transactions; to compare around a specific deployment use analyze_deployment_impact. ${UNTRUSTED}`;
 
 const fmt = (v: number | null) => (v === null ? '' : String(Number(v.toPrecision(4))));
 const pct = (r: number | null) => (r === null ? '' : `${r >= 0 ? '+' : ''}${(r * 100).toFixed(1)}%`);
@@ -382,8 +397,8 @@ export function createApmTools(deps: ToolDeps = {}): ToolDefinition[] {
     outputSchema: analyzeOutput,
     kind: 'read',
     openWorld: true,
-    // The current window and, by default, the previous one (one NRQL each).
-    cost: 2 * NRQL_COST,
+    // The current window and, by default, the previous one, plus the two windows of a baseline control (one NRQL each).
+    cost: 4 * NRQL_COST,
     group: 'performance',
     phase: 6,
     handler: async (args, ctx) => {
@@ -432,12 +447,61 @@ export function createApmTools(deps: ToolDeps = {}): ToolDefinition[] {
       const notes: string[] = [];
       if (!cur.ok) notes.push(`Current window: ${cur.note}`);
       if (prv && !prv.ok) notes.push(`Previous window: ${prv.note}`);
-      const partial = !cur.ok || (prv !== null && !prv.ok);
+      let partial = !cur.ok || (prv !== null && !prv.ok);
 
       let comparison: ReturnType<typeof compareWindows> | null = null;
+      let baseline: BaselineOut | null = null;
+      let partialControl = false;
       if (prv) {
-        comparison = compareWindows(prv.ok ? prv.stats : null, cur.ok ? cur.stats : null, minutes);
+        const beforeStats = prv.ok ? prv.stats : null;
+        const afterStats = cur.ok ? cur.stats : null;
+        comparison = compareWindows(beforeStats, afterStats, minutes);
+        if (beforeStats && afterStats) {
+          baseline = chooseBaseline(args.baseline as Baseline | undefined, comparison.metrics);
+          const now = ctx.clock.now();
+          const cb = controlRange(baseline.used, prev, ctx.limits, now);
+          const ca = controlRange(baseline.used, range, ctx.limits, now);
+          if (baseline.used !== 'previous_window' && (!cb || !ca)) {
+            notes.push(
+              `The ${controlLabel(baseline.used)} fall outside this connection's window limit: no control was run.`,
+            );
+            baseline = { ...baseline, used: 'previous_window' };
+          } else if (cb && ca) {
+            if (startableNrql(2, ctx.budget.remaining) < 2) {
+              notes.push('Request budget too low for the baseline control: no control was run.');
+              baseline = { ...baseline, used: 'previous_window' };
+              partialControl = true;
+            } else {
+              const mk = (w: { sinceMs: number; untilMs: number }) =>
+                summaryQuery(
+                  args.entity_guid,
+                  w.sinceMs,
+                  w.untilMs,
+                  args.transaction_name,
+                  args.transaction_type,
+                );
+              const [cbO, caO] = await Promise.all([
+                window(ctx, account, mk(cb)),
+                window(ctx, account, mk(ca)),
+              ]);
+              if (cbO.ok && caO.ok) {
+                comparison = compareWindows(beforeStats, afterStats, minutes, {
+                  before: cbO.stats,
+                  after: caO.stats,
+                  label: controlLabel(baseline.used),
+                });
+              } else {
+                notes.push(
+                  `Baseline control (${controlLabel(baseline.used)}) failed: no control was applied.`,
+                );
+                baseline = { ...baseline, used: 'previous_window' };
+                partialControl = true;
+              }
+            }
+          }
+        }
       }
+      if (partialControl) partial = true;
       const current = cur.ok ? statsOutput(cur.stats, minutes) : null;
       const previous = prv?.ok ? statsOutput(prv.stats, minutes) : null;
       if (cur.ok && cur.stats.requests === 0)
@@ -455,6 +519,7 @@ export function createApmTools(deps: ToolDeps = {}): ToolDefinition[] {
           `Overall: ${comparison.overall.replaceAll('_', ' ')}.${partial ? ' Partial result: see notes.' : ''}`,
         );
       else if (partial) lines.push('Partial result: see notes.');
+      if (baseline) lines.push(`Baseline: ${baseline.used.replaceAll('_', ' ')}. ${baseline.reason}`);
       for (const n of notes) lines.push(`Note: ${n}`);
       if (comparison) {
         lines.push(
@@ -496,6 +561,7 @@ export function createApmTools(deps: ToolDeps = {}): ToolDefinition[] {
           current,
           previous,
           comparison,
+          baseline,
           partial,
           notes,
         },

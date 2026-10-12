@@ -2,7 +2,7 @@
 id: P8-22
 title: Verdicts honour z-scores; seasonal baseline for window comparisons
 phase: 8
-status: in-progress
+status: review
 priority: high
 depends_on: []
 adr: []
@@ -31,18 +31,18 @@ deployment that never happened because the before/after windows cross the overni
 - Control test: a synthetic overnight drop with no deployment must not give `regression_suspected`.
 
 ## Acceptance criteria
-- [ ] |z| >= 3 with enough extra errors is `worse`/`better`; the note says which rule decided.
-- [ ] `baseline` input on both tools; auto rule documented; extra queries documented in the descriptions.
-- [ ] A throughput change (and any other metric change) mirrored in the baseline is `warning`.
-- [ ] Control test passes (no regression_suspected for an overnight drop without deployment).
-- [ ] Tests: regression tests for the BUG-07 cases (fail before the fix).
+- [x] |z| >= 3 with enough extra errors is `worse`/`better`; the note says which rule decided.
+- [x] `baseline` input on both tools; auto rule documented; extra queries documented in the descriptions.
+- [x] A throughput change (and any other metric change) mirrored in the baseline is `warning`.
+- [x] Control test passes (no regression_suspected for an overnight drop without deployment).
+- [x] Tests: regression tests for the BUG-07 cases (fail before the fix).
 
 ## Security notes
 None: no access behaviour changes. Baseline windows are queried through the same `nrql` template and window limit
 (`maxWindowDays` lookback) as the primary windows; a control window beyond the limit is skipped with a note.
 
 ## Docs to update
-- Tool reference (generated), changeset, RESEARCH.md (seasonality note).
+- Tool reference (generated), changeset, RESEARCH.md (seasonality note), docs/dev/evals.md (tools/list budgets raised by 1 000 for the new input).
 
 ## Out of scope
 - Latency z-scores (needs standard deviation in the window query).

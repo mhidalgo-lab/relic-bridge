@@ -1039,7 +1039,12 @@ Sources: [server.json format](https://github.com/modelcontextprotocol/registry/b
   deployment: the control run (same time of day one day earlier, nothing deployed) gave the same "regression".
 - Rules: error rate changed when |z| >= 3 (pooled two-proportion) and at least 5 errors more or fewer than the before
   rate predicts; throughput changed when beyond 25% and |z| >= 3 (Poisson, equal windows: (n2 - n1) / sqrt(n1 + n2));
-  latency changed beyond 15% and 5 ms. Latency has no z-score: that needs a standard deviation in the window query.
+  latency changed beyond 15% and 5 ms (P8-31 adds |z| >= 3, below).
+- Latency z (P8-31): the window query adds `stddev(duration)`. Average latency uses Welch's z,
+  (m2 - m1) / sqrt(s1^2/n1 + s2^2/n2). p95 uses the normal-approximation standard error of a quantile,
+  sigma * sqrt(.95 * .05) / (phi(1.645) * sqrt(n)) = 2.113 * sigma / sqrt(n): a rough spread, not exact for skewed
+  latency. Without a standard deviation (no `stdDuration`) the band rule decides and the note says so. Not verified
+  against live NRDB: `stddev()` on `Transaction.duration`.
 - Baseline control: the same pair of windows 1 or 7 days earlier (2 extra NRQL). A move that the control shows too
   (same direction, at least half the size) is a `warning`. Chosen automatically (1 day) when throughput shifted a lot.
   A control reaching past `maxWindowDays` is skipped with a note. Not verified: holidays and weekly cycles (use

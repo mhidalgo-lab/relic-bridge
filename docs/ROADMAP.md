@@ -3,7 +3,7 @@
 > relic-bridge — an unofficial, open-source MCP server that gives AI agents access to New Relic through **NerdGraph**
 > using only a User API key. Runs locally (stdio / Node / Docker) or as a **Cloudflare Worker** reachable from all your devices.
 
-Status: **Phases 0-7 merged on `main`** (#170-#177), **Phase 8 in progress**; nothing is released yet and the first release will be **0.7.0** (2026-10-10). Architecture: [ARCHITECTURE.md](ARCHITECTURE.md) · Decisions: [adr/](adr/) ·
+Status: **Phases 0-7 merged on `main`** (#170-#177), **Phase 8 in progress**; **0.7.0 is released** (npm with provenance, GitHub Release, signed GHCR image); **0.8.0 is pending** with the live-test fixes (P8-16..P8-27) and follow-ups. Architecture: [ARCHITECTURE.md](ARCHITECTURE.md) · Decisions: [adr/](adr/) ·
 Facts & limits: [RESEARCH.md](RESEARCH.md) · Security: [THREAT_MODEL.md](THREAT_MODEL.md) · Task rules: [tasks/README.md](tasks/README.md)
 
 ## Guiding principles
@@ -29,8 +29,8 @@ Facts & limits: [RESEARCH.md](RESEARCH.md) · Security: [THREAT_MODEL.md](THREAT
 | **7** | Power features | Charts (MCP Apps), cache, deep links, doctor, import/export, Claude Code plugin, self-monitoring, opt-in write tools, DO limiter, keychain, quotas, Tasks | v0.7–0.9 |
 | **8** | Hardening + launch | Final threat-model review, independent security review, benchmarks, docs site, support policy | **v1.0** |
 
-> Release numbers per phase are the original plan. Nothing was published along the way: phases 1-7 ship together as the
-> first release, **0.7.0**; v1.0 follows Phase 8.
+> Release numbers per phase are the original plan. Nothing was published along the way: phases 1-7 shipped together as
+> the first release, **0.7.0**; 0.8.0 carries the live-test fixes; v1.0 follows Phase 8.
 
 ```mermaid
 flowchart LR
@@ -298,6 +298,7 @@ Generated from task front matter (`pnpm tasks index`). Status lives in each task
 | P8-27 | [Error contracts and polish](tasks/phase-8-hardening-launch/P8-27-contracts-and-polish.md) | medium | — | done |
 | P8-28 | [list_recent_logs reads a fixed column set](tasks/phase-8-hardening-launch/P8-28-recent-logs-columns.md) | high | — | done |
 | P8-29 | [Stabilise timing-sensitive tests (PBKDF2 config-transfer, Windows SQLite)](tasks/phase-8-hardening-launch/P8-29-flaky-tests.md) | medium | — | done |
+| P8-31 | [Add z-scores to latency verdicts](tasks/phase-8-hardening-launch/P8-31-latency-zscore.md) | medium | — | done |
 | P8-32 | [Validate NerdGraph documents against a schema snapshot](tasks/phase-8-hardening-launch/P8-32-nerdgraph-schema-check.md) | high | — | done |
 | P8-33 | [list_recent_issues group_by](tasks/phase-8-hardening-launch/P8-33-issues-group-by.md) | low | — | done |
 | P8-34 | [Update docs after the 0.7.0 release](tasks/phase-8-hardening-launch/P8-34-post-release-docs.md) | medium | — | done |

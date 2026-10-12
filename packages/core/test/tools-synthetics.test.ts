@@ -87,7 +87,7 @@ const monitor = (account: number, guid: string, name: string, extra: Record<stri
   monitorType: 'SIMPLE',
   monitoredUrl: 'https://example.com/health',
   period: 5,
-  status: 'ENABLED',
+  monitorSummary: { status: 'ENABLED' },
   ...extra,
 });
 
@@ -132,6 +132,14 @@ describe('document and builders', () => {
     const doc = SYNTHETIC_MONITORS_QUERY.query;
     expect(doc).not.toMatch(/script|secure|credential|header|password|apiKey/i);
     expect(doc).toContain('$query');
+  });
+
+  // BUG-02 (live test run 2026-10-12): NerdGraph rejects a bare `status` on SyntheticMonitorEntityOutline.
+  it('reads the status through monitorSummary, never as a bare field of the outline', () => {
+    const doc = SYNTHETIC_MONITORS_QUERY.query;
+    const fragment = /\.\.\. on SyntheticMonitorEntityOutline \{(.*)\} \} \} \} \} \}$/.exec(doc)?.[1] ?? '';
+    expect(fragment).toContain('monitorSummary { status }');
+    expect(fragment.replace(/monitorSummary \{[^}]*\}/g, '')).not.toMatch(/\bstatus\b/);
   });
 
   it('builds the check query with the nrql tag only', () => {
@@ -211,7 +219,10 @@ describe('list_synthetic_monitors', () => {
     const { fetch } = recording((op) =>
       op === 'search'
         ? searchBody(
-            [monitor(A, G1, 'a', { status: 'MUTED' }), monitor(A, G2, 'b', { monitorType: 'BROWSER' })],
+            [
+              monitor(A, G1, 'a', { monitorSummary: { status: 'MUTED' } }),
+              monitor(A, G2, 'b', { monitorType: 'BROWSER' }),
+            ],
             'CURSOR_2',
           )
         : nrqlBody([]),

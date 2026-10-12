@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Synthetic monitor listing (P6-08). Static document, every value a variable (T4). Metadata only: the selection holds no
 // script, secure credential or header field (they may carry secrets, T8). Field names from the NerdGraph schema docs;
-// unverified against a live account (docs/RESEARCH.md).
+// `status` is read from `monitorSummary { status }` (docs/RESEARCH.md); the outline type has no `status` field.
 import { defineDocument, type GraphQLDocument } from './document.ts';
 import type { EntitySearchVariables } from './entities.ts';
 
@@ -17,7 +17,8 @@ export interface SyntheticMonitorOutline {
   readonly monitorType?: string | null;
   readonly monitoredUrl?: string | null;
   readonly period?: number | null;
-  readonly status?: string | null;
+  /** `status` is not a field of the outline type (live test run 2026-10-12, BUG-02): it lives under `monitorSummary`. */
+  readonly monitorSummary?: { readonly status?: string | null } | null;
 }
 
 export interface SyntheticMonitorsData {
@@ -34,5 +35,5 @@ export const SYNTHETIC_MONITORS_QUERY: GraphQLDocument<SyntheticMonitorsData, En
     'query RbSyntheticMonitors($query: String, $cursor: String, $options: EntitySearchOptions) { actor { ' +
       'entitySearch(query: $query, options: $options) { count results(cursor: $cursor) { nextCursor ' +
       'entities { guid name accountId domain type alertSeverity reporting ' +
-      '... on SyntheticMonitorEntityOutline { monitorId monitorType monitoredUrl period status } } } } } }',
+      '... on SyntheticMonitorEntityOutline { monitorId monitorType monitoredUrl period monitorSummary { status } } } } } } }',
   );

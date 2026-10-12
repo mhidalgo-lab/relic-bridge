@@ -83,6 +83,12 @@ describe.skipIf(!enabled)('live NerdGraph (read-only)', () => {
     expect(r.isError, resultText(r)).toBeFalsy();
   });
 
+  // BUG-02: a stale field name fails on every call, so run the real query (schema validation happens at New Relic).
+  it('list_synthetic_monitors passes NerdGraph schema validation', async () => {
+    const r = await call('list_synthetic_monitors', { include_results: false });
+    expect(resultText(r)).not.toMatch(/Cannot query field/);
+  });
+
   it('search_entities and list_entity_types work', async () => {
     for (const name of ['search_entities', 'list_entity_types']) {
       const r = await call(name);

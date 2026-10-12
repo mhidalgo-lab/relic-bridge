@@ -338,8 +338,11 @@ Sources: <https://github.com/cloudflare/workers-oauth-provider>, issues #264, #3
   `WHERE entityGuid = '<guid>'`, per-transaction `FACET name`, failures `error IS true`, `transactionType` `'Web'` or `'Other'`
   (background), durations in seconds. `percentile(duration, 50)`, `(…, 95)` and `(…, 99)` are selected separately with aliases and
   read as a number or the first numeric member of an object. **Unverified:** facet rows carrying the facet value in `facet`
-  (an array when several facets), that `ORDER BY <aggregate> DESC` after `FACET` honours non-selected-alias expressions (the
-  tool re-sorts client-side anyway), and `LIKE` being case-insensitive (the tool's description says so; check live).
+  (an array when several facets), and `LIKE` being case-insensitive (the tool's description says so; check live).
+- **Verified (live test run 2026-10-12, P8-16):** NRDB rejects `FACET … ORDER BY <aggregate>`; a faceted query ranks and
+  LIMITs its groups by the first selected aggregate, descending. `list_top_transactions` therefore puts the ranking aggregate
+  first in SELECT and uses no ORDER BY (a unit test forbids ORDER BY after FACET in generated queries). `ORDER BY timestamp`
+  is only used on non-faceted raw-event queries.
 - Logs (P6-06, NRQL over `Log`, not verified against a real account): the entity filter is the `entity.guid` attribute
   (sent backtick-quoted), the text is `message`, the severity `level`, newest first with `ORDER BY timestamp DESC`; `level`
   values vary by forwarder (`ERROR`, `error`, `Error`, `WARNING`...), so the level filter matches a fixed list of case

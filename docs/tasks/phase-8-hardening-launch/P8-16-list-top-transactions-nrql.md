@@ -2,7 +2,7 @@
 id: P8-16
 title: Fix list_top_transactions NRQL (no ORDER BY after FACET)
 phase: 8
-status: in-progress
+status: review
 priority: high
 depends_on: []
 adr: []
@@ -20,10 +20,10 @@ owner: claude-agent
 - Unit test forbidding ORDER BY in generated faceted queries; correct RESEARCH.md.
 
 ## Acceptance criteria
-- [ ] `topQuery` emits no ORDER BY; slowest = p95, throughput = count, errors = error count lead the SELECT.
-- [ ] Scan done: no other faceted query uses ORDER BY (others order raw events by timestamp, no FACET).
-- [ ] Regression test fails before the fix, passes after.
-- [ ] RESEARCH.md updated; changeset added.
+- [x] `topQuery` emits no ORDER BY; slowest = p95, throughput = count, errors = error count lead the SELECT.
+- [x] Scan done: no other faceted query uses ORDER BY (others order raw events by timestamp, no FACET).
+- [x] Regression test fails before the fix, passes after.
+- [x] RESEARCH.md updated; changeset added.
 
 ## Security notes
 none (values remain template values; no access change).

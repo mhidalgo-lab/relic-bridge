@@ -284,4 +284,5 @@ Generated from task front matter (`pnpm tasks index`). Status lives in each task
 | P8-13 | [Point everything at mhidalgo-lab/relic-bridge and refresh docs after all phases landed](tasks/phase-8-hardening-launch/P8-13-repo-move-and-docs-refresh.md) | high | P8-12 | review |
 | P8-14 | [Number the first published release 0.7.0](tasks/phase-8-hardening-launch/P8-14-first-release-0-7-0.md) | high | P8-13 | review |
 | P8-15 | [Accept both valid loser views in the concurrent task-poll test](tasks/phase-8-hardening-launch/P8-15-task-poll-test-loser-view.md) | medium | P8-11 | review |
+| P8-16 | [Fix list_top_transactions NRQL (no ORDER BY after FACET)](tasks/phase-8-hardening-launch/P8-16-list-top-transactions-nrql.md) | high | — | review |
 <!-- tasks:end -->

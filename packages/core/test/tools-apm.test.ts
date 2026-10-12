@@ -100,7 +100,31 @@ describe('NRQL builders', () => {
     const t = topQuery(guidOf(A), NOW - MIN, NOW, 'errors', 7, likePattern(`50%_off'`), 'background').text;
     expect(t).toContain(`name LIKE '%50\\\\%\\\\_off\\'%'`);
     expect(t).toContain(`transactionType = 'Other'`);
-    expect(t).toContain('FACET name ORDER BY filter(count(*), WHERE error IS true) DESC LIMIT 7');
+    expect(t).toContain('FACET name LIMIT 7');
+    expect(t).toMatch(/^SELECT filter\(count\(\*\), WHERE error IS true\) AS errors,/);
+  });
+
+  it('ranks facets by the first selected aggregate and never uses ORDER BY after FACET (BUG-01)', () => {
+    const lead = {
+      slowest: 'percentile(duration, 95) AS p95Duration',
+      errors: 'filter(count(*), WHERE error IS true) AS errors',
+      throughput: 'count(*) AS requests',
+    } as const;
+    const aliases = [
+      'requests',
+      'errors',
+      'errorRate',
+      'avgDuration',
+      'p50Duration',
+      'p95Duration',
+      'p99Duration',
+    ];
+    for (const sortBy of ['slowest', 'errors', 'throughput'] as const) {
+      const q = topQuery(guidOf(A), NOW - MIN, NOW, sortBy, 5, undefined, undefined).text;
+      expect(q).not.toMatch(/ORDER BY/i);
+      expect(q.startsWith(`SELECT ${lead[sortBy]},`)).toBe(true);
+      for (const alias of aliases) expect(q).toContain(`AS ${alias}`);
+    }
   });
 
   it('reads percentile objects and missing rows', () => {

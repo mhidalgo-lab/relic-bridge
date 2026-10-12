@@ -291,4 +291,5 @@ Generated from task front matter (`pnpm tasks index`). Status lives in each task
 | P8-20 | [Name lookup - optional domain/type, APM preference for APM-only tools](tasks/phase-8-hardening-launch/P8-20-name-domain-filter.md) | high | — | done |
 | P8-21 | [Golden metrics read complete buckets, honour timeseries false, state limit notes once](tasks/phase-8-hardening-launch/P8-21-golden-metrics-buckets.md) | high | — | done |
 | P8-24 | [Enforce maxWindowDays as lookback as well as width](tasks/phase-8-hardening-launch/P8-24-window-lookback-limit.md) | high | — | done |
+| P8-25 | [Short permalinks instead of truncated launcher URLs](tasks/phase-8-hardening-launch/P8-25-short-permalinks.md) | medium | — | review |
 <!-- tasks:end -->

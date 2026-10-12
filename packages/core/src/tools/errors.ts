@@ -2,6 +2,7 @@
 import { z } from 'zod';
 import type { ToolContext } from '../context.ts';
 import { ErrorCode, RbError } from '../errors.ts';
+import { tryEntityLink } from '../links.ts';
 import { decodeEntityGuid } from '../nerdgraph/entity-guid.ts';
 import { ERROR_GROUPS_QUERY, type ErrorGroupData } from '../nerdgraph/errors-inbox.ts';
 import { pickFields } from '../output/compact.ts';
@@ -102,7 +103,7 @@ function vouched(g: ErrorGroupData, account: number, ctx: ToolContext): boolean 
   }
 }
 
-function toRow(g: ErrorGroupData) {
+function toRow(g: ErrorGroupData, ctx: ToolContext) {
   const occ = g.occurrences;
   return {
     id: cleanName(g.id ?? '', 128),
@@ -121,7 +122,8 @@ function toRow(g: ErrorGroupData) {
     lastSeenInWindowAt: iso(occ?.lastSeenAt),
     regressedAt: iso(g.regressedAt),
     eventsQuery: g.eventsQuery ? cleanName(g.eventsQuery, 500) : null,
-    link: g.url ? cleanName(g.url, 500) : null,
+    // Short entity permalink: the Errors Inbox launcher URL is a long base64 payload that truncation would break (BUG-05).
+    link: tryEntityLink(ctx.credential.region, g.entityGuid),
   };
 }
 
@@ -196,7 +198,7 @@ export function createErrorTools(deps: ToolDeps = {}): ToolDefinition[] {
       const all = paged.items;
       const since = new Date(paged.window?.sinceMs ?? range.sinceMs).toISOString();
       const until = new Date(paged.window?.untilMs ?? range.untilMs).toISOString();
-      const rows = all.filter((g) => vouched(g, account, ctx)).map(toRow);
+      const rows = all.filter((g) => vouched(g, account, ctx)).map((g) => toRow(g, ctx));
       const hiddenOutsideScope = all.length > rows.length;
       const nextCursor = paged.nextCursor;
       const total = num(found?.totalCount);

@@ -2,7 +2,7 @@
 id: P8-25
 title: Short permalinks instead of truncated launcher URLs
 phase: 8
-status: in-progress
+status: review
 priority: medium
 depends_on: []
 adr: []
@@ -26,11 +26,11 @@ use, and omit links under `minimal_output`.
 - `docs/RESEARCH.md` section 24: record the launcher URL finding.
 
 ## Acceptance criteria
-- [ ] No `link` value is truncated or contains `launcher`; links are short permalinks.
-- [ ] Upstream queries no longer fetch `url` / `deepLinkUrl`.
-- [ ] `minimal_output` output has no `link`.
-- [ ] Tests: regression tests for both tools (long upstream URL in the fixture), non-UUID id gives no link.
-- [ ] `pnpm lint && pnpm typecheck && pnpm test` pass; generated docs regenerated.
+- [x] No `link` value is truncated or contains `launcher`; links are short permalinks.
+- [x] Upstream queries no longer fetch `url` / `deepLinkUrl`.
+- [x] `minimal_output` output has no `link`.
+- [x] Tests: regression tests for both tools (long upstream URL in the fixture), non-UUID id gives no link.
+- [x] `pnpm lint && pnpm typecheck && pnpm test` pass; generated docs regenerated.
 
 ## Security notes
 Links are built only from validated ids and the connection's region (T4 unchanged); no upstream URL is echoed any more.

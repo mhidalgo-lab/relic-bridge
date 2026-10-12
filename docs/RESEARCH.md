@@ -816,6 +816,9 @@ Sources: developers.cloudflare.com/workers/runtime-apis/cache/, /workers/platfor
   recalled from New Relic launcher links, not checked.
 - Issue page `/alerts-ai/issues/<issueId>?account=<id>`: a best guess, not checked.
 - No UI host is documented for the JP region, so JP gets no links.
+- NerdGraph `aiIssues.issues.deepLinkUrl` and `errorsInbox.errorGroups.url` return long base64 `launcher?pane=` URLs (about
+  1 KB each). They are not requested any more (P8-25, BUG-05): output shaping cut them with `…`, which broke them and made
+  25 issues about 30 KB. Tools build the short permalinks above from validated ids instead.
 
 ## 25. MCP Apps extension (P7-04, from the specification 2026-10-06, not run in a real host)
 

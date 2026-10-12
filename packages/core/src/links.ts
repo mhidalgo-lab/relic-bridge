@@ -40,6 +40,30 @@ export function issueLink(region: Region, accountId: number, issueId: string): s
   return `${uiHost(region)}/alerts-ai/issues/${encodeURIComponent(issueId)}?account=${accountId}`;
 }
 
+/** Like `entityLink` but null (no link) when the region has no known UI host or the guid is unusable. */
+export function tryEntityLink(region: Region, guid: string | null | undefined): string | null {
+  if (typeof guid !== 'string' || guid.length === 0 || guid.length > 200) return null;
+  try {
+    return entityLink(region, guid);
+  } catch {
+    return null;
+  }
+}
+
+/** Like `issueLink` but null when the region, account or issue id does not give a usable link. */
+export function tryIssueLink(
+  region: Region,
+  accountId: number,
+  issueId: string | null | undefined,
+): string | null {
+  if (typeof issueId !== 'string') return null;
+  try {
+    return issueLink(region, accountId, issueId);
+  } catch {
+    return null;
+  }
+}
+
 function base64Utf8(text: string): string {
   let bin = '';
   for (const b of new TextEncoder().encode(text)) bin += String.fromCharCode(b);

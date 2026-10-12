@@ -18,7 +18,6 @@ export interface ErrorGroupData {
   readonly lastSeenAt?: number | null;
   readonly regressedAt?: number | null;
   readonly eventsQuery?: string | null;
-  readonly url?: string | null;
   readonly occurrences?: {
     readonly totalCount?: number | null;
     readonly expectedCount?: number | null;
@@ -64,6 +63,6 @@ export const ERROR_GROUPS_QUERY: GraphQLDocument<ErrorGroupsData, ErrorGroupsVar
     '$query: String, $sortBy: [ErrorsInboxErrorGroupSortOrderInput!], $timeWindow: TimeWindowInput) { ' +
     'actor { errorsInbox { errorGroups(cursor: $cursor, entityGuids: $entityGuids, filter: $filter, query: $query, ' +
     'sortBy: $sortBy, timeWindow: $timeWindow) { nextCursor totalCount results { id name message state issueType source ' +
-    'isCustom entityGuid firstSeenAt lastSeenAt regressedAt eventsQuery url ' +
+    'isCustom entityGuid firstSeenAt lastSeenAt regressedAt eventsQuery ' +
     'occurrences { totalCount expectedCount firstSeenAt lastSeenAt } } } } } }',
 );

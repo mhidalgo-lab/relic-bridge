@@ -62,7 +62,7 @@ const group = (account: number, id: string, name: string, extra: Record<string, 
   lastSeenAt: NOW - 60_000,
   regressedAt: null,
   eventsQuery: "SELECT count(*) FROM TransactionError WHERE error.group.guid = 'x'",
-  url: 'https://one.newrelic.com/errors-inbox/x',
+  url: `https://one.newrelic.com/launcher/errors-inbox.groups?pane=${'A'.repeat(900)}`,
   occurrences: { totalCount: 12, expectedCount: 0, firstSeenAt: NOW - 7_000_000, lastSeenAt: NOW - 60_000 },
   ...extra,
 });
@@ -184,6 +184,18 @@ describe('list_error_groups', () => {
     expect(s.errorGroups.map((g) => g.name)).toEqual(['mine']);
     expect(s.hiddenOutsideScope).toBe(true);
     expect(JSON.stringify(r)).not.toContain('LEAK');
+  });
+
+  it('links to the short entity permalink, never a truncated launcher URL (BUG-05)', async () => {
+    const { client } = await setup([body([group(A, 'g1', 't')])]);
+    const r = await client.callTool({ name: 'list_error_groups', arguments: {} });
+    const row = (r.structuredContent as { errorGroups: { link: string | null; entityGuid: string }[] })
+      .errorGroups[0];
+    expect(row?.link).toBe(
+      `https://one.newrelic.com/redirect/entity/${encodeURIComponent(row?.entityGuid ?? '')}`,
+    );
+    expect(JSON.stringify(r)).not.toContain('launcher');
+    expect(JSON.stringify(r)).not.toContain('…');
   });
 
   it('minimal_output keeps the short field set', async () => {

@@ -1039,7 +1039,9 @@ Sources: [server.json format](https://github.com/modelcontextprotocol/registry/b
   A control reaching past `maxWindowDays` is skipped with a note. Not verified: holidays and weekly cycles (use
   `same_window_7d_ago`).
 
-- **Logs (live test run 2026-10-12, P8-23):** a busy entity (10-15 K lines/h, multi-KB JSON payloads) overran the response limit
+## Log tools (P8-23, live test run 2026-10-12)
+
+- **Logs:** a busy entity (10-15 K lines/h, multi-KB JSON payloads) overran the response limit
   with the 1000-line message sample, so the sample is cut in NRQL (`substring(message, 0, 300) AS message`, 500 lines) and
   repeated once smaller (150 lines of 100 characters) on `RB_LIMIT_RESPONSE_TOO_LARGE`. Log level values seen include the
   Monolog/syslog names (`WARNING`, `NOTICE`, `CRITICAL`, `ALERT`, `EMERGENCY`); the tools accept those names. Structured

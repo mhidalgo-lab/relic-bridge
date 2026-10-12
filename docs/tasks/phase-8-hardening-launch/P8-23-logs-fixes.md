@@ -2,7 +2,7 @@
 id: P8-23
 title: Logs fixes (pattern size, level vocabulary, window boundary, stable paging, empty messages)
 phase: 8
-status: review
+status: done
 priority: high
 depends_on: []
 adr: []

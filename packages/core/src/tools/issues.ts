@@ -2,6 +2,7 @@
 import { z } from 'zod';
 import type { ToolContext } from '../context.ts';
 import { ErrorCode, RbError } from '../errors.ts';
+import { tryIssueLink } from '../links.ts';
 import type { NerdGraphClient } from '../nerdgraph/client.ts';
 import { decodeEntityGuid } from '../nerdgraph/entity-guid.ts';
 import {
@@ -247,7 +248,7 @@ export async function lookupIssue(
   const scoped = match.find((i) =>
     inScope(ctx, account, { accountIds: accountIdsOf(i.accountIds), guids: listOf(i.entityGuids) }),
   );
-  if (scoped) return toIssue(scoped);
+  if (scoped) return toIssue(scoped, ctx, account);
   if (match.length > 0) {
     throw new RbError(
       ErrorCode.AuthForbidden,
@@ -264,7 +265,7 @@ export async function lookupIssue(
   );
 }
 
-function toIssue(i: AiIssueData): IssueRow {
+function toIssue(i: AiIssueData, ctx: ToolContext, account: number): IssueRow {
   return {
     id: cleanName(i.issueId ?? '', 64),
     title: texts(i.title, MAX_TITLE_CHARS).join(' | '),
@@ -292,7 +293,8 @@ function toIssue(i: AiIssueData): IssueRow {
     idle: typeof i.isIdle === 'boolean' ? i.isIdle : null,
     incidentCount: num(i.totalIncidents),
     description: texts(i.description, MAX_DESCRIPTION_CHARS).join(' | ') || null,
-    link: texts(i.deepLinkUrl, 500)[0] ?? null,
+    // Short permalink, not the long launcher deepLinkUrl that truncation would break (BUG-05).
+    link: tryIssueLink(ctx.credential.region, account, i.issueId),
   };
 }
 
@@ -374,7 +376,7 @@ export function createIssueTools(deps: ToolDeps = {}): ToolDefinition[] {
           accountIds: accountIdsOf(i.accountIds),
           guids: listOf(i.entityGuids),
         });
-      const rows = all.filter(scoped).map(toIssue);
+      const rows = all.filter(scoped).map((i) => toIssue(i, ctx, account));
       const hiddenOutsideScope = all.some((i) => !scoped(i));
       const nextCursor = paged.nextCursor;
       const issues = input.minimal_output

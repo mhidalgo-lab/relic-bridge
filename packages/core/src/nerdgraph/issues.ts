@@ -29,7 +29,6 @@ export interface AiIssueData {
   readonly isCorrelated?: boolean | null;
   readonly isIdle?: boolean | null;
   readonly totalIncidents?: number | null;
-  readonly deepLinkUrl?: (string | null)[] | null;
 }
 
 /** The incident interface types some lists as plain strings; both shapes are accepted when reading. */
@@ -93,7 +92,7 @@ export const AI_ISSUES_QUERY: GraphQLDocument<AiIssuesData, AiIssuesVariables> =
     'actor { account(id: $accountId) { aiIssues { issues(cursor: $cursor, filter: $filter, timeWindow: $timeWindow) { ' +
     'nextCursor issues { issueId title description state priority createdAt activatedAt closedAt updatedAt ' +
     'acknowledgedAt accountIds entityGuids entityNames entityTypes policyIds policyName conditionName sources ' +
-    'mutingState isCorrelated isIdle totalIncidents deepLinkUrl } } } } } }',
+    'mutingState isCorrelated isIdle totalIncidents } } } } } }',
   { headers: AI_ISSUES_HEADERS },
 );
 

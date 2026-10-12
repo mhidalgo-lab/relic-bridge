@@ -72,7 +72,7 @@ const issue = (account: number, id: string, title: string, extra: Record<string,
   isCorrelated: false,
   isIdle: false,
   totalIncidents: 2,
-  deepLinkUrl: ['https://one.newrelic.com/alerts-ai/issues/x'],
+  deepLinkUrl: [`https://one.newrelic.com/launcher/nr1-core.explorer?pane=${'A'.repeat(900)}`],
   ...extra,
 });
 const issuesBody = (issues: unknown[], nextCursor: string | null = null) =>
@@ -220,6 +220,23 @@ describe('list_recent_issues', () => {
     expect(s.issues.map((i) => i.title)).toEqual(['mine']);
     expect(s.hiddenOutsideScope).toBe(true);
     expect(JSON.stringify(r)).not.toContain('LEAK');
+  });
+
+  it('links to the short issue permalink with the account, never a truncated launcher URL (BUG-05)', async () => {
+    const id = '0a1b2c3d-1111-2222-3333-444455556666';
+    const { client, calls } = await setup([issuesBody([issue(A, id, 't')])]);
+    const r = await client.callTool({ name: 'list_recent_issues', arguments: {} });
+    const row = (r.structuredContent as { issues: { link: string | null }[] }).issues[0];
+    expect(row?.link).toBe(`https://one.newrelic.com/alerts-ai/issues/${id}?account=${A}`);
+    expect(JSON.stringify(r)).not.toContain('launcher');
+    expect(JSON.stringify(r)).not.toContain('…');
+    expect(JSON.stringify(calls)).not.toContain('deepLinkUrl');
+  });
+
+  it('gives no link for an id that is not an issue UUID', async () => {
+    const { client } = await setup([issuesBody([issue(A, 'i1', 't')])]);
+    const r = await client.callTool({ name: 'list_recent_issues', arguments: {} });
+    expect((r.structuredContent as { issues: { link: string | null }[] }).issues[0]?.link).toBeNull();
   });
 
   it('minimal_output keeps the short field set', async () => {

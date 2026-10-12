@@ -142,6 +142,7 @@ Start here for "what is alerting?" or "what broke?": states ["ACTIVATED"] gives 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `issues` | `object[]` | yes |  |
+| `groups` | `object[]` | no |  |
 | `accountId` | `integer` | yes |  |
 | `since` | `string` | yes |  |
 | `until` | `string` | yes |  |

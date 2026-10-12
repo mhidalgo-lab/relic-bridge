@@ -236,13 +236,28 @@ describe('trace_error', () => {
     expect(nrqls[0]).toContain('`nr.syntheticsMonitorId` IS NULL');
   });
 
-  it('says so when the error group has no traced occurrence, without further queries', async () => {
-    const ng = nerdGraph({ nrql: () => nrqlBody([]) });
+  it('says so when the error group has no traced occurrence, and when tracing appears disabled (BUG-12)', async () => {
+    const ng = nerdGraph({
+      nrql: (q) =>
+        q.includes('FROM Span, TransactionError') ? nrqlBody([{ spans: 0, tracedErrors: 0 }]) : nrqlBody([]),
+    });
     const client = await connect(ng.fetch);
     const r = await client.callTool({ name: 'trace_error', arguments: { error_group_id: 'eg-1' } });
     expect(r.isError).toBeFalsy();
     expect((r.structuredContent as { traceId: null }).traceId).toBeNull();
-    expect(ng.calls.filter((c) => c.op === 'RbNrql')).toHaveLength(1);
+    expect(ng.calls.filter((c) => c.op === 'RbNrql')).toHaveLength(2);
+    expect(resultText(r)).toContain('distributed tracing appears to be disabled');
+  });
+
+  it('does not claim tracing is disabled when spans exist but none match the group', async () => {
+    const ng = nerdGraph({
+      nrql: (q) =>
+        q.includes('FROM Span, TransactionError') ? nrqlBody([{ spans: 40, tracedErrors: 0 }]) : nrqlBody([]),
+    });
+    const client = await connect(ng.fetch);
+    const r = await client.callTool({ name: 'trace_error', arguments: { error_group_id: 'eg-1' } });
+    expect(resultText(r)).toContain('No traced occurrence');
+    expect(resultText(r)).not.toContain('appears to be disabled');
   });
 
   it('marks sampled-out traces and keeps the other parts', async () => {

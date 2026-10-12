@@ -395,6 +395,12 @@ Sources: <https://github.com/cloudflare/workers-oauth-provider>, issues #264, #3
   agent events, but if it is missing every front end reads "no data"), `uuid` as a user proxy, and the related-entity types used to
   find front ends (`BROWSER/APPLICATION`, `MOBILE/APPLICATION`, `SYNTH/MONITOR`). Impact flags use fixed thresholds: rates 1.5x the
   window before with at least 10 JS errors / 5 crashes, load time 1.25x, volume drop below 0.75x with at least 30 before.
+  Live test run (2026-10-12): a browser app can have `JavaScriptError` events without a usable `session` attribute, so
+  `uniqueCount(session)` reads 0; the report now shows `sessionsWithErrors: null` plus a note when errors exist but the count is 0.
+  Front end names come from `latest(appName)` of the events when the issue or lookup gave none. A 17% rise in JS errors is below the
+  1.5x rate threshold, so no `js_errors_up` flag is intended. Errors Inbox groups can have a null group-level `lastSeenAt` while
+  `occurrences.lastSeenAt` is set; `trace_error` checks `Span` / `TransactionError.traceId` counts to tell tracing disabled from no match.
+  `aiIssues` incident `title` is a JSON-encoded string list.
 - Investigation tools (P6-16, not verified against a real account): `trace_error` reads `Span` (`trace.id`, `id`, `parent.id`,
   `name`, `entity.name`, `duration.ms`, `error.class`, `error.message`, `category`), `TransactionError` (`traceId`,
   `error.group.guid`, `entityGuid`, `request.uri`, `request.method`, `httpResponseCode`, `transactionName`, `appName`) and `Log`

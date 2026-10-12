@@ -115,7 +115,11 @@ const pageOutput = {
   nextCursor: z.string().nullable(),
   hiddenOutsideScope: z.boolean(),
 };
-const issuesOutput = z.object({ issues: z.array(z.record(z.string(), z.unknown())), ...pageOutput });
+const issuesOutput = z.object({
+  issues: z.array(z.record(z.string(), z.unknown())),
+  groups: z.array(z.record(z.string(), z.unknown())).optional(),
+  ...pageOutput,
+});
 const incidentsOutput = z.object({ incidents: z.array(z.record(z.string(), z.unknown())), ...pageOutput });
 
 const ISSUES_DESCRIPTION = `List recent alert issues of one account (what is or was alerting): title, state, priority, when it opened, was acknowledged and closed, and the entities, policy and condition behind it.
@@ -133,6 +137,26 @@ function listOf(v: readonly (string | number | null)[] | string | null | undefin
     .filter((x): x is string | number => x !== null && x !== undefined)
     .map((x) => String(x).trim())
     .filter((x) => x !== '');
+}
+
+/** Incident titles arrive as a JSON-encoded list (`["a","b"]`) or plain text: the individual titles (BUG-18). */
+export function incidentTitles(raw: string | null | undefined): string[] {
+  const t = (raw ?? '').trim();
+  if (t.startsWith('[')) {
+    try {
+      const parsed: unknown = JSON.parse(t);
+      if (Array.isArray(parsed))
+        return parsed
+          .filter((x): x is string | number => typeof x === 'string' || typeof x === 'number')
+          .map((x) => cleanName(String(x), MAX_TITLE_CHARS))
+          .filter((x) => x !== '')
+          .slice(0, MAX_LIST);
+    } catch {
+      // Not JSON: keep the text as it is.
+    }
+  }
+  const one = cleanName(t, MAX_TITLE_CHARS);
+  return one === '' ? [] : [one];
 }
 
 const iso = (ms: unknown): string | null => {
@@ -299,9 +323,11 @@ function toIssue(i: AiIssueData, ctx: ToolContext, account: number): IssueRow {
 }
 
 function toIncident(i: AiIncidentData) {
+  const titles = incidentTitles(i.title);
   return {
     id: cleanName(i.incidentId ?? '', 64),
-    title: cleanName(i.title ?? '', MAX_TITLE_CHARS),
+    title: titles.join(' | '),
+    titles,
     state: label(i.state),
     priority: label(i.priority),
     createdAt: iso(i.createdAt),
@@ -318,6 +344,40 @@ function toIncident(i: AiIncidentData) {
 }
 
 const MINIMAL_FIELDS = ['id', 'title', 'state', 'priority', 'createdAt', 'entities'] as const;
+
+/** Issues of one page summarised per condition or entity (BUG-15). Pure; groups in order of first appearance, largest first. */
+export type IssueGroup = {
+  key: string;
+  count: number;
+  firstCreatedAt: string | null;
+  lastCreatedAt: string | null;
+  issueIds: string[];
+};
+
+export function groupIssues(rows: readonly IssueRow[], by: 'condition' | 'entity'): IssueGroup[] {
+  const groups = new Map<
+    string,
+    {
+      key: string;
+      count: number;
+      firstCreatedAt: string | null;
+      lastCreatedAt: string | null;
+      issueIds: string[];
+    }
+  >();
+  for (const r of rows) {
+    const key = (by === 'condition' ? r.conditions : r.entities).join('; ') || '(none)';
+    const g = groups.get(key) ?? { key, count: 0, firstCreatedAt: null, lastCreatedAt: null, issueIds: [] };
+    g.count += 1;
+    if (r.createdAt !== null) {
+      if (g.firstCreatedAt === null || r.createdAt < g.firstCreatedAt) g.firstCreatedAt = r.createdAt;
+      if (g.lastCreatedAt === null || r.createdAt > g.lastCreatedAt) g.lastCreatedAt = r.createdAt;
+    }
+    if (g.issueIds.length < MAX_LIST) g.issueIds.push(r.id);
+    groups.set(key, g);
+  }
+  return [...groups.values()].sort((a, b) => b.count - a.count);
+}
 
 const plural = (n: number, one: string, many: string) => (n === 1 ? one : many);
 
@@ -389,6 +449,18 @@ export function createIssueTools(deps: ToolDeps = {}): ToolDefinition[] {
       if (hiddenOutsideScope) lines.push("Note: results outside this connection's accounts were left out.");
       if (nextCursor)
         lines.push('More results: call again with the same filters and cursor set to the nextCursor below.');
+      const repeated = groupIssues(rows, 'condition').filter((g) => g.count > 1);
+      const groups = repeated.length > 0 ? repeated : undefined;
+      if (groups) {
+        lines.push(
+          `Repeated conditions on this page (${groups.reduce((n, g) => n + g.count, 0)} of ${rows.length} issues; see groups):`,
+          ...groups
+            .slice(0, MAX_LIST)
+            .map(
+              (g) => `- ${g.key}: ${g.count} issues, ${g.firstCreatedAt ?? '?'} to ${g.lastCreatedAt ?? '?'}`,
+            ),
+        );
+      }
       if (rows.length > 0) {
         lines.push(
           shapeRows(
@@ -420,6 +492,7 @@ export function createIssueTools(deps: ToolDeps = {}): ToolDefinition[] {
           since,
           until,
           issues,
+          ...(groups ? { groups } : {}),
           nextCursor,
           hiddenOutsideScope,
         },

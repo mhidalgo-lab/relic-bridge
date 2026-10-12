@@ -275,6 +275,49 @@ describe('list_recent_issues', () => {
   });
 });
 
+describe('list_recent_issues repeated conditions (BUG-15)', () => {
+  it('summarises near-identical issues per condition, largest first', async () => {
+    const rows = [
+      issue(A, 'i1', 'High error rate', { createdAt: NOW - 3_000_000 }),
+      issue(A, 'i2', 'High error rate', { createdAt: NOW - 2_000_000 }),
+      issue(A, 'i3', 'Slow', { conditionName: ['Latency'], entityNames: ['db'] }),
+    ];
+    const { client } = await setup([issuesBody(rows)]);
+    const r = await client.callTool({ name: 'list_recent_issues', arguments: {} });
+    const s = r.structuredContent as { groups: { key: string; count: number; issueIds: string[] }[] };
+    expect(s.groups.map((g) => [g.key, g.count])).toEqual([['High error rate', 2]]);
+    expect(s.groups[0]?.issueIds).toEqual(['i1', 'i2']);
+    expect(text(r)).toContain('Repeated conditions on this page (2 of 3 issues');
+  });
+
+  it('adds no summary when every condition appears once', async () => {
+    const { client } = await setup([issuesBody([issue(A, 'i1', 'x')])]);
+    const r = await client.callTool({ name: 'list_recent_issues', arguments: {} });
+    expect(r.structuredContent).not.toHaveProperty('groups');
+    expect(text(r)).not.toContain('Repeated conditions');
+  });
+});
+
+describe('search_incidents titles (BUG-18)', () => {
+  it('parses JSON-encoded titles into titles[] and a joined title', async () => {
+    const { client } = await setup([
+      incidentsBody([incident(A, 'n1', '["Apdex < 0.6 for <APP>", "Error rate > 5%"]')]),
+    ]);
+    const r = await client.callTool({ name: 'search_incidents', arguments: {} });
+    const s = r.structuredContent as { incidents: { title: string; titles: string[] }[] };
+    expect(s.incidents[0]?.titles).toEqual(['Apdex < 0.6 for <APP>', 'Error rate > 5%']);
+    expect(s.incidents[0]?.title).toBe('Apdex < 0.6 for <APP> | Error rate > 5%');
+    expect(text(r)).not.toContain('[\\"');
+  });
+
+  it('keeps malformed bracketed text as one title', async () => {
+    const { client } = await setup([incidentsBody([incident(A, 'n1', '[not json')])]);
+    const r = await client.callTool({ name: 'search_incidents', arguments: {} });
+    const s = r.structuredContent as { incidents: { titles: string[] }[] };
+    expect(s.incidents[0]?.titles).toEqual(['[not json']);
+  });
+});
+
 describe('search_incidents', () => {
   it('sends the opt-in header and filters as variables; reads string-typed incident fields', async () => {
     const { client, calls } = await setup([incidentsBody([incident(A, 'n1', 'Slow checkout')])]);

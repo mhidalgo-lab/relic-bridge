@@ -2,7 +2,7 @@
 id: P8-33
 title: list_recent_issues group_by
 phase: 8
-status: in-progress
+status: review
 priority: low
 depends_on: []
 adr: []
@@ -19,10 +19,10 @@ Finish BUG-15 from the live test run (2026-10-12): P8-26 added a summary of repe
 - Make room by trimming wording in other tool descriptions (meaning kept) instead of raising the budgets.
 
 ## Acceptance criteria
-- [ ] `group_by: entity` and `group_by: condition` return a `groups` summary (every group, including single-issue ones) with a regression test.
-- [ ] Default behaviour unchanged (tests from P8-26 still pass).
-- [ ] Tool descriptions stay within the size budgets and keep 1 000 characters of headroom; no budget raised.
-- [ ] Generated docs regenerated.
+- [x] `group_by: entity` and `group_by: condition` return a `groups` summary (every group, including single-issue ones) with a regression test.
+- [x] Default behaviour unchanged (tests from P8-26 still pass).
+- [x] Tool descriptions stay within the size budgets and keep 1 000 characters of headroom; no budget raised.
+- [x] Generated docs regenerated.
 
 ## Security notes
 none: grouping is computed on rows that already passed the account/entity scope check (T3).

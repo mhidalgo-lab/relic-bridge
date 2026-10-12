@@ -77,6 +77,7 @@ const issuesInput = z.strictObject({
     .max(MAX_CONTAINS)
     .optional()
     .describe('Text to search for in the issue title, entity names and policy name.'),
+  group_by: z.enum(['condition', 'entity']).optional().describe('Count this page per condition or entity.'),
   time_range: windowInput,
   account: accountInput,
   limit: listLimit('rows', DEFAULT_LIMIT, MAX_LIMIT),
@@ -449,11 +450,16 @@ export function createIssueTools(deps: ToolDeps = {}): ToolDefinition[] {
       if (hiddenOutsideScope) lines.push("Note: results outside this connection's accounts were left out.");
       if (nextCursor)
         lines.push('More results: call again with the same filters and cursor set to the nextCursor below.');
-      const repeated = groupIssues(rows, 'condition').filter((g) => g.count > 1);
-      const groups = repeated.length > 0 ? repeated : undefined;
+      // Without group_by: only conditions that repeat on the page; with it: every group (BUG-15).
+      const by = input.group_by ?? 'condition';
+      const found = groupIssues(rows, by);
+      const shown = input.group_by ? found : found.filter((g) => g.count > 1);
+      const groups = shown.length > 0 ? shown : undefined;
       if (groups) {
         lines.push(
-          `Repeated conditions on this page (${groups.reduce((n, g) => n + g.count, 0)} of ${rows.length} issues; see groups):`,
+          input.group_by
+            ? `Issues on this page per ${by} (${rows.length} issues; see groups):`
+            : `Repeated conditions on this page (${groups.reduce((n, g) => n + g.count, 0)} of ${rows.length} issues; see groups):`,
           ...groups
             .slice(0, MAX_LIST)
             .map(

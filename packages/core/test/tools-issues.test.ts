@@ -290,6 +290,35 @@ describe('list_recent_issues repeated conditions (BUG-15)', () => {
     expect(text(r)).toContain('Repeated conditions on this page (2 of 3 issues');
   });
 
+  it('group_by entity counts the page per entity, singles included', async () => {
+    const rows = [
+      issue(A, 'i1', 'High error rate', { entityNames: ['web-1'] }),
+      issue(A, 'i2', 'Slow', { entityNames: ['web-1'] }),
+      issue(A, 'i3', 'Slow', { entityNames: ['db'] }),
+    ];
+    const { client } = await setup([issuesBody(rows)]);
+    const r = await client.callTool({ name: 'list_recent_issues', arguments: { group_by: 'entity' } });
+    const s = r.structuredContent as { groups: { key: string; count: number }[] };
+    expect(s.groups.map((g) => [g.key, g.count])).toEqual([
+      ['web-1', 2],
+      ['db', 1],
+    ]);
+    expect(text(r)).toContain('Issues on this page per entity (3 issues');
+  });
+
+  it('group_by condition lists single-issue conditions too', async () => {
+    const rows = [issue(A, 'i1', 'x'), issue(A, 'i2', 'y', { conditionName: ['Latency'] })];
+    const { client } = await setup([issuesBody(rows)]);
+    const r = await client.callTool({ name: 'list_recent_issues', arguments: { group_by: 'condition' } });
+    expect((r.structuredContent as { groups: unknown[] }).groups).toHaveLength(2);
+  });
+
+  it('rejects an unknown group_by', async () => {
+    const { client } = await setup([issuesBody([])]);
+    const r = await client.callTool({ name: 'list_recent_issues', arguments: { group_by: 'policy' } });
+    expect(r.isError).toBe(true);
+  });
+
   it('adds no summary when every condition appears once', async () => {
     const { client } = await setup([issuesBody([issue(A, 'i1', 'x')])]);
     const r = await client.callTool({ name: 'list_recent_issues', arguments: {} });

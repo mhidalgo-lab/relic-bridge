@@ -407,7 +407,7 @@ export function createRuntimeTools(deps: ToolDeps = {}): ToolDefinition[] {
     const decoded = checkGuid(ctx, guid);
     const account = singleAccount(ctx, decoded.accountId);
     const range = parseTimeRange(timeRange ?? DEFAULT_WINDOW, ctx.clock.now());
-    assertWindowWithinLimit(range, ctx.limits);
+    assertWindowWithinLimit(range, ctx.limits, ctx.clock.now());
     return { account, range };
   };
 
@@ -570,7 +570,7 @@ export function createRuntimeTools(deps: ToolDeps = {}): ToolDefinition[] {
     handler: async (args, ctx) => {
       const account = singleAccount(ctx, args.account);
       const range = parseTimeRange(args.time_range ?? DEFAULT_WINDOW, ctx.clock.now());
-      assertWindowWithinLimit(range, ctx.limits);
+      assertWindowWithinLimit(range, ctx.limits, ctx.clock.now());
       const filters: KafkaFilters = {
         cluster: args.cluster_name,
         group: args.consumer_group,

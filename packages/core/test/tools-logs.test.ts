@@ -262,6 +262,8 @@ describe('list_recent_logs', () => {
     expect(errorCode(await call({ account: OTHER }))).toBe(ErrorCode.AuthForbidden);
     expect(errorCode(await call({ entity_guid: guidOf(A), account: B }))).toBe(ErrorCode.InputInvalid);
     expect(errorCode(await call({ time_range: 'last 400 days' }))).toBe(ErrorCode.LimitQuery);
+    // BUG-22: a one-day window far in the past is still beyond the lookback limit.
+    expect(errorCode(await call({ time_range: '2026-01-01 to 2026-01-02' }))).toBe(ErrorCode.LimitQuery);
     expect(calls).toHaveLength(0);
   });
 

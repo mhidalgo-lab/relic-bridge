@@ -54,16 +54,34 @@ export function toolClient(deps: ToolDeps): (ctx: ToolContext) => NerdGraphClien
     });
 }
 
-/** Refuse a window longer than the connection's `maxWindowDays` (T5). */
+/** Clock drift allowed between resolving a relative range and checking it, so "last N days" is accepted at the limit. */
+const LOOKBACK_SLACK_MS = 60_000;
+
+/**
+ * Refuse a window the connection's `maxWindowDays` does not allow (T5). The limit bounds both the width of the window
+ * and how far back it starts (`now - sinceMs`); the boundary is inclusive (exactly N days is allowed).
+ */
 export function assertWindowWithinLimit(
-  range: Pick<TimeRange, 'windowMs'>,
+  range: Pick<TimeRange, 'windowMs' | 'sinceMs'>,
   limits: { maxWindowDays: number },
+  now: number,
 ): void {
-  if (range.windowMs > limits.maxWindowDays * DAY_MS) {
+  const maxMs = limits.maxWindowDays * DAY_MS;
+  if (range.windowMs > maxMs) {
     throw new RbError(
       ErrorCode.LimitQuery,
       `The window is longer than the ${limits.maxWindowDays}-day limit of this connection.`,
       { hint: `Use a shorter window, e.g. "last ${limits.maxWindowDays} days".` },
+    );
+  }
+  // A relative range ("last 7 days") was resolved a moment before this check, on a clock that has moved on since.
+  if (now - range.sinceMs > maxMs + LOOKBACK_SLACK_MS) {
+    throw new RbError(
+      ErrorCode.LimitQuery,
+      `The window starts further back than the ${limits.maxWindowDays}-day limit of this connection allows.`,
+      {
+        hint: `Only the last ${limits.maxWindowDays} days can be read, e.g. "last ${limits.maxWindowDays} days".`,
+      },
     );
   }
 }

@@ -351,7 +351,7 @@ export function createLogTools(deps: ToolDeps = {}): ToolDefinition[] {
         account = singleAccount(ctx, args.account);
       }
       const range = parseTimeRange(args.time_range ?? DEFAULT_WINDOW, ctx.clock.now());
-      assertWindowWithinLimit(range, ctx.limits);
+      assertWindowWithinLimit(range, ctx.limits, ctx.clock.now());
       const limit = args.limit ?? DEFAULT_LIMIT;
       const pattern = args.contains === undefined ? undefined : likePattern(args.contains);
 
@@ -367,7 +367,8 @@ export function createLogTools(deps: ToolDeps = {}): ToolDefinition[] {
       const pos = args.cursor === undefined ? null : readTimeCursor(binding, args.cursor);
       const sinceMs = pos?.s ?? range.sinceMs;
       const untilMs = pos === null ? range.untilMs : pos.t + 1;
-      if (pos !== null) assertWindowWithinLimit({ windowMs: untilMs - sinceMs }, ctx.limits);
+      if (pos !== null)
+        assertWindowWithinLimit({ windowMs: untilMs - sinceMs, sinceMs }, ctx.limits, ctx.clock.now());
       const fetchSize = timeFetchSize(limit, pos);
 
       const done = complete(
@@ -471,7 +472,7 @@ export function createLogTools(deps: ToolDeps = {}): ToolDefinition[] {
       const decoded = checkGuid(ctx, args.entity_guid);
       const account = singleAccount(ctx, decoded.accountId);
       const range = parseTimeRange(args.time_range ?? DEFAULT_WINDOW, ctx.clock.now());
-      assertWindowWithinLimit(range, ctx.limits);
+      assertWindowWithinLimit(range, ctx.limits, ctx.clock.now());
       const bucketSeconds = bucketSecondsFor(range.windowMs);
       const guid = args.entity_guid;
 

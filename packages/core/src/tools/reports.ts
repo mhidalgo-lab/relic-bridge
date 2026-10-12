@@ -144,6 +144,13 @@ export function issueWindow(
   let since = Math.min(onset, until) - beforeMs;
   if (until - since < MINUTE_MS) until = since + MINUTE_MS;
   let cut = false;
+  // The connection also limits how far back a window may start (T5): an older issue is read from the limit onwards.
+  const earliest = nowMs - maxWindowMs;
+  if (since < earliest) {
+    since = earliest;
+    until = Math.max(until, since + MINUTE_MS);
+    cut = true;
+  }
   if (until - since > maxWindowMs) {
     until = since + maxWindowMs;
     cut = true;
@@ -162,7 +169,7 @@ function lookbackRange(ctx: ToolContext, text: string | undefined) {
     Math.min(DEFAULT_LOOKBACK_HOURS, Math.floor((ctx.limits.maxWindowDays * DAY_MS) / HOUR_MS)),
   );
   const range = parseTimeRange(text ?? `last ${hours} hours`, ctx.clock.now());
-  assertWindowWithinLimit(range, ctx.limits);
+  assertWindowWithinLimit(range, ctx.limits, ctx.clock.now());
   return range;
 }
 
@@ -1017,7 +1024,7 @@ export function createReportTools(deps: ToolDeps = {}): ToolDefinition[] {
             untilMs: defaultWindow.untilMs,
             windowMs: defaultWindow.untilMs - defaultWindow.sinceMs,
           };
-    assertWindowWithinLimit(range, ctx.limits);
+    assertWindowWithinLimit(range, ctx.limits, ctx.clock.now());
     return {
       issue,
       affected,

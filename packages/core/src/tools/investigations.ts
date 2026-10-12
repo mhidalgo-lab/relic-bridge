@@ -563,7 +563,7 @@ export function createInvestigationTools(deps: ToolDeps = {}): ToolDefinition[] 
         account = singleAccount(ctx, args.account);
       }
       const range = parseTimeRange(args.time_range ?? DEFAULT_TRACE_WINDOW, ctx.clock.now());
-      assertWindowWithinLimit(range, ctx.limits);
+      assertWindowWithinLimit(range, ctx.limits, ctx.clock.now());
 
       const notes: string[] = [];
       let traceId = args.trace_id ?? null;
@@ -761,7 +761,7 @@ export function createInvestigationTools(deps: ToolDeps = {}): ToolDefinition[] 
   const prepareDep = async (args: z.infer<typeof depInput>, ctx: ToolContext): Promise<DepBase> => {
     const decoded = checkGuid(ctx, args.entity_guid);
     const range = parseTimeRange(args.time_range ?? 'last 30 minutes', ctx.clock.now());
-    assertWindowWithinLimit(range, ctx.limits);
+    assertWindowWithinLimit(range, ctx.limits, ctx.clock.now());
     const maxDeps = args.max_dependencies ?? DEFAULT_DEPENDENCIES;
     const notes: string[] = [];
     const relatedTool = tool('get_related_entities');
@@ -1100,7 +1100,7 @@ export function createInvestigationTools(deps: ToolDeps = {}): ToolDefinition[] 
     const decoded = checkGuid(ctx, args.entity_guid);
     const account = singleAccount(ctx, decoded.accountId);
     const range = parseTimeRange(args.time_range ?? DEFAULT_HEALTH_WINDOW, ctx.clock.now());
-    assertWindowWithinLimit(range, ctx.limits);
+    assertWindowWithinLimit(range, ctx.limits, ctx.clock.now());
     const days = Math.max(
       1,
       Math.min(args.lookback_days ?? DEFAULT_LOOKBACK_DAYS, Math.floor(ctx.limits.maxWindowDays)),

@@ -242,6 +242,14 @@ describe('list_change_events', () => {
         await client.callTool({ name: 'list_change_events', arguments: { time_range: 'last 30 days' } }),
       ),
     ).toBe(ErrorCode.LimitQuery);
+    expect(
+      errorCode(
+        await client.callTool({
+          name: 'list_change_events',
+          arguments: { time_range: '2026-01-01 to 2026-01-02' },
+        }),
+      ),
+    ).toBe(ErrorCode.LimitQuery);
     for (const args of [{ limit: 0 }, { limit: 101 }, { api_key: 'NRAK-X' }]) {
       expect((await client.callTool({ name: 'list_change_events', arguments: args })).isError).toBe(true);
     }

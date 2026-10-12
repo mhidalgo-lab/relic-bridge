@@ -115,7 +115,7 @@ function createCache<T>() {
 function timeClause(sinceText: string, ctx: ToolContext): { clause: NrqlQuery; range: TimeRange } {
   const now = ctx.clock.now();
   const range = parseTimeRange(sinceText, now);
-  assertWindowWithinLimit(range, ctx.limits);
+  assertWindowWithinLimit(range, ctx.limits, ctx.clock.now());
   const ago = Math.max(1, Math.ceil((now - range.sinceMs) / 1000));
   const untilAgo = Math.max(0, Math.floor((now - range.untilMs) / 1000));
   const clause =

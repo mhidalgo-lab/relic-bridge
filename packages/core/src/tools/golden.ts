@@ -375,7 +375,7 @@ export function createGoldenMetricTools(deps: ToolDeps = {}): ToolDefinition[] {
       const args = { ...rawArgs, guid: ref.guid };
       const decoded = checkGuid(ctx, args.guid);
       const range = parseTimeRange(args.time_range ?? DEFAULT_GOLDEN_SINCE, ctx.clock.now());
-      assertWindowWithinLimit(range, ctx.limits);
+      assertWindowWithinLimit(range, ctx.limits, ctx.clock.now());
       const wantSeries = args.timeseries ?? true;
 
       const result = await client(ctx).query(GOLDEN_METRICS_QUERY, { guid: args.guid });

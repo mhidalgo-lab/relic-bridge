@@ -48,6 +48,7 @@ function bad(message: string, expression: string): RbError {
       'Use e.g. "last 2 hours", "past 30 minutes", "today", "yesterday", "this week", "previous week", "this month", ' +
       '"previous month", an ISO date/time ("2026-10-01T08:00:00Z"), or a range "2026-10-01 to 2026-10-02".',
     details: { expression: expression.slice(0, 80) },
+    localDetails: true,
   });
 }
 

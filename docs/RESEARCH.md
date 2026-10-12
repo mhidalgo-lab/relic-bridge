@@ -1050,3 +1050,14 @@ Sources: [server.json format](https://github.com/modelcontextprotocol/registry/b
   with the same millisecond (an equal-timestamp order is not stable between queries). `SINCE`/`UNTIL` take whole seconds, so
   the exact bounds are repeated on `timestamp` in the WHERE clause. **Unverified:** `substring()` with a bound variable length
   and the exact response size of `SELECT *` pages on very wide Log events.
+
+## Error contracts (P8-27, live test run 2026-10-12)
+
+- Polling `nrqlQueryProgress` with an id NerdGraph does not know returns a null container and an `INVALID_INPUT` error
+  with the text "unknown error" (no NRQL involved). It is mapped to `RB_QUERY_NOT_FOUND`.
+- `timeout` is sent with the async submit, but a fast NRDB answers within it even for very large scans, so a pending
+  handle cannot be forced on live data; the pending path is covered by fixtures.
+- Event types with the `Public_` prefix and a few billing/audit types (`NrUsage`, `NrConsumption`, ...) are global:
+  New Relic refuses to mix them with account data ("Global event types cannot be mixed with account data").
+  The list in `tools/schema.ts` is a heuristic, not an API.
+- Several statements in one NRQL string are not supported; NerdGraph reports it as a confusing "more than one SINCE".

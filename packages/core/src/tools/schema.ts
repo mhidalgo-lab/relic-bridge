@@ -29,6 +29,19 @@ const MAX_EVENT_TYPES = 1000;
 const MAX_ATTRIBUTES = 1000;
 const MAX_NAME_CHARS = 255;
 const SAMPLE_VALUE_CHARS = 300;
+/**
+ * Event types New Relic keeps outside the account's own data (public API usage, billing, audit). They can't be mixed
+ * with account data in one query ("Global event types cannot be mixed with account data").
+ */
+const GLOBAL_EVENT_TYPES: ReadonlySet<string> = new Set([
+  'NrUsage',
+  'NrConsumption',
+  'NrMTDConsumption',
+  'NrAuditEvent',
+  'NrIntegrationError',
+]);
+export const isGlobalEventType = (name: string): boolean =>
+  name.startsWith('Public_') || GLOBAL_EVENT_TYPES.has(name);
 const EVENT_TYPE_RE = /^[A-Za-z_][A-Za-z0-9_.:\-/]{0,254}$/;
 
 const accountField = accountId.optional().describe('Account id (list_accounts). Default: the default.');
@@ -49,6 +62,7 @@ const attributesInput = z.strictObject({
     .describe('Event type exactly as list_event_types returns it (case-sensitive), e.g. "Transaction".'),
   account: accountField,
   time_range: windowField,
+  name_contains: z.string().min(1).max(64).optional().describe('Name substring filter.'),
   sample: z
     .boolean()
     .optional()
@@ -60,6 +74,8 @@ const listOutput = z.object({
   since: z.string(),
   until: z.string(),
   eventTypes: z.array(z.string()),
+  /** Listed types that are global/internal: they can't be mixed with account data in one query. */
+  globalEventTypes: z.array(z.string()),
   /** The connection has an event-type allow list: its entries are listed without asking New Relic. */
   fromAllowList: z.boolean(),
   cached: z.boolean(),
@@ -73,6 +89,8 @@ const attributesOutput = z.object({
   since: z.string(),
   until: z.string(),
   attributes: z.array(z.object({ name: z.string(), type: z.string() })),
+  /** Attributes on the type before `name_contains` was applied. */
+  totalAttributes: z.number().int(),
   truncated: z.boolean(),
   sample: z.record(z.string(), z.unknown()).nullable(),
   cached: z.boolean(),
@@ -80,11 +98,11 @@ const attributesOutput = z.object({
 
 const LIST_DESCRIPTION = `List the event types (NRQL tables such as Transaction, PageView, Log, Metric, SystemSample) that have data in one account.
 
-Call it before writing NRQL for an unfamiliar account, then get_attributes for the type you want. time_range defaults to the last 24 hours; cached for 5 minutes; only the event types this connection permits. ${UNTRUSTED}`;
+Call it before writing NRQL for an unfamiliar account, then get_attributes for the type you want. Cached 5 minutes; only the event types this connection permits. ${UNTRUSTED}`;
 
 const ATTRIBUTES_DESCRIPTION = `List the attributes (name and type) recorded on one event type in one account, optionally with one sample event, so NRQL uses real attribute names.
 
-Pass event_type from list_event_types. Not paged: at most ${MAX_ATTRIBUTES} attributes (truncated says if cut). Attribute lists are cached for 5 minutes; samples are always fresh. ${UNTRUSTED}`;
+Pass event_type from list_event_types. Not paged: at most ${MAX_ATTRIBUTES} attributes (truncated says if cut). Cached 5 minutes; samples are fresh. ${UNTRUSTED}`;
 
 interface CacheEntry<T> {
   readonly at: number;
@@ -237,9 +255,20 @@ export function createSchemaTools(deps: ToolDeps = {}): ToolDefinition[] {
       if (types.length > 0) {
         lines.push(
           shapeRows(
-            types.map((eventType) => ({ eventType })),
+            types.map((eventType) => ({
+              eventType,
+              ...(types.some(isGlobalEventType)
+                ? { scope: isGlobalEventType(eventType) ? 'global' : '' }
+                : {}),
+            })),
             { format: 'table', source: 'New Relic event types', maxRows: MAX_EVENT_TYPES },
           ).text,
+        );
+      }
+      const globals = types.filter(isGlobalEventType);
+      if (globals.length > 0) {
+        lines.push(
+          `Note: ${globals.length} global type${globals.length === 1 ? '' : 's'} (scope "global") can't be mixed with account data: query each alone.`,
         );
       }
       if (paged.nextCursor) lines.push(`nextCursor: ${paged.nextCursor}`);
@@ -250,6 +279,7 @@ export function createSchemaTools(deps: ToolDeps = {}): ToolDefinition[] {
           since: range.since,
           until: range.until,
           eventTypes: types,
+          globalEventTypes: globals,
           fromAllowList: allow !== undefined,
           cached,
           nextCursor: paged.nextCursor,
@@ -294,13 +324,16 @@ export function createSchemaTools(deps: ToolDeps = {}): ToolDefinition[] {
         schema = { attributes: parsed.slice(0, MAX_ATTRIBUTES), truncated: parsed.length > MAX_ATTRIBUTES };
         attrCache.set(key, schema, ctx.clock.now());
       }
-      const attributes = schema.attributes.map((a) => ({
+      const needle = args.name_contains?.toLowerCase();
+      const all = schema.attributes.map((a) => ({
         name: cleanName(a.name, MAX_NAME_CHARS),
         type: cleanName(a.type, 32),
       }));
+      const attributes =
+        needle === undefined ? all : all.filter((a) => a.name.toLowerCase().includes(needle));
 
       let sample: Record<string, unknown> | null = null;
-      if (args.sample === true && attributes.length > 0) {
+      if (args.sample === true && all.length > 0) {
         const row = (await run(ctx, account, nrql`SELECT * FROM ${type} ${clause} LIMIT 1`)).results[0];
         if (row) {
           sample = Object.fromEntries(
@@ -314,9 +347,12 @@ export function createSchemaTools(deps: ToolDeps = {}): ToolDefinition[] {
 
       const lines = [
         `${attributes.length} attribute${attributes.length === 1 ? '' : 's'} on ${args.event_type} in account ${account} (${sinceText})` +
+          `${needle === undefined ? '' : ` matching "${cleanName(args.name_contains ?? '', 64)}" (of ${all.length})`}` +
           `${cached ? ', cached' : ''}.`,
       ];
-      if (attributes.length === 0) {
+      if (attributes.length === 0 && all.length > 0) {
+        lines.push(`No attribute name contains "${cleanName(args.name_contains ?? '', 64)}".`);
+      } else if (attributes.length === 0) {
         lines.push(
           'No attributes found: the event type has no data in this window, or the name is wrong (it is case-sensitive). ' +
             'Check list_event_types or widen since.',
@@ -345,6 +381,7 @@ export function createSchemaTools(deps: ToolDeps = {}): ToolDefinition[] {
           since: range.since,
           until: range.until,
           attributes,
+          totalAttributes: all.length,
           truncated: schema.truncated,
           sample,
           cached,

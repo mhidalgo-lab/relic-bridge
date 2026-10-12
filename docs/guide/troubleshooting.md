@@ -41,14 +41,15 @@ Tool errors carry a stable code and usually a hint.
 | `RB_AUTH_INVALID_KEY` | New Relic rejected the key (HTTP 401): revoked, deleted, mistyped. (A key that isn't `NRAK-…` is caught at startup, see above.) | Create a new User key in New Relic and update the client config. |
 | `RB_AUTH_WRONG_REGION` | New Relic refused the account in this region. | Set `NEW_RELIC_REGION` / `region` to `US`, `EU` or `JP` to match where the account lives (the New Relic URL `one.eu.newrelic.com` means EU). |
 | `RB_AUTH_FORBIDDEN` | The key's user can't read this account, or the account isn't allowed on this connection (`Account N is not available on this connection`). | Check the user's roles in New Relic; add the account to `accounts` / `RB_ACCOUNTS`; use `list_accounts` to see what's available. |
-| `RB_INPUT_INVALID` | The input or NRQL is invalid (e.g. double-quoted strings, empty query, bad account id). | Fix the query as the message says; NRQL strings use single quotes. |
+| `RB_INPUT_INVALID` | The input or NRQL is invalid (e.g. double-quoted strings, empty query, bad account id). | Fix the query as the message says; NRQL strings use single quotes; one statement per `run_nrql` call (no `;`). |
 | `RB_LIMIT_QUERY` | The query exceeds your limits: time window, `LIMIT`, event type allow/deny. | Shorten `SINCE`, lower `LIMIT`, or raise the limit in the config. See [query limits](query-limits.md). |
 | `RB_LIMIT_RESPONSE_TOO_LARGE` | The response exceeded `maxResponseBytes`. | Narrow the query (fewer facets, shorter window, a `LIMIT`) or raise `maxResponseBytes`. |
 | `RB_TOOL_DISABLED` | The tool is off: `rawNrql: false`, or it isn't in `tools`. | Use a purpose-built tool, or enable it in the config. |
+| `RB_QUERY_NOT_FOUND` | `get_query_result` got a `query_id` that New Relic does not know: wrong id, or the result expired (`expiresAt`). | Rerun `run_nrql` and use the new handle. |
 | `RB_NERDGRAPH_TIMEOUT` | The query took too long. | Narrow the time window or facets. |
 | `RB_NERDGRAPH_RATE_LIMITED` | New Relic is rate limiting this key. | Wait, and ask for fewer parallel queries. |
 | `RB_NERDGRAPH_UNAVAILABLE` | New Relic had a server or network error. | Retry shortly; check New Relic's status page. |
-| `RB_BUDGET_EXHAUSTED` | One tool call needed too many NerdGraph requests (limit 1000). | Ask for a narrower request. |
+| `RB_BUDGET_EXHAUSTED` | One tool call needed too many NerdGraph requests (limit 1000 per tool call; the count starts again with every call, `whoami` shows `callsUsed` / `callsRemaining`). | Ask for a narrower request. |
 | `RB_NERDGRAPH_ERROR` | NerdGraph returned another error; the (redacted) message is included. | Read the message; for NRQL errors, correct the query. |
 | `RB_LIMIT_QUOTA` | The grant's usage quota for the day or month is used up (the error says which and when it starts again). | An administrator can raise or remove it: [Quotas](admin-guide.md#quotas-per-grant). |
 | `RB_AUTH_UNAUTHORIZED`, `RB_LIMIT_RATE` | Used by the hosted modes (tokens, rate limits). On stdio, `RB_AUTH_UNAUTHORIZED` only means setup mode (no configuration at all, see above). | See [hosted server](#hosted-self-hosted-server) above. |

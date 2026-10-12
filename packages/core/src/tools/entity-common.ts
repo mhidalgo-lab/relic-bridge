@@ -70,7 +70,11 @@ export function outOfScope(account: number): RbError {
   return new RbError(
     ErrorCode.AuthForbidden,
     `This entity belongs to account ${account}, which is not available on this connection.`,
-    { hint: 'Use list_accounts to see the accounts you can query.', details: { account } },
+    {
+      hint: 'Use list_accounts to see the accounts you can query.',
+      details: { account },
+      localDetails: true,
+    },
   );
 }
 

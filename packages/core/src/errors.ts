@@ -16,6 +16,7 @@ export const ErrorCode = {
   LimitResponseTooLarge: 'RB_LIMIT_RESPONSE_TOO_LARGE',
   LimitRate: 'RB_LIMIT_RATE',
   LimitQuota: 'RB_LIMIT_QUOTA',
+  QueryNotFound: 'RB_QUERY_NOT_FOUND',
   NerdGraphError: 'RB_NERDGRAPH_ERROR',
   NerdGraphRateLimited: 'RB_NERDGRAPH_RATE_LIMITED',
   NerdGraphTimeout: 'RB_NERDGRAPH_TIMEOUT',
@@ -33,6 +34,11 @@ export interface RbErrorOptions {
   /** Safe, structured details for the agent (never secrets; still redacted on output). */
   details?: Record<string, unknown>;
   cause?: unknown;
+  /**
+   * The details are produced here (limits, ranges, accounts), with no New Relic text in them: they are shown as plain
+   * text instead of inside the untrusted-data envelope. Default false (enveloped).
+   */
+  localDetails?: boolean;
 }
 
 /** An expected, agent-actionable failure. `message` must be safe to show to the client. */
@@ -40,6 +46,7 @@ export class RbError extends Error {
   readonly code: ErrorCode;
   readonly hint: string | undefined;
   readonly details: Record<string, unknown> | undefined;
+  readonly localDetails: boolean;
 
   constructor(code: ErrorCode, message: string, options: RbErrorOptions = {}) {
     super(message, options.cause === undefined ? undefined : { cause: options.cause });
@@ -47,6 +54,7 @@ export class RbError extends Error {
     this.code = code;
     this.hint = options.hint;
     this.details = options.details;
+    this.localDetails = options.localDetails === true;
   }
 }
 
@@ -66,8 +74,10 @@ export function toToolErrorResult(error: unknown, requestId: string): CallToolRe
   const lines = [`${rb.code}: ${rb.message}`];
   if (rb.hint) lines.push(`Hint: ${rb.hint}`);
   // Details may carry New Relic text (e.g. candidate entity names): untrusted data, so enveloped like results (T6).
+  // Only details raised locally (`localDetails`) are shown as they are.
   if (rb.details && Object.keys(rb.details).length > 0) {
-    lines.push(envelope(`Details: ${JSON.stringify(rb.details)}`, { source: 'error details' }));
+    const body = `Details: ${JSON.stringify(rb.details)}`;
+    lines.push(rb.localDetails ? body : envelope(body, { source: 'error details' }));
   }
   return {
     isError: true,

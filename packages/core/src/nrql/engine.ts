@@ -115,6 +115,7 @@ const MAX_POLL_WAIT_S = 10;
 const HTTP_GRACE_MS = 5_000;
 const NRQL_DOCS = 'https://docs.newrelic.com/docs/nrql/nrql-syntax-clauses-functions/';
 const ASYNC_UNAVAILABLE_RE = /\basync\b|data plus/i;
+const QUERY_GONE_RE = /unknown error|not found|expired|does not exist|no such/i;
 const TIMEOUT_RE = /timed?[\s-]?out|timeout/i;
 
 function intInRange(
@@ -142,6 +143,7 @@ export function resolveAccounts(ctx: ToolContext, requested: readonly number[] |
       throw new RbError(ErrorCode.AuthForbidden, `Account ${id} is not available on this connection.`, {
         hint: 'Use list_accounts to see the accounts you can query.',
         details: { account: id },
+        localDetails: true,
       });
     }
   }
@@ -185,10 +187,17 @@ function failure(error: GraphQLFieldError | undefined, ctx: ToolContext, timeout
   return graphQLErrorToRbError(error, ctx.credential.region);
 }
 
+function queryNotFound(): RbError {
+  return new RbError(ErrorCode.QueryNotFound, 'No running or finished query matches this query_id.', {
+    hint: 'The id is wrong, or New Relic no longer keeps its result (expiresAt). Rerun run_nrql for a new one.',
+  });
+}
+
 function nrqlTimeout(timeoutS: number): RbError {
   return new RbError(ErrorCode.NerdGraphTimeout, `The NRQL query did not finish within ${timeoutS} s.`, {
     hint: 'Narrow it: shorter SINCE window, fewer FACETs, a LIMIT, or a WHERE on an indexed attribute.',
     details: { timeoutS },
+    localDetails: true,
   });
 }
 
@@ -515,6 +524,9 @@ async function pollOnce(
       warnings,
       acct ? ['actor', 'account', 'nrqlQueryProgress'] : ['actor', 'account'],
     );
+    if (!error || error.errorClass === 'INVALID_INPUT' || QUERY_GONE_RE.test(error.message)) {
+      throw queryNotFound();
+    }
     throw failure(error, ctx, 0);
   }
   return pending(container, account, polls) ?? complete(container, [account], warnings, polls, stats);

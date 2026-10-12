@@ -348,6 +348,73 @@ describe('run_nrql', () => {
   });
 });
 
+describe('query tools: error contracts (P8-27)', () => {
+  it('BUG-19: an unknown query id is RB_QUERY_NOT_FOUND with a rerun hint, not an NRQL hint', async () => {
+    const { client } = await setup([
+      json({
+        data: { actor: { account: { nrqlQueryProgress: null } } },
+        errors: [
+          {
+            message: 'unknown error',
+            path: ['actor', 'account', 'nrqlQueryProgress'],
+            extensions: { errorClass: 'INVALID_INPUT' },
+          },
+        ],
+      }),
+    ]);
+    const r = await client.callTool({
+      name: 'get_query_result',
+      arguments: { query_id: 'does-not-exist-123', account: A },
+    });
+    expect(r.isError).toBe(true);
+    expect(errorCode(r)).toBe(ErrorCode.QueryNotFound);
+    expect(text(r)).toContain('Rerun run_nrql');
+    expect(text(r)).not.toContain('Fix the NRQL');
+    expect(text(r)).not.toContain('unknown error');
+  });
+
+  it('BUG-19: timeout_seconds reaches NerdGraph on the async path and the pending handle comes back', async () => {
+    const { client, calls } = await setup([submitted(false), polled(false), polled(false), polled(false)]);
+    const r = await client.callTool({ name: 'run_nrql', arguments: { nrql: NRQL, timeout_seconds: 1 } });
+    expect(calls[0]?.body.variables).toMatchObject({ async: true, timeout: 1 });
+    expect(r.structuredContent).toMatchObject({ status: 'pending', queryId: 'q-123e4567-e89b' });
+  });
+
+  it('BUG-27: a multi-statement query is refused as one statement per call', async () => {
+    const { client, calls } = await setup([fixtureResponse('nrql_sync_1')]);
+    const r = await client.callTool({
+      name: 'run_nrql',
+      arguments: {
+        nrql: 'SELECT count(*) FROM Log SINCE 1 hour ago; SELECT count(*) FROM Span SINCE 1 hour ago',
+      },
+    });
+    expect(r.isError).toBe(true);
+    expect(errorCode(r)).toBe(ErrorCode.InputInvalid);
+    expect(text(r)).toContain('one NRQL statement per call');
+    expect(calls).toHaveLength(0);
+  });
+
+  it('BUG-27: a semicolon inside a string literal is fine', async () => {
+    const { client } = await setup([fixtureResponse('nrql_sync_1')]);
+    const r = await client.callTool({
+      name: 'run_nrql',
+      arguments: { nrql: "SELECT count(*) FROM Log WHERE message = 'a;b' SINCE 1 hour ago" },
+    });
+    expect(r.isError).toBeFalsy();
+  });
+
+  it('BUG-29: local limit errors show their details as plain text, not as New Relic data', async () => {
+    const { client } = await setup([fixtureResponse('nrql_sync_1')]);
+    const r = await client.callTool({
+      name: 'run_nrql',
+      arguments: { nrql: 'SELECT count(*) FROM Transaction SINCE 30 days ago' },
+    });
+    expect(errorCode(r)).toBe(ErrorCode.LimitQuery);
+    expect(text(r)).toContain('Details:');
+    expect(text(r)).not.toContain('untrusted');
+  });
+});
+
 describe('query tools: negative authorization and input validation', () => {
   it('rejects accounts outside the connection scope without a request', async () => {
     const { client, calls } = await setup([fixtureResponse('nrql_sync_1')]);

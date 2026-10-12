@@ -93,6 +93,48 @@ describe('parsers', () => {
   });
 });
 
+describe('list_event_types global types (BUG-08)', () => {
+  it('flags global types that cannot be mixed with account data', async () => {
+    const { fetch } = recorder(() =>
+      nrqlBody([{ eventType: 'Log' }, { eventType: 'Public_APICall' }, { eventType: 'NrUsage' }]),
+    );
+    const client = await connect(fetch);
+    const r = await client.callTool({ name: 'list_event_types', arguments: {} });
+    expect((r.structuredContent as { globalEventTypes: string[] }).globalEventTypes).toEqual([
+      'NrUsage',
+      'Public_APICall',
+    ]);
+    expect(text(r)).toContain("can't be mixed with account data");
+  });
+
+  it('adds nothing when no type is global', async () => {
+    const { fetch } = recorder(() => nrqlBody([{ eventType: 'Log' }]));
+    const client = await connect(fetch);
+    const r = await client.callTool({ name: 'list_event_types', arguments: {} });
+    expect((r.structuredContent as { globalEventTypes: string[] }).globalEventTypes).toEqual([]);
+    expect(text(r)).not.toContain('global');
+  });
+});
+
+describe('get_attributes name_contains (BUG-21)', () => {
+  it('filters by a case-insensitive substring and reports the total', async () => {
+    const { fetch } = recorder(() => nrqlBody(KEYS));
+    const client = await connect(fetch);
+    const r = await client.callTool({
+      name: 'get_attributes',
+      arguments: { event_type: 'Transaction', name_contains: 'APPN' },
+    });
+    const s = r.structuredContent as { attributes: { name: string }[]; totalAttributes: number };
+    expect(s.attributes.map((a) => a.name)).toEqual(['appName']);
+    expect(s.totalAttributes).toBe(3);
+    const none = await client.callTool({
+      name: 'get_attributes',
+      arguments: { event_type: 'Transaction', name_contains: 'zzz' },
+    });
+    expect(text(none)).toContain('No attribute name contains "zzz"');
+  });
+});
+
 describe('list_event_types', () => {
   it('runs SHOW EVENT TYPES with an integer window in the chosen account and caches', async () => {
     const { fetch, calls } = recorder(() => nrqlBody([{ eventType: 'Transaction' }, { eventType: 'Log' }]));

@@ -73,7 +73,10 @@ const CLAUSES = new Set([
 ]);
 
 function limitError(message: string, hint: string, details?: Record<string, unknown>): RbError {
-  return new RbError(ErrorCode.LimitQuery, message, { hint, ...(details ? { details } : {}) });
+  return new RbError(ErrorCode.LimitQuery, message, {
+    hint,
+    ...(details ? { details, localDetails: true } : {}),
+  });
 }
 
 const isWord = (t: Token | undefined, ...words: string[]) => t?.kind === 'word' && words.includes(t.value);
@@ -364,6 +367,15 @@ export function enforceQueryLimits(source: string, limits: QueryLimits, now: num
   if (tokens.some((t) => t.kind === 'string' && t.text.startsWith('"'))) {
     throw new RbError(ErrorCode.InputInvalid, 'NRQL strings use single quotes.', {
       hint: "Replace \"…\" with '…' (escape a quote inside as \\').",
+    });
+  }
+  const semi = tokens.findIndex((t) => t.kind === 'punct' && t.text === ';');
+  if (semi !== -1) {
+    throw new RbError(ErrorCode.InputInvalid, 'Only one NRQL statement per call.', {
+      hint:
+        semi < tokens.length - 1
+          ? 'Split the statements and call run_nrql once for each (or use COMPARE WITH / FACET to combine them).'
+          : 'Remove the trailing ";".',
     });
   }
   const notes: string[] = [];

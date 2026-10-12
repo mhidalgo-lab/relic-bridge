@@ -65,7 +65,10 @@ jobs:
           node-version: '24'
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm vitest run --project storage-sqlite --project storage --project auth
+      # One project after the other: the PBKDF2 tests in `auth` saturate the (2-core) runner and starved the sqlite
+      # contract tests into their timeout when the projects ran side by side (P8-29).
+      - run: pnpm vitest run --project storage-sqlite --project storage
+      - run: pnpm vitest run --project auth
       - run: pnpm vitest run --project cli apps/cli/test/args.test.ts apps/cli/test/main.test.ts
 
   # P2-12: the authorization and isolation suite on its own, so it can be a required check by name. It also runs in

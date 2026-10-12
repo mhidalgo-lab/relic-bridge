@@ -12,5 +12,11 @@ export default defineProject({
       '@relic-bridge/storage': src('../storage/src/index.ts'),
     },
   },
-  test: { name: 'auth' },
+  test: {
+    name: 'auth',
+    // Config-transfer tests derive keys with the production PBKDF2 cost (600 000 iterations, ~0.25 s on a dev machine,
+    // several seconds on a starved CI runner), so the 5 s default is too tight under load (P8-29).
+    testTimeout: 30_000,
+    hookTimeout: 30_000,
+  },
 });

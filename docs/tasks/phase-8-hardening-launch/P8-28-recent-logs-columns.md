@@ -2,7 +2,7 @@
 id: P8-28
 title: list_recent_logs reads a fixed column set
 phase: 8
-status: review
+status: done
 priority: high
 depends_on: []
 adr: []

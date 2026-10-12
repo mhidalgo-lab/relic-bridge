@@ -144,18 +144,38 @@ export interface TimePosition {
   readonly k: number;
   /** Epoch ms where the window started, so it does not slide between calls. */
   readonly s: number;
+  /** Epoch ms where the window ended (frozen like `s`); absent in cursors of lists that end at the cursor's instant. */
+  readonly e?: number;
+  /** Ids of the rows already shown at exactly `t` (a stable tiebreaker); absent when rows have no usable id. */
+  readonly ids?: readonly string[];
 }
+
+/** Most ids a cursor carries; beyond that the count `k` is the tiebreaker. */
+export const MAX_CURSOR_IDS = 40;
+const ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 
 export function readTimeCursor(binding: string, raw: string): TimePosition {
   const p = decodePageCursor(binding, raw);
-  const { t, k, s } = p;
+  const { t, k, s, e, i } = p;
   if (typeof t !== 'number' || typeof k !== 'number' || typeof s !== 'number' || k > MAX_COUNTER || s > t)
     throw badCursor();
-  return { t, k, s };
+  if (e !== undefined && e !== null && (typeof e !== 'number' || e < t)) throw badCursor();
+  let ids: string[] | undefined;
+  if (typeof i === 'string') {
+    ids = i.split('.');
+    if (ids.length > MAX_CURSOR_IDS || !ids.every((x) => ID_RE.test(x))) throw badCursor();
+  }
+  return { t, k, s, ...(typeof e === 'number' ? { e } : {}), ...(ids ? { ids } : {}) };
 }
 
 export function timeCursor(binding: string, pos: TimePosition): string {
-  return encodePageCursor(binding, { t: pos.t, k: pos.k, s: pos.s });
+  return encodePageCursor(binding, {
+    t: pos.t,
+    k: pos.k,
+    s: pos.s,
+    ...(pos.e === undefined ? {} : { e: pos.e }),
+    ...(pos.ids === undefined ? {} : { i: pos.ids.join('.') }),
+  });
 }
 
 /**
@@ -166,13 +186,33 @@ export function nextTimePosition(
   times: readonly number[],
   previous: TimePosition | null,
   sinceMs: number,
+  untilMs?: number,
+  /** Row ids of this page, parallel to `times` (null: the row has none). */
+  ids?: readonly (string | null)[],
 ): TimePosition | null {
   const last = times[times.length - 1];
   if (last === undefined) return null;
   const sameAsLast = times.filter((x) => x === last).length;
   // Every row of the page shares the timestamp the page started at: add to the rows already skipped.
-  const carried = previous !== null && previous.t === last ? previous.k : 0;
-  return { t: last, k: carried + sameAsLast, s: sinceMs };
+  const carriedPrevious = previous !== null && previous.t === last;
+  const carried = carriedPrevious ? previous.k : 0;
+  const base = {
+    t: last,
+    k: carried + sameAsLast,
+    s: sinceMs,
+    ...(untilMs === undefined ? {} : { e: untilMs }),
+  };
+  if (ids === undefined) return base;
+  // The ids shown at `last`: those of this page plus those carried over. Without an id for every row (or too many),
+  // fall back to the count.
+  const here = ids.filter((_, n) => times[n] === last);
+  if (carriedPrevious && previous.ids === undefined) return base;
+  const all = [...(carriedPrevious ? (previous.ids ?? []) : []), ...here];
+  const usable =
+    here.length === sameAsLast &&
+    all.length <= MAX_CURSOR_IDS &&
+    all.every((x): x is string => typeof x === 'string' && ID_RE.test(x));
+  return usable ? { ...base, ids: all as string[] } : base;
 }
 
 /** Most rows one upstream request for a time-cursor list asks for (page + rows already shown at the cursor's instant). */
@@ -193,8 +233,11 @@ export function pageByTime<T>(
   pos: TimePosition | null,
   limit: number,
   upstreamFull: boolean,
-): { items: T[]; times: number[]; more: boolean } {
+  /** Row id: with it and a position that carries ids, rows already shown are told apart by id, not by count. */
+  idOf?: (row: T) => string | null,
+): { items: T[]; times: number[]; ids: (string | null)[]; more: boolean } {
   let skip = pos?.k ?? 0;
+  const shownIds = pos?.ids !== undefined && idOf !== undefined ? new Set(pos.ids) : null;
   const kept: { row: T; ts: number }[] = [];
   for (const row of rows) {
     const ts = tsOf(row);
@@ -205,7 +248,10 @@ export function pageByTime<T>(
     }
     if (pos !== null) {
       if (ts > pos.t) continue;
-      if (ts === pos.t && skip > 0) {
+      if (ts === pos.t && shownIds !== null) {
+        const id = idOf?.(row) ?? null;
+        if (id !== null && shownIds.has(id)) continue;
+      } else if (ts === pos.t && skip > 0) {
         skip--;
         continue;
       }
@@ -216,6 +262,7 @@ export function pageByTime<T>(
   return {
     items: page.map((p) => p.row),
     times: page.map((p) => p.ts).filter((t) => !Number.isNaN(t)),
+    ids: page.filter((p) => !Number.isNaN(p.ts)).map((p) => idOf?.(p.row) ?? null),
     more: kept.length > limit || (upstreamFull && page.length > 0),
   };
 }

@@ -2,7 +2,7 @@
 id: P8-23
 title: Logs fixes (pattern size, level vocabulary, window boundary, stable paging, empty messages)
 phase: 8
-status: in-progress
+status: review
 priority: high
 depends_on: []
 adr: []
@@ -27,13 +27,13 @@ Fix five defects of the log tools found in the live test run (2026-10-12): BUG-0
 - BUG-25: when `message` is empty, show `log`, `logged_message` or a compact attribute summary.
 
 ## Acceptance criteria
-- [ ] BUG-03: the sample query truncates in NRQL, patterns are capped at 20 with one example each, and a too-large answer is retried smaller (tests fail before the fix).
-- [ ] BUG-11: the new level names are accepted by both tools, map as documented, and level counts use the same vocabulary.
-- [ ] BUG-23: a `last 7 days` window is accepted with a 7-day limit for any millisecond of the second; one second more is still rejected.
-- [ ] BUG-24: pages keep one `since`/`until`, never contain a line outside it, and do not skip or repeat lines that share a timestamp.
-- [ ] BUG-25: empty `message` falls back as described.
-- [ ] Tool descriptions, `docs/reference/tools.md`, RESEARCH.md updated; changeset added.
-- [ ] `pnpm lint && pnpm typecheck && pnpm test` pass.
+- [x] BUG-03: the sample query truncates in NRQL, patterns are capped at 20 with one example each, and a too-large answer is retried smaller (tests fail before the fix).
+- [x] BUG-11: the new level names are accepted by both tools, map as documented, and level counts use the same vocabulary.
+- [x] BUG-23: a `last 7 days` window is accepted with a 7-day limit for any millisecond of the second; one second more is still rejected.
+- [x] BUG-24: pages keep one `since`/`until`, never contain a line outside it, and do not skip or repeat lines that share a timestamp.
+- [x] BUG-25: empty `message` falls back as described.
+- [x] Tool descriptions, `docs/reference/tools.md`, RESEARCH.md updated; changeset added.
+- [x] `pnpm lint && pnpm typecheck && pnpm test` pass.
 
 ## Security notes
 T6: every fallback text goes through the same redaction, single-lining and cap as `message`. T4: all values are NRQL template values.

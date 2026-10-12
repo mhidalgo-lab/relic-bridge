@@ -17,8 +17,10 @@ import {
   cleanLogMessage,
   findSpikes,
   levelCountQuery,
+  lineText,
   normaliseMessage,
   recentQuery,
+  sampleQuery,
   topPatterns,
 } from '../src/tools/logs.ts';
 import { testContext } from './helpers/context.ts';
@@ -400,5 +402,210 @@ describe('analyze_entity_logs', () => {
       ),
     ).toBe(ErrorCode.LimitQuery);
     expect(calls).toHaveLength(0);
+  });
+});
+
+describe('BUG-03 pattern sample size', () => {
+  it('cuts the message at New Relic and caps patterns at 20 with one example each', () => {
+    const q = sampleQuery(guidOf(A), undefined, NOW - MIN, NOW).text;
+    expect(q).toContain('substring(message, 0, 300) AS message');
+    expect(q).toContain('LIMIT 500');
+    const many = Array.from(
+      { length: 60 },
+      (_, i) =>
+        `kind${String.fromCharCode(97 + (i % 26))}${String.fromCharCode(97 + Math.floor(i / 26))} happened`,
+    );
+    const p = topPatterns(many);
+    expect(p).toHaveLength(20);
+    expect(p.every((x) => typeof x.example === 'string')).toBe(true);
+  });
+
+  it('repeats a too-large sample smaller instead of dropping the section', async () => {
+    const big = { message: 'timeout after 30 ms '.repeat(40) };
+    const { fetch, calls } = recording((nrql) => {
+      if (nrql.includes('FACET level')) return nrqlBody([{ facet: 'ERROR', lines: 5 }]);
+      if (nrql.includes('TIMESERIES')) return nrqlBody([]);
+      if (nrql.includes('substring(message, 0, 300)'))
+        return nrqlBody(Array.from({ length: 200 }, () => big));
+      return nrqlBody([{ message: 'timeout after 30 ms' }, { message: 'timeout after 31 ms' }]);
+    });
+    const base = testContext();
+    const client = await connect(fetch, { limits: { ...base.limits, maxResponseBytes: 8000 } });
+    const r = await client.callTool({ name: 'analyze_entity_logs', arguments: { entity_guid: guidOf(A) } });
+    expect(r.isError ?? false).toBe(false);
+    const s = r.structuredContent as {
+      patterns: { pattern: string; count: number }[];
+      partial: boolean;
+      notes: string[];
+    };
+    expect(calls).toHaveLength(4);
+    expect(String(calls[3]?.variables['nrql'])).toContain('substring(message, 0, 100)');
+    expect(s.patterns[0]).toMatchObject({ pattern: 'timeout after <n> ms', count: 2 });
+    expect(s.partial).toBe(false);
+    expect(s.notes.join(' ')).toContain('too large');
+  });
+});
+
+describe('BUG-11 level vocabulary', () => {
+  it.each([
+    ['warning', ['WARNING', 'Warning', 'WARN']],
+    ['warn', ['WARNING', 'warning']],
+    ['notice', ['NOTICE', 'notice', 'Notice']],
+    ['critical', ['CRITICAL', 'CRIT']],
+    ['alert', ['ALERT', 'alert']],
+    ['emergency', ['EMERGENCY', 'EMERG']],
+    ['fatal', ['FATAL', 'CRITICAL', 'ALERT', 'EMERGENCY']],
+  ] as const)('%s selects its spellings', (level, spellings) => {
+    const q = recentQuery(undefined, level, undefined, 5, NOW - MIN, NOW).text;
+    for (const sp of spellings) expect(q).toContain(`'${sp}'`);
+  });
+
+  it('is accepted by list_recent_logs and analyze_entity_logs, and counts use the same words', async () => {
+    const { fetch, calls } = recording((nrql) =>
+      nrql.includes('FACET level')
+        ? nrqlBody([
+            { facet: 'WARNING', lines: 4 },
+            { facet: 'warn', lines: 1 },
+            { facet: 'CRITICAL', lines: 2 },
+            { facet: 'Err', lines: 3 },
+          ])
+        : nrqlBody([]),
+    );
+    const client = await connect(fetch);
+    const l = await client.callTool({ name: 'list_recent_logs', arguments: { level: 'notice' } });
+    expect(l.isError ?? false).toBe(false);
+    const a = await client.callTool({
+      name: 'analyze_entity_logs',
+      arguments: { entity_guid: guidOf(A), level: 'warning' },
+    });
+    expect(a.isError ?? false).toBe(false);
+    expect(String(calls[0]?.variables['nrql'])).toContain(`'NOTICE'`);
+    const levels = (a.structuredContent as { levels: { level: string; count: number }[] }).levels;
+    expect(levels).toEqual([
+      { level: 'warning', count: 5 },
+      { level: 'error', count: 3 },
+      { level: 'critical', count: 2 },
+    ]);
+  });
+});
+
+describe('BUG-23 inclusive window boundary', () => {
+  it('accepts "last 7 days" with a 7-day limit at any millisecond of the second', async () => {
+    const { fetch, calls } = recording(() => nrqlBody([]));
+    const base = testContext();
+    for (const offset of [0, 1, 437, 999]) {
+      const client = await connect(fetch, {
+        clock: { now: () => NOW + offset },
+        limits: { ...base.limits, maxWindowDays: 7 },
+      });
+      const r = await client.callTool({ name: 'list_recent_logs', arguments: { time_range: 'last 7 days' } });
+      expect(errorCode(r)).toBeUndefined();
+    }
+    expect(calls).toHaveLength(4);
+    const client = await connect(fetch, { limits: { ...base.limits, maxWindowDays: 7 } });
+    const r = await client.callTool({ name: 'list_recent_logs', arguments: { time_range: 'last 8 days' } });
+    expect(errorCode(r)).toBe(ErrorCode.LimitQuery);
+  });
+});
+
+describe('BUG-24 stable paging', () => {
+  const T = NOW - 10 * MIN;
+  const ids = ['id-a', 'id-b', 'id-c', 'id-d', 'id-e'];
+  const line = (n: number, ts: number) => ({
+    timestamp: ts,
+    level: 'INFO',
+    message: `m${n}`,
+    messageId: ids[n],
+  });
+
+  it('freezes since and until, bounds the query by timestamp and never shows lines outside the window', async () => {
+    let clockNow = NOW;
+    const { fetch, calls } = recording(() =>
+      nrqlBody([
+        // One line newer than the window (upstream rounds UNTIL up to whole seconds), then the real ones.
+        line(0, NOW + 500),
+        line(1, T + 5),
+        line(2, T + 5),
+        line(3, T + 5),
+        line(4, T - 1),
+      ]),
+    );
+    const client = await connect(fetch, { clock: { now: () => clockNow } });
+    const p1 = await client.callTool({
+      name: 'list_recent_logs',
+      arguments: { time_range: 'last 1 hour', limit: 2 },
+    });
+    const s1 = p1.structuredContent as {
+      since: string;
+      until: string;
+      logs: { message: string }[];
+      nextCursor: string;
+    };
+    expect(s1.logs.map((l) => l.message)).toEqual(['m1', 'm2']);
+    expect(String(calls[0]?.variables['nrql'])).toMatch(/timestamp >= \d+ AND timestamp <= \d+/);
+    clockNow += 30_000;
+    const p2 = await client.callTool({
+      name: 'list_recent_logs',
+      arguments: { time_range: 'last 1 hour', limit: 2, cursor: s1.nextCursor },
+    });
+    const s2 = p2.structuredContent as { since: string; until: string; logs: { message: string }[] };
+    expect(s2.since).toBe(s1.since);
+    expect(s2.until).toBe(s1.until);
+    // The line sharing the timestamp that was not shown yet comes next, and no already shown one repeats.
+    expect(s2.logs.map((l) => l.message)).toEqual(['m3', 'm4']);
+    const second = String(calls[1]?.variables['nrql']);
+    expect(second).toContain(`timestamp <= ${T + 5}`);
+    expect(second).toMatch(/UNTIL \d+$/);
+  });
+
+  it('does not skip or repeat equal-timestamp lines when their order changes between calls', async () => {
+    let call = 0;
+    const tie = [line(1, T), line(2, T), line(3, T)];
+    const { fetch } = recording(() => nrqlBody(call++ % 2 === 0 ? tie : [...tie].reverse()));
+    const client = await connect(fetch);
+    const seen: string[] = [];
+    let cursor: string | undefined;
+    for (let i = 0; i < 6; i++) {
+      const r = await client.callTool({
+        name: 'list_recent_logs',
+        arguments: { limit: 1, ...(cursor ? { cursor } : {}) },
+      });
+      const s = r.structuredContent as { logs: { message: string }[]; nextCursor: string | null };
+      seen.push(...s.logs.map((l) => l.message));
+      if (s.nextCursor === null) break;
+      cursor = s.nextCursor;
+    }
+    expect([...seen].sort()).toEqual(['m1', 'm2', 'm3']);
+  });
+});
+
+describe('BUG-25 empty messages', () => {
+  it('falls back to log, logged_message, then an attribute summary', () => {
+    expect(lineText({ message: 'plain', log: 'x' })).toBe('plain');
+    expect(lineText({ message: '', log: 'from log' })).toBe('from log');
+    expect(lineText({ message: '  ', logged_message: 'from logged' })).toBe('from logged');
+    const summary = lineText({
+      timestamp: 1,
+      level: 'INFO',
+      message: '',
+      messageId: 'abc',
+      'entity.guid': 'g',
+      userId: 42,
+      route: '/pay',
+      nested: { a: 1 },
+    });
+    expect(summary).toBe('(no message) userId=42 route=/pay');
+    expect(lineText({ timestamp: 1, message: '' })).toBe('');
+  });
+
+  it('shows the fallback scrubbed in the tool result', async () => {
+    const { fetch } = recording(() =>
+      nrqlBody([{ timestamp: NOW - MIN, level: 'INFO', message: '', log: `login token=${TOKEN}` }]),
+    );
+    const client = await connect(fetch);
+    const r = await client.callTool({ name: 'list_recent_logs', arguments: {} });
+    const s = r.structuredContent as { logs: { message: string }[] };
+    expect(s.logs[0]?.message).toContain('login');
+    expect(s.logs[0]?.message).not.toContain(TOKEN);
   });
 });

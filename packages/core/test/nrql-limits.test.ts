@@ -199,6 +199,30 @@ describe('time window', () => {
     expect(() => check('SELECT count(*) FROM T SINCE 7 days ago UNTIL 6 days ago')).not.toThrow();
   });
 
+  it('BUG-23: a window rounded outward to whole epoch seconds still fits exactly maxWindowDays', () => {
+    // "last 7 days" at any millisecond of the second: floor(since) and ceil(until) in seconds.
+    const now = NOW + 437;
+    const since = Math.floor((now - 7 * DAY) / 1000);
+    const until = Math.ceil(now / 1000);
+    const sql = `SELECT count(*) FROM T SINCE ${since} UNTIL ${until}`;
+    expect(() => enforceQueryLimits(sql, DEFAULT_LIMITS, now)).not.toThrow();
+    // A real extra minute is still refused, for width and lookback alike.
+    const wider = `SELECT count(*) FROM T SINCE ${since - 60} UNTIL ${until}`;
+    expect(() => enforceQueryLimits(wider, DEFAULT_LIMITS, now)).toThrow(RbError);
+  });
+
+  it('BUG-23: a window rounded outward to whole epoch seconds still fits exactly maxWindowDays', () => {
+    // "last 7 days" at any millisecond of the second: floor(since) and ceil(until) in seconds.
+    const now = NOW + 437;
+    const since = Math.floor((now - 7 * DAY) / 1000);
+    const until = Math.ceil(now / 1000);
+    const sql = `SELECT count(*) FROM T SINCE ${since} UNTIL ${until}`;
+    expect(() => enforceQueryLimits(sql, DEFAULT_LIMITS, now)).not.toThrow();
+    // A real extra minute is still refused, for width and lookback alike.
+    const wider = `SELECT count(*) FROM T SINCE ${since - 60} UNTIL ${until}`;
+    expect(() => enforceQueryLimits(wider, DEFAULT_LIMITS, now)).toThrow(RbError);
+  });
+
   it('honours a raised limit for lookback', () => {
     expect(() =>
       check('SELECT count(*) FROM T SINCE 60 days ago UNTIL 59 days ago', { maxWindowDays: 90 }),

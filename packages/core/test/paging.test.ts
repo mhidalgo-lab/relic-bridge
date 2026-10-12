@@ -200,6 +200,52 @@ describe('time cursors', () => {
     expect(page.more).toBe(false);
   });
 
+  it('BUG-24: equal timestamps are told apart by id even when the upstream order of ties changes', async () => {
+    const binding = await bindingOf('t', 1);
+    type Row = { ts: number; id: string };
+    const all: Row[] = [
+      { ts: 50, id: 'a' },
+      { ts: 40, id: 'b' },
+      { ts: 40, id: 'c' },
+      { ts: 40, id: 'd' },
+      { ts: 30, id: 'e' },
+    ];
+    const seen: string[] = [];
+    let cursor: string | undefined;
+    for (let call = 0; call < 10; call++) {
+      const pos = cursor === undefined ? null : readTimeCursor(binding, cursor);
+      const size = timeFetchSize(2, pos);
+      // Ties come back in a different order on every call.
+      const dir = call % 2 === 0 ? 1 : -1;
+      const ordered = [...all].sort((x, y) => y.ts - x.ts || dir * x.id.localeCompare(y.id));
+      const upstream = ordered.filter((r) => pos === null || r.ts <= pos.t).slice(0, size);
+      const page = pageByTime(
+        upstream,
+        (r) => r.ts,
+        pos,
+        2,
+        upstream.length >= size,
+        (r) => r.id,
+      );
+      seen.push(...page.items.map((r) => r.id));
+      const next = page.more ? nextTimePosition(page.times, pos, 0, 100, page.ids) : null;
+      cursor = next === null ? undefined : timeCursor(binding, next);
+      if (cursor === undefined) break;
+    }
+    expect([...seen].sort()).toEqual(['a', 'b', 'c', 'd', 'e']);
+  });
+
+  it('keeps the window end and the ids in the cursor', async () => {
+    const binding = await bindingOf('t', 1);
+    const pos = readTimeCursor(
+      binding,
+      timeCursor(binding, { t: 40, k: 2, s: 10, e: 90, ids: ['x-1', 'y_2'] }),
+    );
+    expect(pos).toEqual({ t: 40, k: 2, s: 10, e: 90, ids: ['x-1', 'y_2'] });
+    invalid(() => readTimeCursor(binding, encodePageCursor(binding, { t: 40, k: 0, s: 10, e: 30 })));
+    invalid(() => readTimeCursor(binding, encodePageCursor(binding, { t: 40, k: 1, s: 10, i: 'bad id!' })));
+  });
+
   it('refuses a malformed position and a start after the instant', async () => {
     const binding = await bindingOf('t', 1);
     invalid(() => readTimeCursor(binding, encodePageCursor(binding, { o: 1 })));

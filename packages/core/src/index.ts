@@ -63,6 +63,7 @@ export {
 } from './prompts.ts';
 export { isSecretKeyName, REDACTED, redact, redactValue } from './redact.ts';
 export {
+  additiveOutput,
   inputJsonSchema,
   outputJsonSchema,
   RegistryError,

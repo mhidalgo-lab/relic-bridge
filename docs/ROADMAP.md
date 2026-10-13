@@ -306,4 +306,5 @@ Generated from task front matter (`pnpm tasks index`). Status lives in each task
 | P8-35 | [Sign off the changesets version commit for the DCO check](tasks/phase-8-hardening-launch/P8-35-version-pr-signoff.md) | medium | P8-12 | done |
 | P8-36 | [nerdgraph:schema creates its snapshot folder on the first run](tasks/phase-8-hardening-launch/P8-36-schema-script-mkdir.md) | high | P8-32 | done |
 | P8-37 | [Commit the first NerdGraph schema snapshot](tasks/phase-8-hardening-launch/P8-37-nerdgraph-schema-snapshot.md) | high | P8-32, P8-36 | done |
+| P8-38 | [Output schemas tolerate new fields; upgrade guidance](tasks/phase-8-hardening-launch/P8-38-additive-output-schemas.md) | high | — | done |
 <!-- tasks:end -->

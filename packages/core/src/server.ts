@@ -10,7 +10,7 @@ import { toCallToolResult } from './call-result.ts';
 import { budgetUsage, type ElicitationBinding, type ToolContext } from './context.ts';
 import { ERROR_META_KEY, toToolErrorResult } from './errors.ts';
 import { type PromptDefinition, promptConfig, renderPrompt, selectPrompts } from './prompts.ts';
-import { withoutDialect } from './registry.ts';
+import { additiveOutput, withoutDialect } from './registry.ts';
 import { type ResourceDefinition, registerResources, selectResources } from './resources.ts';
 import { clientDeclaresTasks, createTask, TASKS_EXTENSION } from './tasks.ts';
 import { annotationsFor, type ToolDefinition, type ToolOutput } from './tool.ts';
@@ -122,7 +122,8 @@ export function withCachedJsonSchema(schema: StandardSchemaWithJSON): StandardSc
       let json = memo.get(key);
       if (json === undefined) {
         // Frozen: the same object is handed to every request, so nobody may change it.
-        json = deepFreeze(withoutDialect(std.jsonSchema[io](options)));
+        const raw = withoutDialect(std.jsonSchema[io](options));
+        json = deepFreeze(io === 'output' ? additiveOutput(raw) : raw);
         memo.set(key, json);
       }
       return json;

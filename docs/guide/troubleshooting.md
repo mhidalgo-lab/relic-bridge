@@ -30,6 +30,7 @@ path, token shape) and, with the token in `RB_TOKEN` or `--token-file`, whether 
 | `npx: command not found`, or the client shows the server as failed | The client can't see Node. Use absolute paths for `command` (`which npx`). Node 24.11 or later is required. |
 | Works in a terminal, not in the client | The client's environment differs from your shell. Set variables in `env`; use absolute paths, including for `--config`. |
 | Server output is garbled / client reports a protocol error | Something else wrote to stdout. Don't wrap the command in a script that prints; relic-bridge itself logs only to stderr. |
+| After upgrading relic-bridge, a tool fails with `Structured content does not match the tool's output schema`, or a new parameter is rejected or missing | The client still holds the tool list from before the upgrade, and a stateless server can't tell it to refresh. Reconnect the MCP client (`/mcp` in Claude Code; remove and re-add the connector, or restart the app, elsewhere). Newer versions advertise output schemas that accept added fields, so new output fields no longer break old clients, but new parameters still need a reconnect. |
 | Changes to the config have no effect | Restart the client (Claude Desktop must be fully quit) or reload the server. |
 
 ## Errors returned by tools

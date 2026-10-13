@@ -1093,3 +1093,16 @@ Sources: [server.json format](https://github.com/modelcontextprotocol/registry/b
   the aiIssues opt-in still appear in introspection, so the check cannot tell whether a header is needed.
 - Not yet verified against the live endpoint: whether NerdGraph accepts the standard introspection query unchanged
   (the spike used a trimmed one). The first run by the owner confirms it; adjust `INTROSPECTION_QUERY` if not.
+
+## Tool-list change signalling on stateless HTTP (P8-38, NEW-01, SDK 2.2.0 types, 2026-10-13)
+- A client that connected before an upgrade keeps the `tools/list` it fetched. relic-bridge serves one MCP server per
+  request (ADR-0005), so there is no long-lived session to push `notifications/tools/list_changed` to. `tools.listChanged`
+  stays `false` on HTTP: advertising `true` would only make `subscriptions/listen` hold a stream that never delivers.
+- 2026-07-28 does add cache hints to cacheable results (`tools/list` among them): `ttlMs` and `cacheScope`. The SDK
+  fills them with `{ ttlMs: 0, cacheScope: 'private' }` unless `cacheHints` is configured, which already tells a
+  2026-07-28 client to revalidate on every use. Nothing to change there; 2025-era responses never carry the fields.
+  There is no tool-list version or ETag field.
+- What does work: advertise output schemas that tolerate new fields. zod's output conversion emits
+  `additionalProperties: false`, so a cached 0.7.0 schema rejected 0.8.0's `limits.callsUsed`. The advertised output
+  schema now omits it (server-side validation still uses the strict zod schema). New *input* parameters stay invisible
+  to a stale client; only a reconnect fixes that, so the upgrade docs say to reconnect.

@@ -101,10 +101,25 @@ export function outputJsonSchema(
   def: Pick<ToolDefinition, 'outputSchema'>,
 ): Record<string, unknown> | undefined {
   if (!def.outputSchema) return undefined;
-  return z.toJSONSchema(def.outputSchema, { target: 'draft-2020-12', io: 'output' }) as Record<
-    string,
-    unknown
-  >;
+  return additiveOutput(
+    z.toJSONSchema(def.outputSchema, { target: 'draft-2020-12', io: 'output' }) as Record<string, unknown>,
+  );
+}
+
+/**
+ * The advertised output schema without `additionalProperties: false` (P8-38). A client that connected before an
+ * upgrade keeps the old `tools/list` and rejects any result with a newer field. Only the advertised JSON Schema is
+ * relaxed (and gets shorter): the server still validates what it produces with the original strict zod schema.
+ */
+export function additiveOutput<T>(schema: T): T {
+  if (Array.isArray(schema)) return schema.map(additiveOutput) as T;
+  if (schema === null || typeof schema !== 'object') return schema;
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(schema)) {
+    if (k === 'additionalProperties' && v === false) continue;
+    out[k] = additiveOutput(v);
+  }
+  return out as T;
 }
 
 /**

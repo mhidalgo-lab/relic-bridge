@@ -1106,3 +1106,7 @@ Sources: [server.json format](https://github.com/modelcontextprotocol/registry/b
   `additionalProperties: false`, so a cached 0.7.0 schema rejected 0.8.0's `limits.callsUsed`. The advertised output
   schema now omits it (server-side validation still uses the strict zod schema). New *input* parameters stay invisible
   to a stale client; only a reconnect fixes that, so the upgrade docs say to reconnect.
+
+- `aiIssues.issues` has no count or aggregate field (schema snapshot, P8-41): a window-wide `group_by` is computed by reading the
+  window page by page (bounded, same filter and frozen window as the page query), not by one aggregate query. Past the bound or
+  the request budget, `list_recent_issues` falls back to page-local counts and labels them `groupsScope: "page"`.

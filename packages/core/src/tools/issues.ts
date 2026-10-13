@@ -15,9 +15,10 @@ import { pickFields } from '../output/compact.ts';
 import { shapeRows } from '../output/format.ts';
 import { parseTimeRange } from '../time/range.ts';
 import { defineTool, type ToolDefinition } from '../tool.ts';
+import { FATAL_CODES } from './changes.ts';
 import { checkGuid, isNonNull, requireField } from './entities.ts';
 import { cleanName } from './identity.ts';
-import { bindingOf, listLimit, pageUpstream } from './paging.ts';
+import { bindingOf, listLimit, pageUpstream, upstreamCursorOf } from './paging.ts';
 import {
   accountInput,
   assertWindowWithinLimit,
@@ -33,6 +34,8 @@ import {
 
 const DEFAULT_WINDOW = 'last 24 hours';
 const MAX_LIST = 10;
+/** Most extra requests spent counting the whole window for group_by (the API has no count; it is read page by page). */
+const MAX_GROUP_PAGES = 4;
 const DEFAULT_LIMIT = 25;
 const MAX_LIMIT = 200;
 const MAX_TITLE_CHARS = 300;
@@ -77,7 +80,7 @@ const issuesInput = z.strictObject({
     .max(MAX_CONTAINS)
     .optional()
     .describe('Text to search for in the issue title, entity names and policy name.'),
-  group_by: z.enum(['condition', 'entity']).optional().describe('Count this page per condition or entity.'),
+  group_by: z.enum(['condition', 'entity']).optional().describe('Count per condition or entity.'),
   time_range: windowInput,
   account: accountInput,
   limit: listLimit('rows', DEFAULT_LIMIT, MAX_LIMIT),
@@ -119,17 +122,19 @@ const pageOutput = {
 const issuesOutput = z.object({
   issues: z.array(z.record(z.string(), z.unknown())),
   groups: z.array(z.record(z.string(), z.unknown())).optional(),
+  /** What groups[].count covers: the whole `window`, or only this `page`. */
+  groupsScope: z.enum(['window', 'page']),
   ...pageOutput,
 });
 const incidentsOutput = z.object({ incidents: z.array(z.record(z.string(), z.unknown())), ...pageOutput });
 
 const ISSUES_DESCRIPTION = `List recent alert issues of one account (what is or was alerting): title, state, priority, when it opened, was acknowledged and closed, and the entities, policy and condition behind it.
 
-Start here for "what is alerting?" or "what broke?": states ["ACTIVATED"] gives the open ones. An issue groups related incidents; for the individual violations use search_incidents. Filter by entity (guid or name). Page with cursor (keeps the first window). It cannot acknowledge or close anything. Uses New Relic's experimental aiIssues API. ${UNTRUSTED}`;
+Start here for "what is alerting?" or "what broke?": states ["ACTIVATED"] gives the open ones. An issue groups related incidents; for the individual violations use search_incidents. Filter by entity (guid or name). Page with cursor. Runs 1 request (${1 + MAX_GROUP_PAGES} with group_by: window counts, see groupsScope). Cannot acknowledge or close anything. Uses the experimental aiIssues API. ${UNTRUSTED}`;
 
 const INCIDENTS_DESCRIPTION = `Search the alert incidents (individual violations) of one account: title, state (CREATED = open, CLOSED), priority, times and the entities involved.
 
-Use it to drill into what triggered an issue or to find one entity's violations; for the grouped view ("what is alerting?") use list_recent_issues. Filter by entity (guid or name). Page with cursor (keeps the first window). Uses New Relic's experimental aiIssues API. ${UNTRUSTED}`;
+Use it to drill into what triggered an issue or to find one entity's violations; for the grouped view ("what is alerting?") use list_recent_issues. Filter by entity (guid or name). Page with cursor (keeps the first window). Uses the experimental aiIssues API. ${UNTRUSTED}`;
 
 /** `["a", null]` or a comma-separated string (some incident fields are plain strings) → clean strings. */
 function listOf(v: readonly (string | number | null)[] | string | null | undefined): string[] {
@@ -386,6 +391,40 @@ const plural = (n: number, one: string, many: string) => (n === 1 ? one : many);
 export function createIssueTools(deps: ToolDeps = {}): ToolDefinition[] {
   const client = toolClient(deps);
 
+  /** Every in-scope issue of the window, read page by page; `rows: null` (with a note) when it does not fit or fails. */
+  async function windowRows(
+    ctx: ToolContext,
+    account: number,
+    filter: Record<string, unknown>,
+    w: { sinceMs: number; untilMs: number },
+    scoped: (i: AiIssueData) => boolean,
+  ): Promise<{ rows: IssueRow[]; note: null } | { rows: null; note: string }> {
+    const rows: IssueRow[] = [];
+    let cursor: string | null = null;
+    try {
+      for (let n = 0; n < MAX_GROUP_PAGES + 1; n++) {
+        if (n > 0 && ctx.budget.remaining < 1) throw new RbError(ErrorCode.BudgetExhausted, 'budget');
+        const result = await client(ctx).query(AI_ISSUES_QUERY, {
+          accountId: account,
+          cursor,
+          filter,
+          timeWindow: { startTime: w.sinceMs, endTime: w.untilMs },
+        });
+        const found = requireField(result.data.actor.account, result, ctx).aiIssues?.issues;
+        for (const i of (found?.issues ?? []).filter(isNonNull))
+          if (scoped(i)) rows.push(toIssue(i, ctx, account));
+        cursor = upstreamCursorOf(found?.nextCursor);
+        if (cursor === null) return { rows, note: null };
+      }
+    } catch (e) {
+      if (!(e instanceof RbError) || FATAL_CODES.has(e.code)) throw e;
+    }
+    return {
+      rows: null,
+      note: `Group counts cover this page only: the window has too many issues to count within the request budget.`,
+    };
+  }
+
   const listIssues = defineTool({
     name: 'list_recent_issues',
     title: 'List recent alert issues',
@@ -394,7 +433,7 @@ export function createIssueTools(deps: ToolDeps = {}): ToolDefinition[] {
     outputSchema: issuesOutput,
     kind: 'read',
     openWorld: true,
-    cost: 1,
+    cost: 1 + MAX_GROUP_PAGES,
     group: 'alerting',
     phase: 6,
     handler: async (input, ctx) => {
@@ -450,15 +489,27 @@ export function createIssueTools(deps: ToolDeps = {}): ToolDefinition[] {
       if (hiddenOutsideScope) lines.push("Note: results outside this connection's accounts were left out.");
       if (nextCursor)
         lines.push('More results: call again with the same filters and cursor set to the nextCursor below.');
-      // Without group_by: only conditions that repeat on the page; with it: every group (BUG-15).
+      // Without group_by: only conditions that repeat on the page; with it: every group, over the whole window when
+      // the window fits in a few extra pages and the budget allows (NEW-07), else over this page, labelled.
       const by = input.group_by ?? 'condition';
-      const found = groupIssues(rows, by);
+      const win = paged.window ?? range;
+      let groupRows: readonly IssueRow[] = rows;
+      let groupsScope: 'window' | 'page' = 'page';
+      let groupsNote: string | null = null;
+      if (input.group_by) {
+        const whole = await windowRows(ctx, account, filter, win, scoped);
+        if (whole.rows) {
+          groupRows = whole.rows;
+          groupsScope = 'window';
+        } else groupsNote = whole.note;
+      }
+      const found = groupIssues(groupRows, by);
       const shown = input.group_by ? found : found.filter((g) => g.count > 1);
       const groups = shown.length > 0 ? shown : undefined;
       if (groups) {
         lines.push(
           input.group_by
-            ? `Issues on this page per ${by} (${rows.length} issues; see groups):`
+            ? `Issues ${groupsScope === 'window' ? 'in the window' : 'on this page'} per ${by} (${groupRows.length} issues; see groups):`
             : `Repeated conditions on this page (${groups.reduce((n, g) => n + g.count, 0)} of ${rows.length} issues; see groups):`,
           ...groups
             .slice(0, MAX_LIST)
@@ -467,6 +518,7 @@ export function createIssueTools(deps: ToolDeps = {}): ToolDefinition[] {
             ),
         );
       }
+      if (groupsNote) lines.push(`Note: ${groupsNote}`);
       if (rows.length > 0) {
         lines.push(
           shapeRows(
@@ -499,6 +551,7 @@ export function createIssueTools(deps: ToolDeps = {}): ToolDefinition[] {
           until,
           issues,
           ...(groups ? { groups } : {}),
+          groupsScope,
           nextCursor,
           hiddenOutsideScope,
         },

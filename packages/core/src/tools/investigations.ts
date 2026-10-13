@@ -33,6 +33,7 @@ import {
   type SectionStatus,
   SIZE_NOTE,
   sectionSchema,
+  withBudgetCap,
 } from './reports.ts';
 import {
   accountInput,
@@ -899,20 +900,22 @@ export function createInvestigationTools(deps: ToolDeps = {}): ToolDefinition[] 
     }));
 
   const runDepEntry = async (
+    args: z.infer<typeof depInput>,
     guid: string,
     granted: number,
     base: DepBase,
     ctx: ToolContext,
   ): Promise<DepEntry> => {
-    const s = await runSection(
-      guid,
-      tool('get_golden_metrics'),
-      {
-        entity_guid: guid,
-        time_range: `${base.since} to ${base.until}`,
-        max_metrics: goldenMetricsFor(granted),
-      },
-      ctx,
+    const used = goldenMetricsFor(granted);
+    const s = withBudgetCap(
+      await runSection(
+        guid,
+        tool('get_golden_metrics'),
+        { entity_guid: guid, time_range: `${base.since} to ${base.until}`, max_metrics: used },
+        ctx,
+      ),
+      used,
+      args.max_metrics ?? DEFAULT_METRICS,
     );
     return { guid, granted, status: s.status, note: s.note, data: s.data };
   };
@@ -990,7 +993,8 @@ export function createInvestigationTools(deps: ToolDeps = {}): ToolDefinition[] 
       }),
     );
     const all = [selfEntity, ...deps2];
-    const partial = all.some((e) => e.status !== 'ok') || notMeasured > 0;
+    // notMeasured is the caller's own max_dependencies cap, reported in notes and notMeasured: not partial (NEW-05).
+    const partial = all.some((e) => e.status !== 'ok');
     const targets = [args.entity_guid, ...base.chosen.map((c) => c.guid)];
     const notRun = targets.map(entryOf).filter((e) => e === undefined || e.granted === 0);
     const bySize = notRun.filter((e) => e?.note === SIZE_NOTE).length;
@@ -1063,7 +1067,9 @@ export function createInvestigationTools(deps: ToolDeps = {}): ToolDefinition[] 
     ctx: ToolContext,
   ): Promise<ToolOutput> => {
     const plan = planBudget(depItems(args, base), ctx.budget.remaining);
-    const ran = await Promise.all(plan.run.map(({ name, granted }) => runDepEntry(name, granted, base, ctx)));
+    const ran = await Promise.all(
+      plan.run.map(({ name, granted }) => runDepEntry(args, name, granted, base, ctx)),
+    );
     return assembleDep(args, base, [...ran, ...plan.skipped.map((g) => notRunDep(g, BUDGET_NOTE))]);
   };
 
@@ -1131,7 +1137,7 @@ export function createInvestigationTools(deps: ToolDeps = {}): ToolDefinition[] 
         max: STEP_DEP_ENTITIES,
         remaining: ctx.budget.remaining,
         run: async (name, granted) => {
-          const e = await runDepEntry(name, granted, base, ctx);
+          const e = await runDepEntry(state.args, name, granted, base, ctx);
           return { name, status: e.status, note: e.note, data: e.data, text: null };
         },
       });
@@ -1239,7 +1245,10 @@ export function createInvestigationTools(deps: ToolDeps = {}): ToolDefinition[] 
           ];
       }
     })();
-    return runSection(name, tool(toolName), toolArgs, ctx);
+    const section = runSection(name, tool(toolName), toolArgs, ctx);
+    return name === 'golden_metrics'
+      ? section.then((r) => withBudgetCap(r, goldenMetricsFor(granted), args.max_metrics ?? HEALTH_METRICS))
+      : section;
   };
 
   /** The summary from the sections that ran; the others are skipped (budget). */

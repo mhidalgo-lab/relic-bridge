@@ -229,6 +229,26 @@ export async function runSection(
   }
 }
 
+/**
+ * A golden-metrics section whose cap was lowered to fit the request budget (not the caller's own max_metrics) did lose
+ * metrics: mark it partial and relabel the left-out rows `budget`. Otherwise it is returned unchanged.
+ */
+export function withBudgetCap(section: SectionResult, usedCap: number, requestedCap: number): SectionResult {
+  const data = section.data as { metrics?: Record<string, unknown>[]; totalMetrics?: number } | null;
+  if (data === null || usedCap >= requestedCap || (data.totalMetrics ?? 0) <= usedCap) return section;
+  const relabelled = (data.metrics ?? []).map((m, i) =>
+    i >= usedCap && i < requestedCap && m['reason'] === 'max_metrics'
+      ? { ...m, reason: 'budget', note: 'Request budget reduced the number of metrics.' }
+      : m,
+  );
+  return {
+    ...section,
+    status: section.status === 'ok' ? 'partial' : section.status,
+    note: section.note ?? 'Metrics reduced to fit the request budget.',
+    data: { ...data, metrics: relabelled, partial: true },
+  };
+}
+
 export const notRun = (name: string, status: SectionStatus, note: string): SectionResult => ({
   name,
   status,
@@ -355,7 +375,7 @@ const INSIGHTS_COST = 1 + 1 + goldenCost(DEFAULT_REPORT_METRICS) + 1 + 3 * NRQL_
 
 const INSIGHTS_DESCRIPTION = `Investigation report for one alert issue (issue_id from list_recent_issues): the issue, then for its first entity the details, golden metrics, Errors Inbox groups and a log summary over the issue window (${DEFAULT_BEFORE_MINUTES} minutes before it opened until it closed, or now), the changes in the ${DEFAULT_CHANGE_LOOKBACK_HOURS} hours before, and the related entities.
 
-Use it to start investigating a specific alert. Each section is the result of the matching tool (get_entity, get_golden_metrics, list_error_groups, analyze_entity_logs, list_change_events, get_related_entities): drill in with those. Runs up to ${INSIGHTS_COST} requests in that priority order; what does not fit or fails is marked skipped or error (partial: true): ask for fewer sections or max_metrics. For an entity without a specific issue use entity_health. Uses New Relic's experimental aiIssues API. ${UNTRUSTED}`;
+Use it to start investigating a specific alert. Each section is the result of the matching tool (get_entity, get_golden_metrics, list_error_groups, analyze_entity_logs, list_change_events, get_related_entities): drill in with those. Runs up to ${INSIGHTS_COST} requests in that priority order; what does not fit or fails is marked skipped or error (partial: true): ask for fewer sections or max_metrics. For an entity without a specific issue use entity_health. Uses the experimental aiIssues API. ${UNTRUSTED}`;
 
 /** Sections run per `tasks/get` of an insights task (P7-21). */
 const STEP_SECTIONS = 3;
@@ -829,7 +849,11 @@ export function createReportTools(deps: ToolDeps = {}): ToolDefinition[] {
     const ran = await Promise.all(
       plan.run.map(({ name, granted }) => {
         const [toolName, toolArgs] = prepared.argsFor(name, granted);
-        return runSection(name, tool(toolName), toolArgs, ctx);
+        return runSection(name, tool(toolName), toolArgs, ctx).then((r) =>
+          name === 'golden_metrics'
+            ? withBudgetCap(r, goldenMetricsFor(granted), args.max_metrics ?? DEFAULT_REPORT_METRICS)
+            : r,
+        );
       }),
     );
     const golden = plan.run.find((r) => r.name === 'golden_metrics');
@@ -944,7 +968,11 @@ export function createReportTools(deps: ToolDeps = {}): ToolDefinition[] {
         remaining: ctx.budget.remaining,
         run: (name, granted) => {
           const [toolName, toolArgs] = prepared.argsFor(name, granted);
-          return runSection(name, tool(toolName), toolArgs, ctx);
+          return runSection(name, tool(toolName), toolArgs, ctx).then((r) =>
+            name === 'golden_metrics'
+              ? withBudgetCap(r, goldenMetricsFor(granted), state.args.max_metrics ?? DEFAULT_REPORT_METRICS)
+              : r,
+          );
         },
       });
       const notes = [...state.notes];

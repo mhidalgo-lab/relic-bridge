@@ -2,7 +2,7 @@
 id: P8-41
 title: partial only for involuntary truncation; group_by counts the whole window
 phase: 8
-status: in-progress
+status: review
 priority: medium
 depends_on: []
 adr: []
@@ -20,11 +20,11 @@ Fix NEW-05 and NEW-07 from the 0.8.0 verification run (2026-10-13): a cap the ca
 - Keep the tools/list size budget: minimal new description text, trim wording elsewhere instead of raising budgets.
 
 ## Acceptance criteria
-- [ ] `max_metrics` (golden, entity_health, dependency_health) no longer sets `partial`; skipped metrics are listed with a reason.
-- [ ] Involuntary cuts (budget, error) still set `partial` and carry a reason.
-- [ ] `group_by` counts the whole window; page fallback is labelled with `groupsScope: 'page'` and a note.
-- [ ] Regression tests for every item; description budgets and 1 000-character headroom kept, no budget raised.
-- [ ] Generated docs regenerated; RESEARCH.md updated if something new was learned.
+- [x] `max_metrics` (golden, entity_health, dependency_health) no longer sets `partial`; skipped metrics are listed with a reason.
+- [x] Involuntary cuts (budget, error) still set `partial` and carry a reason.
+- [x] `group_by` counts the whole window; page fallback is labelled with `groupsScope: 'page'` and a note.
+- [x] Regression tests for every item; description budgets and 1 000-character headroom kept, no budget raised.
+- [x] Generated docs regenerated; RESEARCH.md updated if something new was learned.
 
 ## Security notes
 none: the extra query uses the same account/entity scope and GraphQL variables (T3, T4).

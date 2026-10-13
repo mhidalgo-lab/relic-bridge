@@ -290,25 +290,25 @@ describe('list_recent_issues repeated conditions (BUG-15)', () => {
     expect(text(r)).toContain('Repeated conditions on this page (2 of 3 issues');
   });
 
-  it('group_by entity counts the page per entity, singles included', async () => {
+  it('group_by entity counts per entity, singles included', async () => {
     const rows = [
       issue(A, 'i1', 'High error rate', { entityNames: ['web-1'] }),
       issue(A, 'i2', 'Slow', { entityNames: ['web-1'] }),
       issue(A, 'i3', 'Slow', { entityNames: ['db'] }),
     ];
-    const { client } = await setup([issuesBody(rows)]);
+    const { client } = await setup([issuesBody(rows), issuesBody(rows)]);
     const r = await client.callTool({ name: 'list_recent_issues', arguments: { group_by: 'entity' } });
     const s = r.structuredContent as { groups: { key: string; count: number }[] };
     expect(s.groups.map((g) => [g.key, g.count])).toEqual([
       ['web-1', 2],
       ['db', 1],
     ]);
-    expect(text(r)).toContain('Issues on this page per entity (3 issues');
+    expect(text(r)).toContain('Issues in the window per entity (3 issues');
   });
 
   it('group_by condition lists single-issue conditions too', async () => {
     const rows = [issue(A, 'i1', 'x'), issue(A, 'i2', 'y', { conditionName: ['Latency'] })];
-    const { client } = await setup([issuesBody(rows)]);
+    const { client } = await setup([issuesBody(rows), issuesBody(rows)]);
     const r = await client.callTool({ name: 'list_recent_issues', arguments: { group_by: 'condition' } });
     expect((r.structuredContent as { groups: unknown[] }).groups).toHaveLength(2);
   });
@@ -324,6 +324,74 @@ describe('list_recent_issues repeated conditions (BUG-15)', () => {
     const r = await client.callTool({ name: 'list_recent_issues', arguments: {} });
     expect(r.structuredContent).not.toHaveProperty('groups');
     expect(text(r)).not.toContain('Repeated conditions');
+  });
+});
+
+describe('list_recent_issues group_by scope (NEW-07)', () => {
+  const cond = (id: string, name: string) => issue(A, id, name, { conditionName: [name] });
+  const groupsOf = (r: CallResult) =>
+    (r.structuredContent as { groups: { key: string; count: number }[] }).groups.map((g) => [g.key, g.count]);
+
+  it('counts the whole window, not only the page, and says so', async () => {
+    const page1 = [cond('i1', 'Latency'), cond('i2', 'Errors')];
+    const page2 = [cond('i3', 'Latency'), cond('i4', 'Latency')];
+    const { client, calls } = await setup([
+      issuesBody(page1, 'next-1'),
+      issuesBody(page1, 'next-1'),
+      issuesBody(page2),
+    ]);
+    const r = await client.callTool({
+      name: 'list_recent_issues',
+      arguments: { group_by: 'condition', limit: 2 },
+    });
+    const s = r.structuredContent as { groupsScope: string; nextCursor: string | null };
+    expect(s.groupsScope).toBe('window');
+    expect(s.nextCursor).not.toBeNull();
+    expect(groupsOf(r)).toEqual([
+      ['Latency', 3],
+      ['Errors', 1],
+    ]);
+    expect(calls).toHaveLength(3);
+    // The extra pages use the same filter and the same frozen window as the page query.
+    const vars = calls.map((c) => (c.body as { variables: Record<string, unknown> }).variables);
+    expect(vars[2]?.['cursor']).toBe('next-1');
+    expect(vars[1]?.['filter']).toEqual(vars[0]?.['filter']);
+    expect(vars[1]?.['timeWindow']).toEqual(vars[0]?.['timeWindow']);
+  });
+
+  it('falls back to the page, labelled, when the window has too many pages', async () => {
+    const more = (n: number) => issuesBody([cond(`p${n}`, 'Latency')], `c${n}`);
+    const { client } = await setup([more(0), more(1), more(2), more(3), more(4), more(5)]);
+    const r = await client.callTool({ name: 'list_recent_issues', arguments: { group_by: 'condition' } });
+    expect((r.structuredContent as { groupsScope: string }).groupsScope).toBe('page');
+    expect(text(r)).toContain('Group counts cover this page only');
+    expect(text(r)).toContain('on this page per condition');
+  });
+
+  it('falls back to the page when the budget cannot pay for the extra pages', async () => {
+    const base = testContext();
+    const { fetch } = scriptedFetch(issuesBody([cond('i1', 'Latency')], 'n1'), issuesBody([], null));
+    const ctx: ToolContext = testContext({
+      accounts: { allowed: [A, B], default: A },
+      budget: createBudget(1),
+      clock: { now: () => NOW },
+      limits: base.limits,
+    });
+    const server = buildMcpServer({ tools: createIssueTools({ fetch }), ctx });
+    const [clientT, serverT] = InMemoryTransport.createLinkedPair();
+    await server.connect(serverT);
+    const client = new Client({ name: 'test', version: '0.0.0' });
+    await client.connect(clientT);
+    clients.push(client);
+    const r = await client.callTool({ name: 'list_recent_issues', arguments: { group_by: 'condition' } });
+    expect((r.structuredContent as { groupsScope: string }).groupsScope).toBe('page');
+    expect(text(r)).toContain('this page only');
+  });
+
+  it('always reports groupsScope; without group_by it is page-local', async () => {
+    const { client } = await setup([issuesBody([issue(A, 'i1', 'x')])]);
+    const r = await client.callTool({ name: 'list_recent_issues', arguments: {} });
+    expect((r.structuredContent as { groupsScope: string }).groupsScope).toBe('page');
   });
 });
 

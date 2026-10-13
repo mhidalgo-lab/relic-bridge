@@ -156,6 +156,7 @@ Why this is the recommended pattern:
   (`accounts` above is always cut down to what the key can read).
 - Each person has their own New Relic concurrency budget (about 25 concurrent NerdGraph requests per user), so one
   busy agent doesn't slow everyone else down ([research §2](../RESEARCH.md)).
+- The server's call budget (`RB_CALL_BUDGET`) only caps New Relic calls within ONE tool call. To limit use across calls, give a grant a rate limit or a daily/monthly [quota](admin-guide.md#quotas-per-grant).
 - Audit entries and New Relic's own logs show who ran what.
 - Revoking a member is one grant (or their key) away.
 

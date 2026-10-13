@@ -37,10 +37,8 @@ const whoamiOutput = z.object({
   /** Granted tools withheld because the deployment's per-request NerdGraph budget cannot pay for them. */
   unavailableTools: z.array(z.object({ name: z.string(), reason: z.string() })),
   limits: z.object({
-    callBudget: z.number().int(),
-    /** New Relic calls spent so far by this tool call (the budget is per tool call and never carries over). */
-    callsUsed: z.number().int(),
-    callsRemaining: z.number().int(),
+    /** Most New Relic calls ONE tool call may make (ADR-0010). Not a running total: nothing carries over between calls. */
+    perCallBudget: z.number().int(),
     maxResponseBytes: z.number().int(),
     maxLimit: z.number().int(),
     maxWindowDays: z.number(),
@@ -155,9 +153,7 @@ export function createIdentityTools(deps: ToolDeps = {}): ToolDefinition[] {
         allowedTools,
         unavailableTools: unavailable.map((u) => ({ name: u.name, reason: u.reason })),
         limits: {
-          callBudget: ctx.budget.limit,
-          callsUsed: ctx.budget.used,
-          callsRemaining: ctx.budget.remaining,
+          perCallBudget: ctx.budget.limit,
           maxResponseBytes: ctx.limits.maxResponseBytes,
           maxLimit: ctx.limits.maxLimit,
           maxWindowDays: ctx.limits.maxWindowDays,
@@ -174,7 +170,8 @@ export function createIdentityTools(deps: ToolDeps = {}): ToolDefinition[] {
         ...(unavailable.length > 0
           ? [`Not offered here: ${unavailable.map((u) => `${u.name} (${u.reason})`).join('; ')}.`]
           : []),
-        `Budget: ${ctx.budget.limit} New Relic calls per tool call, not a running total (each tool call starts fresh, nothing to reset): ${ctx.budget.used} used so far in this call, ${ctx.budget.remaining} left. Responses up to ${ctx.limits.maxResponseBytes} bytes.`,
+        `Per-call budget: at most ${ctx.budget.limit} New Relic calls inside ONE tool call (not a running total; it starts fresh every call). ` +
+          `Use across calls: rate limits and the grant's daily/monthly quota (admin panel, Usage). Responses up to ${ctx.limits.maxResponseBytes} bytes.`,
         envelope(`user id: ${user.id}\nname: ${user.name}\nemail: ${user.email}`, {
           source: 'New Relic user',
         }),

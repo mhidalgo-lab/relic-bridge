@@ -83,12 +83,19 @@ describe('tool listing', () => {
 });
 
 describe('whoami budget (BUG-28)', () => {
-  it('reports calls used and remaining, and says the budget is per tool call', async () => {
+  it('reports the per-call budget, with no cross-call counter, and points to the real cross-call controls', async () => {
     const { client } = await setup([fixtureResponse('identity_A')], { budget: createBudget(10) });
     const r = await client.callTool({ name: 'whoami', arguments: {} });
     const limits = (r.structuredContent as { limits: Record<string, number> }).limits;
-    expect(limits).toMatchObject({ callBudget: 10, callsUsed: 1, callsRemaining: 9 });
-    expect(text(r)).toMatch(/10 New Relic calls per tool call.*1 used.*9 left/);
+    expect(limits).toMatchObject({ perCallBudget: 10 });
+    expect(limits).not.toHaveProperty('callBudget');
+    expect(limits).not.toHaveProperty('callsUsed');
+    expect(limits).not.toHaveProperty('callsRemaining');
+    expect(text(r)).toMatch(
+      /Per-call budget: at most 10 New Relic calls inside ONE tool call.*not a running total/,
+    );
+    expect(text(r)).toMatch(/rate limits.*quota/);
+    expect(text(r)).not.toMatch(/used so far|left\./);
   });
 });
 

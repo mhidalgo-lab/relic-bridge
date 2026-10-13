@@ -113,7 +113,7 @@ each project shows up as its own server with its own tools and key.
   `get_query_result` are not listed at all.
 - `whoami` reports the project slug (YAML mode), region, default account, limits and the enabled tools. It never shows
   the key.
-- Each tool call gets its own request id and a budget of 1000 NerdGraph calls; at most 5 NerdGraph calls run at once.
+- Each tool call gets its own request id and its own budget of at most 1000 NerdGraph calls (a per-call cap, not a running total; limits across calls are the rate limits and grant quotas); at most 5 NerdGraph calls run at once.
 - Results of NRQL queries are reused for a short time ([query cache](query-cache.md)); `run_nrql` takes
   `cache: "bypass"` for a fresh answer.
 

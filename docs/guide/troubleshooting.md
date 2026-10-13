@@ -50,7 +50,7 @@ Tool errors carry a stable code and usually a hint.
 | `RB_NERDGRAPH_TIMEOUT` | The query took too long. | Narrow the time window or facets. |
 | `RB_NERDGRAPH_RATE_LIMITED` | New Relic is rate limiting this key. | Wait, and ask for fewer parallel queries. |
 | `RB_NERDGRAPH_UNAVAILABLE` | New Relic had a server or network error. | Retry shortly; check New Relic's status page. |
-| `RB_BUDGET_EXHAUSTED` | One tool call needed too many NerdGraph requests (limit 1000 per tool call; the count starts again with every call, `whoami` shows `callsUsed` / `callsRemaining`). | Ask for a narrower request. |
+| `RB_BUDGET_EXHAUSTED` | One tool call needed too many NerdGraph requests (per-call limit, 1000 by default, shown by `whoami` as `limits.perCallBudget`; it is not a running total and starts again with every call). | Ask for a narrower request. |
 | `RB_NERDGRAPH_ERROR` | NerdGraph returned another error; the (redacted) message is included. | Read the message; for NRQL errors, correct the query. |
 | `RB_LIMIT_QUOTA` | The grant's usage quota for the day or month is used up (the error says which and when it starts again). | An administrator can raise or remove it: [Quotas](admin-guide.md#quotas-per-grant). |
 | `RB_AUTH_UNAUTHORIZED`, `RB_LIMIT_RATE` | Used by the hosted modes (tokens, rate limits). On stdio, `RB_AUTH_UNAUTHORIZED` only means setup mode (no configuration at all, see above). | See [hosted server](#hosted-self-hosted-server) above. |

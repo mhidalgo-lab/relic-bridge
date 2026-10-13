@@ -8,7 +8,7 @@ in `vars`; each plan is a preset you can override one number at a time. Sources 
 
 | Setting | `free` | `paid` | Variable to override | Why |
 |---|---|---|---|---|
-| NerdGraph calls per MCP request | 45 | 1000 | `RB_CALL_BUDGET` | Free allows 50 external subrequests; 5 spare for redirects. Retries and async polls spend from it. |
+| NerdGraph calls per MCP request | 45 | 1000 | `RB_CALL_BUDGET` | A per-call cap (one tool call), never a running total. Free allows 50 external subrequests; 5 spare for redirects. Retries and async polls spend from it. |
 | Response size ceiling | 512 KiB | 8 MiB | `RB_MAX_RESPONSE_BYTES` | Reading and parsing a body costs about 5 ms CPU per MB; Free has 10 ms. Applied while streaming, before parse. |
 | NerdGraph calls in flight per credential | 5 | 5 | `RB_CONCURRENCY` | Workers allows 6 simultaneous outgoing connections per request; the value is limited to 6. Counted per isolate unless `RB_SHARED_LIMITER=on` ([below](#shared-limiter-durable-object-optional)). |
 

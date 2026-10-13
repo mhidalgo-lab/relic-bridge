@@ -393,8 +393,8 @@ describe('Plan limits', () => {
     const who = await client.callTool({ name: 'whoami', arguments: {} });
     expect(text(who)).toMatch(/Not offered here: get_golden_metrics/);
     expect(
-      (who as { structuredContent?: { limits?: { callBudget?: number } } }).structuredContent?.limits,
-    ).toMatchObject({ callBudget: 5 });
+      (who as { structuredContent?: { limits?: { perCallBudget?: number } } }).structuredContent?.limits,
+    ).toMatchObject({ perCallBudget: 5 });
     await client.close();
   });
 

@@ -2,7 +2,7 @@
 id: P8-41
 title: partial only for involuntary truncation; group_by counts the whole window
 phase: 8
-status: review
+status: done
 priority: medium
 depends_on: []
 adr: []

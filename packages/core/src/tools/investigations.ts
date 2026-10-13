@@ -626,10 +626,13 @@ export function createInvestigationTools(deps: ToolDeps = {}): ToolDefinition[] 
             );
             if ('rows' in check) {
               const row = check.rows[0] ?? {};
-              if ((num(row['spans']) ?? 0) === 0 && (num(row['tracedErrors']) ?? 0) === 0)
+              // Agents can stamp trace ids on errors without sending spans, so spans alone decide (BUG-12).
+              if ((num(row['spans']) ?? 0) === 0)
                 notes.push(
-                  `No Span events or error events with a trace id exist${args.entity_guid ? ' for this entity' : ' in this account'} in the window: distributed tracing appears to be disabled.`,
+                  `No Span events exist${args.entity_guid ? ' for this entity' : ' in this account'} in the window, so traces cannot be followed${(num(row['tracedErrors']) ?? 0) > 0 ? ' even though some errors carry a trace id' : ''}: distributed tracing or span collection appears to be disabled.`,
                 );
+            } else {
+              notes.push(`The tracing check could not run: ${check.note}`);
             }
           }
         }

@@ -2,7 +2,7 @@
 id: P8-40
 title: trace_error diagnoses missing span data
 phase: 8
-status: in-progress
+status: review
 priority: high
 depends_on: []
 adr: []
@@ -22,11 +22,11 @@ tool gave no diagnosis (BUG-12).
 - A failing check query adds a note (with the RB code) instead of being dropped silently.
 
 ## Acceptance criteria
-- [ ] spans 0 with traced errors > 0 gives the missing-span diagnosis.
-- [ ] spans 0 and traced errors 0 gives the diagnosis.
-- [ ] spans > 0 gives no diagnosis.
-- [ ] A failing check query adds a "could not run" note with the RB code.
-- [ ] Tests use synthetic numbers only; RESEARCH.md and tool docs updated.
+- [x] spans 0 with traced errors > 0 gives the missing-span diagnosis.
+- [x] spans 0 and traced errors 0 gives the diagnosis.
+- [x] spans > 0 gives no diagnosis.
+- [x] A failing check query adds a "could not run" note with the RB code.
+- [x] Tests use synthetic numbers only; RESEARCH.md and tool docs updated.
 
 ## Security notes
 none (read-only, same GraphQL-variable NRQL).

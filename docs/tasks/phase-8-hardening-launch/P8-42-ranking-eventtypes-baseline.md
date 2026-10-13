@@ -2,7 +2,7 @@
 id: P8-42
 title: Polish - slowest ranking, global event types, weekly baseline
 phase: 8
-status: review
+status: done
 priority: medium
 depends_on: []
 adr: []

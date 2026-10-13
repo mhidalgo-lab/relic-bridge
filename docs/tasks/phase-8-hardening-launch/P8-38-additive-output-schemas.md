@@ -2,7 +2,7 @@
 id: P8-38
 title: Output schemas tolerate new fields; upgrade guidance
 phase: 8
-status: review
+status: done
 priority: high
 depends_on: []
 adr: []

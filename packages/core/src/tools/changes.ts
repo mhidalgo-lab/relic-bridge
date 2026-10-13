@@ -205,7 +205,7 @@ export const baselineField: z.ZodOptional<z.ZodType<Baseline>> = z
   .enum(BASELINES)
   .optional()
   .describe(
-    'Control for daily traffic swings: previous_window (none), or the same windows 1 or 7 days earlier (2 more queries; a change seen there too is a warning). Default: 1d when throughput shifted a lot.',
+    'Control for traffic swings: previous_window (none) or the same windows 1 or 7 days earlier (2 more queries). After a big throughput shift the default is 7d or 1d.',
   );
 
 /** The baseline that was applied, as reported. */
@@ -596,22 +596,71 @@ export function compareWindows(
   return { metrics, overall };
 }
 
+const DAY_MS = 86_400_000;
+type Span = { sinceMs: number; untilMs: number };
+const isWeekendDay = (ms: number): boolean => [0, 6].includes(new Date(ms).getUTCDay());
+
+/** A seasonal (weekly) control fits when the analysed window is a day or more, or touches both weekday and weekend (UTC). */
+const wantsWeekly = (windows: readonly Span[]): boolean =>
+  windows.some(
+    (w) =>
+      w.untilMs - w.sinceMs >= DAY_MS ||
+      isWeekendDay(w.sinceMs) !== isWeekendDay(Math.max(w.sinceMs, w.untilMs - 1)),
+  );
+
+/** What the automatic rule needs to aim for a weekly control: the analysed windows and the lookback limit. */
+export interface BaselinePlan {
+  windows: readonly Span[];
+  limits: { maxWindowDays: number };
+  now: number;
+}
+
 /**
- * Which baseline to apply after the first comparison. An explicit request wins; otherwise the automatic rule picks
- * `same_window_1d_ago` when throughput shifted a lot between the windows (a traffic trough or peak can fake a
- * regression), else `previous_window` (no control). Pure.
+ * Which baseline to apply after the first comparison. An explicit request wins; otherwise, when throughput shifted a
+ * lot between the windows (a traffic trough or peak can fake a regression), the automatic rule picks the same windows
+ * 7 days earlier for a window of 24 h or more or one crossing a weekend boundary, if the connection's lookback limit
+ * allows it (the limit is never relaxed); else `same_window_1d_ago`, saying which `maxWindowDays` a weekly control
+ * would need. Otherwise `previous_window` (no control). Pure.
  */
-export function chooseBaseline(requested: Baseline | undefined, first: readonly MetricOut[]): BaselineOut {
+export function chooseBaseline(
+  requested: Baseline | undefined,
+  first: readonly MetricOut[],
+  plan?: BaselinePlan,
+): BaselineOut {
   if (requested !== undefined) {
     return { used: requested, automatic: false, reason: 'Requested in the baseline input.' };
   }
   const tput = first.find((m) => m.metric === 'throughput');
   if (tput?.verdict === 'changed') {
     const pctText = tput.changeRatio === null ? '' : ` (${(tput.changeRatio * 100).toFixed(0)}%)`;
+    const shifted = `Throughput shifted a lot between the windows${pctText}`;
+    if (plan && wantsWeekly(plan.windows)) {
+      const fits = plan.windows.every((w) => controlRange('same_window_7d_ago', w, plan.limits, plan.now));
+      if (fits) {
+        return {
+          used: 'same_window_7d_ago',
+          automatic: true,
+          reason: `${shifted}, and the window spans a day or a weekend boundary, so the same windows 7 days earlier act as a control.`,
+        };
+      }
+      const needed = Math.max(
+        ...plan.windows.map((w) =>
+          Math.max(
+            Math.ceil((plan.now - w.sinceMs) / DAY_MS) + 7,
+            Math.ceil((w.untilMs - w.sinceMs) / DAY_MS),
+          ),
+        ),
+      );
+      return {
+        used: 'same_window_1d_ago',
+        automatic: true,
+        reason: `${shifted}. A weekly control suits this window but needs maxWindowDays of at least ${needed} (this connection allows ${plan.limits.maxWindowDays}), so the same windows one day earlier act as a control.`,
+      };
+    }
     return {
       used: 'same_window_1d_ago',
       automatic: true,
-      reason: `Throughput shifted a lot between the windows${pctText}, so the same windows one day earlier act as a control.`,
+      reason: `${shifted}, so the same windows one day earlier act as a control.`,
     };
   }
   return {
@@ -1093,7 +1142,11 @@ export function createChangeTools(deps: ToolDeps = {}): ToolDefinition[] {
       let partial = !beforeO.ok || !afterO.ok;
       let baseline: BaselineOut | null = null;
       if (beforeStats && afterStats) {
-        baseline = chooseBaseline(args.baseline, metrics);
+        baseline = chooseBaseline(args.baseline, metrics, {
+          windows: [beforeWin, afterWin],
+          limits: ctx.limits,
+          now,
+        });
         const cb = controlRange(baseline.used, beforeWin, ctx.limits, now);
         const ca = controlRange(baseline.used, afterWin, ctx.limits, now);
         if (baseline.used !== 'previous_window' && (!cb || !ca)) {

@@ -73,6 +73,7 @@ const listOutput = z.object({
   accountId: z.number().int(),
   since: z.string(),
   until: z.string(),
+  /** Account event types only (global types are in globalEventTypes). */
   eventTypes: z.array(z.string()),
   /** Listed types that are global/internal: they can't be mixed with account data in one query. */
   globalEventTypes: z.array(z.string()),
@@ -278,7 +279,7 @@ export function createSchemaTools(deps: ToolDeps = {}): ToolDefinition[] {
           accountId: account,
           since: range.since,
           until: range.until,
-          eventTypes: types,
+          eventTypes: types.filter((t) => !isGlobalEventType(t)),
           globalEventTypes: globals,
           fromAllowList: allow !== undefined,
           cached,

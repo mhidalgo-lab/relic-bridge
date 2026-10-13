@@ -354,6 +354,12 @@ Sources: <https://github.com/cloudflare/workers-oauth-provider>, issues #264, #3
   LIMITs its groups by the first selected aggregate, descending. `list_top_transactions` therefore puts the ranking aggregate
   first in SELECT and uses no ORDER BY (a unit test forbids ORDER BY after FACET in generated queries). `ORDER BY timestamp`
   is only used on non-faceted raw-event queries.
+- **Learned (0.8.0 verification run, 2026-10-13, P8-42, NEW-03):** NRQL has no `HAVING`, and a faceted page is ranked by its
+  first aggregate, so `sort_by: slowest` is dominated by one-request transactions. `list_top_transactions` reads a wider page
+  (500 facets, capped by the connection `maxLimit`) and drops rows under `min_requests` (default 10) client-side; a full facet
+  page still reports `truncated`. Seasonal baselines (NEW-06): the automatic control is `same_window_7d_ago` for a window of
+  24 h or more or one crossing a UTC weekend boundary, only when `maxWindowDays` covers the lookback (24 h compared with the
+  previous 24 h needs 9 days); otherwise 1 day, and the reason states the `maxWindowDays` a weekly control needs.
 - Logs (P6-06, NRQL over `Log`, not verified against a real account): the entity filter is the `entity.guid` attribute
   (sent backtick-quoted), the text is `message`, the severity `level`, newest first with `ORDER BY timestamp DESC`; `level`
   values vary by forwarder (`ERROR`, `error`, `Error`, `WARNING`...), so the level filter matches a fixed list of case

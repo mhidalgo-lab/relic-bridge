@@ -2,7 +2,7 @@
 id: P8-42
 title: Polish - slowest ranking, global event types, weekly baseline
 phase: 8
-status: in-progress
+status: review
 priority: medium
 depends_on: []
 adr: []
@@ -27,11 +27,11 @@ Three refinements from the 0.8.0 verification run (2026-10-13): NEW-03, NEW-04, 
 - Keep new tool description/input text minimal (tools/list budget).
 
 ## Acceptance criteria
-- [ ] NEW-03: slowest drops transactions under `min_requests` (default 10), reports how many, and still flags a truncated page; other sorts unchanged.
-- [ ] NEW-04: `eventTypes` holds no global type; `globalEventTypes` does.
-- [ ] NEW-06: weekly control chosen when allowed; fallback to 1d with the needed `maxWindowDays`; explicit baseline wins; limit never exempted.
-- [ ] Regression tests for each item (fail before the fix); budget tests unchanged.
-- [ ] RESEARCH.md, generated docs and changeset updated.
+- [x] NEW-03: slowest drops transactions under `min_requests` (default 10), reports how many, and still flags a truncated page; other sorts unchanged.
+- [x] NEW-04: `eventTypes` holds no global type; `globalEventTypes` does.
+- [x] NEW-06: weekly control chosen when allowed; fallback to 1d with the needed `maxWindowDays`; explicit baseline wins; limit never exempted.
+- [x] Regression tests for each item (fail before the fix); budget tests unchanged.
+- [x] RESEARCH.md, generated docs and changeset updated.
 
 ## Security notes
 No new access path. The P8-24 lookback limit still bounds every baseline query (T5).

@@ -74,6 +74,8 @@ drift, open a task.
 - [ ] Real Node→Worker export/import (P7-06); OTLP export and `/v1/logs` against New Relic (P7-08, P7-18).
 - [ ] Before enabling writes: live `dry_run` of each mutation and `create_dashboard` (RESEARCH §26); set
       `RB_SHARED_LIMITER=rules`; keep `RB_WRITE_APPROVAL` at its new default `required` (P7-09, P7-10, P7-19, P7-24).
+- [ ] Run the [write tools sandbox test plan](../dev/write-tools-sandbox-test.md) on a dedicated New Relic sandbox
+      account before enabling writes anywhere real (P8-43).
 - [ ] Check how real clients render the write elicitation form and whether any auto-accept (P7-20).
 - [ ] Claude Code plugin: where to publish, homepage, `/plugin install` smoke test, version sync (P7-07); MCP
       registry publishing after npm (P7-14).

@@ -2,7 +2,7 @@
 id: P8-43
 title: Docs from the 0.8.0 verification run
 phase: 8
-status: in-progress
+status: review
 priority: low
 depends_on: []
 adr: [0016]
@@ -23,10 +23,10 @@ in front of a deployment, and the four write tools have never had a written sand
 - An owner-checklist item pointing to the plan.
 
 ## Acceptance criteria
-- [ ] `docs/guide/troubleshooting.md` explains the 403 and the fix without naming a product setting that is not verified.
-- [ ] `docs/dev/write-tools-sandbox-test.md` covers the points above and is linked from `docs/dev/testing.md`.
-- [ ] `docs/pending-decisions/owner-checklist.md` links the plan.
-- [ ] `pnpm lint`, `pnpm typecheck` and the tests pass; generated docs regenerated.
+- [x] `docs/guide/troubleshooting.md` explains the 403 and the fix without naming a product setting that is not verified.
+- [x] `docs/dev/write-tools-sandbox-test.md` covers the points above and is linked from `docs/dev/testing.md`.
+- [x] `docs/pending-decisions/owner-checklist.md` links the plan.
+- [x] `pnpm lint`, `pnpm typecheck` and the tests pass; generated docs regenerated.
 
 ## Security notes
 none (documentation only; the plan restates existing controls: ADR-0015, ADR-0016, T6, T31).

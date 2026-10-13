@@ -89,6 +89,17 @@ names the reason for every refusal (`"deny":"…"`); the client only ever sees a
 | `504` (`{"error":"timeout"}`) | The request did not finish within the server's deadline (3 minutes): the body was not delivered in time, or the tool call ran too long. Narrow the query; for a slow client or proxy, check the network between them. |
 | TLS or certificate errors | The reverse proxy, not relic-bridge: check DNS and ports 80/443. |
 
+**A script gets `403`, but `curl` works.** Some deployments sit behind an edge or bot-protection rule (a CDN, a WAF,
+a managed bot filter) that refuses requests by their `User-Agent`, and many HTTP libraries send a default one that
+such rules treat as automated, for example Python's `urllib` (`Python-urllib/3.x`). That answer comes from the layer
+in front of relic-bridge, not from relic-bridge: its own `403`s are the JSON bodies in the table above
+(`forbidden_host`, `forbidden_origin`, `tls_required`), and they appear in the server's audit log and `"deny"` log
+field, while a refusal at the edge never reaches the server. To check, repeat the request with `curl`, then with your
+script after setting a normal `User-Agent` header (for example `User-Agent: my-tool/1.0`). If it passes, the edge rule
+was the cause. An operator who wants scripted API clients allowed can adjust the bot or WAF settings of whatever fronts
+the deployment (for example an exception for the MCP path); the exact setting depends on the provider and on your
+plan, so check its documentation. relic-bridge does not need or configure such a rule.
+
 **OAuth clients (claude.ai, phone)** have their own table: [troubleshooting in the phone guide](oauth-phone.md#troubleshooting).
 
 A revoked or newly created token, grant or project takes effect within `RB_ACCESS_CACHE_TTL` seconds (default 30) on

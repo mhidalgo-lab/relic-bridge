@@ -2,7 +2,7 @@
 id: P8-39
 title: Make the per-call New Relic call budget unmistakable
 phase: 8
-status: review
+status: done
 priority: high
 depends_on: []
 adr: [10]

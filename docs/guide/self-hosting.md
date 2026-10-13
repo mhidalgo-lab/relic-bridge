@@ -330,6 +330,12 @@ together with the master key exposes every stored New Relic key.** Therefore:
 Creating, storing, backing up and rotating the master key: [secrets](secrets.md). See also the
 [threat model](../THREAT_MODEL.md) (T7).
 
+## Upgrading
+
+Take a [backup](#back-it-up) first, then deploy the new version. **Reconnect your MCP clients afterwards**: they keep the
+tool list from before the upgrade, and a stateless server can't tell them it changed (Claude Code: `/mcp`; see
+[troubleshooting](troubleshooting.md)).
+
 ## Re-checking stored New Relic keys
 
 A New Relic key can be revoked or lose access to an account in New Relic at any time. Re-check every stored key

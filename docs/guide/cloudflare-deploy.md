@@ -194,6 +194,8 @@ corepack enable && pnpm install
 pnpm cf:setup --plan free          # same plan as before; existing secrets and resources are kept
 ```
 
+- **Reconnect your MCP clients after upgrading.** They keep the tool list from before; reconnect (Claude Code: `/mcp`) to
+  see new tools and parameters ([troubleshooting](troubleshooting.md)).
 - **Schema upgrades are automatic.** The first request into a new isolate applies pending D1 migrations (embedded,
   checksummed, forward-only). If a migration fails, or the database is *newer* than the code, that isolate answers
   `503` and logs the error code; it retries after 5 seconds. Fix the cause or roll the code forward.

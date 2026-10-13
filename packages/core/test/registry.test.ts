@@ -2,6 +2,7 @@
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import {
+  additiveOutput,
   annotationsFor,
   defineTool,
   RegistryError,
@@ -95,6 +96,28 @@ describe('annotationsFor', () => {
     });
     expect(annotationsFor({ kind: 'write', openWorld: true, title: 'T' })).toMatchObject({
       idempotentHint: false,
+    });
+  });
+});
+
+describe('additiveOutput (P8-38)', () => {
+  it('drops additionalProperties:false at every depth and keeps everything else', () => {
+    const schema = {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        additionalProperties: { type: 'string' },
+        list: { type: 'array', items: { type: 'object', additionalProperties: false, properties: {} } },
+        map: { type: 'object', additionalProperties: { type: 'number' } },
+      },
+    };
+    expect(additiveOutput(schema)).toEqual({
+      type: 'object',
+      properties: {
+        additionalProperties: { type: 'string' },
+        list: { type: 'array', items: { type: 'object', properties: {} } },
+        map: { type: 'object', additionalProperties: { type: 'number' } },
+      },
     });
   });
 });

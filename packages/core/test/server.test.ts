@@ -121,6 +121,35 @@ describe('buildMcpServer', () => {
     expect(tools[0]?.inputSchema).toMatchObject({ type: 'object', properties: { text: { type: 'string' } } });
   });
 
+  it('advertises output schemas that accept fields added later, and keeps inputs strict (P8-38, NEW-01)', async () => {
+    const grows = defineTool({
+      name: 'grows_later',
+      title: 'Grows later',
+      description: 'Returns a field its advertised output schema does not name, for tests only.',
+      inputSchema: z.strictObject({ text: z.string() }),
+      outputSchema: z.object({ text: z.string(), nested: z.object({ a: z.number() }) }),
+      kind: 'read',
+      openWorld: false,
+      cost: 0,
+      group: 'test',
+      phase: 1,
+      handler: async ({ text }) => ({
+        text,
+        structured: { text, nested: { a: 1, added: 2 }, extra: true } as never,
+      }),
+    });
+    const client = await connect([grows as ToolDefinition], testContext());
+    const { tools } = await client.listTools();
+    expect(JSON.stringify(tools[0]?.outputSchema)).not.toContain('additionalProperties');
+    // The client validates structuredContent against the listed schema, as a client holding an older list would.
+    const ok = await client.callTool({ name: 'grows_later', arguments: { text: 'hi' } });
+    expect(ok.isError).toBeFalsy();
+    expect(ok.structuredContent).toMatchObject({ text: 'hi', extra: true });
+    // Unknown inputs are still refused by the server.
+    const bad = await client.callTool({ name: 'grows_later', arguments: { text: 'hi', surprise: 1 } });
+    expect(bad.isError).toBe(true);
+  });
+
   it('computes each JSON Schema once per isolate and lists the same schema as before', async () => {
     const first = await connect([echo as ToolDefinition, shaped as ToolDefinition], testContext());
     const second = await connect([echo as ToolDefinition, shaped as ToolDefinition], testContext());

@@ -2,7 +2,7 @@
 id: P8-38
 title: Output schemas tolerate new fields; upgrade guidance
 phase: 8
-status: in-progress
+status: review
 priority: high
 depends_on: []
 adr: []
@@ -24,12 +24,12 @@ properties").
   self-hosting and Cloudflare guides.
 
 ## Acceptance criteria
-- [ ] The advertised output schema of every tool has no `additionalProperties: false`; a result with an extra field passes a client validating against it.
-- [ ] Unknown input keys are still refused by the server.
-- [ ] The tools/list budget and the 1 000-character headroom are unchanged (output schemas are not counted; they get shorter).
-- [ ] RESEARCH.md records the change-signalling findings.
-- [ ] Reconnect note in changeset, troubleshooting, self-hosting and Cloudflare docs.
-- [ ] Tests: regression test fails before the fix.
+- [x] The advertised output schema of every tool has no `additionalProperties: false`; a result with an extra field passes a client validating against it.
+- [x] Unknown input keys are still refused by the server.
+- [x] The tools/list budget and the 1 000-character headroom are unchanged (output schemas are not counted; they get shorter).
+- [x] RESEARCH.md records the change-signalling findings.
+- [x] Reconnect note in changeset, troubleshooting, self-hosting and Cloudflare docs.
+- [x] Tests: regression test fails before the fix.
 
 ## Security notes
 none: only the advertised output schema is relaxed; request validation is untouched.

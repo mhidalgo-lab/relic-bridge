@@ -310,5 +310,6 @@ Generated from task front matter (`pnpm tasks index`). Status lives in each task
 | P8-39 | [Make the per-call New Relic call budget unmistakable](tasks/phase-8-hardening-launch/P8-39-per-call-budget-clarity.md) | high | — | done |
 | P8-40 | [trace_error diagnoses missing span data](tasks/phase-8-hardening-launch/P8-40-trace-error-span-check.md) | high | — | done |
 | P8-41 | [partial only for involuntary truncation; group_by counts the whole window](tasks/phase-8-hardening-launch/P8-41-partial-and-window-groups.md) | medium | — | done |
+| P8-42 | [Polish - slowest ranking, global event types, weekly baseline](tasks/phase-8-hardening-launch/P8-42-ranking-eventtypes-baseline.md) | medium | — | done |
 | P8-43 | [Docs from the 0.8.0 verification run](tasks/phase-8-hardening-launch/P8-43-verification-notes-docs.md) | low | — | review |
 <!-- tasks:end -->

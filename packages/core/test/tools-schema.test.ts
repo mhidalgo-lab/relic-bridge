@@ -107,6 +107,15 @@ describe('list_event_types global types (BUG-08)', () => {
     expect(text(r)).toContain("can't be mixed with account data");
   });
 
+  it('keeps global types out of eventTypes (NEW-04)', async () => {
+    const { fetch } = recorder(() =>
+      nrqlBody([{ eventType: 'Log' }, { eventType: 'Public_APICall' }, { eventType: 'NrUsage' }]),
+    );
+    const client = await connect(fetch);
+    const r = await client.callTool({ name: 'list_event_types', arguments: {} });
+    expect((r.structuredContent as { eventTypes: string[] }).eventTypes).toEqual(['Log']);
+  });
+
   it('adds nothing when no type is global', async () => {
     const { fetch } = recorder(() => nrqlBody([{ eventType: 'Log' }]));
     const client = await connect(fetch);

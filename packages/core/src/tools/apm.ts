@@ -38,6 +38,9 @@ import {
 const DEFAULT_WINDOW = 'last 1 hour';
 const DEFAULT_LIMIT = 10;
 const MAX_LIMIT = 50;
+const DEFAULT_MIN_REQUESTS = 10;
+/** Facets read for sort_by slowest: NRQL has no HAVING, so low-volume rows are dropped client-side from a wider page. */
+const SLOWEST_FETCH = 500;
 const MINUTE_MS = 60_000;
 const MAX_NAME_CHARS = 300;
 
@@ -147,6 +150,13 @@ const listInput = z.strictObject({
       'slowest = highest p95 duration (default), errors = most failed transactions, throughput = most requests.',
     ),
   limit: listLimit('transactions', DEFAULT_LIMIT, MAX_LIMIT),
+  min_requests: z
+    .number()
+    .int()
+    .min(1)
+    .max(100_000)
+    .optional()
+    .describe(`slowest: skip rows under this many requests (default ${DEFAULT_MIN_REQUESTS}).`),
   transaction_type: TYPE_FIELD,
   name_contains: z
     .string()
@@ -164,6 +174,8 @@ const listOutput = z.object({
   since: z.string(),
   until: z.string(),
   sortBy: z.enum(['slowest', 'errors', 'throughput']),
+  /** slowest only: transactions below this many requests were left out (null for the other sorts). */
+  minRequests: z.number().int().nullable(),
   transactions: z.array(z.record(z.string(), z.unknown())),
   /** The page is full: more transactions may exist. Raise limit or filter. */
   truncated: z.boolean(),
@@ -171,7 +183,7 @@ const listOutput = z.object({
 
 const LIST_DESCRIPTION = `Rank the transactions of an APM application (guid or name) by p95 latency (default), errors or throughput, with throughput, error count and rate, and average, p50, p95 and p99 duration in seconds.
 
-Not paged: a top-N (truncated says there are more; raise limit or filter by name_contains). Rows with few requests have noisy percentiles: check the requests column. For the application as a whole, or a before/after view, use analyze_transactions. ${UNTRUSTED}`;
+Not paged: top-N (if truncated, raise limit or use name_contains). slowest skips rows under min_requests. For the application as a whole, or a before/after view, use analyze_transactions. ${UNTRUSTED}`;
 
 const LIST_MINIMAL = ['name', 'requests', 'errorRate', 'p95DurationSeconds'] as const;
 
@@ -242,7 +254,7 @@ const analyzeOutput = z.object({
 
 const ANALYZE_DESCRIPTION = `Summarise the performance of an APM application (guid or name), or of one transaction in it: requests, throughput per minute, error rate, and average, p50, p95 and p99 duration, compared by default with the equal window before (worse, better or similar per metric).
 
-Runs 2 requests (1 with compare_previous false; +2 for a baseline control); a stopped earlier window leaves the current one (partial). Verdicts need 30 requests per window, |z| >= 3 and a minimum delta; notes name the rule. With a large throughput shift the same windows 1 day earlier act as a control (see baseline). To pick a transaction_name use list_top_transactions; to compare around a specific deployment use analyze_deployment_impact. ${UNTRUSTED}`;
+Runs 2 requests (1 with compare_previous false; +2 for a baseline control); a stopped earlier window leaves the current one (partial). Verdicts need 30 requests per window, |z| >= 3 and a minimum delta; notes name the rule. With a large throughput shift a 7 or 1 day earlier control applies (see baseline). To pick a transaction_name use list_top_transactions; to compare around a specific deployment use analyze_deployment_impact. ${UNTRUSTED}`;
 
 const fmt = (v: number | null) => (v === null ? '' : String(Number(v.toPrecision(4))));
 const pct = (r: number | null) => (r === null ? '' : `${r >= 0 ? '+' : ''}${(r * 100).toFixed(1)}%`);
@@ -294,6 +306,12 @@ export function createApmTools(deps: ToolDeps = {}): ToolDefinition[] {
       const sortBy = args.sort_by ?? 'slowest';
       const pattern = args.name_contains === undefined ? undefined : likePattern(args.name_contains);
 
+      const minRequests = sortBy === 'slowest' ? (args.min_requests ?? DEFAULT_MIN_REQUESTS) : null;
+      // NRQL has no HAVING and ranks a faceted page by its first aggregate, so the slowest ranking reads a wider page and
+      // drops low-volume rows here.
+      const fetchLimit =
+        minRequests === null ? limit : Math.max(limit, Math.min(SLOWEST_FETCH, ctx.limits.maxLimit));
+
       const outcome = await run(
         ctx,
         account,
@@ -302,7 +320,7 @@ export function createApmTools(deps: ToolDeps = {}): ToolDefinition[] {
           range.sinceMs,
           range.untilMs,
           sortBy,
-          limit,
+          fetchLimit,
           pattern,
           args.transaction_type,
         ),
@@ -314,7 +332,7 @@ export function createApmTools(deps: ToolDeps = {}): ToolDefinition[] {
       }
       const done: NrqlComplete = outcome;
       const minutes = range.windowMs / MINUTE_MS;
-      const rows = done.results.flatMap((r) => {
+      const allRows = done.results.flatMap((r) => {
         const facet = Array.isArray(r['facet']) ? r['facet'][0] : (r['facet'] ?? r['name']);
         if (typeof facet !== 'string') return [];
         const s = txStats(r);
@@ -325,6 +343,8 @@ export function createApmTools(deps: ToolDeps = {}): ToolDefinition[] {
           },
         ];
       });
+      const rows = minRequests === null ? allRows : allRows.filter((r) => (r.requests ?? 0) >= minRequests);
+      const skipped = allRows.length - rows.length;
       const sortKey = (r: (typeof rows)[number]): number =>
         (sortBy === 'errors' ? r.errors : sortBy === 'throughput' ? r.requests : r.p95DurationSeconds) ?? -1;
       rows.sort((a, b) => sortKey(b) - sortKey(a));
@@ -332,13 +352,20 @@ export function createApmTools(deps: ToolDeps = {}): ToolDefinition[] {
       const transactions = args.minimal_output
         ? pickFields(shown, LIST_MINIMAL)
         : (shown as Record<string, unknown>[]);
-      const truncated = done.results.length >= limit;
+      const truncated =
+        minRequests === null
+          ? done.results.length >= limit
+          : rows.length > limit || done.results.length >= fetchLimit;
 
       const lines = [
         `${shown.length} transaction${shown.length === 1 ? '' : 's'} of the application in account ${account}, ${range.since} to ${range.until} (UTC), sorted by ${sortBy}. Durations are seconds.`,
       ];
       if (truncated)
         lines.push('The list is full: more transactions may exist. Raise limit or filter by name.');
+      if (skipped > 0)
+        lines.push(
+          `${skipped} transaction${skipped === 1 ? '' : 's'} with fewer than ${minRequests} requests left out (min_requests).`,
+        );
       if (shown.length === 0)
         lines.push('No transactions found. Check the guid is an APM application and the window.');
       else {
@@ -367,6 +394,7 @@ export function createApmTools(deps: ToolDeps = {}): ToolDefinition[] {
           since: range.since,
           until: range.until,
           sortBy,
+          minRequests,
           transactions,
           truncated,
         },
@@ -458,7 +486,11 @@ export function createApmTools(deps: ToolDeps = {}): ToolDefinition[] {
         const afterStats = cur.ok ? cur.stats : null;
         comparison = compareWindows(beforeStats, afterStats, minutes);
         if (beforeStats && afterStats) {
-          baseline = chooseBaseline(args.baseline as Baseline | undefined, comparison.metrics);
+          baseline = chooseBaseline(args.baseline as Baseline | undefined, comparison.metrics, {
+            windows: [prev, range],
+            limits: ctx.limits,
+            now: ctx.clock.now(),
+          });
           const now = ctx.clock.now();
           const cb = controlRange(baseline.used, prev, ctx.limits, now);
           const ca = controlRange(baseline.used, range, ctx.limits, now);

@@ -12,6 +12,7 @@ import {
   type ToolContext,
 } from '../src/index.ts';
 import { likePattern, summaryQuery, topQuery, txStats } from '../src/tools/apm.ts';
+import { chooseBaseline, type MetricOut } from '../src/tools/changes.ts';
 import { testContext } from './helpers/context.ts';
 import { json } from './helpers/nerdgraph.ts';
 
@@ -157,7 +158,7 @@ describe('list_top_transactions', () => {
     const nrql = String(calls[0]?.variables['nrql']);
     expect(nrql).toContain(`entityGuid = '${guidOf(A)}'`);
     expect(nrql).toContain(`name LIKE '%o\\'brien%'`);
-    expect(nrql).toContain('LIMIT 10');
+    expect(nrql).toContain('LIMIT 500');
     const s = r.structuredContent as {
       transactions: { name: string; p95DurationSeconds: number; throughputPerMinute: number }[];
       truncated: boolean;
@@ -170,6 +171,40 @@ describe('list_top_transactions', () => {
     expect(s.transactions[0]?.throughputPerMinute).toBe(10); // 600 requests over the default hour
     expect(s.truncated).toBe(false);
     expect(text(r)).toContain('untrusted');
+  });
+
+  it('slowest skips low-volume transactions by default and honours min_requests (NEW-03)', async () => {
+    const rows = [
+      facetRow('once', 30, 1, 0),
+      facetRow('few', 9, 9, 0),
+      facetRow('busy', 2, 5000, 0),
+      facetRow('mid', 1, 50, 0),
+    ];
+    const { fetch, calls } = recording(() => nrqlBody(rows));
+    const client = await connect(fetch);
+    type S = { transactions: { name: string }[]; minRequests: number | null; truncated: boolean };
+    const d = await client.callTool({ name: 'list_top_transactions', arguments: { entity_guid: guidOf(A) } });
+    const ds = d.structuredContent as S;
+    expect(ds.transactions.map((t) => t.name)).toEqual(['busy', 'mid']);
+    expect(ds.minRequests).toBe(10);
+    expect(ds.truncated).toBe(false);
+    expect(text(d)).toContain('2 transactions with fewer than 10 requests left out');
+    expect(String(calls[0]?.variables['nrql'])).toContain('LIMIT 500');
+    const all = await client.callTool({
+      name: 'list_top_transactions',
+      arguments: { entity_guid: guidOf(A), min_requests: 1, limit: 3 },
+    });
+    const as = all.structuredContent as S;
+    expect(as.transactions.map((t) => t.name)).toEqual(['once', 'few', 'busy']);
+    expect(as.truncated).toBe(true);
+    const thr = await client.callTool({
+      name: 'list_top_transactions',
+      arguments: { entity_guid: guidOf(A), sort_by: 'throughput', limit: 10 },
+    });
+    const ts = thr.structuredContent as S;
+    expect(ts.minRequests).toBeNull();
+    expect(ts.transactions).toHaveLength(4);
+    expect(String(calls[2]?.variables['nrql'])).toContain('LIMIT 10 ');
   });
 
   it('sorts by errors and throughput, honours minimal_output and flags a full page', async () => {
@@ -367,5 +402,76 @@ describe('analyze_transactions: BUG-07 verdict rules and baseline (live test run
     expect(w.baseline).toMatchObject({ used: 'same_window_7d_ago', automatic: false });
     expect(week.calls).toHaveLength(4);
     expect((await run(await connect(week.fetch), { baseline: 'last_year' })).isError).toBe(true);
+  });
+});
+
+describe('automatic seasonal baseline prefers a weekly control (NEW-06)', () => {
+  const DAY = 86_400_000;
+  const changed = [
+    {
+      metric: 'throughput',
+      unit: 'rpm',
+      before: 100,
+      after: 170,
+      delta: 70,
+      changeRatio: 0.7,
+      verdict: 'changed',
+      note: null,
+    },
+  ] as MetricOut[];
+  const mon = Date.parse('2026-10-12T12:00:00Z');
+  const win = (untilMs: number, widthMs: number) => ({ sinceMs: untilMs - widthMs, untilMs });
+  const plan = (widthMs: number, maxWindowDays: number, now = mon) => ({
+    windows: [win(now - widthMs, widthMs), win(now, widthMs)],
+    limits: { maxWindowDays },
+    now,
+  });
+
+  it('uses 7 days for a 24 h window when the lookback limit allows it', () => {
+    expect(chooseBaseline(undefined, changed, plan(DAY, 30))).toMatchObject({
+      used: 'same_window_7d_ago',
+      automatic: true,
+    });
+  });
+
+  it('never exempts the limit: falls back to 1 day and names the maxWindowDays needed', () => {
+    const b = chooseBaseline(undefined, changed, plan(DAY, 7));
+    expect(b.used).toBe('same_window_1d_ago');
+    expect(b.reason).toContain('maxWindowDays of at least 9');
+    expect(b.reason).toContain('allows 7');
+  });
+
+  it('uses 7 days for a short window that crosses a weekend boundary', () => {
+    const sunNight = Date.parse('2026-10-11T23:50:00Z');
+    expect(chooseBaseline(undefined, changed, plan(60 * MIN, 30, sunNight + 20 * MIN)).used).toBe(
+      'same_window_7d_ago',
+    );
+  });
+
+  it('keeps 1 day for a short weekday window, and an explicit baseline wins', () => {
+    expect(chooseBaseline(undefined, changed, plan(60 * MIN, 7)).used).toBe('same_window_1d_ago');
+    expect(chooseBaseline('previous_window', changed, plan(DAY, 30)).used).toBe('previous_window');
+    expect(chooseBaseline(undefined, changed).used).toBe('same_window_1d_ago');
+  });
+
+  it('analyze_transactions runs the weekly control for last 24 hours when allowed, else 1 day', async () => {
+    const { fetch, calls } = recording((nrql) => {
+      const u = Number(/UNTIL (\d+)/.exec(nrql)?.[1]);
+      return nrqlBody([u === Math.floor(NOW / 1000) ? agg(17000, 100, 0.2, 0.4) : agg(10000, 60, 0.2, 0.4)]);
+    });
+    const wide = await connect(fetch, { limits: { ...testContext().limits, maxWindowDays: 30 } });
+    const r = await wide.callTool({
+      name: 'analyze_transactions',
+      arguments: { entity_guid: guidOf(A), time_range: 'last 24 hours' },
+    });
+    expect((r.structuredContent as { baseline: { used: string } }).baseline.used).toBe('same_window_7d_ago');
+    expect(calls).toHaveLength(4);
+    const strict = await connect(fetch, { limits: { ...testContext().limits, maxWindowDays: 7 } });
+    const r2 = await strict.callTool({
+      name: 'analyze_transactions',
+      arguments: { entity_guid: guidOf(A), time_range: 'last 24 hours' },
+    });
+    expect((r2.structuredContent as { baseline: { used: string } }).baseline.used).toBe('same_window_1d_ago');
+    expect(calls).toHaveLength(8);
   });
 });

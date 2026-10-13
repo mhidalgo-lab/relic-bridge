@@ -2,7 +2,7 @@
 id: P8-40
 title: trace_error diagnoses missing span data
 phase: 8
-status: review
+status: done
 priority: high
 depends_on: []
 adr: []

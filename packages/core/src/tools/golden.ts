@@ -82,6 +82,8 @@ const metricRow = z.object({
   nrql: z.string().nullable(),
   /** Why the metric has no value (no data, query error, skipped for budget…), or that its trend uses the halves method. */
   note: z.string().nullable(),
+  /** Why a metric has no value: left out by the caller's cap, the budget, an error, or no data. Null when it ran. */
+  reason: z.enum(['max_metrics', 'budget', 'error', 'no_data']).nullable(),
 });
 
 const output = z.object({
@@ -97,14 +99,14 @@ const output = z.object({
   metrics: z.array(metricRow),
   /** Adjustments made to the golden queries (limits), the same for every metric: stated once here. */
   notes: z.array(z.string()),
-  /** Some metrics were not evaluated (budget) or have no value (errors, still running). */
+  /** Involuntary truncation only (budget, error, still running). Metrics left out by max_metrics are not partial. */
   partial: z.boolean(),
   totalMetrics: z.number().int(),
 });
 
 const DESCRIPTION = `Golden metrics of one entity (guid or name): the key signals New Relic defines for its kind (throughput, response time and error rate for a service; CPU and memory for a host...), each with its latest value, a trend (up, down, flat) and the NRQL that produced it.
 
-Value uses complete time buckets only (the one still filling is ignored); the trend compares with the previous equal window (halves of the window if that is beyond the limit). timeseries=false: one aggregate per metric, no trend. Refine any metric with run_nrql. For metrics plus issues, errors and deployments in one call use entity_health. Runs one entity lookup, then two queries per metric (up to max_metrics); metrics stopped by budget or limits are marked skipped or error. ${UNTRUSTED}`;
+Value uses complete time buckets only (the one still filling is ignored); the trend compares with the previous equal window (halves of the window if that is beyond the limit). timeseries=false: one aggregate per metric, no trend. Refine any metric with run_nrql. For metrics plus issues, errors and deployments in one call use entity_health. Runs one entity lookup, then two queries per metric (up to max_metrics); metrics stopped by budget or limits are marked skipped or error (partial); ones beyond max_metrics get reason max_metrics, not partial. ${UNTRUSTED}`;
 
 const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 
@@ -310,7 +312,18 @@ export function isAggregateOnlyNrql(query: string): boolean {
 
 type MetricRow = z.infer<typeof metricRow>;
 
-const emptyMetric = (title: string, status: MetricRow['status'], note: string | null = null): MetricRow => ({
+const REASONS: Partial<Record<MetricRow['status'], MetricRow['reason']>> = {
+  no_data: 'no_data',
+  error: 'error',
+  skipped: 'budget',
+};
+
+const emptyMetric = (
+  title: string,
+  status: MetricRow['status'],
+  note: string | null = null,
+  reason: MetricRow['reason'] = REASONS[status] ?? null,
+): MetricRow => ({
   title,
   status,
   value: null,
@@ -320,6 +333,7 @@ const emptyMetric = (title: string, status: MetricRow['status'], note: string | 
   points: 0,
   nrql: null,
   note,
+  reason,
 });
 
 const HALVES_NOTE = 'Trend compares the halves of the window: the previous window could not be read.';
@@ -381,7 +395,7 @@ export function createGoldenMetricTools(deps: ToolDeps = {}): ToolDefinition[] {
         return { ...emptyMetric(title, 'no_data', 'No data in this window.'), nrql: sent };
       }
       if (previousSeconds === null || !wantSeries || prepared.ownWindow) {
-        return { title, status: 'ok', ...s, nrql: sent, note: null };
+        return { title, status: 'ok', ...s, nrql: sent, note: null, reason: null };
       }
       // The trend compares the window with the previous equal window, as analyze_transactions does (BUG-06).
       const flat = withTimeClauses(query, clause, false).nrql;
@@ -399,12 +413,12 @@ export function createGoldenMetricTools(deps: ToolDeps = {}): ToolDefinition[] {
         if (compared.status === 'complete') {
           for (const n of compared.notes) adjustments.add(n);
           const t = compareTrend(compared.results);
-          if (t) return { title, status: 'ok', ...s, ...t, nrql: sent, note: null };
+          if (t) return { title, status: 'ok', ...s, ...t, nrql: sent, note: null, reason: null };
         }
       } catch (e) {
         if (!(e instanceof RbError) || FATAL_CODES.has(e.code)) throw e;
       }
-      return { title, status: 'ok', ...s, nrql: sent, note: HALVES_NOTE };
+      return { title, status: 'ok', ...s, nrql: sent, note: HALVES_NOTE, reason: null };
     } catch (e) {
       if (!(e instanceof RbError) || FATAL_CODES.has(e.code)) throw e;
       if (e.code === ErrorCode.BudgetExhausted)
@@ -483,9 +497,15 @@ export function createGoldenMetricTools(deps: ToolDeps = {}): ToolDefinition[] {
       const skipped = wanted
         .slice(startable)
         .map((m) => emptyMetric(m.title, 'skipped', 'Request budget exhausted.'));
-      const metrics = [...ran, ...skipped];
-      const notRun = defs.length - wanted.length;
-      const partial = metrics.some((m) => m.status !== 'ok' && m.status !== 'no_data') || notRun > 0;
+      // Metrics beyond the caller's own cap are listed with their reason, and do not make the result partial.
+      const capped = defs
+        .slice(cap)
+        .map((m) => emptyMetric(m.title, 'skipped', 'Left out by max_metrics.', 'max_metrics'));
+      const metrics = [...ran, ...skipped, ...capped];
+      const notRun = capped.length;
+      const partial = metrics.some(
+        (m) => m.status !== 'ok' && m.status !== 'no_data' && m.reason !== 'max_metrics',
+      );
 
       const entity = {
         guid: args.guid,
@@ -502,14 +522,14 @@ export function createGoldenMetricTools(deps: ToolDeps = {}): ToolDefinition[] {
           `${count('no_data') ? `, ${count('no_data')} without data` : ''}` +
           `${count('pending') ? `, ${count('pending')} still running` : ''}` +
           `${count('error') ? `, ${count('error')} failed` : ''}` +
-          `${count('skipped') ? `, ${count('skipped')} skipped (budget)` : ''}.`,
+          `${count('skipped') ? `, ${count('skipped')} skipped` : ''}.`,
       ];
       for (const n of notes) lines.push(`Note: ${n}`);
       if (defs.length === 0)
         lines.push('This entity has no golden metrics. Use run_nrql for custom queries.');
       if (notRun > 0)
         lines.push(`${notRun} more golden metric(s) not run: raise max_metrics (max ${MAX_METRICS}).`);
-      if (partial) lines.push('Partial result: see the status column; rerun for the missing metrics.');
+      if (partial) lines.push('Partial result: see the status and reason columns.');
       if (metrics.length > 0) {
         const shaped = shapeRows(
           metrics.map((m) => ({
@@ -518,6 +538,7 @@ export function createGoldenMetricTools(deps: ToolDeps = {}): ToolDefinition[] {
             value: fmt(m.value),
             trend: m.trend,
             change: pct(m.changeRatio),
+            reason: m.reason ?? '',
             note: m.note ?? '',
           })),
           { format: 'table', source: 'New Relic golden metrics', maxRows: MAX_METRICS },

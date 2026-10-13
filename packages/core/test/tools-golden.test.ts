@@ -558,9 +558,35 @@ describe('get_golden_metrics', () => {
       name: 'get_golden_metrics',
       arguments: { entity_guid: GUID, max_metrics: 1 },
     });
-    expect((r.structuredContent as Out).metrics).toHaveLength(1);
+    const out = r.structuredContent as Out & { partial: boolean };
+    expect(out.metrics).toHaveLength(3);
+    expect(out.metrics.map((m) => m.status)).toEqual(['ok', 'skipped', 'skipped']);
+    expect(out.metrics.map((m) => (m as { reason?: string | null }).reason)).toEqual([
+      null,
+      'max_metrics',
+      'max_metrics',
+    ]);
+    // NEW-05: the caller's own cap is not a degraded answer.
+    expect(out.partial).toBe(false);
     expect(calls).toHaveLength(3);
     expect(text(r)).toContain('more golden metric');
+    expect(text(r)).not.toContain('Partial result');
+  });
+
+  it('keeps partial for a budget stop, with the reason on the skipped metric', async () => {
+    const { fetch } = routedFetch({ 'rate(count(a)': () => nrqlBody(series(1, 2, 3, 4)) }, () =>
+      entityBody(THREE),
+    );
+    const client = await connect(fetch, { budget: createBudget(2) });
+    const r = await client.callTool({ name: 'get_golden_metrics', arguments: { entity_guid: GUID } });
+    const out = r.structuredContent as Out & { partial: boolean };
+    expect(out.partial).toBe(true);
+    expect(out.metrics.filter((m) => m.status === 'skipped')).not.toHaveLength(0);
+    expect(
+      out.metrics
+        .filter((m) => m.status === 'skipped')
+        .every((m) => (m as { reason?: string | null }).reason === 'budget'),
+    ).toBe(true);
   });
 
   it('refuses another account offline, and an entity that resolves to another account', async () => {

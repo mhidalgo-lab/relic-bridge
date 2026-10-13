@@ -67,6 +67,8 @@ interface Overrides {
   /** Relationship pages: the cursor `p<n>` selects page n (page 0 has no cursor). */
   relatedPages?: unknown[][];
   nrql?: (nrql: string) => Response | undefined;
+  /** Titles of the entity's golden metrics (every one uses the same Throughput-style query). */
+  goldenTitles?: string[];
 }
 
 function nerdGraph(o: Overrides = {}): { fetch: FetchLike; calls: Recorded[] } {
@@ -104,6 +106,27 @@ function nerdGraph(o: Overrides = {}): { fetch: FetchLike; calls: Recorded[] } {
               accountId: A,
               name: 'checkout',
               relatedEntities: { nextCursor: null, results: o.related },
+            },
+          },
+        },
+      });
+    }
+    if (op === 'RbGoldenMetrics' && o.goldenTitles) {
+      return json({
+        data: {
+          actor: {
+            entity: {
+              guid: body.variables['guid'],
+              accountId: A,
+              name: 'checkout',
+              domain: 'APM',
+              type: 'APPLICATION',
+              goldenMetrics: {
+                metrics: o.goldenTitles.map((title) => ({
+                  title,
+                  query: "FROM Metric SELECT rate(count(a), 1 minute) WHERE entity.guid = 'X'",
+                })),
+              },
             },
           },
         },
@@ -404,7 +427,7 @@ describe('dependency_health', () => {
     expect(s.dependencies[1]?.direction).toBe('incoming');
     expect(s.notMeasured).toBe(1);
     expect(s.hiddenOutsideScope).toBe(true);
-    expect(s.partial).toBe(true);
+    expect(s.partial).toBe(false); // the caller's own max_dependencies cap is notMeasured, not partial (NEW-05)
     expect(JSON.stringify(ok)).not.toContain('foreign');
     expect(JSON.stringify(ok)).not.toContain(FOREIGN);
     // no NerdGraph request ever mentions the foreign neighbour
@@ -495,6 +518,28 @@ describe('dependency_health', () => {
     expect(s.partial).toBe(true);
   });
 
+  it('does not call a requested max_metrics cap partial, and lists what it left out (NEW-05)', async () => {
+    const ng = nerdGraph({ related, goldenTitles: ['CPU', 'Memory', 'Disk'] });
+    const client = await connect(ng.fetch);
+    const r = await client.callTool({
+      name: 'dependency_health',
+      arguments: { entity_guid: MOCK_GUID, max_dependencies: 1, max_metrics: 2 },
+    });
+    const s = r.structuredContent as {
+      partial: boolean;
+      entity: { status: string; metrics: { title: string; status: string; reason: string | null }[] };
+      dependencies: { status: string }[];
+    };
+    expect(s.partial).toBe(false);
+    expect(s.entity.status).toBe('ok');
+    expect(s.dependencies.every((d) => d.status === 'ok')).toBe(true);
+    expect(s.entity.metrics.at(-1)).toMatchObject({
+      title: 'Disk',
+      status: 'skipped',
+      reason: 'max_metrics',
+    });
+  });
+
   it('refuses a foreign guid offline', async () => {
     const ng = nerdGraph({ related });
     const client = await connect(ng.fetch);
@@ -525,6 +570,38 @@ describe('entity_health', () => {
       entityGuids: [MOCK_GUID],
       states: ['CREATED', 'ACTIVATED'],
     });
+  });
+
+  it('a requested max_metrics is not partial; a budget-reduced one is, with reason budget (NEW-05)', async () => {
+    const ng = nerdGraph({ goldenTitles: ['A', 'B', 'C'] });
+    const client = await connect(ng.fetch);
+    const r = await client.callTool({
+      name: 'entity_health',
+      arguments: { entity_guid: MOCK_GUID, max_metrics: 1 },
+    });
+    const s = r.structuredContent as {
+      partial: boolean;
+      sections: { name: string; status: string; data: { metrics: { reason: string | null }[] } }[];
+    };
+    expect(s.partial).toBe(false);
+    const golden = s.sections.find((x) => x.name === 'golden_metrics');
+    expect(golden?.status).toBe('ok');
+    expect(golden?.data.metrics.map((m) => m.reason)).toEqual([null, 'max_metrics', 'max_metrics']);
+
+    const tight = await connect(nerdGraph({ goldenTitles: ['A', 'B', 'C'] }).fetch, {
+      budget: createBudget(6),
+    });
+    const r2 = await tight.callTool({
+      name: 'entity_health',
+      arguments: { entity_guid: MOCK_GUID, max_metrics: 3 },
+    });
+    const g2 = (
+      r2.structuredContent as {
+        sections: { name: string; status: string; data: { metrics: { reason: string | null }[] } }[];
+      }
+    ).sections.find((x) => x.name === 'golden_metrics');
+    expect(g2?.status).toBe('partial');
+    expect(g2?.data.metrics.map((m) => m.reason)).toEqual([null, 'budget', 'budget']);
   });
 
   it('skips what the budget cannot pay for, in priority order', async () => {

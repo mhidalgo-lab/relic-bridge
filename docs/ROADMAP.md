@@ -308,4 +308,5 @@ Generated from task front matter (`pnpm tasks index`). Status lives in each task
 | P8-37 | [Commit the first NerdGraph schema snapshot](tasks/phase-8-hardening-launch/P8-37-nerdgraph-schema-snapshot.md) | high | P8-32, P8-36 | done |
 | P8-38 | [Output schemas tolerate new fields; upgrade guidance](tasks/phase-8-hardening-launch/P8-38-additive-output-schemas.md) | high | — | done |
 | P8-40 | [trace_error diagnoses missing span data](tasks/phase-8-hardening-launch/P8-40-trace-error-span-check.md) | high | — | done |
+| P8-41 | [partial only for involuntary truncation; group_by counts the whole window](tasks/phase-8-hardening-launch/P8-41-partial-and-window-groups.md) | medium | — | done |
 <!-- tasks:end -->

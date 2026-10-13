@@ -2,7 +2,7 @@
 id: P8-39
 title: Make the per-call New Relic call budget unmistakable
 phase: 8
-status: in-progress
+status: review
 priority: high
 depends_on: []
 adr: [10]
@@ -25,11 +25,11 @@ Relic calls inside ONE tool call and must not become a running total. Make that 
 - Keep the tools/list size budget and its 1000-character headroom untouched (no new description or input text).
 
 ## Acceptance criteria
-- [ ] `whoami` structured output has `limits.perCallBudget` and no `callBudget`/`callsUsed`/`callsRemaining`.
-- [ ] `whoami` text says "per-call", "not a running total" and names rate limits and quotas.
-- [ ] Docs describe `callBudget` as per tool call and point to rate limits and quotas for cross-call limits.
-- [ ] Changeset tells users to reconnect after upgrade (removed output fields).
-- [ ] Tests: whoami output and text (regression); tool-descriptions budget test still passes.
+- [x] `whoami` structured output has `limits.perCallBudget` and no `callBudget`/`callsUsed`/`callsRemaining`.
+- [x] `whoami` text says "per-call", "not a running total" and names rate limits and quotas.
+- [x] Docs describe `callBudget` as per tool call and point to rate limits and quotas for cross-call limits.
+- [x] Changeset tells users to reconnect after upgrade (removed output fields).
+- [x] Tests: whoami output and text (regression); tool-descriptions budget test still passes.
 
 ## Security notes
 none (output wording only; no access behaviour changes).

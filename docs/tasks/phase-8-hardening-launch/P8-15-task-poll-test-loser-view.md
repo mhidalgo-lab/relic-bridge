@@ -2,7 +2,7 @@
 id: P8-15
 title: Accept both valid loser views in the concurrent task-poll test
 phase: 8
-status: review
+status: done
 priority: medium
 depends_on: [P8-11]
 adr: []

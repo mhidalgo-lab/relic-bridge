@@ -2,7 +2,7 @@
 id: P8-14
 title: Number the first published release 0.7.0
 phase: 8
-status: review
+status: done
 priority: high
 depends_on: [P8-13]
 adr: []

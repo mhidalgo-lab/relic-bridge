@@ -2,7 +2,7 @@
 id: P8-13
 title: Point everything at mhidalgo-lab/relic-bridge and refresh docs after all phases landed
 phase: 8
-status: review
+status: done
 priority: high
 depends_on: [P8-12]
 adr: []

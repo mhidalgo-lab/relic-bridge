@@ -281,9 +281,9 @@ Generated from task front matter (`pnpm tasks index`). Status lives in each task
 | P8-10 | [Clear the failing dependency audit (sharp and two other dev-only advisories)](tasks/phase-8-hardening-launch/P8-10-sharp-advisory.md) | high | — | done |
 | P8-11 | [Make the concurrent task-poll test independent of which poll wins](tasks/phase-8-hardening-launch/P8-11-task-poll-test-order.md) | low | P7-29 | done |
 | P8-12 | [Full-history checkout for the release Version PR job](tasks/phase-8-hardening-launch/P8-12-version-pr-full-clone.md) | high | P1-16 | done |
-| P8-13 | [Point everything at mhidalgo-lab/relic-bridge and refresh docs after all phases landed](tasks/phase-8-hardening-launch/P8-13-repo-move-and-docs-refresh.md) | high | P8-12 | review |
-| P8-14 | [Number the first published release 0.7.0](tasks/phase-8-hardening-launch/P8-14-first-release-0-7-0.md) | high | P8-13 | review |
-| P8-15 | [Accept both valid loser views in the concurrent task-poll test](tasks/phase-8-hardening-launch/P8-15-task-poll-test-loser-view.md) | medium | P8-11 | review |
+| P8-13 | [Point everything at mhidalgo-lab/relic-bridge and refresh docs after all phases landed](tasks/phase-8-hardening-launch/P8-13-repo-move-and-docs-refresh.md) | high | P8-12 | done |
+| P8-14 | [Number the first published release 0.7.0](tasks/phase-8-hardening-launch/P8-14-first-release-0-7-0.md) | high | P8-13 | done |
+| P8-15 | [Accept both valid loser views in the concurrent task-poll test](tasks/phase-8-hardening-launch/P8-15-task-poll-test-loser-view.md) | medium | P8-11 | done |
 | P8-16 | [Fix list_top_transactions NRQL (no ORDER BY after FACET)](tasks/phase-8-hardening-launch/P8-16-list-top-transactions-nrql.md) | high | — | done |
 | P8-17 | [Fix list_synthetic_monitors stale NerdGraph status field](tasks/phase-8-hardening-launch/P8-17-synthetic-monitor-status.md) | high | — | done |
 | P8-18 | [Fix relationship type filter, self-edges, dependency selection and host GUID decode](tasks/phase-8-hardening-launch/P8-18-relationship-filters.md) | high | — | done |
@@ -311,5 +311,5 @@ Generated from task front matter (`pnpm tasks index`). Status lives in each task
 | P8-40 | [trace_error diagnoses missing span data](tasks/phase-8-hardening-launch/P8-40-trace-error-span-check.md) | high | — | done |
 | P8-41 | [partial only for involuntary truncation; group_by counts the whole window](tasks/phase-8-hardening-launch/P8-41-partial-and-window-groups.md) | medium | — | done |
 | P8-42 | [Polish - slowest ranking, global event types, weekly baseline](tasks/phase-8-hardening-launch/P8-42-ranking-eventtypes-baseline.md) | medium | — | done |
-| P8-43 | [Docs from the 0.8.0 verification run](tasks/phase-8-hardening-launch/P8-43-verification-notes-docs.md) | low | — | review |
+| P8-43 | [Docs from the 0.8.0 verification run](tasks/phase-8-hardening-launch/P8-43-verification-notes-docs.md) | low | — | done |
 <!-- tasks:end -->

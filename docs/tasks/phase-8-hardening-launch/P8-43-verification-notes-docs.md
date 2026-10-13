@@ -2,7 +2,7 @@
 id: P8-43
 title: Docs from the 0.8.0 verification run
 phase: 8
-status: review
+status: done
 priority: low
 depends_on: []
 adr: [0016]

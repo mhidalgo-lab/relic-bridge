@@ -399,7 +399,7 @@ Sources: <https://github.com/cloudflare/workers-oauth-provider>, issues #264, #3
   `uniqueCount(session)` reads 0; the report now shows `sessionsWithErrors: null` plus a note when errors exist but the count is 0.
   Front end names come from `latest(appName)` of the events when the issue or lookup gave none. A 17% rise in JS errors is below the
   1.5x rate threshold, so no `js_errors_up` flag is intended. Errors Inbox groups can have a null group-level `lastSeenAt` while
-  `occurrences.lastSeenAt` is set; `trace_error` checks `Span` / `TransactionError.traceId` counts to tell tracing disabled from no match.
+  `occurrences.lastSeenAt` is set; `trace_error` checks `Span` / `TransactionError.traceId` counts to tell missing span data from no match. Live test run (2026-10-12, BUG-12): an account can have thousands of `TransactionError` events with `traceId` and zero `Span` events (agent stamps ids, sends no spans), so `Span = 0` alone means traces cannot be followed.
   `aiIssues` incident `title` is a JSON-encoded string list.
 - Investigation tools (P6-16, not verified against a real account): `trace_error` reads `Span` (`trace.id`, `id`, `parent.id`,
   `name`, `entity.name`, `duration.ms`, `error.class`, `error.message`, `category`), `TransactionError` (`traceId`,

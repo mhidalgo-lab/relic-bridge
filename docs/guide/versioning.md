@@ -83,9 +83,9 @@ six months after the deprecation was released.
 
 ### Current deprecations
 
-| What | Deprecated in | Use instead | Removed in |
-|---|---|---|---|
-| `whoami` output `limits.callBudget` | 0.9.1 | `limits.perCallBudget` (same value) | 0.11.0 |
+| What | Deprecated in | Use instead | Removed in | Removal task |
+|---|---|---|---|---|
+| `whoami` output `limits.callBudget` | 0.9.1 | `limits.perCallBudget` (same value) | 0.11.0 | [P8-62](../tasks/phase-8-hardening-launch/P8-62-remove-callbudget-alias.md) (starts after 0.10.0 is published) |
 
 ## Supported versions and security fixes
 

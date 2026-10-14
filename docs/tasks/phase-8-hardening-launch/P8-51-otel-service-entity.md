@@ -2,11 +2,11 @@
 id: P8-51
 title: Self-monitoring spans - service entity golden metrics and per-tool span names
 phase: 8
-status: todo
+status: in-progress
 priority: medium
 depends_on: []
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P8-51 — Self-monitoring spans: service entity golden metrics and per-tool span names

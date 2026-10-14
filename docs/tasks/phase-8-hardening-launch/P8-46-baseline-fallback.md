@@ -2,11 +2,11 @@
 id: P8-46
 title: An explicit baseline that cannot run falls back to an available control
 phase: 8
-status: todo
+status: in-progress
 priority: medium
 depends_on: []
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P8-46 — An explicit baseline that cannot run falls back to an available control

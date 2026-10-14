@@ -82,7 +82,7 @@ claude mcp add relic \
 
 Other clients and the multi-project YAML mode: [local quickstart](docs/guide/quickstart-local.md). Releases are
 published from GitHub Actions with npm provenance; each [GitHub Release](https://github.com/mhidalgo-lab/relic-bridge/releases)
-carries the tarball, an SBOM and checksums with build attestations. Changes: [CHANGELOG](apps/cli/CHANGELOG.md).
+carries the tarball, an SBOM and checksums with build attestations ([how to verify](docs/guide/verify-release.md)). Changes: [CHANGELOG](apps/cli/CHANGELOG.md).
 
 ## Documentation
 

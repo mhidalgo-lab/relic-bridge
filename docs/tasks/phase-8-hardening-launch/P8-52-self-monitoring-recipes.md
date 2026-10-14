@@ -2,11 +2,11 @@
 id: P8-52
 title: Self-monitoring recipes - alert conditions and a dashboard
 phase: 8
-status: todo
+status: in-progress
 priority: low
 depends_on: [P8-50, P8-51]
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P8-52 — Self-monitoring recipes: alert conditions and a dashboard

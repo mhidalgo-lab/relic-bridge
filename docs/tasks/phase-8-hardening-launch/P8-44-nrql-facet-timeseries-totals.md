@@ -2,11 +2,11 @@
 id: P8-44
 title: run_nrql accepts array totals of FACET TIMESERIES queries
 phase: 8
-status: todo
+status: in-progress
 priority: high
 depends_on: []
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P8-44 — run_nrql accepts array totals of FACET TIMESERIES queries

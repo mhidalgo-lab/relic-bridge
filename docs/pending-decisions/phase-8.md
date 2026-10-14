@@ -17,6 +17,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   that budget exhaustion is a caller error.
 
 ## Tools
+- **Decision (2026-10-14):** option (a), `rpc.grpc.status_code` on server errors only; changeset minor; a refused stored key is a server error, budget exhaustion a caller error.
 
 ### P8-57 — Error group lookup not verified live (PR #232)
 - **Context:** `errorGroups(filter.ids)` returning the group for ids from `list_error_groups` is unverified.
@@ -24,12 +25,14 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Needs:** one `trace_error(error_group_id)` call after deploy.
 
 ## Policy
+- **Decision (2026-10-14):** verify with one `trace_error(error_group_id)` call after the next deploy.
 
 ### P8-05 — Windows and backports (PR #236)
 - **Context:** the policy proposes "next major and at least 6 months" for deprecations after 1.0 and 3-month backports
   to the previous minor. `release.yml` only releases from `main`, so a backport needs a maintenance-branch path.
 - **Needs:** confirm the windows; decide the backport release path before 1.0; decide whether the CI lint job fetches
   tags so the DB-fixture check runs fully in CI (recommended).
+- **Decision (2026-10-14):** windows accepted as proposed; backports through `release/x.y` branches before 1.0 (P8-68); the CI lint job fetches tags; deprecated-config warnings are built (P8-67).
 
 ### P8-63 — `tools.listChanged` on HTTP (PR #239)
 - **Context:** the team asked for `listChanged: true` so clients see new parameters without a reconnect.
@@ -39,10 +42,12 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Needs:** owner choice.
 
 ## Docs site
+- **Decision (2026-10-14):** stay stateless (ADR-0005); users reconnect after upgrades.
 
 ### P8-04 — Pages, versioning, third-party image (PR #235)
 - **Needs:** enable GitHub Pages (source: GitHub Actions) before the first deploy; confirm "latest from `main`" now and
   per-release snapshots only on demand; keep or self-host the Deploy-to-Cloudflare button image.
+- **Decision (2026-10-14):** Pages enabled (source: GitHub Actions); publish latest from `main` with a banner; self-host the button image so the site makes no third-party requests.
 
 ### P8-03 — Machine details in the benchmark table (PR #230)
 - **Context:** the published table names the CPU model and memory of the machine that ran it.
@@ -50,6 +55,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Needs:** owner choice.
 
 ## CI
+- **Decision (2026-10-14):** generic label ("developer laptop, 6-core x86-64, WSL2").
 
 ### P8-07 — Environments and egress blocking (PR #228)
 - **Needs:** set the `live` and `staging` environments to deploy from `main` only; switch the release jobs'
@@ -57,8 +63,10 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   manager for the pinned actionlint and gitleaks digests.
 
 ## Security review
+- **Decision (2026-10-14):** `live` (required reviewer) and `staging` deploy from `main` only, done; `block` for the release jobs after the next release (P8-69); Renovate regex manager for the pinned digests (P8-70). CI moves to GitHub-hosted runners only (P8-64).
 
 ### P8-01 — Follow-ups from the threat model walk (PR #240)
 - **Needs:** decide which ASVS open items become tasks before 1.0 (proposed: cryptographic inventory, logging inventory,
   re-authentication for sensitive admin actions); remembered consent for dynamically registered OAuth clients; HSTS by
   default when `RB_PUBLIC_URL` is https. Other findings were reported to the owner privately (SECURITY.md).
+- **Decision (2026-10-14):** cryptographic inventory (P8-71), logging inventory (P8-72) and admin re-authentication (P8-73) before 1.0; remembered consent only for metadata-document clients (P8-65); HSTS on by default for an https public URL (P8-66); other follow-ups filed as P8-74 to P8-78.

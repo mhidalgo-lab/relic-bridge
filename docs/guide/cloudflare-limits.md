@@ -61,7 +61,7 @@ What relic-bridge itself adds to each tool call, and what a call costs in NerdGr
 subrequests that the 50 and 1,000 limits above count). Reproduce on your own machine with `pnpm bench` (Node and
 workerd, no New Relic key needed; `pnpm bench --node` for Node only; about a minute). It is not part of CI.
 
-Measured 2026-10-14 on Intel(R) Core(TM) i7-10750H CPU @ 2.60GHz, 3 threads, 12 GiB; Node 24.16.0, workerd 1.20260926.1.
+Measured 2026-10-14 on developer laptop, 6-core x86-64, WSL2; Node 24.16.0, workerd 1.20260926.1.
 Mock NerdGraph (recorded fixtures, zero latency), in-memory MCP client, sample arguments from the contract tests.
 **Indicative only**: the numbers depend on the machine, and local workerd is not production Workers.
 

@@ -4,16 +4,20 @@
 //
 //   node scripts/bench-tools.ts                 both runtimes, Markdown table on stdout
 //   node scripts/bench-tools.ts --out table.md  also write the table to a file
+//   node scripts/bench-tools.ts --host-label "laptop, 6-core x86-64"  machine description for the table header
 //   node scripts/bench-tools.ts --node          Node only (no workerd needed)
 //   node scripts/bench-tools.ts --samples 60    timed samples per tool (default 30, each the mean of 10 calls)
 //
 // Not a required check and not in CI: the numbers belong to the machine they ran on (see the header of the table).
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { cpus, tmpdir, totalmem } from 'node:os';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { measureTools, type ToolMeasure } from './bench/tools-harness.ts';
+
+/** Machine description in the table header unless `--host-label` says otherwise. */
+export const DEFAULT_HOST_LABEL = 'developer machine (unspecified)';
 
 export interface Environment {
   readonly date: string;
@@ -114,10 +118,10 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const samples = flag('--samples');
   const node = await measureTools(samples === undefined ? {} : { samples: Number(samples) });
   const workers = args.includes('--node') ? null : runWorkers();
-  const cpu = cpus();
   const env: Environment = {
     date: new Date().toISOString().slice(0, 10),
-    machine: `${cpu[0]?.model.trim() ?? 'unknown CPU'}, ${cpu.length} threads, ${Math.round(totalmem() / 2 ** 30)} GiB`,
+    // Generic on purpose: the CPU model, thread count and memory are not detected, so a published table never leaks them.
+    machine: flag('--host-label') ?? DEFAULT_HOST_LABEL,
     node: process.versions.node,
     workerd: workers === null ? null : workerdVersion(),
   };

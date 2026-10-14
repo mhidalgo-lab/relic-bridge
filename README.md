@@ -10,6 +10,7 @@
 
 [![CI](https://github.com/mhidalgo-lab/relic-bridge/actions/workflows/ci.yml/badge.svg)](https://github.com/mhidalgo-lab/relic-bridge/actions/workflows/ci.yml)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/mhidalgo-lab/relic-bridge/badge)](https://scorecard.dev/viewer/?uri=github.com/mhidalgo-lab/relic-bridge)
+[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/15400/badge)](https://www.bestpractices.dev/projects/15400)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
 An open-source [Model Context Protocol](https://modelcontextprotocol.io) server that lets AI agents (Claude Code,

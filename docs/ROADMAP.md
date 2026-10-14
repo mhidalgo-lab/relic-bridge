@@ -323,6 +323,6 @@ Generated from task front matter (`pnpm tasks index`). Status lives in each task
 | P8-52 | [Self-monitoring recipes - alert conditions and a dashboard](tasks/phase-8-hardening-launch/P8-52-self-monitoring-recipes.md) | low | P8-50, P8-51 | todo |
 | P8-53 | [Scorecard quick wins - spike lockfiles, workflow_run checkout, security policy link](tasks/phase-8-hardening-launch/P8-53-scorecard-quick-wins.md) | high | — | review |
 | P8-54 | [Signed releases - provenance attestations attached to GitHub Releases](tasks/phase-8-hardening-launch/P8-54-release-provenance-assets.md) | medium | — | review |
-| P8-55 | [OpenSSF Best Practices badge (passing)](tasks/phase-8-hardening-launch/P8-55-openssf-best-practices.md) | low | P8-53 | todo |
+| P8-55 | [OpenSSF Best Practices badge (passing)](tasks/phase-8-hardening-launch/P8-55-openssf-best-practices.md) | low | P8-53 | review |
 | P8-56 | [README reflects 0.9.0 and the current docs](tasks/phase-8-hardening-launch/P8-56-readme-refresh.md) | medium | — | review |
 <!-- tasks:end -->

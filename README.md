@@ -1,10 +1,11 @@
 # relic-bridge
 
-> **Status: alpha, 0.7.0 released.** Phases 1-7 (local stdio, self-hosted HTTP, Cloudflare Worker, sign-in and admin
-> panel, OAuth, more tools, power features) shipped in **0.7.0**: the [npm package](https://www.npmjs.com/package/relic-bridge)
-> (with provenance), the GitHub Release and the signed `ghcr.io/mhidalgo-lab/relic-bridge:0.7.0` image are published.
-> 0.8.0 (fixes from a live test run) is next, and v1.0 follows Phase 8 (hardening and launch). OAuth is implemented
-> and documented for claude.ai and Claude mobile, but has **not** been verified with the real apps
+> **Status: alpha, 0.9.0 released.** Phases 1-7 (local stdio, self-hosted HTTP, Cloudflare Worker, sign-in and admin
+> panel, OAuth, more tools, power features) shipped in 0.7.0; 0.8.0 and 0.9.0 fix what live verification runs against
+> real New Relic accounts found. Each release is on [npm](https://www.npmjs.com/package/relic-bridge) (with provenance),
+> as a [GitHub Release](https://github.com/mhidalgo-lab/relic-bridge/releases) and as the signed
+> `ghcr.io/mhidalgo-lab/relic-bridge` image. Phase 8 (hardening and launch) is in progress toward v1.0. OAuth is
+> implemented and documented for claude.ai and Claude mobile, but has **not** been verified with the real apps
 > ([compatibility](docs/reference/client-compatibility.md)).
 
 [![CI](https://github.com/mhidalgo-lab/relic-bridge/actions/workflows/ci.yml/badge.svg)](https://github.com/mhidalgo-lab/relic-bridge/actions/workflows/ci.yml)
@@ -15,7 +16,7 @@ An open-source [Model Context Protocol](https://modelcontextprotocol.io) server 
 Claude Desktop, claude.ai, Claude mobile, Cursor, VS Code, …) query **New Relic** through the **NerdGraph** API using
 only a **User API key** — no account-level MCP enablement required.
 
-**Features (0.7.0):**
+**Features:**
 
 **Local stdio:**
 
@@ -61,15 +62,24 @@ only a **User API key** — no account-level MCP enablement required.
 - Tested with SDK clients shaped like the real ones; the real claude.ai and mobile apps are still to be checked
   ([client compatibility](docs/reference/client-compatibility.md)).
 
-**More tools and power features** (Phases 6 and 7): official-server tool parity, write tools, Tasks, `doctor`, config
-import/export, OS keychain, quotas, OTLP export and the Claude Code plugin.
+**Tools and power features:**
 
-**Planned (Phase 8 / 1.0)** (see the [roadmap](docs/ROADMAP.md)): hardening, performance and security review, launch
-and the first published release.
+- **41 tools** ([reference](docs/reference/tools.md)): NRQL, entities, golden metrics, alerts and issues, errors,
+  deployments, transactions, logs, synthetics, dashboards, and one-call reports such as `entity_health` and
+  `dependency_health`; plus MCP [prompts](docs/reference/prompts.md) and [resources](docs/reference/resources.md).
+- **Opt-in write tools** (change events, acknowledging and closing issues, dashboards), off unless a grant enables them
+  and approved per call by default.
+- [Query limits](docs/guide/query-limits.md), a [query cache](docs/guide/query-cache.md),
+  [charts (MCP Apps)](docs/guide/charts.md), long-running reports as MCP Tasks, `doctor`, config import/export, an
+  OS keychain, per-grant quotas, the [Claude Code plugin](docs/guide/claude-code-plugin.md) and optional
+  [self-monitoring with OpenTelemetry](docs/guide/observability.md).
+
+**Planned for 1.0 (Phase 8)** (see the [roadmap](docs/ROADMAP.md)): final threat model and an external security
+review, performance and cost checks, a documentation site, a support policy and the launch.
 
 ## Install
 
-Node.js 24.11 or later and a New Relic **User** API key. the simplest setup is a local stdio server that your MCP
+Node.js 24.11 or later and a New Relic **User** API key. The simplest setup is a local stdio server that your MCP
 client starts (the same CLI also offers `serve` for self-hosting, management commands, an OS keychain and `doctor`):
 
 ```sh
@@ -86,12 +96,23 @@ carries the tarball, an SBOM and checksums with build attestations ([how to veri
 
 ## Documentation
 
-- **Guides:** [local quickstart](docs/guide/quickstart-local.md) · [client setup](docs/guide/clients.md) ·
-  [self-hosting](docs/guide/self-hosting.md) · [deploy to Cloudflare](docs/guide/cloudflare-deploy.md) · [Cloudflare limits and costs](docs/guide/cloudflare-limits.md) · [multi-device setup](docs/guide/multi-device.md) · [admin guide](docs/guide/admin-guide.md) ·
-  [admin panel](docs/guide/admin-panel.md) · [sign-in providers](docs/guide/identity-providers.md) · [use it from your phone and claude.ai](docs/guide/oauth-phone.md) · [OAuth settings](docs/guide/oauth.md) · [how OAuth works](docs/guide/oauth-how-it-works.md) · [client compatibility](docs/reference/client-compatibility.md) · [admin access](docs/guide/admin-access.md) ·
-  [access model](docs/guide/access-model.md) · [secrets](docs/guide/secrets.md) ·
-  [configuration](docs/guide/configuration.md) · [charts (MCP Apps)](docs/guide/charts.md) · [security basics](docs/guide/security-basics.md) ·
-  [troubleshooting](docs/guide/troubleshooting.md) · [registry listing](docs/guide/registry-listing.md) · [tool reference](docs/reference/tools.md) · [CLI reference](docs/reference/cli.md)
+- **Get started:** [local quickstart](docs/guide/quickstart-local.md) · [client setup](docs/guide/clients.md) ·
+  [Claude Code plugin](docs/guide/claude-code-plugin.md) · [configuration](docs/guide/configuration.md) ·
+  [migrating a config](docs/guide/migrating-config.md) · [troubleshooting](docs/guide/troubleshooting.md)
+- **Deploy:** [self-hosting](docs/guide/self-hosting.md) · [deploy to Cloudflare](docs/guide/cloudflare-deploy.md) ·
+  [Cloudflare limits and costs](docs/guide/cloudflare-limits.md) · [multi-device setup](docs/guide/multi-device.md) ·
+  [verify a release](docs/guide/verify-release.md) · [registry listing](docs/guide/registry-listing.md)
+- **Access and admin:** [admin guide](docs/guide/admin-guide.md) · [admin panel](docs/guide/admin-panel.md) ·
+  [admin access](docs/guide/admin-access.md) · [sign-in providers](docs/guide/identity-providers.md) ·
+  [access model](docs/guide/access-model.md) · [secrets](docs/guide/secrets.md) · [audit log](docs/guide/audit-log.md) ·
+  [security basics](docs/guide/security-basics.md)
+- **OAuth:** [use it from your phone and claude.ai](docs/guide/oauth-phone.md) · [OAuth settings](docs/guide/oauth.md) ·
+  [how OAuth works](docs/guide/oauth-how-it-works.md) · [client compatibility](docs/reference/client-compatibility.md)
+- **Using the tools:** [query limits](docs/guide/query-limits.md) · [query cache](docs/guide/query-cache.md) ·
+  [output formats](docs/guide/output-formats.md) · [charts (MCP Apps)](docs/guide/charts.md) ·
+  [self-monitoring (OpenTelemetry)](docs/guide/observability.md)
+- **Reference:** [tools](docs/reference/tools.md) · [prompts](docs/reference/prompts.md) ·
+  [resources](docs/reference/resources.md) · [CLI](docs/reference/cli.md) · [admin API](docs/reference/admin-api.md)
 - [Roadmap & task index](docs/ROADMAP.md)
 - [Architecture](docs/ARCHITECTURE.md) · [Decisions (ADRs)](docs/adr/) · [Research & platform limits](docs/RESEARCH.md)
 - [Threat model](docs/THREAT_MODEL.md)

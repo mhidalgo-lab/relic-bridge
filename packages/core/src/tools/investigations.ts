@@ -5,6 +5,7 @@
 import { z } from 'zod';
 import type { ToolContext } from '../context.ts';
 import { ErrorCode, RbError } from '../errors.ts';
+import { ERROR_GROUPS_QUERY, type ErrorGroupData } from '../nerdgraph/errors-inbox.ts';
 import type { NrqlComplete } from '../nrql/engine.ts';
 import { runNrql } from '../nrql/engine.ts';
 import { type NrqlQuery, nrql } from '../nrql/template.ts';
@@ -14,8 +15,8 @@ import type { TaskJob } from '../tasks.ts';
 import { parseTimeRange } from '../time/range.ts';
 import { defineTool, type ToolDefinition, type ToolOutput } from '../tool.ts';
 import { createChangeTools, FATAL_CODES } from './changes.ts';
-import { checkGuid, createEntityTools } from './entities.ts';
-import { createErrorTools } from './errors.ts';
+import { checkGuid, createEntityTools, requireField } from './entities.ts';
+import { createErrorTools, vouched } from './errors.ts';
 import { createGoldenMetricTools, goldenCost, goldenMetricsFor } from './golden.ts';
 import { cleanName, errorNote } from './identity.ts';
 import { createIssueTools } from './issues.ts';
@@ -274,7 +275,7 @@ const traceOutput = z.object({
 
 const TRACE_DESCRIPTION = `Follow one failing request through the system: from a trace_id, or from an error group (error_group_id from list_error_groups: its latest occurrence with a trace), get the trace's spans (services, root, error and slowest spans), the error events with request attributes (class, message, path, method, status) and the log lines with that trace id.
 
-Runs 3 queries (4 with error_group_id); a part that fails or does not fit is noted (partial: true). spansMissing means the trace was sampled out or is outside time_range (default last 24 hours); errors and logs still help. Only log lines with the trace id are returned: for other lines use list_recent_logs with a narrow time_range. One account per call (an entity, by entity_guid or name, implies it); synthetic traffic is skipped unless include_synthetic; query strings are removed from paths. ${UNTRUSTED}`;
+Runs 3 queries (5 with error_group_id); a part that fails or does not fit is noted (partial: true). spansMissing means the trace was sampled out or is outside time_range (default last 24 hours); errors and logs still help. Only log lines with the trace id are returned: for other lines use list_recent_logs with a narrow time_range. One account per call (an entity, by entity_guid or name, implies it); synthetic traffic is skipped unless include_synthetic; query strings are removed from paths. ${UNTRUSTED}`;
 
 const spanQuery = (traceId: string, sinceMs: number, untilMs: number): NrqlQuery =>
   nrql`SELECT ${nrql.identifier('timestamp')}, id, ${nrql.identifier('parent.id')} AS parentId, name, ${nrql.identifier('entity.name')} AS service, category, ${nrql.identifier('duration.ms')} AS durationMs, ${nrql.identifier('error.class')} AS errorClass, ${nrql.identifier('error.message')} AS errorMessage FROM Span WHERE ${nrql.identifier('trace.id')} = ${traceId} LIMIT ${SPAN_LIMIT} SINCE ${Math.floor(sinceMs / 1000)} UNTIL ${Math.ceil(untilMs / 1000)}`;
@@ -285,19 +286,53 @@ const errorQuery = (traceId: string, sinceMs: number, untilMs: number): NrqlQuer
 const logQuery = (traceId: string, sinceMs: number, untilMs: number): NrqlQuery =>
   nrql`SELECT timestamp, level, message FROM Log WHERE ${nrql.identifier('trace.id')} = ${traceId} ORDER BY timestamp ASC LIMIT ${LOG_LIMIT} SINCE ${Math.floor(sinceMs / 1000)} UNTIL ${Math.ceil(untilMs / 1000)}`;
 
+/** How trace_error matches an Errors Inbox group to its events (P8-57): what New Relic's eventsQuery matches on. */
+export interface GroupMatch {
+  /** The group name: the error class for TransactionError groups. */
+  readonly errorClass: string;
+  /** The group message, or null when it cannot be matched exactly (missing, too long, control characters). */
+  readonly message: string | null;
+  /** The group's entity (or the entity_guid argument); null matches the whole account. */
+  readonly entityGuid: string | null;
+}
+
+/** Longest group message matched exactly; a longer one is matched on class and entity only. */
+export const MAX_MATCH_MESSAGE = 2000;
+
+/** The value when it can be an NRQL literal of at most `max` characters (no control characters), else null. */
+export function matchable(value: string | null | undefined, max: number = MAX_MATCH_MESSAGE): string | null {
+  if (typeof value !== 'string' || value.length === 0 || value.length > max) return null;
+  try {
+    nrql`${value}`;
+    return value;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The latest traced occurrence of an error group. TransactionError events have no `error.group.guid`: Errors Inbox
+ * groups them by error class and message (its eventsQuery), so this matches on those, by equality (no LIKE wildcards).
+ * The latest traced error of the same class and entity comes back in the same query, as the fallback for a message
+ * that does not match exactly (custom groups, messages New Relic shortened or normalised).
+ */
 export function groupTraceQuery(
-  groupId: string,
-  entityGuid: string | undefined,
+  match: GroupMatch,
   includeSynthetic: boolean,
   sinceMs: number,
   untilMs: number,
 ): NrqlQuery {
+  const message = nrql.identifier('error.message');
+  const exact =
+    match.message === null
+      ? nrql``
+      : nrql`filter(latest(traceId), WHERE ${message} = ${match.message}) AS exactTrace, filter(count(*), WHERE ${message} = ${match.message}) AS exactCount, `;
   const entity =
-    entityGuid === undefined ? nrql`` : nrql`AND ${nrql.identifier('entityGuid')} = ${entityGuid}`;
+    match.entityGuid === null ? nrql`` : nrql`AND ${nrql.identifier('entityGuid')} = ${match.entityGuid}`;
   const synthetic = includeSynthetic
     ? nrql``
     : nrql`AND ${nrql.identifier('nr.syntheticsMonitorId')} IS NULL`;
-  return nrql`SELECT traceId, ${nrql.identifier('timestamp')} FROM TransactionError WHERE ${nrql.identifier('error.group.guid')} = ${groupId} AND traceId IS NOT NULL ${entity} ${synthetic} ORDER BY timestamp DESC LIMIT 1 SINCE ${Math.floor(sinceMs / 1000)} UNTIL ${Math.ceil(untilMs / 1000)}`;
+  return nrql`SELECT ${exact}latest(traceId) AS classTrace, count(*) AS classCount FROM TransactionError WHERE ${nrql.identifier('error.class')} = ${match.errorClass} AND traceId IS NOT NULL ${entity} ${synthetic} SINCE ${Math.floor(sinceMs / 1000)} UNTIL ${Math.ceil(untilMs / 1000)}`;
 }
 
 /** Says how many errors carry a trace id, from the tracing check counts; empty when the counts are unusable. */
@@ -565,8 +600,9 @@ export function createInvestigationTools(deps: ToolDeps = {}): ToolDefinition[] 
     outputSchema: traceOutput,
     kind: 'read',
     openWorld: true,
-    // Spans, error events and logs; one more NRQL to find the trace of an error group.
-    cost: 4 * NRQL_COST,
+    // Spans, error events and logs; for an error group, its NerdGraph lookup and one NRQL for its traced occurrence
+    // (or, when none is found, the tracing check instead of the three trace queries).
+    cost: 1 + 4 * NRQL_COST,
     group: 'incident-response',
     phase: 6,
     handler: async (args, ctx) => {
@@ -606,12 +642,61 @@ export function createInvestigationTools(deps: ToolDeps = {}): ToolDefinition[] 
       const notes: string[] = [];
       let traceId = args.trace_id ?? null;
       if (traceId === null && args.error_group_id !== undefined) {
+        const groupId = args.error_group_id;
+        // 1. The group itself (P8-57): its class, message and entity are what its events match on.
+        const result = await client(ctx).query(ERROR_GROUPS_QUERY, {
+          cursor: null,
+          entityGuids: args.entity_guid ? [args.entity_guid] : null,
+          filter: { accountIds: [account], ids: [groupId] },
+          query: null,
+          sortBy: null,
+          timeWindow: { startTime: range.sinceMs, endTime: range.untilMs },
+        });
+        const page = requireField(result.data.actor.errorsInbox, result, ctx).errorGroups;
+        const group = (page?.results ?? []).find(
+          (g): g is ErrorGroupData =>
+            g !== null &&
+            g.id === groupId &&
+            (typeof g.entityGuid !== 'string' || vouched(g, account, ctx)) &&
+            (args.entity_guid === undefined || g.entityGuid == null || g.entityGuid === args.entity_guid),
+        );
+        if (!group) {
+          throw new RbError(
+            ErrorCode.InputInvalid,
+            `No error group with this id has occurrences in account ${account}${args.entity_guid ? ' for this entity' : ''}, ${range.since} to ${range.until} (UTC).`,
+            {
+              hint: 'Use list_error_groups with the same account and time_range to find the id, or widen time_range.',
+            },
+          );
+        }
+        const source = label(group.source);
+        if (group.source && source !== 'TransactionError') {
+          throw new RbError(
+            ErrorCode.InputInvalid,
+            `This error group comes from ${source ?? 'other'} events; trace_error follows APM error groups (TransactionError events) only.`,
+            {
+              hint: "Run the group's events_query (list_error_groups) with run_nrql to find a trace id, then call trace_error with trace_id.",
+            },
+          );
+        }
+        const errorClass = matchable(group.name, MAX_TEXT * 2);
+        const message = matchable(group.message);
+        const entityGuid =
+          args.entity_guid ?? (typeof group.entityGuid === 'string' ? group.entityGuid : null);
+        if (errorClass === null) {
+          throw new RbError(
+            ErrorCode.InputInvalid,
+            'This error group has no error class that can be matched to its events.',
+            { hint: "Run the group's events_query (list_error_groups) with run_nrql to find a trace id." },
+          );
+        }
+
+        // 2. Its latest traced occurrence: class + message, falling back to class + entity.
         const found = await query(
           ctx,
           account,
           groupTraceQuery(
-            args.error_group_id,
-            args.entity_guid,
+            { errorClass, message, entityGuid },
             args.include_synthetic ?? false,
             range.sinceMs,
             range.untilMs,
@@ -626,22 +711,50 @@ export function createInvestigationTools(deps: ToolDeps = {}): ToolDefinition[] 
             },
           );
         }
-        const id = found.rows[0]?.['traceId'];
-        if (typeof id === 'string' && TRACE_ID_RE.test(id)) traceId = id;
-        else {
-          notes.push('No traced occurrence of this error group was found in the window.');
+        const row = found.rows[0] ?? {};
+        const traceOf = (v: unknown) => (typeof v === 'string' && TRACE_ID_RE.test(v) ? v : null);
+        const exact = message === null ? null : traceOf(row['exactTrace']);
+        const byClass = traceOf(row['classTrace']);
+        const custom = group.isCustom === true;
+        if (exact !== null) traceId = exact;
+        else if (byClass !== null) {
+          traceId = byClass;
+          const why =
+            message === null
+              ? 'its message cannot be matched exactly (missing, too long or with control characters)'
+              : custom
+                ? 'it is a custom group, so its message may not be the error message'
+                : 'no traced error carries its exact message in the window (New Relic may shorten or normalise group messages)';
+          notes.push(
+            `Matched on error class${entityGuid ? ' and entity' : ''} only: ${why}. The trace is the latest traced error of that class and may not belong to this group.`,
+          );
+        } else {
+          notes.push(
+            `No traced occurrence of this error group (an error of its class${entityGuid ? ' on its entity' : ''} with a trace id) was found in the window.`,
+          );
+          if (custom)
+            notes.push(
+              'It is a custom error group: its name may not be the error class, so its events may not be found this way.',
+            );
           if (ctx.budget.remaining >= NRQL_COST) {
             const check = await query(
               ctx,
               account,
-              tracingCheckQuery(args.entity_guid, range.sinceMs, range.untilMs),
+              tracingCheckQuery(entityGuid ?? undefined, range.sinceMs, range.untilMs),
             );
             if ('rows' in check) {
-              const row = check.rows[0] ?? {};
+              const r = check.rows[0] ?? {};
+              const where = entityGuid ? ' for this entity' : ' in this account';
+              const traced = num(r['tracedErrors']);
+              const total = num(r['errors']);
               // Agents can stamp trace ids on errors without sending spans, so spans alone decide (BUG-12).
-              if ((num(row['spans']) ?? 0) === 0)
+              if ((num(r['spans']) ?? 0) === 0)
                 notes.push(
-                  `No Span events exist${args.entity_guid ? ' for this entity' : ' in this account'} in the window, so traces cannot be followed${errorTraceClause(num(row['tracedErrors']), num(row['errors']))}: distributed tracing or span collection appears to be disabled.`,
+                  `No Span events exist${where} in the window, so traces cannot be followed${errorTraceClause(traced, total)}: distributed tracing or span collection appears to be disabled.`,
+                );
+              else if (traced !== null && traced > 0)
+                notes.push(
+                  `Tracing works${where}: ${traced}${total !== null && total >= traced ? ` of ${total}` : ''} errors carry a trace id, but none of them matches this group's error class. Try a wider time_range, or pick a trace_id from those errors.`,
                 );
             } else {
               notes.push(`The tracing check could not run: ${check.note}`);

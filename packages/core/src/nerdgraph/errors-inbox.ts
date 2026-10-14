@@ -40,6 +40,8 @@ export interface ErrorGroupsData {
 
 export interface ErrorGroupsFilterVariable {
   accountIds: number[];
+  /** Error group ids (trace_error looks one group up by id, P8-57). */
+  ids?: string[];
   states?: string[];
   isAssigned?: boolean;
 }

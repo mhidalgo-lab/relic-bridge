@@ -1197,3 +1197,22 @@ Sources: [server.json format](https://github.com/modelcontextprotocol/registry/b
   `apps/worker/test/redirect-modes.test.ts`), although the Request docs list `error`
   (https://developers.cloudflare.com/workers/runtime-apis/request/). Node's fetch (undici) supports all three. With
   `manual`, Node and workerd return the 3xx response itself; browsers return an `opaqueredirect` response (status 0).
+
+## Errors Inbox groups and their TransactionError events (P8-57, 2026-10-14)
+
+- `TransactionError` events have **no `error.group.guid`** (nor any `error.group.*`) attribute: 0 of about 1.5 K events
+  in 6 hours on a PHP agent account, and the keyset has no such attribute. Filtering on it always returns nothing, which
+  is why `trace_error(error_group_id)` found no traced occurrence before 0.9.2 (NEW-13). The trace id attribute on
+  these events is `traceId`.
+- The `eventsQuery` Errors Inbox returns for an APM group (`source: TransactionError`) is
+  `FROM TransactionError SELECT * WHERE error.class LIKE '<class>' AND error.message LIKE '<message>'`: groups match
+  their events on error class (the group `name`) and message (the group `message`), scoped to the group's
+  `entityGuid`. Other sources seen live: `Span` (OpenTelemetry; matches on span `name` and `otel.status_description`)
+  and `JavaScriptError` (browser; `errorClass` / `errorMessage`).
+- Equality works on real data, including PHP class names with backslashes and messages with quotes: with the `nrql`
+  template's escaping, `error.class = '<class>' AND error.message = '<message>'` on the group's entity counted exactly
+  the group's occurrences in the window (183 of 183), the same as New Relic's LIKE form. `filter(latest(traceId),
+  WHERE …)` is valid NRQL, so the exact match and a class-only fallback fit in one query.
+- `trace_error` looks a group up with `errorsInbox.errorGroups(filter: { accountIds, ids })` (introspected `ids`
+  field) and the call's `timeWindow`. **Not yet live-verified:** that `ids` matches the ids `list_error_groups`
+  returns, and whether a group without occurrences in the window is still returned.

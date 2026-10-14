@@ -93,7 +93,7 @@ const iso = (ms: unknown): string | null => {
 };
 
 /** A group is vouched for only if its source entity decodes to the requested account (T3). */
-function vouched(g: ErrorGroupData, account: number, ctx: ToolContext): boolean {
+export function vouched(g: ErrorGroupData, account: number, ctx: ToolContext): boolean {
   if (typeof g.entityGuid !== 'string') return false;
   try {
     const { accountId } = decodeEntityGuid(g.entityGuid);

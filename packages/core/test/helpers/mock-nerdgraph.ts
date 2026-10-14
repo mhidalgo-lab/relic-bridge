@@ -98,6 +98,17 @@ export function mockNerdGraph(): { fetch: FetchLike; calls: RecordedCall[] } {
           },
         ]);
       }
+      if (nrql.includes('AS classTrace')) {
+        // trace_error's error group occurrence (P8-57): exact class + message match and the class-only fallback.
+        return nrqlBody([
+          {
+            exactTrace: 'abcdef0123456789',
+            exactCount: 3,
+            classTrace: 'abcdef0123456789',
+            classCount: 3,
+          },
+        ]);
+      }
       if (nrql.includes('FROM TransactionError WHERE')) {
         return nrqlBody([
           {
@@ -196,13 +207,14 @@ export function mockNerdGraph(): { fetch: FetchLike; calls: RecordedCall[] } {
                     message: "Cannot read properties of undefined (reading 'id')",
                     state: 'UNRESOLVED',
                     issueType: 'ERROR',
-                    source: 'transaction',
+                    source: 'TransactionError',
                     isCustom: false,
                     entityGuid: btoa(`${MOCK_ACCOUNT}|APM|APPLICATION|42`).replace(/=+$/, ''),
                     firstSeenAt: 1790338648000,
                     lastSeenAt: 1790338700000,
                     regressedAt: null,
-                    eventsQuery: "SELECT * FROM TransactionError WHERE error.group.guid = 'eg-1'",
+                    eventsQuery:
+                      "FROM TransactionError SELECT * WHERE error.class LIKE 'TypeError' AND error.message LIKE 'Cannot read properties of undefined (reading \\'id\\')'",
                     url: 'https://one.newrelic.com/errors-inbox/eg-1',
                     occurrences: {
                       totalCount: 12,

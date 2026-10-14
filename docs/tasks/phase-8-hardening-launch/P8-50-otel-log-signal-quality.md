@@ -2,11 +2,11 @@
 id: P8-50
 title: Self-monitoring logs - stream deadlines, access-log fields, documented names
 phase: 8
-status: todo
+status: in-progress
 priority: medium
 depends_on: []
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P8-50 — Self-monitoring logs: stream deadlines, access-log fields, documented names

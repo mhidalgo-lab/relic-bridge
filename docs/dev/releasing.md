@@ -13,6 +13,7 @@ settings are an owner decision (THREAT_MODEL T13, T18).
 | Repository variable `RB_RELEASE_ENABLED` | unset or `false` until the first release is intended; then `true`. | Every release job is skipped without it. |
 | Branch protection / ruleset on `main` | Pull request required, status checks required (including `Docker` and `CI`), no force push, no deletion. | The release workflows run for what is on `main`. |
 | Tag ruleset `v*` | Only maintainers can create; no update, no deletion. | `plan` trusts that `v<version>` points at the released commit; image tags are immutable by convention. |
+| Environment `live` | **Deployment branches**: selected branches, only `main`; required reviewers. | `Live` is a manual workflow that holds `RB_LIVE_API_KEY`: a dispatch from a feature branch must not reach the secret (P8-07). |
 | Actions permissions | Default `GITHUB_TOKEN` read-only; "allow GitHub Actions to create pull requests" only if the release PR is used; actions pinned by SHA. | Each job declares its own permissions. |
 | GHCR package `relic-bridge` | Visibility public after the first push; package settings link it to this repository; only the workflow can write. | Consumers verify signatures; nobody should push by hand. |
 

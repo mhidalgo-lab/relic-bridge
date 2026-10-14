@@ -2,7 +2,7 @@
 id: P8-07
 title: CI supply-chain hardening follow-ups
 phase: 8
-status: in-progress
+status: review
 priority: medium
 depends_on: [P1-16]
 adr: []
@@ -36,11 +36,11 @@ Refined on 2026-10-14 against today's workflows (the original text predates P8-0
   already documented in `docs/dev/releasing.md`.
 
 ## Acceptance criteria
-- [ ] actionlint passes; every Linux job has harden-runner (test enforced).
-- [ ] actionlint (and gitleaks) download verified against a sha256 pinned in the workflow.
-- [ ] `scripts/test/check-package.test.ts` covers each new pattern and check; `pnpm check:package` passes on the real tarball.
-- [ ] CONTRIBUTING.md lists the environment settings (`live` deployment branches), reported to the owner as an action.
-- [ ] THREAT_MODEL T18 row added.
+- [x] actionlint passes; every Linux job has harden-runner (test enforced).
+- [x] actionlint (and gitleaks) download verified against a sha256 pinned in the workflow.
+- [x] `scripts/test/check-package.test.ts` covers each new pattern and check; `pnpm check:package` passes on the real tarball.
+- [x] CONTRIBUTING.md lists the environment settings (`live` deployment branches). Owner still has to set the rule in GitHub (not done from here).
+- [x] THREAT_MODEL T18 row added.
 
 ## Security notes
 T18. Update THREAT_MODEL T18 row.

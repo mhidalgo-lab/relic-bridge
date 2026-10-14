@@ -66,7 +66,7 @@ Maintainers only. `.github/workflows/release.yml` does the work; nobody publishe
 2. Merging that PR leaves no changesets and a version npm doesn't have, so `plan` returns `publish`. The release
    jobs run only on `main` and only when the repository variable `RB_RELEASE_ENABLED` is `true`.
 3. **build** (`contents: read`, no OIDC token) installs dependencies and runs lint/typecheck/tests, the release build,
-   `scripts/check-package.ts` (tarball allowlist, manifest, secrets scan, packed-install smoke test, test hooks
+   `scripts/check-package.ts` (tarball allowlist, manifest incl. exact dependency versions and `publishConfig`, secrets scan, packed-install smoke test, test hooks
    compiled out), writes the release notes, a CycloneDX SBOM and `SHA256SUMS`, and uploads them as a workflow
    artifact.
 4. **publish** waits for a reviewer to approve the protected `release` environment. It is the only job with
@@ -103,6 +103,19 @@ Check the tarball locally at any time: `pnpm build && pnpm check:package` (`--sk
 - Workflows declare least-privilege `permissions` (default `contents: read`).
 - No `pull_request_target` workflows that check out or run PR code.
 - Secrets live only in protected environments, never available to fork PRs.
+- Every job on a Linux runner starts with `step-security/harden-runner` (egress audit; skipped on non-hosted runners). A
+  test (`scripts/test/workflow-hardening.test.ts`) fails when a job lacks it. Tools downloaded in CI (actionlint,
+  gitleaks) are verified against a sha256 pinned in the workflow; update the version and digest together.
+
+### Repository settings the workflows assume
+
+These cannot be enforced from workflow code; an owner sets them once (and again after a transfer or settings reset).
+The `release` environment rules are in [`docs/dev/releasing.md`](docs/dev/releasing.md).
+
+| Setting | Value | Why |
+| --- | --- | --- |
+| Environment `live` | **Deployment branches and tags**: selected branches, only `main`. Required reviewers on. | The `Live` workflow is `workflow_dispatch`: without the rule, anyone with write access can dispatch it from a feature branch and run unreviewed test code with `RB_LIVE_API_KEY`. |
+| Environment `staging` | Deployment branches: only `main`; required reviewer. | Same reasoning for `STAGING_ADMIN_TOKEN`. |
 
 ## Testing
 

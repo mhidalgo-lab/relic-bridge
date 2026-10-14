@@ -2,11 +2,11 @@
 id: P8-48
 title: list_recent_issues says when group counts or limit fall back
 phase: 8
-status: todo
+status: in-progress
 priority: low
 depends_on: []
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P8-48 — list_recent_issues says when group counts or limit fall back

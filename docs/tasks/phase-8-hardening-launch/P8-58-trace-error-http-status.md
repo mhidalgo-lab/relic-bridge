@@ -2,7 +2,7 @@
 id: P8-58
 title: trace_error fills httpStatus for every agent
 phase: 8
-status: in-progress
+status: review
 priority: low
 depends_on: [P8-57]
 adr: []
@@ -23,10 +23,10 @@ numbers only. TransactionError keyset on a PHP agent: `httpResponseCode` (string
 - Fix the same pattern anywhere else in `packages/core` that reads status codes with `num()` (listed in the PR).
 
 ## Acceptance criteria
-- [ ] `httpStatus` is set from any of the four attributes, numeric or 3-digit string; out-of-range or malformed values
+- [x] `httpStatus` is set from any of the four attributes, numeric or 3-digit string; out-of-range or malformed values
       are ignored.
-- [ ] Tests for each attribute shape.
-- [ ] Other status-code reads in `packages/core` checked (listed in the PR).
+- [x] Tests for each attribute shape.
+- [x] Other status-code reads in `packages/core` checked (listed in the PR).
 
 ## Security notes
 None: the attributes are new constant identifiers in a server-built query (`nrql.identifier`); the parsed value is an

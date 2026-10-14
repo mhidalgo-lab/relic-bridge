@@ -2,11 +2,11 @@
 id: P8-54
 title: Signed releases - provenance attestations attached to GitHub Releases
 phase: 8
-status: todo
+status: in-progress
 priority: medium
 depends_on: []
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P8-54 — Signed releases: provenance attestations attached to GitHub Releases
@@ -22,7 +22,7 @@ or provenance file. The Docker image is signed, but this check only reads releas
 
 ## Acceptance criteria
 - [ ] Next release has a `.intoto.jsonl` asset that verifies against the tarball.
-- [ ] `scripts/test/*workflow*.test.ts` asserts the step; actionlint passes.
+- [x] `scripts/test/*workflow*.test.ts` asserts the step; actionlint passes.
 
 ## Security notes
 T18: no new permissions beyond `id-token: write` / `attestations: write` in the publishing job.

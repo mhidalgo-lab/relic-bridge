@@ -312,4 +312,16 @@ Generated from task front matter (`pnpm tasks index`). Status lives in each task
 | P8-41 | [partial only for involuntary truncation; group_by counts the whole window](tasks/phase-8-hardening-launch/P8-41-partial-and-window-groups.md) | medium | — | done |
 | P8-42 | [Polish - slowest ranking, global event types, weekly baseline](tasks/phase-8-hardening-launch/P8-42-ranking-eventtypes-baseline.md) | medium | — | done |
 | P8-43 | [Docs from the 0.8.0 verification run](tasks/phase-8-hardening-launch/P8-43-verification-notes-docs.md) | low | — | done |
+| P8-44 | [run_nrql accepts array totals of FACET TIMESERIES queries](tasks/phase-8-hardening-launch/P8-44-nrql-facet-timeseries-totals.md) | high | — | todo |
+| P8-45 | [get_attributes filters by name before the attribute cap](tasks/phase-8-hardening-launch/P8-45-attributes-filter-before-cap.md) | high | — | todo |
+| P8-46 | [An explicit baseline that cannot run falls back to an available control](tasks/phase-8-hardening-launch/P8-46-baseline-fallback.md) | medium | — | todo |
+| P8-47 | [whoami keeps callBudget as a deprecated alias of perCallBudget](tasks/phase-8-hardening-launch/P8-47-whoami-budget-alias.md) | medium | — | todo |
+| P8-48 | [list_recent_issues says when group counts or limit fall back](tasks/phase-8-hardening-launch/P8-48-issues-silent-fallbacks.md) | low | — | todo |
+| P8-49 | [trace_error note states how many errors carry a trace id](tasks/phase-8-hardening-launch/P8-49-trace-error-note-count.md) | low | — | todo |
+| P8-50 | [Self-monitoring logs - stream deadlines, access-log fields, documented names](tasks/phase-8-hardening-launch/P8-50-otel-log-signal-quality.md) | medium | — | todo |
+| P8-51 | [Self-monitoring spans - service entity golden metrics and per-tool span names](tasks/phase-8-hardening-launch/P8-51-otel-service-entity.md) | medium | — | todo |
+| P8-52 | [Self-monitoring recipes - alert conditions and a dashboard](tasks/phase-8-hardening-launch/P8-52-self-monitoring-recipes.md) | low | P8-50, P8-51 | todo |
+| P8-53 | [Scorecard quick wins - spike lockfiles, workflow_run checkout, security policy link](tasks/phase-8-hardening-launch/P8-53-scorecard-quick-wins.md) | high | — | todo |
+| P8-54 | [Signed releases - provenance attestations attached to GitHub Releases](tasks/phase-8-hardening-launch/P8-54-release-provenance-assets.md) | medium | — | todo |
+| P8-55 | [OpenSSF Best Practices badge (passing)](tasks/phase-8-hardening-launch/P8-55-openssf-best-practices.md) | low | P8-53 | todo |
 <!-- tasks:end -->

@@ -2,11 +2,11 @@
 id: P8-55
 title: OpenSSF Best Practices badge (passing)
 phase: 8
-status: todo
+status: in-progress
 priority: low
 depends_on: [P8-53]
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P8-55 — OpenSSF Best Practices badge (passing)

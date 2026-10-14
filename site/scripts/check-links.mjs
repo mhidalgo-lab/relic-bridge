@@ -38,12 +38,6 @@ function fileFor(urlPath) {
   return candidates.find((c) => existsSync(c) && statSync(c).isFile());
 }
 
-// Third-party loads accepted on purpose (owner decision logged in P8-04).
-const ALLOWED_EXTERNAL = [
-  // The "Deploy to Cloudflare" button image in the deploy guide (the README uses it too).
-  'https://deploy.workers.cloudflare.com/button',
-];
-
 const problems = [];
 let checked = 0;
 for (const file of htmlFiles) {
@@ -78,8 +72,7 @@ for (const file of htmlFiles) {
     ...html.matchAll(/url\(\s*['"]?(?:https?:)?\/\/[^)]*\)/gi),
     ...html.matchAll(/@import\s+(?:url\()?['"]?(?:https?:)?\/\//gi),
   ].filter((m) => !/rel="(canonical|alternate)"/i.test(m[0]));
-  for (const m of loads.filter((l) => !ALLOWED_EXTERNAL.some((a) => l[0].includes(a))))
-    problems.push(`${page}: external resource ${m[0].slice(0, 120)}`);
+  for (const m of loads) problems.push(`${page}: external resource ${m[0].slice(0, 120)}`);
 }
 
 if (problems.length > 0) {

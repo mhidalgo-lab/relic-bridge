@@ -67,6 +67,7 @@ export default defineConfig({
       description: 'Unofficial MCP server for New Relic via NerdGraph: guides, references and design docs.',
       social: [{ icon: 'github', label: 'GitHub', href: 'https://github.com/mhidalgo-lab/relic-bridge' }],
       pagefind: true,
+      components: { Banner: './src/components/Banner.astro' },
       lastUpdated: false,
       sidebar: [
         ...guideGroups.map(([label, slugs]) => ({

@@ -59,7 +59,7 @@ guide shows bash, use the PowerShell form given next to it.
 
 ## Path B: Deploy to Cloudflare button
 
-[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/mhidalgo-lab/relic-bridge/tree/main/apps/worker)
+[![Deploy to Cloudflare](images/deploy-to-cloudflare.svg)](https://deploy.workers.cloudflare.com/?url=https://github.com/mhidalgo-lab/relic-bridge/tree/main/apps/worker)
 
 Cloudflare copies the repository to your GitHub/GitLab account, provisions D1, asks for the secrets listed in
 `apps/worker/.dev.vars.example` (`RB_MASTER_KEY`, `RB_ADMIN_TOKEN`) and deploys with Workers Builds; pushes to your copy

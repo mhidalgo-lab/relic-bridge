@@ -1,0 +1,21 @@
+---
+// SPDX-License-Identifier: Apache-2.0
+// P8-04: site-wide banner. The site is built from `main`, so it can describe changes that no release has shipped yet.
+// Starlight's own `banner` is per page; overriding the Banner component shows this on every page. Static HTML, no script.
+---
+
+<div class="rb-banner" role="note">
+  This documentation is built from <code>main</code> and can describe changes that are not released yet. For the docs of
+  a specific version, browse the repository at its <a href="https://github.com/mhidalgo-lab/relic-bridge/tags">release tag on GitHub</a>.
+</div>
+
+<style>
+  .rb-banner {
+    padding: 0.5rem var(--sl-content-pad-x, 1rem);
+    background-color: var(--sl-color-bg-inline-code);
+    border-bottom: 1px solid var(--sl-color-hairline);
+    color: var(--sl-color-white);
+    font-size: var(--sl-text-sm);
+    text-align: center;
+  }
+</style>

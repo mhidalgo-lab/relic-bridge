@@ -3,7 +3,7 @@
   "name": "io.github.mhidalgo-lab/relic-bridge",
   "title": "relic-bridge",
   "description": "Unofficial MCP server for New Relic: query NerdGraph and NRQL with your own User API key.",
-  "version": "0.9.0",
+  "version": "0.9.1",
   "websiteUrl": "https://github.com/mhidalgo-lab/relic-bridge#readme",
   "repository": {
     "url": "https://github.com/mhidalgo-lab/relic-bridge",
@@ -15,7 +15,7 @@
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "relic-bridge",
-      "version": "0.9.0",
+      "version": "0.9.1",
       "runtimeHint": "npx",
       "transport": {
         "type": "stdio"

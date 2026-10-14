@@ -2,11 +2,11 @@
 id: P8-55
 title: OpenSSF Best Practices badge (passing)
 phase: 8
-status: todo
+status: review
 priority: low
 depends_on: [P8-53]
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P8-55 — OpenSSF Best Practices badge (passing)
@@ -21,8 +21,8 @@ project already follows.
 - Add the badge to README.
 
 ## Acceptance criteria
-- [ ] Answers file covers every "passing" criterion with a link.
-- [ ] Badge in README once the owner has registered.
+- [x] Answers file covers every "passing" criterion with a link.
+- [x] Badge in README (project 15490; shows "in progress" until the passing level is reached).
 
 ## Security notes
 None.

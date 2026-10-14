@@ -32,6 +32,8 @@ Applied on 2026-10-14 (ruleset `main`, enforcement active, **no bypass actors**)
 - Dependency graph: on. Dependabot alerts: on. (Updates are done by Renovate, so Dependabot version updates stay off.)
 - **Secret scanning: on**, with **push protection: on**.
 - **Private vulnerability reporting: on** (required by SECURITY.md).
+- Verified on 2026-10-14: private vulnerability reporting, secret scanning with push protection and Dependabot alerts were
+  found off and turned on; the 11 secret-scanning alerts on fake test keys (`NRAK-FAKE…`) were closed as "used in tests".
 - CodeQL: on through `.github/workflows/security.yml` (not "default setup", so the two don't conflict).
 
 ## Actions

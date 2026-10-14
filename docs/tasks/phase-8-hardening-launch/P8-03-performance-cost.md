@@ -2,7 +2,7 @@
 id: P8-03
 title: "Performance and cost benchmarks"
 phase: 8
-status: in-progress
+status: review
 priority: medium
 depends_on: [P7-04, P7-09]
 adr: []
@@ -28,13 +28,18 @@ owner: claude-agent
 - Not in the required CI path (noisy); the existing non-required bench workflow is left as is.
 
 ## Acceptance criteria
-- [ ] `pnpm bench` runs the Node and the Workers pass without a New Relic key and prints a Markdown table.
-- [ ] Per tool: overhead p50/p95 (Node and Workers), NerdGraph requests per call vs declared cost, response bytes.
-- [ ] Request counts come from the mock recording and the declared costs; a unit test covers the table renderer.
-- [ ] Table header states machine, Node and workerd versions, date, and that numbers are indicative.
-- [ ] Table published in `docs/guide/cloudflare-limits.md` with the command to reproduce it; `docs/dev/testing.md` mentions it.
-- [ ] `packages/core` unchanged (no `node:*`); harness lives in `scripts/` and `apps/worker/bench/`.
-- [ ] `pnpm lint && pnpm typecheck && pnpm test` pass.
+- [x] `pnpm bench` runs the Node and the Workers pass without a New Relic key and prints a Markdown table.
+- [x] Per tool: overhead p50/p95 (Node and Workers), NerdGraph requests per call vs declared cost, response bytes.
+- [x] Request counts come from the mock recording and the declared costs; a unit test covers the table renderer.
+- [x] Table header states machine, Node and workerd versions, date, and that numbers are indicative.
+- [x] Table published in `docs/guide/cloudflare-limits.md` with the command to reproduce it; `docs/dev/testing.md` mentions it.
+- [x] `packages/core` unchanged (no `node:*`); harness lives in `scripts/` and `apps/worker/bench/`.
+- [x] `pnpm lint && pnpm typecheck && pnpm test` pass.
+
+## Outcome
+`pnpm bench` (`scripts/bench-tools.ts`, harness `scripts/bench/tools-harness.ts`, workerd pass `apps/worker/bench/tools.bench.ts`).
+`pnpm bench:cpu` now filters on `cpu.bench` so the two benchmarks share the Worker bench project. No workflow added: the
+numbers are a manual snapshot. No changeset: nothing published changes.
 
 ## Security notes
 none.

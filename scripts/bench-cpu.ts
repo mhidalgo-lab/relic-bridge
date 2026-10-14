@@ -147,6 +147,7 @@ function run(): Record<string, Measured> {
         'run',
         '--config',
         'vitest.bench.config.ts',
+        'cpu.bench',
         '--reporter=json',
         `--outputFile=${out}`,
       ],

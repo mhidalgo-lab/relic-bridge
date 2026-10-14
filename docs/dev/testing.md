@@ -67,6 +67,16 @@ About 30 seconds.
 - CI: `.github/workflows/bench.yml` (not a required check) runs on pull requests that touch Worker-path code, weekly and
   on demand, and writes the table to the job summary.
 
+## Per-tool overhead and cost benchmark
+
+`pnpm bench` (`scripts/bench-tools.ts`) measures every built-in tool against the recorded-fixture NerdGraph mock, on Node
+and in workerd (`apps/worker/bench/tools.bench.ts`, same project config as `pnpm bench:cpu`), and prints a Markdown table:
+relic-bridge's own time per call (wall time minus the time inside the mock request, p50 and p95), NerdGraph requests per
+call against the declared cost, and response bytes. The harness (`scripts/bench/tools-harness.ts`) is runtime-neutral and
+reuses the contract tests' sample arguments and mock; `--node` skips workerd, `--samples N` and `--out file.md` are
+available. It is manual (not a CI check, no baseline): the table in `docs/guide/cloudflare-limits.md` is a snapshot
+labelled with machine, versions and date, to be regenerated when tools or the call path change a lot.
+
 ## Staging smoke (optional, nightly)
 
 `.github/workflows/staging-smoke.yml` curls a deployed staging Worker (`/health`, `/version`, 401 without credentials,

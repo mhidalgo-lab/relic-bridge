@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // Self-monitoring (P7-08, T30): a local mock OTLP receiver stands in for the collector; no real endpoint or key.
-import { createLogger, type FetchLike } from '@relic-bridge/core';
+import { createLogger, ErrorCode, type FetchLike } from '@relic-bridge/core';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  classifyToolError,
   createHttpApp,
   createTelemetry,
+  ERROR_CLASSIFICATION,
   mergeHooks,
   parseOtlpEndpoint,
   parseOtlpHeaders,
@@ -116,6 +118,7 @@ describe('OTLP export', () => {
           'rpc.method',
           'network.transport',
           'error.type',
+          'fault',
         ]).toContain(k);
     }
     expect(received[0]?.headers['api-key']).toBe(LICENSE);
@@ -711,6 +714,158 @@ describe('service entity signals (P8-51)', () => {
       attrMap(m.histogram.dataPoints[0]?.attributes as never[]),
     );
     expect(ok).toEqual({ 'rpc.system': 'jsonrpc', 'rpc.service': 'mcp', 'rpc.method': 'whoami' });
-    expect(err).toEqual({ ...ok, 'error.type': 'RB_UPSTREAM' });
+    expect(err).toEqual({ ...ok, 'error.type': 'RB_UPSTREAM', 'rpc.grpc.status_code': '2' });
+  });
+});
+
+describe('server and caller errors (P8-59)', () => {
+  const failed = (errorCode: string) =>
+    ({ tool: 'run_nrql', status: 'error', errorCode, durationMs: 30, input: {}, meta: undefined }) as const;
+  // biome-ignore lint/suspicious/noExplicitAny: test inspects raw OTLP JSON
+  const attrMap = (attrs: any[]): Record<string, string> =>
+    Object.fromEntries(attrs.map((a) => [a.key, a.value.stringValue ?? a.value.intValue]));
+  // biome-ignore lint/suspicious/noExplicitAny: test inspects raw OTLP JSON
+  const metricsOf = (): any[] =>
+    received
+      .filter((r) => r.path === '/v1/metrics')
+      .flatMap((r) => JSON.parse(r.body).resourceMetrics[0].scopeMetrics[0].metrics);
+  const rpcPoint = () =>
+    attrMap(metricsOf().find((m) => m.name === 'rpc.server.duration').histogram.dataPoints[0].attributes);
+  const callsPoint = () =>
+    attrMap(metricsOf().find((m) => m.name === 'relic_bridge.tool.calls').sum.dataPoints[0].attributes);
+  // biome-ignore lint/suspicious/noExplicitAny: test inspects raw OTLP JSON
+  const spanOf = (): any =>
+    JSON.parse(received.find((r) => r.path === '/v1/traces')?.body ?? '{}').resourceSpans[0].scopeSpans[0]
+      .spans[0];
+
+  it('classifies every RB_* code, each server error with a status code New Relic counts', () => {
+    expect(Object.keys(ERROR_CLASSIFICATION).sort()).toEqual(Object.values(ErrorCode).sort());
+    for (const c of Object.values(ERROR_CLASSIFICATION)) {
+      if (c.fault === 'server') expect([2, 4, 12, 13, 14, 15]).toContain(c.grpcStatusCode);
+      else expect(c.grpcStatusCode).toBeUndefined();
+    }
+    const caller = Object.entries(ERROR_CLASSIFICATION)
+      .filter(([, c]) => c.fault === 'caller')
+      .map(([code]) => code)
+      .sort();
+    expect(caller).toEqual(
+      [
+        'RB_INPUT_INVALID',
+        'RB_AUTH_UNAUTHORIZED',
+        'RB_AUTH_FORBIDDEN',
+        'RB_LIMIT_QUERY',
+        'RB_LIMIT_RESPONSE_TOO_LARGE',
+        'RB_LIMIT_RATE',
+        'RB_LIMIT_QUOTA',
+        'RB_QUERY_NOT_FOUND',
+        'RB_BUDGET_EXHAUSTED',
+        'RB_TOOL_DISABLED',
+      ].sort(),
+    );
+    expect(classifyToolError('RB_NERDGRAPH_TIMEOUT', 'token')).toEqual({
+      fault: 'server',
+      grpcStatusCode: 4,
+    });
+    expect(classifyToolError('RB_NERDGRAPH_UNAVAILABLE', 'stdio').grpcStatusCode).toBe(14);
+    expect(classifyToolError('RB_NERDGRAPH_RATE_LIMITED', 'token').grpcStatusCode).toBe(14);
+    expect(classifyToolError('RB_NERDGRAPH_ERROR', 'token').grpcStatusCode).toBe(2);
+    expect(classifyToolError('RB_INTERNAL', 'token').grpcStatusCode).toBe(13);
+  });
+
+  it('a refused New Relic key is the server side on a stored credential, the caller on pass-through', () => {
+    for (const code of ['RB_AUTH_INVALID_KEY', 'RB_AUTH_WRONG_REGION']) {
+      expect(classifyToolError(code, 'token')).toEqual({ fault: 'server', grpcStatusCode: 13 });
+      expect(classifyToolError(code, 'stdio').fault).toBe('server');
+      expect(classifyToolError(code, 'passthrough')).toEqual({ fault: 'caller' });
+    }
+    expect(classifyToolError('RB_INPUT_INVALID', 'passthrough').fault).toBe('caller');
+    expect(classifyToolError('RB_NERDGRAPH_TIMEOUT', 'passthrough').fault).toBe('server');
+  });
+
+  it('unknown codes, `other` and inherited property names are server errors (UNKNOWN)', () => {
+    for (const code of ['RB_SOMETHING_NEW', 'other', 'constructor', '__proto__', 'toString']) {
+      expect(classifyToolError(code, 'token')).toEqual({ fault: 'server', grpcStatusCode: 2 });
+    }
+  });
+
+  it('a server error: span ERROR, error.type, rpc.grpc.status_code on rpc.server.duration, fault=server', async () => {
+    const t = createTelemetry({ endpoint: base, fetch: receiverFetch });
+    await t.hooks.onToolCall?.(
+      {} as never,
+      { projectSlug: 'prod' } as never,
+      failed('RB_NERDGRAPH_UNAVAILABLE'),
+    );
+    const span = spanOf();
+    expect(span.status).toEqual({ code: 2, message: 'RB_NERDGRAPH_UNAVAILABLE' });
+    expect(attrMap(span.attributes)).toMatchObject({
+      status: 'error',
+      'error.code': 'RB_NERDGRAPH_UNAVAILABLE',
+      'error.type': 'RB_NERDGRAPH_UNAVAILABLE',
+      fault: 'server',
+    });
+    // The span does not carry the gRPC code: Errors Inbox names the group from the status message.
+    expect(attrMap(span.attributes)['rpc.grpc.status_code']).toBeUndefined();
+    expect(rpcPoint()).toEqual({
+      'rpc.system': 'jsonrpc',
+      'rpc.service': 'mcp',
+      'rpc.method': 'run_nrql',
+      'error.type': 'RB_NERDGRAPH_UNAVAILABLE',
+      'rpc.grpc.status_code': '14',
+    });
+    const rpc = metricsOf().find((m) => m.name === 'rpc.server.duration');
+    const code = rpc.histogram.dataPoints[0].attributes.find(
+      (a: { key: string }) => a.key === 'rpc.grpc.status_code',
+    );
+    expect(code.value).toEqual({ intValue: '14' }); // an integer, like the semconv attribute
+    expect(callsPoint()).toMatchObject({
+      status: 'error',
+      'error.code': 'RB_NERDGRAPH_UNAVAILABLE',
+      fault: 'server',
+    });
+  });
+
+  it('a caller error: span Unset, no error.type or status code, still counted by error.code and fault', async () => {
+    const t = createTelemetry({ endpoint: base, fetch: receiverFetch });
+    await t.hooks.onToolCall?.({} as never, { projectSlug: 'prod' } as never, failed('RB_LIMIT_QUERY'));
+    const span = spanOf();
+    expect(span.status).toBeUndefined();
+    const a = attrMap(span.attributes);
+    expect(a).toMatchObject({ status: 'error', 'error.code': 'RB_LIMIT_QUERY', fault: 'caller' });
+    expect(a['error.type']).toBeUndefined();
+    expect(rpcPoint()).toEqual({ 'rpc.system': 'jsonrpc', 'rpc.service': 'mcp', 'rpc.method': 'run_nrql' });
+    expect(callsPoint()).toMatchObject({ status: 'error', 'error.code': 'RB_LIMIT_QUERY', fault: 'caller' });
+  });
+
+  it('pass-through: the caller’s own refused key is a caller error', async () => {
+    const t = createTelemetry({ endpoint: base, fetch: receiverFetch });
+    await t.hooks.onPassthroughToolCall?.({} as never, {} as never, failed('RB_AUTH_INVALID_KEY'));
+    expect(spanOf().status).toBeUndefined();
+    expect(rpcPoint()['rpc.grpc.status_code']).toBeUndefined();
+    expect(callsPoint()['fault']).toBe('caller');
+  });
+
+  it('a successful call has no fault, error.code, error.type or status code', async () => {
+    const t = createTelemetry({ endpoint: base, fetch: receiverFetch });
+    await t.recordToolCall({ ...failed('x'), status: 'ok', errorCode: null }, { mode: 'stdio' });
+    expect(spanOf().status).toEqual({ code: 1 });
+    const a = attrMap(spanOf().attributes);
+    expect(a['fault']).toBeUndefined();
+    expect(a['error.code']).toBeUndefined();
+    expect(rpcPoint()).toEqual({ 'rpc.system': 'jsonrpc', 'rpc.service': 'mcp', 'rpc.method': 'run_nrql' });
+  });
+
+  it('a real caller error through the app is not a span error (RB_INPUT_INVALID)', async () => {
+    const app = appWith();
+    const client = await connect(app, 'prod', world.tokens.prod, 'modern');
+    const r = await client.callTool({
+      name: 'get_query_result',
+      arguments: { query_id: 'nope', account: 1 },
+    });
+    expect(r.isError).toBe(true);
+    await client.close();
+    await vi.waitFor(() => expect(received.some((x) => x.path === '/v1/traces')).toBe(true));
+    const span = spanOf();
+    expect(span.status).toBeUndefined();
+    expect(attrMap(span.attributes)['fault']).toBe('caller');
   });
 });

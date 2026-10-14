@@ -1163,9 +1163,7 @@ Sources: [server.json format](https://github.com/modelcontextprotocol/registry/b
   `rpc.method=<tool or other>`, `error.type` on failure. It is honest for stdio and HTTP alike (the HTTP metric would
   claim an HTTP route that stdio does not have, and MCP carries several calls per HTTP request).
 - Open question (verify live): the page lists a gRPC status code condition for the RPC error type, so a jsonrpc
-  `error.type` may not increment `apm.service.error.count`. Fallback if the error rate stays empty: for HTTP modes also
-  export `http.server.request.duration` (`http.request.method=POST`, `http.route`, `error.type`), without double
-  counting (drop the RPC metric there).
+  `error.type` may not increment `apm.service.error.count`. **Answered (negatively) by P8-59, see below.**
 - Resource attributes: New Relic recommends `service.instance.id` (faceting) and `telemetry.sdk.language` (runtime UI);
   `telemetry.sdk.language`/`version` become entity tags
   (https://docs.newrelic.com/docs/opentelemetry/best-practices/opentelemetry-best-practices-resources/).
@@ -1215,3 +1213,44 @@ Sources: [server.json format](https://github.com/modelcontextprotocol/registry/b
 - `trace_error` looks a group up with `errorsInbox.errorGroups(filter: { accountIds, ids })` (introspected `ids`
   field) and the call's `timeWindow`. **Not yet live-verified:** that `ids` matches the ids `list_error_groups`
   returns, and whether a group without occurrences in the window is still returned.
+
+## OTLP service error rate: caller vs server errors (P8-59, live export 2026-10-14)
+
+- Live evidence (relic-bridge 0.9.1, 24 h): `rpc.server.duration` data points carry `error.type`
+  (`RB_LIMIT_QUERY`, `RB_QUERY_NOT_FOUND`) on failed calls and `apm.service.transaction.duration` is populated per
+  `WebTransaction/server/jsonrpc/mcp.<tool>`, but `sum(apm.service.error.count)` is 0 and the entity's Error rate is 0.
+  All 5 failed spans in the window (status ERROR) were caller errors (`RB_INPUT_INVALID`, `RB_QUERY_NOT_FOUND`,
+  `RB_LIMIT_QUERY`), and each opened an unresolved Errors Inbox group. Side finding: on the synthesized metric,
+  `WHERE entity.name = 'relic-bridge'` returned no rows although `FACET entity.name` shows that value; filter on
+  `service.name` instead (the P8-51 guide query used `entity.name`).
+- Cause: New Relic's mapping table for `apm.service.transaction.duration` derives the error column of
+  `rpc.server.duration` (schema `OtelRpcServer1_20`) from `__rpc_error_status_code_or_null__`, "the string value of
+  `rpc.grpc.status_code` if in set [2,4,12,13,14,15]"; `error.type` is read directly only for
+  `http.server.request.duration` (`OtelHttpServer1_23`), and `http.server.duration` counts a status >= 500. The page's
+  prose also names `rpc.server.call.duration` with `error.type` as counting, but no mapping table lists that metric, so
+  it is not a documented source of `apm.service.transaction.duration`
+  (https://docs.newrelic.com/docs/opentelemetry/get-started/apm-monitoring/opentelemetry-apm-ui/). Same page: a span is
+  an error when its status is ERROR, and Errors Inbox names a group from the status description first.
+- Semantic conventions: a span's status "MUST be left unset if the instrumented operation has ended without any
+  errors", and whether a status is an error depends on context (the HTTP 404 example)
+  (https://opentelemetry.io/docs/specs/semconv/general/recording-errors/); `error.type` on the RPC duration metric is
+  required "if and only if the operation failed" and SHOULD match the span's
+  (https://github.com/open-telemetry/semantic-conventions/blob/main/docs/rpc/rpc-metrics.md). gRPC server spans treat
+  only UNKNOWN, DEADLINE_EXCEEDED, UNIMPLEMENTED, INTERNAL, UNAVAILABLE and DATA_LOSS as errors
+  (https://github.com/open-telemetry/semantic-conventions/blob/main/docs/rpc/grpc.md): the set New Relic counts. The MCP
+  server convention says error codes meaning the caller sent a request the receiver could not serve (`-32602 Invalid
+  params`, also for an unknown tool) SHOULD NOT be considered errors, and for an `isError` result suggests
+  `error.type=tool_error`, or generally a low-cardinality representation of the error
+  (open-telemetry/semantic-conventions-genai, `docs/gen-ai/mcp.md`).
+- Options considered: (a) set `rpc.grpc.status_code` on `rpc.server.duration` for server errors only (a documented
+  deviation, `rpc.system` is `jsonrpc`): works for every mode including stdio and keeps per-tool transaction names.
+  (b) export `http.server.request.duration` with `error.type` in HTTP modes: transactions collapse to one HTTP route
+  (no per-tool names), double counting unless the RPC metric is dropped there, nothing for stdio. (c) export the newer
+  `rpc.server.call.duration` (seconds) with `error.type`: current semconv, but New Relic documents no mapping for it.
+- Decision: (a), with a fixed table per `RB_*` code (docs/guide/observability.md "Caller and server errors"). Caller
+  errors get span status Unset and no `error.type`, keep `status=error` and `error.code` and gain `fault=caller`;
+  server errors keep status ERROR and `error.type`, gain `fault=server`, and `rpc.server.duration` gains the integer
+  `rpc.grpc.status_code` (13, 14, 4 or 2; not on spans). `error.type` stays the `RB_*` code rather than `tool_error`
+  (the convention's "low-cardinality representation", and more useful). Revisit (c) if New Relic documents
+  `rpc.server.call.duration` as a source.
+- Not verified yet: that New Relic counts the integer `rpc.grpc.status_code` after a deploy (P8-59 live check).

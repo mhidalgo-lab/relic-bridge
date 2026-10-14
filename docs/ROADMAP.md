@@ -327,7 +327,7 @@ Generated from task front matter (`pnpm tasks index`). Status lives in each task
 | P8-56 | [README reflects 0.9.0 and the current docs](tasks/phase-8-hardening-launch/P8-56-readme-refresh.md) | medium | — | done |
 | P8-57 | [trace_error(error_group_id) finds the group's traced occurrence](tasks/phase-8-hardening-launch/P8-57-trace-error-group-lookup.md) | high | — | review |
 | P8-58 | [trace_error fills httpStatus for every agent](tasks/phase-8-hardening-launch/P8-58-trace-error-http-status.md) | low | P8-57 | review |
-| P8-59 | [Self-monitoring errors - the service error rate counts real server errors](tasks/phase-8-hardening-launch/P8-59-service-error-rate.md) | high | P8-51 | in-progress |
+| P8-59 | [Self-monitoring errors - the service error rate counts real server errors](tasks/phase-8-hardening-launch/P8-59-service-error-rate.md) | high | P8-51 | review |
 | P8-60 | [Golden-metric trend notes say why there is no trend](tasks/phase-8-hardening-launch/P8-60-golden-trend-notes.md) | low | — | review |
 | P8-64 | [CI runs on GitHub-hosted runners only](tasks/phase-8-hardening-launch/P8-64-github-hosted-runners.md) | high | P8-07 | review |
 | P8-65 | [Hardening: event-type lists, redirects, subquery windows, remembered consent](tasks/phase-8-hardening-launch/P8-65-hardening-low-findings.md) | medium | — | review |

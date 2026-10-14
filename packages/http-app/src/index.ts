@@ -189,10 +189,14 @@ export {
   type SessionPrincipal,
 } from './session.ts';
 export {
+  classifyToolError,
   createTelemetry,
   DEFAULT_TELEMETRY_MAX_IN_FLIGHT,
   DEFAULT_TELEMETRY_TIMEOUT_MS,
   DURATION_BUCKETS_MS,
+  ERROR_CLASSIFICATION,
+  type ErrorClassification,
+  type ErrorFault,
   parseOtlpEndpoint,
   parseOtlpHeaders,
   parseSampleRate,

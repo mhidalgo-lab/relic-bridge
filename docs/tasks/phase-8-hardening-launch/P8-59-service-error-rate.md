@@ -2,7 +2,7 @@
 id: P8-59
 title: Self-monitoring errors - the service error rate counts real server errors
 phase: 8
-status: in-progress
+status: review
 priority: high
 depends_on: [P8-51]
 adr: []
@@ -29,12 +29,13 @@ unresolved Errors Inbox group. The error rate should show failures of relic-brid
 - RESEARCH.md: close the P8-51 open question with the evidence and sources. THREAT_MODEL T30 for the new exported values.
 
 ## Acceptance criteria
-- [ ] Every `ErrorCode` has a classification (type-checked, tested), unknown codes count as server errors.
-- [ ] Server errors: span status ERROR, `error.type`, `rpc.grpc.status_code` on `rpc.server.duration` (tests).
-- [ ] Caller errors: span status Unset, no `error.type` and no `rpc.grpc.status_code`, `error.code` and the
+- [x] Every `ErrorCode` has a classification (type-checked, tested), unknown codes count as server errors.
+- [x] Server errors: span status ERROR, `error.type`, `rpc.grpc.status_code` on `rpc.server.duration` (tests).
+- [x] Caller errors: span status Unset, no `error.type` and no `rpc.grpc.status_code`, `error.code` and the
       classification kept (tests).
-- [ ] Guide documents the classification, the attributes and the deliberate `rpc.grpc.status_code` deviation.
+- [x] Guide documents the classification, the attributes and the deliberate `rpc.grpc.status_code` deviation.
 - [ ] Live check: after a deploy, the entity's Error rate and `apm.service.error.count` count server errors only.
+      Not ticked: needs a release and a deploy; the NRQL to check is in the PR.
 
 ## Security notes
 T30: the new attribute values come from fixed tables (`caller`/`server`, a small set of integer status codes keyed by

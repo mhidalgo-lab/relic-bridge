@@ -393,6 +393,64 @@ describe('OTLP logs (P7-18)', () => {
     }
   });
 
+  it('exports the access-log status (integer), method and route pattern; unknown values become other (P8-50)', async () => {
+    const t = createTelemetry({ endpoint: base, fetch: receiverFetch });
+    const log = t.wrapLogger(createLogger({ level: 'debug', sink: (l) => logLines.push(l) }));
+    log.info('http request', { requestId: 'r1', method: 'POST', route: '/p/:slug/mcp', status: 401, ms: 4 });
+    log.info('http request', {
+      method: 'PROPFIND',
+      route: '/p/prod/mcp?x=victim@example.com',
+      status: 'Not OK!',
+    });
+    log.info('http request', { method: 'GET', route: 'unmatched', status: 99999 });
+    log.info('http request', { method: 'GET', route: '/admin/*', status: 200.5 });
+    await t.flush();
+    const records = bodies('/v1/logs').flatMap((b) => b.resourceLogs[0].scopeLogs[0].logRecords);
+    const attrs = (i: number) =>
+      Object.fromEntries(
+        records[i].attributes.map((a: { key: string; value: Record<string, string> }) => [
+          a.key,
+          a.value['intValue'] !== undefined ? Number(a.value['intValue']) : a.value['stringValue'],
+        ]),
+      );
+    expect(attrs(0)).toEqual({
+      'log.method': 'POST',
+      'log.route': '/p/:slug/mcp',
+      'log.status': 401,
+      'log.ms': 4,
+    });
+    expect(attrs(1)).toEqual({ 'log.method': 'other', 'log.route': 'other', 'log.status': 'other' });
+    expect(attrs(2)).toEqual({ 'log.method': 'GET', 'log.route': 'other' });
+    expect(attrs(3)).toEqual({ 'log.method': 'GET', 'log.route': '/admin/*' });
+    expect(received.map((r) => r.body).join('\n')).not.toContain('victim');
+  });
+
+  it('exports the MCP method from a fixed set and a tool name only for tools/call (P8-50)', async () => {
+    const t = createTelemetry({ endpoint: base, fetch: receiverFetch });
+    const log = t.wrapLogger(createLogger({ level: 'debug', sink: (l) => logLines.push(l) }));
+    log.warn('mcp request timed out', { ms: 1000, mcpMethod: 'tools/call', mcpName: 'run_nrql' });
+    log.warn('mcp request timed out', { mcpMethod: 'subscriptions/listen', mcpName: 'run_nrql' });
+    log.warn('mcp request timed out', { mcpMethod: 'resources/read', mcpName: 'nrql://reference' });
+    log.warn('mcp request timed out', { mcpMethod: 'evil/victim@example.com', mcpName: 'run_nrql' });
+    log.warn('mcp request timed out', { mcpMethod: 'tasks/get' });
+    await t.flush();
+    const records = bodies('/v1/logs').flatMap((b) => b.resourceLogs[0].scopeLogs[0].logRecords);
+    const keys = (i: number) =>
+      Object.fromEntries(
+        records[i].attributes.map((a: { key: string; value: Record<string, string> }) => [
+          a.key,
+          a.value['stringValue'] ?? a.value['intValue'],
+        ]),
+      );
+    expect(keys(0)).toEqual({ 'log.ms': '1000', 'log.mcpMethod': 'tools/call', 'log.mcpName': 'run_nrql' });
+    expect(keys(1)).toEqual({ 'log.mcpMethod': 'subscriptions/listen' });
+    expect(keys(2)).toEqual({ 'log.mcpMethod': 'resources/read' });
+    expect(keys(3)).toEqual({ 'log.mcpMethod': 'other' });
+    expect(keys(4)).toEqual({ 'log.mcpMethod': 'tasks/get' });
+    expect(received.map((r) => r.body).join('\n')).not.toContain('victim');
+    expect(received.map((r) => r.body).join('\n')).not.toContain('nrql://');
+  });
+
   it('keeps writing the wrapped logger unchanged and bounds the buffer', async () => {
     const t = createTelemetry({ endpoint: base, fetch: receiverFetch });
     const log = t.wrapLogger(createLogger({ sink: (l) => logLines.push(l) }));

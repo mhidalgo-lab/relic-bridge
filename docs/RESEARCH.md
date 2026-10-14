@@ -1126,3 +1126,19 @@ Sources: [server.json format](https://github.com/modelcontextprotocol/registry/b
   a whole window in a single request. Unverified: this repo's docs and schema snapshot do not show which `NrAiIssue` attributes
   exist or whether its data matches `aiIssues` (state, scope filters, the account-scope rule T3 that drops a row touching a
   foreign account). Check with a live `run_nrql` probe before relying on it; no source beyond that was consulted.
+
+## OTLP log attribute names in New Relic (P8-50, live export 2026-10-14)
+
+- relic-bridge 0.9.0 exports log fields as OTLP LogRecord attributes named `log.tool`, `log.ms`, `log.code` (verified in
+  the 0.9.0 source). In New Relic's `Log` data the same attributes appear as `tool`, `ms`, `code`, next to
+  `message`, `severity.text`, `service.name`, `service.version`, `process.runtime.name` and `otel.library.*`.
+- Cause: not determined. New Relic's OTLP logs page documents that LogRecord attributes map to attributes on the Log
+  event and describes the precedence of the sources, but says nothing about stripping a `log.` prefix
+  (https://docs.newrelic.com/docs/opentelemetry/best-practices/opentelemetry-best-practices-logs/). Treat the observed
+  names as the contract for New Relic; other collectors keep the `log.` prefix.
+- The 180 s `mcp request timed out` warnings (about 60/hour with 3 clients) were not tool calls (13 tool errors in 7
+  days). In this server a standalone `GET` is answered 405 by the stateless SDK handler, so the cause is unconfirmed;
+  the likely candidates are open-ended streams (`subscriptions/listen` on the 2026-07-28 era) or a client that
+  disconnects without the stream being cancelled. P8-50 logs open-ended streams at info and exports `status`, `method`
+  and `route` on access-log records, so the next investigation can be answered from New Relic. If warnings persist
+  after upgrading, they are real (hung requests): facet them by `mcpMethod` in New Relic (exported since P8-50).

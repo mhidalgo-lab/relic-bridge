@@ -810,14 +810,25 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
     handler: typeof mcp = mcp,
   ): Promise<Response> => {
     const requestId = c.get('requestId');
+    // Response headers received? After them the deadline only cuts the body: for a stream that is open-ended by design
+    // (a standalone GET, `subscriptions/listen`) that is the normal end, not a timeout (P8-50).
+    let responded = false;
+    const openEnded = c.req.method === 'GET' || mcpMethod === 'subscriptions/listen';
     const deadline = new Deadline(timeoutMs, () => {
+      if (responded && openEnded) {
+        logger.info('mcp stream closed at deadline', { requestId, ms: timeoutMs, mcpMethod });
+        return;
+      }
       c.get('log')['timeout'] = true;
       logger.warn('mcp request timed out', { requestId, ms: timeoutMs, mcpMethod, mcpName });
     });
     let response: Response;
     try {
       response = await Promise.race([
-        handler.fetch(c.req.raw, authInfo === undefined ? {} : { authInfo }),
+        handler.fetch(c.req.raw, authInfo === undefined ? {} : { authInfo }).then((r) => {
+          responded = true;
+          return r;
+        }),
         deadline.expired.then(() => json(504, '{"error":"timeout"}')),
       ]);
     } catch (error) {

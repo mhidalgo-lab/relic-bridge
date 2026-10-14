@@ -2,11 +2,11 @@
 id: P8-50
 title: Self-monitoring logs - stream deadlines, access-log fields, documented names
 phase: 8
-status: todo
+status: review
 priority: medium
 depends_on: []
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P8-50 — Self-monitoring logs: stream deadlines, access-log fields, documented names
@@ -29,9 +29,15 @@ Observability check of the personal deployment (0.9.0, 2026-10-14):
 - Find out why the `log.` prefix is missing in New Relic (exporter or ingest) and make the docs match reality.
 
 ## Acceptance criteria
-- [ ] GET stream deadline no longer logs WARN; a real timeout still does (tests).
-- [ ] Access-log records export status, method and route; unknown values become `other` (tests).
-- [ ] Observability guide attribute names match what New Relic shows (checked against a live export).
+- [x] GET stream deadline no longer logs WARN; a real timeout still does (tests).
+- [x] Access-log records export status, method and route; unknown values become `other` (tests).
+- [x] Observability guide attribute names match what New Relic shows (checked against a live export).
+
+## Findings
+- A standalone `GET` is answered 405 by the stateless handler, so the 180 s warnings are not GET streams in this server;
+  the exact source is unconfirmed (see `docs/RESEARCH.md`). Open-ended streams (GET, `subscriptions/listen`) now log
+  info; anything else at the deadline still warns, now with `route`/`status` fields to investigate.
+- The `log.` prefix is dropped by New Relic (observed); the cause is undocumented. The guide lists the observed names.
 
 ## Security notes
 T30: new attributes are fixed-set or numeric; no path, query string, id or user data is exported.

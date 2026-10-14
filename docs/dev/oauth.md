@@ -76,10 +76,18 @@ The provider's own CIMD is off; relic-bridge resolves the URL before the provide
 `/oauth/authorize`, at `/oauth/token` (code, refresh, revocation) and again in `approve()`, and stores the validated
 document as the provider's client record `oauth:client:<url>`.
 
-Anonymous callers choose the URLs, so on a cache miss (P5-10) the resolver first refuses when
-`MAX_OAUTH_CIMD_CLIENTS` (200) document clients are stored (`too_many_clients`), then counts the fetch against the
-caller's budget (`oauth-cimd-ip:<address>:<window>`, `kv.increment`, 20 per hour, `fetch_budget`; failed fetches
-count because failures are not cached). Cached documents never cost budget.
+Anonymous callers choose the URLs, so on a cache miss (P5-10) the resolver counts the fetch against the caller's
+budget (`oauth-cimd-ip:<address>:<window>`, `kv.increment`, 20 per hour, `fetch_budget`; failed fetches count because
+failures are not cached). Cached documents never cost budget. A validated document is then stored in one of two ways:
+
+- **Client in use** — it completed a token exchange (marker `oauth-cimd-used:<sha256(url)>`, written at the code
+  exchange and kept for the registration TTL) or the refresh token presented names a grant of it: the record keeps the
+  document's cache lifetime and counts toward no cap, so a client people use can always fetch its document again.
+- **Any other client** — the record lives `CIMD_MIN_TTL_S` (5 min) whatever the document's `max-age`, and is counted
+  by an entry `oauth-cimd-new:<sha256(url)>` (same lifetime, written before the record). At `MAX_OAUTH_CIMD_CLIENTS`
+  (200) entries the oldest entry is removed with an atomic `kv.take` and its record deleted (unless the client was
+  marked in use meanwhile), so a full cache delays nobody. The first code exchange marks the client in use, removes
+  its entry and gives its record the document's lifetime. Removing the client (admin API) forgets both keys.
 
 - **On only with a guarded fetcher** — `oauth.clientMetadataDocuments.fetch`. Node: `createCimdFetch()`
   (`apps/cli/src/cimd-fetch.ts`, connect-time address check). Workers: `strictlyPublicCimdFetch()`
@@ -116,16 +124,16 @@ On by default (`oauth.registration`, `false` turns it off; owners can also turn 
    (`cursor://…`) may be listed next to a usable one (the provider never sends codes to them); `client_name` under
    the CIMD rules. `oauth.registrationRedirectHosts` (optional) restricts https redirect hosts to a list (loopback
    always allowed). Refusals: `400 invalid_redirect_uri` / `invalid_client_metadata`, reason in the log.
-2. **Per-address cap** (P5-10): one address may complete 10 registrations per hour (`oauth.registrationIpLimit`,
-   `RB_OAUTH_DCR_IP_LIMIT`, `null`/`off` = off), counted in `oauth-dcr-ip:<address>:<window>` only after the provider
-   accepted the registration, and checked first, so one source cannot use up the deployment-wide cap below. The check
-   reads and the count increments afterwards: a concurrent burst may overshoot by its concurrency (the per-address
-   `oauth` rule bounds that). `429` with `Retry-After`. Redirects of a loopback or `RB_OAUTH_DCR_REDIRECT_HOSTS`
-   client change nothing: they are checked by the policy before.
-3. **Deployment-wide cap**: an atomic fixed-window counter in storage (`kv.increment`, key
+2. **Deployment-wide cap**: an atomic fixed-window counter in storage (`kv.increment`, key
    `oauth-dcr-count:<window>`), shared by every isolate and process. Default 30 registrations per hour
    (`oauth.registrationLimit`, `null` = off); over it `429 temporarily_unavailable` with `Retry-After` to the end of
-   the window. Every request that passed the policy counts.
+   the window. Checked before the provider is called and counted only after it accepted the registration (`201`), so
+   requests the provider rejects never use it up; a registration counted past the cap by a concurrent burst is
+   deleted again and answered `429`.
+3. **Per-address cap** (P5-10): one address may make 10 registration attempts per hour (`oauth.registrationIpLimit`,
+   `RB_OAUTH_DCR_IP_LIMIT`, `null`/`off` = off), counted atomically in `oauth-dcr-ip:<address>:<window>` for every
+   request that passed the policy, whether the provider accepts it or not, so failed attempts cost their sender and
+   one source cannot use up the deployment-wide cap. `429` with `Retry-After`.
 4. The provider stores the client (`client_id`: 16 random characters, never a URL).
 5. **Unused registrations die young**: the record is rewritten to expire in 24 h. The first successful token exchange
    renews it (the provider renews at half-life) to the registration TTL, `max(90 days, 2 × refresh TTL)`, so a client

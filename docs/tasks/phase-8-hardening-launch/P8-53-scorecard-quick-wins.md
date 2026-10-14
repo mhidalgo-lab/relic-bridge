@@ -2,11 +2,11 @@
 id: P8-53
 title: Scorecard quick wins - spike lockfiles, workflow_run checkout, security policy link
 phase: 8
-status: todo
+status: in-progress
 priority: high
 depends_on: []
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P8-53 — Scorecard quick wins: spike lockfiles, workflow_run checkout, security policy link

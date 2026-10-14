@@ -28,6 +28,8 @@ jobs:
           egress-policy: audit
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          # Release tags: `gen-db-fixtures.ts --check` (in `pnpm lint`) compares the fixtures with the tagged migrations.
+          fetch-depth: 0
           persist-credentials: false
       # setup-node comes first: pnpm/action-setup runs on the node on PATH, which is too old on a fresh runner. No
       # `cache: pnpm` (it needs pnpm already installed).

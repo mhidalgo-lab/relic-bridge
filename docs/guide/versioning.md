@@ -71,7 +71,9 @@ six months after the deprecation was released.
 2. In a tool schema: the field or argument description starts with `Deprecated:` and names the replacement and the
    removal release. New deprecations also set JSON Schema `deprecated: true` (zod `.meta({ deprecated: true })`).
 3. A deprecated tool says so at the start of its description.
-4. A deprecated environment variable or YAML key: a startup warning on stderr, and `relic-bridge doctor` reports it.
+4. A deprecated environment variable or YAML key: announced in the release notes and the [upgrade notes](upgrading.md)
+   (items 1 and 6). A startup warning on stderr and a `relic-bridge doctor` check for deprecated configuration are
+   planned (P8-67); until they ship, the changelog and the upgrade guide are the only announcement for configuration.
 5. A deprecated admin API field or endpoint: `deprecated: true` in the OpenAPI document and the
    [reference](../reference/admin-api.md).
 6. The table below and the [upgrade notes](upgrading.md).
@@ -93,7 +95,8 @@ six months after the deprecation was released.
 | From 1.0 | Latest minor only. | Latest minor, and the previous minor for 3 months after a new minor is released. |
 
 A security fix lands on `main` first and ships as a patch of the latest minor. Where a backport is supported it ships
-as a patch of the older minor at the same time. Reports and timelines: [SECURITY.md](../../SECURITY.md). Advisories are
+as a patch of the older minor at the same time. Backports will be cut from `release/x.y` branches; that release path
+is planned (P8-68) and does not exist yet, which is moot until 1.0 because nothing is backported before then. Reports and timelines: [SECURITY.md](../../SECURITY.md). Advisories are
 published as GitHub Security Advisories and linked from the release notes.
 
 relic-bridge supports the Node.js lines in `engines` (currently 24.11 or newer; CI runs 24 and 26) and the MCP

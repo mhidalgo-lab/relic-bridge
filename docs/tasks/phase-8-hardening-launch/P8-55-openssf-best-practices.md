@@ -22,7 +22,7 @@ project already follows.
 
 ## Acceptance criteria
 - [x] Answers file covers every "passing" criterion with a link.
-- [x] Badge in README (project 15400; shows "in progress" until the passing level is reached).
+- [x] Badge in README (project 15490; shows "in progress" until the passing level is reached).
 
 ## Security notes
 None.

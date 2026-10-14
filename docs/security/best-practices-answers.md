@@ -2,7 +2,7 @@
 
 Answers for the [OpenSSF Best Practices](https://www.bestpractices.dev/) "passing" questionnaire, with the evidence for
 each. Keep this file in sync with the entry on bestpractices.dev when practices change. Repository:
-<https://github.com/mhidalgo-lab/relic-bridge>. Badge entry: <https://www.bestpractices.dev/projects/15400>.
+<https://github.com/mhidalgo-lab/relic-bridge>. Badge entry: <https://www.bestpractices.dev/projects/15490>.
 
 ## Basics
 

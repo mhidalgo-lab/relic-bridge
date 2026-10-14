@@ -2,11 +2,11 @@
 id: P8-01
 title: "Threat model final review and fuzzing"
 phase: 8
-status: todo
+status: in-progress
 priority: high
 depends_on: [P7-04, P7-09]
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P8-01 — Threat model final review and fuzzing

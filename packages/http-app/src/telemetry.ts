@@ -247,6 +247,10 @@ const LOG_FIELDS: Readonly<Record<string, RegExp | 'count'>> = Object.freeze({
   code: ERROR_CODE,
   errorCode: ERROR_CODE,
   status: /^[a-z0-9_]{1,32}$/,
+  // Access log (P8-50): the HTTP method from a fixed set, and the route *pattern* the app registered (`/p/:slug/mcp`,
+  // never the request path: ids and slugs are not in it). The numeric HTTP status is exported as an integer below.
+  method: /^(?:GET|POST|DELETE|OPTIONS|HEAD)$/,
+  route: /^\/(?:(?:[A-Za-z0-9_.:*-]{1,64})(?:\/[A-Za-z0-9_.:*-]{1,64}){0,5})?$/,
   error: /^[A-Za-z][A-Za-z0-9_]{0,48}$/,
   // HTTP route paths only (the collector endpoints and `/p/<slug>/mcp`); a filesystem path never matches (P7-30, L2).
   path: /^\/(?:v1\/(?:traces|metrics|logs)|p\/[a-z0-9-]{1,64}\/mcp|mcp|health|healthz|ready|readyz)$/,
@@ -478,7 +482,11 @@ export function createTelemetry(options: TelemetryOptions): Telemetry {
       for (const [key, value] of Object.entries(red)) {
         const kind = LOG_FIELDS[key];
         if (kind === undefined) continue;
-        if (kind === 'count') {
+        if (key === 'status' && typeof value === 'number') {
+          // The HTTP status code of an access-log record: an integer in the valid range, nothing else.
+          if (Number.isInteger(value) && value >= 100 && value <= 599)
+            attributes.push(int('log.status', value));
+        } else if (kind === 'count') {
           if (typeof value === 'number' && Number.isFinite(value) && value >= 0) {
             attributes.push(int(`log.${key}`, Math.round(value)));
           }

@@ -40,7 +40,7 @@ Resource attributes: `service.name=relic-bridge`, `service.version`, `process.ru
 | Histogram (ms, delta) | `relic_bridge.tool.duration` | same as the span |
 | Counter | `relic_bridge.nerdgraph.calls` | New Relic API calls the tool call made (retries included; query-cache hits are not calls); attributes as the span, without the usage numbers |
 | Counter (`By`) | `relic_bridge.nerdgraph.response_bytes` | bytes read from New Relic for the tool call; same attributes |
-| Log record (`info` and above) | the log message | `log.tool`, `log.code`, `log.errorCode`, `log.status`, `log.error` (error class), `log.path`, `log.reason`, `log.ms`, `log.removed` |
+| Log record (`info` and above) | the log message | `tool`, `code`, `errorCode`, `status`, `error` (error class), `path`, `reason`, `ms`, `removed`, and on the `http request` access-log line `method`, `route` (see below) |
 | Counter | `relic_bridge.requests.rejected` | `reason` (e.g. `rate_limit_ip`), `http.response.status_code` |
 
 Every value is checked against a fixed pattern before export; anything unexpected (a made-up tool name from a client)
@@ -55,6 +55,24 @@ a log line carries (NRQL, ids, emails, request text) is dropped. `debug` lines a
 exported. Records wait in a buffer of 200 (oldest dropped) and are sent with the next tool call or rejected request
 (Workers, inside `waitUntil`), every 5 s (Node) and at shutdown. A quiet Worker therefore delays its logs until the next
 request; Workers Logs remain the complete record.
+
+**Attribute names.** The exporter writes the log fields as OTLP attributes named `log.<field>` (`log.tool`, `log.ms`,
+...). In New Relic they appear as `tool`, `ms`, `code`, ... without the prefix (observed on a live 0.9.0 export, 2026-10-14;
+the cause, New Relic's OTLP log mapping, is not documented anywhere we could find). Query the short names in New Relic,
+for example `SELECT count(*) FROM Log WHERE service.name = 'relic-bridge' FACET message`. Another collector shows the
+`log.`-prefixed names. Records also carry `service.name`, `service.version`, `process.runtime.name` and `severity.text`.
+
+**Access log.** Every HTTP request is one `http request` record (`debug` for `/health`, so not exported) with:
+`status` (the HTTP status code, an integer: count 4xx/5xx with `WHERE status >= 400`), `method` (`GET`, `POST`,
+`DELETE`, `OPTIONS`, `HEAD`, anything else `other`), `route` (the route **pattern** the app matched, such as
+`/p/:slug/mcp`; never the request path, query string or an id; a request no route matched is `other`) and `ms`. The
+`status` field of tool-call records is a short word instead (`ok`, `error`), so filter on `message = 'http request'`
+when you chart HTTP statuses.
+
+**Deadlines.** `mcp request timed out` (WARN) means a request did not finish within the request timeout
+(`requestTimeoutMs`, 180 s by default): a tool call that hung or a body that never arrived. An open-ended stream (a
+standalone `GET` stream or `subscriptions/listen`) that simply reaches the same deadline is normal and logs
+`mcp stream closed at deadline` at `info`; the client reconnects.
 
 ### Trace context
 

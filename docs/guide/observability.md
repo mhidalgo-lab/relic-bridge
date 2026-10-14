@@ -31,17 +31,28 @@ the server at startup (Worker: 503); a collector that is down never affects a re
 
 ## What is exported
 
-Resource attributes: `service.name=relic-bridge`, `service.version`, `process.runtime.name` (`node` or `workers`).
+Resource attributes: `service.name=relic-bridge`, `service.version`, `process.runtime.name` (`node` or `workers`),
+`telemetry.sdk.name=relic-bridge` (a small hand-written exporter, not the OpenTelemetry SDK), `telemetry.sdk.language`
+(`nodejs`; `webjs` on Workers, the closest well-known value for a non-Node JavaScript runtime) and
+`telemetry.sdk.version`, plus `service.instance.id`: a random 128-bit hex id generated when the process (or Worker
+isolate) starts, never derived from host, user or request data. New Relic uses `service.instance.id` to facet instances
+and `telemetry.sdk.language` for language-aware pages.
 
 | Signal | Name | Attributes |
 | --- | --- | --- |
-| Span (one per tool call, sampled) | `tools/call` | `tool`, `status` (`ok`/`error`), `error.code` (an `RB_*` code, errors only), `project` (slug, token connections), `mode` (`token`/`passthrough`/`stdio`), `nerdgraph.calls`, `nerdgraph.response_bytes` |
+| Span (one per tool call, sampled) | `tools/call <tool>` (`tools/call other` for an unknown name) | `tool`, `status` (`ok`/`error`), `error.code` (an `RB_*` code, errors only), `project` (slug, token connections), `mode` (`token`/`passthrough`/`stdio`), `nerdgraph.calls`, `nerdgraph.response_bytes` |
+| Histogram (ms, delta) | `rpc.server.duration` | `rpc.system=jsonrpc`, `rpc.service=mcp`, `rpc.method` (the tool name, else `other`), `error.type` (an `RB_*` code, errors only). New Relic builds the service's throughput, response time and error rate from this metric (see below) |
 | Counter | `relic_bridge.tool.calls` | same as the span |
 | Histogram (ms, delta) | `relic_bridge.tool.duration` | same as the span |
 | Counter | `relic_bridge.nerdgraph.calls` | New Relic API calls the tool call made (retries included; query-cache hits are not calls); attributes as the span, without the usage numbers |
 | Counter (`By`) | `relic_bridge.nerdgraph.response_bytes` | bytes read from New Relic for the tool call; same attributes |
 | Log record (`info` and above) | the log message | `tool`, `code`, `errorCode`, `status`, `error` (error class), `path`, `reason`, `ms`, `removed`, and on the `http request` access-log line `method`, `route` (see below) |
 | Counter | `relic_bridge.requests.rejected` | `reason` (e.g. `rate_limit_ip`), `http.response.status_code` |
+
+Spans also carry the OpenTelemetry MCP attributes `mcp.method.name=tools/call`, `gen_ai.operation.name=execute_tool`,
+`gen_ai.tool.name`, the `rpc.system`, `rpc.service`, `rpc.method` and `error.type` described above, and
+`network.transport` (`tcp` for HTTP, `pipe` for stdio). The existing `tool`, `status`, `error.code`, `mode` and
+`project` attributes are unchanged. Tool arguments, results and the MCP session id are never attributes.
 
 Every value is checked against a fixed pattern before export; anything unexpected (a made-up tool name from a client)
 becomes `other`, so the number of distinct values stays small.
@@ -110,3 +121,24 @@ See threat T30 in `docs/THREAT_MODEL.md`.
 
 Point `RB_OTEL_ENDPOINT` at an OpenTelemetry Collector's OTLP/HTTP receiver (default port 4318) and forward from there.
 Use `http://localhost:4318` for a collector on the same host.
+
+## The service entity in New Relic (golden metrics, Errors Inbox)
+
+New Relic creates an external-service entity (EXT/SERVICE) from `service.name`. Its golden metrics (throughput,
+response time, error rate) are computed from `apm.service.transaction.duration`, which New Relic synthesizes from the
+OpenTelemetry **metric** `rpc.server.duration` (or `http.server.request.duration`), not from spans; spans only feed
+the transaction overview and Errors Inbox. relic-bridge exports `rpc.server.duration` for this reason, so the entity's
+transactions are named `WebTransaction/server/jsonrpc/mcp.<tool>`. Spans are named `tools/call <tool>`, so Errors Inbox
+groups are distinct per tool.
+
+Check after deploying (replace `relic-bridge` if you changed the service name):
+
+```sql
+SELECT count(apm.service.transaction.duration), rate(count(apm.service.transaction.duration), 1 minute),
+  average(convert(apm.service.transaction.duration, unit OR 's', 'ms')), sum(apm.service.error.count)
+FROM Metric WHERE entity.name = 'relic-bridge' SINCE 1 hour ago FACET transactionName
+```
+
+The entity's Summary page should then show throughput and response time. Error rate counts only when New Relic
+resolves `error.type` for the RPC convention (its documentation lists gRPC status codes for `rpc.server.duration`);
+if it stays empty while `apm.service.error.count` is 0, see the open question in `docs/RESEARCH.md`.

@@ -2,11 +2,11 @@
 id: P8-49
 title: trace_error note states how many errors carry a trace id
 phase: 8
-status: todo
+status: in-progress
 priority: low
 depends_on: []
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P8-49 — trace_error note states how many errors carry a trace id

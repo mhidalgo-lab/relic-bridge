@@ -108,7 +108,13 @@ export async function pageUpstream<T>(opts: {
   readonly window?: Window;
   readonly checkWindow?: (window: Window) => void;
   readonly fetchPage: (upstream: string | null, window: Window | undefined) => Promise<UpstreamPage<T>>;
-}): Promise<{ items: T[]; nextCursor: string | null; window: Window | undefined }> {
+}): Promise<{
+  items: T[];
+  nextCursor: string | null;
+  window: Window | undefined;
+  /** Set when `limit` asked for more rows than one upstream page holds: the rows that page really has (first page only). */
+  pageSize: number | null;
+}> {
   let upstream: string | null = null;
   let offset = 0;
   let window = opts.window;
@@ -133,7 +139,8 @@ export async function pageUpstream<T>(opts: {
       : next !== null
         ? encodePageCursor(opts.binding, { u: next, o: 0, ...keep })
         : null;
-  return { items, nextCursor, window };
+  const pageSize = offset === 0 && next !== null && opts.limit > page.items.length ? page.items.length : null;
+  return { items, nextCursor, window, pageSize };
 }
 
 /** The position of a newest-first list read by time: the last timestamp shown and how many rows already shown share it. */

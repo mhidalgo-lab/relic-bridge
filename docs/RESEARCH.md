@@ -1117,3 +1117,12 @@ Sources: [server.json format](https://github.com/modelcontextprotocol/registry/b
 - `aiIssues.issues` has no count or aggregate field (schema snapshot, P8-41): a window-wide `group_by` is computed by reading the
   window page by page (bounded, same filter and frozen window as the page query), not by one aggregate query. Past the bound or
   the request budget, `list_recent_issues` falls back to page-local counts and labels them `groupsScope: "page"`.
+- P8-48 (NEW-09): a fallback to `groupsScope: "page"` now always carries `groupsNote` (structured and text): how many issues
+  the page and the aborted scan covered, and why (more issues than the extra requests can read, the request budget, or a failed
+  request). `limit` above one upstream page (the API returns 50 rows per request and takes no page size) is reported as
+  `limitNote` ("limit 200 lowered to 50 (API page size)"), like run_nrql's "LIMIT n lowered to m" notes; the schema maximum
+  stays 200 because a limit up to 200 is still valid on later pages of the same cursor chain.
+- Not implemented, to verify live: one aggregate NRQL (`SELECT count(*) FROM NrAiIssue FACET conditionName SINCE ...`) could count
+  a whole window in a single request. Unverified: this repo's docs and schema snapshot do not show which `NrAiIssue` attributes
+  exist or whether its data matches `aiIssues` (state, scope filters, the account-scope rule T3 that drops a row touching a
+  foreign account). Check with a live `run_nrql` probe before relying on it; no source beyond that was consulted.

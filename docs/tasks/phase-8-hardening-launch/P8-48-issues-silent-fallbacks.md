@@ -2,11 +2,11 @@
 id: P8-48
 title: list_recent_issues says when group counts or limit fall back
 phase: 8
-status: todo
+status: review
 priority: low
 depends_on: []
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P8-48 — list_recent_issues says when group counts or limit fall back
@@ -22,9 +22,9 @@ silently returns 50 rows.
 - `limit` above the API page size: either lower the schema maximum or add a note "limit lowered to N (API page size)".
 
 ## Acceptance criteria
-- [ ] A page-scope fallback always carries a reason.
-- [ ] A lowered limit is reported (or impossible by schema).
-- [ ] Tests for both.
+- [x] A page-scope fallback always carries a reason.
+- [x] A lowered limit is reported (or impossible by schema).
+- [x] Tests for both.
 
 ## Security notes
 None.

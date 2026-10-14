@@ -300,6 +300,17 @@ export function groupTraceQuery(
   return nrql`SELECT traceId, ${nrql.identifier('timestamp')} FROM TransactionError WHERE ${nrql.identifier('error.group.guid')} = ${groupId} AND traceId IS NOT NULL ${entity} ${synthetic} ORDER BY timestamp DESC LIMIT 1 SINCE ${Math.floor(sinceMs / 1000)} UNTIL ${Math.ceil(untilMs / 1000)}`;
 }
 
+/** Says how many errors carry a trace id, from the tracing check counts; empty when the counts are unusable. */
+export function errorTraceClause(
+  traced: number | null | undefined,
+  total: number | null | undefined,
+): string {
+  if (traced == null || total == null || total === 0 || total < traced) return '';
+  return traced === 0
+    ? `; none of ${total} errors carry a trace id`
+    : `, even though ${traced} of ${total} errors carry a trace id`;
+}
+
 /** Cheap check for any trace data (BUG-12): spans and error events with a trace id, optionally for one entity. */
 export function tracingCheckQuery(
   entityGuid: string | undefined,
@@ -310,7 +321,7 @@ export function tracingCheckQuery(
     entityGuid === undefined
       ? nrql``
       : nrql`WHERE ${nrql.identifier('entity.guid')} = ${entityGuid} OR ${nrql.identifier('entityGuid')} = ${entityGuid}`;
-  return nrql`SELECT filter(count(*), WHERE eventType() = 'Span') AS spans, filter(count(*), WHERE eventType() = 'TransactionError' AND traceId IS NOT NULL) AS tracedErrors FROM Span, TransactionError ${entity} SINCE ${Math.floor(sinceMs / 1000)} UNTIL ${Math.ceil(untilMs / 1000)}`;
+  return nrql`SELECT filter(count(*), WHERE eventType() = 'Span') AS spans, filter(count(*), WHERE eventType() = 'TransactionError' AND traceId IS NOT NULL) AS tracedErrors, filter(count(*), WHERE eventType() = 'TransactionError') AS errors FROM Span, TransactionError ${entity} SINCE ${Math.floor(sinceMs / 1000)} UNTIL ${Math.ceil(untilMs / 1000)}`;
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -630,7 +641,7 @@ export function createInvestigationTools(deps: ToolDeps = {}): ToolDefinition[] 
               // Agents can stamp trace ids on errors without sending spans, so spans alone decide (BUG-12).
               if ((num(row['spans']) ?? 0) === 0)
                 notes.push(
-                  `No Span events exist${args.entity_guid ? ' for this entity' : ' in this account'} in the window, so traces cannot be followed${(num(row['tracedErrors']) ?? 0) > 0 ? ' even though some errors carry a trace id' : ''}: distributed tracing or span collection appears to be disabled.`,
+                  `No Span events exist${args.entity_guid ? ' for this entity' : ' in this account'} in the window, so traces cannot be followed${errorTraceClause(num(row['tracedErrors']), num(row['errors']))}: distributed tracing or span collection appears to be disabled.`,
                 );
             } else {
               notes.push(`The tracing check could not run: ${check.note}`);

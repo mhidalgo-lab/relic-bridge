@@ -18,6 +18,7 @@ import {
   controlLabel,
   controlRange,
   FATAL_CODES,
+  fitBaseline,
   numberOf,
   type WindowStats,
 } from './changes.ts';
@@ -492,6 +493,9 @@ export function createApmTools(deps: ToolDeps = {}): ToolDefinition[] {
             now: ctx.clock.now(),
           });
           const now = ctx.clock.now();
+          const fitted = fitBaseline(baseline, [prev, range], ctx.limits, now);
+          baseline = fitted.baseline;
+          if (fitted.note) notes.push(fitted.note);
           const cb = controlRange(baseline.used, prev, ctx.limits, now);
           const ca = controlRange(baseline.used, range, ctx.limits, now);
           if (baseline.used !== 'previous_window' && (!cb || !ca)) {

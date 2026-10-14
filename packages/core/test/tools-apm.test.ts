@@ -344,7 +344,7 @@ describe('analyze_transactions: BUG-07 verdict rules and baseline (live test run
   const untilSec = (nrql: string) => Number(/UNTIL (\d+)/.exec(nrql)?.[1]);
   const at = (offsetMs: number) => Math.floor((NOW + offsetMs) / 1000);
   type Out = {
-    baseline: { used: string; automatic: boolean } | null;
+    baseline: { used: string; automatic: boolean; reason: string } | null;
     comparison: { overall: string; metrics: { metric: string; verdict: string; note: string | null }[] };
   };
   const run = (client: Client, extra: Record<string, unknown> = {}) =>
@@ -385,6 +385,31 @@ describe('analyze_transactions: BUG-07 verdict rules and baseline (live test run
     const s = (await run(await connect(fetch), { baseline: 'previous_window' })).structuredContent as Out;
     expect(s.baseline).toMatchObject({ used: 'previous_window', automatic: false });
     expect(s.comparison.overall).toBe('regression_suspected');
+    expect(calls).toHaveLength(2);
+  });
+
+  it('NEW-11: a 7 day baseline outside the limit falls back to the 1 day control and says so', async () => {
+    const { fetch, calls } = recording((nrql) => nrqlBody([seasonal(nrql)]));
+    const client = await connect(fetch, { limits: { ...testContext().limits, maxWindowDays: 3 } });
+    const r = await run(client, { baseline: 'same_window_7d_ago' });
+    const s = r.structuredContent as Out & { notes: string[] };
+    expect(s.baseline).toMatchObject({ used: 'same_window_1d_ago', automatic: false });
+    expect(s.baseline?.reason).toBe(
+      'Requested same_window_7d_ago is outside the lookback limit; used same_window_1d_ago.',
+    );
+    expect(s.comparison.overall).not.toBe('regression_suspected');
+    expect(calls).toHaveLength(4);
+    expect(s.notes.join(' ')).toContain('7 days earlier fall outside');
+  });
+
+  it('NEW-11: when no seasonal control fits, the reason says so and no control runs', async () => {
+    const { fetch, calls } = recording((nrql) => nrqlBody([seasonal(nrql)]));
+    const client = await connect(fetch, { limits: { ...testContext().limits, maxWindowDays: 1 } });
+    const s = (await run(client, { baseline: 'same_window_7d_ago' })).structuredContent as Out;
+    const b = s.baseline as NonNullable<Out['baseline']>;
+    expect(b.used).toBe('previous_window');
+    expect(b.reason).toContain('same_window_7d_ago');
+    expect(b.reason).toContain('outside the lookback limit');
     expect(calls).toHaveLength(2);
   });
 

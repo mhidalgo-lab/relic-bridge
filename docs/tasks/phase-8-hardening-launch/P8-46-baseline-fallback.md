@@ -2,7 +2,7 @@
 id: P8-46
 title: An explicit baseline that cannot run falls back to an available control
 phase: 8
-status: in-progress
+status: review
 priority: medium
 depends_on: []
 adr: []
@@ -23,9 +23,9 @@ runs no control, so a normal morning ramp ends `regression_suspected`.
 - The limit is never relaxed for baseline queries (P8-24).
 
 ## Acceptance criteria
-- [ ] Requested 7d outside the limit → 1d control runs; `baseline.used` and `reason` are accurate.
-- [ ] Requested baseline inside the limit → unchanged.
-- [ ] Regression tests for both tools.
+- [x] Requested 7d outside the limit → 1d control runs; `baseline.used` and `reason` are accurate.
+- [x] Requested baseline inside the limit → unchanged.
+- [x] Regression tests for both tools.
 
 ## Security notes
 T5: lookback limit still bounds every query.

@@ -1057,7 +1057,8 @@ Sources: [server.json format](https://github.com/modelcontextprotocol/registry/b
   against live NRDB: `stddev()` on `Transaction.duration`.
 - Baseline control: the same pair of windows 1 or 7 days earlier (2 extra NRQL). A move that the control shows too
   (same direction, at least half the size) is a `warning`. Chosen automatically (1 day) when throughput shifted a lot.
-  A control reaching past `maxWindowDays` is skipped with a note. Not verified: holidays and weekly cycles (use
+  An explicit `same_window_7d_ago` reaching past `maxWindowDays` falls back to `same_window_1d_ago` (P8-46; `used` and
+  `reason` name both, a note stays); with no fitting control it is skipped with a note. Not verified: holidays and weekly cycles (use
   `same_window_7d_ago`).
 
 ## Log tools (P8-23, live test run 2026-10-12)

@@ -2,11 +2,11 @@
 id: P8-47
 title: whoami keeps callBudget as a deprecated alias of perCallBudget
 phase: 8
-status: todo
+status: in-progress
 priority: medium
 depends_on: []
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P8-47 — whoami keeps callBudget as a deprecated alias of perCallBudget

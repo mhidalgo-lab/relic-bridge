@@ -2,11 +2,11 @@
 id: P8-05
 title: "Versioning, support and deprecation policy"
 phase: 8
-status: todo
+status: in-progress
 priority: medium
 depends_on: [P7-04, P7-09]
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P8-05 — Versioning, support and deprecation policy

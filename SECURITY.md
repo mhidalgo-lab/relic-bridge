@@ -13,8 +13,9 @@ relic-bridge handles New Relic API keys and telemetry data, so we take security 
 
 **Please do not open a public issue, discussion or pull request for security problems.**
 
-Report privately through **GitHub Security Advisories**: go to the repository's **Security** tab →
-**Report a vulnerability**. Include:
+Report privately through **GitHub Security Advisories**:
+<https://github.com/mhidalgo-lab/relic-bridge/security/advisories/new> (or the repository's **Security** tab →
+**Report a vulnerability**). Include:
 
 - affected version / commit and deployment mode (stdio, Node, Docker, Cloudflare Worker)
 - steps to reproduce or a proof of concept

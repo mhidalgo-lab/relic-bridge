@@ -2,7 +2,7 @@
 id: P8-05
 title: "Versioning, support and deprecation policy"
 phase: 8
-status: in-progress
+status: review
 priority: medium
 depends_on: [P7-04, P7-09]
 adr: []
@@ -37,17 +37,17 @@ upgrade. A database created by any published release keeps upgrading to the curr
   in sync with the tags and fails when a published minor has no fixture.
 
 ## Acceptance criteria
-- [ ] `docs/guide/versioning.md` covers every surface above, pre- and post-1.0 rules, deprecation windows and
+- [x] `docs/guide/versioning.md` covers every surface above, pre- and post-1.0 rules, deprecation windows and
       announcement channels, supported versions, and lists current deprecations (`whoami.limits.callBudget`).
-- [ ] The policy agrees with P8-38 and P8-47; the contributor rules are linked from `docs/dev/tool-conventions.md`.
-- [ ] SECURITY.md "Supported versions" states the backport policy and links the policy page.
-- [ ] `docs/guide/upgrading.md` with general steps, rollback rules and per-version notes; self-hosting and Cloudflare
+- [x] The policy agrees with P8-38 and P8-47; the contributor rules are linked from `docs/dev/tool-conventions.md`.
+- [x] SECURITY.md "Supported versions" states the backport policy and links the policy page.
+- [x] `docs/guide/upgrading.md` with general steps, rollback rules and per-version notes; self-hosting and Cloudflare
       upgrade sections link it.
-- [ ] `scripts/gen-db-fixtures.ts` generates `packages/storage/test/fixtures/db/v<minor>.json` from the released
-      migrations in git history; `--check` runs in `pnpm lint` (or CI) and fails on a stale or missing fixture.
-- [ ] Upgrade test on SQLite (`openSqliteStorage`) and on D1 (`createD1Storage`) for every fixture: version current,
+- [x] `scripts/gen-db-fixtures.ts` generates `packages/storage/test/fixtures/db/v<minor>.json` from the released
+      migrations in git history; `--check` runs in `pnpm lint` and fails on a stale or missing fixture.
+- [x] Upgrade test on SQLite (`openSqliteStorage`) and on D1 (`createD1Storage`) for every fixture: version current,
       schema identical to a fresh database, seeded rows readable, a write succeeds.
-- [ ] `pnpm lint && pnpm typecheck && pnpm test` pass.
+- [x] `pnpm lint && pnpm typecheck && pnpm test` pass.
 
 ## Security notes
 Security-fix backport policy goes into SECURITY.md. Fixtures hold synthetic rows only (fake ciphertext, a hash of a

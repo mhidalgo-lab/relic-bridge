@@ -12,6 +12,7 @@ import {
 import {
   groupTraceQuery,
   healthSignals,
+  httpStatusOf,
   MAX_MATCH_MESSAGE,
   matchable,
   shapeTrace,
@@ -280,6 +281,21 @@ describe('pure helpers', () => {
     expect(matchable('')).toBeNull();
     expect(matchable(null)).toBeNull();
   });
+
+  it('takes the first valid HTTP status from any agent attribute shape (NEW-14)', () => {
+    expect(httpStatusOf({ httpStatusCode: 500 })).toBe(500);
+    expect(httpStatusOf({ responseStatusCode: 404 })).toBe(404);
+    expect(httpStatusOf({ responseStatus: '503' })).toBe(503);
+    expect(httpStatusOf({ httpResponseCode: 502 })).toBe(502);
+    // PHP agent: httpResponseCode is a string, http.statusCode a number.
+    expect(httpStatusOf({ httpResponseCode: '500', httpStatusCode: 500, responseStatusCode: 500 })).toBe(500);
+    expect(httpStatusOf({ httpResponseCode: ' 500 ' })).toBe(500);
+    expect(httpStatusOf({ httpStatusCode: null, httpResponseCode: '418' })).toBe(418);
+    expect(httpStatusOf({ httpStatusCode: 0, responseStatus: 'OK', httpResponseCode: '201' })).toBe(201);
+    for (const bad of [99, 600, 500.5, -500, '5000', '50', 'abc', '500x', '', true, {}])
+      expect(httpStatusOf({ httpResponseCode: bad }), String(bad)).toBeNull();
+    expect(httpStatusOf({})).toBeNull();
+  });
 });
 
 describe('trace_error', () => {
@@ -507,6 +523,29 @@ describe('trace_error', () => {
     const r = await client.callTool({ name: 'trace_error', arguments: { error_group_id: 'eg-1' } });
     expect(resultText(r)).toContain('No traced occurrence');
     expect(resultText(r)).not.toContain('appears to be disabled');
+  });
+
+  it('fills httpStatus from a string httpResponseCode and http.statusCode (PHP agent, NEW-14)', async () => {
+    const ng = nerdGraph({
+      nrql: (q) =>
+        q.includes('FROM TransactionError WHERE traceId')
+          ? nrqlBody([
+              { timestamp: 1, errorClass: 'E', httpResponseCode: '500', httpStatusCode: 500 },
+              { timestamp: 2, errorClass: 'E', httpResponseCode: '404' },
+              { timestamp: 3, errorClass: 'E' },
+            ])
+          : undefined,
+    });
+    const client = await connect(ng.fetch);
+    const r = await client.callTool({ name: 'trace_error', arguments: { trace_id: TRACE } });
+    expect(r.isError, resultText(r)).toBeFalsy();
+    const s = r.structuredContent as { errors: { httpStatus: number | null }[] };
+    expect(s.errors.map((e) => e.httpStatus)).toEqual([500, 404, null]);
+    const q = ng.calls
+      .map((c) => String(c.variables['nrql']))
+      .find((n) => n.includes('FROM TransactionError'));
+    for (const a of ['`http.statusCode`', '`response.statusCode`', '`response.status`', 'httpResponseCode'])
+      expect(q).toContain(a);
   });
 
   it('marks sampled-out traces and keeps the other parts', async () => {

@@ -251,6 +251,11 @@ const LOG_FIELDS: Readonly<Record<string, RegExp | 'count'>> = Object.freeze({
   // never the request path: ids and slugs are not in it). The numeric HTTP status is exported as an integer below.
   method: /^(?:GET|POST|DELETE|OPTIONS|HEAD)$/,
   route: /^\/(?:(?:[A-Za-z0-9_.:*-]{1,64})(?:\/[A-Za-z0-9_.:*-]{1,64}){0,5})?$/,
+  // The MCP method of the request (P8-50): the names the spec and SDK define; anything else is `other`.
+  mcpMethod:
+    /^(?:initialize|ping|subscriptions\/listen|logging\/setLevel|completion\/complete|tools\/(?:list|call)|resources\/(?:list|read|subscribe|unsubscribe|templates\/list)|prompts\/(?:list|get)|tasks\/[a-z]{1,24}|notifications\/[a-z_]{1,32}(?:\/[a-z_]{1,32})?)$/,
+  // Only a tool name (and only with `tools/call`, checked where it is read); other names (resource URIs, prompts) never leave.
+  mcpName: TOOL_NAME,
   error: /^[A-Za-z][A-Za-z0-9_]{0,48}$/,
   // HTTP route paths only (the collector endpoints and `/p/<slug>/mcp`); a filesystem path never matches (P7-30, L2).
   path: /^\/(?:v1\/(?:traces|metrics|logs)|p\/[a-z0-9-]{1,64}\/mcp|mcp|health|healthz|ready|readyz)$/,
@@ -482,7 +487,11 @@ export function createTelemetry(options: TelemetryOptions): Telemetry {
       for (const [key, value] of Object.entries(red)) {
         const kind = LOG_FIELDS[key];
         if (kind === undefined) continue;
-        if (key === 'status' && typeof value === 'number') {
+        if (key === 'mcpName') {
+          if (red['mcpMethod'] === 'tools/call' && typeof value === 'string' && TOOL_NAME.test(value)) {
+            attributes.push(str('log.mcpName', value));
+          }
+        } else if (key === 'status' && typeof value === 'number') {
           // The HTTP status code of an access-log record: an integer in the valid range, nothing else.
           if (Number.isInteger(value) && value >= 100 && value <= 599)
             attributes.push(int('log.status', value));

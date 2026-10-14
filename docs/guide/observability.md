@@ -69,6 +69,13 @@ for example `SELECT count(*) FROM Log WHERE service.name = 'relic-bridge' FACET 
 `status` field of tool-call records is a short word instead (`ok`, `error`), so filter on `message = 'http request'`
 when you chart HTTP statuses.
 
+**MCP method.** Records of MCP requests (`http request` on the MCP routes and the deadline lines) carry `mcpMethod`,
+the JSON-RPC method from a fixed list (`initialize`, `ping`, `tools/list`, `tools/call`, `resources/*`, `prompts/*`,
+`tasks/*`, `subscriptions/listen`, `notifications/*`, `logging/setLevel`, `completion/complete`; anything else is
+`other`), and `mcpName` only for `tools/call` (the tool name, same pattern check as `tool`). Resource URIs and prompt
+names are never exported. To see what the timeouts are:
+`SELECT count(*) FROM Log WHERE service.name = 'relic-bridge' AND message = 'mcp request timed out' FACET mcpMethod SINCE 1 day ago`.
+
 **Deadlines.** `mcp request timed out` (WARN) means a request did not finish within the request timeout
 (`requestTimeoutMs`, 180 s by default): a tool call that hung or a body that never arrived. An open-ended stream (a
 standalone `GET` stream or `subscriptions/listen`) that simply reaches the same deadline is normal and logs

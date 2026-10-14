@@ -425,6 +425,32 @@ describe('OTLP logs (P7-18)', () => {
     expect(received.map((r) => r.body).join('\n')).not.toContain('victim');
   });
 
+  it('exports the MCP method from a fixed set and a tool name only for tools/call (P8-50)', async () => {
+    const t = createTelemetry({ endpoint: base, fetch: receiverFetch });
+    const log = t.wrapLogger(createLogger({ level: 'debug', sink: (l) => logLines.push(l) }));
+    log.warn('mcp request timed out', { ms: 1000, mcpMethod: 'tools/call', mcpName: 'run_nrql' });
+    log.warn('mcp request timed out', { mcpMethod: 'subscriptions/listen', mcpName: 'run_nrql' });
+    log.warn('mcp request timed out', { mcpMethod: 'resources/read', mcpName: 'nrql://reference' });
+    log.warn('mcp request timed out', { mcpMethod: 'evil/victim@example.com', mcpName: 'run_nrql' });
+    log.warn('mcp request timed out', { mcpMethod: 'tasks/get' });
+    await t.flush();
+    const records = bodies('/v1/logs').flatMap((b) => b.resourceLogs[0].scopeLogs[0].logRecords);
+    const keys = (i: number) =>
+      Object.fromEntries(
+        records[i].attributes.map((a: { key: string; value: Record<string, string> }) => [
+          a.key,
+          a.value['stringValue'] ?? a.value['intValue'],
+        ]),
+      );
+    expect(keys(0)).toEqual({ 'log.ms': '1000', 'log.mcpMethod': 'tools/call', 'log.mcpName': 'run_nrql' });
+    expect(keys(1)).toEqual({ 'log.mcpMethod': 'subscriptions/listen' });
+    expect(keys(2)).toEqual({ 'log.mcpMethod': 'resources/read' });
+    expect(keys(3)).toEqual({ 'log.mcpMethod': 'other' });
+    expect(keys(4)).toEqual({ 'log.mcpMethod': 'tasks/get' });
+    expect(received.map((r) => r.body).join('\n')).not.toContain('victim');
+    expect(received.map((r) => r.body).join('\n')).not.toContain('nrql://');
+  });
+
   it('keeps writing the wrapped logger unchanged and bounds the buffer', async () => {
     const t = createTelemetry({ endpoint: base, fetch: receiverFetch });
     const log = t.wrapLogger(createLogger({ sink: (l) => logLines.push(l) }));

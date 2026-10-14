@@ -60,6 +60,7 @@
     "@relic-bridge/http-app": "workspace:*",
     "@relic-bridge/storage": "workspace:*",
     "@relic-bridge/storage-sqlite": "workspace:*",
+    "fast-check": "4.10.2",
     "tsdown": "0.23.0"
   }
 }

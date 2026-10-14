@@ -8,7 +8,13 @@ import {
   type NerdGraphClient,
   nerdGraphFor,
 } from '../nerdgraph/client.ts';
-import { ACCOUNT_NRQL, CROSS_ACCOUNT_NRQL, NRQL_PROGRESS, type NrdbContainer } from './documents.ts';
+import {
+  ACCOUNT_NRQL,
+  CROSS_ACCOUNT_NRQL,
+  NRQL_PROGRESS,
+  type NrdbContainer,
+  type NrqlTotals,
+} from './documents.ts';
 import { assertRawNrqlAllowed, enforceQueryLimits } from './limits.ts';
 import { isNrqlQuery, type NrqlQuery } from './template.ts';
 
@@ -60,8 +66,8 @@ export interface NrqlComplete {
   readonly status: 'complete';
   readonly accounts: readonly number[];
   readonly results: readonly Record<string, unknown>[];
-  readonly totalResult?: Record<string, unknown>;
-  readonly otherResult?: Record<string, unknown>;
+  readonly totalResult?: NrqlTotals;
+  readonly otherResult?: NrqlTotals;
   readonly metadata: NrqlMetadata;
   /** NRDB messages (e.g. "No events found -- do you have the correct event type and time range?"). */
   readonly messages: readonly string[];

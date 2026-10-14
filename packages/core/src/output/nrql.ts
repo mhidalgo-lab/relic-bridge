@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import { z } from 'zod';
 import type { QueryCacheInfo } from '../cache/query-cache.ts';
+import type { NrqlTotals } from '../nrql/documents.ts';
 import type { NrqlComplete, NrqlOutcome, NrqlPending } from '../nrql/engine.ts';
 import { redact, redactValue } from '../redact.ts';
 import type { ToolOutput } from '../tool.ts';
@@ -13,6 +14,11 @@ export const RESULT_META_KEY = 'relic-bridge/result';
 export const NRQL_NARROW_HINT =
   'narrow the NRQL: add WHERE filters, a shorter SINCE, fewer attributes, or aggregate (FACET … LIMIT n)';
 
+const nrqlTotalsSchema = z.union([
+  z.record(z.string(), z.unknown()),
+  z.array(z.record(z.string(), z.unknown())),
+]);
+
 /** `structuredContent` of an NRQL result. One object type (MCP output schemas must be objects); `status` tells which. */
 export interface NrqlResult {
   status: 'complete' | 'pending';
@@ -21,8 +27,8 @@ export interface NrqlResult {
   columns?: string[] | undefined;
   /** The rows shown, with the same cuts as the text (complete only). */
   rows?: Record<string, unknown>[] | undefined;
-  totalResult?: Record<string, unknown> | undefined;
-  otherResult?: Record<string, unknown> | undefined;
+  totalResult?: NrqlTotals | undefined;
+  otherResult?: NrqlTotals | undefined;
   facets?: string[] | undefined;
   eventTypes?: string[] | undefined;
   timeseries?: boolean | undefined;
@@ -48,8 +54,8 @@ export const nrqlResultSchema: z.ZodType<NrqlResult> = z.object({
   accountIds: z.array(z.number().int()),
   columns: z.array(z.string()).optional(),
   rows: z.array(z.record(z.string(), z.unknown())).optional(),
-  totalResult: z.record(z.string(), z.unknown()).optional(),
-  otherResult: z.record(z.string(), z.unknown()).optional(),
+  totalResult: nrqlTotalsSchema.optional(),
+  otherResult: nrqlTotalsSchema.optional(),
   facets: z.array(z.string()).optional(),
   eventTypes: z.array(z.string()).optional(),
   timeseries: z.boolean().optional(),
@@ -232,8 +238,7 @@ function shapeComplete(outcome: NrqlComplete, allOptions: ShapeNrqlOptions): Too
     ...(summaryNotice ? [summaryNotice] : []),
     shaped.text,
   ];
-  const clean = (v: Record<string, unknown>) =>
-    (options.redactSecrets ?? true) ? (redactValue(v) as Record<string, unknown>) : v;
+  const clean = (v: NrqlTotals) => ((options.redactSecrets ?? true) ? (redactValue(v) as NrqlTotals) : v);
   const scrub = (v: string) => ((options.redactSecrets ?? true) ? redact(v) : v);
   const md = outcome.metadata;
   const structured: NrqlResult = {

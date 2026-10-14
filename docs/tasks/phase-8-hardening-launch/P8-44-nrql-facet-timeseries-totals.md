@@ -2,7 +2,7 @@
 id: P8-44
 title: run_nrql accepts array totals of FACET TIMESERIES queries
 phase: 8
-status: in-progress
+status: review
 priority: high
 depends_on: []
 adr: []
@@ -23,9 +23,9 @@ the observability check of 2026-10-14 (not in the 0.9.0 verification report).
 - Check the summarizer (`detail: auto|summary`) and any other consumer of `totalResult` for the array case.
 
 ## Acceptance criteria
-- [ ] `SELECT count(*) FROM Log FACET x TIMESERIES 1 hour SINCE 1 day ago` returns rows with every `detail` value.
-- [ ] Regression test with a recorded FACET + TIMESERIES NerdGraph response (fails before the fix).
-- [ ] Output schema test covers the object and the array shape.
+- [x] `SELECT count(*) FROM Log FACET x TIMESERIES 1 hour SINCE 1 day ago` returns rows with every `detail` value.
+- [x] Regression test with a recorded FACET + TIMESERIES NerdGraph response (fails before the fix).
+- [x] Output schema test covers the object and the array shape.
 
 ## Security notes
 None: the shape change is within data already returned as untrusted output (T7 labelling unchanged).

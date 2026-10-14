@@ -1,6 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 import { defineDocument, type GraphQLDocument } from '../nerdgraph/document.ts';
 
+/**
+ * `totalResult` / `otherResult` of a FACET query: one object of aggregates, or (FACET + TIMESERIES) an array of time
+ * buckets, each with beginTimeSeconds, endTimeSeconds and the aggregate columns (P8-44).
+ */
+export type NrqlTotals = Record<string, unknown> | Record<string, unknown>[];
+
 /** NRQL result fields as NerdGraph returns them. Optional fields are null when absent or when they failed. */
 export interface NrdbContainer {
   readonly results: readonly Record<string, unknown>[] | null;
@@ -16,8 +22,8 @@ export interface NrdbContainer {
       readonly compareWith: string | null;
     } | null;
   } | null;
-  readonly totalResult: Record<string, unknown> | null;
-  readonly otherResult: Record<string, unknown> | null;
+  readonly totalResult: NrqlTotals | null;
+  readonly otherResult: NrqlTotals | null;
   readonly queryProgress: {
     readonly queryId: string | null;
     readonly completed: boolean | null;

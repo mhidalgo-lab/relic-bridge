@@ -312,7 +312,7 @@ Generated from task front matter (`pnpm tasks index`). Status lives in each task
 | P8-41 | [partial only for involuntary truncation; group_by counts the whole window](tasks/phase-8-hardening-launch/P8-41-partial-and-window-groups.md) | medium | — | done |
 | P8-42 | [Polish - slowest ranking, global event types, weekly baseline](tasks/phase-8-hardening-launch/P8-42-ranking-eventtypes-baseline.md) | medium | — | done |
 | P8-43 | [Docs from the 0.8.0 verification run](tasks/phase-8-hardening-launch/P8-43-verification-notes-docs.md) | low | — | done |
-| P8-44 | [run_nrql accepts array totals of FACET TIMESERIES queries](tasks/phase-8-hardening-launch/P8-44-nrql-facet-timeseries-totals.md) | high | — | todo |
+| P8-44 | [run_nrql accepts array totals of FACET TIMESERIES queries](tasks/phase-8-hardening-launch/P8-44-nrql-facet-timeseries-totals.md) | high | — | review |
 | P8-45 | [get_attributes filters by name before the attribute cap](tasks/phase-8-hardening-launch/P8-45-attributes-filter-before-cap.md) | high | — | todo |
 | P8-46 | [An explicit baseline that cannot run falls back to an available control](tasks/phase-8-hardening-launch/P8-46-baseline-fallback.md) | medium | — | todo |
 | P8-47 | [whoami keeps callBudget as a deprecated alias of perCallBudget](tasks/phase-8-hardening-launch/P8-47-whoami-budget-alias.md) | medium | — | todo |

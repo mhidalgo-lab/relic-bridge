@@ -144,6 +144,33 @@ describe('get_attributes name_contains (BUG-21)', () => {
   });
 });
 
+describe('get_attributes filters before the cap (NEW-08)', () => {
+  const many = Array.from({ length: 1500 }, (_, i) => ({
+    key: `${i >= 1200 ? 'svc' : 'attr'}_${String(i).padStart(4, '0')}`,
+    type: 'string',
+  }));
+
+  it('finds matches past the 1,000th attribute and reports the real total', async () => {
+    const { fetch, calls } = recorder(() => nrqlBody(many));
+    const client = await connect(fetch);
+    const r = await client.callTool({
+      name: 'get_attributes',
+      arguments: { event_type: 'Log', name_contains: 'svc_' },
+    });
+    const s = r.structuredContent as { attributes: unknown[]; totalAttributes: number; truncated: boolean };
+    expect(s.attributes).toHaveLength(300);
+    expect(s.totalAttributes).toBe(1500);
+    expect(s.truncated).toBe(false);
+    // The cached full keyset serves an unfiltered call, which is capped and flagged.
+    const all = await client.callTool({ name: 'get_attributes', arguments: { event_type: 'Log' } });
+    const a = all.structuredContent as { attributes: unknown[]; totalAttributes: number; truncated: boolean };
+    expect(a.attributes).toHaveLength(1000);
+    expect(a.totalAttributes).toBe(1500);
+    expect(a.truncated).toBe(true);
+    expect(calls).toHaveLength(1);
+  });
+});
+
 describe('list_event_types', () => {
   it('runs SHOW EVENT TYPES with an integer window in the chosen account and caches', async () => {
     const { fetch, calls } = recorder(() => nrqlBody([{ eventType: 'Transaction' }, { eventType: 'Log' }]));

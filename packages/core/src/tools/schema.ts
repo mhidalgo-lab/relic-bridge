@@ -27,6 +27,8 @@ export const SCHEMA_TTL_MS: number = 5 * 60_000;
 const SCHEMA_CACHE_MAX = 64;
 const MAX_EVENT_TYPES = 1000;
 const MAX_ATTRIBUTES = 1000;
+/** Most keys kept in the per-connection cache, so a huge keyset cannot grow memory without bound. */
+const MAX_CACHED_ATTRIBUTES = 5000;
 const MAX_NAME_CHARS = 255;
 const SAMPLE_VALUE_CHARS = 300;
 /**
@@ -90,7 +92,7 @@ const attributesOutput = z.object({
   since: z.string(),
   until: z.string(),
   attributes: z.array(z.object({ name: z.string(), type: z.string() })),
-  /** Attributes on the type before `name_contains` was applied. */
+  /** Attributes on the type before `name_contains` and the cap were applied. */
   totalAttributes: z.number().int(),
   truncated: z.boolean(),
   sample: z.record(z.string(), z.unknown()).nullable(),
@@ -202,7 +204,7 @@ export function createSchemaTools(deps: ToolDeps = {}): ToolDefinition[] {
     );
   // Keys include credential id, region and account (T21); values hold only schema names.
   const typesCache = createCache<string[]>();
-  const attrCache = createCache<{ attributes: { name: string; type: string }[]; truncated: boolean }>();
+  const attrCache = createCache<{ attributes: { name: string; type: string }[]; incomplete: boolean }>();
   const scopeKey = (ctx: ToolContext, account: number) =>
     `${ctx.credential.id}|${ctx.credential.region}|${account}`;
 
@@ -322,7 +324,11 @@ export function createSchemaTools(deps: ToolDeps = {}): ToolDefinition[] {
       let schema = hit;
       if (!schema) {
         const parsed = parseKeyset((await run(ctx, account, query)).results);
-        schema = { attributes: parsed.slice(0, MAX_ATTRIBUTES), truncated: parsed.length > MAX_ATTRIBUTES };
+        // Cache the whole keyset (bounded): the name filter must see every key, the cap applies to the output.
+        schema = {
+          attributes: parsed.slice(0, MAX_CACHED_ATTRIBUTES),
+          incomplete: parsed.length > MAX_CACHED_ATTRIBUTES,
+        };
         attrCache.set(key, schema, ctx.clock.now());
       }
       const needle = args.name_contains?.toLowerCase();
@@ -330,8 +336,9 @@ export function createSchemaTools(deps: ToolDeps = {}): ToolDefinition[] {
         name: cleanName(a.name, MAX_NAME_CHARS),
         type: cleanName(a.type, 32),
       }));
-      const attributes =
-        needle === undefined ? all : all.filter((a) => a.name.toLowerCase().includes(needle));
+      const matching = needle === undefined ? all : all.filter((a) => a.name.toLowerCase().includes(needle));
+      const attributes = matching.slice(0, MAX_ATTRIBUTES);
+      const truncated = matching.length > MAX_ATTRIBUTES;
 
       let sample: Record<string, unknown> | null = null;
       if (args.sample === true && all.length > 0) {
@@ -367,7 +374,17 @@ export function createSchemaTools(deps: ToolDeps = {}): ToolDefinition[] {
           }).text,
         );
       }
-      if (schema.truncated) lines.push(`Only the first ${MAX_ATTRIBUTES} attributes are shown.`);
+      if (truncated) {
+        lines.push(
+          `Only the first ${MAX_ATTRIBUTES} of ${matching.length} attributes are shown.` +
+            `${needle === undefined ? ' Pass name_contains to narrow the list.' : ''}`,
+        );
+      }
+      if (schema.incomplete) {
+        lines.push(
+          `The event type has more than ${MAX_CACHED_ATTRIBUTES} attributes: only the first ${MAX_CACHED_ATTRIBUTES} (alphabetical) are searched, so a match may be missing.`,
+        );
+      }
       if (sample) {
         lines.push(
           'One recent event:',
@@ -383,7 +400,7 @@ export function createSchemaTools(deps: ToolDeps = {}): ToolDefinition[] {
           until: range.until,
           attributes,
           totalAttributes: all.length,
-          truncated: schema.truncated,
+          truncated,
           sample,
           cached,
         },

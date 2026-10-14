@@ -2,7 +2,7 @@
 id: P8-45
 title: get_attributes filters by name before the attribute cap
 phase: 8
-status: in-progress
+status: review
 priority: high
 depends_on: []
 adr: []
@@ -22,9 +22,9 @@ runs (`packages/core/src/tools/schema.ts`, around lines 325–328).
 - If the upstream keyset itself is incomplete, say so in a note.
 
 ## Acceptance criteria
-- [ ] With 1,500 keys and matches past position 1,000, `name_contains` returns them.
-- [ ] `totalAttributes` reports 1,500; `truncated` is false when the filtered list fits.
-- [ ] Regression test (fails before the fix); cache memory stays bounded.
+- [x] With 1,500 keys and matches past position 1,000, `name_contains` returns them.
+- [x] `totalAttributes` reports 1,500; `truncated` is false when the filtered list fits.
+- [x] Regression test (fails before the fix); cache memory stays bounded.
 
 ## Security notes
 None (read-only; the cache is per connection as before, T21).

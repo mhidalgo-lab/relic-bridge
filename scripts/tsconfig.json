@@ -1,5 +1,5 @@
 {
   "extends": "../tsconfig.base.json",
   "compilerOptions": { "types": ["node"], "isolatedDeclarations": false },
-  "include": ["*.ts", "test/**/*.ts"]
+  "include": ["*.ts", "bench/**/*.ts", "test/**/*.ts"]
 }

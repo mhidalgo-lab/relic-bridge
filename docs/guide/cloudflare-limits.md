@@ -55,6 +55,75 @@ workerd, so its absolute numbers are higher than production and only the trend m
 Move to Workers Paid for large result sets, shared teams or heavy use; it also lifts the 100,000 requests per day
 and 10 ms CPU limits.
 
+## Measured overhead and cost per tool
+
+What relic-bridge itself adds to each tool call, and what a call costs in NerdGraph requests (the Workers external
+subrequests that the 50 and 1,000 limits above count). Reproduce on your own machine with `pnpm bench` (Node and
+workerd, no New Relic key needed; `pnpm bench --node` for Node only; about a minute). It is not part of CI.
+
+Measured 2026-10-14 on developer laptop, 6-core x86-64, WSL2; Node 24.16.0, workerd 1.20260926.1.
+Mock NerdGraph (recorded fixtures, zero latency), in-memory MCP client, sample arguments from the contract tests.
+**Indicative only**: the numbers depend on the machine, and local workerd is not production Workers.
+
+| Tool | Node p50 / p95 (ms) | Workers p50 / p95 (ms) | NerdGraph requests | Declared cost | NerdGraph response (KiB) | Result (KiB) |
+|---|---:|---:|---:|---:|---:|---:|
+| `whoami` | 0.38 / 1.6 | 1.1 / 53.3 | 1 | 1 | 0.1 | 0.7 |
+| `list_accounts` | 0.48 / 1.0 | 1.0 / 3.1 | 1 | 1 | 0.1 | 0.4 |
+| `time_range` | 0.14 / 0.33 | 0.90 / 4.3 | 0 | 0 | 0.0 | 0.2 |
+| `get_ui_link` | 0.20 / 0.52 | 0.90 / 3.0 | 0 | 0 | 0.0 | 0.4 |
+| `run_nrql` | 0.68 / 2.0 | 3.2 / 8.9 | 1 | 4 | 14.7 | 0.5 |
+| `get_query_result` | 0.40 / 1.1 | 2.4 / 9.3 | 1 | 1 | 0.3 | 0.3 |
+| `search_entities` | 0.68 / 1.5 | 1.3 / 5.8 | 1 | 1 | 0.3 | 0.5 |
+| `get_entity` | 0.31 / 1.0 | 1.9 / 5.6 | 1 | 5 | 0.3 | 0.4 |
+| `get_related_entities` | 1.3 / 3.8 | 1.7 / 3.5 | 1 | 5 | 0.2 | 0.1 |
+| `list_entity_types` | 1.1 / 3.8 | 3.0 / 7.2 | 1 | 1 | 0.1 | 0.4 |
+| `decode_entity_guid` | 0.59 / 4.0 | 1.0 / 4.1 | 0 | 0 | 0.0 | 0.3 |
+| `resolve_entity` | 0.51 / 3.6 | 0.40 / 1.8 | 1 | 4 | 0.3 | 0.4 |
+| `get_golden_metrics` | 5.4 / 18.6 | 2.6 / 6.5 | 3 | 45 | 1.0 | 0.9 |
+| `list_event_types` | 0.99 / 10.5 | 0.30 / 0.90 | 1 | 1 | 0.3 | 0.4 |
+| `get_attributes` | 0.59 / 4.5 | 1.5 / 3.2 | 1 | 2 | 0.3 | 0.4 |
+| `list_alert_policies` | 0.45 / 1.4 | 1.7 / 5.4 | 1 | 1 | 0.3 | 0.4 |
+| `list_alert_conditions` | 0.46 / 3.9 | 0.90 / 3.4 | 1 | 1 | 0.5 | 0.5 |
+| `list_recent_issues` | 0.65 / 1.2 | 0.70 / 1.9 | 1 | 9 | 0.7 | 0.5 |
+| `search_incidents` | 1.4 / 2.7 | 1.1 / 4.5 | 1 | 5 | 0.4 | 0.5 |
+| `list_error_groups` | 1.1 / 3.7 | 0.90 / 2.2 | 1 | 5 | 0.6 | 0.7 |
+| `list_change_events` | 1.4 / 3.1 | 1.4 / 3.6 | 3 | 5 | 1.0 | 0.5 |
+| `analyze_deployment_impact` | 1.6 / 3.2 | 1.9 / 3.9 | 1 | 13 | 0.4 | 1.5 |
+| `list_top_transactions` | 0.60 / 1.1 | 2.3 / 4.6 | 1 | 6 | 14.7 | 0.3 |
+| `analyze_transactions` | 0.96 / 1.4 | 4.9 / 8.5 | 2 | 12 | 14.7 | 1.4 |
+| `list_recent_logs` | 1.8 / 2.9 | 0.80 / 1.7 | 1 | 6 | 0.3 | 0.4 |
+| `analyze_entity_logs` | 0.58 / 2.2 | 1.5 / 3.1 | 3 | 10 | 14.7 | 0.2 |
+| `analyze_threads` | 2.0 / 5.1 | 1.0 / 1.7 | 2 | 8 | 14.7 | 0.4 |
+| `list_gc_metrics` | 0.75 / 1.6 | 1.7 / 4.4 | 1 | 6 | 14.7 | 0.3 |
+| `analyze_kafka_metrics` | 0.68 / 2.9 | 1.5 / 4.2 | 3 | 6 | 14.7 | 0.4 |
+| `list_synthetic_monitors` | 2.1 / 3.7 | 1.6 / 3.0 | 2 | 3 | 0.8 | 0.9 |
+| `list_dashboards` | 0.48 / 1.6 | 1.5 / 2.5 | 1 | 1 | 0.3 | 0.4 |
+| `get_dashboard` | 0.49 / 1.3 | 1.1 / 2.3 | 1 | 5 | 0.5 | 0.8 |
+| `generate_alert_insights_report` | 3.9 / 7.6 | 3.1 / 7.4 | 10 | 32 | 2.6 | 3.4 |
+| `generate_user_impact_report` | 2.9 / 5.0 | 2.1 / 3.6 | 2 | 18 | 0.9 | 0.8 |
+| `trace_error` | 1.7 / 5.6 | 1.9 / 4.5 | 3 | 12 | 0.3 | 1.2 |
+| `dependency_health` | 1.7 / 3.6 | 3.7 / 6.5 | 4 | 43 | 1.2 | 0.9 |
+| `entity_health` | 3.9 / 7.3 | 8.7 / 16.6 | 7 | 29 | 2.8 | 3.0 |
+
+Overhead is wall time minus the time inside the mock NerdGraph request, per call, so it is what relic-bridge adds
+(validation, document building, parsing, shaping, MCP framing). On Workers it stands in for CPU time. NerdGraph requests are
+also the external subrequests a Worker call spends. The sample count and the mean of 10 calls per sample average
+out the coarse (whole millisecond) workerd clock, so Workers figures below 1 ms are approximations.
+
+How to read it:
+
+- **Requests vs declared cost.** The mock answers the happy path, so "NerdGraph requests" is the typical count. The
+  declared cost is the worst case (async polls, name resolution; P6-20) that tool hiding and the budget use, which is why
+  it is often higher. The worst case is asserted by `packages/core/test/tool-costs.test.ts`, not by this table.
+- **Response size.** The mock replies with small recorded fixtures, so the response column understates real accounts. How
+  CPU grows with payload size (10 KB to 500 KB) is in `pnpm bench:cpu`, and the Free preset's ceiling is above.
+- **Workers overhead** is wall time inside a local workerd, which is not frozen like production, so it is a proxy for CPU
+  time and runs higher than a real Worker's. Authentication, storage and the HTTP layer are not in these rows (see
+  `pnpm bench:cpu`); they add to each request.
+- **Latency you will see** is New Relic's time plus this overhead; the overhead is a few milliseconds at most for
+  every tool, and the composites (`entity_health`, `dependency_health`, `generate_alert_insights_report`) cost more
+  mainly through their request count.
+
 ## Costs
 
 Prices from Cloudflare's pricing pages, **checked 2026-10-03** (they change; confirm before you rely on them):

@@ -2,7 +2,7 @@
 id: P8-63
 title: "Verification guide: async query handles and write tools"
 phase: 8
-status: in-progress
+status: review
 priority: low
 depends_on: [P8-43]
 adr: ["0005", "0015", "0016"]
@@ -32,22 +32,22 @@ server.
 - Links from `docs/dev/testing.md` and the owner checklist.
 
 ## Acceptance criteria
-- [ ] The async recipe matches `packages/core/src/tools/query.ts` and `packages/core/src/nrql/engine.ts` (submit,
+- [x] The async recipe matches `packages/core/src/tools/query.ts` and `packages/core/src/nrql/engine.ts` (submit,
       poll count and wait, pending output, Tasks and sync fallbacks); no server change and no test hook.
-- [ ] The write plan covers all four tools: `dry_run` never writes (and makes no approval prompt or intent row),
+- [x] The write plan covers all four tools: `dry_run` never writes (and makes no approval prompt or intent row),
       `confirm` required, approval required by default, once-only application, audit-before-write, and lists what
       must never happen.
-- [ ] Evidence uses placeholders only (`<APP>`, `<account>`, `<entity guid>`, `<issue id>`).
-- [ ] The `listChanged` note is on the page; changing it is listed as an owner decision, not implemented.
-- [ ] Linked from `docs/dev/testing.md` and `docs/pending-decisions/owner-checklist.md`.
-- [ ] `pnpm lint && pnpm typecheck && pnpm test` pass.
+- [x] Evidence uses placeholders only (`<APP>`, `<account>`, `<entity guid>`, `<issue id>`).
+- [x] The `listChanged` note is on the page; changing it is listed as an owner decision, not implemented.
+- [x] Linked from `docs/dev/testing.md` and `docs/pending-decisions/owner-checklist.md`.
+- [x] `pnpm lint && pnpm typecheck && pnpm test` pass.
 
 ## Security notes
 Documentation only. The write plan restates existing controls (ADR-0015, ADR-0016, THREAT_MODEL T6, T14, T31) and
 asks for a dedicated sandbox account and placeholders in evidence (public repository).
 
 ## Docs to update
-- `docs/dev/verification-guide.md` (new), `docs/dev/write-tools-sandbox-test.md`, `docs/dev/testing.md`,
+- `docs/dev/verification-guide.md` (new), `docs/dev/write-tools-sandbox-test.md`, `docs/dev/testing.md`, `docs/RESEARCH.md`,
   `docs/pending-decisions/owner-checklist.md`.
 
 ## Out of scope

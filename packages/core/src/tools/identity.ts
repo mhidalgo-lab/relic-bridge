@@ -4,7 +4,7 @@ import type { AccountScope } from '../context.ts';
 import { listReachableAccounts, validateKey } from '../nerdgraph/identity.ts';
 import { envelope } from '../output/envelope.ts';
 import { shapeRows, truncateText } from '../output/format.ts';
-import { redact } from '../redact.ts';
+import { redactHead } from '../redact.ts';
 import { defineTool, type ToolDefinition } from '../tool.ts';
 import { bindingOf, listLimit, pageList } from './paging.ts';
 import { cursorInput, type ToolDeps, toolClient, UNTRUSTED } from './shared.ts';
@@ -79,7 +79,10 @@ Pass an id as "account" (or "accounts" in run_nrql); tools without one use the d
 
 /** Single line, bounded, secret-shaped values redacted. For New Relic-provided free text (names, tags). */
 export function cleanName(value: string, max: number = MAX_NAME_CHARS): string {
-  return truncateText(redact(value).replace(/\s+/g, ' ').trim(), max);
+  // Only the start is redacted and kept (redactHead): work is bounded by `max`, not by the value's size.
+  const head = redactHead(value, max);
+  const text = head.text.replace(/\s+/g, ' ').trim();
+  return head.cut && text.length < max ? `${text}…` : truncateText(text, max);
 }
 
 /**

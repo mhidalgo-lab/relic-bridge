@@ -12,7 +12,7 @@ import type { ToolCallEvent, WriteIntent } from '@relic-bridge/core';
 import {
   type Clock,
   type Logger,
-  redact,
+  redactHead,
   redactValue,
   silentLogger,
   systemClock,
@@ -56,8 +56,12 @@ const MINUTE_MS = 60_000;
 
 /** Numbers right after these keywords are part of the query's shape (time window, limit), not data. */
 const NRQL_SHAPE_NUMBER = /(?<!\b(?:LIMIT|SINCE|UNTIL|TIMESERIES|OFFSET|AGO|WITH|MAX)\s)\b\d+(?:\.\d+)?\b/gi;
-/** Quoted values, including an unterminated one (masked to the end, so a half-typed secret never survives). */
-const NRQL_QUOTED = /'(?:[^'\\]|\\.)*(?:'|$)|"(?:[^"\\]|\\.)*(?:"|$)/g;
+/**
+ * Quoted values, including an unterminated one (masked to the end, so a half-typed secret never survives). An escape
+ * takes any next character (line breaks too) and a trailing lone backslash ends the text, so every quote's match
+ * succeeds where it stops: no rescan from the next quote.
+ */
+const NRQL_QUOTED = /'(?:[^'\\]|\\[\s\S])*(?:'|\\?$)|"(?:[^"\\]|\\[\s\S])*(?:"|\\?$)/g;
 
 /**
  * Replace literal values in NRQL with `?`: quoted strings and numbers, except numbers that belong to the query's
@@ -70,6 +74,12 @@ export function maskNrql(nrql: string): string {
 
 function truncate(text: string, max: number): string {
   return text.length <= max ? text : `${text.slice(0, max)}…[truncated]`;
+}
+
+/** Redacted and truncated to `max`; only the start of a longer text is redacted (redactHead), so work is bounded. */
+function redactTruncate(text: string, max: number): string {
+  const head = redactHead(text, max);
+  return head.cut ? `${head.text.slice(0, max)}…[truncated]` : truncate(head.text, max);
 }
 
 async function sha256Hex(text: string): Promise<string> {
@@ -86,11 +96,11 @@ export async function nrqlForAudit(nrql: string, mode: AuditNrqlMode): Promise<s
     case 'off':
       return null;
     case 'full':
-      return truncate(redact(nrql), AUDIT_MAX_NRQL_CHARS);
+      return redactTruncate(nrql, AUDIT_MAX_NRQL_CHARS);
     case 'hash':
       return `sha256:${(await sha256Hex(maskNrql(nrql))).slice(0, 32)}`;
     case 'mask':
-      return truncate(redact(maskNrql(nrql)), AUDIT_MAX_NRQL_CHARS);
+      return redactTruncate(maskNrql(nrql), AUDIT_MAX_NRQL_CHARS);
   }
 }
 
@@ -194,7 +204,11 @@ function capWriteArg(value: unknown, key: string, mode: AuditNrqlMode, depth: nu
       if (mode === 'off') return '(omitted)';
       if (mode !== 'full') v = maskNrql(v);
     }
-    return v.length > AUDIT_MAX_WRITE_ARG_CHARS ? `${v.slice(0, AUDIT_MAX_WRITE_ARG_CHARS)}…` : v;
+    // Redacted before the cut (sanitizeDetails redacts again), so the cut cannot split a secret past recognition.
+    const head = redactHead(v, AUDIT_MAX_WRITE_ARG_CHARS);
+    return head.cut || head.text.length > AUDIT_MAX_WRITE_ARG_CHARS
+      ? `${head.text.slice(0, AUDIT_MAX_WRITE_ARG_CHARS)}…`
+      : head.text;
   }
   if (value === null || typeof value !== 'object') return value;
   if (depth >= AUDIT_MAX_WRITE_ARG_DEPTH) return '…';

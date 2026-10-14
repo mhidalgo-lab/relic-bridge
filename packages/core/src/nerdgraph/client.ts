@@ -2,7 +2,7 @@
 import type { Budget, Clock, Credential, Limiter, QuotaGuard, Region, ToolContext } from '../context.ts';
 import { ErrorCode, RbError } from '../errors.ts';
 import type { Logger } from '../logger.ts';
-import { redact } from '../redact.ts';
+import { redactHead } from '../redact.ts';
 import type { Secret } from '../secret.ts';
 import { USER_AGENT } from '../version.ts';
 import type { GraphQLDocument } from './document.ts';
@@ -131,16 +131,16 @@ function sanitizeErrors(raw: unknown): GraphQLFieldError[] {
     const ext = (
       obj['extensions'] && typeof obj['extensions'] === 'object' ? obj['extensions'] : {}
     ) as Record<string, unknown>;
-    const message = redact(typeof obj['message'] === 'string' ? obj['message'] : 'Unknown error').slice(
-      0,
+    const message = redactHead(
+      typeof obj['message'] === 'string' ? obj['message'] : 'Unknown error',
       MAX_MESSAGE_CHARS,
-    );
+    ).text.slice(0, MAX_MESSAGE_CHARS);
     const path = Array.isArray(obj['path'])
       ? obj['path']
           .filter((p): p is string | number => typeof p === 'string' || typeof p === 'number')
           .slice(0, 20)
       : undefined;
-    const short = (v: unknown) => (typeof v === 'string' ? redact(v).slice(0, 100) : undefined);
+    const short = (v: unknown) => (typeof v === 'string' ? redactHead(v, 100).text.slice(0, 100) : undefined);
     const errorClass = short(ext['errorClass']);
     const errorCode = short(ext['errorCode']);
     return {

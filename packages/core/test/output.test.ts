@@ -200,6 +200,27 @@ describe('shapeRows caps and truncation', () => {
     );
   });
 
+  it('redacts long cell values in bounded time and never leaves part of a secret at the cut', () => {
+    const hostile = 'a.'.repeat(512 * 1024);
+    const started = performance.now();
+    const out = shapeRows([{ msg: hostile }, { msg: hostile.replaceAll('.', '-') }], { maxCellChars: 4000 });
+    expect(performance.now() - started).toBeLessThan(400);
+    expect(String(out.rows[0]?.['msg'])).toHaveLength(4000);
+    expect(out.stats.cutValues).toBe(2);
+    const key = `NRAK-${'K'.repeat(27)}`;
+    for (let at = 3960; at <= 4010; at++) {
+      for (const msg of [
+        `${'x'.repeat(at)} ${key} ${'y'.repeat(5000)}`,
+        `password=${'v'.repeat(at + 1100)} ${key} z`,
+      ]) {
+        const cell = String(shapeRows([{ msg }], { maxCellChars: 4000 }).rows[0]?.['msg']);
+        expect(cell).not.toContain('KKKK');
+        expect(cell).not.toContain('vvvv');
+        expect(cell.endsWith('…')).toBe(true);
+      }
+    }
+  });
+
   it('cuts big nested values to text', () => {
     const out = shapeRows([{ obj: { list: Array.from({ length: 50 }, (_, i) => i) } }], { maxCellChars: 20 });
     expect(out.rows[0]?.['obj']).toBe('{"list":[0,1,2,3,4,…');

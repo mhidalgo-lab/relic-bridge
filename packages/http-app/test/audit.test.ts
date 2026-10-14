@@ -102,6 +102,39 @@ describe('masking', () => {
     expect(maskNrql("WHERE a = 'SECRET-VALUE AND b = 1")).toBe('WHERE a = ?');
   });
 
+  it('masks a trailing backslash or an escaped line break inside a quote', () => {
+    expect(maskNrql("WHERE a = 'SECRET\\")).toBe('WHERE a = ?');
+    expect(maskNrql("WHERE a = 'SECRET\\\nVALUE' AND b = 1")).toBe('WHERE a = ? AND b = ?');
+  });
+
+  // Inputs that made a pattern rescan the rest of the text from every quote or boundary took seconds on 64 KiB.
+  it.each(['"\\', "'\\", 'a.', 'a-', '1.', 'eyJ-'])(
+    'masks and stores 64 KiB of %j quickly',
+    async (piece) => {
+      const nrql = piece.repeat((64 * 1024) / piece.length);
+      for (const mode of ['mask', 'full', 'hash'] as const) {
+        const started = performance.now();
+        const stored = await nrqlForAudit(nrql, mode);
+        expect(performance.now() - started).toBeLessThan(400);
+        expect(stored?.length ?? 0).toBeLessThanOrEqual(2000 + '…[truncated]'.length);
+      }
+    },
+  );
+
+  it('cuts long NRQL before redacting without leaving part of a secret at the cut', async () => {
+    const key = `NRAK-${'K'.repeat(27)}`;
+    for (let at = 1960; at <= 2010; at++) {
+      for (const mode of ['mask', 'full'] as const) {
+        const stored = (await nrqlForAudit(`${'x'.repeat(at)} ${key} ${'y'.repeat(5000)}`, mode)) ?? '';
+        expect(stored).not.toContain('KKKK');
+        expect(stored.endsWith('…[truncated]')).toBe(true);
+      }
+    }
+    const shrunk = (await nrqlForAudit(`api_key=${'v'.repeat(3100)} ${key}`, 'full')) ?? '';
+    expect(shrunk).not.toContain('KKKK');
+    expect(shrunk).not.toContain('vvvv');
+  });
+
   it('modes: mask, hash (stable per shape), full (redacted, truncated), off', async () => {
     const q1 = "SELECT 1 FROM Log WHERE k = 'SECRET-VALUE'";
     const q2 = "SELECT 1 FROM Log WHERE k = 'other'";

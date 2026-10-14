@@ -161,7 +161,7 @@ Ticked in v1 with the evidence that holds each item today.
 
 | Threat | Control in code | Since |
 |---|---|---|
-| T8 | `redact` / `redactValue` (NR keys, `rb_` tokens, Bearer, `*_KEY=` assignments, secret-named fields); mandatory in `createLogger` and `toToolErrorResult`; `Secret` wrapper; unknown errors → `RB_INTERNAL` with no message leak | P1-01 |
+| T8 | `redact` / `redactValue` (NR keys, `rb_` tokens, Bearer, `*_KEY=` assignments, secret-named fields); mandatory in `createLogger` and `toToolErrorResult`; `Secret` wrapper; unknown errors → `RB_INTERNAL` with no message leak. Redaction and NRQL masking do work linear in the input (bounded name prefixes and URL schemes, token shapes start only at a run's beginning; timing tests on 64 KiB adversarial input); capped outputs (cells, trailers, column names, error messages, audit NRQL) redact only what they keep through `redactHead` (cap + 1 KiB margin, untouched window tail dropped so a cut never leaves part of a secret) | P1-01 |
 | T21 | `ToolContext` per request, `buildMcpServer` per request; isolation test with two concurrent servers | P1-01 |
 | T23 | `ToolRegistry.register` rejects secret-like input properties anywhere in the schema | P1-01 |
 | T6 / P7-09 | `ToolRegistry` refuses `write` / `destructive` tools unless `allowNonRead`; MCP annotations derived from `kind` (plus `idempotent` for write tools, P7-09) | P1-01 |

@@ -417,6 +417,25 @@ describe('shapeNrqlOutcome', () => {
     expect(out.structured?.rows).toHaveLength(3);
   });
 
+  it('totals accept the object and the FACET + TIMESERIES array shape (P8-44)', () => {
+    const buckets = [
+      { beginTimeSeconds: 1000, endTimeSeconds: 2000, cpu: 4 },
+      { beginTimeSeconds: 2000, endTimeSeconds: 3000, cpu: 5 },
+    ];
+    for (const [total, other] of [
+      [{ cpu: 9 }, { cpu: 1 }],
+      [buckets, buckets],
+    ] as const) {
+      const { stats: _s, ...base } = complete({ totalResult: total, otherResult: other });
+      const out = shapeNrqlOutcome(base, { envelopeId: ID });
+      expect(nrqlResultSchema.parse(out.structured)).toMatchObject({
+        totalResult: total,
+        otherResult: other,
+      });
+      expect(out.text).toContain(`Total: ${JSON.stringify(total)}`);
+    }
+  });
+
   it('pending: handle and instructions, no envelope', () => {
     const pending: NrqlPending = {
       status: 'pending',

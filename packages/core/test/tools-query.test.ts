@@ -346,6 +346,55 @@ describe('run_nrql', () => {
     expect(second.structuredContent).toMatchObject({ status: 'complete', rows: [{ count: 7 }] });
     expect(text(second)).toContain('untrusted-data');
   });
+
+  // P8-44: FACET + TIMESERIES returns totalResult/otherResult as an array of time buckets.
+  const bucketTotals = (n: number) =>
+    [0, 1, 2, 3].map((i) => ({
+      beginTimeSeconds: 1000 + i * 21600,
+      endTimeSeconds: 1000 + (i + 1) * 21600,
+      count: n + i,
+    }));
+  const facetTimeseries = (facets: number) =>
+    json({
+      data: {
+        actor: {
+          account: {
+            nrql: {
+              results: Array.from({ length: facets * 4 }, (_, i) => ({
+                facet: `message-${Math.floor(i / 4)}`,
+                message: `message-${Math.floor(i / 4)}`,
+                beginTimeSeconds: 1000 + (i % 4) * 21600,
+                endTimeSeconds: 1000 + ((i % 4) + 1) * 21600,
+                count: i,
+              })),
+              metadata: { eventTypes: ['Log'], facets: ['message'], messages: null, timeWindow: null },
+              totalResult: bucketTotals(100),
+              otherResult: bucketTotals(5),
+              queryProgress: { queryId: null, completed: true, retryAfter: null, resultExpiration: null },
+            },
+          },
+        },
+      },
+    });
+
+  it.each(['auto', 'summary', 'full'] as const)(
+    'FACET + TIMESERIES with array totals validates for detail=%s (P8-44)',
+    async (detail) => {
+      const { client } = await setup([facetTimeseries(20)]);
+      const r = await client.callTool({
+        name: 'run_nrql',
+        arguments: {
+          nrql: 'SELECT count(*) FROM Log FACET message TIMESERIES 6 hours SINCE 1 day ago',
+          detail,
+        },
+      });
+      expect(r.isError).toBeFalsy();
+      const parsed = nrqlResultSchema.parse(r.structuredContent);
+      expect(parsed.totalResult).toEqual(bucketTotals(100));
+      expect(parsed.otherResult).toEqual(bucketTotals(5));
+      expect(text(r)).toContain('Total: [');
+    },
+  );
 });
 
 describe('query tools: error contracts (P8-27)', () => {

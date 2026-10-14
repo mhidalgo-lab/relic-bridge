@@ -1314,8 +1314,8 @@ If it is still running you get the handle back with a new wait time: call again 
 | `accountIds` | `integer[]` | yes |  |
 | `columns` | `string[]` | no |  |
 | `rows` | `object[]` | no |  |
-| `totalResult` | `object` | no |  |
-| `otherResult` | `object` | no |  |
+| `totalResult` | `object \| object[]` | no |  |
+| `otherResult` | `object \| object[]` | no |  |
 | `facets` | `string[]` | no |  |
 | `eventTypes` | `string[]` | no |  |
 | `timeseries` | `boolean` | no |  |
@@ -1369,8 +1369,8 @@ A query still running after timeout_seconds returns a queryId and accountId: pas
 | `accountIds` | `integer[]` | yes |  |
 | `columns` | `string[]` | no |  |
 | `rows` | `object[]` | no |  |
-| `totalResult` | `object` | no |  |
-| `otherResult` | `object` | no |  |
+| `totalResult` | `object \| object[]` | no |  |
+| `otherResult` | `object \| object[]` | no |  |
 | `facets` | `string[]` | no |  |
 | `eventTypes` | `string[]` | no |  |
 | `timeseries` | `boolean` | no |  |

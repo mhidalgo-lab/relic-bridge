@@ -2,7 +2,7 @@
 id: P8-57
 title: trace_error(error_group_id) finds the group's traced occurrence
 phase: 8
-status: in-progress
+status: review
 priority: high
 depends_on: []
 adr: []
@@ -31,13 +31,14 @@ class and message (its `eventsQuery`), so trace_error must do the same.
 - Description and declared cost account for the extra NerdGraph request; output schema unchanged (additive only).
 
 ## Acceptance criteria
-- [ ] The group is looked up by id with GraphQL variables; the occurrence query uses class + message equality on the
+- [x] The group is looked up by id with GraphQL variables; the occurrence query uses class + message equality on the
       group's entity, never `error.group.guid` and never the group's `eventsQuery` text.
-- [ ] Regression test: group lookup, occurrence found, then spans, errors and logs run.
-- [ ] Tests: unknown group, non-TransactionError source, class-only fallback (custom group and message mismatch),
+- [x] Regression test: group lookup, occurrence found, then spans, errors and logs run.
+- [x] Tests: unknown group, non-TransactionError source, class-only fallback (custom group and message mismatch),
       quotes / backslashes / LIKE wildcards in class and message, a message with control characters.
-- [ ] The no-trace note never says tracing is off when traced errors of the group's class or entity exist.
-- [ ] Description query count and declared cost updated; tool-costs test passes.
+- [x] When no occurrence matches but spans and traced errors exist, the note says tracing works and none matched the
+      group (no "even though" clause); with no spans the BUG-12 diagnosis is unchanged.
+- [x] Description query count and declared cost updated; tool-costs test passes.
 
 ## Security notes
 T4: class and message come from New Relic and go into NRQL only as `nrql` template literals (escaped); equality, not

@@ -1,5 +1,18 @@
 # relic-bridge
 
+## 0.9.1
+
+### Patch Changes
+
+- c897f62: `get_attributes` now applies `name_contains` before the 1,000-attribute cap (NEW-08). On event types with more than 1,000 attributes, such as Log, a filter whose matches sat past the cut returned an empty list with `truncated: true`. `totalAttributes` is the real count before filter and cap, and `truncated` means the filtered list shown was cut.
+- 614ff91: An explicit `baseline: "same_window_7d_ago"` whose control falls outside the connection's lookback limit now falls back to `same_window_1d_ago` in `analyze_transactions` and `analyze_deployment_impact`, instead of running no control and reporting `used: "previous_window"` (NEW-11). `baseline.used` and `reason` name the requested baseline and what ran, and a note stays. The limit is never relaxed.
+- edfff5f: `list_recent_issues` no longer falls back silently (0.9.0 verification, NEW-09). When `group_by` counts only the page, `groupsNote` (and a text note) says why and how many issues the counts cover (window too large for the extra requests, request budget, or a failed request). A `limit` above the API page size (50 rows) is reported as `limitNote`, e.g. "limit 200 lowered to 50 (API page size)", instead of returning fewer rows without a word.
+- 2f7b3bb: `run_nrql` no longer fails output validation on queries with both `FACET` and `TIMESERIES` (P8-44). NerdGraph returns `totalResult` and `otherResult` as an array of time buckets for that shape; the output schema and text now accept either an object or an array.
+- 2330bb5: Self-monitoring logs are easier to use (P8-50). A standalone `GET` stream or `subscriptions/listen` stream that reaches the request deadline now logs `mcp stream closed at deadline` at info instead of an `mcp request timed out` warning; a real request that never finishes still warns. Access-log (`http request`) records now export the integer HTTP `status`, `method` and the matched `route` pattern (fixed sets; never raw paths), so 4xx/5xx can be counted in New Relic. The observability guide now lists the attribute names as New Relic shows them (`tool`, `ms`, `code`, without `log.`). Deadline and access-log records also export the MCP method (fixed list, else `other`) and, for `tools/call`, the tool name.
+- 86c809a: Self-monitoring gives the New Relic service entity throughput and response time: relic-bridge now exports the OpenTelemetry `rpc.server.duration` metric (New Relic builds the golden metrics from it), adds `telemetry.sdk.*` and a random per-process `service.instance.id` to the resource, and names spans `tools/call <tool>` so Errors Inbox groups are distinct per tool.
+- b5ab36e: `trace_error` now says how many errors carry a trace id when it finds no spans ("none of N errors carry a trace id" or "even though K of N errors carry a trace id") instead of always claiming some do (NEW-10). The count is folded into the existing tracing check query.
+- 0c719e6: `whoami` returns `limits.callBudget` again, as a deprecated alias with the same value as `limits.perCallBudget` (NEW-12). Version 0.9.0 renamed `callBudget` to `perCallBudget` and removed `callsUsed` and `callsRemaining` without a deprecation path. The alias will be removed in the minor after next, so switch to `perCallBudget`. `callsUsed` and `callsRemaining` stay removed: the budget is per tool call, not a running total. The `whoami` description now says what `perCallBudget` means.
+
 ## 0.9.0
 
 ### Minor Changes

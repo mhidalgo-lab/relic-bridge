@@ -194,11 +194,16 @@ const complete = (o: { status: string }): NrqlComplete => {
 /** `list_event_types` and `get_attributes`. */
 export function createSchemaTools(deps: ToolDeps = {}): ToolDefinition[] {
   const client = toolClient(deps);
-  const run = async (ctx: ToolContext, account: number, query: NrqlQuery) =>
+  const run = async (ctx: ToolContext, account: number, query: NrqlQuery, filtersEventTypeListing = false) =>
     complete(
       await runNrql(
         ctx,
-        { nrql: query, accounts: [account], mode: 'sync' },
+        {
+          nrql: query,
+          accounts: [account],
+          mode: 'sync',
+          ...(filtersEventTypeListing ? { filtersEventTypeListing } : {}),
+        },
         { client: client(ctx), ...(deps.sleep ? { sleep: deps.sleep } : {}) },
       ),
     );
@@ -239,7 +244,9 @@ export function createSchemaTools(deps: ToolDeps = {}): ToolDefinition[] {
         const hit = typesCache.get(key, ctx.clock.now());
         cached = hit !== undefined;
         const all =
-          hit ?? parseEventTypes((await run(ctx, account, nrql`SHOW EVENT TYPES ${clause}`)).results);
+          hit ??
+          // The deny list is applied to the listing just below, so the FROM-less statement may run (P8-65).
+          parseEventTypes((await run(ctx, account, nrql`SHOW EVENT TYPES ${clause}`, true)).results);
         if (!hit) typesCache.set(key, all, ctx.clock.now());
         types = all.filter((t) => !deny.has(t.trim().toLowerCase()));
       }

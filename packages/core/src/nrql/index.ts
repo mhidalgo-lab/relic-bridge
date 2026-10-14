@@ -28,7 +28,12 @@ export {
   runNrql,
   runRawNrql,
 } from './engine.ts';
-export { assertRawNrqlAllowed, type CheckedNrql, enforceQueryLimits } from './limits.ts';
+export {
+  assertRawNrqlAllowed,
+  type CheckedNrql,
+  type EnforceOptions,
+  enforceQueryLimits,
+} from './limits.ts';
 export {
   isNrqlQuery,
   type NrqlIdentifier,

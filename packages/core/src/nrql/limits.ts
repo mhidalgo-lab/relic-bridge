@@ -195,13 +195,56 @@ function findFromLists(tokens: readonly Token[]): { eventTypes: string[]; unreso
   return { eventTypes, unresolved };
 }
 
-function checkEventTypes(tokens: readonly Token[], limits: QueryLimits): string[] {
+/**
+ * Whether the query, or a subquery in it, is a statement without a FROM clause: `SHOW EVENT TYPES` (lists every event
+ * type name, whatever the lists say) or a `WITH … AS … SELECT` over literals. Each parenthesised group that holds a
+ * SELECT must have its own FROM; the top level must have one whatever it holds.
+ */
+function hasFromLessStatement(tokens: readonly Token[]): boolean {
+  // `SHOW <word>` anywhere (an attribute called `show` is followed by an operator, not a word).
+  if (tokens.some((t, i) => isWord(t, 'SHOW') && tokens[i + 1]?.kind === 'word')) return true;
+  const frames: { select: boolean; from: boolean }[] = [{ select: false, from: false }];
+  for (const t of tokens) {
+    const top = frames[frames.length - 1] as { select: boolean; from: boolean };
+    if (t.kind === 'punct' && t.text === '(') frames.push({ select: false, from: false });
+    else if (t.kind === 'punct' && t.text === ')') {
+      if (frames.length > 1) {
+        frames.pop();
+        if (top.select && !top.from) return true;
+      }
+    } else if (isWord(t, 'SELECT')) top.select = true;
+    else if (isWord(t, 'FROM')) top.from = true;
+  }
+  // Unclosed groups (NRQL rejects them anyway) are judged like closed ones.
+  for (let i = frames.length - 1; i > 0; i--) {
+    const f = frames[i] as { select: boolean; from: boolean };
+    if (f.select && !f.from) return true;
+  }
+  return !(frames[0] as { from: boolean }).from;
+}
+
+export interface EnforceOptions {
+  /**
+   * The caller runs `SHOW EVENT TYPES` and filters the listing against the connection's event-type lists itself
+   * (`list_event_types`). Only typed (`nrql`-tag) queries built by tool code may set it; never `run_nrql`.
+   */
+  readonly filtersEventTypeListing?: boolean;
+}
+
+function checkEventTypes(tokens: readonly Token[], limits: QueryLimits, options: EnforceOptions): string[] {
   const { eventTypes, unresolved } = findFromLists(tokens);
   // Event types are case-sensitive (measured). Allow lists match exactly; deny lists ignore case and surrounding
   // spaces, so near-miss spellings are blocked too (conservative both ways).
   const allow = limits.eventTypes.allow;
   const deny = limits.eventTypes.deny?.map((e) => e.trim().toLowerCase());
   if (!allow && !deny) return eventTypes;
+  // A statement without FROM names no event type to check, and SHOW EVENT TYPES would list the restricted names.
+  if (!options.filtersEventTypeListing && hasFromLessStatement(tokens)) {
+    throw limitError(
+      'This connection restricts event types, so every query and subquery needs a FROM clause (SHOW EVENT TYPES is not available here).',
+      'Name the event types in FROM, or call list_event_types to see the event types this connection allows.',
+    );
+  }
   if (unresolved) {
     throw limitError(
       'Could not determine every event type in FROM, and this project restricts event types.',
@@ -264,7 +307,15 @@ function checkWindow(
       const point = parseTime(tokens, i + 1, now, 'until', tz);
       until = point.agoMs;
       untilEnd = point.absoluteMs;
-    } else if (t.value === 'COMPARE' && isWord(tokens[i + 1], 'WITH') && t.depth === 0) {
+    } else if (t.value === 'COMPARE' && isWord(tokens[i + 1], 'WITH')) {
+      // New Relic does not support COMPARE WITH in subqueries (docs: "Subqueries in NRQL", Limits); refusing it here
+      // keeps the lookback calculation exact instead of trusting New Relic to reject it.
+      if (t.depth > 0) {
+        throw limitError(
+          'COMPARE WITH is not supported inside a subquery.',
+          'Move COMPARE WITH to the outer query, or give the subquery its own SINCE.',
+        );
+      }
       compare = parseTime(tokens, i + 2, now, 'compare', tz).agoMs;
     }
   });
@@ -357,7 +408,12 @@ function checkLimit(tokens: readonly Token[], limits: QueryLimits, source: strin
  * Enforce a connection's query limits on NRQL (THREAT_MODEL T5). Throws RB_LIMIT_QUERY with an actionable hint, or
  * returns the (possibly rewritten) NRQL. Best effort by design: see docs/guide/query-limits.md for known gaps.
  */
-export function enforceQueryLimits(source: string, limits: QueryLimits, now: number): CheckedNrql {
+export function enforceQueryLimits(
+  source: string,
+  limits: QueryLimits,
+  now: number,
+  options: EnforceOptions = {},
+): CheckedNrql {
   const all = tokenize(source);
   // NRQL supports `--`, `//` and `/* */` comments exactly as the tokenizer reads them (measured, incl. `x--1`). They are
   // checked out and removed from what is sent, so New Relic receives precisely the text that was checked.
@@ -379,7 +435,7 @@ export function enforceQueryLimits(source: string, limits: QueryLimits, now: num
     });
   }
   const notes: string[] = [];
-  const eventTypes = checkEventTypes(tokens, limits);
+  const eventTypes = checkEventTypes(tokens, limits, options);
   const { windowMs, fixedEndMs } = checkWindow(tokens, limits, now);
   const edits = checkLimit(tokens, limits, source, notes);
   for (const c of comments) edits.push({ start: c.start, end: c.end, text: ' ' });

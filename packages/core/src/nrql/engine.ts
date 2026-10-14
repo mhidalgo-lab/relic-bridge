@@ -39,6 +39,11 @@ export interface RunNrqlInput {
   readonly stats?: boolean;
   /** `bypass`: skip the query cache and run the query (the fresh result replaces the entry). Default `use`. */
   readonly cache?: 'use' | 'bypass';
+  /**
+   * The caller filters a `SHOW EVENT TYPES` listing against the connection's event-type lists itself
+   * (`list_event_types`), so the FROM-less statement is allowed under a list. Typed queries only (P8-65).
+   */
+  readonly filtersEventTypeListing?: boolean;
 }
 
 export interface NrqlStats {
@@ -302,10 +307,10 @@ export async function runNrql(
       'runNrql needs a query built with the nrql tag; use runRawNrql for strings.',
     );
   }
-  return run(ctx, input, input.nrql.text, deps);
+  return run(ctx, input, input.nrql.text, deps, input.filtersEventTypeListing === true);
 }
 
-export interface RawNrqlInput extends Omit<RunNrqlInput, 'nrql'> {
+export interface RawNrqlInput extends Omit<RunNrqlInput, 'nrql' | 'filtersEventTypeListing'> {
   /** Arbitrary NRQL from the agent. Only `run_nrql` should use this. */
   readonly nrql: string;
 }
@@ -341,11 +346,12 @@ async function run(
   input: Omit<RunNrqlInput, 'nrql'>,
   text: string,
   deps: NrqlDeps,
+  filtersEventTypeListing = false,
 ): Promise<NrqlOutcome> {
   if (text.trim() === '') throw new RbError(ErrorCode.InputInvalid, 'The NRQL query is empty.');
   // Accounts and limits first: a query this connection may not run is refused before the cache is consulted (T16).
   const accounts = resolveAccounts(ctx, input.accounts);
-  const checked = enforceQueryLimits(text, ctx.limits, ctx.clock.now());
+  const checked = enforceQueryLimits(text, ctx.limits, ctx.clock.now(), { filtersEventTypeListing });
   if (checked.notes.length > 0) ctx.logger.info('nrql adjusted by limits', { notes: checked.notes });
   const started = ctx.clock.now();
   const finish = (outcome: NrqlOutcome, cache: QueryCacheInfo | undefined): NrqlOutcome => ({

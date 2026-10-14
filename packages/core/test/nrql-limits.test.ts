@@ -191,6 +191,30 @@ describe('time window', () => {
     expect(error.message).toMatch(/days/);
   });
 
+  // P8-65: New Relic does not support COMPARE WITH in subqueries, so it is refused rather than left uncounted.
+  it.each([
+    ['in FROM', 'SELECT max(c) FROM (SELECT count(*) AS c FROM T COMPARE WITH 30 days ago)'],
+    ['in IN', 'SELECT count(*) FROM T WHERE name IN (SELECT uniques(name) FROM T COMPARE WITH 1 hour ago)'],
+    ['lowercase', 'select max(c) from (select count(*) as c from T compare with 1 day ago)'],
+  ])('rejects COMPARE WITH inside a subquery: %s', (_name, q) => {
+    const error = rejection(q);
+    expect(error.code).toBe(ErrorCode.LimitQuery);
+    expect(error.message).toMatch(/subquery/);
+  });
+
+  it('counts subquery SINCE toward the limits and keeps a subquery UNTIL from widening them', () => {
+    expect(() => check('SELECT max(c) FROM (SELECT count(*) AS c FROM T SINCE 2 days ago)')).not.toThrow();
+    expect(rejection('SELECT max(c) FROM (SELECT count(*) AS c FROM T SINCE 8 days ago)').code).toBe(
+      ErrorCode.LimitQuery,
+    );
+    expect(
+      rejection('SELECT max(c) FROM (SELECT count(*) AS c FROM T SINCE 8 days ago UNTIL 7 days ago)').code,
+    ).toBe(ErrorCode.LimitQuery);
+    expect(
+      check('SELECT max(c) FROM (SELECT count(*) AS c FROM T SINCE 2 days ago UNTIL 1 day ago)').windowMs,
+    ).toBe(2 * DAY);
+  });
+
   it('allows exactly maxWindowDays of lookback (inclusive boundary) and rejects a millisecond more', () => {
     expect(() => check(`SELECT count(*) FROM T SINCE ${NOW - 7 * DAY} UNTIL ${NOW - 6 * DAY}`)).not.toThrow();
     expect(() => check(`SELECT count(*) FROM T SINCE ${NOW - 7 * DAY - 1} UNTIL ${NOW - 6 * DAY}`)).toThrow(
@@ -294,7 +318,45 @@ describe('event types', () => {
 
   it('rejects queries without FROM when an allow list is set', () => {
     expect(rejection('SHOW EVENT TYPES', { eventTypes: { allow: ['Log'] } }).code).toBe(ErrorCode.LimitQuery);
-    expect(() => check('SHOW EVENT TYPES', { eventTypes: { deny: ['Log'] } })).not.toThrow();
+  });
+
+  // P8-65: SHOW EVENT TYPES names no event type, so under a deny list it would list the denied names.
+  it.each([
+    ['SHOW EVENT TYPES', 'SHOW EVENT TYPES'],
+    ['SHOW EVENT TYPES with SINCE', 'show event types since 1 day ago'],
+    ['SHOW after a comment', '/* x */ SHOW EVENT TYPES'],
+    ['WITH … AS without FROM', "WITH 'a' AS s SELECT s"],
+    ['SELECT without FROM', 'SELECT 1'],
+    ['subquery without FROM', "SELECT count(*) FROM Transaction WHERE name IN (WITH 'a' AS s SELECT s)"],
+    ['SHOW in a subquery', 'SELECT count(*) FROM Transaction WHERE name IN (SHOW EVENT TYPES)'],
+  ])('rejects a FROM-less statement under a deny list: %s', (_name, q) => {
+    for (const eventTypes of [{ deny: ['Log'] }, { allow: ['Transaction'] }]) {
+      const error = rejection(q, { eventTypes });
+      expect(error.code).toBe(ErrorCode.LimitQuery);
+      expect(error.hint).toContain('list_event_types');
+    }
+  });
+
+  it('still allows FROM-less statements without a list, and FROM-led or nested queries with one', () => {
+    expect(() => check('SHOW EVENT TYPES')).not.toThrow();
+    const deny = { eventTypes: { deny: ['Log'] } };
+    expect(() => check('FROM Transaction SELECT count(*)', deny)).not.toThrow();
+    expect(() =>
+      check('SELECT max(c) FROM (SELECT count(*) AS c FROM Transaction FACET name) WHERE show = 1', deny),
+    ).not.toThrow();
+    expect(() =>
+      check('SELECT count(*) FROM Transaction WHERE name IN (SELECT uniques(name) FROM Span)', deny),
+    ).not.toThrow();
+    expect(() =>
+      check("WITH aparse(name, '*/%') AS n SELECT count(*) FROM Transaction FACET n", deny),
+    ).not.toThrow();
+  });
+
+  it('lets a caller that filters the listing itself run SHOW EVENT TYPES (list_event_types)', () => {
+    const limits = { ...DEFAULT_LIMITS, eventTypes: { deny: ['Log'] } };
+    expect(() =>
+      enforceQueryLimits('SHOW EVENT TYPES SINCE 1 day ago', limits, NOW, { filtersEventTypeListing: true }),
+    ).not.toThrow();
   });
 
   it('enforces allow lists', () => {
@@ -398,6 +460,13 @@ describe('runNrql applies limits', () => {
     await expect(
       runRawNrql(ctx, { nrql: 'SELECT count(*) FROM T SINCE 30 days ago' }, deps),
     ).rejects.toMatchObject({
+      code: ErrorCode.LimitQuery,
+    });
+    // P8-65: the raw path cannot opt out of the FROM check (the option is not part of RawNrqlInput).
+    await expect(
+      runRawNrql(ctx, { nrql: 'SHOW EVENT TYPES', filtersEventTypeListing: true } as never, deps),
+    ).rejects.toMatchObject({ code: ErrorCode.LimitQuery });
+    await expect(runNrql(ctx, { nrql: nrql`SHOW EVENT TYPES` }, deps)).rejects.toMatchObject({
       code: ErrorCode.LimitQuery,
     });
     expect(calls).toHaveLength(0);

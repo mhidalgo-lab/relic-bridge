@@ -49,7 +49,8 @@ Steps per Anthropic's [custom connector help](https://support.claude.com/en/arti
 5. Add. Claude sends you to your server's page. Sign in if asked.
 6. The **consent page** shows who is asking (`claude.ai`), where it sends you back, the project, and **your grants** on
    it. Pick the grant, optionally name the device (`Phone`, `claude.ai`), and optionally tick **Don't ask again for
-   this app** (remembers the approval for 30 days, for this app, address and project only). **Allow**.
+   this app** (remembers the approval for 30 days, for this app, address and project only; offered because claude.ai
+   is identified by its website). **Allow**.
 7. Back in Claude the connector shows as connected. In a chat use the **+** button, then **Connectors**, and switch it
    on for that conversation (**unverified**).
 

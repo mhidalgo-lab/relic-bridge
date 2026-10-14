@@ -13,7 +13,7 @@ Limits are set per connection (project): `limits:` in the YAML config or `RB_LIM
 |---|---|---|
 | `maxLimit` | 1000 | `LIMIT n` above it is lowered to `maxLimit`, at any depth (subqueries too). `LIMIT MAX` is replaced by `maxLimit`. Only one top-level LIMIT is allowed, and the value must be plain digits or MAX. A raw event query (`SELECT *` or plain attributes, no FACET) without a LIMIT gets `LIMIT 10`: NRQL's own default (measured), made explicit, or `maxLimit` if that is lower. |
 | `maxWindowDays` | 7 | Limits both how wide a query is and how far back it reaches; a query over either is rejected with `RB_LIMIT_QUERY` and a hint. Width is `SINCE` to `UNTIL`, plus `COMPARE WITH`. Lookback is `now − SINCE` (an `UNTIL` in the past does not move it, and `COMPARE WITH` offsets count), whether `SINCE` is relative, a calendar keyword, a date or epoch seconds or milliseconds. Exactly `maxWindowDays` days is allowed (epoch-second bounds get 2 seconds of slack for whole-second rounding). Without a SINCE, NRQL's 1-hour default counts. The same rule applies to every tool, including those that build their own queries. |
-| `eventTypes.allow` / `eventTypes.deny` | none | Event types in any `FROM` (including subqueries and JOINs) are checked. NRQL event types are case-sensitive, so allow lists match exactly; deny lists ignore case and surrounding spaces, which also blocks near-miss spellings. A denied or non-allowed type is rejected. With an allow list, a query that names no event type (e.g. `SHOW EVENT TYPES`) is rejected. |
+| `eventTypes.allow` / `eventTypes.deny` | none | Event types in any `FROM` (including subqueries and JOINs) are checked. NRQL event types are case-sensitive, so allow lists match exactly; deny lists ignore case and surrounding spaces, which also blocks near-miss spellings. A denied or non-allowed type is rejected. With either list set, every query and subquery needs its own `FROM`: statements without one (`SHOW EVENT TYPES`, `WITH … AS … SELECT` over literals) are rejected, since `SHOW EVENT TYPES` would list the restricted names. `list_event_types` still works: it answers from the allow list, or filters the listing through the deny list. |
 | `rawNrql` | on | When off, `run_nrql` (arbitrary NRQL) and `get_query_result` are not offered at all by the stdio CLI, and refuse with `RB_TOOL_DISABLED` if reached another way. The purpose-built tools still work. |
 | `maxResponseBytes` | 512 KiB | Larger responses are cut off while streaming → `RB_LIMIT_RESPONSE_TOO_LARGE`. |
 
@@ -27,7 +27,8 @@ Adjustments (a lowered or added LIMIT) are reported back to the agent as notes, 
 ## Time expressions understood
 
 Anything else after `SINCE`, `UNTIL` or `COMPARE WITH` is **rejected** rather than guessed (fail closed). Each of these
-clauses may appear once at the top level, and numbers must be plain digits (no `1e3`).
+clauses may appear once at the top level, and numbers must be plain digits (no `1e3`). `COMPARE WITH` is only accepted
+at the top level: New Relic does not support it inside a subquery, so it is rejected there.
 
 - relative: `SINCE 3 hours ago`, `UNTIL 30 minutes ago`. Units: second, minute, hour, day, week, month (30
   days, as NRQL counts it) and year (366), singular or plural.
@@ -59,7 +60,8 @@ These rules were measured against NerdGraph by `spikes/nerdgraph/nrql-safety.ts`
 
 Known gaps, stated honestly:
 
-- **Subquery windows:** a `SINCE` inside a subquery is counted from that point up to now (conservative).
+- **Subquery windows:** a `SINCE` inside a subquery is counted from that point up to now (conservative); an `UNTIL`
+  inside a subquery never widens the window, so it is not counted.
 - **Raw-query detection:** a select list with any function call (`capture()`, `if()`, …) is treated as an aggregate, so
   no LIMIT is injected. NRQL's own default of 100 rows still applies.
 - **Unreadable FROM:** if the `FROM` can't be read (e.g. `lookup(…)`), the query is rejected only when event type

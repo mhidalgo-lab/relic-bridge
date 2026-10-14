@@ -232,7 +232,8 @@ step (`runtime.prepare(c, params)`), so what the page showed is what gets approv
    `state` and `iss`) and the remembered approval, if any, is deleted. `decision=approve` → the `grant` must be one of
    the user's own grants on the project that `resolveAccess` accepts **now** (others → `422` page, audited
    `grant_not_offered`, `approve()` never called), the optional device label must be plain text ≤ 60 characters, then
-   `approve()` (which checks everything again) → `303` to the client. `remember=1` stores the approval.
+   `approve()` (which checks everything again) → `303` to the client. `remember=1` stores the approval (CIMD clients
+   only, never with `mcp:write`).
 
 **What the page shows (phishing review, T10).**
 
@@ -244,7 +245,7 @@ step (`runtime.prepare(c, params)`), so what the page showed is what gets approv
 | **Sends you back to `<redirect host>`** (monospace, as prominent as the name) | Where the code goes; a lookalike host is visible |
 | Loopback warning for `localhost` / `127.0.0.0/8` / `[::1]` redirects | A code sent there reaches whatever program listens on this computer |
 | Project (name and slug, the name only to users with access) and each offered grant's tools and accounts | The user sees exactly what the app will be able to read |
-| No auto-approval of an unknown client | Only an explicit earlier approval with "don't ask again" ticked, for the same client id, redirect URI, resource and user |
+| No auto-approval of an unknown client | Only an explicit earlier approval with "don't ask again" ticked, for the same client id, redirect URI, resource and user, and only for a CIMD client (P8-65: a DCR client's identity is not verified, so the box is not offered, a posted `remember=1` is ignored and a stored row is not honoured) |
 
 Not shown: `logo_uri`, `client_uri`, `tos_uri`, `policy_uri` (unverified links and images a phisher would control).
 
@@ -252,7 +253,10 @@ Not shown: `logo_uri`, `client_uri`, `tos_uri`, `policy_uri` (unverified links a
 days (`OAUTH_CONSENT_REMEMBER_TTL_S`), at most 50 per user (past that nothing more is remembered). The value holds the
 grant id, scopes, label and display copies for the list page. `GET /oauth/approvals` lists the caller's rows (their
 prefix only); `POST /oauth/approvals/forget` (`_csrf`, `id`) deletes one (`404` for an id that isn't theirs). Revoking
-issued tokens per device is P5-05, which should also delete the device's remembered approval.
+issued tokens per device is P5-05, which should also delete the device's remembered approval. Only CIMD clients are
+remembered (P8-65): the box is shown for `clientKind: 'metadata_document'` only, `decide` stores nothing for a DCR
+client, and both the read path (`remembered()`, which also deletes it) and the list ignore a row whose request or stored
+`clientKind` is `dynamic` (rows written before P8-65 for DCR clients).
 
 **Audit** (`admin` rows): `oauth.consent.approve` (`ok`, details `remembered: 'used' | 'saved' | false`; `denied` with
 the resolver's reason or `grant_not_offered`), `oauth.consent.deny`, `oauth.consent.forget`. Target `oauth_client`

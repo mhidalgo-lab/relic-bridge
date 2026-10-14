@@ -1180,3 +1180,20 @@ Sources: [server.json format](https://github.com/modelcontextprotocol/registry/b
   `pipe` for stdio; `mcp.session.id` and `jsonrpc.request.id` are recommended but are ids, so they are not exported.
   `gen_ai.tool.call.arguments`/`result` are opt-in and never exported.
 - Errors Inbox groups by span name, which is why `tools/call <tool>` makes groups distinct per tool.
+
+## NRQL statements without FROM, subquery clauses, and redirect modes (P8-65, from documentation and workerd 2026-10-14)
+
+- FROM-less statements: the NRQL reference says every query has `SELECT` and `FROM`, but `SHOW EVENT TYPES` "is used
+  as the first clause in a query instead of `SELECT`" and lists every event type in the account; the `jparse()` example
+  `WITH '…' AS jsonString SELECT jparse(jsonString)[userNames]` has no FROM either
+  (https://docs.newrelic.com/docs/nrql/nrql-syntax-clauses-functions/). Under an event-type list both are refused.
+- Subqueries: "The `TIMESERIES` and `COMPARE WITH` clauses, which cause queries to return multiple sets of results, are
+  not supported in subqueries." A subquery's time range is the outer query's unless it sets its own `SINCE`/`UNTIL`
+  (https://docs.newrelic.com/docs/nrql/using-nrql/subqueries-in-nrql/, Limits). relic-bridge refuses `COMPARE WITH`
+  there and counts a subquery `SINCE` from now.
+- Redirect modes: workerd accepts only `follow` and `manual`; `new Request(url, { redirect: 'error' })` throws
+  `TypeError: Invalid redirect value, must be one of "follow" or "manual" ("error" won't be implemented since it does
+  not make sense at the edge; use "manual" and check the response status code)` (measured in the Workers test pool,
+  `apps/worker/test/redirect-modes.test.ts`), although the Request docs list `error`
+  (https://developers.cloudflare.com/workers/runtime-apis/request/). Node's fetch (undici) supports all three. With
+  `manual`, Node and workerd return the 3xx response itself; browsers return an `opaqueredirect` response (status 0).

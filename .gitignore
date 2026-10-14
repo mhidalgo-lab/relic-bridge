@@ -2,6 +2,7 @@ node_modules/
 dist/
 dist-e2e/
 dist-e2e-serve/
+dist-e2e-manage/
 coverage/
 *.tsbuildinfo
 .wrangler/
@@ -28,3 +29,5 @@ apps/cli/dist-e2e-browser/
 
 # P4-12: ZAP reports
 zap-reports/
+# Spikes are finished experiments (results in RESULTS.md); never commit their lockfiles (P8-53).
+spikes/**/pnpm-lock.yaml

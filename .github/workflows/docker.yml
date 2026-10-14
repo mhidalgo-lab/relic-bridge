@@ -61,10 +61,6 @@ jobs:
       - uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
         with:
           egress-policy: audit
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ github.event.workflow_run.head_sha }}
-          persist-credentials: false
       - id: plan
         name: Is there a published GitHub Release for this commit?
         shell: bash
@@ -72,9 +68,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
-          version="$(jq -r .version apps/cli/package.json)"
-          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || { echo "::error::bad version"; exit 1; }
           [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::bad sha"; exit 1; }
+          # Read the version through the contents API instead of checking out the workflow_run commit: this job never
+          # fetches or executes the triggering commit's files (THREAT_MODEL T18, OpenSSF Dangerous-Workflow).
+          version="$(gh api "repos/${GITHUB_REPOSITORY}/contents/apps/cli/package.json?ref=${HEAD_SHA}" --jq .content |
+            base64 -d | jq -r .version)"
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || { echo "::error::bad version"; exit 1; }
           none() { echo "$1"; echo "release=false" >> "$GITHUB_OUTPUT"; exit 0; }
           rel="$(gh release view "v${version}" --repo "$GITHUB_REPOSITORY" --json isDraft,isPrerelease 2>/dev/null)" ||
             none "no GitHub Release v${version}: nothing to publish"

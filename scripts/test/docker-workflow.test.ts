@@ -54,6 +54,17 @@ describe('.github/workflows/docker.yml (THREAT_MODEL T18, P2-11)', () => {
     }
   });
 
+  it('plan checks nothing out and reads the version through the contents API (P8-53)', () => {
+    const steps = workflow.jobs.plan.steps ?? [];
+    for (const step of steps) expect(step.uses ?? '').not.toMatch(/^actions\/checkout@/);
+    const run = steps.find((s) => s.run?.includes('latest='))?.run ?? '';
+    expect(run).toMatch(/contents\/apps\/cli\/package\.json\?ref=\$\{HEAD_SHA\}/);
+    expect(run.indexOf('bad sha')).toBeLessThan(run.indexOf('contents/apps/cli'));
+    expect(read('../../.github/workflows/docker.yml')).not.toMatch(
+      /ref:\s*\$\{\{\s*github\.event\.workflow_run/,
+    );
+  });
+
   it('pull requests never reach publish; it needs main, the opt-in variable and the release environment', () => {
     const { publish, plan } = workflow.jobs;
     expect(publish.needs).toEqual(['plan', 'build']);

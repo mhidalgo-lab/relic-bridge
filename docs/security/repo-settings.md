@@ -18,11 +18,13 @@ protection and rulesets are not available for private repositories). Until the r
 - Disable wiki, keep Discussions optional.
 
 ## Rulesets for `main`
-- Require a pull request (≥ 1 approval once there are ≥ 2 maintainers; until then, the PR + green checks).
-- Dismiss stale approvals; require conversation resolution.
+Applied on 2026-10-14 (ruleset `main`, enforcement active, **no bypass actors**):
+- Restrict deletions and block force pushes (`non_fast_forward`).
+- Require a pull request: **0 approvals** (single maintainer; raise to >= 1 once there are >= 2 maintainers), dismiss stale
+  reviews on new commits, require review-thread resolution, **squash merge only**.
 - Required status checks: `Lint, typecheck, test, build (Node 24)`, `Lint, typecheck, test, build (Node 26)`,
-  `Workflow lint`, `Dependency audit`, `DCO sign-off`, `Conventional PR title`, `CodeQL`, `Secret scan (gitleaks)`, `Dependency review`.
-- Block force pushes and deletions.
+  `Workflow lint`, `Dependency audit`, `DCO sign-off`, `Conventional PR title`, `CodeQL`, `Secret scan (gitleaks)`,
+  `Dependency review`, `Authorization suite`.
 - Optional: require signed commits.
 - Tag ruleset `v*`: only maintainers / the release workflow may create tags.
 

@@ -2,11 +2,11 @@
 id: P8-53
 title: Scorecard quick wins - spike lockfiles, workflow_run checkout, security policy link
 phase: 8
-status: todo
+status: review
 priority: high
 depends_on: []
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P8-53 — Scorecard quick wins: spike lockfiles, workflow_run checkout, security policy link
@@ -28,9 +28,9 @@ OpenSSF Scorecard is 5.0. Three checks have small, code-side fixes:
   squash only, required checks, no bypass actors).
 
 ## Acceptance criteria
-- [ ] No lockfile in the repo has known advisories (`pnpm audit` per lockfile).
-- [ ] docker.yml has no checkout of `workflow_run` refs in `plan`; workflow structure test passes; actionlint passes.
-- [ ] SECURITY.md has an https link to private vulnerability reporting.
+- [x] No lockfile in the repo has known advisories (`pnpm audit` per lockfile).
+- [x] docker.yml has no checkout of `workflow_run` refs in `plan`; workflow structure test passes; actionlint passes.
+- [x] SECURITY.md has an https link to private vulnerability reporting.
 
 ## Security notes
 T18 (CI supply chain): removes a checkout of a workflow_run ref.

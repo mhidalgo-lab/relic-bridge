@@ -31,3 +31,8 @@ apps/cli/dist-e2e-browser/
 zap-reports/
 # Spikes are finished experiments (results in RESULTS.md); never commit their lockfiles (P8-53).
 spikes/**/pnpm-lock.yaml
+
+# P8-04: docs site. Pages are generated from docs/ by site/scripts/sync-docs.mjs; only index.mdx is committed.
+site/.astro/
+site/src/content/docs/*
+!site/src/content/docs/index.mdx

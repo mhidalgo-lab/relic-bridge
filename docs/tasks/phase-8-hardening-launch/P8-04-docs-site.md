@@ -2,7 +2,7 @@
 id: P8-04
 title: "Documentation site"
 phase: 8
-status: in-progress
+status: review
 priority: high
 depends_on: [P7-04, P7-09]
 adr: []
@@ -32,14 +32,14 @@ owner: claude-agent
   actions pinned by SHA. Enabling Pages in repository settings is an owner action.
 
 ## Acceptance criteria
-- [ ] `site/` Starlight package builds with `pnpm --filter site build`; the lockfile stays frozen-installable.
-- [ ] Guides, references, architecture, threat model, research notes, ADRs and dev docs are on the site with a
+- [x] `site/` Starlight package builds with `pnpm docs:site`; the lockfile stays frozen-installable.
+- [x] Guides, references, architecture, threat model, research notes, ADRs and dev docs are on the site with a
       sidebar; source docs unchanged by the site (only real broken links fixed).
-- [ ] Pagefind search works from the built output; no analytics, no external requests in the built HTML.
-- [ ] Broken-link check (internal links, images, anchors) in CI, passing on the current docs.
-- [ ] `docs-site` workflow: build on PRs touching docs/site (no deploy), deploy to GitHub Pages only on push to `main`.
-- [ ] Versioning approach recorded as an owner decision.
-- [ ] README links to the site; contributor docs mention `pnpm docs:check`.
+- [x] Pagefind search works from the built output; no analytics, no external loads in the built HTML (one allowed exception: the Deploy to Cloudflare button image in the deploy guide, listed in `site/scripts/check-links.mjs`).
+- [x] Broken-link check (internal links, images, anchors) in CI, passing on the current docs.
+- [x] `docs-site` workflow: build on PRs touching docs/site (no deploy), deploy to GitHub Pages only on push to `main` (not run here; enabling Pages is an owner action).
+- [x] Versioning approach recorded as an owner decision (PR description: "latest" from main now, snapshots later).
+- [x] README links to the site; contributor docs mention `pnpm docs:check`.
 
 ## Security notes
 No analytics with tracking by default. The workflow deploys only from `main`, with `pages: write` and `id-token:

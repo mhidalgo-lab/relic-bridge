@@ -2,7 +2,7 @@
 id: P8-49
 title: trace_error note states how many errors carry a trace id
 phase: 8
-status: review
+status: done
 priority: low
 depends_on: []
 adr: []

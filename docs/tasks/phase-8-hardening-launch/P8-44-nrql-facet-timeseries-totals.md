@@ -2,7 +2,7 @@
 id: P8-44
 title: run_nrql accepts array totals of FACET TIMESERIES queries
 phase: 8
-status: review
+status: done
 priority: high
 depends_on: []
 adr: []

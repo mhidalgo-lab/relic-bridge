@@ -2,7 +2,7 @@
 id: P8-51
 title: Self-monitoring spans - service entity golden metrics and per-tool span names
 phase: 8
-status: review
+status: done
 priority: medium
 depends_on: []
 adr: []

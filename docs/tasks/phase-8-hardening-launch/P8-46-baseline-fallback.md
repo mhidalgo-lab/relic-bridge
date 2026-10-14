@@ -2,7 +2,7 @@
 id: P8-46
 title: An explicit baseline that cannot run falls back to an available control
 phase: 8
-status: review
+status: done
 priority: medium
 depends_on: []
 adr: []

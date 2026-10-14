@@ -2,7 +2,7 @@
 id: P8-53
 title: Scorecard quick wins - spike lockfiles, workflow_run checkout, security policy link
 phase: 8
-status: review
+status: done
 priority: high
 depends_on: []
 adr: []

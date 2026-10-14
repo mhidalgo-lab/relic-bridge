@@ -241,7 +241,7 @@ function checkEventTypes(tokens: readonly Token[], limits: QueryLimits, options:
   // A statement without FROM names no event type to check, and SHOW EVENT TYPES would list the restricted names.
   if (!options.filtersEventTypeListing && hasFromLessStatement(tokens)) {
     throw limitError(
-      'This connection restricts event types, so every query and subquery needs a FROM clause (SHOW EVENT TYPES is not available here).',
+      'This connection restricts event types, so every query and subquery must name its event types in a FROM; the SHOW statement is not available here.',
       'Name the event types in FROM, or call list_event_types to see the event types this connection allows.',
     );
   }

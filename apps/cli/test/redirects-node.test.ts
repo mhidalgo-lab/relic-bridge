@@ -68,7 +68,7 @@ describe('credentialed requests do not follow redirects (Node fetch)', () => {
       // The real global fetch, pointed at the local upstream instead of api.newrelic.com.
       fetch: (_url, init) => fetch(`${pair.upstream}/graphql`, init),
     });
-    const error = await client.query(IDENTITY_QUERY, {}).then(
+    const error = await client.query(IDENTITY_QUERY, { scope: 'IN_REGION' }).then(
       () => undefined,
       (e: unknown) => e,
     );

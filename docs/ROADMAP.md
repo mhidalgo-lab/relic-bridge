@@ -331,6 +331,7 @@ Generated from task front matter (`pnpm tasks index`). Status lives in each task
 | P8-60 | [Golden-metric trend notes say why there is no trend](tasks/phase-8-hardening-launch/P8-60-golden-trend-notes.md) | low | — | review |
 | P8-61 | [Access log names the MCP message instead of other](tasks/phase-8-hardening-launch/P8-61-access-log-mcp-method.md) | low | P8-50 | review |
 | P8-62 | [Remove the deprecated whoami limits.callBudget alias in 0.11.0](tasks/phase-8-hardening-launch/P8-62-remove-callbudget-alias.md) | low | P8-05, P8-47 | todo |
+| P8-63 | [Verification guide: async query handles and write tools](tasks/phase-8-hardening-launch/P8-63-verification-guide.md) | low | P8-43 | in-progress |
 | P8-64 | [CI runs on GitHub-hosted runners only](tasks/phase-8-hardening-launch/P8-64-github-hosted-runners.md) | high | P8-07 | review |
 | P8-65 | [Hardening: event-type lists, redirects, subquery windows, remembered consent](tasks/phase-8-hardening-launch/P8-65-hardening-low-findings.md) | medium | — | review |
 <!-- tasks:end -->

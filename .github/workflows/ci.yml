@@ -16,7 +16,7 @@ concurrency:
 jobs:
   check:
     name: Lint, typecheck, test, build (Node ${{ matrix.node }})
-    runs-on: ${{ fromJSON(vars.CI_RUNS_ON || '["self-hosted","linux","x64"]') }}
+    runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
       fail-fast: false
@@ -24,7 +24,6 @@ jobs:
         node: ['24', '26']
     steps:
       - uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
-        if: ${{ runner.environment == 'github-hosted' }}
         with:
           egress-policy: audit
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -75,11 +74,10 @@ jobs:
   # `check` (pnpm test); P3-06 adds the same suite under the Workers pool.
   authz:
     name: Authorization suite
-    runs-on: ${{ fromJSON(vars.CI_RUNS_ON || '["self-hosted","linux","x64"]') }}
+    runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
-        if: ${{ runner.environment == 'github-hosted' }}
         with:
           egress-policy: audit
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -96,7 +94,7 @@ jobs:
 
   actionlint:
     name: Workflow lint
-    runs-on: ${{ fromJSON(vars.CI_RUNS_ON || '["self-hosted","linux","x64"]') }}
+    runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
       ACTIONLINT_VERSION: 1.7.12
@@ -105,7 +103,6 @@ jobs:
       ACTIONLINT_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
     steps:
       - uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
-        if: ${{ runner.environment == 'github-hosted' }}
         with:
           egress-policy: audit
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -125,28 +122,26 @@ jobs:
   # suites under the Workers pool and makes this job required.
   workers:
     name: Workers runtime tests
-    runs-on: ${{ fromJSON(vars.CI_RUNS_ON || '["self-hosted","linux","x64"]') }}
+    runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
-        if: ${{ runner.environment == 'github-hosted' }}
         with:
           egress-policy: audit
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      # workerd needs glibc 2.35+, newer than a fresh self-hosted runner's userland: run it in a Debian 12 container.
+      # workerd needs glibc 2.35+, newer than the runner image's userland: run it in a Debian 12 container.
       - name: Workers runtime tests
         run: scripts/ci-container.sh test:workers
 
   dco:
     name: DCO sign-off
     if: github.event_name == 'pull_request'
-    runs-on: ${{ fromJSON(vars.CI_RUNS_ON || '["self-hosted","linux","x64"]') }}
+    runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
-        if: ${{ runner.environment == 'github-hosted' }}
         with:
           egress-policy: audit
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -170,13 +165,12 @@ jobs:
   pr-title:
     name: Conventional PR title
     if: github.event_name == 'pull_request'
-    runs-on: ${{ fromJSON(vars.CI_RUNS_ON || '["self-hosted","linux","x64"]') }}
+    runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
       pull-requests: read
     steps:
       - uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
-        if: ${{ runner.environment == 'github-hosted' }}
         with:
           egress-policy: audit
       - uses: amannn/action-semantic-pull-request@48f256284bd46cdaab1048c3721360e808335d50 # v6.1.1

@@ -142,21 +142,17 @@ schema.
 
 ## CI runners
 
-Pull-request CI (`ci.yml` except the macOS/Windows SQLite matrix, `security.yml`, `bench.yml`, `e2e.yml`, and the
-pull-request path of the `docker.yml` `build` job) runs on the organization's self-hosted Linux runners by default:
+All CI runs on GitHub-hosted runners (`runs-on: ubuntu-latest`, plus the macOS/Windows SQLite matrix in `ci.yml`).
+There is no self-hosted runner support and no runner-selection variable (P8-64): the repository is public, so a
+`runs-on` fallback to self-hosted runners would run fork pull-request code on them if the variable were ever unset.
+`scripts/test/ci-runners.test.ts` fails if a workflow uses a self-hosted label or `vars.CI_RUNS_ON`.
 
-```yaml
-runs-on: ${{ fromJSON(vars.CI_RUNS_ON || '["self-hosted","linux","x64"]') }}
-```
-
-If those runners are offline, set the repository (or organization) **variable** `CI_RUNS_ON` to `["ubuntu-latest"]`
-(Settings, Secrets and variables, Actions, Variables) and re-run: the same jobs go back to GitHub-hosted runners. Delete
-the variable to return to the default. Jobs must not assume preinstalled tools or a recent system userland: they set up
-Node (before pnpm: `pnpm/action-setup` runs on the `node` on `PATH`) and pnpm through actions and install anything else
-(actionlint, gitleaks) with a sha256 pinned in the workflow. `harden-runner` only runs on GitHub-hosted runners. `workerd` needs
-glibc 2.35+, so the Workers runtime tests and the CPU benchmark run through `scripts/ci-container.sh`, which runs the
-pnpm script in a `node:24-bookworm` container (repository copied in with `docker cp`; no bind mounts). The Docker
-smoke test (`scripts/docker-smoke.sh`) likewise uses no bind mounts or published ports.
+Every Linux job starts with `step-security/harden-runner`, unconditionally. Jobs set up Node (before pnpm:
+`pnpm/action-setup` runs on the `node` on `PATH`) and pnpm through actions and install anything else (actionlint,
+gitleaks) with a sha256 pinned in the workflow. `workerd` needs glibc 2.35+, so the Workers runtime tests and the CPU
+benchmark run through `scripts/ci-container.sh`, which runs the pnpm script in a `node:24-bookworm` container
+(repository copied in with `docker cp`; no bind mounts). The Docker smoke test (`scripts/docker-smoke.sh`) likewise uses
+no bind mounts or published ports.
 
 **Scheduled workflows** (default branch only, plus `workflow_dispatch`; never pull requests or pushes; none is a required
 check and none uses secrets):
@@ -164,16 +160,9 @@ check and none uses secrets):
 | Workflow | Schedule (UTC) | Runner |
 |---|---|---|
 | `zap.yml` Admin ZAP baseline | Mondays 04:17 | GitHub-hosted `ubuntu-latest` |
-| `e2e.yml` Admin browser E2E | Mondays 04:47 | the `CI_RUNS_ON` switch |
+| `e2e.yml` Admin browser E2E | Mondays 04:47 | GitHub-hosted `ubuntu-latest` |
 
 `zap.yml` is pinned to `ubuntu-latest`: the scan runs ZAP in Docker on the host network with a bind-mounted report
 directory, which needs the Docker daemon on the same machine as the job. Scheduled and manually dispatched runs only
 happen once the workflow files are on the default branch.
 
-Stay on GitHub-hosted runners, always: `release.yml` (provenance, OIDC), `docker.yml` `plan` / `publish` and release
-builds, `scorecard.yml`, `live.yml`, `staging-smoke.yml` (secrets) and the macOS/Windows matrix. `scripts/test/ci-runners.test.ts`
-enforces this.
-
-**Public repository warning:** self-hosted runners must only serve a private repository, because a fork pull request
-runs its code on them. Before making the repository public, set `CI_RUNS_ON` to hosted runners or restrict fork
-pull-request workflows (THREAT_MODEL T18).

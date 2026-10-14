@@ -103,7 +103,7 @@ Check the tarball locally at any time: `pnpm build && pnpm check:package` (`--sk
 - Workflows declare least-privilege `permissions` (default `contents: read`).
 - No `pull_request_target` workflows that check out or run PR code.
 - Secrets live only in protected environments, never available to fork PRs.
-- Every job on a Linux runner starts with `step-security/harden-runner` (egress audit; skipped on non-hosted runners). A
+- Every job on a Linux runner starts with `step-security/harden-runner` (egress audit; unconditional, CI uses GitHub-hosted runners only). A
   test (`scripts/test/workflow-hardening.test.ts`) fails when a job lacks it. Tools downloaded in CI (actionlint,
   gitleaks) are verified against a sha256 pinned in the workflow; update the version and digest together.
 

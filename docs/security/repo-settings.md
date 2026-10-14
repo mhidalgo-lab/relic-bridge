@@ -41,9 +41,8 @@ Applied on 2026-10-14 (ruleset `main`, enforcement active, **no bypass actors**)
   (enabled; the changesets Version PR needs it). A PR opened with the workflow token does not trigger CI: close and
   reopen it to run the checks.
 - Allow only actions pinned by SHA from: GitHub, verified creators, and the allowlist used in our workflows.
-- Fork PR workflows: require approval for first-time contributors. Pull-request CI runs on self-hosted runners only
-  while the repository is private; before going public, switch it to GitHub-hosted runners via the `CI_RUNS_ON`
-  variable (THREAT_MODEL T18).
+- Fork PR workflows: require approval for first-time contributors. CI runs on GitHub-hosted runners only; there is no
+  self-hosted fallback (P8-64, THREAT_MODEL T18).
 - Environments: `release` (npm trusted publishing, required reviewer), `staging` (Workers smoke tests,
   required reviewer) and `live` (optional live suite, required reviewer). `release`, `staging` and `live` each allow
   deployment from `main` only (a `workflow_dispatch` from a feature branch must not reach their secrets, P8-07).

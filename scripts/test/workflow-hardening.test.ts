@@ -58,11 +58,11 @@ describe('harden-runner (P8-07)', () => {
     }
   });
 
-  it('is skipped on a non-hosted runner (the action only supports GitHub-hosted Linux)', () => {
+  it('runs unconditionally (no `if` on the step)', () => {
     for (const { file, jobs } of workflows) {
       for (const [id, job] of Object.entries(jobs)) {
-        if (!/CI_RUNS_ON/.test(JSON.stringify(job['runs-on']))) continue;
-        expect(job.steps?.[0]?.if, `${file} ${id}`).toBe("${{ runner.environment == 'github-hosted' }}");
+        if (!isHarden(job.steps?.[0])) continue;
+        expect(job.steps?.[0]?.if, `${file} ${id}`).toBeUndefined();
       }
     }
   });

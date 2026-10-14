@@ -120,9 +120,11 @@ for example `SELECT count(*) FROM Log WHERE service.name = 'relic-bridge' FACET 
 when you chart HTTP statuses.
 
 **MCP method.** Records of MCP requests (`http request` on the MCP routes and the deadline lines) carry `mcpMethod`,
-the JSON-RPC method from a fixed list (`initialize`, `ping`, `tools/list`, `tools/call`, `resources/*`, `prompts/*`,
-`tasks/*`, `subscriptions/listen`, `notifications/*`, `logging/setLevel`, `completion/complete`; anything else is
-`other`), and `mcpName` only for `tools/call` (the tool name, same pattern check as `tool`). Resource URIs and prompt
+the JSON-RPC method from a fixed list: the client-to-server methods of MCP 2026-07-28 (`server/discover`, `tools/list`,
+`tools/call`, `resources/*`, `prompts/*`, `subscriptions/listen`, `completion/complete`, `notifications/*`) and of the
+2025-11-25 era the server still serves (`initialize`, `ping`, `logging/setLevel`, `tasks/*`); anything else is `other`.
+A body without a method (a JSON-RPC response) or one that is not JSON has no `mcpMethod`; a batch is refused with 400
+before it is logged with a method. `mcpName` is set only for `tools/call` (the tool name, same pattern check as `tool`). Resource URIs and prompt
 names are never exported. To see what the timeouts are:
 `SELECT count(*) FROM Log WHERE service.name = 'relic-bridge' AND message = 'mcp request timed out' FACET mcpMethod SINCE 1 day ago`.
 

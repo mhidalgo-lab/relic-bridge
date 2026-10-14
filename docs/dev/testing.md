@@ -153,7 +153,7 @@ If those runners are offline, set the repository (or organization) **variable** 
 (Settings, Secrets and variables, Actions, Variables) and re-run: the same jobs go back to GitHub-hosted runners. Delete
 the variable to return to the default. Jobs must not assume preinstalled tools or a recent system userland: they set up
 Node (before pnpm: `pnpm/action-setup` runs on the `node` on `PATH`) and pnpm through actions and install anything else
-(actionlint, gitleaks) with checksum verification. `harden-runner` only runs on GitHub-hosted runners. `workerd` needs
+(actionlint, gitleaks) with a sha256 pinned in the workflow. `harden-runner` only runs on GitHub-hosted runners. `workerd` needs
 glibc 2.35+, so the Workers runtime tests and the CPU benchmark run through `scripts/ci-container.sh`, which runs the
 pnpm script in a `node:24-bookworm` container (repository copied in with `docker cp`; no bind mounts). The Docker
 smoke test (`scripts/docker-smoke.sh`) likewise uses no bind mounts or published ports.

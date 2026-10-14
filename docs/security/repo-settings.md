@@ -44,8 +44,10 @@ Applied on 2026-10-14 (ruleset `main`, enforcement active, **no bypass actors**)
 - Fork PR workflows: require approval for first-time contributors. Pull-request CI runs on self-hosted runners only
   while the repository is private; before going public, switch it to GitHub-hosted runners via the `CI_RUNS_ON`
   variable (THREAT_MODEL T18).
-- Environments: `release` (npm trusted publishing, required reviewer) and `staging` (Workers smoke tests,
-  required reviewer). Secrets live only in environments, never at repository level.
+- Environments: `release` (npm trusted publishing, required reviewer), `staging` (Workers smoke tests,
+  required reviewer) and `live` (optional live suite, required reviewer). `release`, `staging` and `live` each allow
+  deployment from `main` only (a `workflow_dispatch` from a feature branch must not reach their secrets, P8-07).
+  Secrets live only in environments, never at repository level.
 
 ## Apps
 - Install the **Renovate** GitHub App for this repository only.

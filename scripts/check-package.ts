@@ -31,10 +31,22 @@ export const SECRET_PATTERNS: ReadonlyArray<[string, RegExp]> = [
   ['GitHub token', /\b(?:gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,})/],
   ['npm token', /\bnpm_[A-Za-z0-9]{30,}/],
   ['private key', /-----BEGIN [A-Z ]*PRIVATE KEY-----/],
+  // P8-07. New Relic license (ingest) key: 40 hex characters + `NRAL`.
+  ['New Relic license key', /\b[A-Fa-f0-9]{40}NRAL\b/],
+  // A master key assigned a value (`RB_MASTER_KEY=<32 random bytes, base64>`, optionally `v<N>:`-prefixed). The bundle
+  // legitimately mentions the variable name, never a value.
+  ['master key', /\bRB_MASTER_KEY(?:_PREVIOUS)?["']?\s*[=:]\s*["']?(?:v\d+:)?[A-Za-z0-9+/]{43}=/],
+  ['AWS access key id', /\b(?:AKIA|ASIA|AGPA|AIDA|AROA)[A-Z0-9]{16}\b/],
+  ['AWS secret access key', /\baws_secret_access_key["']?\s*[=:]\s*["']?[A-Za-z0-9+/]{40}\b/i],
+  // Cloudflare: the newer prefixed tokens, and the classic 40-character API token / 37-hex global key when assigned.
+  ['Cloudflare token', /\bcf(?:ut|at|k)_[A-Za-z0-9]{40,}/],
+  ['Cloudflare token', /\bCLOUDFLARE_API_TOKEN["']?\s*[=:]\s*["']?[A-Za-z0-9_-]{40}\b/],
+  ['Cloudflare global API key', /\b(?:CLOUDFLARE_API_KEY|X-Auth-Key)["']?\s*[=:]\s*["']?[a-f0-9]{37}\b/i],
 ];
 
 /** Absolute paths of the build machine leaking into the bundle. */
-const LOCAL_PATH_RE = /(?:\/home\/[a-z_][\w-]*\/|\/Users\/[\w.-]+\/|[A-Z]:\\\\Users\\\\)/;
+const LOCAL_PATH_RE =
+  /(?:\/home\/[a-z_][\w-]*\/|\/Users\/[\w.-]+\/|(?<![\w.])\/root\/|[A-Z]:\\{1,2}Users\\{1,2}[\w.-]+\\)/;
 
 export function checkFileList(files: readonly string[]): string[] {
   const actual = [...files].sort();
@@ -54,9 +66,27 @@ interface Manifest {
   dependencies?: Record<string, unknown>;
   peerDependencies?: Record<string, unknown>;
   optionalDependencies?: Record<string, unknown>;
+  main?: unknown;
+  module?: unknown;
+  types?: unknown;
+  exports?: unknown;
+  publishConfig?: Record<string, unknown>;
+  bundledDependencies?: unknown;
+  bundleDependencies?: unknown;
 }
 
 const INSTALL_SCRIPTS = ['preinstall', 'install', 'postinstall', 'prepare'];
+
+/** A pinned registry version (`1.2.3`, `1.2.3-rc.1`): no range, tag, `x`, `latest` or URL. */
+const EXACT_VERSION_RE = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
+
+/** Every file path an entry point (`main`, `exports`...) refers to, however deeply nested. */
+function entryTargets(value: unknown): string[] {
+  if (typeof value === 'string') return [value];
+  if (Array.isArray(value)) return value.flatMap(entryTargets);
+  if (value !== null && typeof value === 'object') return Object.values(value).flatMap(entryTargets);
+  return [];
+}
 
 export function checkManifest(pkg: Manifest): string[] {
   const errors: string[] = [];
@@ -70,10 +100,26 @@ export function checkManifest(pkg: Manifest): string[] {
   for (const s of INSTALL_SCRIPTS) {
     if (pkg.scripts?.[s] !== undefined) errors.push(`install-time script "${s}" is not allowed`);
   }
+  // Entry points must point at files that ship (the bin-only package has none today; a stray one would not resolve).
+  for (const field of ['main', 'module', 'types', 'exports'] as const) {
+    for (const target of entryTargets(pkg[field])) {
+      const file = target.replace(/^\.\//, '');
+      if (!EXPECTED_FILES.includes(file))
+        errors.push(`${field} points at a file that is not shipped: ${target}`);
+    }
+  }
+  if (pkg.publishConfig?.['access'] !== 'public') errors.push('publishConfig.access must be "public"');
+  if (pkg.publishConfig?.['provenance'] !== true) errors.push('publishConfig.provenance must be true');
+  for (const field of ['bundledDependencies', 'bundleDependencies'] as const) {
+    if (pkg[field] !== undefined) errors.push(`${field} is not allowed: dependencies come from the registry`);
+  }
   for (const field of ['dependencies', 'peerDependencies', 'optionalDependencies'] as const) {
     for (const [dep, range] of Object.entries(pkg[field] ?? {})) {
       if (typeof range !== 'string' || /^(?:workspace|link|file|git|github|https?):/.test(range)) {
         errors.push(`${field}.${dep} has a non-registry range: ${String(range)}`);
+      } else if (field !== 'peerDependencies' && !EXACT_VERSION_RE.test(range)) {
+        // Peer ranges are ranges by design; everything we install for the user is pinned (as in the lockfile).
+        errors.push(`${field}.${dep} is not an exact version: ${range}`);
       }
       if (dep.startsWith('@relic-bridge/'))
         errors.push(`${field}.${dep}: internal packages are bundled, not published`);

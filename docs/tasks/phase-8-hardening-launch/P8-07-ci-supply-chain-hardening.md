@@ -2,11 +2,11 @@
 id: P8-07
 title: CI supply-chain hardening follow-ups
 phase: 8
-status: todo
+status: in-progress
 priority: medium
 depends_on: [P1-16]
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P8-07 — CI supply-chain hardening follow-ups

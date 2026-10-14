@@ -124,6 +124,10 @@ const issuesOutput = z.object({
   groups: z.array(z.record(z.string(), z.unknown())).optional(),
   /** What groups[].count covers: the whole `window`, or only this `page`. */
   groupsScope: z.enum(['window', 'page']),
+  /** Why `groupsScope` is `page` when group_by was asked, and how many issues the counts cover. */
+  groupsNote: z.string().optional(),
+  /** Set when `limit` was lowered to the upstream page size. */
+  limitNote: z.string().optional(),
   ...pageOutput,
 });
 const incidentsOutput = z.object({ incidents: z.array(z.record(z.string(), z.unknown())), ...pageOutput });
@@ -398,9 +402,11 @@ export function createIssueTools(deps: ToolDeps = {}): ToolDefinition[] {
     filter: Record<string, unknown>,
     w: { sinceMs: number; untilMs: number },
     scoped: (i: AiIssueData) => boolean,
+    pageRows: number,
   ): Promise<{ rows: IssueRow[]; note: null } | { rows: null; note: string }> {
     const rows: IssueRow[] = [];
     let cursor: string | null = null;
+    let reason = 'the window has more issues than the extra requests can read';
     try {
       for (let n = 0; n < MAX_GROUP_PAGES + 1; n++) {
         if (n > 0 && ctx.budget.remaining < 1) throw new RbError(ErrorCode.BudgetExhausted, 'budget');
@@ -418,10 +424,12 @@ export function createIssueTools(deps: ToolDeps = {}): ToolDefinition[] {
       }
     } catch (e) {
       if (!(e instanceof RbError) || FATAL_CODES.has(e.code)) throw e;
+      reason =
+        e.code === ErrorCode.BudgetExhausted ? 'the request budget ran out' : `a request failed (${e.code})`;
     }
     return {
       rows: null,
-      note: `Group counts cover this page only: the window has too many issues to count within the request budget.`,
+      note: `Group counts cover this page only (${pageRows} ${plural(pageRows, 'issue', 'issues')}), not the whole window: ${reason}, after reading ${rows.length} ${plural(rows.length, 'issue', 'issues')}.`,
     };
   }
 
@@ -497,7 +505,7 @@ export function createIssueTools(deps: ToolDeps = {}): ToolDefinition[] {
       let groupsScope: 'window' | 'page' = 'page';
       let groupsNote: string | null = null;
       if (input.group_by) {
-        const whole = await windowRows(ctx, account, filter, win, scoped);
+        const whole = await windowRows(ctx, account, filter, win, scoped, rows.length);
         if (whole.rows) {
           groupRows = whole.rows;
           groupsScope = 'window';
@@ -519,6 +527,12 @@ export function createIssueTools(deps: ToolDeps = {}): ToolDefinition[] {
         );
       }
       if (groupsNote) lines.push(`Note: ${groupsNote}`);
+      // Same wording as run_nrql's "LIMIT n lowered to m (...)" adjustments.
+      const limitNote =
+        paged.pageSize !== null
+          ? `limit ${input.limit ?? DEFAULT_LIMIT} lowered to ${paged.pageSize} (API page size); page on with nextCursor.`
+          : null;
+      if (limitNote) lines.push(`Note: ${limitNote}`);
       if (rows.length > 0) {
         lines.push(
           shapeRows(
@@ -552,6 +566,8 @@ export function createIssueTools(deps: ToolDeps = {}): ToolDefinition[] {
           issues,
           ...(groups ? { groups } : {}),
           groupsScope,
+          ...(groupsNote ? { groupsNote } : {}),
+          ...(limitNote ? { limitNote } : {}),
           nextCursor,
           hiddenOutsideScope,
         },

@@ -366,6 +366,10 @@ describe('list_recent_issues group_by scope (NEW-07)', () => {
     expect((r.structuredContent as { groupsScope: string }).groupsScope).toBe('page');
     expect(text(r)).toContain('Group counts cover this page only');
     expect(text(r)).toContain('on this page per condition');
+    // The reason is in the structured output too, with how many issues were read.
+    const note = (r.structuredContent as { groupsNote?: string }).groupsNote;
+    expect(note).toContain('more issues than the extra requests can read');
+    expect(note).toContain('after reading 5 issues');
   });
 
   it('falls back to the page when the budget cannot pay for the extra pages', async () => {
@@ -386,12 +390,47 @@ describe('list_recent_issues group_by scope (NEW-07)', () => {
     const r = await client.callTool({ name: 'list_recent_issues', arguments: { group_by: 'condition' } });
     expect((r.structuredContent as { groupsScope: string }).groupsScope).toBe('page');
     expect(text(r)).toContain('this page only');
+    expect((r.structuredContent as { groupsNote?: string }).groupsNote).toContain('budget');
+  });
+
+  it('a window scan that fails midway still gives a reason', async () => {
+    const { client } = await setup([
+      issuesBody([cond('i1', 'Latency')], 'n1'),
+      json({ errors: [{ message: 'x' }] }, 500),
+    ]);
+    const r = await client.callTool({ name: 'list_recent_issues', arguments: { group_by: 'condition' } });
+    const s = r.structuredContent as { groupsScope: string; groupsNote?: string };
+    expect(s.groupsScope).toBe('page');
+    expect(s.groupsNote).toBeTruthy();
   });
 
   it('always reports groupsScope; without group_by it is page-local', async () => {
     const { client } = await setup([issuesBody([issue(A, 'i1', 'x')])]);
     const r = await client.callTool({ name: 'list_recent_issues', arguments: {} });
     expect((r.structuredContent as { groupsScope: string }).groupsScope).toBe('page');
+  });
+});
+
+describe('list_recent_issues limit above the API page size (NEW-09)', () => {
+  const rows = (n: number) => Array.from({ length: n }, (_, k) => issue(A, `i${k}`, `t${k}`));
+
+  it('says when limit was lowered to the upstream page size', async () => {
+    const { client } = await setup([issuesBody(rows(50), 'next-1')]);
+    const r = await client.callTool({ name: 'list_recent_issues', arguments: { limit: 200 } });
+    const s = r.structuredContent as { issues: unknown[]; nextCursor: string | null; limitNote?: string };
+    expect(s.issues).toHaveLength(50);
+    expect(s.nextCursor).not.toBeNull();
+    expect(s.limitNote).toBe('limit 200 lowered to 50 (API page size); page on with nextCursor.');
+    expect(text(r)).toContain('limit 200 lowered to 50 (API page size)');
+  });
+
+  it('adds no note when the limit was met or the list ended', async () => {
+    const { client } = await setup([issuesBody(rows(3))]);
+    const r = await client.callTool({ name: 'list_recent_issues', arguments: { limit: 200 } });
+    expect(r.structuredContent).not.toHaveProperty('limitNote');
+    const { client: c2 } = await setup([issuesBody(rows(50), 'next-1')]);
+    const r2 = await c2.callTool({ name: 'list_recent_issues', arguments: { limit: 50 } });
+    expect(r2.structuredContent).not.toHaveProperty('limitNote');
   });
 });
 

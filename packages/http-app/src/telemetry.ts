@@ -42,6 +42,7 @@ export const TELEMETRY_NAMES: Readonly<{
   rejected: string;
   nerdgraphCalls: string;
   nerdgraphBytes: string;
+  rpcServerDuration: string;
 }> = Object.freeze({
   span: 'tools/call',
   toolCalls: 'relic_bridge.tool.calls',
@@ -49,7 +50,12 @@ export const TELEMETRY_NAMES: Readonly<{
   rejected: 'relic_bridge.requests.rejected',
   nerdgraphCalls: 'relic_bridge.nerdgraph.calls',
   nerdgraphBytes: 'relic_bridge.nerdgraph.response_bytes',
+  // OpenTelemetry RPC server metric: New Relic builds `apm.service.transaction.duration` (and so the service golden
+  // metrics) from it (P8-51, docs/RESEARCH.md).
+  rpcServerDuration: 'rpc.server.duration',
 });
+/** The MCP span name prefix; the tool name follows (`tools/call whoami`). */
+export const TELEMETRY_SPAN_PREFIX = 'tools/call';
 /** Most log records held between flushes; the oldest are dropped beyond it. */
 export const TELEMETRY_LOG_BUFFER = 200;
 const LOG_BATCH = 100;
@@ -299,10 +305,20 @@ export function createTelemetry(options: TelemetryOptions): Telemetry {
     ...options.headers,
     'content-type': 'application/json',
   };
+  // `telemetry.sdk.language`: `nodejs` is the semconv value for Node. Workers run JavaScript but are not Node and
+  // not a browser; the semconv list has no value for them and allows a custom one, `webjs` (the registry's "other
+  // JavaScript runtime" value) is the closest known one, so New Relic's language-aware UI treats them as JS.
+  const language =
+    options.runtime === 'node' ? 'nodejs' : options.runtime === 'workers' ? 'webjs' : undefined;
   const resource = {
     attributes: [
       str('service.name', TELEMETRY_SERVICE_NAME),
       str('service.version', VERSION),
+      // A random id per exporter (process or isolate), never derived from host, user or request data.
+      str('service.instance.id', hex(16)),
+      str('telemetry.sdk.name', TELEMETRY_SERVICE_NAME),
+      ...(language === undefined ? [] : [str('telemetry.sdk.language', language)]),
+      str('telemetry.sdk.version', VERSION),
       ...(options.runtime === undefined ? [] : [str('process.runtime.name', options.runtime)]),
     ],
   };
@@ -386,8 +402,18 @@ export function createTelemetry(options: TelemetryOptions): Telemetry {
     const end = clock.now();
     const durationMs = Number.isFinite(event.durationMs) ? Math.max(0, event.durationMs) : 0;
     const start = end - durationMs;
+    const tool = pick(event.tool, TOOL_NAME);
+    const errorType = event.status === 'error' ? pick(event.errorCode, ERROR_CODE) : undefined;
+    // OpenTelemetry `rpc.*` attributes of the server operation, for New Relic's transaction name
+    // (`WebTransaction/server/jsonrpc/mcp.<tool>`) and error count.
+    const rpcAttrs: Attr[] = [
+      str('rpc.system', 'jsonrpc'),
+      str('rpc.service', 'mcp'),
+      str('rpc.method', tool),
+      ...(errorType === undefined ? [] : [str('error.type', errorType)]),
+    ];
     const attrs: Attr[] = [
-      str('tool', pick(event.tool, TOOL_NAME)),
+      str('tool', tool),
       str('status', event.status === 'ok' ? 'ok' : 'error'),
       ...(event.status === 'error' ? [str('error.code', pick(event.errorCode, ERROR_CODE))] : []),
       ...(origin.mode === 'token' ? [str('project', pick(origin.projectSlug, SLUG))] : []),
@@ -417,6 +443,26 @@ export function createTelemetry(options: TelemetryOptions): Telemetry {
           ],
         },
       },
+      {
+        name: TELEMETRY_NAMES.rpcServerDuration,
+        unit: 'ms',
+        histogram: {
+          aggregationTemporality: 1,
+          dataPoints: [
+            {
+              attributes: rpcAttrs,
+              startTimeUnixNano: nanos(start),
+              timeUnixNano: nanos(end),
+              count: '1',
+              sum: durationMs,
+              min: durationMs,
+              max: durationMs,
+              bucketCounts: bucketCounts(durationMs),
+              explicitBounds: DURATION_BUCKETS_MS,
+            },
+          ],
+        },
+      },
       ...(calls === undefined
         ? []
         : [sumMetric(TELEMETRY_NAMES.nerdgraphCalls, '{call}', attrs, start, end, calls)]),
@@ -428,6 +474,12 @@ export function createTelemetry(options: TelemetryOptions): Telemetry {
     if (sampleRate > 0 && random() < sampleRate) {
       const spanAttrs: Attr[] = [
         ...attrs,
+        // OpenTelemetry MCP semantic conventions (development) plus `rpc.*`; no arguments, results or ids.
+        str('mcp.method.name', 'tools/call'),
+        str('gen_ai.operation.name', 'execute_tool'),
+        str('gen_ai.tool.name', tool),
+        ...rpcAttrs,
+        str('network.transport', origin.mode === 'stdio' ? 'pipe' : 'tcp'),
         ...(calls === undefined ? [] : [int('nerdgraph.calls', calls)]),
         ...(bytes === undefined ? [] : [int('nerdgraph.response_bytes', bytes)]),
       ];
@@ -444,7 +496,7 @@ export function createTelemetry(options: TelemetryOptions): Telemetry {
                       traceId: origin.parent?.traceId ?? hex(16),
                       spanId: hex(8),
                       ...(origin.parent === undefined ? {} : { parentSpanId: origin.parent.spanId }),
-                      name: TELEMETRY_NAMES.span,
+                      name: `${TELEMETRY_SPAN_PREFIX} ${tool}`,
                       kind: 2,
                       startTimeUnixNano: nanos(start),
                       endTimeUnixNano: nanos(end),

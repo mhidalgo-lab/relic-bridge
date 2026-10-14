@@ -2,7 +2,7 @@
 id: P8-51
 title: Self-monitoring spans - service entity golden metrics and per-tool span names
 phase: 8
-status: in-progress
+status: review
 priority: medium
 depends_on: []
 adr: []
@@ -25,9 +25,9 @@ although spans arrive (server kind, status set). The resource only has `service.
 - Verify against a live account that golden metrics populate.
 
 ## Acceptance criteria
-- [ ] Resource and span attributes added, each pattern-checked (tests).
+- [x] Resource and span attributes added, each pattern-checked (tests).
 - [ ] Live check: entity golden metrics show throughput, response time and error rate.
-- [ ] Error groups are distinct per tool.
+- [x] Error groups are distinct per tool.
 
 ## Security notes
 T30: tool names stay allowlisted; `service.instance.id` is random and carries no host or user data.

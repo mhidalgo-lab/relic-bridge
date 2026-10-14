@@ -1142,3 +1142,41 @@ Sources: [server.json format](https://github.com/modelcontextprotocol/registry/b
   disconnects without the stream being cancelled. P8-50 logs open-ended streams at info and exports `status`, `method`
   and `route` on access-log records, so the next investigation can be answered from New Relic. If warnings persist
   after upgrading, they are real (hung requests): facet them by `mcpMethod` in New Relic (exported since P8-50).
+
+## OTLP service entity golden metrics (P8-51, 2026-10-14)
+
+- Golden metrics of EXT-SERVICE with `instrumentation.provider: opentelemetry` are, in the entity definition,
+  `rate(count(apm.service.transaction.duration), 1 minute)` (throughput),
+  `sum(apm.service.error.count) * 100 / count(apm.service.transaction.duration)` (error rate) and
+  `average(convert(apm.service.transaction.duration, unit OR 's', 'ms'))` (response time), all `FROM Metric`
+  (newrelic/entity-definitions, `entity-types/ext-service/golden_metrics.yml`). This matches the live observation:
+  throughput 0 and no response time because `apm.service.transaction.duration` had count 0.
+- New Relic derives `apm.service.transaction.duration` and `apm.service.error.count` from OpenTelemetry **metrics**:
+  `http.server.request.duration` (needs `http.request.method`; name `WebTransaction/server/${method} ${route}`),
+  `http.server.duration` (old), `rpc.server.duration` (needs `rpc.system`; name
+  `WebTransaction/server/${rpc.system}/${rpc.service}.${rpc.method}`, `unknown` when missing). The unit is copied from
+  the source metric (`s`, `ms`, `ns`). Spans only drive `apm.service.transaction.overview` (segment breakdown) and, for
+  span-based signals, entry spans (`span.kind = server OR consumer`)
+  (https://docs.newrelic.com/docs/opentelemetry/get-started/apm-monitoring/opentelemetry-apm-ui/). Exporting only
+  server-kind spans is therefore not enough; relic-bridge 0.9.0 had no such metric.
+- Decision: export `rpc.server.duration` (histogram, ms, delta) with `rpc.system=jsonrpc`, `rpc.service=mcp`,
+  `rpc.method=<tool or other>`, `error.type` on failure. It is honest for stdio and HTTP alike (the HTTP metric would
+  claim an HTTP route that stdio does not have, and MCP carries several calls per HTTP request).
+- Open question (verify live): the page lists a gRPC status code condition for the RPC error type, so a jsonrpc
+  `error.type` may not increment `apm.service.error.count`. Fallback if the error rate stays empty: for HTTP modes also
+  export `http.server.request.duration` (`http.request.method=POST`, `http.route`, `error.type`), without double
+  counting (drop the RPC metric there).
+- Resource attributes: New Relic recommends `service.instance.id` (faceting) and `telemetry.sdk.language` (runtime UI);
+  `telemetry.sdk.language`/`version` become entity tags
+  (https://docs.newrelic.com/docs/opentelemetry/best-practices/opentelemetry-best-practices-resources/).
+  Semconv requires `telemetry.sdk.name/language/version`; `nodejs` is the well-known Node value and `webjs` (Browser) is
+  the nearest well-known JS value for Workers; custom values are allowed but New Relic's UI may not recognise them
+  (https://opentelemetry.io/docs/specs/semconv/resource/#telemetry-sdk). `telemetry.sdk.name` is `relic-bridge`
+  because the exporter is not the OpenTelemetry SDK.
+- MCP semantic conventions (development status; moved to the open-telemetry/semantic-conventions-genai repository,
+  `docs/gen-ai/mcp.md`): span name `{mcp.method.name} {target}` with target = `gen_ai.tool.name` for tool calls;
+  `mcp.method.name` required; `gen_ai.tool.name` when a tool is involved; `gen_ai.operation.name=execute_tool` for tool
+  calls; `error.type` on failure (`tool_error` for an `isError` result); `network.transport` `tcp`/`quic` for HTTP,
+  `pipe` for stdio; `mcp.session.id` and `jsonrpc.request.id` are recommended but are ids, so they are not exported.
+  `gen_ai.tool.call.arguments`/`result` are opt-in and never exported.
+- Errors Inbox groups by span name, which is why `tools/call <tool>` makes groups distinct per tool.

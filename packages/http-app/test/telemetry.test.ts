@@ -86,7 +86,10 @@ describe('OTLP export', () => {
       .filter((r) => r.path === '/v1/traces')
       // biome-ignore lint/suspicious/noExplicitAny: test inspects raw OTLP JSON
       .flatMap((r) => (JSON.parse(r.body) as any).resourceSpans[0].scopeSpans[0].spans);
-    expect(spans.map((s: { name: string }) => s.name)).toEqual(['tools/call', 'tools/call']);
+    expect(spans.map((s: { name: string }) => s.name).sort()).toEqual([
+      'tools/call run_nrql',
+      'tools/call whoami',
+    ]);
     const tools = spans.map(
       (s: { attributes: { key: string; value: { stringValue: string } }[] }) =>
         s.attributes.find((a) => a.key === 'tool')?.value.stringValue,
@@ -105,6 +108,14 @@ describe('OTLP export', () => {
           'mode',
           'nerdgraph.calls',
           'nerdgraph.response_bytes',
+          'mcp.method.name',
+          'gen_ai.operation.name',
+          'gen_ai.tool.name',
+          'rpc.system',
+          'rpc.service',
+          'rpc.method',
+          'network.transport',
+          'error.type',
         ]).toContain(k);
     }
     expect(received[0]?.headers['api-key']).toBe(LICENSE);
@@ -576,5 +587,130 @@ describe('trace context (P7-18)', () => {
     expect(seenHeaders.length).toBeGreaterThan(0);
     expect(seenHeaders.join('')).not.toMatch(/traceparent|tracestate/);
     expect(seenHeaders.join('')).not.toContain(TRACE);
+  });
+});
+
+describe('service entity signals (P8-51)', () => {
+  const event = (tool: string, status: 'ok' | 'error' = 'ok') =>
+    ({
+      tool,
+      status,
+      errorCode: status === 'ok' ? null : 'RB_UPSTREAM',
+      durationMs: 40,
+      input: {},
+      meta: undefined,
+    }) as const;
+  // biome-ignore lint/suspicious/noExplicitAny: test inspects raw OTLP JSON
+  const attrMap = (attrs: any[]): Record<string, string> =>
+    Object.fromEntries(attrs.map((a) => [a.key, a.value.stringValue ?? a.value.intValue]));
+
+  it('adds telemetry.sdk.*, service.instance.id and the runtime to the resource of every signal', async () => {
+    const t = createTelemetry({ endpoint: base, fetch: receiverFetch, runtime: 'node' });
+    await t.hooks.onToolCall?.({} as never, { projectSlug: 'prod' } as never, event('whoami'));
+    await t.hooks.onRejected?.({} as never, { requestId: 'r', status: 429, reason: 'rate_limit_ip' });
+    expect(received.length).toBeGreaterThanOrEqual(3);
+    const resources = received.map((r) => {
+      const j = JSON.parse(r.body);
+      return attrMap((j.resourceSpans ?? j.resourceMetrics ?? j.resourceLogs)[0].resource.attributes);
+    });
+    for (const r of resources) {
+      expect(r['service.name']).toBe('relic-bridge');
+      expect(r['telemetry.sdk.name']).toBe('relic-bridge');
+      expect(r['telemetry.sdk.language']).toBe('nodejs');
+      expect(r['telemetry.sdk.version']).toMatch(/^\d+\.\d+\.\d+/);
+      expect(r['service.instance.id']).toMatch(/^[0-9a-f]{32}$/);
+      expect(r['process.runtime.name']).toBe('node');
+    }
+    expect(new Set(resources.map((r) => r['service.instance.id'])).size).toBe(1);
+  });
+
+  it('uses a different random instance id per exporter (process or isolate)', async () => {
+    const ids = new Set<string>();
+    for (let i = 0; i < 3; i += 1) {
+      received = [];
+      const t = createTelemetry({ endpoint: base, fetch: receiverFetch, runtime: 'workers' });
+      await t.hooks.onToolCall?.({} as never, { projectSlug: 'prod' } as never, event('whoami'));
+      const r = attrMap(JSON.parse(received[0]?.body ?? '{}').resourceMetrics[0].resource.attributes);
+      expect(r['telemetry.sdk.language']).toBe('webjs');
+      ids.add(r['service.instance.id'] ?? '');
+    }
+    expect(ids.size).toBe(3);
+  });
+
+  it('omits the language when the runtime is unknown', async () => {
+    const t = createTelemetry({ endpoint: base, fetch: receiverFetch });
+    await t.hooks.onToolCall?.({} as never, { projectSlug: 'prod' } as never, event('whoami'));
+    const r = attrMap(JSON.parse(received[0]?.body ?? '{}').resourceMetrics[0].resource.attributes);
+    expect(r['telemetry.sdk.language']).toBeUndefined();
+    expect(r['service.instance.id']).toBeDefined();
+  });
+
+  // biome-ignore lint/suspicious/noExplicitAny: test inspects raw OTLP JSON
+  const spanOf = (): any =>
+    JSON.parse(received.find((r) => r.path === '/v1/traces')?.body ?? '{}').resourceSpans[0].scopeSpans[0]
+      .spans[0];
+
+  it('names the span `tools/call <tool>` and adds the MCP and RPC attributes', async () => {
+    const t = createTelemetry({ endpoint: base, fetch: receiverFetch });
+    await t.hooks.onToolCall?.({} as never, { projectSlug: 'prod' } as never, event('get_entity', 'error'));
+    const span = spanOf();
+    expect(span.name).toBe('tools/call get_entity');
+    expect(span.kind).toBe(2);
+    expect(attrMap(span.attributes)).toMatchObject({
+      tool: 'get_entity',
+      'mcp.method.name': 'tools/call',
+      'gen_ai.operation.name': 'execute_tool',
+      'gen_ai.tool.name': 'get_entity',
+      'rpc.system': 'jsonrpc',
+      'rpc.service': 'mcp',
+      'rpc.method': 'get_entity',
+      'network.transport': 'tcp',
+      'error.type': 'RB_UPSTREAM',
+    });
+  });
+
+  it('an ok span has no error.type; stdio is a pipe', async () => {
+    const t = createTelemetry({ endpoint: base, fetch: receiverFetch });
+    await t.recordToolCall(event('whoami'), { mode: 'stdio' });
+    const a = attrMap(spanOf().attributes);
+    expect(a['error.type']).toBeUndefined();
+    expect(a['network.transport']).toBe('pipe');
+  });
+
+  it('an unknown or hostile tool name becomes `other` in the span name and every attribute', async () => {
+    const t = createTelemetry({ endpoint: base, fetch: receiverFetch });
+    await t.hooks.onToolCall?.({} as never, { projectSlug: 'prod' } as never, {
+      ...event("x'; DROP user@example.com", 'error'),
+      errorCode: 'not a code@x.com',
+    });
+    const span = spanOf();
+    expect(span.name).toBe('tools/call other');
+    const a = attrMap(span.attributes);
+    expect(a['gen_ai.tool.name']).toBe('other');
+    expect(a['rpc.method']).toBe('other');
+    expect(a['error.type']).toBe('other');
+    expect(received.map((r) => r.body).join('')).not.toMatch(/DROP|user@example/);
+  });
+
+  it('exports rpc.server.duration (ms histogram) so New Relic builds the golden metrics', async () => {
+    const t = createTelemetry({ endpoint: base, fetch: receiverFetch, traceSampleRate: 0 });
+    await t.hooks.onToolCall?.({} as never, { projectSlug: 'prod' } as never, event('whoami'));
+    await t.hooks.onToolCall?.({} as never, { projectSlug: 'prod' } as never, event('whoami', 'error'));
+    const metrics = received
+      .filter((r) => r.path === '/v1/metrics')
+      // biome-ignore lint/suspicious/noExplicitAny: test inspects raw OTLP JSON
+      .flatMap((r) => (JSON.parse(r.body) as any).resourceMetrics[0].scopeMetrics[0].metrics)
+      .filter((m: { name: string }) => m.name === 'rpc.server.duration');
+    expect(metrics.length).toBe(2);
+    for (const m of metrics) {
+      expect(m.unit).toBe('ms');
+      expect(m.histogram.aggregationTemporality).toBe(1);
+      expect(m.histogram.dataPoints[0].sum).toBe(40);
+    }
+    const [ok, err] = metrics.map((m: { histogram: { dataPoints: { attributes: unknown[] }[] } }) =>
+      attrMap(m.histogram.dataPoints[0]?.attributes as never[]),
+    );
+    expect(ok).toEqual({ 'rpc.system': 'jsonrpc', 'rpc.service': 'mcp', 'rpc.method': 'whoami' });
+    expect(err).toEqual({ ...ok, 'error.type': 'RB_UPSTREAM' });
   });
 });

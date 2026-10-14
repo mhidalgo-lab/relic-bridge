@@ -27,6 +27,30 @@ runs against a pluggable host (`useAuthzHost`): the HTTP app on in-memory storag
 Workers pool (below). Tests that need HTTP app internals (Hono's route table, the admin-off app) skip themselves with
 `authzHostKind()`.
 
+## Property and fuzz tests
+
+The parsers and builders that take untrusted input have [fast-check](https://fast-check.dev/) properties in
+`fuzz*.test.ts` files (P8-01, THREAT_MODEL section 4a), next to the property tests of the original tasks:
+
+| File | Targets |
+|---|---|
+| `packages/core/test/fuzz.test.ts` | `nrql` tag and `nrql.identifier()` (no breakout in any template position, literals and identifiers decode back), `entityQuery` and `entityQuery.and()`, `enforceQueryLimits` and the tokenizer on arbitrary text, entity GUID decoding, `time_range` parsing. |
+| `packages/auth/test/fuzz.test.ts` | `Authorization: Bearer` and `rb_` token parsing, session cookies, PKCE S256, `RB_MASTER_KEY`, identity settings and `RB_PUBLIC_URL`. |
+| `packages/http-app/test/fuzz.test.ts` | OAuth redirect URIs, registration bodies, metadata documents, client ids, display names, IP classification for the metadata fetch guard, post-login redirects, client addresses, Host / Origin / MCP headers, the JSON-RPC body peek and its size bound, OTLP and OAuth settings. |
+| `packages/http-app/test/fuzz-http.test.ts` | Requests on the authz harness: mutated OAuth authorize and token requests, registration bodies, MCP POST bodies of any shape and size, with and without credentials. |
+| `apps/cli/test/fuzz.test.ts`, `apps/worker/test/fuzz-settings.test.ts` | `serve` and Worker settings from `RB_*` variables (protections stay on unless switched off exactly), stdio settings, the YAML file and the command line (no secret in an error). |
+
+`pnpm test` runs each property a bounded number of times (a few seconds per file). For a longer local run set the number
+of runs per property, and replay a counterexample with the seed fast-check prints:
+
+```sh
+RB_FUZZ_RUNS=100000 pnpm vitest run fuzz
+RB_FUZZ_RUNS=100000 RB_FUZZ_SEED=-1234567 pnpm vitest run packages/core/test/fuzz.test.ts
+```
+
+The settings are read in `packages/core/test/helpers/fuzz.ts` (`fuzzParams`, `FUZZ_TIMEOUT`); inside workerd the
+variables are not visible and the bounded default applies. A new parser of untrusted input gets a property there.
+
 ## Workers runtime tests
 
 `pnpm test:workers` runs the `worker` project (`apps/worker/test/`) inside **workerd** through

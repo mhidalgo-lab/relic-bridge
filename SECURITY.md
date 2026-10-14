@@ -58,4 +58,6 @@ before disclosure.
 
 ## Our practices
 
-See [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) and [`docs/security/repo-settings.md`](docs/security/repo-settings.md).
+See [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) (threats, with the code and tests that address each),
+[`docs/security/asvs-l2.md`](docs/security/asvs-l2.md) (OWASP ASVS 5.0 Level 2 checklist) and
+[`docs/security/repo-settings.md`](docs/security/repo-settings.md).

@@ -1,0 +1,21 @@
+{
+  "name": "relic-bridge-docs-site",
+  "private": true,
+  "description": "Documentation site (Starlight), built from ../docs. Not published.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "sync": "node scripts/sync-docs.mjs",
+    "dev": "node scripts/sync-docs.mjs && astro dev",
+    "build": "node scripts/sync-docs.mjs && astro build",
+    "preview": "astro preview",
+    "check:links": "node scripts/check-links.mjs"
+  },
+  "dependencies": {
+    "@astrojs/starlight": "0.42.6",
+    "astro": "7.3.8"
+  },
+  "engines": {
+    "node": ">=24.11.0"
+  }
+}

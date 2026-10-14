@@ -1,0 +1,38 @@
+---
+title: relic-bridge documentation
+description: Guides, references and design documents for relic-bridge, an unofficial MCP server for New Relic via NerdGraph.
+template: splash
+hero:
+  tagline: An unofficial MCP server for New Relic, built on NerdGraph. Run it locally over stdio or host it for your team, including phones and claude.ai.
+  actions:
+    - text: Quickstart
+      link: guide/quickstart-local/
+      icon: right-arrow
+    - text: Self-host a server
+      link: guide/self-hosting/
+      variant: minimal
+---
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+
+<CardGrid>
+  <Card title="Get started" icon="rocket">
+    Run it on your machine with [local stdio](guide/quickstart-local/) and connect your
+    [MCP client](guide/clients/).
+  </Card>
+  <Card title="Host it for a team" icon="setting">
+    [Self-hosting](guide/self-hosting/), [Cloudflare Workers](guide/cloudflare-deploy/), the
+    [admin guide](guide/admin-guide/) and [multi-device](guide/multi-device/) setup.
+  </Card>
+  <Card title="Security" icon="approve-check">
+    [Security basics](guide/security-basics/), the [access model](guide/access-model/) and the
+    [threat model](design/threat-model/).
+  </Card>
+  <Card title="Reference" icon="open-book">
+    [Tools](reference/tools/), [CLI](reference/cli/), [admin API](reference/admin-api/) and
+    [client compatibility](reference/client-compatibility/).
+  </Card>
+</CardGrid>
+
+relic-bridge is not affiliated with or endorsed by New Relic. This site is built from the Markdown in the
+repository's `docs/` folder; use the "Edit page" link to propose a change.

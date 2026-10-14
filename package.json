@@ -28,6 +28,8 @@
     "bench:cpu": "node scripts/bench-cpu.ts",
     "eval:tools": "node scripts/eval-tools.ts",
     "cf:setup": "node scripts/cloudflare-setup.ts",
+    "docs:site": "pnpm --filter relic-bridge-docs-site build",
+    "docs:check": "pnpm docs:site && pnpm --filter relic-bridge-docs-site check:links",
     "docs:tools": "node scripts/gen-tool-docs.ts",
     "nerdgraph:schema": "node scripts/nerdgraph-schema.ts",
     "ui:assets": "node scripts/gen-admin-assets.ts",

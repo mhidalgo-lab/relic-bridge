@@ -52,7 +52,7 @@
   },
   "overrides": [
     {
-      "includes": ["scripts/**", "spikes/**", "apps/cli/**"],
+      "includes": ["scripts/**", "spikes/**", "apps/cli/**", "site/scripts/**"],
       "linter": {
         "rules": {
           "suspicious": {

@@ -21,6 +21,7 @@ pnpm lint             # Biome + runtime-import guard + SPDX headers + task valid
 pnpm typecheck
 pnpm test
 pnpm build
+pnpm docs:check       # only when you change docs/ or site/: builds the docs site and checks its links
 ```
 
 Optional but recommended: install [gitleaks](https://github.com/gitleaks/gitleaks#installing) so the pre-commit hook

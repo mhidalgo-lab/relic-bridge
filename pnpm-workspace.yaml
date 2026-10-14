@@ -1,6 +1,7 @@
 packages:
   - packages/*
   - apps/*
+  - site
 
 # Supply-chain hardening (THREAT_MODEL T18). pnpm 11+ defaults are already safe; we tighten them.
 # Don't resolve versions published less than 3 days ago (minutes).

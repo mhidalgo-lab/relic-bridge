@@ -97,6 +97,9 @@ carries the tarball, an SBOM and checksums with build attestations ([how to veri
 
 ## Documentation
 
+The same pages are published as a searchable site at <https://mhidalgo-lab.github.io/relic-bridge/> (built from
+`docs/` by `site/`; `pnpm docs:check` builds it locally and checks every link). The links below go to the Markdown.
+
 - **Get started:** [local quickstart](docs/guide/quickstart-local.md) · [client setup](docs/guide/clients.md) ·
   [Claude Code plugin](docs/guide/claude-code-plugin.md) · [configuration](docs/guide/configuration.md) ·
   [migrating a config](docs/guide/migrating-config.md) · [troubleshooting](docs/guide/troubleshooting.md)

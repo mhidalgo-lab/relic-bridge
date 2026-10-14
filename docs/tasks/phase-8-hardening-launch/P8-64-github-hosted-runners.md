@@ -2,7 +2,7 @@
 id: P8-64
 title: CI runs on GitHub-hosted runners only
 phase: 8
-status: in-progress
+status: review
 priority: high
 depends_on: [P8-07]
 adr: []
@@ -25,10 +25,10 @@ fallback to self-hosted runners would run fork pull-request code on them if the 
 - Remove or rewrite every mention of `CI_RUNS_ON` and self-hosted runners in current docs.
 
 ## Acceptance criteria
-- [ ] No workflow contains `self-hosted`, `CI_RUNS_ON` or `runner.environment`; actionlint passes.
-- [ ] harden-runner is the unconditional first step of every Linux job.
-- [ ] Tests updated and passing; `pnpm lint && pnpm typecheck && pnpm test` pass.
-- [ ] Docs updated (testing guide, CONTRIBUTING, repo settings, THREAT_MODEL T18, roadmap P8-08 row).
+- [x] No workflow contains `self-hosted`, `CI_RUNS_ON` or `runner.environment`; actionlint passes.
+- [x] harden-runner is the unconditional first step of every Linux job.
+- [x] Tests updated and passing; `pnpm lint && pnpm typecheck && pnpm test` pass.
+- [x] Docs updated (testing guide, CONTRIBUTING, repo settings, THREAT_MODEL T18).
 - [ ] Owner: delete the repository variable `CI_RUNS_ON` (and any leftover `CI_RUNS_ON` secret) after this merges.
   Needs the owner (repository settings).
 
@@ -36,7 +36,7 @@ fallback to self-hosted runners would run fork pull-request code on them if the 
 THREAT_MODEL T18: removes the risk of fork pull-request code reaching a self-hosted runner.
 
 ## Docs to update
-`docs/dev/testing.md`, `CONTRIBUTING.md`, `docs/security/repo-settings.md`, `docs/THREAT_MODEL.md`, `docs/ROADMAP.md`.
+`docs/dev/testing.md`, `CONTRIBUTING.md`, `docs/security/repo-settings.md`, `docs/THREAT_MODEL.md`.
 
 ## Out of scope
 - Editing completed task files and pending-decisions history. No changeset (CI only).

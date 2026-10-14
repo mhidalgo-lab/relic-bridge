@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { parse } from 'yaml';
 
-// THREAT_MODEL T18 (P8-08): pull-request CI may use the organization's self-hosted runners; anything that holds a
-// secret, an OIDC token or makes provenance claims stays on GitHub-hosted runners.
+// THREAT_MODEL T18 (P8-64): CI runs on GitHub-hosted runners only. The repository is public, so a self-hosted
+// `runs-on` fallback would run fork pull-request code there if a repository variable were ever unset.
 
 interface Job {
   'runs-on'?: unknown;
@@ -14,7 +14,6 @@ const workflow = (name: string): { jobs: Record<string, Job> } =>
     jobs: Record<string, Job>;
   };
 
-const SWITCH = `\${{ fromJSON(vars.CI_RUNS_ON || '["self-hosted","linux","x64"]') }}`;
 const mentionsSelfHosted = (job: Job): boolean => /self-hosted|CI_RUNS_ON/.test(JSON.stringify(job));
 
 const triggers = (name: string): Record<string, unknown> =>
@@ -35,39 +34,37 @@ describe('scheduled workflows (P4-24)', () => {
   });
 });
 
-describe('runner selection (P8-08)', () => {
-  it('build and test workflows use the switchable runner expression', () => {
-    for (const name of ['ci', 'security', 'bench', 'e2e']) {
+describe('runner selection (P8-64)', () => {
+  const names = readdirSync(new URL('../../.github/workflows/', import.meta.url))
+    .filter((f) => f.endsWith('.yml'))
+    .map((f) => f.replace(/\.yml$/, ''));
+
+  it('no workflow job uses a self-hosted label or vars.CI_RUNS_ON', () => {
+    expect(names.length).toBeGreaterThanOrEqual(10);
+    for (const name of names) {
       for (const [id, job] of Object.entries(workflow(name).jobs)) {
-        if (name === 'ci' && id === 'sqlite-os') continue;
-        expect(job['runs-on'], `${name}.yml ${id}`).toBe(SWITCH);
+        expect(mentionsSelfHosted(job), `${name}.yml ${id}`).toBe(false);
       }
     }
   });
 
-  it('the ZAP scan stays on a hosted runner (host network and bind mount need a local Docker daemon)', () => {
-    expect(workflow('zap').jobs['zap']?.['runs-on']).toBe('ubuntu-latest');
-  });
-
-  it('the CI OS matrix stays on hosted runners', () => {
-    expect(workflow('ci').jobs['sqlite-os']?.['runs-on']).toBe('${{ matrix.os }}');
-  });
-
-  it('docker build switches only on pull requests; plan and publish stay hosted', () => {
-    const { jobs } = workflow('docker');
-    const build = String(jobs['build']?.['runs-on']);
-    expect(build).toContain("github.event_name == 'pull_request'");
-    expect(build).toContain('fromJSON(vars.CI_RUNS_ON || \'["self-hosted","linux","x64"]\')');
-    expect(build).toMatch(/\|\| 'ubuntu-latest'\s*}}$/);
-    expect(jobs['plan']?.['runs-on']).toBe('ubuntu-latest');
-    expect(jobs['publish']?.['runs-on']).toBe('ubuntu-latest');
-  });
-
-  it('release, scorecard, live and staging-smoke never use self-hosted runners or the variable', () => {
-    for (const name of ['release', 'scorecard', 'live', 'staging-smoke']) {
+  it('every job runs on ubuntu-latest, except the macOS/Windows OS matrix', () => {
+    for (const name of names) {
       for (const [id, job] of Object.entries(workflow(name).jobs)) {
-        expect(mentionsSelfHosted(job), `${name}.yml ${id}`).toBe(false);
+        const runsOn = job['runs-on'];
+        if (name === 'ci' && id === 'sqlite-os') {
+          expect(runsOn).toBe('${{ matrix.os }}');
+        } else {
+          expect(runsOn, `${name}.yml ${id}`).toBe('ubuntu-latest');
+        }
       }
+    }
+  });
+
+  it('no workflow file mentions CI_RUNS_ON or a self-hosted label', () => {
+    for (const name of names) {
+      const src = readFileSync(new URL(`../../.github/workflows/${name}.yml`, import.meta.url), 'utf8');
+      expect(src, `${name}.yml`).not.toMatch(/CI_RUNS_ON|self-hosted/);
     }
   });
 });

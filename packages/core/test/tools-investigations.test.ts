@@ -262,7 +262,9 @@ describe('trace_error', () => {
   it('says so when the error group has no traced occurrence, and when tracing appears disabled (BUG-12)', async () => {
     const ng = nerdGraph({
       nrql: (q) =>
-        q.includes('FROM Span, TransactionError') ? nrqlBody([{ spans: 0, tracedErrors: 0 }]) : nrqlBody([]),
+        q.includes('FROM Span, TransactionError')
+          ? nrqlBody([{ spans: 0, tracedErrors: 0, errors: 3500 }])
+          : nrqlBody([]),
     });
     const client = await connect(ng.fetch);
     const r = await client.callTool({ name: 'trace_error', arguments: { error_group_id: 'eg-1' } });
@@ -270,19 +272,23 @@ describe('trace_error', () => {
     expect((r.structuredContent as { traceId: null }).traceId).toBeNull();
     expect(ng.calls.filter((c) => c.op === 'RbNrql')).toHaveLength(2);
     expect(resultText(r)).toContain('span collection appears to be disabled');
+    expect(resultText(r)).toContain('none of 3500 errors carry a trace id');
+    expect(resultText(r)).not.toContain('even though');
   });
 
   it('diagnoses missing spans even when errors carry trace ids (BUG-12)', async () => {
     const ng = nerdGraph({
       nrql: (q) =>
-        q.includes('FROM Span, TransactionError') ? nrqlBody([{ spans: 0, tracedErrors: 7 }]) : nrqlBody([]),
+        q.includes('FROM Span, TransactionError')
+          ? nrqlBody([{ spans: 0, tracedErrors: 7, errors: 120 }])
+          : nrqlBody([]),
     });
     const client = await connect(ng.fetch);
     const r = await client.callTool({ name: 'trace_error', arguments: { error_group_id: 'eg-1' } });
     expect(r.isError).toBeFalsy();
     expect(resultText(r)).toContain('No Span events exist');
     expect(resultText(r)).toContain('span collection appears to be disabled');
-    expect(resultText(r)).toContain('carry a trace id');
+    expect(resultText(r)).toContain('even though 7 of 120 errors carry a trace id');
   });
 
   it('notes when the tracing check itself fails (BUG-12)', async () => {

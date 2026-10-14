@@ -2,7 +2,7 @@
 id: P8-49
 title: trace_error note states how many errors carry a trace id
 phase: 8
-status: in-progress
+status: review
 priority: low
 depends_on: []
 adr: []
@@ -20,8 +20,8 @@ about 3.5 K `TransactionError` events have `trace.id`.
   within the existing request budget (reuse a query if one already counts errors).
 
 ## Acceptance criteria
-- [ ] Note text is correct for K = 0 and K > 0.
-- [ ] Tests for both.
+- [x] Note text is correct for K = 0 and K > 0.
+- [x] Tests for both.
 
 ## Security notes
 None.

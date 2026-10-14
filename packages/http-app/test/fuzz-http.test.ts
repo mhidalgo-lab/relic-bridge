@@ -137,6 +137,8 @@ describe('OAuth authorization requests (T9, T2)', { timeout: FUZZ_TIMEOUT }, () 
         set('resource', p.resource);
         set('scope', p.scope);
         if (p.duplicate !== undefined) url.searchParams.append(p.duplicate, 'second');
+        // Repeated only when the parameter was already there (appending an unset one is just a value).
+        const repeated = p.duplicate !== undefined && url.searchParams.getAll(p.duplicate).length > 1;
         const res = await client.send(new Request(url));
         expect(res.status).toBeLessThan(500);
         const location = res.headers.get('location');
@@ -150,7 +152,7 @@ describe('OAuth authorization requests (T9, T2)', { timeout: FUZZ_TIMEOUT }, () 
         const requested = new URL(p.redirect_uri);
         expect(p.client_id).toBe('registered');
         // A repeated parameter may be answered with an error redirect, but never when the target itself is ambiguous.
-        expect(['redirect_uri', 'client_id']).not.toContain(p.duplicate);
+        if (repeated) expect(['redirect_uri', 'client_id']).not.toContain(p.duplicate);
         expect(`${to.protocol}//${to.hostname}${to.pathname}`).toBe(
           `${registered.protocol}//${registered.hostname}${registered.pathname}`,
         );
@@ -163,7 +165,7 @@ describe('OAuth authorization requests (T9, T2)', { timeout: FUZZ_TIMEOUT }, () 
         if (code !== null) {
           issued++;
           secrets.push(code);
-          expect(p.duplicate).toBeUndefined();
+          expect(repeated).toBe(false);
           expect(p.code_challenge_method).toBe('S256');
           expect(p.response_type).toBe('code');
           expect(p.resource).toBe(resourceOf('prod'));

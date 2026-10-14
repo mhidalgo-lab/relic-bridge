@@ -315,7 +315,7 @@ Generated from task front matter (`pnpm tasks index`). Status lives in each task
 | P8-44 | [run_nrql accepts array totals of FACET TIMESERIES queries](tasks/phase-8-hardening-launch/P8-44-nrql-facet-timeseries-totals.md) | high | — | todo |
 | P8-45 | [get_attributes filters by name before the attribute cap](tasks/phase-8-hardening-launch/P8-45-attributes-filter-before-cap.md) | high | — | todo |
 | P8-46 | [An explicit baseline that cannot run falls back to an available control](tasks/phase-8-hardening-launch/P8-46-baseline-fallback.md) | medium | — | todo |
-| P8-47 | [whoami keeps callBudget as a deprecated alias of perCallBudget](tasks/phase-8-hardening-launch/P8-47-whoami-budget-alias.md) | medium | — | todo |
+| P8-47 | [whoami keeps callBudget as a deprecated alias of perCallBudget](tasks/phase-8-hardening-launch/P8-47-whoami-budget-alias.md) | medium | — | review |
 | P8-48 | [list_recent_issues says when group counts or limit fall back](tasks/phase-8-hardening-launch/P8-48-issues-silent-fallbacks.md) | low | — | todo |
 | P8-49 | [trace_error note states how many errors carry a trace id](tasks/phase-8-hardening-launch/P8-49-trace-error-note-count.md) | low | — | todo |
 | P8-50 | [Self-monitoring logs - stream deadlines, access-log fields, documented names](tasks/phase-8-hardening-launch/P8-50-otel-log-signal-quality.md) | medium | — | todo |

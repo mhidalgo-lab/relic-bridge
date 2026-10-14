@@ -2,7 +2,7 @@
 id: P8-47
 title: whoami keeps callBudget as a deprecated alias of perCallBudget
 phase: 8
-status: in-progress
+status: review
 priority: medium
 depends_on: []
 adr: []
@@ -22,9 +22,9 @@ NEW-12 of the 0.9.0 verification: 0.9.0 renamed `whoami.limits.callBudget` to `p
 - Release note in the changeset naming the rename and the removed counters.
 
 ## Acceptance criteria
-- [ ] `whoami` returns both fields; schema marks `callBudget` deprecated.
-- [ ] Description explains `perCallBudget` (tools/list budget test still passes).
-- [ ] Changeset text covers the 0.9.0 rename.
+- [x] `whoami` returns both fields; schema marks `callBudget` deprecated.
+- [x] Description explains `perCallBudget` (tools/list budget test still passes).
+- [x] Changeset text covers the 0.9.0 rename.
 
 ## Security notes
 None.

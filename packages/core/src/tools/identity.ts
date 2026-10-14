@@ -39,6 +39,13 @@ const whoamiOutput = z.object({
   limits: z.object({
     /** Most New Relic calls ONE tool call may make (ADR-0010). Not a running total: nothing carries over between calls. */
     perCallBudget: z.number().int(),
+    /** Deprecated alias of perCallBudget (same value); removed in the minor after next. Use perCallBudget. */
+    callBudget: z
+      .number()
+      .int()
+      .describe(
+        'Deprecated: same value as perCallBudget, removed in the minor after next. Use perCallBudget.',
+      ),
     maxResponseBytes: z.number().int(),
     maxLimit: z.number().int(),
     maxWindowDays: z.number(),
@@ -62,7 +69,7 @@ const listAccountsOutput = z.object({
   nextCursor: z.string().nullable(),
 });
 
-const WHOAMI_DESCRIPTION = `Show this connection's identity: the New Relic user, region, project, default account, how many accounts are usable and which tools are granted. Never returns key material.
+const WHOAMI_DESCRIPTION = `Show this connection's identity: the New Relic user, region, project, default account, how many accounts are usable and which tools are granted. limits.perCallBudget is the most upstream requests one tool call may make. Never returns key material.
 
 Use it first when something fails (wrong region, "account not found", a missing tool). For the accounts themselves use list_accounts. ${UNTRUSTED}`;
 
@@ -154,6 +161,7 @@ export function createIdentityTools(deps: ToolDeps = {}): ToolDefinition[] {
         unavailableTools: unavailable.map((u) => ({ name: u.name, reason: u.reason })),
         limits: {
           perCallBudget: ctx.budget.limit,
+          callBudget: ctx.budget.limit,
           maxResponseBytes: ctx.limits.maxResponseBytes,
           maxLimit: ctx.limits.maxLimit,
           maxWindowDays: ctx.limits.maxWindowDays,

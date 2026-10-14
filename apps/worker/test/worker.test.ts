@@ -486,8 +486,11 @@ describe('Self-monitoring (P7-08)', () => {
       openStorage: () => storage,
       fetch: mockNerdGraph().fetch,
       telemetryFetch: async (url, init) => {
+        // A real workerd Request from the exporter's init: workerd rejects options it does not support (P8-65).
+        const request = new Request(String(url), init);
+        expect(request.redirect).toBe('manual');
         sent.push({
-          path: event(new Request(String(url))),
+          path: event(request),
           key: new Headers(init.headers).get('api-key'),
           body: String(init.body),
         });

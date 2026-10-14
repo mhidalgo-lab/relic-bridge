@@ -8,6 +8,8 @@
     // App, not a library; type-checks sibling packages from source, which are not isolatedDeclarations-clean.
     "declaration": false,
     "isolatedDeclarations": false,
+    // Upgrade fixtures (P8-05) are JSON imports.
+    "resolveJsonModule": true,
     // Admin UI sources (Hono JSX) are type-checked from source too.
     "jsx": "react-jsx",
     "jsxImportSource": "hono/jsx",

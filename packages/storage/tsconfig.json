@@ -3,7 +3,9 @@
   "compilerOptions": {
     "types": [],
     "lib": ["es2023", "webworker"],
-    "isolatedDeclarations": false
+    "isolatedDeclarations": false,
+    // Upgrade fixtures (P8-05) are JSON imports.
+    "resolveJsonModule": true
   },
   "include": ["src", "test"],
   "exclude": ["test/sqlite"]

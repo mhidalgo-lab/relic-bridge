@@ -1,0 +1,196 @@
+{
+  "name": "relic-bridge self-monitoring",
+  "description": "Tool calls, errors, latency, NerdGraph usage and refused requests of relic-bridge (docs/guide/observability.md). Replace every accountIds 0 with your account id before importing.",
+  "permissions": "PRIVATE",
+  "pages": [
+    {
+      "name": "relic-bridge",
+      "description": "OTLP self-monitoring export of relic-bridge (RB_OTEL=on).",
+      "widgets": [
+        {
+          "title": "Tool calls",
+          "layout": { "column": 1, "row": 1, "width": 3, "height": 3 },
+          "visualization": { "id": "viz.billboard" },
+          "rawConfiguration": {
+            "nrqlQueries": [
+              {
+                "accountIds": [0],
+                "query": "SELECT sum(relic_bridge.tool.calls) AS 'Tool calls' FROM Metric WHERE service.name = 'relic-bridge'"
+              }
+            ],
+            "platformOptions": { "ignoreTimeRange": false }
+          }
+        },
+        {
+          "title": "Server error % (needs the P8-59 version)",
+          "layout": { "column": 4, "row": 1, "width": 3, "height": 3 },
+          "visualization": { "id": "viz.billboard" },
+          "rawConfiguration": {
+            "nrqlQueries": [
+              {
+                "accountIds": [0],
+                "query": "SELECT filter(sum(relic_bridge.tool.calls), WHERE fault = 'server') * 100 / sum(relic_bridge.tool.calls) AS 'Server errors %' FROM Metric WHERE service.name = 'relic-bridge'"
+              }
+            ],
+            "platformOptions": { "ignoreTimeRange": false }
+          }
+        },
+        {
+          "title": "All tool errors % (caller and server)",
+          "layout": { "column": 7, "row": 1, "width": 3, "height": 3 },
+          "visualization": { "id": "viz.billboard" },
+          "rawConfiguration": {
+            "nrqlQueries": [
+              {
+                "accountIds": [0],
+                "query": "SELECT filter(sum(relic_bridge.tool.calls), WHERE status = 'error') * 100 / sum(relic_bridge.tool.calls) AS 'All errors %' FROM Metric WHERE service.name = 'relic-bridge'"
+              }
+            ],
+            "platformOptions": { "ignoreTimeRange": false }
+          }
+        },
+        {
+          "title": "Request timeouts",
+          "layout": { "column": 10, "row": 1, "width": 3, "height": 3 },
+          "visualization": { "id": "viz.billboard" },
+          "rawConfiguration": {
+            "nrqlQueries": [
+              {
+                "accountIds": [0],
+                "query": "SELECT count(*) AS 'Request timeouts' FROM Log WHERE service.name = 'relic-bridge' AND message = 'mcp request timed out'"
+              }
+            ],
+            "platformOptions": { "ignoreTimeRange": false }
+          }
+        },
+        {
+          "title": "Tool calls by tool",
+          "layout": { "column": 1, "row": 4, "width": 6, "height": 3 },
+          "visualization": { "id": "viz.line" },
+          "rawConfiguration": {
+            "nrqlQueries": [
+              {
+                "accountIds": [0],
+                "query": "SELECT sum(relic_bridge.tool.calls) FROM Metric WHERE service.name = 'relic-bridge' FACET tool TIMESERIES"
+              }
+            ],
+            "platformOptions": { "ignoreTimeRange": false }
+          }
+        },
+        {
+          "title": "Tool duration (ms): p50, p95, p99",
+          "layout": { "column": 7, "row": 4, "width": 6, "height": 3 },
+          "visualization": { "id": "viz.line" },
+          "rawConfiguration": {
+            "nrqlQueries": [
+              {
+                "accountIds": [0],
+                "query": "SELECT percentile(relic_bridge.tool.duration, 50, 95, 99) FROM Metric WHERE service.name = 'relic-bridge' TIMESERIES"
+              }
+            ],
+            "platformOptions": { "ignoreTimeRange": false }
+          }
+        },
+        {
+          "title": "Errors by code and tool",
+          "layout": { "column": 1, "row": 7, "width": 6, "height": 3 },
+          "visualization": { "id": "viz.bar" },
+          "rawConfiguration": {
+            "nrqlQueries": [
+              {
+                "accountIds": [0],
+                "query": "SELECT sum(relic_bridge.tool.calls) FROM Metric WHERE service.name = 'relic-bridge' AND status = 'error' FACET error.code, tool"
+              }
+            ],
+            "platformOptions": { "ignoreTimeRange": false }
+          }
+        },
+        {
+          "title": "Errors by fault and code",
+          "layout": { "column": 7, "row": 7, "width": 6, "height": 3 },
+          "visualization": { "id": "viz.table" },
+          "rawConfiguration": {
+            "nrqlQueries": [
+              {
+                "accountIds": [0],
+                "query": "SELECT sum(relic_bridge.tool.calls) AS 'Errors' FROM Metric WHERE service.name = 'relic-bridge' AND status = 'error' FACET fault, error.code"
+              }
+            ],
+            "platformOptions": { "ignoreTimeRange": false }
+          }
+        },
+        {
+          "title": "p95 tool duration by tool (ms)",
+          "layout": { "column": 1, "row": 10, "width": 4, "height": 3 },
+          "visualization": { "id": "viz.bar" },
+          "rawConfiguration": {
+            "nrqlQueries": [
+              {
+                "accountIds": [0],
+                "query": "SELECT percentile(relic_bridge.tool.duration, 95) FROM Metric WHERE service.name = 'relic-bridge' FACET tool"
+              }
+            ],
+            "platformOptions": { "ignoreTimeRange": false }
+          }
+        },
+        {
+          "title": "NerdGraph calls per tool call",
+          "layout": { "column": 5, "row": 10, "width": 4, "height": 3 },
+          "visualization": { "id": "viz.line" },
+          "rawConfiguration": {
+            "nrqlQueries": [
+              {
+                "accountIds": [0],
+                "query": "SELECT sum(relic_bridge.nerdgraph.calls) / sum(relic_bridge.tool.calls) AS 'NerdGraph calls per tool call' FROM Metric WHERE service.name = 'relic-bridge' TIMESERIES"
+              }
+            ],
+            "platformOptions": { "ignoreTimeRange": false }
+          }
+        },
+        {
+          "title": "KiB read from New Relic per tool call",
+          "layout": { "column": 9, "row": 10, "width": 4, "height": 3 },
+          "visualization": { "id": "viz.bar" },
+          "rawConfiguration": {
+            "nrqlQueries": [
+              {
+                "accountIds": [0],
+                "query": "SELECT sum(relic_bridge.nerdgraph.response_bytes) / sum(relic_bridge.tool.calls) / 1024 AS 'KiB read per tool call' FROM Metric WHERE service.name = 'relic-bridge' FACET tool"
+              }
+            ],
+            "platformOptions": { "ignoreTimeRange": false }
+          }
+        },
+        {
+          "title": "Refused requests by reason",
+          "layout": { "column": 1, "row": 13, "width": 6, "height": 3 },
+          "visualization": { "id": "viz.line" },
+          "rawConfiguration": {
+            "nrqlQueries": [
+              {
+                "accountIds": [0],
+                "query": "SELECT sum(relic_bridge.requests.rejected) FROM Metric WHERE service.name = 'relic-bridge' FACET reason TIMESERIES"
+              }
+            ],
+            "platformOptions": { "ignoreTimeRange": false }
+          }
+        },
+        {
+          "title": "HTTP 4xx and 5xx by status and route",
+          "layout": { "column": 7, "row": 13, "width": 6, "height": 3 },
+          "visualization": { "id": "viz.line" },
+          "rawConfiguration": {
+            "nrqlQueries": [
+              {
+                "accountIds": [0],
+                "query": "SELECT count(*) FROM Log WHERE service.name = 'relic-bridge' AND message = 'http request' AND status >= 400 FACET status, route TIMESERIES"
+              }
+            ],
+            "platformOptions": { "ignoreTimeRange": false }
+          }
+        }
+      ]
+    }
+  ],
+  "variables": []
+}

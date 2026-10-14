@@ -1270,3 +1270,18 @@ Sources: [server.json format](https://github.com/modelcontextprotocol/registry/b
   the SDK (`@modelcontextprotocol/core` 2.2.0) still defines them for the 2025-11-25 era. `server/discover` was the only
   client-to-server method missing from the pattern, so P8-61 adds it; `sampling/createMessage`, `roots/list` and
   `elicitation/create` are server-to-client and never arrive as requests.
+
+## Self-monitoring recipes (P8-52, live export 2026-10-14)
+
+- All guide and dashboard NRQL ran against the 0.9.1 export through `run_nrql`. Typical numbers on the owner's server
+  (24 h): 147 tool calls, p95 tool duration 5.8 s, about 2 NerdGraph calls and 44 KiB read per tool call, no refused
+  requests in 7 days. One `RB_NERDGRAPH_ERROR` in 7 days: the kind of server error P8-59 makes count.
+- `FACET mcpMethod` alone returned no rows for 333 `mcp request timed out` records in 24 h, all from 0.8.0 and 0.9.0
+  (no `mcpMethod` attribute); `FACET service.version, mcpMethod` shows them with a null `mcpMethod`. A facet on a
+  single attribute drops records that lack it. No timeouts on 0.9.1, which logs stream deadlines at info (P8-50).
+- Gaps of several hours with no `http request` record are normal on a personal server, so an exporter-gap condition
+  needs a long loss-of-signal window (the guide suggests 24 h); there is no heartbeat signal.
+- The dashboard JSON follows NerdGraph's `DashboardInput` (`name`, `permissions` PRIVATE/PUBLIC_READ_ONLY/
+  PUBLIC_READ_WRITE, `pages[].widgets[]` with `visualization.id`, `layout`, `rawConfiguration.nrqlQueries[].accountIds`)
+  (https://docs.newrelic.com/docs/apis/nerdgraph/examples/nerdgraph-dashboards/). graphql 17 checks it against the schema
+  snapshot with `validateInputValue` (`coerceInputValue` no longer takes an error callback in 17; it returns undefined).

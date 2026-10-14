@@ -64,6 +64,14 @@ npm, and CI cannot approve (`npm stage` subcommands refuse OIDC tokens). Facts a
    GitHub Release (mode `release`), rebuilds, checks the tarball is identical to the one on npm and creates only the
    GitHub Release `v<version>`.
 
+### Release assets and provenance (P8-54)
+
+The GitHub Release carries `relic-bridge-<v>.tgz`, `.cdx.json`, `SHA256SUMS` and `relic-bridge-<v>.intoto.jsonl`, the
+Sigstore bundle of the build provenance attestation for the first three. The `publish` job creates it with
+`actions/attest` and uploads it as a release asset because OpenSSF Scorecard (Signed-Releases) only counts signature or
+provenance files among the assets. Verification for users: [Verify a release](../guide/verify-release.md). Old
+releases (before this change) have attestations on GitHub but no `.intoto.jsonl` asset.
+
 ### Reruns
 
 | Situation | What happens |

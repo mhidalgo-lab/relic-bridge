@@ -148,6 +148,8 @@ describe('resolveTagCommit', () => {
 });
 
 interface Step {
+  id?: string;
+  env?: Record<string, string>;
   uses?: string;
   run?: string;
   if?: string;
@@ -220,6 +222,23 @@ describe('.github/workflows/release.yml (THREAT_MODEL T18, P1-16)', () => {
     expect(verify).toBeGreaterThan(-1);
     expect(verify).toBeLessThan(attest);
     expect(attest).toBeLessThan(publish);
+  });
+
+  it('attests the release assets and uploads the bundle as <asset>.intoto.jsonl (Scorecard Signed-Releases, P8-54)', () => {
+    const publish = workflow.jobs.publish;
+    const steps = publish?.steps ?? [];
+    const provenance = steps.find((s) => s.id === 'provenance');
+    expect(provenance?.uses).toMatch(/^actions\/attest(-build-provenance)?@[0-9a-f]{40}$/);
+    expect(publish?.permissions).toMatchObject({ 'id-token': 'write', attestations: 'write' });
+    const release = steps.find((s) => /gh release create/.test(s.run ?? ''));
+    expect(release?.env?.['BUNDLE_PATH']).toBe('${{ steps.provenance.outputs.bundle-path }}');
+    expect(release?.run).toContain('relic-bridge-${VERSION}.intoto.jsonl');
+    // the bundle is created after the checksums are verified and is not part of SHA256SUMS
+    expect(release?.run).not.toContain('dist-release/release/relic-bridge-${VERSION}.intoto.jsonl');
+    // nothing else got more permissions for it
+    for (const [name, job] of jobs) {
+      if (name !== 'publish') expect(job.permissions?.['attestations']).toBeUndefined();
+    }
   });
 
   it('stages on npm and never publishes directly (second approval with 2FA on npmjs.com)', () => {

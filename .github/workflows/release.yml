@@ -249,7 +249,12 @@ jobs:
           }
           echo "relic-bridge@${VERSION} is already on npm with this tarball; only the GitHub Release is missing"
           echo "published=true" >> "$GITHUB_OUTPUT"
-      - name: Attest build provenance (tarball, SBOM, checksums)
+      # One bundle covers the tarball, SBOM and checksums. It is also uploaded to the GitHub Release as
+      # `relic-bridge-<v>.intoto.jsonl` (P8-54): OpenSSF Scorecard (Signed-Releases) only recognises a signature or
+      # provenance file among the release assets. `actions/attest-build-provenance` is a thin wrapper of
+      # `actions/attest` (same version), so this step already is the build provenance attestation.
+      - id: provenance
+        name: Attest build provenance (tarball, SBOM, checksums)
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
           subject-path: dist-release/release/*
@@ -297,12 +302,18 @@ jobs:
         if: steps.npm.outputs.published == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
+          BUNDLE_PATH: ${{ steps.provenance.outputs.bundle-path }}
         run: |
           if draft="$(gh release view "v${VERSION}" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft 2>/dev/null)"; then
             [[ "$draft" == false ]] || { echo "::error::a draft release v${VERSION} exists; delete it and rerun"; exit 1; }
             echo "GitHub Release v${VERSION} already exists"; exit 0
           fi
+          # The Sigstore bundle as one JSON line (`.intoto.jsonl`); `gh attestation verify` can use it offline with
+          # `--bundle`. Kept outside dist-release/release, which SHA256SUMS covers.
+          mkdir -p dist-release/provenance
+          jq -c . "$BUNDLE_PATH" > "dist-release/provenance/relic-bridge-${VERSION}.intoto.jsonl"
           gh release create "v${VERSION}" dist-release/release/* \
+            "dist-release/provenance/relic-bridge-${VERSION}.intoto.jsonl" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
             --title "v${VERSION}" \

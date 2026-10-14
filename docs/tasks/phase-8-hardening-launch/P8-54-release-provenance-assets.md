@@ -2,7 +2,7 @@
 id: P8-54
 title: Signed releases - provenance attestations attached to GitHub Releases
 phase: 8
-status: in-progress
+status: review
 priority: medium
 depends_on: []
 adr: []

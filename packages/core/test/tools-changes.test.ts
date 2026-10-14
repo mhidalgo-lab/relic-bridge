@@ -944,6 +944,19 @@ describe('BUG-07: verdict rules and seasonal baseline (live test run 2026-10-12)
     expect((await call(client, { baseline: 'yesterday' })).isError).toBe(true);
   });
 
+  it('NEW-11: a 7 day baseline outside the limit falls back to the 1 day control and says so', async () => {
+    const { fetch, calls } = byWindow(night, stats(1, 0, 0, 0));
+    const client = await connect(fetch, {}, 3);
+    const s = (await call(client, { baseline: 'same_window_7d_ago' })).structuredContent as Out;
+    expect(s.baseline).toMatchObject({ used: 'same_window_1d_ago', automatic: false });
+    expect(s.baseline?.reason).toBe(
+      'Requested same_window_7d_ago is outside the lookback limit; used same_window_1d_ago.',
+    );
+    expect(s.overall).not.toBe('regression_suspected');
+    expect(s.notes.join(' ')).toContain('7 days earlier fall outside');
+    expect(calls).toHaveLength(5);
+  });
+
   it('skips the control with a note when it reaches past the window limit', async () => {
     const { fetch, calls } = byWindow(night, stats(1, 0, 0, 0), NOW - 3 * 3_600_000);
     const client = await connect(fetch, {}, 1);

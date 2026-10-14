@@ -688,6 +688,39 @@ export function controlRange(
   return range;
 }
 
+/**
+ * An explicit `same_window_7d_ago` whose control reaches past the lookback limit falls back to the best control that
+ * fits (`same_window_1d_ago`); the reported `used` and `reason` say what was requested and what ran. The limit is never
+ * relaxed. When no seasonal control fits, `used` is `previous_window`. Pure; returns the baseline unchanged otherwise.
+ */
+export function fitBaseline(
+  baseline: BaselineOut,
+  windows: readonly Span[],
+  limits: { maxWindowDays: number },
+  now: number,
+): { baseline: BaselineOut; note: string | null } {
+  const fits = (b: Baseline) => windows.every((w) => controlRange(b, w, limits, now));
+  if (baseline.used !== 'same_window_7d_ago' || baseline.automatic || fits('same_window_7d_ago')) {
+    return { baseline, note: null };
+  }
+  const used: Baseline = fits('same_window_1d_ago') ? 'same_window_1d_ago' : 'previous_window';
+  const outside = `The ${controlLabel('same_window_7d_ago')} fall outside this connection's window limit`;
+  return {
+    baseline: {
+      used,
+      automatic: false,
+      reason:
+        used === 'previous_window'
+          ? 'Requested same_window_7d_ago is outside the lookback limit and no other control fits; no control was run.'
+          : `Requested same_window_7d_ago is outside the lookback limit; used ${used}.`,
+    },
+    note:
+      used === 'previous_window'
+        ? `${outside}: no control was run.`
+        : `${outside}: the ${controlLabel(used)} act as the control.`,
+  };
+}
+
 export const controlLabel = (b: Baseline): string =>
   b === 'same_window_7d_ago' ? 'same windows 7 days earlier' : 'same windows 1 day earlier';
 
@@ -1147,6 +1180,9 @@ export function createChangeTools(deps: ToolDeps = {}): ToolDefinition[] {
           limits: ctx.limits,
           now,
         });
+        const fitted = fitBaseline(baseline, [beforeWin, afterWin], ctx.limits, now);
+        baseline = fitted.baseline;
+        if (fitted.note) notes.push(fitted.note);
         const cb = controlRange(baseline.used, beforeWin, ctx.limits, now);
         const ca = controlRange(baseline.used, afterWin, ctx.limits, now);
         if (baseline.used !== 'previous_window' && (!cb || !ca)) {

@@ -101,7 +101,7 @@ describe('whoami budget (BUG-28)', () => {
     const { client } = await setup([]);
     const tool = (await client.listTools()).tools.find((t) => t.name === 'whoami');
     expect(tool).toBeDefined();
-    expect(tool?.description).toMatch(/perCallBudget.*most.*requests one tool call may make/s);
+    expect(tool?.description).toMatch(/perCallBudget: most upstream requests one tool call may make/s);
     const limits = (
       (tool as NonNullable<typeof tool>).outputSchema as {
         properties: { limits: { properties: Record<string, { description?: string }> } };

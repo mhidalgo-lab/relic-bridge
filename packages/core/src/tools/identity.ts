@@ -69,9 +69,9 @@ const listAccountsOutput = z.object({
   nextCursor: z.string().nullable(),
 });
 
-const WHOAMI_DESCRIPTION = `Show this connection's identity: the New Relic user, region, project, default account, how many accounts are usable and which tools are granted. limits.perCallBudget is the most upstream requests one tool call may make. Never returns key material.
+const WHOAMI_DESCRIPTION = `Show this connection's identity: user, region, project, default account, usable accounts and granted tools. perCallBudget: most upstream requests one tool call may make. Never returns key material.
 
-Use it first when something fails (wrong region, "account not found", a missing tool). For the accounts themselves use list_accounts. ${UNTRUSTED}`;
+Use first when something fails (wrong region, missing account or tool). For the accounts use list_accounts. ${UNTRUSTED}`;
 
 const LIST_ACCOUNTS_DESCRIPTION = `List the New Relic accounts this connection can query (id and name), with the default marked.
 

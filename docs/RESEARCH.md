@@ -1141,4 +1141,4 @@ Sources: [server.json format](https://github.com/modelcontextprotocol/registry/b
   the likely candidates are open-ended streams (`subscriptions/listen` on the 2026-07-28 era) or a client that
   disconnects without the stream being cancelled. P8-50 logs open-ended streams at info and exports `status`, `method`
   and `route` on access-log records, so the next investigation can be answered from New Relic. If warnings persist
-  after upgrading, they are real (hung requests): look at the `mcpMethod` on the stderr line.
+  after upgrading, they are real (hung requests): facet them by `mcpMethod` in New Relic (exported since P8-50).

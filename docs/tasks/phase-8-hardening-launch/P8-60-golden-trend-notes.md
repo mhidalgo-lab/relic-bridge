@@ -2,7 +2,7 @@
 id: P8-60
 title: Golden-metric trend notes say why there is no trend
 phase: 8
-status: in-progress
+status: review
 priority: low
 depends_on: []
 adr: []
@@ -26,11 +26,11 @@ had trend `up` with `changeRatio` null. Notes must say why there is no trend, an
 - Unit tests for each case; patch changeset.
 
 ## Acceptance criteria
-- [ ] Comparison failed: note says the previous window could not be read (halves trend kept when usable).
-- [ ] Previous window empty: note says no data in the previous window.
-- [ ] Halves also inconclusive: note is "No trend: ...", never "compares the halves".
-- [ ] Zero previous window: `up`, `changeRatio` null, documented.
-- [ ] Tests for each case; changeset added; `pnpm tasks index` run.
+- [x] Comparison failed: note says the previous window could not be read (halves trend kept when usable).
+- [x] Previous window empty: note says no data in the previous window.
+- [x] Halves also inconclusive: note is "No trend: ...", never "compares the halves".
+- [x] Zero previous window: `up`, `changeRatio` null, documented.
+- [x] Tests for each case; changeset added; `pnpm tasks index` run.
 
 ## Security notes
 none (notes text only; no new query or input).

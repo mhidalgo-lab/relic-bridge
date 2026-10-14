@@ -351,6 +351,75 @@ describe('get_golden_metrics', () => {
     });
   });
 
+  describe('trend notes (P8-60)', () => {
+    const bad = () =>
+      json({
+        data: { actor: { account: { nrql: null } } },
+        errors: [
+          {
+            message: 'NRQL Syntax Error: Error at line 1',
+            path: ['actor', 'account', 'nrql'],
+            extensions: { errorClass: 'INVALID_INPUT' },
+          },
+        ],
+      });
+    const row = async (routes: Record<string, () => Response>, values: (number | null)[]) => {
+      const { fetch } = routedFetch({ 'rate(count(a)': () => nrqlBody(series(...values)), ...routes }, () =>
+        entityBody([THREE[0]]),
+      );
+      const client = await connect(fetch);
+      const r = await client.callTool({ name: 'get_golden_metrics', arguments: { entity_guid: GUID } });
+      return (r.structuredContent as Out & { metrics: { changeRatio: number | null }[] })
+        .metrics[0] as Out['metrics'][number] & { changeRatio: number | null };
+    };
+
+    it('comparison failed, halves usable: says the previous window could not be read', async () => {
+      const m = await row({ 'compare:rate(count(a)': bad }, [1, 1, 2, 2]);
+      expect(m).toMatchObject({
+        trend: 'up',
+        note: 'Trend compares the halves of the window: the previous window could not be read.',
+      });
+    });
+
+    it('previous window empty, halves usable: says there is no data in the previous window', async () => {
+      const m = await row({}, [1, 1, 2, 2]);
+      expect(m).toMatchObject({
+        trend: 'up',
+        note: 'Trend compares the halves of the window: no data in the previous window.',
+      });
+    });
+
+    it('previous window empty and too few points: no trend, never says halves compared', async () => {
+      const m = await row({}, [0, 0]);
+      expect(m.trend).toBe('unknown');
+      expect(m.note).toBe(
+        'No trend: no data in the previous window and too few points to compare the halves.',
+      );
+    });
+
+    it('comparison failed and too few points: no trend, never says halves compared', async () => {
+      const m = await row({ 'compare:rate(count(a)': bad }, [3, 4]);
+      expect(m.trend).toBe('unknown');
+      expect(m.note).toBe(
+        'No trend: the previous window could not be read and too few points to compare the halves.',
+      );
+    });
+
+    it('a zero previous window is a trend up with no ratio and no note', async () => {
+      const m = await row(
+        {
+          'compare:rate(count(a)': () =>
+            nrqlBody([
+              { comparison: 'current', Throughput: 5 },
+              { comparison: 'previous', Throughput: 0 },
+            ]),
+        },
+        [0, 5],
+      );
+      expect(m).toMatchObject({ trend: 'up', changeRatio: null, note: null });
+    });
+  });
+
   it('does not send TIMESERIES when timeseries=false, even if the golden query has one (BUG-26)', async () => {
     const q = {
       title: 'Throughput',

@@ -76,7 +76,10 @@ const metricRow = z.object({
   /** The result column the value came from. */
   column: z.string().nullable(),
   trend: z.enum(['up', 'down', 'flat', 'unknown']),
-  /** Change of the window against the previous equal window (halves of the window as fallback), as a fraction (0.12 = +12%). */
+  /**
+   * Change of the window against the previous equal window (halves of the window as fallback), as a fraction (0.12 = +12%).
+   * Null when the baseline is 0 (a ratio is undefined: the trend is then up, or flat when both are 0) or there is no trend.
+   */
   changeRatio: z.number().nullable(),
   points: z.number().int(),
   nrql: z.string().nullable(),
@@ -336,7 +339,17 @@ const emptyMetric = (
   reason,
 });
 
-const HALVES_NOTE = 'Trend compares the halves of the window: the previous window could not be read.';
+/** Why the previous-window comparison gave no trend, and the note that says so (never "halves" when the halves gave none). */
+type NoCompare = 'unread' | 'empty';
+const NO_COMPARE_REASON: Record<NoCompare, string> = {
+  unread: 'the previous window could not be read',
+  empty: 'no data in the previous window',
+};
+export function trendNote(why: NoCompare, halvesTrend: Trend): string {
+  return halvesTrend === 'unknown'
+    ? `No trend: ${NO_COMPARE_REASON[why]} and too few points to compare the halves.`
+    : `Trend compares the halves of the window: ${NO_COMPARE_REASON[why]}.`;
+}
 
 const fmt = (v: number | null) => (v === null ? '' : String(Number(v.toPrecision(4))));
 const pct = (r: number | null) => (r === null ? '' : `${r >= 0 ? '+' : ''}${(r * 100).toFixed(1)}%`);
@@ -399,6 +412,7 @@ export function createGoldenMetricTools(deps: ToolDeps = {}): ToolDefinition[] {
       }
       // The trend compares the window with the previous equal window, as analyze_transactions does (BUG-06).
       const flat = withTimeClauses(query, clause, false).nrql;
+      let why: NoCompare = 'unread';
       try {
         const compared = await runTrustedNrql(
           ctx,
@@ -414,11 +428,12 @@ export function createGoldenMetricTools(deps: ToolDeps = {}): ToolDefinition[] {
           for (const n of compared.notes) adjustments.add(n);
           const t = compareTrend(compared.results);
           if (t) return { title, status: 'ok', ...s, ...t, nrql: sent, note: null, reason: null };
+          why = 'empty';
         }
       } catch (e) {
         if (!(e instanceof RbError) || FATAL_CODES.has(e.code)) throw e;
       }
-      return { title, status: 'ok', ...s, nrql: sent, note: HALVES_NOTE, reason: null };
+      return { title, status: 'ok', ...s, nrql: sent, note: trendNote(why, s.trend), reason: null };
     } catch (e) {
       if (!(e instanceof RbError) || FATAL_CODES.has(e.code)) throw e;
       if (e.code === ErrorCode.BudgetExhausted)

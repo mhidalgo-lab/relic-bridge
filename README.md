@@ -105,7 +105,8 @@ The same pages are published as a searchable site at <https://mhidalgo-lab.githu
   [migrating a config](docs/guide/migrating-config.md) · [troubleshooting](docs/guide/troubleshooting.md)
 - **Deploy:** [self-hosting](docs/guide/self-hosting.md) · [deploy to Cloudflare](docs/guide/cloudflare-deploy.md) ·
   [Cloudflare limits and costs](docs/guide/cloudflare-limits.md) · [multi-device setup](docs/guide/multi-device.md) ·
-  [verify a release](docs/guide/verify-release.md) · [registry listing](docs/guide/registry-listing.md)
+  [verify a release](docs/guide/verify-release.md) · [registry listing](docs/guide/registry-listing.md) ·
+  [upgrading](docs/guide/upgrading.md) · [versioning and support policy](docs/guide/versioning.md)
 - **Access and admin:** [admin guide](docs/guide/admin-guide.md) · [admin panel](docs/guide/admin-panel.md) ·
   [admin access](docs/guide/admin-access.md) · [sign-in providers](docs/guide/identity-providers.md) ·
   [access model](docs/guide/access-model.md) · [secrets](docs/guide/secrets.md) · [audit log](docs/guide/audit-log.md) ·

@@ -4,10 +4,15 @@ relic-bridge handles New Relic API keys and telemetry data, so we take security 
 
 ## Supported versions
 
-| Version | Supported |
+| Version | Security fixes |
 |---|---|
-| pre-1.0 (`0.x`) | Latest minor release only |
-| 1.x (future) | Latest minor + security fixes for the previous minor for 3 months |
+| pre-1.0 (`0.x`) | Latest minor release only, as a patch release. No backports: upgrade to the latest minor. |
+| 1.x (future) | Latest minor, plus the previous minor for 3 months after a new minor is released. |
+
+A fix lands on `main` first and ships as a patch of the latest minor (and, where a backport is supported, of the
+previous minor at the same time). A security fix may tighten a default or refuse input that used to be accepted in a
+patch release, without the usual deprecation period; the advisory and the release notes say so. Full policy:
+[versioning, support and deprecation](docs/guide/versioning.md); how to upgrade: [upgrading](docs/guide/upgrading.md).
 
 ## Reporting a vulnerability
 

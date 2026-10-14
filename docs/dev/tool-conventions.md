@@ -6,7 +6,9 @@ The rules are enforced by `lintNaming` (`packages/core/test/evals/naming.ts`), w
 `packages/core/test/tool-descriptions.test.ts` for every built-in tool and every prompt. A new tool that breaks a rule
 fails the build; fix the name, do not add an exception.
 
-Description style (what to say, in what order) is in [evals.md](evals.md). This page is about names.
+Description style (what to say, in what order) is in [evals.md](evals.md). This page is about names. Renaming or
+removing a released argument or output field is a breaking change: follow the deprecation rules of the
+[versioning policy](../guide/versioning.md#deprecations) (keep the old name as an alias, mark it `Deprecated:`).
 
 ## Arguments (input schema)
 

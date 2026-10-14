@@ -334,7 +334,8 @@ Creating, storing, backing up and rotating the master key: [secrets](secrets.md)
 
 Take a [backup](#back-it-up) first, then deploy the new version. **Reconnect your MCP clients afterwards**: they keep the
 tool list from before the upgrade, and a stateless server can't tell them it changed (Claude Code: `/mcp`; see
-[troubleshooting](troubleshooting.md)).
+[troubleshooting](troubleshooting.md)). Steps per mode, rollback and version notes: [upgrading](upgrading.md); what a
+version number promises: [versioning policy](versioning.md).
 
 ## Re-checking stored New Relic keys
 

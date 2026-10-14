@@ -2,7 +2,7 @@
 id: P8-48
 title: list_recent_issues says when group counts or limit fall back
 phase: 8
-status: review
+status: done
 priority: low
 depends_on: []
 adr: []

@@ -2,7 +2,7 @@
 id: P8-50
 title: Self-monitoring logs - stream deadlines, access-log fields, documented names
 phase: 8
-status: review
+status: done
 priority: medium
 depends_on: []
 adr: []

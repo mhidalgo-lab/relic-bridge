@@ -2,7 +2,7 @@
 id: P8-45
 title: get_attributes filters by name before the attribute cap
 phase: 8
-status: review
+status: done
 priority: high
 depends_on: []
 adr: []

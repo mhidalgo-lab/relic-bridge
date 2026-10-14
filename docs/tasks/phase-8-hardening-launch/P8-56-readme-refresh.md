@@ -2,7 +2,7 @@
 id: P8-56
 title: README reflects 0.9.0 and the current docs
 phase: 8
-status: review
+status: done
 priority: medium
 depends_on: []
 adr: []

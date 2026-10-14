@@ -2,7 +2,7 @@
 id: P8-55
 title: OpenSSF Best Practices badge (passing)
 phase: 8
-status: review
+status: done
 priority: low
 depends_on: [P8-53]
 adr: []

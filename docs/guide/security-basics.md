@@ -23,11 +23,11 @@ analysis is in the [threat model](../THREAT_MODEL.md).
 - Logs go to stderr and are redacted: NR keys and `rb_` tokens are masked. Still, don't paste logs publicly without
   looking at them.
 
-## The agent can only read
+## Read-only by default
 
 By default every tool is read-only (`readOnlyHint` is set on each) and no tool can change New Relic configuration,
 dashboards, alerts or data. NRQL is a read language and every query is checked against your [limits](query-limits.md).
-Three opt-in [write tools](#write-tools-opt-in) exist, off unless you turn them on at every layer.
+Four opt-in [write tools](#write-tools-opt-in) exist, off unless you turn them on at every layer.
 
 Narrow it further when you can:
 

@@ -2,7 +2,7 @@
 id: P8-01
 title: "Threat model final review and fuzzing"
 phase: 8
-status: in-progress
+status: review
 priority: high
 depends_on: [P7-04, P7-09]
 adr: []
@@ -48,16 +48,16 @@ to the code and the tests that prove it, and from any relevant OWASP ASVS requir
   - MCP JSON-RPC body handling limits (size cap, malformed bodies).
 
 ## Acceptance criteria
-- [ ] Every threat T1–T33 has a status (verified / corrected / accepted risk) with code and test references in the
+- [x] Every threat T1–T33 has a status (verified / corrected / accepted risk) with code and test references in the
       THREAT_MODEL verification table; no row relies on a control that is not in the code.
-- [ ] Section 5 checklist: each item ticked with evidence, or left open with the reason.
-- [ ] THREAT_MODEL carries a v1 header (version, date) and a change summary from v0.
-- [ ] `docs/security/asvs-l2.md` covers every L1/L2 requirement of the applicable ASVS 5.0.0 chapters with
+- [x] Section 5 checklist: each item ticked with evidence, or left open with the reason.
+- [x] THREAT_MODEL carries a v1 header (version, date) and a change summary from v0.
+- [x] `docs/security/asvs-l2.md` covers every L1/L2 requirement of the applicable ASVS 5.0.0 chapters with
       applicability, status and evidence; excluded chapters listed with a reason.
-- [ ] Property tests for each target above run in `pnpm test` (bounded, fast) and accept `RB_FUZZ_RUNS` for longer runs.
-- [ ] Findings: security issues reported to the owner privately (not in the repository); non-security bugs filed as
+- [x] Property tests for each target above run in `pnpm test` (bounded, fast) and accept `RB_FUZZ_RUNS` for longer runs.
+- [x] Findings: security issues reported to the owner privately (not in the repository); non-security bugs filed as
       new task files or listed for the owner.
-- [ ] `pnpm lint && pnpm typecheck && pnpm test` pass.
+- [x] `pnpm lint && pnpm typecheck && pnpm test` pass.
 
 ## Security notes
 All threats. This task changes documentation and tests only; no runtime behaviour changes. Vulnerabilities found
@@ -66,7 +66,9 @@ during the walk are not described in this repository (SECURITY.md).
 ## Docs to update
 - `docs/THREAT_MODEL.md` (v1).
 - `docs/security/asvs-l2.md` (new).
-- `docs/dev/` testing notes if the fuzz runs need documenting (`RB_FUZZ_RUNS`).
+- `docs/dev/testing.md` (property and fuzz tests, `RB_FUZZ_RUNS`).
+- Small corrections found by the walk: `docs/guide/security-basics.md` (four write tools, "Read-only by default"),
+  `docs/security/best-practices-answers.md`, `SECURITY.md` (links).
 
 ## Out of scope
 - Fixing issues found by the walk (owner, privately; or new tasks).

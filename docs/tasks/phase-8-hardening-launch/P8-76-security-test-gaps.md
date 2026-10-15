@@ -2,7 +2,7 @@
 id: P8-76
 title: Security test gaps (T12, T25, paging, windows, route-table guards, Worker host checks, workflow pins)
 phase: 8
-status: in-progress
+status: review
 priority: medium
 depends_on: []
 adr: []
@@ -45,10 +45,10 @@ Verify each item against the current tests first and drop the ones already cover
   pin of `harden-runner` only, in every file; the item stays and extends that file to every `uses:`.)*
 
 ## Acceptance criteria
-- [ ] Each listed test exists, fails when the property is broken (show by temporarily breaking it locally, noted in the PR),
+- [x] Each listed test exists, fails when the property is broken (show by temporarily breaking it locally, noted in the PR),
       and passes on `main`.
-- [ ] Items found already covered are listed in the PR description with the existing test name.
-- [ ] Any defect found has its own fix commit, a changeset, and a THREAT_MODEL note.
+- [x] Items found already covered are listed in the PR description with the existing test name.
+- [x] Any defect found has its own fix commit, a changeset, and a THREAT_MODEL note.
 
 ## Security notes
 T12, T25, T3, T13, T24, T18. Tests must use fake keys and tokens and never print them.
@@ -58,3 +58,15 @@ T12, T25, T3, T13, T24, T18. Tests must use fake keys and tokens and never print
 
 ## Out of scope
 - New features; fuzzing.
+
+## Outcome
+- None of the listed items was already covered; all tests were added (see the PR for the file and test names).
+- Each new test was shown to fail with the property broken locally: an `Authorization` header added to NerdGraph
+  requests and a `cookie` header passed to the CIMD fetcher (T12); the project resource added to the grant metadata
+  (T25); `get_related_entities` ignoring its cursor (paging); `lookbackRange` without the window check (insights report);
+  the CSRF check removed from `kit.form` (UI guard); the Host and Origin middleware disabled (Worker); one action pinned by
+  tag (workflows). The audit guard and the impact-report test failed on `main` as written.
+- Defects found (ordinary bugs, fixed in their own commits with changesets and THREAT_MODEL notes):
+  `POST /api/admin/v1/users/{id}/oauth-devices/{deviceId}/revoke` answered 404 for an unknown user without an audit row;
+  `generate_user_impact_report` with an `issue_id` and an over-limit `time_range` spent one request on the issue lookup
+  before refusing.

@@ -2,11 +2,11 @@
 id: P8-71
 title: Cryptographic inventory (ASVS 5.0 V11)
 phase: 8
-status: todo
+status: in-progress
 priority: medium
 depends_on: []
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P8-71 — Cryptographic inventory (ASVS 5.0 V11)

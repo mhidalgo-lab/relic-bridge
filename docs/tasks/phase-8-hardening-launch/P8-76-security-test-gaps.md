@@ -21,8 +21,12 @@ Verify each item against the current tests first and drop the ones already cover
   `Authorization` bearer or a relic-bridge token. Drive a request through the HTTP app with a recording fetch and assert on
   every outbound header set (`packages/http-app/test`, next to `passthrough.test.ts`, which covers only the pass-through
   route).
-- **T25, OAuth grant rows:** stored OAuth grant rows hold no plaintext slug and no plaintext grant id (only sealed `props`
-  and hashes). Inspect the rows the provider writes (D1 and the Node storage) after a full authorization.
+- **T25, OAuth grant rows:** the provider keeps some fields in plaintext by design (THREAT_MODEL T25, accepted in section
+  4a: the resource, so the project slug, and the grant metadata with the access grant id). Pin exactly those: after a
+  full authorization and a refresh, the slug appears only in the grant's `resource` and the token's `audience`, the
+  access grant id only in the grant `metadata.grant`, neither in any key name, and the sealed `props` show neither (nor
+  the user id). Inspect the rows on every host the OAuth suite runs on (memory, SQLite, D1). *(Refined: the original
+  wording, "no plaintext slug and no plaintext grant id", contradicts the accepted design.)*
 - **Paged tools:** add `get_related_entities` to `PAGED_TOOLS` in `packages/http-app/test/authz/tools.test.ts` (the cursor
   binding test), after confirming the tool pages.
 - **Window refusals for the composite reports:** `generate_alert_insights_report` and `generate_user_impact_report`
@@ -37,7 +41,8 @@ Verify each item against the current tests first and drop the ones already cover
 - **SHA pins for every workflow:** an action in each `.github/workflows/*.yml` is pinned by a 40-hex commit. Today the check
   exists per file only in `scripts/test/docker-workflow.test.ts` (docker.yml), `scripts/test/bench-cpu.test.ts` and, for one
   step, `scripts/test/release.test.ts`; there is no test over all workflows. If P8-07 adds a workflow-hardening test that
-  covers all files, drop this item.
+  covers all files, drop this item. *(Checked 2026-10-15: `scripts/test/workflow-hardening.test.ts` from P8-07 checks the
+  pin of `harden-runner` only, in every file; the item stays and extends that file to every `uses:`.)*
 
 ## Acceptance criteria
 - [ ] Each listed test exists, fails when the property is broken (show by temporarily breaking it locally, noted in the PR),

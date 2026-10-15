@@ -2,11 +2,11 @@
 id: P8-70
 title: Renovate bumps pinned CI tool versions with their digests, and groups site deps
 phase: 8
-status: todo
+status: in-progress
 priority: low
 depends_on: [P8-07]
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P8-70 — Renovate bumps pinned CI tool versions with their digests, and groups site deps

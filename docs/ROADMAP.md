@@ -3,7 +3,7 @@
 > relic-bridge — an unofficial, open-source MCP server that gives AI agents access to New Relic through **NerdGraph**
 > using only a User API key. Runs locally (stdio / Node / Docker) or as a **Cloudflare Worker** reachable from all your devices.
 
-Status: **Phases 0-7 merged on `main`** (#170-#177), **Phase 8 in progress**; **0.7.0 is released** (npm with provenance, GitHub Release, signed GHCR image); **0.8.0 is pending** with the live-test fixes (P8-16..P8-27) and follow-ups. Architecture: [ARCHITECTURE.md](ARCHITECTURE.md) · Decisions: [adr/](adr/) ·
+Status: **Phases 0-7 merged on `main`** (#170-#177), **Phase 8 in progress** toward 1.0; releases are listed in the [CHANGELOG](../apps/cli/CHANGELOG.md) (npm with provenance, GitHub Release, signed GHCR image). Architecture: [ARCHITECTURE.md](ARCHITECTURE.md) · Decisions: [adr/](adr/) ·
 Facts & limits: [RESEARCH.md](RESEARCH.md) · Security: [THREAT_MODEL.md](THREAT_MODEL.md) · Task rules: [tasks/README.md](tasks/README.md)
 
 ## Guiding principles

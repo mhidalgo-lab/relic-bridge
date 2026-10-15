@@ -1087,6 +1087,9 @@ Sources: [server.json format](https://github.com/modelcontextprotocol/registry/b
   with the text "unknown error" (no NRQL involved). It is mapped to `RB_QUERY_NOT_FOUND`.
 - `timeout` is sent with the async submit, but a fast NRDB answers within it even for very large scans, so a pending
   handle cannot be forced on live data; the pending path is covered by fixtures.
+  P8-63: in `auto` mode `run_nrql` also polls up to 3 times (waiting min(10, retryAfter) s) before it returns the
+  handle, so a live handle needs a query still running after the submit and three polls, on one account, with
+  `cache: "bypass"` and a client without MCP Tasks. Recipe: [verification guide](dev/verification-guide.md).
 - Event types with the `Public_` prefix and a few billing/audit types (`NrUsage`, `NrConsumption`, ...) are global:
   New Relic refuses to mix them with account data ("Global event types cannot be mixed with account data").
   The list in `tools/schema.ts` is a heuristic, not an API.

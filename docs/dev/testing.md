@@ -7,7 +7,9 @@ Tool descriptions have their own lint, eval set and offline router baseline insi
 model-in-the-loop eval (`pnpm eval:tools`): see [evals.md](evals.md).
 
 Write tools are never exercised by the offline suites against real New Relic. Their live check against a sandbox account
-is in [write-tools-sandbox-test.md](write-tools-sandbox-test.md).
+is in [write-tools-sandbox-test.md](write-tools-sandbox-test.md). Other checks a release verification run does by hand
+(an async NRQL handle through `get_query_result`, reconnecting clients after an upgrade) are in
+[verification-guide.md](verification-guide.md).
 
 ## Authorization and isolation suite
 

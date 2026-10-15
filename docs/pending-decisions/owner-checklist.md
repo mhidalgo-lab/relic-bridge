@@ -75,7 +75,9 @@ drift, open a task.
 - [ ] Before enabling writes: live `dry_run` of each mutation and `create_dashboard` (RESEARCH §26); set
       `RB_SHARED_LIMITER=rules`; keep `RB_WRITE_APPROVAL` at its new default `required` (P7-09, P7-10, P7-19, P7-24).
 - [ ] Run the [write tools sandbox test plan](../dev/write-tools-sandbox-test.md) on a dedicated New Relic sandbox
-      account before enabling writes anywhere real (P8-43).
+      account before enabling writes anywhere real (P8-43, step by step since P8-63).
+- [ ] In the next verification run, exercise the async `run_nrql` → `get_query_result` path with the recipe in the
+      [verification guide](../dev/verification-guide.md) and record which query shape returned a handle (P8-63).
 - [ ] Check how real clients render the write elicitation form and whether any auto-accept (P7-20).
 - [ ] Claude Code plugin: where to publish, homepage, `/plugin install` smoke test, version sync (P7-07); MCP
       registry publishing after npm (P7-14).

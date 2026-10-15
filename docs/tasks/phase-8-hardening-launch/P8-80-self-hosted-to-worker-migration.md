@@ -2,7 +2,7 @@
 id: P8-80
 title: Supported migration from a self-hosted server to the Cloudflare Worker
 phase: 8
-status: review
+status: done
 priority: high
 depends_on: []
 adr: [0006, 0007]

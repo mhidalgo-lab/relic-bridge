@@ -2,7 +2,7 @@
 id: P8-81
 title: Record the D1 database id in the local Wrangler config and stop the "remote configuration differs" noise
 phase: 8
-status: review
+status: done
 priority: medium
 depends_on: []
 adr: []

@@ -347,9 +347,10 @@ Generated from task front matter (`pnpm tasks index`). Status lives in each task
 | P8-76 | [Security test gaps (T12, T25, paging, windows, route-table guards, Worker host checks, workflow pins)](tasks/phase-8-hardening-launch/P8-76-security-test-gaps.md) | medium | — | todo |
 | P8-77 | [trace_error follows Span-sourced error groups](tasks/phase-8-hardening-launch/P8-77-trace-error-span-groups.md) | low | P8-57 | todo |
 | P8-78 | [Polish - golden-metric trend note, timeout recipe, deprecated alias schema, upgrade steps](tasks/phase-8-hardening-launch/P8-78-polish-follow-ups.md) | low | P8-52, P8-60 | todo |
-| P8-79 | [get_dashboard returns widget visualizations; dashboard recipe title](tasks/phase-8-hardening-launch/P8-79-dashboard-viz-readback.md) | medium | — | review |
-| P8-80 | [Supported migration from a self-hosted server to the Cloudflare Worker](tasks/phase-8-hardening-launch/P8-80-self-hosted-to-worker-migration.md) | high | — | review |
-| P8-81 | [Record the D1 database id in the local Wrangler config and stop the "remote configuration differs" noise](tasks/phase-8-hardening-launch/P8-81-d1-database-id.md) | medium | — | review |
-| P8-82 | [cf:setup polish - real URLs, quieter drift warning, login permission check, CLI next steps](tasks/phase-8-hardening-launch/P8-82-cf-setup-polish.md) | low | P8-81 | review |
-| P8-83 | [Cloudflare guide clarity - CLI build step, zone security note, no internal ids, section order](tasks/phase-8-hardening-launch/P8-83-cloudflare-guide-clarity.md) | low | P8-82 | review |
+| P8-79 | [get_dashboard returns widget visualizations; dashboard recipe title](tasks/phase-8-hardening-launch/P8-79-dashboard-viz-readback.md) | medium | — | done |
+| P8-80 | [Supported migration from a self-hosted server to the Cloudflare Worker](tasks/phase-8-hardening-launch/P8-80-self-hosted-to-worker-migration.md) | high | — | done |
+| P8-81 | [Record the D1 database id in the local Wrangler config and stop the "remote configuration differs" noise](tasks/phase-8-hardening-launch/P8-81-d1-database-id.md) | medium | — | done |
+| P8-82 | [cf:setup polish - real URLs, quieter drift warning, login permission check, CLI next steps](tasks/phase-8-hardening-launch/P8-82-cf-setup-polish.md) | low | P8-81 | done |
+| P8-83 | [Cloudflare guide clarity - CLI build step, zone security note, no internal ids, section order](tasks/phase-8-hardening-launch/P8-83-cloudflare-guide-clarity.md) | low | P8-82 | done |
+| P8-84 | [Release guards - DB fixture for a new minor and changesets for private packages](tasks/phase-8-hardening-launch/P8-84-release-guards.md) | medium | P8-05 | todo |
 <!-- tasks:end -->

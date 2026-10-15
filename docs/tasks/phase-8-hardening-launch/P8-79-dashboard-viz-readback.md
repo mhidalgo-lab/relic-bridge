@@ -2,7 +2,7 @@
 id: P8-79
 title: get_dashboard returns widget visualizations; dashboard recipe title
 phase: 8
-status: review
+status: done
 priority: medium
 depends_on: []
 adr: []

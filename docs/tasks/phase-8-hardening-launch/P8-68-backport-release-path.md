@@ -2,11 +2,11 @@
 id: P8-68
 title: Backport release path with on-demand release/x.y branches
 phase: 8
-status: todo
+status: in-progress
 priority: medium
 depends_on: []
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P8-68 — Backport release path with on-demand release/x.y branches

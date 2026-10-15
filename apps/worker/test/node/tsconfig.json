@@ -1,0 +1,20 @@
+{
+  "extends": "../../../../tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["node"],
+    "declaration": false,
+    "isolatedDeclarations": false,
+    "resolveJsonModule": true,
+    "jsx": "react-jsx",
+    "jsxImportSource": "hono/jsx",
+    "paths": {
+      "@relic-bridge/admin-ui": ["../../../../packages/admin-ui/src/index.ts"],
+      "@relic-bridge/auth": ["../../../../packages/auth/src/index.ts"],
+      "@relic-bridge/core": ["../../../../packages/core/src/index.ts"],
+      "@relic-bridge/http-app": ["../../../../packages/http-app/src/index.ts"],
+      "@relic-bridge/storage": ["../../../../packages/storage/src/index.ts"],
+      "@relic-bridge/storage-sqlite": ["../../../../packages/storage-sqlite/src/index.ts"]
+    }
+  },
+  "include": ["d1-import-setup.ts"]
+}

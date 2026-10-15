@@ -23,5 +23,7 @@
       "@relic-bridge/storage/testing": ["../../packages/storage/src/testing.ts"]
     }
   },
-  "include": ["src", "test", "bench"]
+  "include": ["src", "test", "bench"],
+  // Node-side global setup of the tests (node:fs, node:sqlite): checked by test/node/tsconfig.json instead.
+  "exclude": ["test/node/d1-import-setup.ts"]
 }

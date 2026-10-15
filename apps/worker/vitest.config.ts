@@ -30,6 +30,8 @@ export default defineProject({
       '@relic-bridge/storage/d1': src('../../packages/storage/src/d1.ts'),
       '@relic-bridge/storage/testing': src('../../packages/storage/src/testing.ts'),
       '@relic-bridge/storage': src('../../packages/storage/src/index.ts'),
+      // Only the Node global setup (test/node) imports it: the self-hosted half of the P8-80 round trip.
+      '@relic-bridge/storage-sqlite': src('../../packages/storage-sqlite/src/index.ts'),
     },
   },
   // The first request into a fresh workerd module graph compiles the SDK and the app (seconds on a cold CI runner).
@@ -39,5 +41,7 @@ export default defineProject({
     // The Worker tests plus the P2-12 authorization suite, which runs against the Worker here (test/authz-host.ts).
     include: ['test/**/*.test.ts', '../../packages/http-app/test/authz/*.test.ts'],
     setupFiles: ['./test/authz-setup.ts'],
+    // Runs in Node before workerd starts: builds a SQLite database and its D1 export for test/d1-import.test.ts.
+    globalSetup: ['./test/node/d1-import-setup.ts'],
   },
 });

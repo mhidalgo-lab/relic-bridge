@@ -95,7 +95,7 @@ describe('no token forwarding (T12)', () => {
     // 1. A device token (static bearer), with a session cookie riding along.
     const { token } = await h.addTenant('t12');
     const device = await connect(
-      { fetch: (r) => app.fetch(withCookie(r, session.cookie)) },
+      { fetch: (r: Request) => app.fetch(withCookie(r, session.cookie)) },
       't12',
       token.value,
       'modern',

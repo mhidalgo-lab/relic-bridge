@@ -283,7 +283,8 @@ function passthroughSettings(env: Env, warnings: string[]): PassthroughSettings 
   if (!onOff(env, 'RB_PASSTHROUGH', false)) return null;
   warnings.push(
     `RB_PASSTHROUGH=on: ${PASSTHROUGH_PATH} accepts New Relic keys in the ${PASSTHROUGH_KEY_HEADER} header. Serve it ` +
-      'only over HTTPS (set RB_HSTS=true behind a TLS proxy); plain HTTP to a non-loopback host is refused.',
+      'only over HTTPS (set RB_HSTS=true behind a TLS proxy; an https RB_PUBLIC_URL alone does not declare one); ' +
+      'plain HTTP to a non-loopback host is refused.',
   );
   return { identityTtlMs };
 }
@@ -296,7 +297,13 @@ export interface ServeSettings {
   readonly allowedOrigins?: readonly string[];
   readonly corsOrigins: readonly string[];
   readonly accessCacheTtlMs?: number;
+  /** `RB_HSTS`: `true` also declares a TLS proxy to the pass-through guard; `auto` decides per request. */
   readonly hsts: 'auto' | boolean;
+  /**
+   * HSTS on every response although the listener is plain http (P8-66): `RB_HSTS` unset or `auto` and `RB_PUBLIC_URL`
+   * is https. Does not declare a TLS proxy (the pass-through guard is unchanged).
+   */
+  readonly hstsAlways: boolean;
   /** Rate limit rules (`null` entries are off); `null` here disables rate limiting altogether (`RB_RATE_LIMIT=off`). */
   readonly rateLimits: RateLimitRules | null;
   /** Reverse proxies in front of the server (`X-Forwarded-For` is trusted for that many hops from the right). */
@@ -398,6 +405,17 @@ function oauthSettings(env: Env, identity: IdentitySettings | null): OAuthSettin
   }
 }
 
+/** `RB_PUBLIC_URL` is a valid https URL (its full validation belongs to the sign-in settings). */
+function publicUrlIsHttps(env: Env): boolean {
+  const raw = env['RB_PUBLIC_URL']?.trim();
+  if (raw === undefined || raw === '') return false;
+  try {
+    return new URL(raw).protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
 function identitySettings(
   env: Env,
   allowedHosts: readonly string[] | '*',
@@ -492,6 +510,7 @@ export function serveSettings(input: {
   else if (hstsRaw !== undefined && hstsRaw !== '' && hstsRaw !== 'auto') {
     throw new ConfigError('RB_HSTS must be auto, true or false.');
   }
+  const hstsAlways = hsts === 'auto' && publicUrlIsHttps(env);
 
   const rateLimits = rateLimitSettings(env, warnings);
   const identity = identitySettings(
@@ -516,6 +535,7 @@ export function serveSettings(input: {
     corsOrigins,
     ...(accessCacheTtlMs === undefined ? {} : { accessCacheTtlMs }),
     hsts,
+    hstsAlways,
     rateLimits,
     trustedProxyHops: Number(hopsRaw),
     audit,
@@ -689,6 +709,7 @@ export async function startServer(options: StartServerOptions): Promise<RunningS
     corsOrigins: settings.corsOrigins,
     ...(settings.accessCacheTtlMs === undefined ? {} : { accessCacheTtlMs: settings.accessCacheTtlMs }),
     hsts: settings.hsts,
+    hstsAlways: settings.hstsAlways,
     queryCache: createProcessQueryCache(settings.queryCache, keyring.queryCacheKeys().id),
     writeTools: settings.writeTools,
     requireWriteApproval: settings.requireWriteApproval,

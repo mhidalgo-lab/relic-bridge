@@ -319,8 +319,18 @@ export interface HttpAppOptions {
    * entered after a slot of this process's own semaphore. It must fail open (never block) when its store is down.
    */
   readonly sharedConcurrency?: (credentialId: string) => Limiter;
-  /** `'auto'` (default): HSTS when the request URL is https. `true` for a TLS-terminating proxy. */
+  /**
+   * `'auto'` (default): HSTS when the request URL is https (or when `hstsAlways` is set). `true` declares a
+   * TLS-terminating proxy: HSTS on every response, and the pass-through TLS guard accepts plain-http requests.
+   * `false` never sends HSTS.
+   */
   readonly hsts?: 'auto' | boolean;
+  /**
+   * With `hsts: 'auto'`, send HSTS on every response even over a plain-http listener (P8-66: the public URL is https,
+   * so a TLS proxy is presumably in front). Unlike `hsts: true` it declares nothing: the pass-through `tls_required`
+   * guard still refuses plain http to a non-loopback host.
+   */
+  readonly hstsAlways?: boolean;
   /** Runs background work (Workers: `executionCtx.waitUntil`). Default: try `executionCtx`, else fire-and-forget. */
   readonly waitUntil?: (c: Context, task: Promise<unknown>) => void;
   readonly hooks?: HttpAppHooks;
@@ -980,7 +990,9 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
   app.use('*', async (c, next) => {
     await next();
     const hsts =
-      options.hsts === 'auto' || options.hsts === undefined ? c.req.url.startsWith('https:') : options.hsts;
+      options.hsts === 'auto' || options.hsts === undefined
+        ? options.hstsAlways === true || c.req.url.startsWith('https:')
+        : options.hsts;
     try {
       applySecurityHeaders(c.res.headers, hsts);
     } catch {

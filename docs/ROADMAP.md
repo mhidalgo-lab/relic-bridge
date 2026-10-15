@@ -334,7 +334,7 @@ Generated from task front matter (`pnpm tasks index`). Status lives in each task
 | P8-63 | [Verification guide: async query handles and write tools](tasks/phase-8-hardening-launch/P8-63-verification-guide.md) | low | P8-43 | done |
 | P8-64 | [CI runs on GitHub-hosted runners only](tasks/phase-8-hardening-launch/P8-64-github-hosted-runners.md) | high | P8-07 | done |
 | P8-65 | [Hardening: event-type lists, redirects, subquery windows, remembered consent](tasks/phase-8-hardening-launch/P8-65-hardening-low-findings.md) | medium | — | done |
-| P8-66 | [HSTS by default when the public URL is https, including the Worker's 503](tasks/phase-8-hardening-launch/P8-66-hsts-default-https.md) | medium | — | todo |
+| P8-66 | [HSTS by default when the public URL is https, including the Worker's 503](tasks/phase-8-hardening-launch/P8-66-hsts-default-https.md) | medium | — | review |
 | P8-67 | [Deprecated-config registry with startup warnings and doctor lines](tasks/phase-8-hardening-launch/P8-67-deprecated-config-warnings.md) | medium | — | todo |
 | P8-68 | [Backport release path with on-demand release/x.y branches](tasks/phase-8-hardening-launch/P8-68-backport-release-path.md) | medium | — | review |
 | P8-69 | [Release jobs egress policy block](tasks/phase-8-hardening-launch/P8-69-release-egress-block.md) | low | P8-07 | todo |

@@ -201,6 +201,17 @@ describe('plain HTTP', () => {
     expect(h.nerdGraph.calls).toEqual([]);
   });
 
+  it('is still refused over plain http when HSTS only comes from an https public URL (P8-66)', async () => {
+    const res = await h.send(
+      post(key(NR_KEY), INITIALIZE, 'mcp.example.com'),
+      ptApp({ ...remote, hstsAlways: true }),
+    );
+    expect(res.status).toBe(403);
+    expect(res.text).toBe('{"error":"tls_required"}');
+    expect(res.headers.get('strict-transport-security')).toBe('max-age=31536000; includeSubDomains');
+    expect(h.nerdGraph.calls).toEqual([]);
+  });
+
   it('is accepted over https, behind a declared TLS proxy (hsts: true), on loopback, or when opted out', async () => {
     expect(
       (await h.send(post(key(NR_KEY), INITIALIZE, 'mcp.example.com', 'https'), ptApp(remote))).status,

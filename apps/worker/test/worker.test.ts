@@ -13,6 +13,13 @@ import { call, connect, fakeCtx, mockNerdGraph, NR_KEY, seed } from './helpers.t
 const MASTER_KEY = env.RB_MASTER_KEY as string;
 const ADMIN_TOKEN = env.RB_ADMIN_TOKEN as string;
 
+/** The boot-failure 503 carries the security headers and HSTS (P8-66); returns the status. */
+function unavailableStatus(res: Response): number {
+  expect(res.headers.get('strict-transport-security')).toBe('max-age=31536000; includeSubDomains');
+  expect(res.headers.get('x-content-type-options')).toBe('nosniff');
+  return res.status;
+}
+
 function logs(): { sink: (line: string) => void; lines: Record<string, unknown>[] } {
   const lines: Record<string, unknown>[] = [];
   return { sink: (line) => lines.push(JSON.parse(line) as Record<string, unknown>), lines };
@@ -183,7 +190,7 @@ describe('Worker boot', () => {
     const broken: WorkerEnv = { ...env, RB_MASTER_KEY: undefined };
     const failures = () => log.lines.filter((l) => l['msg'] === 'worker boot failed').length;
     const first = await call(worker, broken, fakeCtx(), '/health');
-    expect(first.status).toBe(503);
+    expect(unavailableStatus(first)).toBe(503);
     expect(first.headers.get('Retry-After')).toBe('5');
     const body = await first.text();
     expect(body).toBe('{"error":"unavailable"}');
@@ -194,7 +201,7 @@ describe('Worker boot', () => {
     // Within the window: no new boot attempt, a shrinking Retry-After.
     t += BOOT_RETRY_MS - 1000;
     const waiting = await call(worker, broken, fakeCtx(), '/health');
-    expect(waiting.status).toBe(503);
+    expect(unavailableStatus(waiting)).toBe(503);
     expect(waiting.headers.get('Retry-After')).toBe('1');
     expect(failures()).toBe(1);
     // Each later failure waits longer, up to the ceiling.
@@ -202,17 +209,17 @@ describe('Worker boot', () => {
       const step = BOOT_BACKOFF_MS[Math.min(i + 1, BOOT_BACKOFF_MS.length - 1)] as number;
       t += i === 0 ? 1000 : (BOOT_BACKOFF_MS[Math.min(i, BOOT_BACKOFF_MS.length - 1)] as number);
       const res = await call(worker, broken, fakeCtx(), '/health');
-      expect(res.status).toBe(503);
+      expect(unavailableStatus(res)).toBe(503);
       expect(failures()).toBe(i + 2);
       expect(res.headers.get('Retry-After')).toBe(String(step / 1000));
       expect(await res.text()).toBe(body);
     }
     const ceiling = BOOT_BACKOFF_MS[BOOT_BACKOFF_MS.length - 1] as number;
     t += ceiling - 1;
-    expect((await call(worker, broken, fakeCtx(), '/health')).status).toBe(503);
+    expect(unavailableStatus(await call(worker, broken, fakeCtx(), '/health'))).toBe(503);
     expect(failures()).toBe(BOOT_BACKOFF_MS.length + 1);
     t += 1;
-    expect((await call(worker, broken, fakeCtx(), '/health')).status).toBe(503);
+    expect(unavailableStatus(await call(worker, broken, fakeCtx(), '/health'))).toBe(503);
     expect(failures()).toBe(BOOT_BACKOFF_MS.length + 2);
     expect(opened).toBe(0);
     // A fixed environment recovers within the ceiling (here at once: a new env), and the backoff is reset.
@@ -226,7 +233,7 @@ describe('Worker boot', () => {
     const responses = await Promise.all(
       Array.from({ length: 20 }, () => call(worker, broken, fakeCtx(), '/health')),
     );
-    expect(new Set(responses.map((r) => r.status))).toEqual(new Set([503]));
+    expect(new Set(responses.map(unavailableStatus))).toEqual(new Set([503]));
     expect(log.lines.filter((l) => l['msg'] === 'worker boot failed')).toHaveLength(1);
   });
 
@@ -253,7 +260,7 @@ describe('Worker boot', () => {
     const worker = createWorker({ openStorage: () => storage, logSink: log.sink });
     const other = `v1:${btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32))))}`;
     const res = await call(worker, { ...env, RB_MASTER_KEY: other }, fakeCtx(), '/health');
-    expect(res.status).toBe(503);
+    expect(unavailableStatus(res)).toBe(503);
     const line = log.lines.find((l) => l['msg'] === 'worker boot failed');
     expect(line?.['error']).toBe('CryptoError');
     expect(JSON.stringify(log.lines)).not.toContain(other.slice(3));
@@ -269,7 +276,7 @@ describe('Worker boot', () => {
       const log = logs();
       const worker = createWorker({ openStorage: () => storage, logSink: log.sink });
       const res = await call(worker, { ...env, [name]: value }, fakeCtx(), '/health');
-      expect(res.status, name).toBe(503);
+      expect(unavailableStatus(res), name).toBe(503);
       expect(
         log.lines.find((l) => l['msg'] === 'worker boot failed'),
         name,
@@ -287,7 +294,7 @@ describe('Worker boot', () => {
       const log = logs();
       const worker = createWorker({ openStorage: () => storage, logSink: log.sink });
       const res = await call(worker, { ...env, RB_ADMIN_TOKEN: value }, fakeCtx(), '/health');
-      expect(res.status, value).toBe(503);
+      expect(unavailableStatus(res), value).toBe(503);
       const failure = log.lines.find((l) => l['msg'] === 'worker boot failed');
       expect(failure, value).toMatchObject({ error: 'WorkerConfigError', variable: 'RB_ADMIN_TOKEN' });
       expect(String(failure?.['detail'])).toMatch(/too predictable|placeholder/);
@@ -354,7 +361,7 @@ describe('Worker boot', () => {
     const log = logs();
     const noDb = createWorker({ logSink: log.sink });
     const res = await call(noDb, { ...env, DB: undefined }, fakeCtx(), '/p/prod/mcp', { method: 'POST' });
-    expect(res.status).toBe(503);
+    expect(unavailableStatus(res)).toBe(503);
     expect(log.lines.find((l) => l['msg'] === 'worker boot failed')).toMatchObject({
       error: 'WorkerStorageUnavailableError',
       detail: 'the DB (D1) binding is missing',
@@ -365,7 +372,7 @@ describe('Worker boot', () => {
         throw new MigrationError('database schema version 99 is newer than this build');
       },
     });
-    expect((await call(broken, env, fakeCtx(), '/health')).status).toBe(503);
+    expect(unavailableStatus(await call(broken, env, fakeCtx(), '/health'))).toBe(503);
     expect(log.lines.filter((l) => l['msg'] === 'worker boot failed').at(-1)).toMatchObject({
       error: 'MigrationError',
       code: 'migration',
@@ -520,6 +527,6 @@ describe('Self-monitoring (P7-08)', () => {
     const { storage } = await seed(MASTER_KEY);
     const worker = createWorker({ openStorage: () => storage, logSink: () => {} });
     const res = await call(worker, { ...env, RB_OTEL: 'on' } as WorkerEnv, fakeCtx(), '/health');
-    expect(res.status).toBe(503);
+    expect(unavailableStatus(res)).toBe(503);
   });
 });

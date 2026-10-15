@@ -32,7 +32,8 @@ relic-bridge serve --port 9000 --db /var/lib/relic-bridge/relic-bridge.db
 - **Binding**: `127.0.0.1` by default, so only this machine can connect. To serve other devices, bind another address
   **and** list the hostnames clients use, so requests for any other `Host` are refused (DNS rebinding protection):
   `RB_HOST=0.0.0.0 RB_ALLOWED_HOSTS=mcp.example.com relic-bridge serve`. Put it behind a TLS reverse proxy before it
-  leaves your LAN, and set `RB_HSTS=true` there.
+  leaves your LAN, and set `RB_PUBLIC_URL` to its https origin there: HSTS is then sent on every response (`RB_HSTS`
+  below). Pass-through additionally needs `RB_HSTS=true`.
 - **As a service**: run `relic-bridge serve` under systemd (unit example in the
   [multi-device guide](multi-device.md#option-b-node-and-a-service)), launchd or a Windows service manager, as a
   dedicated unprivileged user that owns the data directory and the key file.
@@ -71,7 +72,7 @@ relic-bridge serve --port 9000 --db /var/lib/relic-bridge/relic-bridge.db
 | `RB_MCP_APPS` | `on` | `off` removes the [chart view](charts.md) (`_meta.ui` on the NRQL tools and the `ui://` resource) for every client; `on` shows it only to clients that declare MCP Apps support. |
 | `RB_PUBLIC_TOOL_CATALOG` | `off` | `on` lets MCP registries, inspectors and clients list the tools before signing in: `initialize` and `tools/list` without a token answer the static read-only tool list (the same for every project URL, known or not), and `/.well-known/relic-bridge/tools.json` serves it as JSON. Tool calls, resources and prompts still need a token. See [registry listing](registry-listing.md). |
 | `RB_PASSTHROUGH_IDENTITY_TTL` | `60` | Seconds a pass-through key's reachable accounts are cached, `0`-`300` (`0` asks New Relic on every request). |
-| `RB_HSTS` | `auto` | `Strict-Transport-Security` when the request arrived over https; `true` behind a TLS-terminating proxy. |
+| `RB_HSTS` | `auto` | `auto`: `Strict-Transport-Security` (`max-age=31536000; includeSubDomains`) on every response when `RB_PUBLIC_URL` is https, otherwise only when the request arrived over https. `true`: always, and it declares a TLS-terminating proxy to the [pass-through](#pass-through-mode) TLS guard (an https `RB_PUBLIC_URL` alone does not). `false`: never, for example when other hosts under the same domain still serve plain http (`includeSubDomains` covers every subdomain for a year once a browser has seen the header). |
 | `RB_LOG_LEVEL` | `info` | One JSON line per request on stderr (never the token or the New Relic key). |
 | `RB_PUBLIC_URL` | unset | Origin browsers use to reach the server (`https://…`, or `http://localhost:8787` locally). Needed by [admin sign-in](identity-providers.md); its host must be in `RB_ALLOWED_HOSTS`. |
 | `RB_GOOGLE_CLIENT_ID` / `RB_GOOGLE_CLIENT_SECRET` | unset | Google sign-in. `RB_GOOGLE_HOSTED_DOMAIN` limits it to one Workspace domain. |
@@ -141,7 +142,8 @@ Clients point at `https://mcp.example.com/passthrough/mcp` and send two headers:
 ```
 
 - **HTTPS only.** The key travels in every request. A plain-HTTP request is refused (`403 tls_required`) unless it
-  came over https, `RB_HSTS=true` declares a TLS-terminating proxy, or the `Host` is loopback. This guard catches a
+  came over https, `RB_HSTS=true` declares a TLS-terminating proxy, or the `Host` is loopback. An https `RB_PUBLIC_URL`
+  turns HSTS on but does not count as that declaration. This guard catches a
   misconfiguration; it can't protect a key a client already sent in clear text, so never expose the port without TLS.
 - **Nothing is stored.** The key is never written to the database, the audit log or the log, never echoed in a
   response and only sent to NerdGraph. The server keeps, for at most `RB_PASSTHROUGH_IDENTITY_TTL` seconds, the
@@ -259,8 +261,9 @@ become group-readable and are refused. In Kubernetes (or whenever you cannot own
 
 **TLS.** [`deploy/docker-compose.example.yml`](../../deploy/docker-compose.example.yml) puts Caddy in front (automatic
 certificates), with the settings this guide requires: the server is not published on the host, `RB_ALLOWED_HOSTS` is your
-hostname, `RB_TRUSTED_PROXY_HOPS=1` and `RB_HSTS=true` (the app sees plain HTTP from Caddy; without it no HSTS header
-is sent and pass-through requests are refused with `403 tls_required`). Caddy starts only once the server's health
+hostname, `RB_TRUSTED_PROXY_HOPS=1` and `RB_HSTS=true` (the app sees plain HTTP from Caddy; `RB_HSTS=true` declares the
+proxy, so HSTS is sent and pass-through requests are accepted instead of refused with `403 tls_required`. With sign-in
+on, an https `RB_PUBLIC_URL` alone already turns HSTS on). Caddy starts only once the server's health
 check passes (`depends_on: condition: service_healthy`).
 
 **Maintainers:** the release path relies on repository settings (a `release` environment with required reviewers and a

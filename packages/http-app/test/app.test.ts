@@ -113,6 +113,19 @@ describe('public routes', () => {
     );
     expect(off.headers.get('strict-transport-security')).toBeNull();
   });
+
+  it('hstsAlways sends HSTS over plain http, unless hsts is false (P8-66)', async () => {
+    const always = makeApp({ hstsAlways: true });
+    for (const res of [
+      await always.fetch(new Request(`${URL_BASE}/health`)),
+      await always.fetch(new Request(`${URL_BASE}/nope`)),
+      await always.fetch(mcpPost('/p/prod/mcp')),
+    ]) {
+      expect(res.headers.get('strict-transport-security')).toBe('max-age=31536000; includeSubDomains');
+    }
+    const off = await makeApp({ hsts: false, hstsAlways: true }).fetch(new Request(`${URL_BASE}/health`));
+    expect(off.headers.get('strict-transport-security')).toBeNull();
+  });
 });
 
 describe('MCP over HTTP with an SDK client', () => {

@@ -2,11 +2,11 @@
 id: P8-66
 title: HSTS by default when the public URL is https, including the Worker's 503
 phase: 8
-status: todo
+status: review
 priority: medium
 depends_on: []
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P8-66 — HSTS by default when the public URL is https, including the Worker's 503
@@ -29,13 +29,13 @@ forgets `RB_HSTS=true` ships no HSTS at all. On Workers, the boot-failure `503` 
 - Check any other response built outside `applySecurityHeaders` and fix those that miss HSTS.
 
 ## Acceptance criteria
-- [ ] `RB_PUBLIC_URL=https://…` with `RB_HSTS` unset: responses over a plain-http listener carry HSTS (test on the settings
+- [x] `RB_PUBLIC_URL=https://…` with `RB_HSTS` unset: responses over a plain-http listener carry HSTS (test on the settings
       parser and on an HTTP app request).
-- [ ] `RB_PUBLIC_URL` http or unset: no HSTS unless `RB_HSTS=true` (unchanged); `RB_HSTS=false` turns it off even with an
+- [x] `RB_PUBLIC_URL` http or unset: no HSTS unless `RB_HSTS=true` (unchanged); `RB_HSTS=false` turns it off even with an
       https public URL.
-- [ ] Pass-through over plain http to a non-loopback host is still refused unless the proxy is declared (negative test).
-- [ ] The Worker's 503 (every boot-failure variant in `apps/worker/test/worker.test.ts`) carries HSTS (test).
-- [ ] `docs/THREAT_MODEL.md` row added (T13 / T24).
+- [x] Pass-through over plain http to a non-loopback host is still refused unless the proxy is declared (negative test).
+- [x] The Worker's 503 (every boot-failure variant in `apps/worker/test/worker.test.ts`) carries HSTS (test).
+- [x] `docs/THREAT_MODEL.md` row added (T13 / T24).
 
 ## Security notes
 T13 and T24 (downgrade and rebinding surface of a public instance). `HSTS_VALUE` in `packages/http-app/src/security.ts`
@@ -45,6 +45,15 @@ keep the off switch. Do not trust `X-Forwarded-Proto` (see `docs/pending-decisio
 ## Docs to update
 - `docs/guide/self-hosting.md` (`RB_HSTS` row, reverse-proxy section), `docs/guide/multi-device.md`, `docs/THREAT_MODEL.md`,
   the `RB_HSTS` help text in `apps/cli/src/args.ts`, changeset.
+
+## Outcome
+- New `HttpAppOptions.hstsAlways` (send HSTS over a plain-http listener, declares nothing); `serve` sets it when
+  `RB_HSTS` is unset/`auto` and `RB_PUBLIC_URL` is https. `hsts: true` (`RB_HSTS=true`) alone still relaxes the
+  pass-through guard.
+- No other response is built outside `applySecurityHeaders` (checked `packages/http-app`, `apps/cli`, `apps/worker`);
+  only the Worker's `unavailable()` needed the header.
+- The Docker compose example and the systemd unit keep `RB_HSTS=true`: it is what lets pass-through work behind the
+  proxy.
 
 ## Out of scope
 - Trusting forwarded headers; HSTS preload submission.

@@ -299,8 +299,8 @@ HTTP server (serve):
   RB_CORS_ORIGINS        Origins allowed cross-origin (CORS); off by default.
   RB_ACCESS_CACHE_TTL    Seconds a token's resolved access is cached, 0-60 (default 30).
                          A revoked token stops working within this time.
-  RB_HSTS                auto (default: when the request is https), true (behind a TLS
-                         proxy) or false.
+  RB_HSTS                auto (default: when RB_PUBLIC_URL or the request is https),
+                         true (always; also declares a TLS proxy for pass-through) or false.
   RB_TRUSTED_PROXY_HOPS  Reverse proxies in front of the server, 0-5 (default 0). Set it
                          behind a proxy, or every client shares the proxy's address for
                          rate limiting.

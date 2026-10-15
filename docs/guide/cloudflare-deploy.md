@@ -48,7 +48,8 @@ Other options: `--name <worker>` (default `relic-bridge`), `--passthrough` (also
 sets `RB_PASSTHROUGH=on`), `--shared-limiter rules|on` (sets `RB_SHARED_LIMITER`: limits counted once for the whole
 deployment by a Durable Object instead of per isolate, see [Cloudflare limits](cloudflare-limits.md#shared-limiter-durable-object-optional)),
 `--assume-new` (see below), `--master-key-stdin` (use an existing server's master key instead of generating one, see
-[Migrate from a self-hosted server](#migrate-from-a-self-hosted-server)).
+[Migrate from a self-hosted server](#migrate-from-a-self-hosted-server)), and `--sign-in` (asks for the public URL and
+the sign-in providers' client ids and secrets, and deploys them; see [Sign-in on the Worker](#sign-in-on-the-worker)).
 
 > **Moving an existing `relic-bridge serve` server?** Read [Migrate from a self-hosted server](#migrate-from-a-self-hosted-server)
 > before the first run: the setup must take your server's master key, not generate a new one.
@@ -72,28 +73,8 @@ name.
 **Windows (PowerShell).** Everything above works the same (the script starts Wrangler with Node, no shell). Where the
 guide shows bash, use the PowerShell form given next to it.
 
-## Path B: Deploy to Cloudflare button
-
-[![Deploy to Cloudflare](images/deploy-to-cloudflare.svg)](https://deploy.workers.cloudflare.com/?url=https://github.com/mhidalgo-lab/relic-bridge/tree/main/apps/worker)
-
-Cloudflare copies the repository to your GitHub/GitLab account, provisions D1, asks for the secrets listed in
-`apps/worker/.dev.vars.example` (`RB_MASTER_KEY`, `RB_ADMIN_TOKEN`) and deploys with Workers Builds; pushes to your copy
-redeploy. Generate the values yourself first:
-
-```sh
-# PowerShell: the same two commands work with double quotes outside and single quotes inside the script.
-node -e "console.log('v1:'+require('crypto').randomBytes(32).toString('base64'))"   # RB_MASTER_KEY
-node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"      # RB_ADMIN_TOKEN
-```
-
-Paste them into the setup page and into a password manager; do not reuse one value for both. Do not type a token by
-hand: the Worker refuses a predictable `RB_ADMIN_TOKEN` (fewer than 8 distinct characters, a repeated block, runs such
-as `abcdef…`, or a placeholder such as `changeme…`) and answers `503` until it is replaced (`worker boot failed` with
-`variable: RB_ADMIN_TOKEN` in the logs, never the value); a hand-made one that passes boots with a warning. Set
-`RB_PLAN=paid` in the Worker's variables if you are on Workers Paid.
-
-> The button flow is documented by Cloudflare but has not been exercised against this repository yet (see the pending
-> decisions); prefer Path A until it is.
+A one-click [Deploy to Cloudflare button](#not-yet-verified-deploy-to-cloudflare-button) also exists, but it has not
+been tested with this repository; use the script above.
 
 ## Connect your devices
 
@@ -103,8 +84,15 @@ The New Relic key lives only in D1 (encrypted); the devices hold a token that ca
 **1. Create the project and the first tokens, from any machine with the CLI.** The admin token is read from
 `RB_ADMIN_TOKEN` or a hidden prompt, never a flag.
 
+The CLI is `relic-bridge`: either the published package (`npm install -g relic-bridge`, the version you deployed) or
+the clone you deployed from. `pnpm install` does not build it, so in the clone build it once with
+`pnpm --filter ./apps/cli build` and run `node apps/cli/dist/index.mjs` wherever this guide says `relic-bridge` (the
+alias below does that in bash and zsh).
+
 ```sh
-export RB_REMOTE=https://relic-bridge.<your-subdomain>.workers.dev
+pnpm --filter ./apps/cli build                             # once, in the clone (skip with npm install -g)
+alias relic-bridge="node $PWD/apps/cli/dist/index.mjs"     # run from the repository root (skip with npm install -g)
+export RB_REMOTE=https://relic-bridge.<your-subdomain>.workers.dev   # or your custom domain
 export RB_ADMIN_TOKEN=...                                  # from the setup output (password manager)
 relic-bridge credential add --label main --region US      # hidden prompt for the User API key
 relic-bridge project add --slug prod --default-account 1234567 --default-credential cred_...
@@ -115,8 +103,9 @@ done
 curl "$RB_REMOTE/health"        # {"status":"ok"}
 ```
 
-PowerShell (Windows PowerShell 5.1 or 7; use `node apps/cli/dist/index.mjs` for `relic-bridge` until the package is on
-npm, and `curl.exe` because `curl` is an alias of `Invoke-WebRequest`):
+PowerShell (Windows PowerShell 5.1 or 7; with the clone, run `pnpm --filter ./apps/cli build` once and use
+`node apps/cli/dist/index.mjs` from the repository root for `relic-bridge`; use `curl.exe` because `curl` is an alias of
+`Invoke-WebRequest`):
 
 ```powershell
 $env:RB_REMOTE = "https://relic-bridge.<your-subdomain>.workers.dev"
@@ -201,6 +190,40 @@ Use the new URL in the tokens you create from then on (`--url`); existing device
 `workers.dev` until you set `"workers_dev": false`, which turns that address off. Source:
 [Custom Domains](https://developers.cloudflare.com/workers/configuration/routing/custom-domains/) (checked 2026-10-03).
 
+#### Zone security settings and MCP clients
+
+On a custom domain, the zone's security settings run **before** the Worker, and some of them treat a non-browser client
+as a bot. An MCP client (or the script or library it uses) that gets Cloudflare's **error 1010** ("banned your access
+based on your browser's signature") never reached relic-bridge: Browser Integrity Check refused its User-Agent or
+headers. Others to check, in the zone's **Security** > **Settings**: **Bot Fight Mode** (challenges automated traffic)
+and the **Security level** (challenges addresses with a poor reputation). `workers.dev` addresses are not in your zone,
+so these settings do not apply there.
+
+To exempt only the MCP routes, add a custom rule with the *Skip* action (dashboard: your zone > **Security** >
+**Security rules** > **Create rule** > **Custom rules**), placed first:
+
+- Expression (**Edit expression**), with your hostname:
+
+  ```txt
+  (http.host eq "mcp.example.com" and (
+    (starts_with(http.request.uri.path, "/p/") and ends_with(http.request.uri.path, "/mcp"))
+    or http.request.uri.path eq "/passthrough/mcp"))
+  ```
+
+- Action *Skip*, and under the components to skip, only **Browser Integrity Check** and **Security Level** (API
+  `products`: `bic`, `securityLevel`); add **All Super Bot Fight Mode rules** on Pro and above if that is what blocks.
+  Turn on **Log matching requests** while you check it.
+
+What it turns off: for those paths only, Cloudflare no longer refuses requests for their headers or User-Agent, nor
+challenges addresses for their reputation; everything else in the zone keeps the protections. The Worker's own checks
+still apply to every request (a valid device or OAuth token, its grant, the rate limits). Skip nothing else, and keep the
+admin panel and `/api/admin/` outside the rule. **Bot Fight Mode cannot be skipped by any rule:** if it blocks your
+clients, turn it off for the zone (Free plan) or use Super Bot Fight Mode, which can be skipped. With OAuth (claude.ai,
+phone), the client's servers also call `/.well-known/oauth-*`, `/oauth/token` and `/oauth/register`; add those paths
+only if those requests get 1010 too. Sources: [skip options](https://developers.cloudflare.com/waf/custom-rules/skip/options/),
+[Browser Integrity Check](https://developers.cloudflare.com/waf/tools/browser-integrity-check/),
+[Bot Fight Mode](https://developers.cloudflare.com/bots/get-started/bot-fight-mode/) (checked 2026-10-15).
+
 ## Updating
 
 ```sh
@@ -226,20 +249,23 @@ pnpm cf:setup --plan free          # same plan as before; existing secrets and r
   **deletes** dashboard variables such as `RB_ALLOWED_HOSTS`.
 - `wrangler.local.jsonc` is copied from `wrangler.jsonc` once and never refreshed: after a `git pull` that changes
   `wrangler.jsonc` (new binding, cron or compatibility date), carry the change over by hand (keep the `database_id`).
-  Since P7-10 that includes the `durable_objects` and `exports` entries of the `SharedLimiter` class (needed only for
-  `RB_SHARED_LIMITER`; without them the Worker logs a warning and keeps per-isolate limits).
-- **Upgrade note (P5-13): the `OAUTH_KV` namespace is gone.** Earlier versions declared a KV namespace that was never
-  used (OAuth state lives in D1, ADR-0011). Nothing breaks if your `wrangler.local.jsonc` still lists it, and
+  A copy made before the [shared limiter](cloudflare-limits.md#shared-limiter-durable-object-optional) existed lacks
+  the `durable_objects` and `exports` entries of the `SharedLimiter` class (needed only for `RB_SHARED_LIMITER`;
+  without them the Worker logs a warning and keeps per-isolate limits).
+- **Upgrade note: the `OAUTH_KV` namespace is gone.** Early versions declared a KV namespace that was never used (OAuth
+  state lives in D1; see the [decision record](../adr/0011-oauth-state-in-storage-kv.md)). Nothing breaks if your `wrangler.local.jsonc` still lists it, and
   `cf:setup` prints a note while it does. To tidy up, remove the `kv_namespaces` entry from the local copy, redeploy,
   then list and delete the old namespace:
   `pnpm --filter @relic-bridge/worker exec wrangler kv namespace list` and
   `... wrangler kv namespace delete --namespace-id <id>`.
-- With the button flow, a push to your copy of the repository redeploys through Workers Builds.
+- With the [button flow](#not-yet-verified-deploy-to-cloudflare-button), a push to your copy of the repository
+  redeploys through Workers Builds.
 
 ## Backups and the master key
 
 There are two things to back up, and they must be **kept apart**: the database holds ciphertext, the master key decrypts
-it (T7).
+it (a stolen database or export alone does not reveal your New Relic keys; see the
+[threat model](../THREAT_MODEL.md)).
 
 | What | How | Notes |
 |---|---|---|
@@ -481,6 +507,30 @@ checked 2026-10-03). Use it only where a **person with a browser** is the client
   self-hosted application on that path only, so `/p/*/mcp`, `/health` and the OAuth endpoints stay reachable.
 - Access needs Zero Trust enabled on the account and a custom domain or `workers.dev` hostname; check
   [Cloudflare's plans](https://www.cloudflare.com/plans/zero-trust-services/) for its current free allowance.
+
+## Not yet verified: Deploy to Cloudflare button
+
+> This flow is documented by Cloudflare but has not been tested with this repository. Use the
+> [setup script](#path-a-setup-script-recommended-from-a-clone) unless you want to try it, and expect to fix things by
+> hand.
+
+[![Deploy to Cloudflare](images/deploy-to-cloudflare.svg)](https://deploy.workers.cloudflare.com/?url=https://github.com/mhidalgo-lab/relic-bridge/tree/main/apps/worker)
+
+Cloudflare copies the repository to your GitHub/GitLab account, provisions D1, asks for the secrets listed in
+`apps/worker/.dev.vars.example` (`RB_MASTER_KEY`, `RB_ADMIN_TOKEN`) and deploys with Workers Builds; pushes to your copy
+redeploy. Generate the values yourself first:
+
+```sh
+# PowerShell: the same two commands work with double quotes outside and single quotes inside the script.
+node -e "console.log('v1:'+require('crypto').randomBytes(32).toString('base64'))"   # RB_MASTER_KEY
+node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"      # RB_ADMIN_TOKEN
+```
+
+Paste them into the setup page and into a password manager; do not reuse one value for both. Do not type a token by
+hand: the Worker refuses a predictable `RB_ADMIN_TOKEN` (fewer than 8 distinct characters, a repeated block, runs such
+as `abcdef…`, or a placeholder such as `changeme…`) and answers `503` until it is replaced (`worker boot failed` with
+`variable: RB_ADMIN_TOKEN` in the logs, never the value); a hand-made one that passes boots with a warning. Set
+`RB_PLAN=paid` in the Worker's variables if you are on Workers Paid.
 
 ## Troubleshooting
 

@@ -1339,3 +1339,27 @@ Not re-measured on an account by the maintainers.
   added `database_name`, so it no longer triggers the message; any remaining diff is a real one.
 - **`wrangler d1 list --json`** prints the account's databases as a JSON array of objects with `uuid` and `name` (plus
   version, sizes and dates). `pnpm cf:setup` uses it after the deploy to record the `database_id` in the local copy.
+
+## Zone security settings in front of a Worker custom domain (P8-83, from documentation 2026-10-15)
+
+Sources: [Browser Integrity Check](https://developers.cloudflare.com/waf/tools/browser-integrity-check/),
+[skip options](https://developers.cloudflare.com/waf/custom-rules/skip/options/),
+[Skip action](https://developers.cloudflare.com/waf/custom-rules/skip/),
+[Bot Fight Mode](https://developers.cloudflare.com/bots/get-started/bot-fight-mode/),
+[feature interoperability](https://developers.cloudflare.com/waf/feature-interoperability/),
+[rules language functions](https://developers.cloudflare.com/ruleset-engine/rules-language/functions/), and a deploy
+report (a Python client with its default User-Agent got error 1010 on `/p/<slug>/mcp`; curl and a custom User-Agent
+did not). The skip rule itself was not run on a zone by the maintainers.
+
+- **Browser Integrity Check** (on by default) denies requests with headers commonly abused by spammers and challenges
+  clients with no or a non-standard User-Agent; error 1010 is its "banned based on your browser's signature" page. It can
+  be turned off for the zone (Security > Settings) or per request with a custom rule's Skip action (product `bic`) or a
+  configuration rule.
+- **Skip products** (dashboard: the Skip action's component list; API `action_parameters.products`): `zoneLockdown`,
+  `uaBlock`, `bic`, `hot`, `securityLevel`, `rateLimit`, `waf`. **Skip phases** (`http_ratelimit`, `http_request_sbfm`,
+  `http_request_firewall_managed`) cover rate limiting rules, Super Bot Fight Mode and managed rules; skipping a phase
+  does not skip the products above.
+- **Bot Fight Mode** (Free plan) runs outside the Ruleset Engine: Skip, Bypass and Allow rules have no effect on it. The
+  only options are turning it off or Super Bot Fight Mode (Pro and above), which a Skip rule can bypass.
+- Custom rules: dashboard path Security > Security rules > Create rule > Custom rules; rules run in order, so a skip
+  rule goes first. `starts_with()` and `ends_with()` must be written as function calls in an expression.

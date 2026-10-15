@@ -2,7 +2,7 @@
 id: P8-83
 title: Cloudflare guide clarity - CLI build step, zone security note, no internal ids, section order
 phase: 8
-status: in-progress
+status: review
 priority: low
 depends_on: [P8-82]
 adr: []
@@ -39,15 +39,15 @@ domain. Readers hit things the guide does not say, or references they cannot loo
 - `docs/RESEARCH.md`: the zone security facts with sources.
 
 ## Acceptance criteria
-- [ ] The bash "Connect your devices" block builds the CLI (or says how) and shows the `node apps/cli/dist/index.mjs`
+- [x] The bash "Connect your devices" block builds the CLI (or says how) and shows the `node apps/cli/dist/index.mjs`
       form.
-- [ ] "Custom domain" explains error 1010, the three zone settings, and a skip rule for the MCP paths, with the dashboard
+- [x] "Custom domain" explains error 1010, the three zone settings, and a skip rule for the MCP paths, with the dashboard
       path and rule expression from current Cloudflare docs, what it turns off, and that Bot Fight Mode cannot be skipped.
-- [ ] No `P<n>-<nn>`, `ADR-<nnnn>`, `T<n>` or "pending decisions" in the guide, the `wrangler.jsonc` comments or the
+- [x] No `P<n>-<nn>`, `ADR-<nnnn>`, `T<n>` or "pending decisions" in the guide, the `wrangler.jsonc` comments or the
       setup script's help and notes.
-- [ ] `--sign-in` is introduced before "Updating"; Path B sits under a "not yet verified" heading after Path A.
-- [ ] `pnpm docs:check` passes.
-- [ ] The skip rule verified on a real zone with an MCP client that got 1010 (leave unticked: needs the owner's zone).
+- [x] `--sign-in` is introduced before "Updating"; Path B sits under a "not yet verified" heading after Path A.
+- [x] `pnpm docs:check` passes.
+- [ ] The skip rule verified on a real zone with an MCP client that got 1010 (unticked: needs the owner's zone).
 
 ## Security notes
 Documentation only. The skip rule weakens zone protections for the MCP paths: the guide must say so, keep it narrow

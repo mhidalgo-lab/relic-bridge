@@ -272,17 +272,17 @@ Deploys relic-bridge to your Cloudflare account (run \`wrangler login\` first).
   --assume-new         First deploy: treat an unreadable secret list as "no Worker yet" (refused if the Worker exists)
   --replace-master-key Generate a new RB_MASTER_KEY although the Worker already has RB_ADMIN_TOKEN. DESTRUCTIVE:
                        every stored New Relic key becomes undecryptable. Rarely what you want.
-  --master-key-stdin   Use the master key of the server you are migrating from (P8-80) instead of generating one: piped
+  --master-key-stdin   Use the master key of the server you are migrating from instead of generating one: piped
                        on stdin (e.g. from your password manager's CLI), or typed at a hidden prompt. Never printed, never
                        written to --backup-file. Replacing a key the Worker already has also needs --replace-master-key.
                        Then import the data: see "Migrate from a self-hosted server" in docs/guide/cloudflare-deploy.md.
-  --sign-in            Also set up sign-in (P4-09): asks for the public URL and, per provider (Google, GitHub, generic
+  --sign-in            Also set up sign-in: asks for the public URL and, per provider (Google, GitHub, generic
                        OIDC), the client id and secret. Answers can come from RB_PUBLIC_URL and
                        RB_<GOOGLE|GITHUB|OIDC>_CLIENT_ID / _CLIENT_SECRET (and RB_OIDC_ISSUER) in your environment, so
                        it also works without a terminal. Client secrets are sent as Worker secrets, never as arguments.
   --public-url <url>   The https origin people use for this Worker (with --sign-in); not a secret.
   --shared-limiter rules|on
-                       Count limits in the SharedLimiter Durable Object for every isolate (P7-10): \`rules\` for the
+                       Count limits in the SharedLimiter Durable Object for every isolate: \`rules\` for the
                        auth-failure, sign-in, OAuth and write limits, \`on\` also for NerdGraph concurrency per key.
                        Each check is a Durable Object request (Free plan: 100,000 a day). See cloudflare-limits.md.
   --dry-run            Print what would happen; generates and sends nothing, calls no Cloudflare API
@@ -717,7 +717,7 @@ export async function runSetup(opts: SetupOptions, deps: SetupDeps): Promise<{ u
     const current = existingCopy ?? deps.fs.read(localConfig);
     if (/"kv_namespaces"\s*:\s*\[[^\]]*"OAUTH_KV"/.test(current)) {
       log(
-        `NOTE: ${localName} still declares the OAUTH_KV KV namespace, which relic-bridge no longer uses (P5-13). It is harmless; remove the "kv_namespaces" entry from the copy, and delete the namespace with \`wrangler kv namespace delete\` (see the upgrade note in docs/guide/cloudflare-deploy.md).`,
+        `NOTE: ${localName} still declares the OAUTH_KV KV namespace, which relic-bridge no longer uses. It is harmless; remove the "kv_namespaces" entry from the copy, and delete the namespace with \`wrangler kv namespace delete\` (see the upgrade note in docs/guide/cloudflare-deploy.md).`,
       );
     }
     const drift = configDrift(wanted, current);

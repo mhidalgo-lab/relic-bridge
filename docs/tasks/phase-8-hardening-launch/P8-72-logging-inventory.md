@@ -2,11 +2,11 @@
 id: P8-72
 title: Logging inventory (ASVS 5.0 V16)
 phase: 8
-status: todo
+status: in-progress
 priority: medium
 depends_on: []
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P8-72 — Logging inventory (ASVS 5.0 V16)

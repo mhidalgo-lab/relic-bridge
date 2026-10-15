@@ -143,7 +143,8 @@ export function parseRateRule(name: string, raw: string): RateLimitRule | null {
   if (m === null || Number(m[1]) < 1 || Number(m[2]) < 1) {
     throw new ConfigError(
       `${name} must look like <requests>/<seconds> (e.g. 600/60) or off.`,
-      `Got "${raw.slice(0, 40)}".`,
+      // The value is not repeated: a secret pasted into the wrong variable must not reach the log.
+      'Check the value of the variable.',
     );
   }
   return { requests: Number(m[1]), perSeconds: Number(m[2]) };

@@ -2,7 +2,7 @@
 id: P8-81
 title: Record the D1 database id in the local Wrangler config and stop the "remote configuration differs" noise
 phase: 8
-status: in-progress
+status: review
 priority: medium
 depends_on: []
 adr: []
@@ -35,18 +35,18 @@ guide.
   comment: say what really happens.
 
 ## Acceptance criteria
-- [ ] `docs/RESEARCH.md` explains, with sources: write-back only in an interactive terminal; later deploys inherit the
+- [x] `docs/RESEARCH.md` explains, with sources: write-back only in an interactive terminal; later deploys inherit the
       Worker's current D1 binding when its name matches; a first deploy adopts an existing database of that name; the
       diff and when it blocks; why an id in the config makes it go away.
-- [ ] `cf:setup` writes `database_id` into `wrangler.local.jsonc` (or `wrangler.<name>.local.jsonc`) after the deploy,
+- [x] `cf:setup` writes `database_id` into `wrangler.local.jsonc` (or `wrangler.<name>.local.jsonc`) after the deploy,
       once, keeping the rest of the file byte for byte; a copy that already has an id is left alone.
-- [ ] A failed `d1 list`, invalid JSON, no match or a non-UUID id produce a warning and leave the file unchanged; the
+- [x] A failed `d1 list`, invalid JSON, no match or a non-UUID id produce a warning and leave the file unchanged; the
       setup still succeeds.
-- [ ] `--dry-run` describes the step and calls nothing.
-- [ ] Tests: insertion (default and `--name` copies, comments kept, existing id untouched), each failure path, call order
+- [x] `--dry-run` describes the step and calls nothing.
+- [x] Tests: insertion (default and `--name` copies, comments kept, existing id untouched), each failure path, call order
       (lookup after deploy), dry run. No network.
-- [ ] The guide no longer claims that deleting the copy provisions a new database, and explains the diff message.
-- [ ] Quiet second deploy confirmed against a real account (leave unticked: needs the owner's deployment).
+- [x] The guide no longer claims that deleting the copy provisions a new database, and explains the diff message.
+- [ ] Quiet second deploy confirmed against a real account (unticked: needs the owner's deployment).
 
 ## Security notes
 None. The database id is not a secret (it is an account resource identifier); it goes into the git-ignored copy only,

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // `pnpm cf:setup` (P3-05): deploy relic-bridge to your Cloudflare account from a clone, in one command.
 //
+//   0. checks the Wrangler login and its scopes first (`wrangler whoami --json`, P8-82),
 //   1. generates RB_MASTER_KEY and RB_ADMIN_TOKEN (and RB_FINGERPRINT_SECRET with --passthrough) with the CSPRNG,
 //   2. sends them to `wrangler secret bulk` on STDIN (never as arguments, never written to a repo file),
 //   3. deploys with a git-ignored copy of wrangler.jsonc, so Wrangler's automatic provisioning creates the D1 database
@@ -9,7 +10,8 @@
 //   3b. with --sign-in (P4-09): asks for RB_PUBLIC_URL and the sign-in provider settings. Client ids and issuer go to the
 //      deploy as `--var`; client SECRETS go through the same `wrangler secret bulk` stdin call (read from the environment
 //      or a hidden prompt, never from an argument, never written to a file),
-//   4. prints the next steps (credential, project, grant and token through `relic-bridge ... --remote`).
+//   4. prints the deployed URLs and the next steps (credential, project, grant and token through the CLI built in the
+//      clone, `node apps/cli/dist/index.mjs`, with RB_REMOTE set to the custom domain or workers.dev URL).
 //
 //   --master-key-stdin (P8-80): use the master key of an existing server (piped on stdin, or a hidden prompt) instead of
 //   generating one, for a database imported with `relic-bridge db export --format d1`. That key is never printed and
@@ -479,6 +481,148 @@ async function existingSecrets(
 }
 
 const WORKERS_DEV_RE = /https:\/\/[a-z0-9.-]+\.workers\.dev/i;
+const WORKERS_DEV_LINE_RE = /^\s+(https:\/\/[a-z0-9.-]+\.workers\.dev)\s*$/gim;
+const CUSTOM_DOMAIN_LINE_RE =
+  /^\s+([a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+) \(custom domain/gim;
+
+/**
+ * The URLs a `wrangler deploy` reported (its "Deployed <name> triggers" list): custom domains first, then workers.dev.
+ * Plain routes (`example.com/*`) are not URLs and are left out.
+ */
+export function deployedUrls(output: string): string[] {
+  const custom = [...output.matchAll(CUSTOM_DOMAIN_LINE_RE)].map(
+    (m) => `https://${(m[1] as string).toLowerCase()}`,
+  );
+  let dev = [...output.matchAll(WORKERS_DEV_LINE_RE)].map((m) => (m[1] as string).toLowerCase());
+  if (dev.length === 0) {
+    const any = WORKERS_DEV_RE.exec(output)?.[0];
+    if (any !== undefined) dev = [any.toLowerCase()];
+  }
+  return [...new Set([...custom, ...dev])];
+}
+
+/** JSONC text as a value (comments and trailing commas removed outside strings); `undefined` when it does not parse. */
+export function parseJsonc(text: string): unknown {
+  let out = '';
+  let i = 0;
+  while (i < text.length) {
+    const ch = text[i] as string;
+    if (ch === '"') {
+      let j = i + 1;
+      while (j < text.length && text[j] !== '"') j += text[j] === '\\' ? 2 : 1;
+      out += text.slice(i, j + 1);
+      i = j + 1;
+    } else if (ch === '/' && text[i + 1] === '/') {
+      while (i < text.length && text[i] !== '\n') i++;
+    } else if (ch === '/' && text[i + 1] === '*') {
+      const end = text.indexOf('*/', i + 2);
+      i = end === -1 ? text.length : end + 2;
+    } else {
+      out += ch;
+      i++;
+    }
+  }
+  try {
+    return JSON.parse(out.replace(/,(\s*[}\]])/g, '$1')) as unknown;
+  } catch {
+    return undefined;
+  }
+}
+
+const isRecord = (v: unknown): v is Record<string, unknown> =>
+  typeof v === 'object' && v !== null && !Array.isArray(v);
+
+/** Keys of the copy that are the operator's to change (custom domain, workers.dev, dashboard-style variables, account). */
+const LOCAL_KEYS = new Set(['routes', 'route', 'workers_dev', 'preview_urls', 'vars', 'account_id']);
+
+/** A comparable form of one top-level value: object keys sorted, D1 ids dropped. */
+function comparable(key: string, value: unknown): string {
+  const strip = (v: unknown): unknown => {
+    if (Array.isArray(v)) return v.map(strip);
+    if (!isRecord(v)) return v;
+    const out: Record<string, unknown> = {};
+    for (const k of Object.keys(v).sort()) {
+      if (key === 'd1_databases' && (k === 'database_id' || k === 'preview_database_id')) continue;
+      out[k] = strip(v[k]);
+    }
+    return out;
+  };
+  return JSON.stringify(strip(value));
+}
+
+/**
+ * Top-level settings of `wanted` (the committed config for this Worker) that the local copy lacks or has with another
+ * value: a binding, cron or setting an update added. Keys only in the copy, and `LOCAL_KEYS`, are the operator's and
+ * never count. `undefined` when either file does not parse (the caller falls back to a text comparison).
+ */
+export function configDrift(wanted: string, local: string): string[] | undefined {
+  const a = parseJsonc(wanted);
+  const b = parseJsonc(local);
+  if (!isRecord(a) || !isRecord(b)) return undefined;
+  return Object.keys(a).filter(
+    (k) => !LOCAL_KEYS.has(k) && (!(k in b) || comparable(k, a[k]) !== comparable(k, b[k])),
+  );
+}
+
+const LOGIN_CMD = '`pnpm --filter @relic-bridge/worker exec wrangler login`';
+const REQUIRED_SCOPES = ['workers_scripts:write', 'd1:write'] as const;
+
+/**
+ * Checks `wrangler whoami --json` before anything is done: logged in, and (for an OAuth login, which lists its scopes)
+ * the scopes this setup uses. Reads only `loggedIn`, `authType` and `tokenPermissions`, never prints the email or ids.
+ * Returns a note to print, or throws.
+ */
+export function checkLogin(r: WranglerResult, hasRoutes: boolean): string | undefined {
+  let info: unknown;
+  const start = r.stdout.indexOf('{');
+  if (start !== -1) {
+    try {
+      info = JSON.parse(r.stdout.slice(start));
+    } catch {
+      info = undefined;
+    }
+  }
+  if (!isRecord(info)) {
+    // Not JSON (an older Wrangler): the exit code and the text are all there is.
+    if (r.code !== 0 || /not authenticated/i.test(r.stdout + r.stderr)) {
+      throw new SetupError(`Wrangler is not logged in. Run ${LOGIN_CMD} first.`);
+    }
+    return undefined;
+  }
+  if (r.code !== 0 || info['loggedIn'] !== true) {
+    throw new SetupError(`Wrangler is not logged in. Run ${LOGIN_CMD} first.`);
+  }
+  const needed: string[] = [...REQUIRED_SCOPES, ...(hasRoutes ? ['zone:read'] : [])];
+  const perms = info['tokenPermissions'];
+  if (!Array.isArray(perms)) {
+    return (
+      'NOTE: Wrangler uses an API token, whose permissions cannot be listed here. It needs Workers Scripts Edit and D1 Edit' +
+      `${hasRoutes ? ', and Zone Read for the custom domain' : ''}; a missing one fails at the step that uses it.`
+    );
+  }
+  const have = new Set(perms.filter((p): p is string => typeof p === 'string'));
+  const missing = needed.filter((s) => !have.has(s));
+  if (missing.length > 0) {
+    throw new SetupError(
+      `Your Wrangler login lacks ${missing.join(', ')}${hasRoutes && missing.includes('zone:read') ? ' (zone:read is for the routes in your local config)' : ''}. ` +
+        `Run ${LOGIN_CMD} again (it asks for every scope Wrangler uses), then re-run this setup. Nothing was changed.`,
+    );
+  }
+  return undefined;
+}
+
+/** True when the config text declares `routes` or `route` (a custom domain or route needs zone access). */
+export function hasRoutes(text: string): boolean {
+  const c = parseJsonc(text);
+  if (isRecord(c)) {
+    const r = c['routes'] ?? c['route'];
+    return Array.isArray(r) ? r.length > 0 : r !== undefined && r !== null && r !== '';
+  }
+  return /"routes?"\s*:/.test(text);
+}
+
+/** How the next steps call the CLI from the clone (the package is also `relic-bridge` when installed). */
+const CLI = 'node apps/cli/dist/index.mjs';
 
 export async function runSetup(opts: SetupOptions, deps: SetupDeps): Promise<{ url: string | undefined }> {
   const { log } = deps;
@@ -491,12 +635,19 @@ export async function runSetup(opts: SetupOptions, deps: SetupDeps): Promise<{ u
   if (opts.dryRun) {
     log('Dry run: nothing is generated, sent or deployed.');
     log(
+      `  0. check the Wrangler login (\`wrangler whoami --json\`): stop unless it is logged in with ${REQUIRED_SCOPES.join(' and ')}`,
+    );
+    log('     (and zone:read when the local config has routes); an API token only gets a note');
+    log(
       `  1. copy wrangler.jsonc to ${localName} (git-ignored; it gets the D1 database id after the deploy)` +
         (opts.name === DEFAULT_NAME
           ? ''
           : `, with D1 database "${opts.name}" and rate-limit namespace ${rateLimitNamespace(opts.name)}`),
     );
-    log('     on a re-run: warn when wrangler.jsonc changed (a new binding or cron) and the copy lacks it');
+    log(
+      '     on a re-run: warn about settings of wrangler.jsonc (a new binding or cron) that the copy lacks or changes;',
+    );
+    log('     routes, workers_dev, preview_urls, vars, account_id and ids are yours and are not compared');
     log(
       `  2. generate ${wanted.join(', ')} for Worker "${opts.name}" and send them to \`wrangler secret bulk\` on stdin,`,
     );
@@ -525,9 +676,23 @@ export async function runSetup(opts: SetupOptions, deps: SetupDeps): Promise<{ u
       `  4. when ${localName} has no D1 database_id yet: look the database up (\`wrangler d1 list --json\`) and add its id`,
     );
     log('     to the copy, so later deploys bind it by id (a failed lookup is only a note)');
-    log('  5. print next steps (the Worker applies its D1 migrations when it first boots)');
+    log(
+      '  5. print the deployed URLs (custom domains, workers.dev) and the next steps with RB_REMOTE set to the first one;',
+    );
+    log(
+      `     the steps use \`${CLI}\` and start with \`pnpm --filter ./apps/cli build\` when the CLI is not built`,
+    );
+    log('     (the Worker applies its D1 migrations when it first boots)');
     return { url: undefined };
   }
+
+  // The login first: a missing scope must stop the run before anything is copied, generated or sent.
+  const existingCopy = deps.fs.exists(localConfig) ? deps.fs.read(localConfig) : undefined;
+  const loginNote = checkLogin(
+    await deps.wrangler(['whoami', '--json']),
+    existingCopy !== undefined && hasRoutes(existingCopy),
+  );
+  if (loginNote !== undefined) log(loginNote);
 
   if (backupPath !== undefined && deps.repoRoot !== undefined) {
     const rel = relative(resolve(deps.repoRoot), backupPath);
@@ -548,30 +713,23 @@ export async function runSetup(opts: SetupOptions, deps: SetupDeps): Promise<{ u
     deps.fs.writeNew(localConfig, localConfigFor(committed, opts.name), 0o644);
     log(`Created ${localName} (git-ignored).`);
   } else {
-    const wanted = normalizeConfig(
-      localConfigFor(deps.fs.read(join(deps.workerDir, 'wrangler.jsonc')), opts.name),
-    );
-    const current = deps.fs.read(localConfig);
+    const wanted = localConfigFor(deps.fs.read(join(deps.workerDir, 'wrangler.jsonc')), opts.name);
+    const current = existingCopy ?? deps.fs.read(localConfig);
     if (/"kv_namespaces"\s*:\s*\[[^\]]*"OAUTH_KV"/.test(current)) {
       log(
         `NOTE: ${localName} still declares the OAUTH_KV KV namespace, which relic-bridge no longer uses (P5-13). It is harmless; remove the "kv_namespaces" entry from the copy, and delete the namespace with \`wrangler kv namespace delete\` (see the upgrade note in docs/guide/cloudflare-deploy.md).`,
       );
     }
-    if (normalizeConfig(current) !== wanted) {
+    const drift = configDrift(wanted, current);
+    if (drift === undefined ? normalizeConfig(current) !== normalizeConfig(wanted) : drift.length > 0) {
+      const what = drift === undefined ? '' : `: ${drift.join(', ')}`;
       log(
-        `WARNING: ${localName} differs from wrangler.jsonc (a git pull may have added a binding, cron or setting that this deploy will not include, or you edited the copy on purpose, e.g. a custom domain).`,
+        `WARNING: ${localName} lacks or changes settings of wrangler.jsonc${what}. An update may have added a binding, cron or setting that this deploy will not include.`,
       );
       log(
-        `  Compare the two files, copy new entries into ${localName} and keep its database_id. (Deleting the copy loses your edits; the database stays bound by name.)`,
+        `  Copy them into ${localName} and keep its database_id. Your routes, workers_dev, vars and ids are not compared. (Deleting the copy loses your edits; the database stays bound by name.)`,
       );
     }
-  }
-
-  const who = await deps.wrangler(['whoami']);
-  if (who.code !== 0 || /not authenticated/i.test(who.stdout + who.stderr)) {
-    throw new SetupError(
-      'Wrangler is not logged in. Run `pnpm --filter @relic-bridge/worker exec wrangler login` first.',
-    );
   }
 
   const have = new Set(await existingSecrets(opts, deps, cfg));
@@ -660,31 +818,42 @@ export async function runSetup(opts: SetupOptions, deps: SetupDeps): Promise<{ u
   const dep = await deps.wrangler(deployArgs);
   if (dep.code !== 0)
     throw new SetupError(`wrangler deploy failed (exit ${dep.code}). ${firstLine(dep.stderr)}`);
-  const url = WORKERS_DEV_RE.exec(dep.stdout + dep.stderr)?.[0];
+  const urls = deployedUrls(`${dep.stdout}\n${dep.stderr}`);
+  const url = urls[0];
   await recordDatabaseId(deps, localConfig, localName);
 
-  const remote = url ?? 'https://<your-worker>.workers.dev';
   log('');
-  log(`Deployed${url === undefined ? '' : `: ${url}`}. The first request creates the database schema.`);
+  if (url === undefined) {
+    log(
+      `Deployed. Wrangler reported no URL: find it in the dashboard (Workers & Pages, ${opts.name}, Settings, Domains & Routes).`,
+    );
+  } else {
+    log(`Deployed: ${urls.join(', ')}`);
+  }
+  log('The first request creates the database schema.');
+  const remote = url ?? '<the Worker URL from the dashboard>';
+  const cliBuilt =
+    deps.repoRoot === undefined || deps.fs.exists(join(deps.repoRoot, 'apps', 'cli', 'dist', 'index.mjs'));
   log(
-    'Next steps (from any machine with the relic-bridge CLI; the admin token is read from RB_ADMIN_TOKEN or a prompt):',
+    `Next steps, from the repository root (with the CLI installed, \`relic-bridge\` replaces \`${CLI}\`; the admin token is read from RB_ADMIN_TOKEN or a prompt):`,
   );
+  if (!cliBuilt) log('  pnpm --filter ./apps/cli build   # once: builds the CLI (pnpm install does not)');
   log(`  export RB_REMOTE=${remote}`);
   log(
-    '  relic-bridge credential add --label main --region US   # your New Relic User API key: prompted, never a flag',
+    `  ${CLI} credential add --label main --region US   # your New Relic User API key: prompted, never a flag`,
   );
-  log('  relic-bridge project add ...  &&  relic-bridge grant create ...  &&  relic-bridge token create ...');
+  log(`  ${CLI} project add ...  &&  ... grant create ...  &&  ... token create ...`);
   log('  (details: docs/guide/cloudflare-deploy.md and docs/guide/multi-device.md)');
-  log(`  curl ${remote}/health`);
+  log(`  curl ${url === undefined ? '"$RB_REMOTE"' : remote}/health`);
   if (signIn !== undefined) {
     log('');
     log('Sign-in: register these redirect URLs with each provider (docs/guide/identity-providers.md):');
     for (const id of signIn.providers) log(`  ${signIn.publicUrl}/auth/callback/${id}`);
     log('Then issue the first owner link and open it in a browser:');
-    log('  relic-bridge setup-link --remote $RB_REMOTE');
-    if (url !== undefined && signIn.publicUrl !== new URL(url).origin) {
+    log(`  ${CLI} setup-link --remote $RB_REMOTE`);
+    if (url !== undefined && !urls.some((u) => new URL(u).origin === signIn.publicUrl)) {
       log(
-        `  (RB_PUBLIC_URL is ${signIn.publicUrl}, not the workers.dev URL: it must be the address browsers use.)`,
+        `  (RB_PUBLIC_URL is ${signIn.publicUrl}, which is not one of the deployed URLs: it must be the address browsers use.)`,
       );
     }
   }

@@ -1,10 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 import { describe, expect, it } from 'vitest';
 import {
+  checkLogin,
   checkMasterKey,
+  configDrift,
   d1Binding,
   databaseIdFromList,
+  deployedUrls,
   generateSecrets,
+  hasRoutes,
   LOCAL_CONFIG,
   localConfigFor,
   localConfigName,
@@ -48,6 +52,27 @@ const D1_LIST = JSON.stringify([
   { uuid: DB_ID, name: 'relic-bridge' },
   { uuid: STAGING_DB_ID, name: 'rb-staging' },
 ]);
+
+/** `wrangler whoami --json` for an OAuth login with Wrangler's default scopes (placeholder email and account). */
+const whoamiJson = (tokenPermissions?: readonly string[], loggedIn = true): string =>
+  JSON.stringify({
+    loggedIn,
+    authType: tokenPermissions === undefined ? 'User API Token' : 'OAuth Token',
+    email: 'owner@example.com',
+    accounts: [{ name: 'Example', id: '0123456789abcdef0123456789abcdef' }],
+    ...(tokenPermissions === undefined ? {} : { tokenPermissions }),
+  });
+const ALL_SCOPES = [
+  'account:read',
+  'user:read',
+  'workers:write',
+  'workers_scripts:write',
+  'workers_routes:write',
+  'd1:write',
+  'zone:read',
+  'offline_access',
+];
+const WHOAMI_OK = whoamiJson(ALL_SCOPES);
 
 function harness(
   replies: (args: readonly string[]) => Partial<WranglerResult>,
@@ -100,6 +125,7 @@ const ok = (args: readonly string[]): Partial<WranglerResult> => {
   if (args[0] === 'deploy')
     return { stdout: 'Deployed relic-bridge\n  https://relic-bridge.acme.workers.dev\n' };
   if (args[0] === 'd1' && args[1] === 'list') return { stdout: D1_LIST };
+  if (args[0] === 'whoami') return { stdout: WHOAMI_OK };
   return {};
 };
 
@@ -252,7 +278,7 @@ describe('runSetup', () => {
     const h = harness(ok, true, [], withIds);
     await runSetup(OPTS, h.deps);
     expect(h.copies).toEqual([]);
-    expect(h.logs.join('\n')).not.toContain('differs from wrangler.jsonc');
+    expect(h.logs.join('\n')).not.toContain('lacks or changes settings');
   });
 
   it('notes a leftover OAUTH_KV binding in the local copy without a drift warning (P5-13)', async () => {
@@ -264,7 +290,7 @@ describe('runSetup', () => {
     await runSetup(OPTS, h.deps);
     const out = h.logs.join('\n');
     expect(out).toMatch(/still declares the OAUTH_KV KV namespace/);
-    expect(out).not.toContain('differs from wrangler.jsonc');
+    expect(out).not.toContain('lacks or changes settings');
     expect(h.copies).toEqual([]);
   });
 
@@ -273,7 +299,9 @@ describe('runSetup', () => {
     const stale = old.replace(/, "ratelimits".*\}$/, ' }');
     const h = harness(ok, true, [], stale);
     await runSetup(OPTS, h.deps);
-    expect(h.logs.join('\n')).toMatch(/wrangler\.local\.jsonc differs from wrangler\.jsonc/);
+    expect(h.logs.join('\n')).toMatch(
+      /wrangler\.local\.jsonc lacks or changes settings of wrangler\.jsonc: ratelimits\./,
+    );
     expect(h.copies).toEqual([]);
     expect(h.calls.some((c) => c.args[0] === 'deploy')).toBe(true);
   });
@@ -441,7 +469,7 @@ describe('runSetup', () => {
     const out = h.logs.join('\n');
     expect(out).toMatch(/rate-limit namespace/);
     expect(out).toMatch(/--replace-master-key/);
-    expect(out).toMatch(/wrangler\.jsonc changed/);
+    expect(out).toMatch(/settings of wrangler\.jsonc .* that the copy lacks or changes/);
   });
 
   it('gives another Worker name its own local config and D1 database (no binding to the first one)', async () => {
@@ -689,5 +717,169 @@ describe('D1 database id in the local copy (P8-81)', () => {
     expect(h.calls).toEqual([]);
     expect(h.replaced).toEqual([]);
     expect(h.logs.join('\n')).toMatch(/wrangler d1 list --json/);
+  });
+});
+
+describe('deployed URLs (P8-82)', () => {
+  // Wrangler 4.144.0 prints the targets after "Deployed <name> triggers".
+  const CUSTOM_ONLY =
+    'Uploaded relic-bridge (4.2 sec)\nDeployed relic-bridge triggers (1.1 sec)\n  mcp.example.com (custom domain)\n  schedule: 17 * * * *\nCurrent Version ID: 0000\n';
+  const BOTH =
+    'Deployed relic-bridge triggers (1.1 sec)\n  https://relic-bridge.acme.workers.dev\n  mcp.example.com (custom domain - zone name: example.com)\n  schedule: 17 * * * *\n';
+
+  it('reads custom domains first, then workers.dev, and skips plain routes and crons', () => {
+    expect(deployedUrls(CUSTOM_ONLY)).toEqual(['https://mcp.example.com']);
+    expect(deployedUrls(BOTH)).toEqual(['https://mcp.example.com', 'https://relic-bridge.acme.workers.dev']);
+    expect(deployedUrls('Deployed x triggers\n  example.com/* (zone name: example.com)\n')).toEqual([]);
+    expect(deployedUrls('No targets deployed for relic-bridge')).toEqual([]);
+  });
+
+  it('uses the custom domain for RB_REMOTE with workers_dev off, and lists every URL', async () => {
+    const h = harness((a) => (a[0] === 'deploy' ? { stdout: CUSTOM_ONLY } : ok(a)));
+    const r = await runSetup(OPTS, h.deps);
+    expect(r.url).toBe('https://mcp.example.com');
+    const out = h.logs.join('\n');
+    expect(out).toContain('RB_REMOTE=https://mcp.example.com');
+    expect(out).toContain('curl https://mcp.example.com/health');
+    expect(out).not.toContain('<your-worker>');
+    const both = harness((a) => (a[0] === 'deploy' ? { stdout: BOTH } : ok(a)));
+    await runSetup(OPTS, both.deps);
+    expect(both.logs.join('\n')).toContain(
+      'Deployed: https://mcp.example.com, https://relic-bridge.acme.workers.dev',
+    );
+    expect(both.logs.join('\n')).toContain('RB_REMOTE=https://mcp.example.com');
+  });
+
+  it('says where to find the URL when Wrangler reported none', async () => {
+    const h = harness((a) =>
+      a[0] === 'deploy' ? { stdout: 'No targets deployed for relic-bridge' } : ok(a),
+    );
+    const r = await runSetup(OPTS, h.deps);
+    expect(r.url).toBeUndefined();
+    const out = h.logs.join('\n');
+    expect(out).toMatch(/Wrangler reported no URL: find it in the dashboard/);
+    expect(out).not.toMatch(/https:\/\/</);
+  });
+});
+
+describe('drift warning (P8-82)', () => {
+  const COPY_WITH_DOMAIN = `// copied
+{
+  "name": "relic-bridge",
+  "d1_databases": [{ "binding": "DB", "database_name": "relic-bridge", "database_id": "${DB_ID}" }],
+  "ratelimits": [{ "name": "RATE_LIMITER", "namespace_id": "1701" }],
+  "routes": [{ "pattern": "mcp.example.com", "custom_domain": true }],
+  "workers_dev": false,
+  "vars": { "RB_PLAN": "paid", "RB_ALLOWED_HOSTS": "mcp.example.com" },
+}
+`;
+
+  it('ignores routes, workers_dev, vars, ids and keys only in the copy', () => {
+    expect(configDrift(COMMITTED, COPY_WITH_DOMAIN)).toEqual([]);
+  });
+
+  it('names the settings the copy lacks or changes', () => {
+    const committed = COMMITTED.replace(/ \}$/, ', "triggers": { "crons": ["17 * * * *"] } }');
+    expect(configDrift(committed, COPY_WITH_DOMAIN)).toEqual(['triggers']);
+    const otherDb = COPY_WITH_DOMAIN.replace('"database_name": "relic-bridge"', '"database_name": "other"');
+    expect(configDrift(COMMITTED, otherDb)).toEqual(['d1_databases']);
+    expect(configDrift('not json', COPY_WITH_DOMAIN)).toBeUndefined();
+  });
+
+  it('keeps comments and string contents apart when parsing', () => {
+    const tricky =
+      '{ "$schema": "node_modules/x//y.json", /* c */ "name": "a", // tail\n "main": "src/*.ts" }';
+    expect(configDrift(tricky, tricky)).toEqual([]);
+    expect(configDrift(tricky, tricky.replace('x//y', 'x/y'))).toEqual(['$schema']);
+  });
+
+  it('stays quiet on a re-run with the custom-domain copy the guide recommends', async () => {
+    const h = harness(ok, true, [], COPY_WITH_DOMAIN);
+    await runSetup(OPTS, h.deps);
+    expect(h.logs.join('\n')).not.toContain('WARNING');
+  });
+});
+
+describe('Wrangler login check (P8-82)', () => {
+  const res = (stdout: string, code = 0): WranglerResult => ({ code, stdout, stderr: '' });
+
+  it('accepts an OAuth login with the scopes it needs', () => {
+    expect(checkLogin(res(WHOAMI_OK), true)).toBeUndefined();
+    expect(checkLogin(res(whoamiJson(['workers_scripts:write', 'd1:write'])), false)).toBeUndefined();
+  });
+
+  it('refuses a login without D1 or Workers Scripts, and without zone:read when routes are set', () => {
+    expect(() => checkLogin(res(whoamiJson(['workers_scripts:write', 'zone:read'])), false)).toThrow(
+      /lacks d1:write.*wrangler login`? again/,
+    );
+    expect(() => checkLogin(res(whoamiJson(['d1:write'])), false)).toThrow(/lacks workers_scripts:write/);
+    expect(() => checkLogin(res(whoamiJson(['workers_scripts:write', 'd1:write'])), true)).toThrow(
+      /lacks zone:read \(zone:read is for the routes/,
+    );
+  });
+
+  it('refuses a logged-out Wrangler, in JSON or text form', () => {
+    expect(() => checkLogin(res(JSON.stringify({ loggedIn: false }), 1), false)).toThrow(/not logged in/);
+    expect(() => checkLogin(res('You are not authenticated. Please run `wrangler login`.'), false)).toThrow(
+      /not logged in/,
+    );
+    expect(() => checkLogin(res('', 1), false)).toThrow(/not logged in/);
+  });
+
+  it('only notes an API token (no scope list), and never repeats the email or account id', () => {
+    const note = checkLogin(res(whoamiJson(undefined)), true);
+    expect(note).toMatch(/API token.*D1 Edit.*Zone Read/);
+    expect(note).not.toContain('example.com');
+    expect(note).not.toContain('0123456789abcdef');
+  });
+
+  it('checks the login before anything is copied, generated or sent', async () => {
+    const h = harness((a) => (a[0] === 'whoami' ? { stdout: whoamiJson(['workers_scripts:write']) } : ok(a)));
+    await expect(runSetup(OPTS, h.deps)).rejects.toThrow(/lacks d1:write/);
+    expect(h.calls.map((c) => c.args.join(' '))).toEqual(['whoami --json']);
+    expect(h.copies).toEqual([]);
+    expect(h.revealed).toEqual([]);
+  });
+
+  it('asks for zone:read only when the local copy has routes', async () => {
+    const scopes = whoamiJson(['workers_scripts:write', 'd1:write']);
+    const plain = harness((a) => (a[0] === 'whoami' ? { stdout: scopes } : ok(a)), true, [], COMMITTED);
+    await runSetup(OPTS, plain.deps);
+    const routed = COMMITTED.replace(
+      / \}$/,
+      ', "routes": [{ "pattern": "mcp.example.com", "custom_domain": true }] }',
+    );
+    expect(hasRoutes(routed)).toBe(true);
+    expect(hasRoutes(COMMITTED)).toBe(false);
+    const h = harness((a) => (a[0] === 'whoami' ? { stdout: scopes } : ok(a)), true, [], routed);
+    await expect(runSetup(OPTS, h.deps)).rejects.toThrow(/zone:read/);
+  });
+
+  it('lists the login check in a dry run', async () => {
+    const h = harness(ok);
+    await runSetup({ ...OPTS, dryRun: true }, h.deps);
+    expect(h.calls).toEqual([]);
+    expect(h.logs.join('\n')).toMatch(/whoami --json.*workers_scripts:write and d1:write/);
+  });
+});
+
+describe('CLI next steps (P8-82)', () => {
+  it('prints the build command when the CLI is not built, and the node form either way', async () => {
+    const fresh = harness(ok);
+    await runSetup(OPTS, fresh.deps);
+    const out = fresh.logs.join('\n');
+    expect(out).toContain('pnpm --filter ./apps/cli build');
+    expect(out).toContain('node apps/cli/dist/index.mjs credential add');
+    expect(out).not.toMatch(/^ {2}relic-bridge /m);
+    const built = harness(ok, false, ['/repo/apps/cli/dist/index.mjs']);
+    await runSetup(OPTS, built.deps);
+    expect(built.logs.join('\n')).not.toContain('pnpm --filter ./apps/cli build');
+    expect(built.logs.join('\n')).toContain('node apps/cli/dist/index.mjs credential add');
+  });
+
+  it('mentions the CLI step in a dry run', async () => {
+    const h = harness(ok);
+    await runSetup({ ...OPTS, dryRun: true }, h.deps);
+    expect(h.logs.join('\n')).toMatch(/node apps\/cli\/dist\/index\.mjs.*pnpm --filter \.\/apps\/cli build/);
   });
 });

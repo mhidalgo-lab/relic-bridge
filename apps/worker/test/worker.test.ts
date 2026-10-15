@@ -556,3 +556,82 @@ describe('Self-monitoring (P7-08)', () => {
     expect(unavailableStatus(res)).toBe(503);
   });
 });
+
+// P8-76 (THREAT_MODEL T24): the Host and Origin checks hold in the Worker itself with RB_ALLOWED_HOSTS set, on the MCP
+// route and the admin pages, before authentication. The authz matrix's Worker host runs with `*` (no `allowedHosts`).
+describe('Worker Host and Origin checks (RB_ALLOWED_HOSTS)', () => {
+  const HOST = 'mcp.example.com';
+  const hostsEnv = { ...env, RB_ALLOWED_HOSTS: HOST } as WorkerEnv;
+  const INIT = JSON.stringify({
+    jsonrpc: '2.0',
+    id: 1,
+    method: 'initialize',
+    params: {
+      protocolVersion: '2025-11-25',
+      capabilities: {},
+      clientInfo: { name: 'host-test', version: '0' },
+    },
+  });
+
+  async function setup() {
+    const { storage, token } = await seed(MASTER_KEY);
+    const nerdgraph = mockNerdGraph();
+    const worker = createWorker({ openStorage: () => storage, fetch: nerdgraph.fetch, logSink: () => {} });
+    const send = (url: string, headers: Record<string, string>, method = 'POST') =>
+      worker.fetch(
+        new Request(url, {
+          method,
+          headers: {
+            authorization: `Bearer ${token}`,
+            'content-type': 'application/json',
+            accept: 'application/json, text/event-stream',
+            ...headers,
+          },
+          ...(method === 'POST' ? { body: INIT } : {}),
+        }),
+        hostsEnv,
+        fakeCtx(),
+      );
+    return { send, nerdgraph };
+  }
+
+  it('refuses a Host outside the list on /p/:slug/mcp and /admin, before any NerdGraph call', async () => {
+    const { send, nerdgraph } = await setup();
+    for (const path of ['/p/prod/mcp', '/admin']) {
+      const method = path === '/admin' ? 'GET' : 'POST';
+      for (const url of [`https://evil.example${path}`, `https://${HOST}.evil.example${path}`]) {
+        const res = await send(url, {}, method);
+        expect(res.status, url).toBe(403);
+        expect(await res.text(), url).toBe('{"error":"forbidden_host"}');
+      }
+      // A Host header naming another host, on a URL that names ours.
+      const spoofed = await send(`https://${HOST}${path}`, { host: 'evil.example' }, method);
+      expect(spoofed.status, `${path} host header`).toBe(403);
+    }
+    expect(nerdgraph.keys).toEqual([]);
+    // Positive control: our own host gets in.
+    const ok = await send(`https://${HOST}/p/prod/mcp`, {});
+    expect(ok.status).toBe(200);
+  });
+
+  it('refuses a foreign or null Origin on /p/:slug/mcp and /admin; no Origin or our own passes', async () => {
+    const { send, nerdgraph } = await setup();
+    for (const path of ['/p/prod/mcp', '/admin']) {
+      const method = path === '/admin' ? 'GET' : 'POST';
+      for (const origin of [
+        'https://evil.example',
+        'null',
+        `https://${HOST}.evil.example`,
+        'not an origin',
+      ]) {
+        const res = await send(`https://${HOST}${path}`, { origin }, method);
+        expect(res.status, `${path} ${origin}`).toBe(403);
+        expect(await res.text(), `${path} ${origin}`).toBe('{"error":"forbidden_origin"}');
+      }
+    }
+    expect(nerdgraph.keys).toEqual([]);
+    for (const headers of [{}, { origin: `https://${HOST}` }]) {
+      expect((await send(`https://${HOST}/p/prod/mcp`, headers)).status).toBe(200);
+    }
+  });
+});

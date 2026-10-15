@@ -1030,6 +1030,10 @@ export function createReportTools(deps: ToolDeps = {}): ToolDefinition[] {
         hint: 'issue_id for an alert issue, entity_guid for one affected entity.',
       });
     }
+    // An explicit window is checked before any request, like every other tool (the issue lookup is a request).
+    const explicit =
+      args.time_range === undefined ? undefined : parseTimeRange(args.time_range, ctx.clock.now());
+    if (explicit !== undefined) assertWindowWithinLimit(explicit, ctx.limits, ctx.clock.now());
     const notes: string[] = [];
     let issue: IssueRow | null = null;
     let affected: { guid: string; name: string | null }[];
@@ -1062,13 +1066,14 @@ export function createReportTools(deps: ToolDeps = {}): ToolDefinition[] {
       affected = [{ guid, name: null }];
     }
     const range =
-      args.time_range !== undefined || defaultWindow === null
-        ? parseTimeRange(args.time_range ?? DEFAULT_IMPACT_WINDOW, ctx.clock.now())
+      explicit ??
+      (defaultWindow === null
+        ? parseTimeRange(DEFAULT_IMPACT_WINDOW, ctx.clock.now())
         : {
             sinceMs: defaultWindow.sinceMs,
             untilMs: defaultWindow.untilMs,
             windowMs: defaultWindow.untilMs - defaultWindow.sinceMs,
-          };
+          });
     assertWindowWithinLimit(range, ctx.limits, ctx.clock.now());
     return {
       issue,

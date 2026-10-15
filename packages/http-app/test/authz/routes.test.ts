@@ -230,6 +230,32 @@ describe('admin routes × principals', () => {
     }
   });
 
+  // P8-76 (THREAT_MODEL T17): a route-table guard for the audit trail. ADMIN_ROUTES is kept complete by the guard
+  // below, so every change route (POST, PATCH, PUT, DELETE) the admin API serves is called here, and each call must
+  // leave an admin audit row under its request id: `ok` when it changed something, the error code when it did not.
+  it('every change route writes its admin audit row, success or failure', async () => {
+    const owner = await h.addSession({ role: 'owner' });
+    const missing: string[] = [];
+    let checked = 0;
+    for (const route of ADMIN_ROUTES) {
+      if (!UNSAFE.has(route.method)) continue;
+      // Self-service routes need a user: an owner session (with its CSRF token); the rest take the admin token.
+      const headers = isSelfService(route) ? owner.headers : { authorization: `Bearer ${ADMIN_TOKEN}` };
+      const res = await h.send(requestFor(route, { headers }));
+      const rows = (await h.auditRows()).filter((r) => r.kind === 'admin' && r.requestId === res.requestId);
+      const what = `${route.method} ${route.pattern} → ${res.status}`;
+      if (rows.length === 0) missing.push(what);
+      else if (res.status < 300)
+        expect(
+          rows.map((r) => r.status),
+          what,
+        ).toContain('ok');
+      checked += 1;
+    }
+    expect(checked).toBeGreaterThan(30);
+    expect(missing).toEqual([]);
+  });
+
   // The Worker's admin switch (`RB_ADMIN_TOKEN` unset) is tested in apps/worker/test/worker.test.ts.
   it.skipIf(authzHostKind() !== 'http-app')(
     'every admin route is 404 when the admin API is off, whatever the caller presents',

@@ -313,6 +313,65 @@ export function oauthSuite(): void {
   }
 
   describe('OAuth 2.1 authorization server (P5-01)', () => {
+    // P8-76 (THREAT_MODEL T25): the provider keeps some grant fields in plaintext (accepted, section 4a). Pin exactly
+    // which: the project slug only in the grant's `resource` and the token's `audience`, the access grant id only in
+    // the grant metadata; never in a key name, never anywhere else; `props` sealed (no slug, grant id or user id).
+    it('stored OAuth rows hold the slug and the access grant id only in their expected plaintext fields', async () => {
+      await client.register();
+      const t = await client.tokens('prod');
+      const refreshed = await client.form('/oauth/token', {
+        grant_type: 'refresh_token',
+        refresh_token: t.refresh_token,
+        client_id: client.clientId,
+        resource: resourceOf('prod'),
+      });
+      expect(refreshed.status, refreshed.text).toBe(200);
+      secrets.push(...Object.values(JSON.parse(refreshed.text) as Record<string, string>).map(String));
+      const grantId = h.world.grantIds.prod;
+      const slug = /(^|[^A-Za-z0-9_])prod([^A-Za-z0-9_]|$)/;
+      const found: string[] = [];
+      const walk = (value: unknown, path: string): void => {
+        if (typeof value === 'string') {
+          if (slug.test(value)) found.push(`${path}:slug`);
+          if (value.includes(grantId)) found.push(`${path}:grant`);
+        } else if (value !== null && typeof value === 'object') {
+          for (const [k, v] of Object.entries(value)) walk(v, `${path}.${k}`);
+        }
+      };
+      const rows = (await h.world.storage.kv.list({ prefix: 'oauth' })).keys;
+      const kinds = new Set<string>();
+      for (const { name } of rows) {
+        expect(slug.test(name) || name.includes(grantId), name).toBe(false);
+        const raw = (await h.world.storage.kv.get(name)) ?? '';
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(raw);
+        } catch {
+          parsed = raw;
+        }
+        // `oauth:grant:<user>:<id>` → `grant`; markers (`oauth-refresh:…`) and counters are opaque.
+        const kind = name.startsWith('oauth:') ? (name.split(':')[1] as string) : name.split(':')[0];
+        kinds.add(kind as string);
+        walk(parsed, kind as string);
+        // Sealed props: ciphertext, so none of the values inside shows through.
+        const sealed = [
+          (parsed as { encryptedProps?: string }).encryptedProps,
+          (parsed as { grant?: { encryptedProps?: string } }).grant?.encryptedProps,
+        ].filter((x): x is string => typeof x === 'string');
+        for (const e of sealed) {
+          const bytes = atob(e);
+          for (const plain of ['prod', grantId, 'usr_a'])
+            expect(bytes.includes(plain), `${name} props`).toBe(false);
+        }
+      }
+      expect([...kinds]).toEqual(expect.arrayContaining(['client', 'grant', 'token']));
+      expect([...new Set(found)].sort()).toEqual([
+        'grant.metadata.grant:grant',
+        'grant.resource:slug',
+        'token.audience:slug',
+      ]);
+    });
+
     it('publishes RFC 8414 metadata for the configured issuer: S256 only, iss supported, no CIMD yet', async () => {
       const res = await client.send(new Request(`${ISSUER}/.well-known/oauth-authorization-server`));
       expect(res.status).toBe(200);

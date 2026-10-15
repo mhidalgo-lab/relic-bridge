@@ -19,15 +19,24 @@ is in [write-tools-sandbox-test.md](write-tools-sandbox-test.md). Other checks a
 | File | What it checks |
 |---|---|
 | `matrix.ts` | The data: every route (`MCP_ROUTES`, `PASSTHROUGH_ROUTES`, `ADMIN_ROUTES`, `PUBLIC_ROUTES`, `WILDCARD_ROUTES`) and every kind of caller (`MCP_PRINCIPALS`, `PASSTHROUGH_PRINCIPALS`, `ADMIN_PRINCIPALS`), each with the stable deny reason its audit row carries. |
-| `routes.test.ts` | Route × principal: `401` byte-identical to the route family's reference denial (only `X-Request-Id` differs), an `auth.denied` audit row with the reason and no identity, no NerdGraph call, nothing changed by a refused admin call; a positive control per MCP principal (the same caller without the defect gets in). Guards: Hono's route table equals the matrix; every resolver deny reason is covered. |
+| `routes.test.ts` | Route × principal: `401` byte-identical to the route family's reference denial (only `X-Request-Id` differs), an `auth.denied` audit row with the reason and no identity, no NerdGraph call, nothing changed by a refused admin call; a positive control per MCP principal (the same caller without the defect gets in). Guards: Hono's route table equals the matrix; every resolver deny reason is covered; every admin API change route leaves an admin audit row under its request id (P8-76). |
 | `tools.test.ts` | One `TOOL_CASES` entry per built-in tool (guarded against the catalog), run through the HTTP app against `hostileNerdGraph`: foreign account arguments and GUIDs refused before any NerdGraph call, no foreign data in any result, every NerdGraph call names allowed accounts only; a tool outside the grant is not listed, not callable and audited. |
 | `isolation.test.ts` | Tool-set caches never cross credentials or account sets and re-check limits on a hit; concurrent requests of two tenants with different keys never mix (T21); interleaved grants each get their own per-request MCP server. |
+| `ui-screens.test.ts` | The admin screens driven through their HTML forms; guard: every POST in `UI_ROUTES` refuses a missing or wrong CSRF token (P8-76). |
+| `oauth-suite.ts` | The OAuth server, run on every host (memory, SQLite, D1); includes the scan of stored provider rows: the slug and the access grant id appear only in their accepted plaintext fields (T25, P8-76). |
 | `harness.ts` | The seeded world (`addCredential` / `addProject` / `addGrant` / `addToken` for odd states), the app with the admin API and audit recorder, `hostileNerdGraph` (every key also reaches a `FOREIGN` account; list answers mix in foreign and forged rows; single-entity answers lie about the account) and the leak scan run after every test. |
 
 How to extend it is in [CONTRIBUTING](../../CONTRIBUTING.md#testing). The files import no `node:*` module and the harness
 runs against a pluggable host (`useAuthzHost`): the HTTP app on in-memory storage by default, the Worker under the
 Workers pool (below). Tests that need HTTP app internals (Hono's route table, the admin-off app) skip themselves with
 `authzHostKind()`.
+
+Outside the suite, `packages/http-app/test/token-forwarding.test.ts` records every outbound request (NerdGraph, the
+Client ID Metadata Document fetch, the OTLP export) while a device token, an OAuth token and a session cookie are in
+use, and fails if any of them, or an `Authorization` or `Cookie` header, leaves the server (T12, P8-76).
+`apps/worker/test/worker.test.ts` checks the Worker's Host and Origin refusals with `RB_ALLOWED_HOSTS` set, which the
+Worker host of this suite does not map, and `scripts/test/workflow-hardening.test.ts` requires every `uses:` in every
+workflow to be pinned by a commit SHA with a version comment.
 
 ## Property and fuzz tests
 

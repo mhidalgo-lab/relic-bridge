@@ -388,6 +388,8 @@ describe('tool isolation against a hostile NerdGraph', () => {
       'list_recent_logs',
       'list_synthetic_monitors',
       'list_dashboards',
+      // P8-76: pages through relatedEntities, bound to the entity's account, the guid and the filters.
+      'get_related_entities',
     ] as const;
 
     it('refuses a bare upstream cursor and a cursor minted for another binding, on every paged tool', async () => {
@@ -395,7 +397,12 @@ describe('tool isolation against a hostile NerdGraph', () => {
       for (const tool of PAGED_TOOLS) {
         const foreign = encodePageCursor(await bindingOf('other_tool', 2, 'x'), { u: 'abc', o: 0 });
         for (const cursor of ['NEXT_PAGE_FROM_ANOTHER_ACCOUNT', foreign, 'not base64 at all!']) {
-          const args = tool === 'list_accounts' ? { cursor } : { account: 1, cursor };
+          const args =
+            tool === 'list_accounts'
+              ? { cursor }
+              : tool === 'get_related_entities'
+                ? { entity_guid: guidOf(1), cursor }
+                : { account: 1, cursor };
           const r = await client.callTool({ name: tool, arguments: args });
           const code = (r._meta?.[ERROR_META_KEY] as { code?: string } | undefined)?.code;
           expect(r.isError, `${tool} with ${cursor.slice(0, 20)}`).toBe(true);

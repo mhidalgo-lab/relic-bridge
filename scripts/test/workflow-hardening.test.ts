@@ -13,6 +13,7 @@ interface Step {
 }
 interface Job {
   'runs-on'?: unknown;
+  uses?: string;
   steps?: Step[];
 }
 const DIR = new URL('../../.github/workflows/', import.meta.url);
@@ -82,4 +83,37 @@ describe('downloaded CI tools (P8-07)', () => {
       expect(src).not.toMatch(/_checksums\.txt/);
     });
   }
+});
+
+// P8-76 (T18): every third-party action and reusable workflow, in every workflow file, is pinned by a full commit SHA
+// with the version it stands for in a comment (Dependabot updates both). Local actions (`./…`) are part of the repo.
+describe('action pins (P8-76)', () => {
+  const PINNED = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_./-]+@[0-9a-f]{40}$/;
+
+  it('pins every `uses:` (steps and reusable workflows) by a 40-hex commit', () => {
+    let checked = 0;
+    for (const { file, jobs } of workflows) {
+      for (const [id, job] of Object.entries(jobs)) {
+        const refs = [job.uses, ...(job.steps ?? []).map((st) => st.uses)].filter(
+          (u): u is string => u !== undefined,
+        );
+        for (const ref of refs) {
+          if (ref.startsWith('./')) continue;
+          expect(ref, `${file} ${id}`).toMatch(PINNED);
+          checked += 1;
+        }
+      }
+    }
+    expect(checked).toBeGreaterThan(50);
+  });
+
+  it('keeps a version comment next to every pin', () => {
+    for (const { file } of workflows) {
+      for (const line of text(file).split('\n')) {
+        const m = /^\s*(?:-\s+)?uses:\s*(\S+)(.*)$/.exec(line);
+        if (!m || (m[1] as string).startsWith('./')) continue;
+        expect(m[2], `${file}: ${line.trim()}`).toMatch(/^ # v?\d+(\.\d+)*\S*\s*$/);
+      }
+    }
+  });
 });

@@ -55,6 +55,7 @@ interface Opts {
   nerdGraph?: FetchLike;
   node?: string;
   platform?: string;
+  deprecations?: ManageHost['deprecations'];
 }
 
 async function run(argv: string[], opts: Opts = {}) {
@@ -76,6 +77,7 @@ async function run(argv: string[], opts: Opts = {}) {
     sleep: () => Promise.resolve(),
     nodeVersion: opts.node ?? '24.12.0',
     now: () => NOW,
+    ...(opts.deprecations === undefined ? {} : { deprecations: opts.deprecations }),
   };
   const ctx: ManageContext = {
     host,
@@ -229,6 +231,56 @@ describe('config and New Relic key', () => {
     expect(c?.status).toBe('warn');
     expect(c?.fix).toContain('chmod 600');
     expect(r.out).not.toContain(FAKE_KEY);
+  });
+});
+
+describe('deprecated configuration (P8-67)', () => {
+  const entry = (name: string, kind: 'env' | 'yaml', replacement: string) => ({
+    name,
+    kind,
+    replacement,
+    deprecatedIn: '0.1.0',
+    removedIn: '999.0.0',
+    docs: 'docs/guide/versioning.md',
+  });
+
+  it('is one ok line when nothing deprecated is in use', async () => {
+    const r = await run(['--json', '--offline']);
+    expect(r.report?.checks.filter((c) => c.id === 'deprecated-config')).toEqual([
+      { id: 'deprecated-config', status: 'ok', title: 'no deprecated configuration names in use' },
+    ]);
+  });
+
+  it('prints one scrubbed warn line per deprecated name, with the replacement and without the value', async () => {
+    const r = await run(['--json', '--offline'], {
+      env: { ...ENV_KEY, RB_OLD_A: FAKE_KEY, RB_OLD_B: 'plain-value-1234' },
+      deprecations: [
+        entry('RB_OLD_A', 'env', 'RB_NEW_A'),
+        entry('RB_OLD_B', 'env', 'RB_NEW_B'),
+        entry('RB_UNUSED', 'env', 'RB_X'),
+      ],
+    });
+    const lines = r.report?.checks.filter((c) => c.id === 'deprecated-config') ?? [];
+    expect(lines.map((c) => c.status)).toEqual(['warn', 'warn']);
+    expect(lines[0]?.title).toContain('RB_OLD_A');
+    expect(lines[0]?.fix).toContain('RB_NEW_A');
+    expect(lines[1]?.title).toContain('RB_OLD_B');
+    expect(r.code).toBe(0);
+    expect(r.out).not.toContain(FAKE_KEY);
+    expect(r.out).not.toContain('plain-value-1234');
+  });
+
+  it('includes deprecated keys of the --config file', async () => {
+    const file = '/home/u/rb.yaml';
+    const r = await run(['--json', '--offline', '--config', file], {
+      env: { K: FAKE_KEY },
+      files: { [file]: { text: 'projects:\n  - slug: solo\n    apiKey: ${K}\n    defaultAccount: 5\n' } },
+      deprecations: [entry('projects.*.defaultAccount', 'yaml', 'accounts.default')],
+    });
+    const lines = r.report?.checks.filter((c) => c.id === 'deprecated-config') ?? [];
+    expect(lines).toHaveLength(1);
+    expect(lines[0]?.status).toBe('warn');
+    expect(lines[0]?.title).toContain('projects.*.defaultAccount');
   });
 });
 

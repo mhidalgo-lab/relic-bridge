@@ -18,6 +18,7 @@ import {
   type CacheApiLike,
   CacheApiQueryCacheStore,
   createLogger,
+  type DeprecatedConfig,
   type FetchLike,
   type Logger,
   type LogSink,
@@ -126,6 +127,8 @@ export interface WorkerOptions {
   readonly oauth?: OAuthOptions;
   /** Cache API override for the query cache (tests). Default: `caches.open(QUERY_CACHE_NAME)` when available. */
   readonly queryCacheApi?: CacheApiLike;
+  /** Deprecated-config registry (tests). Default: `DEPRECATED_CONFIG` (P8-67). */
+  readonly deprecations?: readonly DeprecatedConfig[];
 }
 
 /** Named Cache API cache of the NRQL query cache (P7-02). */
@@ -231,7 +234,7 @@ function unavailable(retryAfterSeconds: number): Response {
 }
 
 async function boot(env: WorkerEnv, options: WorkerOptions): Promise<Runtime> {
-  const settings = parseWorkerSettings(env);
+  const settings = parseWorkerSettings(env, options.deprecations);
   const log = createLogger({
     level: settings.logLevel,
     ...(options.logSink === undefined ? {} : { sink: options.logSink }),

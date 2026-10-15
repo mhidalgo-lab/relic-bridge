@@ -13,6 +13,11 @@ import {
 } from '@relic-bridge/auth';
 import {
   assertUserKey,
+  DEPRECATED_CONFIG,
+  type DeprecatedConfig,
+  deprecatedConfigInUse,
+  deprecatedConfigName,
+  describeDeprecatedConfig,
   ErrorCode,
   isRbError,
   type Logger,
@@ -142,6 +147,7 @@ export function checkConfig(ctx: ManageContext, args: ManageArgs): ConfigOutcome
       platform: ctx.platform,
       ...(ctx.homeDir === undefined ? {} : { homeDir: ctx.homeDir }),
       ...(ctx.keychain === undefined ? {} : { keychain: ctx.keychain }),
+      ...(ctx.host.deprecations === undefined ? {} : { deprecations: ctx.host.deprecations }),
     });
     const p = loaded.project;
     const title = `${p.source === 'yaml' ? `YAML project ${p.slug ?? ''}`.trim() : 'environment'} config loads (region ${p.region}, default account ${p.accounts.default})`;
@@ -228,6 +234,27 @@ export async function checkNewRelicKey(
     'newrelic-key',
     `key ${fp} is valid in ${project.region}`,
     `${accounts.length} reachable account(s)`,
+  );
+}
+
+/**
+ * Deprecated configuration (P8-67): one warn line per deprecated environment variable or config-file key in use,
+ * naming it and its replacement, never its value. One ok line when there is none.
+ */
+export function checkDeprecatedConfig(
+  ctx: ManageContext,
+  loaded: LoadedConfig | undefined,
+  registry: readonly DeprecatedConfig[] = ctx.host.deprecations ?? DEPRECATED_CONFIG,
+): CheckResult[] {
+  const inUse = [...deprecatedConfigInUse({ env: ctx.env }, registry), ...(loaded?.deprecated ?? [])];
+  if (inUse.length === 0) return [ok('deprecated-config', 'no deprecated configuration names in use')];
+  return inUse.map((e) =>
+    warn(
+      'deprecated-config',
+      `${deprecatedConfigName(e)} is deprecated (removed in ${e.removedIn})`,
+      `Use ${e.replacement} instead.`,
+      describeDeprecatedConfig(e),
+    ),
   );
 }
 
@@ -744,6 +771,7 @@ export async function doctorCommand(ctx: ManageContext, args: ManageArgs, logger
   checks.push(checkNode(ctx.host.nodeVersion ?? process.versions.node));
   const config = checkConfig(ctx, args);
   checks.push(config.result);
+  checks.push(...checkDeprecatedConfig(ctx, config.loaded));
   if (config.loaded !== undefined) {
     checks.push(
       offline

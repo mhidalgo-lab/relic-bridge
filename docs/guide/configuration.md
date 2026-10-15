@@ -28,6 +28,10 @@ relic-bridge --help | --version
 | `--key-version <n>` | — | Version written into a key by `keys generate` (default 1). |
 | `--format d1`, `--no-audit`, `--force` | — | `db export`: write the database for a Cloudflare Worker's D1 database, optionally without the audit log, replacing an existing file. See [Migrate from a self-hosted server](cloudflare-deploy.md#migrate-from-a-self-hosted-server). |
 
+A deprecated flag, variable or YAML key keeps working until the release that removes it; at startup the server prints
+one warning per deprecated name in use on stderr (names only), and `relic-bridge doctor` lists them. See
+[deprecations](versioning.md#deprecations).
+
 Flags win over env vars. There is deliberately **no flag for the API key**: command lines show up in process lists and
 shell history. Unknown flags are refused.
 

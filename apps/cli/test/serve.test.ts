@@ -73,6 +73,41 @@ describe('serveSettings', () => {
     expect(() => serveSettings({ ...base, env: { ...base.env, RB_OTEL: 'on' } })).toThrow(ConfigError);
   });
 
+  it('warns once per deprecated variable or flag in use, naming it but never its value (P8-67)', () => {
+    const deprecations = [
+      {
+        name: 'RB_OLD_THING',
+        kind: 'env' as const,
+        replacement: 'RB_NEW_THING',
+        deprecatedIn: '0.1.0',
+        removedIn: '999.0.0',
+        docs: 'docs/guide/versioning.md',
+      },
+      {
+        name: 'old-flag',
+        kind: 'flag' as const,
+        replacement: '--new-flag',
+        deprecatedIn: '0.1.0',
+        removedIn: '999.0.0',
+        docs: 'docs/guide/versioning.md',
+      },
+    ];
+    const value = 'value-that-must-not-be-logged';
+    const s = serveSettings({
+      ...base,
+      env: { RB_OLD_THING: value },
+      argv: ['serve', '--old-flag'],
+      deprecations,
+    });
+    const lines = s.warnings.filter((w) => w.includes('deprecated'));
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toContain('RB_OLD_THING');
+    expect(lines[0]).toContain('RB_NEW_THING');
+    expect(lines[1]).toContain('--old-flag');
+    expect(s.warnings.join()).not.toContain(value);
+    expect(serveSettings({ ...base, deprecations }).warnings.join()).not.toContain('deprecated');
+  });
+
   it('MCP Tasks (P7-34): on by default, RB_TASKS=off is the kill switch, other values are refused', () => {
     expect(serveSettings(base).tasks).toBe(true);
     expect(serveSettings({ ...base, env: { ...base.env, RB_TASKS: 'off' } }).tasks).toBe(false);

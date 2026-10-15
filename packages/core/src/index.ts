@@ -33,6 +33,19 @@ export {
   type WriteIntent,
 } from './context.ts';
 export {
+  type ConfigInUse,
+  compareVersions,
+  DEPRECATED_CONFIG,
+  type DeprecatedConfig,
+  type DeprecatedConfigKind,
+  deprecatedConfigInUse,
+  deprecatedConfigName,
+  deprecatedConfigWarnings,
+  deprecationRegistryProblems,
+  describeDeprecatedConfig,
+  parseVersion,
+} from './deprecations.ts';
+export {
   ERROR_META_KEY,
   ErrorCode,
   isRbError,

@@ -2,6 +2,10 @@
 import {
   assertUserKey,
   createLogger,
+  DEPRECATED_CONFIG,
+  type DeprecatedConfig,
+  deprecatedConfigInUse,
+  describeDeprecatedConfig,
   isRbError,
   type LogLevel,
   type LogSink,
@@ -53,6 +57,8 @@ export interface CliRuntime {
   readonly stderr: LogSink;
   /** Terminal, stdin, fetch and file access for the management commands (P2-10). */
   readonly manage?: ManageHost;
+  /** Deprecated-config registry (tests inject one). Default: `DEPRECATED_CONFIG` (P8-67). */
+  readonly deprecations?: readonly DeprecatedConfig[];
 }
 
 export type MainResult =
@@ -187,6 +193,8 @@ export function main(rt: CliRuntime): MainResult {
         platform: rt.platform,
         fs: rt.fs,
         ...(rt.homeDir === undefined ? {} : { homeDir: rt.homeDir }),
+        argv: rt.argv,
+        ...(rt.deprecations === undefined ? {} : { deprecations: rt.deprecations }),
       });
       fetch = nerdGraphFetch(rt.env, logger);
     } catch (error) {
@@ -232,6 +240,12 @@ export function main(rt: CliRuntime): MainResult {
     };
   }
 
+  // stdio: one warning per deprecated variable or flag in use (names only), before anything else can fail (P8-67).
+  const deprecations = rt.deprecations ?? DEPRECATED_CONFIG;
+  for (const e of deprecatedConfigInUse({ env: rt.env, argv: rt.argv }, deprecations)) {
+    logger.warn(describeDeprecatedConfig(e));
+  }
+
   if (isUnconfigured(rt.env, args)) {
     // Setup mode (P7-14): list the tools so clients, registries and inspectors can see them; every call explains
     // what to configure. No key, so nothing can reach New Relic.
@@ -245,14 +259,16 @@ export function main(rt: CliRuntime): MainResult {
   }
 
   try {
-    const { project, warnings } = loadConfig({
+    const { project, warnings, deprecated } = loadConfig({
       ...(args.config === undefined ? {} : { configPath: args.config }),
       ...(args.project === undefined ? {} : { project: args.project }),
       env: rt.env,
       fs: rt.fs,
       platform: rt.platform,
       ...(rt.homeDir === undefined ? {} : { homeDir: rt.homeDir }),
+      deprecations,
     });
+    for (const e of deprecated ?? []) logger.warn(describeDeprecatedConfig(e));
     for (const w of warnings) logger.warn(w);
     const requireWriteApproval = stdioWriteApproval(rt.env);
     const writeTools = stdioWriteTools(rt.env);

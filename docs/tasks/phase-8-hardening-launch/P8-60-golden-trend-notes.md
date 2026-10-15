@@ -2,7 +2,7 @@
 id: P8-60
 title: Golden-metric trend notes say why there is no trend
 phase: 8
-status: review
+status: done
 priority: low
 depends_on: []
 adr: []

@@ -2,7 +2,7 @@
 id: P8-59
 title: Self-monitoring errors - the service error rate counts real server errors
 phase: 8
-status: review
+status: done
 priority: high
 depends_on: [P8-51]
 adr: []

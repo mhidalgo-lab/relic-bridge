@@ -2,7 +2,7 @@
 id: P8-57
 title: trace_error(error_group_id) finds the group's traced occurrence
 phase: 8
-status: review
+status: done
 priority: high
 depends_on: []
 adr: []

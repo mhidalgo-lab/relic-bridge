@@ -2,7 +2,7 @@
 id: P8-52
 title: Self-monitoring recipes - alert conditions and a dashboard
 phase: 8
-status: review
+status: done
 priority: low
 depends_on: [P8-50, P8-51, P8-59]
 adr: []

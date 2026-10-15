@@ -2,7 +2,7 @@
 id: P8-01
 title: "Threat model final review and fuzzing"
 phase: 8
-status: review
+status: done
 priority: high
 depends_on: [P7-04, P7-09]
 adr: []

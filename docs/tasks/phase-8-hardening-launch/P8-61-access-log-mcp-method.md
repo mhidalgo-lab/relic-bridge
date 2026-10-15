@@ -2,7 +2,7 @@
 id: P8-61
 title: Access log names the MCP message instead of other
 phase: 8
-status: review
+status: done
 priority: low
 depends_on: [P8-50]
 adr: []

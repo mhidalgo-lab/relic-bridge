@@ -4,7 +4,7 @@ title: trace_error follows Span-sourced error groups
 phase: 8
 status: todo
 priority: low
-depends_on: []   # P8-57 (PR #232): add once it is on main
+depends_on: [P8-57]
 adr: []
 owner: ""
 ---

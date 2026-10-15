@@ -2,7 +2,7 @@
 id: P8-58
 title: trace_error fills httpStatus for every agent
 phase: 8
-status: review
+status: done
 priority: low
 depends_on: [P8-57]
 adr: []

@@ -65,6 +65,25 @@ npm, and CI cannot approve (`npm stage` subcommands refuse OIDC tokens). Facts a
    GitHub Release (mode `release`), rebuilds, checks the tarball is identical to the one on npm and creates only the
    GitHub Release `v<version>`.
 
+### Changesets and the DB fixture of a new minor (P8-84)
+
+- **Changesets name `relic-bridge` only.** It is the only package changesets versions: the workspace packages are
+  private (`privatePackages.version: false`) and `@relic-bridge/worker` is ignored. A changeset for any of them is never
+  consumed, stays in `.changeset/` and keeps `plan` in mode `version`, so nothing is published (#252).
+  `node scripts/release.ts check-changesets` (part of `pnpm lint`) refuses such a changeset and names the package to use.
+  If one reaches `main` anyway, `plan` prints a warning per file and fails when no pending changeset can be consumed.
+- **Every published minor has a DB upgrade fixture** (`packages/storage/test/fixtures/db/v<minor>.json`, P8-05) and
+  `gen-db-fixtures.ts --check` fails once the tag of a minor exists without one (#258). The version PR writes it:
+  `pnpm version-packages` ends with `gen-db-fixtures.ts --next-release`, which, when the new version is a stable `X.Y.0`
+  whose minor has no fixture, writes `vX.Y.json` from the migrations of the build (the tag points at the version PR's
+  merge commit, so these are the migrations that ship) and rewrites `db-fixtures.generated.ts`, the list the upgrade
+  tests import. The version PR is regenerated on every push to `main`, so a migration merged in the meantime lands in
+  the fixture too. The release `build` job runs `gen-db-fixtures.ts --check-release <version>` and stops the release if
+  the fixture of that minor is missing or records other migrations than the build (this also stops a patch release
+  that adds a migration). After the tag exists, `--check` compares the fixture with the tag as before.
+- Fallback, if a minor was ever published without its fixture: fetch the tags (`git fetch --tags`), run
+  `pnpm db:fixtures` and commit the new `v<minor>.json` and `db-fixtures.generated.ts` in a pull request.
+
 ### Release assets and provenance (P8-54)
 
 The GitHub Release carries `relic-bridge-<v>.tgz`, `.cdx.json`, `SHA256SUMS` and `relic-bridge-<v>.intoto.jsonl`, the

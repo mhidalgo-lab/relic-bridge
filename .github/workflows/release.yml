@@ -130,6 +130,10 @@ jobs:
           test "$(node -p 'require("./apps/cli/package.json").version')" = "$VERSION"
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint
+      # The version PR of a new minor writes its DB upgrade fixture (pnpm version-packages, P8-84). Without it, or with
+      # other migrations than this build, the tag would leave `main` failing `gen-db-fixtures.ts --check`: refuse.
+      - name: DB upgrade fixture for this release
+        run: node scripts/gen-db-fixtures.ts --check-release "$VERSION"
       - run: pnpm typecheck
       - run: pnpm test
       - name: Release build (test hooks compiled out)

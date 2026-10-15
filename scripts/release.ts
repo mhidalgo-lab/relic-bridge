@@ -7,10 +7,12 @@
 //   node scripts/release.ts notes <version>      → prints the CHANGELOG section of <version>
 //   node scripts/release.ts sync-version [--check] → writes (or checks) VERSION in packages/core/src/version.ts and
 //                                                  the versions in the MCP Registry metadata (server.json, P7-14)
+//   node scripts/release.ts check-changesets     → part of `pnpm lint` (P8-84): every pending changeset names only
+//                                                  packages changesets can version (not private, not ignored)
 //
 // Only the `relic-bridge` CLI package (apps/cli) is ever published.
 import { execFileSync } from 'node:child_process';
-import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 export const PACKAGE_NAME = 'relic-bridge';
@@ -48,6 +50,114 @@ export const REPO_RE = /^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/;
 /** Changeset files waiting to be versioned (everything in `.changeset/` except its README and config). */
 export function pendingChangesets(files: readonly string[]): string[] {
   return files.filter((f) => f.endsWith('.md') && f.toLowerCase() !== 'readme.md');
+}
+
+/** A pending changeset that changesets cannot consume: it names a private or ignored package, or cannot be read. */
+export interface ChangesetProblem {
+  file: string;
+  message: string;
+}
+
+const BUMP_LINE_RE = /^\s*(["']?)([^"':\s]+)\1\s*:\s*(major|minor|patch|none)\s*$/;
+
+/**
+ * The packages a changeset's front matter names, or `undefined` when it has no readable front matter. An empty front
+ * matter (an "empty changeset") names none.
+ */
+export function changesetPackages(text: string): string[] | undefined {
+  const lines = text.replace(/\r\n/g, '\n').split('\n');
+  if (lines[0]?.trim() !== '---') return undefined;
+  const end = lines.indexOf('---', 1);
+  if (end === -1) return undefined;
+  const names: string[] = [];
+  for (const line of lines.slice(1, end)) {
+    if (line.trim() === '') continue;
+    const m = BUMP_LINE_RE.exec(line);
+    if (m === null) return undefined;
+    names.push(m[2] as string);
+  }
+  return names;
+}
+
+/**
+ * Splits pending changesets into those `changeset version` consumes and those it would leave behind forever (P8-84):
+ * a changeset for a private package (`privatePackages.version: false`) or an ignored one is never versioned, so it
+ * stays in `.changeset/` and keeps `plan` in `version` mode.
+ */
+export function classifyChangesets(
+  changesets: readonly { file: string; text: string }[],
+  versionable: ReadonlySet<string>,
+): { consumable: string[]; problems: ChangesetProblem[] } {
+  const consumable: string[] = [];
+  const problems: ChangesetProblem[] = [];
+  for (const { file, text } of changesets) {
+    const names = changesetPackages(text);
+    if (names === undefined) {
+      problems.push({ file, message: 'has no readable front matter (`"relic-bridge": patch|minor|major`)' });
+      continue;
+    }
+    const bad = names.filter((n) => !versionable.has(n));
+    if (bad.length > 0) {
+      problems.push({
+        file,
+        message:
+          `names ${bad.map((n) => `"${n}"`).join(', ')}, which changesets never versions (private or ignored); ` +
+          `use "${PACKAGE_NAME}" instead: it is the only published package`,
+      });
+      continue;
+    }
+    consumable.push(file);
+  }
+  return { consumable, problems };
+}
+
+/** Workspace packages changesets versions: not `private`, not in `.changeset/config.json` `ignore`. */
+export function versionablePackages(root: string): Set<string> {
+  const config = JSON.parse(readFileSync(`${root}/.changeset/config.json`, 'utf8')) as { ignore?: string[] };
+  const ignored = new Set(config.ignore ?? []);
+  const dirs = [
+    ...['packages', 'apps'].flatMap((parent) =>
+      readdirSync(`${root}/${parent}`).map((d) => `${root}/${parent}/${d}`),
+    ),
+    `${root}/site`,
+  ];
+  const out = new Set<string>();
+  for (const dir of dirs) {
+    const file = `${dir}/package.json`;
+    if (!existsSync(file)) continue;
+    const pkg = JSON.parse(readFileSync(file, 'utf8')) as { name?: string; private?: boolean };
+    if (typeof pkg.name === 'string' && pkg.private !== true && !ignored.has(pkg.name)) out.add(pkg.name);
+  }
+  return out;
+}
+
+/**
+ * What `plan` says about pending changesets (P8-84, #252): a changeset `changeset version` never consumes would keep the
+ * plan in `version` mode forever and silently skip every publish. Each one is a warning; when none of the pending
+ * changesets can be consumed, it is an error (the version PR would change nothing and nothing would ever publish).
+ */
+export function changesetReport(
+  changesets: readonly { file: string; text: string }[],
+  versionable: ReadonlySet<string>,
+): { warnings: string[]; error?: string } {
+  const { consumable, problems } = classifyChangesets(changesets, versionable);
+  const warnings = problems.map((p) => `.changeset/${p.file} ${p.message}`);
+  if (changesets.length > 0 && consumable.length === 0) {
+    return {
+      warnings,
+      error:
+        `${changesets.length} pending changeset(s) and none can be consumed by \`changeset version\`; ` +
+        'fix or delete them, otherwise nothing is ever published',
+    };
+  }
+  return { warnings };
+}
+
+function readChangesets(root: string): { file: string; text: string }[] {
+  return pendingChangesets(readdirSync(`${root}/.changeset`)).map((file) => ({
+    file,
+    text: readFileSync(`${root}/.changeset/${file}`, 'utf8'),
+  }));
 }
 
 /** Pending changesets → open the version PR; otherwise publish only a version npm doesn't have yet. */
@@ -212,7 +322,14 @@ function main(argv: readonly string[]): number {
   switch (command) {
     case 'plan': {
       const version = cliVersion(root);
-      const pending = pendingChangesets(readdirSync(`${root}/.changeset`)).length;
+      const changesets = readChangesets(root);
+      const pending = changesets.length;
+      const report = changesetReport(changesets, versionablePackages(root));
+      for (const w of report.warnings) console.error(`::warning::${w}`);
+      if (report.error !== undefined) {
+        console.error(`✗ release plan: ${report.error}`);
+        return 1;
+      }
       let mode: ReleaseMode = 'version';
       if (pending === 0) {
         const tag = `v${version}`;
@@ -274,8 +391,13 @@ function main(argv: readonly string[]): number {
       writeFileSync(serverFile, writeServerJsonVersion(serverText, version));
       return 0;
     }
+    case 'check-changesets': {
+      const { problems } = classifyChangesets(readChangesets(root), versionablePackages(root));
+      for (const p of problems) console.error(`✗ .changeset/${p.file} ${p.message}`);
+      return problems.length === 0 ? 0 : 1;
+    }
     default:
-      console.error('usage: release.ts plan | notes <version> | sync-version [--check]');
+      console.error('usage: release.ts plan | notes <version> | sync-version [--check] | check-changesets');
       return 2;
   }
 }

@@ -6,6 +6,9 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { parse } from 'yaml';
 import {
+  changesetPackages,
+  changesetReport,
+  classifyChangesets,
   decideMode,
   decidePlan,
   extractNotes,
@@ -14,6 +17,7 @@ import {
   readVersionConst,
   resolveTagCommit,
   SEMVER_RE,
+  versionablePackages,
   writeVersionConst,
 } from '../release.ts';
 
@@ -28,6 +32,77 @@ describe('pendingChangesets / decideMode', () => {
     expect(decideMode(1, true)).toBe('version');
     expect(decideMode(0, false)).toBe('publish');
     expect(decideMode(0, true)).toBe('none');
+  });
+});
+
+describe('changesets changesets cannot consume (P8-84)', () => {
+  const versionable = new Set(['relic-bridge']);
+  const ok = { file: 'ok.md', text: '---\n"relic-bridge": minor\n---\n\nNew tool.\n' };
+  const privateOne = { file: 'core.md', text: "---\n'@relic-bridge/core': patch\n---\n\nFix.\n" };
+  const ignored = { file: 'worker.md', text: '---\n"@relic-bridge/worker": patch\n---\n' };
+  const broken = { file: 'broken.md', text: 'no front matter\n' };
+
+  it('reads the package names of the front matter', () => {
+    expect(changesetPackages(ok.text)).toEqual(['relic-bridge']);
+    expect(changesetPackages('---\r\nrelic-bridge: patch\r\n"a": major\r\n---\r\n')).toEqual([
+      'relic-bridge',
+      'a',
+    ]);
+    expect(changesetPackages('---\n---\n\nEmpty changeset.\n')).toEqual([]);
+    expect(changesetPackages(broken.text)).toBeUndefined();
+    expect(changesetPackages('---\nrelic-bridge: huge\n---\n')).toBeUndefined();
+    expect(changesetPackages('---\nrelic-bridge: patch\n')).toBeUndefined();
+  });
+
+  it('refuses a private or ignored package and names the published one', () => {
+    const { consumable, problems } = classifyChangesets([ok, privateOne, ignored, broken], versionable);
+    expect(consumable).toEqual(['ok.md']);
+    expect(problems.map((p) => p.file)).toEqual(['core.md', 'worker.md', 'broken.md']);
+    expect(problems[0]?.message).toMatch(/"@relic-bridge\/core".*use "relic-bridge" instead/);
+    expect(problems[2]?.message).toMatch(/front matter/);
+  });
+
+  it('plan warns about each one, and fails when no pending changeset can be consumed', () => {
+    expect(changesetReport([], versionable)).toEqual({ warnings: [] });
+    expect(changesetReport([ok], versionable)).toEqual({ warnings: [] });
+    const mixed = changesetReport([ok, privateOne], versionable);
+    expect(mixed.error).toBeUndefined();
+    expect(mixed.warnings).toEqual([
+      expect.stringMatching(/^\.changeset\/core\.md names "@relic-bridge\/core"/),
+    ]);
+    const stuck = changesetReport([privateOne, ignored], versionable);
+    expect(stuck.warnings).toHaveLength(2);
+    expect(stuck.error).toMatch(/2 pending changeset\(s\) and none can be consumed/);
+  });
+
+  it('only relic-bridge is versionable in this workspace (private packages and the ignored worker are not)', () => {
+    const root = new URL('../..', import.meta.url).pathname;
+    expect([...versionablePackages(root)]).toEqual(['relic-bridge']);
+  });
+
+  it('versionablePackages honours private, ignore and a missing package.json', () => {
+    const root = mkdtempSync(join(tmpdir(), 'rb-changesets-'));
+    const pkg = (dir: string, body: object): void => {
+      mkdirSync(join(root, dir), { recursive: true });
+      writeFileSync(join(root, dir, 'package.json'), JSON.stringify(body));
+    };
+    mkdirSync(join(root, '.changeset'));
+    writeFileSync(join(root, '.changeset/config.json'), JSON.stringify({ ignore: ['ignored-app'] }));
+    pkg('apps/cli', { name: 'pub' });
+    pkg('apps/worker', { name: 'ignored-app' });
+    pkg('packages/core', { name: '@x/core', private: true });
+    mkdirSync(join(root, 'packages/empty'));
+    pkg('site', { name: 'site', private: true });
+    expect([...versionablePackages(root)]).toEqual(['pub']);
+  });
+
+  it('the check-changesets command passes on this repository', () => {
+    const run = spawnSync(process.execPath, ['scripts/release.ts', 'check-changesets'], {
+      cwd: new URL('../..', import.meta.url).pathname,
+      encoding: 'utf8',
+    });
+    expect(run.stderr).toBe('');
+    expect(run.status).toBe(0);
   });
 });
 
@@ -202,6 +277,18 @@ describe('.github/workflows/release.yml (THREAT_MODEL T18, P1-16)', () => {
     expect(installing.length).toBeGreaterThan(0);
     for (const [, job] of installing) expect(job.permissions?.['id-token']).toBeUndefined();
     expect(workflow.jobs.build?.permissions).toEqual({ contents: 'read' });
+  });
+
+  it('a release cannot leave main without the DB fixture of its minor (P8-84)', () => {
+    const runs = (workflow.jobs.build?.steps ?? []).map((s) => s.run ?? '');
+    const check = runs.findIndex((r) => r.includes('gen-db-fixtures.ts --check-release "$VERSION"'));
+    expect(check).toBeGreaterThan(-1);
+    expect(check).toBeLessThan(runs.findIndex((r) => r.includes('check-package.ts')));
+    const pkg = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')) as {
+      scripts: Record<string, string>;
+    };
+    expect(pkg.scripts['version-packages']).toMatch(/changeset version .*gen-db-fixtures\.ts --next-release/);
+    expect(pkg.scripts['lint']).toContain('release.ts check-changesets');
   });
 
   it('publish waits for build, the release environment, main and the opt-in variable', () => {

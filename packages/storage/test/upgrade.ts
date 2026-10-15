@@ -5,10 +5,7 @@
 // in workerd (`apps/worker/test/d1-upgrade.test.ts`). Web-standard only, so it runs in both.
 import { expect } from 'vitest';
 import type { Storage } from '../src/index.ts';
-import v07 from './fixtures/db/v0.7.json' with { type: 'json' };
-import v08 from './fixtures/db/v0.8.json' with { type: 'json' };
-import v09 from './fixtures/db/v0.9.json' with { type: 'json' };
-import v010 from './fixtures/db/v0.10.json' with { type: 'json' };
+import { FIXTURES } from './db-fixtures.generated.ts';
 
 export interface DbFixture {
   readonly minor: string;
@@ -22,8 +19,11 @@ export interface DbFixture {
   readonly dump: readonly string[];
 }
 
-/** One per published minor. Add the new file here when `gen-db-fixtures.ts` writes one (the SQLite test checks). */
-export const DB_FIXTURES: readonly DbFixture[] = [v07, v08, v09, v010];
+/**
+ * One per published minor. `gen-db-fixtures.ts` writes the list (`db-fixtures.generated.ts`) with every fixture, and the
+ * version PR of a new minor adds that minor's fixture (P8-84); the SQLite test checks the list matches the files.
+ */
+export const DB_FIXTURES: readonly DbFixture[] = FIXTURES;
 
 /** `sqlite_master` rows that make up the schema, comparable across databases (internal and D1 tables left out). */
 export const SCHEMA_SQL =

@@ -345,6 +345,19 @@ const NO_COMPARE_REASON: Record<NoCompare, string> = {
   unread: 'the previous window could not be read',
   empty: 'no data in the previous window',
 };
+/**
+ * The result-level note when the previous window is beyond the window limit: says what each metric got, the halves of
+ * the window or no trend (P8-78). Empty when no metric has a value (nothing to say about a trend).
+ */
+export function beyondLimitNote(metrics: readonly { status: string; trend: Trend }[]): string {
+  const withValue = metrics.filter((m) => m.status === 'ok');
+  if (withValue.length === 0) return '';
+  const unknown = withValue.filter((m) => m.trend === 'unknown').length;
+  const reason = 'the previous window is beyond the window limit';
+  if (unknown === 0) return `Trend compares the halves of the window: ${reason}.`;
+  if (unknown === withValue.length) return `No trend: ${reason} and too few points to compare the halves.`;
+  return `Trend compares the halves of the window: ${reason}. ${unknown} of ${withValue.length} metrics have no trend: too few points to compare the halves.`;
+}
 export function trendNote(why: NoCompare, halvesTrend: Trend): string {
   return halvesTrend === 'unknown'
     ? `No trend: ${NO_COMPARE_REASON[why]} and too few points to compare the halves.`
@@ -481,6 +494,7 @@ export function createGoldenMetricTools(deps: ToolDeps = {}): ToolDefinition[] {
       const adjustments = new Set<string>();
       // The previous equal window must itself be inside the connection's limits, else the halves method is the trend.
       let previousSeconds: number | null = null;
+      let beyondLimit = false;
       if (wantSeries) {
         try {
           const width = range.windowMs;
@@ -492,9 +506,7 @@ export function createGoldenMetricTools(deps: ToolDeps = {}): ToolDefinition[] {
           previousSeconds = Math.round(width / 1000);
         } catch (e) {
           if (!(e instanceof RbError) || e.code !== ErrorCode.LimitQuery) throw e;
-          adjustments.add(
-            'Trend compares the halves of the window: the previous window is beyond the window limit.',
-          );
+          beyondLimit = true;
         }
       }
       // Budget-aware: start only as many as the remaining budget can pay for (two queries each when comparing).
@@ -530,7 +542,8 @@ export function createGoldenMetricTools(deps: ToolDeps = {}): ToolDefinition[] {
         type: typeof e.type === 'string' && /^[A-Za-z0-9_]{1,64}$/.test(e.type) ? e.type : null,
       };
       const count = (s: MetricRow['status']) => metrics.filter((m) => m.status === s).length;
-      const notes = [...adjustments];
+      if (beyondLimit) adjustments.add(beyondLimitNote(metrics));
+      const notes = [...adjustments].filter((n) => n !== '');
       const lines = [
         `${metrics.length} golden metric${metrics.length === 1 ? '' : 's'} for ${entity.domain ?? 'entity'}/${entity.type ?? ''} ` +
           `in account ${account}, ${range.clause.toLowerCase()}: ${count('ok')} with data` +

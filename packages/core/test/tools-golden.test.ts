@@ -339,6 +339,33 @@ describe('get_golden_metrics', () => {
     expect(calls).toHaveLength(2);
   });
 
+  it('notes per metric what the trend got when the previous window is beyond the limit (P8-78)', async () => {
+    const run = async (routes: Record<string, () => Response>) => {
+      const { fetch } = routedFetch(routes, () => entityBody(THREE));
+      const client = await connect(fetch, { limits: { ...DEFAULT_LIMITS, maxWindowDays: 1 } });
+      const r = await client.callTool({
+        name: 'get_golden_metrics',
+        arguments: { entity_guid: GUID, time_range: 'last 20 hours' },
+      });
+      return (r.structuredContent as Out & { notes: string[] }).notes;
+    };
+    const halves = () => nrqlBody(series(1, 1, 2, 2));
+    const few = () => nrqlBody(series(1, 1));
+    const lone = 'the previous window is beyond the window limit';
+    // Every metric got the halves.
+    expect(
+      await run({ 'rate(count(a)': halves, 'average(b)': halves, 'percentage(count(c)': halves }),
+    ).toEqual([`Trend compares the halves of the window: ${lone}.`]);
+    // One metric has too few points: the note says so.
+    expect(await run({ 'rate(count(a)': halves, 'average(b)': halves, 'percentage(count(c)': few })).toEqual([
+      `Trend compares the halves of the window: ${lone}. 1 of 3 metrics have no trend: too few points to compare the halves.`,
+    ]);
+    // No metric could compare anything: never claims the halves.
+    expect(await run({ 'rate(count(a)': few, 'average(b)': few, 'percentage(count(c)': few })).toEqual([
+      `No trend: ${lone} and too few points to compare the halves.`,
+    ]);
+  });
+
   it('falls back to the halves when the comparison returns nothing usable', async () => {
     const { fetch } = routedFetch({ 'rate(count(a)': () => nrqlBody(series(1, 1, 2, 2)) }, () =>
       entityBody([THREE[0]]),

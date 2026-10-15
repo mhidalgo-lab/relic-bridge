@@ -55,7 +55,7 @@ the sign-in providers' client ids and secrets, and deploys them; see [Sign-in on
 > before the first run: the setup must take your server's master key, not generate a new one.
 
 **Re-running is safe.** Secrets that already exist are kept, never regenerated (a new master key would orphan every
-stored credential), so you can re-run the script to redeploy after `git pull`. If Wrangler can't tell whether the Worker
+stored credential), so you can re-run the script to redeploy after checking out a newer release (see [Updating](#updating)). If Wrangler can't tell whether the Worker
 exists (network or login problem), the script stops instead of guessing; pass `--assume-new` only for a first deploy
 (it is refused when the Worker already has secrets). A Worker that has `RB_ADMIN_TOKEN` but no `RB_MASTER_KEY` is
 refused too: a new master key would orphan every stored New Relic key. Restore the original key, or pass
@@ -64,7 +64,7 @@ refused too: a new master key would orphan every stored New Relic key. Restore t
 `wrangler.local.jsonc` is never overwritten (it holds the database id and any edits of yours, such as a custom
 domain); the script only adds the `database_id` to it when it is missing. On a re-run the script compares it with
 `wrangler.jsonc` and **warns**, naming the settings, when the copy lacks a setting of `wrangler.jsonc` or has it with
-another value, for example after a `git pull` added a binding or cron. Settings that are yours to change are not
+another value, for example after upgrading to a release that added a binding or cron. Settings that are yours to change are not
 compared: `routes`, `workers_dev`, `preview_urls`, `vars`, `account_id`, the database id and anything only in the copy.
 Copy the named entries into the local file, keeping its `database_id`. Deleting the
 file loses your edits but not your data: the next run makes a new copy, and Wrangler binds the same database by its
@@ -227,13 +227,13 @@ only if those requests get 1010 too. Sources: [skip options](https://developers.
 ## Updating
 
 ```sh
-git pull
+git fetch --tags && git checkout v<version>   # the release you want, not whatever main holds
 corepack enable && pnpm install
 pnpm cf:setup --plan free          # same plan as before; existing secrets and resources are kept
 ```
 
-- Read the [upgrade notes](upgrading.md) of the versions you skip. To run a published version rather than whatever
-  `main` holds, check out its release tag `v<version>` before `pnpm install` ([versioning policy](versioning.md)).
+- Same steps as the [upgrade guide](upgrading.md#upgrade); read its notes for the versions you skip first
+  ([versioning policy](versioning.md)).
 - **Reconnect your MCP clients after upgrading.** They keep the tool list from before; reconnect (Claude Code: `/mcp`) to
   see new tools and parameters ([troubleshooting](troubleshooting.md)).
 - **Schema upgrades are automatic.** The first request into a new isolate applies pending D1 migrations (embedded,
@@ -247,7 +247,7 @@ pnpm cf:setup --plan free          # same plan as before; existing secrets and r
 - Settings and secrets set in the dashboard survive redeploys: `pnpm cf:setup` deploys with `--keep-vars` and only
   overwrites `RB_PLAN` (and `RB_PASSTHROUGH` with `--passthrough`, `RB_SHARED_LIMITER` with `--shared-limiter`). A plain `wrangler deploy` without `--keep-vars`
   **deletes** dashboard variables such as `RB_ALLOWED_HOSTS`.
-- `wrangler.local.jsonc` is copied from `wrangler.jsonc` once and never refreshed: after a `git pull` that changes
+- `wrangler.local.jsonc` is copied from `wrangler.jsonc` once and never refreshed: after an upgrade that changes
   `wrangler.jsonc` (new binding, cron or compatibility date), carry the change over by hand (keep the `database_id`).
   A copy made before the [shared limiter](cloudflare-limits.md#shared-limiter-durable-object-optional) existed lacks
   the `durable_objects` and `exports` entries of the `SharedLimiter` class (needed only for `RB_SHARED_LIMITER`;

@@ -243,6 +243,11 @@ Sources: <https://github.com/cloudflare/workers-oauth-provider>, issues #264, #3
     is imported lazily. `parseAuthRequest()` checks the request URL against the issuer's authorize endpoint, so the
     request is re-addressed to the issuer origin first (works behind a TLS-terminating proxy).
   - `completeAuthorization()` revokes the user's earlier grants for the same client and resource by default.
+  - (P8-71, checked 2026-10-15) Props encryption: `encryptProps` generates a fresh AES-256-GCM key for every encryption
+    and uses an all-zero 96-bit IV (safe only because no key encrypts twice); the key is wrapped with AES-KW under
+    HMAC-SHA-256(constant library key, token string) next to each token or code record (`wrapKeyWithToken`), so a
+    store copy that holds only `SHA-256(token)` can't unwrap it. Random strings: `generateRandomString` maps
+    `getRandomValues` bytes onto a 64-symbol alphabet (`% 64`, uniform). Client secrets are stored as SHA-256 hex.
   - Token endpoint `resource` is optional in the provider: omitted → the grant's resource; given → it must match the
     grant's (`invalid_target`). The provider folds scheme/host case when matching resources and returns the configured
     (canonical) resource from `parseAuthRequest`. relic-bridge requires `resource` on code and refresh grants (P5-02).

@@ -2,7 +2,7 @@
 id: P8-71
 title: Cryptographic inventory (ASVS 5.0 V11)
 phase: 8
-status: in-progress
+status: review
 priority: medium
 depends_on: []
 adr: []
@@ -42,13 +42,15 @@ Also list algorithms deliberately not used and the review date. Link the documen
 security guide and the best-practices answers.
 
 ## Acceptance criteria
-- [ ] Every key, KDF, cipher, MAC, hash and random source in the repo appears in the document with a file reference
+- [x] Every key, KDF, cipher, MAC, hash and random source in the repo appears in the document with a file reference
       (checked by grepping `crypto.subtle`, `getRandomValues`, `randomUUID`, `Math.random` and listing each hit as covered
       or irrelevant).
-- [ ] Rotation and compromise procedure stated for each long-lived key.
-- [ ] A test (or script check) that fails when a new `crypto.subtle` algorithm name appears in `packages/*/src` that the
-      document does not mention (optional but preferred).
-- [ ] Linked from `docs/ARCHITECTURE.md` and `docs/security/best-practices-answers.md`.
+- [x] Rotation and compromise procedure stated for each long-lived key.
+- [x] A test (or script check) that fails when a new `crypto.subtle` algorithm name appears in `packages/*/src` that the
+      document does not mention (optional but preferred). `scripts/test/crypto-inventory.test.ts` also covers
+      `apps/*/src` and `scripts/*.ts`, `node:crypto` calls and `jose`, and requires every such file to be listed.
+- [x] Linked from `docs/ARCHITECTURE.md` and `docs/security/best-practices-answers.md` (and the security guide and the
+      ASVS checklist, where V11.1.1 and V11.1.2 move from partial to met).
 
 ## Security notes
 Documentation only; findings that are real weaknesses become their own tasks (security-relevant ones go through the

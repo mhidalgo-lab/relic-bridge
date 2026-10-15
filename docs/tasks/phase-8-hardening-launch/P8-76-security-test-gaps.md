@@ -2,11 +2,11 @@
 id: P8-76
 title: Security test gaps (T12, T25, paging, windows, route-table guards, Worker host checks, workflow pins)
 phase: 8
-status: todo
+status: in-progress
 priority: medium
 depends_on: []
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P8-76 — Security test gaps

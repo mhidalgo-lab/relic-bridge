@@ -1,0 +1,54 @@
+---
+id: P8-73
+title: Re-authentication for sensitive admin actions
+phase: 8
+status: todo
+priority: medium
+depends_on: []
+adr: []
+owner: ""
+---
+
+# P8-73 — Re-authentication for sensitive admin actions
+
+## Goal
+An admin session cookie is enough today for every action its role allows (`requiredRole` in
+`packages/http-app/src/admin/api.ts`), including the most damaging ones. A stolen or left-open session (or an XSS that
+slipped past the CSP) can rotate the master key, create owners and administrators, or import a configuration without any
+second proof. Sensitive actions should require a fresh login or an explicit step-up.
+
+## Scope
+- Define the sensitive set from the real routes in `packages/http-app/src/admin/api.ts`, at least: `POST /keys/rotate`,
+  `POST /config/import`, user creation and role changes to `admin`/`owner` (`/users`, `/users/{id}`), disabling users,
+  `POST /users/{id}/sessions/revoke` for other users, `POST /oauth/clients/remove`, `POST /oauth/registration`,
+  credential rotation (`/credentials/{id}/rotate`) and token creation with long expiry. Confirm the list with the owner
+  before building (pending decision).
+- Mechanism (decide in an ADR if it changes the session model): either (a) the action requires the session's
+  authentication to be younger than N minutes (the session record already has `createdAt`; add a "last authenticated at"
+  that only a real sign-in sets), or (b) a step-up confirmation through the same identity provider. A refused action
+  returns a distinct error (`reauth_required`) and the admin UI sends the user through sign-in with `next` back to the page.
+- The admin bearer token principal (`admin_token`, used by the CLI) has no session: define its behaviour explicitly
+  (exempt, since it is itself a secret, or governed by a separate setting) and document it.
+- The in-process calls the admin UI makes as the session must pass the same check.
+- Audit: a refused action writes an `admin.forbidden` (or a dedicated) row; a successful step-up writes one.
+
+## Acceptance criteria
+- [ ] Each sensitive route refuses a session whose last authentication is older than the window, with the same status and
+      body for every route, and the refusal is audited (negative authorization tests, one per route).
+- [ ] After a fresh sign-in the same action succeeds; the window and the sign-in time cannot be altered by the client.
+- [ ] Non-sensitive routes are unaffected (test).
+- [ ] The admin UI shows the re-authentication flow and returns to the page (browser/axe test where the UI has one).
+- [ ] Member self-service routes (`/me/*`) are classified explicitly (in or out) with a test.
+- [ ] `docs/THREAT_MODEL.md` rows updated (T13, T14).
+
+## Security notes
+T13, T14, T8. The check must be server-side and based on stored session data, never a cookie or form field the client sends.
+Step-up through the identity provider must not weaken PKCE/state/nonce handling in `packages/auth/src/identity`. Default
+window must be safe (short) and configurable only downward or within a bounded range.
+
+## Docs to update
+- `docs/guide/admin-access.md`, `docs/guide/admin-panel.md`, `docs/reference/admin-api.md` (generated; regenerate),
+  `docs/THREAT_MODEL.md`, `docs/dev/admin-ui.md`, possibly a new ADR, changeset.
+
+## Out of scope
+- Multi-factor enrolment inside relic-bridge (the identity provider owns MFA).

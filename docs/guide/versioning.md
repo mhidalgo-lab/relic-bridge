@@ -71,9 +71,12 @@ six months after the deprecation was released.
 2. In a tool schema: the field or argument description starts with `Deprecated:` and names the replacement and the
    removal release. New deprecations also set JSON Schema `deprecated: true` (zod `.meta({ deprecated: true })`).
 3. A deprecated tool says so at the start of its description.
-4. A deprecated environment variable or YAML key: announced in the release notes and the [upgrade notes](upgrading.md)
-   (items 1 and 6). A startup warning on stderr and a `relic-bridge doctor` check for deprecated configuration are
-   planned (P8-67); until they ship, the changelog and the upgrade guide are the only announcement for configuration.
+4. A deprecated environment variable, YAML key or CLI flag: listed in the deprecated-config registry
+   (`packages/core/src/deprecations.ts`) with its replacement and removal release. While it is in use, `relic-bridge
+   serve` and the stdio server print one warning per name on stderr at startup, the Worker logs one warning per
+   deprecated variable once per isolate (Workers Logs), and `relic-bridge doctor` prints a `deprecated-config` warning
+   line for each. Only the name is shown, never the value. Also in the release notes and the
+   [upgrade notes](upgrading.md) (items 1 and 6).
 5. A deprecated admin API field or endpoint: `deprecated: true` in the OpenAPI document and the
    [reference](../reference/admin-api.md).
 6. The table below and the [upgrade notes](upgrading.md).
@@ -123,7 +126,9 @@ when the release tags are present, that every published minor has one and that n
   with `**Breaking**:` and says what to do; from 1.0 it is a `major` changeset.
 - Deprecating: keep the old form working, mark it as above, add it to [Current deprecations](#current-deprecations)
   and to the [upgrade notes](upgrading.md), and open a task for the removal with "start after `<version>` is
-  published".
+  published". A configuration name (variable, YAML key, flag) also gets an entry in `DEPRECATED_CONFIG`
+  (`packages/core/src/deprecations.ts`); a test fails once the current version reaches its `removedIn`, so the name and
+  the entry are removed together.
 - Renames follow [tool conventions](../dev/tool-conventions.md); a rename of something released is a deprecation.
 - A migration only in a minor. After the release that adds one, run `pnpm db:fixtures` (needs the release tags,
   `git fetch --tags`) and commit the new fixture.

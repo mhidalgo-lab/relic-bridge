@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-import type { FetchLike } from '@relic-bridge/core';
+import type { DeprecatedConfig, FetchLike } from '@relic-bridge/core';
 import type { ConfigFs, Env } from '../config.ts';
 import type { Keychain } from '../keychain.ts';
 
@@ -28,6 +28,8 @@ export interface ManageHost {
   readonly nodeVersion?: string;
   /** Clock for `doctor` (tests); defaults to `Date.now`. */
   readonly now?: () => number;
+  /** Deprecated-config registry for `doctor` (tests); defaults to `DEPRECATED_CONFIG` (P8-67). */
+  readonly deprecations?: readonly DeprecatedConfig[];
   /** `audit tail --follow` stops when this aborts. */
   readonly signal?: AbortSignal;
   /** Pause for `ms`; resolves early on abort. */

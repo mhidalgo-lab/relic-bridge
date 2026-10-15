@@ -145,6 +145,7 @@ Exit codes: `0` when nothing failed (warnings are allowed), `1` when a check fai
 | Check | What it verifies |
 |---|---|
 | `node` | Node 24.11 or later. |
+| `deprecated-config` | One `warn` line per deprecated environment variable or `--config` file key in use, naming it, the release that removes it and the replacement (names only, never values). One `ok` line when none is in use. The list is the registry in `packages/core/src/deprecations.ts`; see [deprecations](../guide/versioning.md#deprecations). |
 | `config` | The stdio config (`--config` / `RB_CONFIG` YAML, or `NEW_RELIC_*` variables) loads; file permissions; plaintext key warning. Skipped when none is configured. |
 | `newrelic-key` | One NerdGraph call with your own key: User-key format, validity, region (a wrong region says which to use) and that the default account is reachable. Shows the key's prefix and last four characters only. `--offline` skips it. |
 | `keychain` | OS keychain backend usable and the entries that `keychain:<name>` / `RB_MASTER_KEY_KEYCHAIN` name exist (names only, never values). Skipped when nothing references the keychain. |

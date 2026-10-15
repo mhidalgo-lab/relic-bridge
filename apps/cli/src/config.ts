@@ -2,6 +2,9 @@
 import {
   type AccountScope,
   DEFAULT_LIMITS,
+  DEPRECATED_CONFIG,
+  type DeprecatedConfig,
+  deprecatedConfigInUse,
   type QueryLimits,
   REGIONS,
   type Region,
@@ -67,6 +70,8 @@ export interface LoadedConfig {
   readonly project: ResolvedProject;
   /** Problems worth telling the user about that don't stop startup (plaintext key, file permissions). */
   readonly warnings: readonly string[];
+  /** Deprecated keys the config file uses (P8-67); environment variables are checked by the caller. */
+  readonly deprecated?: readonly DeprecatedConfig[];
 }
 
 export type Env = Readonly<Record<string, string | undefined>>;
@@ -356,6 +361,8 @@ export interface LoadConfigOptions {
   readonly homeDir?: string;
   /** OS keychain for `keychain:<name>` references (tests inject a fake); the real one is created on first use. */
   readonly keychain?: Keychain;
+  /** Deprecated-config registry (tests inject one). Default: `DEPRECATED_CONFIG`. */
+  readonly deprecations?: readonly DeprecatedConfig[];
 }
 
 function expandHome(path: string, home: string | undefined): string {
@@ -393,7 +400,9 @@ export function loadYamlConfig(options: LoadConfigOptions & { configPath: string
     throw new ConfigError(`Config file ${file} could not be read.`);
   }
   // Read through the `yaml` storage adapter's records (P2-01): one mapping from file to projects/credentials.
-  const records = yamlRecords(parseConfigFile(text, file));
+  const parsed = parseConfigFile(text, file);
+  const deprecated = deprecatedConfigInUse({ yaml: parsed }, options.deprecations ?? DEPRECATED_CONFIG);
+  const records = yamlRecords(parsed);
   const selected = resolveProject(records, options.project ?? envString(options.env, 'RB_PROJECT'), file);
   const credential =
     selected.defaultCredentialId === null ? undefined : records.credentials.get(selected.defaultCredentialId);
@@ -425,6 +434,7 @@ export function loadYamlConfig(options: LoadConfigOptions & { configPath: string
       limits: buildLimits(selected.limits),
     }),
     warnings,
+    ...(deprecated.length === 0 ? {} : { deprecated }),
   };
 }
 

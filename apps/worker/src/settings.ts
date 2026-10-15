@@ -1,7 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // Worker settings from `vars` (P3-01). Same names and meanings as `relic-bridge serve` where both exist; anything
 // invalid fails closed (the Worker answers 503 and logs which variable is wrong) instead of running half-configured.
-import { DEFAULT_QUERY_CACHE_POLICY, type LogLevel, MAX_RELATIVE_TTL_MS } from '@relic-bridge/core';
+import {
+  DEFAULT_QUERY_CACHE_POLICY,
+  DEPRECATED_CONFIG,
+  type DeprecatedConfig,
+  deprecatedConfigWarnings,
+  type LogLevel,
+  MAX_RELATIVE_TTL_MS,
+} from '@relic-bridge/core';
 import {
   AUDIT_NRQL_MODES,
   type AuditNrqlMode,
@@ -126,9 +133,19 @@ function onOff(vars: WorkerVars, name: keyof WorkerVars, fallback: boolean): boo
   throw new WorkerConfigError(name, `${name} must be on or off`);
 }
 
-/** Validate the Worker's `vars`. Throws `WorkerConfigError`. */
-export function parseWorkerSettings(vars: WorkerVars): WorkerSettings {
-  const warnings: string[] = [];
+/**
+ * Validate the Worker's `vars`. Throws `WorkerConfigError`. `deprecations` is the deprecated-config registry (tests
+ * inject one); a deprecated variable present in `vars` adds one warning naming it, never its value (P8-67). The
+ * warnings are logged once per boot of the isolate, not per request.
+ */
+export function parseWorkerSettings(
+  vars: WorkerVars,
+  deprecations: readonly DeprecatedConfig[] = DEPRECATED_CONFIG,
+): WorkerSettings {
+  const warnings: string[] = deprecatedConfigWarnings(
+    { env: vars as unknown as Readonly<Record<string, unknown>> },
+    deprecations,
+  );
 
   const planRaw = text(vars, 'RB_PLAN')?.toLowerCase() ?? 'free';
   if (planRaw !== 'free' && planRaw !== 'paid') {

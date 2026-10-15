@@ -2,7 +2,7 @@
 id: P8-67
 title: Deprecated-config registry with startup warnings and doctor lines
 phase: 8
-status: in-progress
+status: review
 priority: medium
 depends_on: []
 adr: []
@@ -31,11 +31,19 @@ the `warnings` array in `apps/cli/src/serve.ts`.
 - A test that fails when an entry lacks replacement text or its removal version is at or below the current version.
 
 ## Acceptance criteria
-- [ ] Registry exists with unit tests for its shape and the "already removed" guard.
-- [ ] `serve`, stdio and the Worker each warn once per deprecated name in use (tests with a fake entry).
-- [ ] `doctor` prints one warn line per deprecated name, passed through the same scrubber as its other lines.
-- [ ] Only the name is logged, never the value.
-- [ ] `docs/guide/versioning.md` links to the registry (or a note is left in the PR if the guide is not merged yet).
+- [x] Registry exists with unit tests for its shape and the "already removed" guard.
+- [x] `serve`, stdio and the Worker each warn once per deprecated name in use (tests with a fake entry).
+- [x] `doctor` prints one warn line per deprecated name, passed through the same scrubber as its other lines.
+- [x] Only the name is logged, never the value.
+- [x] `docs/guide/versioning.md` links to the registry (or a note is left in the PR if the guide is not merged yet).
+
+## Outcome
+- Registry: `DEPRECATED_CONFIG` in `packages/core/src/deprecations.ts` (kinds `env`, `yaml` dotted path with `*`,
+  `flag`). It ships **empty**: no configuration name is deprecated today (the only deprecation, `whoami`
+  `limits.callBudget`, is a tool output field). Every consumer takes an injected registry, and the tests use fake entries.
+- Wiring: `serveSettings` (env + argv), stdio in `main` (env + argv before config loads, YAML keys after),
+  `parseWorkerSettings` (logged by the existing once-per-boot warning loop), `doctor` check `deprecated-config`
+  (one `ok` line when nothing is in use, so every `doctor` run now has one more line).
 
 ## Security notes
 T28 (diagnostics leak): names only, never values (a deprecated setting may hold a secret). T30: nothing is exported over

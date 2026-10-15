@@ -9,7 +9,12 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { type CliRuntime, main } from '../src/main.ts';
 import { FAKE_KEY, memoryFs } from './helpers.ts';
 
-function run(argv: string[], env: Record<string, string> = {}, files: Parameters<typeof memoryFs>[0] = {}) {
+function run(
+  argv: string[],
+  env: Record<string, string> = {},
+  files: Parameters<typeof memoryFs>[0] = {},
+  extra: Partial<CliRuntime> = {},
+) {
   const out: string[] = [];
   const err: string[] = [];
   const rt: CliRuntime = {
@@ -19,6 +24,7 @@ function run(argv: string[], env: Record<string, string> = {}, files: Parameters
     fs: memoryFs(files),
     stdout: (t) => out.push(t),
     stderr: (t) => err.push(t),
+    ...extra,
   };
   const result = main(rt);
   // Getters: async commands (keys rotate) keep writing after `main` returns.
@@ -48,6 +54,29 @@ describe('main', () => {
     expect(r.result).toEqual({ kind: 'exit', code: 2 });
     expect(r.stdout).toBe('');
     expect(r.stderr).toContain('Usage:');
+  });
+
+  it('stdio warns once per deprecated variable in use, on stderr, name only (P8-67)', () => {
+    const deprecations = [
+      {
+        name: 'RB_OLD_THING',
+        kind: 'env' as const,
+        replacement: 'RB_NEW_THING',
+        deprecatedIn: '0.1.0',
+        removedIn: '999.0.0',
+        docs: 'docs/guide/versioning.md',
+      },
+    ];
+    // An account without a key fails after the warning, so no stdio transport is started.
+    const r = run([], { NEW_RELIC_ACCOUNT_ID: '1', RB_OLD_THING: 'value-not-logged' }, {}, { deprecations });
+    expect(r.result).toEqual({ kind: 'exit', code: 1 });
+    expect(r.stdout).toBe('');
+    const lines = r.stderr.split('\n').map((l) => JSON.parse(l) as { level: string; msg: string });
+    const warned = lines.filter((l) => l.level === 'warn' && l.msg.includes('deprecated'));
+    expect(warned).toHaveLength(1);
+    expect(warned[0]?.msg).toContain('RB_OLD_THING');
+    expect(warned[0]?.msg).toContain('RB_NEW_THING');
+    expect(r.stderr).not.toContain('value-not-logged');
   });
 
   it('config errors exit 1, log JSON to stderr, and never touch stdout', () => {

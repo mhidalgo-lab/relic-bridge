@@ -14,6 +14,26 @@ const fails = (vars: Record<string, unknown>, variable: string): void => {
 };
 
 describe('parseWorkerSettings', () => {
+  it('warns once per deprecated variable present, by name only (P8-67, fake registry)', () => {
+    const registry = [
+      {
+        name: 'RB_OLD_THING',
+        kind: 'env' as const,
+        replacement: 'RB_NEW_THING',
+        deprecatedIn: '0.1.0',
+        removedIn: '999.0.0',
+        docs: 'docs/guide/versioning.md',
+      },
+    ];
+    const vars = { RB_OLD_THING: 'secret-value' } as unknown as Parameters<typeof parseWorkerSettings>[0];
+    const s = parseWorkerSettings(vars, registry);
+    expect(s.warnings).toHaveLength(1);
+    expect(s.warnings[0]).toContain('RB_OLD_THING');
+    expect(s.warnings[0]).toContain('RB_NEW_THING');
+    expect(s.warnings.join()).not.toContain('secret-value');
+    expect(parseWorkerSettings({}, registry).warnings).toEqual([]);
+  });
+
   it('defaults: free plan, any host, loopback origins, audit and rate limiting on', () => {
     const s = parseWorkerSettings({});
     expect(s).toMatchObject({

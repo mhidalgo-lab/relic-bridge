@@ -20,6 +20,9 @@ import {
 import {
   type CacheCryptoKey,
   DEFAULT_QUERY_CACHE_POLICY,
+  DEPRECATED_CONFIG,
+  type DeprecatedConfig,
+  deprecatedConfigWarnings,
   type FetchLike,
   type Logger,
   MAX_RELATIVE_TTL_MS,
@@ -451,9 +454,17 @@ export function serveSettings(input: {
   readonly homeDir?: string;
   /** Needed to read `RB_*_CLIENT_SECRET_FILE`; without it a `_FILE` variable is ignored. */
   readonly fs?: ConfigFs;
+  /** Raw argv, to spot deprecated flags (P8-67). */
+  readonly argv?: readonly string[];
+  /** Deprecated-config registry (tests inject one). Default: `DEPRECATED_CONFIG`. */
+  readonly deprecations?: readonly DeprecatedConfig[];
 }): ServeSettings {
   const { env } = input;
-  const warnings: string[] = [];
+  // Deprecated names first, one line each, names only (T28).
+  const warnings: string[] = deprecatedConfigWarnings(
+    { env, ...(input.argv === undefined ? {} : { argv: input.argv }) },
+    input.deprecations ?? DEPRECATED_CONFIG,
+  );
   const portRaw = (input.port ?? env['RB_PORT'] ?? String(DEFAULT_PORT)).trim();
   if (!/^\d{1,5}$/.test(portRaw) || Number(portRaw) > 65535) {
     throw new ConfigError('--port must be an integer 0-65535 (0 picks a free port).');

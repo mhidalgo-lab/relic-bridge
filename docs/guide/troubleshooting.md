@@ -24,6 +24,7 @@ path, token shape) and, with the token in `RB_TOKEN` or `--token-file`, whether 
 | `Unknown tool name(s) in the tool allowlist` | A typo in `tools` / `RB_TOOLS`; the message lists valid names (see the [tool reference](../reference/tools.md)). |
 | `The configured key is not a New Relic User API key.` (`RB_AUTH_INVALID_KEY`), exit code 1 | The key doesn't look like a User key (`NRAK-` followed by letters and digits), so the server refuses to start without contacting New Relic. Ingest, license and browser keys can't query NerdGraph: create a User key. |
 | `RB_PROJECT is ignored in env mode` | A warning, not a failure: `RB_PROJECT` only selects a project from a YAML file. Add `--config` / `RB_CONFIG`, or remove it. |
+| `Environment variable … is deprecated since … and will be removed in …` (also `Config file key …`, `Flag …`) | A warning: the name still works until the release it names. Switch to the replacement in the message; `relic-bridge doctor` lists every deprecated name you use (`deprecated-config`). See [deprecations](versioning.md#deprecations). |
 | `Config file … is readable by every user` / `… by its group` | A warning: run `chmod 600 <file>` (the file may hold a plaintext key). Not checked on Windows. |
 | Unknown flag, exit code 2 | Run `relic-bridge --help`. There is no `--api-key` flag. |
 | Exit code 1 right away | Configuration error: read the first stderr line. Unknown keys in YAML are errors (`apikey` vs `apiKey`). |

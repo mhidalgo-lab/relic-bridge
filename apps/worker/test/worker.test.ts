@@ -174,6 +174,32 @@ describe('Worker boot', () => {
     });
   });
 
+  it('logs one warning per deprecated variable once per isolate, never its value (P8-67)', async () => {
+    const { storage } = await seed(MASTER_KEY);
+    const log = logs();
+    const worker = createWorker({
+      openStorage: () => storage,
+      logSink: log.sink,
+      deprecations: [
+        {
+          name: 'RB_OLD_THING',
+          kind: 'env',
+          replacement: 'RB_NEW_THING',
+          deprecatedIn: '0.1.0',
+          removedIn: '999.0.0',
+          docs: 'docs/guide/versioning.md',
+        },
+      ],
+    });
+    const withOld = { ...env, RB_OLD_THING: 'value-not-logged' } as WorkerEnv;
+    for (let i = 0; i < 3; i++) expect((await call(worker, withOld, fakeCtx(), '/health')).status).toBe(200);
+    const warned = log.lines.filter((l) => String(l['msg']).includes('RB_OLD_THING'));
+    expect(warned).toHaveLength(1);
+    expect(warned[0]).toMatchObject({ level: 'warn' });
+    expect(String(warned[0]?.['msg'])).toContain('RB_NEW_THING');
+    expect(JSON.stringify(log.lines)).not.toContain('value-not-logged');
+  });
+
   it('fails closed without the master key, backs off exponentially, and recovers with a fixed environment', async () => {
     const { storage } = await seed(MASTER_KEY);
     let t = 1_000_000;

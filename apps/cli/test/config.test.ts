@@ -141,6 +141,29 @@ function yaml(
 describe('YAML mode', () => {
   const env = { NEW_RELIC_API_KEY_ACME: FAKE_KEY, NEW_RELIC_API_KEY_SIDE: OTHER_KEY };
 
+  it('reports deprecated config-file keys in use (P8-67, fake registry entry)', () => {
+    const entry = {
+      name: 'projects.*.limits',
+      kind: 'yaml' as const,
+      replacement: 'newLimits',
+      deprecatedIn: '0.1.0',
+      removedIn: '999.0.0',
+      docs: 'docs/guide/versioning.md',
+    };
+    const load = (deprecations: (typeof entry)[]) =>
+      loadConfig({
+        configPath: FILE,
+        project: 'acme',
+        env,
+        fs: memoryFs({ [FILE]: { text: twoProjects } }),
+        platform: 'linux',
+        deprecations,
+      });
+    expect(load([entry]).deprecated).toEqual([entry]);
+    expect(load([{ ...entry, name: 'projects.*.retired' }]).deprecated).toBeUndefined();
+    expect(load([]).deprecated).toBeUndefined();
+  });
+
   it('selects a project with --project and resolves ${VAR} keys', () => {
     const { project, warnings } = yaml(twoProjects, env, { project: 'acme' });
     expect(warnings).toEqual([]);

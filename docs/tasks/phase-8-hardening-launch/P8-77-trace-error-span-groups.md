@@ -2,11 +2,11 @@
 id: P8-77
 title: trace_error follows Span-sourced error groups
 phase: 8
-status: todo
+status: in-progress
 priority: low
 depends_on: [P8-57]
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P8-77 — trace_error follows Span-sourced error groups

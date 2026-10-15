@@ -32,6 +32,22 @@ export interface LoggerOptions {
   fields?: LogFields;
 }
 
+/** Record keys the logger owns; a caller field with one of these names is kept as `field_<name>` (P8-75). */
+const RESERVED = ['ts', 'level', 'msg'] as const;
+
+/**
+ * Caller fields can never forge the record's timestamp, level or message (THREAT_MODEL T17, T30): a colliding field is
+ * renamed with a `field_` prefix, so the value stays visible (and redacted) without replacing the real one.
+ */
+function renameReserved(fields: LogFields): LogFields {
+  if (!RESERVED.some((k) => Object.hasOwn(fields, k))) return fields;
+  const out: LogFields = {};
+  for (const [key, value] of Object.entries(fields)) {
+    out[(RESERVED as readonly string[]).includes(key) ? `field_${key}` : key] = value;
+  }
+  return out;
+}
+
 /** Structured JSON logger. Redaction is mandatory: messages and fields always pass through `redact`. */
 export function createLogger(options: LoggerOptions = {}): Logger {
   const min = LEVEL_RANK[options.level ?? 'info'];
@@ -45,7 +61,7 @@ export function createLogger(options: LoggerOptions = {}): Logger {
       ts: new Date(now()).toISOString(),
       level,
       msg: redact(msg),
-      ...(redactValue({ ...base, ...fields }) as LogFields),
+      ...(redactValue(renameReserved({ ...base, ...fields })) as LogFields),
     };
     try {
       sink(JSON.stringify(record));

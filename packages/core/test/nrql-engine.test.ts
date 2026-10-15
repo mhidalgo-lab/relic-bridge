@@ -159,7 +159,7 @@ describe('runNrql: sync and fields', () => {
 describe('runNrql: errors (fixtures)', () => {
   it('passes NRQL syntax errors back with a hint', async () => {
     const { ctx, deps } = setup([fixtureResponse('error_bad_nrql')]);
-    const error = await failure(runRawNrql(ctx, { nrql: 'SELEC count(* FROM Nowhere' }, deps));
+    const error = await failure(runRawNrql(ctx, { nrql: 'SELEC count(*) FROM Nowhere' }, deps));
     expect(error.code).toBe(ErrorCode.InputInvalid);
     expect(error.message).toContain("NRQL Syntax Error: Error at line 1 position 1, unexpected 'SELEC'");
     expect(error.hint).toContain('docs.newrelic.com');

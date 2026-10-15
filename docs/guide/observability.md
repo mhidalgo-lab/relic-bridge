@@ -12,7 +12,7 @@ about the optional OTLP export.
 | --- | --- | --- |
 | `RB_OTEL` | `off` | `on` enables the export. |
 | `RB_OTEL_ENDPOINT` | none (required when on) | OTLP/HTTP base URL. `/v1/traces`, `/v1/metrics` and `/v1/logs` are appended. Must be `https` (plain `http` only for `localhost`), without credentials or a query string. |
-| `RB_OTEL_HEADERS` | none | Request headers as `name=value,name2=value2` (values may be percent-encoded). **Secret**: put the New Relic license key here, e.g. `api-key=<license key>`. |
+| `RB_OTEL_HEADERS` | none | Request headers as `name=value,name2=value2` (values may be percent-encoded; after decoding, a value must be Latin-1 text without control characters other than tab, or start-up fails naming the header but not its value). **Secret**: put the New Relic license key here, e.g. `api-key=<license key>`. |
 | `RB_OTEL_SAMPLE` | `1` | Share of tool calls exported as traces, `0` to `1` (or `off`). Metrics are always exported. |
 | `RB_OTEL_TRACEPARENT` | `off` | `on`: a span joins the trace of an incoming W3C `traceparent` header (HTTP only). See [Trace context](#trace-context). |
 

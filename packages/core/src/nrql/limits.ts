@@ -405,6 +405,25 @@ function checkLimit(tokens: readonly Token[], limits: QueryLimits, source: strin
 }
 
 /**
+ * Parentheses must balance (strings, backtick identifiers and comments are separate tokens, so theirs do not count).
+ * Every check here reads depth 0 as the outer query: with an open `(` the LIMIT this checker appends would land inside
+ * it, and with a stray `)` the tokenizer's depth no longer matches what New Relic parses (THREAT_MODEL T4, P8-75).
+ */
+function assertBalancedParentheses(tokens: readonly Token[]): void {
+  let depth = 0;
+  for (const t of tokens) {
+    if (t.kind !== 'punct') continue;
+    if (t.text === '(') depth++;
+    else if (t.text === ')' && --depth < 0) break;
+  }
+  if (depth !== 0) {
+    throw new RbError(ErrorCode.InputInvalid, 'The NRQL has unbalanced parentheses.', {
+      hint: 'Close every "(" with a ")" (and remove any ")" without a matching "(").',
+    });
+  }
+}
+
+/**
  * Enforce a connection's query limits on NRQL (THREAT_MODEL T5). Throws RB_LIMIT_QUERY with an actionable hint, or
  * returns the (possibly rewritten) NRQL. Best effort by design: see docs/guide/query-limits.md for known gaps.
  */
@@ -434,6 +453,7 @@ export function enforceQueryLimits(
           : 'Remove the trailing ";".',
     });
   }
+  assertBalancedParentheses(tokens);
   const notes: string[] = [];
   const eventTypes = checkEventTypes(tokens, limits, options);
   const { windowMs, fixedEndMs } = checkWindow(tokens, limits, now);

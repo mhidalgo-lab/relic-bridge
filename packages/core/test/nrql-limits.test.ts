@@ -118,6 +118,37 @@ describe('LIMIT', () => {
     expect(check('SELECT * FROM Log LIMIT 50').notes).toEqual([]);
   });
 
+  // P8-75: an open "(" would swallow the appended LIMIT (`... FROM (SELECT * FROM Log LIMIT 10` limits nothing outside),
+  // and a stray ")" makes the tokenizer's depth disagree with what New Relic parses.
+  it.each([
+    ['extra (', 'SELECT * FROM (SELECT * FROM Log'],
+    ['extra ( in a function call', 'SELECT * FROM Log WHERE x IN (1, 2'],
+    ['extra )', 'SELECT * FROM Log WHERE (a = 1))'],
+    [') before (', 'SELECT * FROM Log WHERE a = 1) OR (b = 2'],
+    [') before ( inside a subquery', 'SELECT count(*) FROM (SELECT * FROM Log)) LIMIT 5 ((x)'],
+    ['extra ( hidden after a comment', 'SELECT * FROM Log WHERE (a = 1 -- )'],
+  ])('rejects unbalanced parentheses: %s', (_name, q) => {
+    const error = rejection(q);
+    expect(error.code).toBe(ErrorCode.InputInvalid);
+    expect(error.hint).toMatch(/\(/);
+  });
+
+  it('accepts balanced subqueries and function calls, and ignores parentheses in strings, identifiers and comments', () => {
+    expect(check('SELECT count(*) FROM (SELECT * FROM Log LIMIT 5)').notes).toEqual([]);
+    expect(check('SELECT count(*) FROM T FACET cases(WHERE a = 1 AS x, WHERE (b = 2) AS y)').notes).toEqual(
+      [],
+    );
+    expect(
+      check('SELECT count(*) FROM Log WHERE x IN (SELECT uniques(y) FROM Log WHERE (a = 1 AND (b = 2)))')
+        .notes,
+    ).toEqual([]);
+    // Parentheses that are not punctuation never count, so the injected LIMIT lands at the top level.
+    expect(check("SELECT * FROM Log WHERE m = '(' AND `odd(name` = ')))'").nrql).toBe(
+      "SELECT * FROM Log WHERE m = '(' AND `odd(name` = ')))' LIMIT 10",
+    );
+    expect(check('SELECT * FROM Log /* ( */ -- (').nrql).toMatch(/^SELECT \* FROM Log +LIMIT 10$/);
+  });
+
   it('rejects malformed LIMITs', () => {
     expect(rejection('SELECT * FROM Log LIMIT -1').code).toBe(ErrorCode.LimitQuery);
     expect(rejection('SELECT * FROM Log LIMIT 1.5').code).toBe(ErrorCode.LimitQuery);

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import { describe, expect, it } from 'vitest';
 import {
+  checkMasterKey,
   generateSecrets,
   LOCAL_CONFIG,
   localConfigFor,
@@ -25,6 +26,7 @@ const OPTS: SetupOptions = {
   publicUrl: undefined,
   replaceMasterKey: false,
   sharedLimiter: undefined,
+  masterKeyStdin: false,
 };
 
 interface Call {
@@ -291,6 +293,120 @@ describe('runSetup', () => {
     const bulk = forced.calls.find((c) => c.args[1] === 'bulk');
     expect(Object.keys(JSON.parse(bulk?.input ?? '{}'))).toEqual(['RB_MASTER_KEY']);
     expect(forced.logs.join('\n')).toMatch(/WARNING: --replace-master-key/);
+  });
+
+  describe('--master-key-stdin (P8-80)', () => {
+    const SERVER_KEY = `v4:${Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString('base64')}`;
+    const withKey = (h: ReturnType<typeof harness>, key = `${SERVER_KEY}\n`): SetupDeps => ({
+      ...h.deps,
+      readMasterKey: async () => key,
+    });
+
+    it('parses the flag and checks the key format without echoing it', () => {
+      expect(parseArgs(['--master-key-stdin'])).toMatchObject({ masterKeyStdin: true });
+      expect(checkMasterKey(` ${SERVER_KEY}\n`)).toEqual({ key: SERVER_KEY, version: 4 });
+      expect(checkMasterKey(SERVER_KEY.slice(3)).version).toBe(1);
+      const bad = [
+        '',
+        'v0:abc',
+        `${SERVER_KEY}\n${SERVER_KEY}`,
+        `v1:${Buffer.alloc(16, 7).toString('base64')}`,
+        `v1:${Buffer.alloc(32, 7).toString('base64')}`,
+        'NRAK-NOTAMASTERKEY0123456789',
+      ];
+      for (const k of bad) {
+        expect(() => checkMasterKey(k)).toThrow(SetupError);
+        try {
+          checkMasterKey(k);
+        } catch (e) {
+          if (k !== '') expect((e as Error).message).not.toContain(k.slice(3, 20));
+        }
+      }
+    });
+
+    it('sends the given key on stdin only, never reveals it or writes it to the backup file', async () => {
+      const h = harness(ok);
+      await runSetup({ ...OPTS, masterKeyStdin: true, backupFile: '/tmp/rb.env' }, withKey(h));
+      const bulk = h.calls.find((c) => c.args[1] === 'bulk');
+      const sent = JSON.parse(bulk?.input ?? '{}') as Record<string, string>;
+      expect(sent['RB_MASTER_KEY']).toBe(SERVER_KEY);
+      expect(Object.keys(sent).sort()).toEqual(['RB_ADMIN_TOKEN', 'RB_MASTER_KEY']);
+      const everything = [...h.calls.map((c) => c.args.join(' ')), ...h.logs, ...h.revealed].join('\n');
+      expect(everything).not.toContain(SERVER_KEY.slice(3));
+      // The generated admin token is still shown once and backed up; the master key is not.
+      expect(h.revealed.join('\n')).toContain(`RB_ADMIN_TOKEN=${sent['RB_ADMIN_TOKEN']}`);
+      expect(h.revealed.join('\n')).not.toContain('RB_MASTER_KEY');
+      expect(h.files.get('/tmp/rb.env')?.content).toBe(`RB_ADMIN_TOKEN=${sent['RB_ADMIN_TOKEN']}\n`);
+      expect(h.logs.join('\n')).toMatch(/version 4/);
+      expect(h.logs.join('\n')).toMatch(/not shown and not written to the backup file/);
+    });
+
+    it('refuses to replace a key the Worker already has unless --replace-master-key', async () => {
+      const list = (a: readonly string[]) =>
+        a[1] === 'list'
+          ? { stdout: JSON.stringify([{ name: 'RB_MASTER_KEY' }, { name: 'RB_ADMIN_TOKEN' }]) }
+          : ok(a);
+      const h = harness(list);
+      let read = false;
+      await expect(
+        runSetup(
+          { ...OPTS, masterKeyStdin: true },
+          {
+            ...h.deps,
+            readMasterKey: async () => {
+              read = true;
+              return SERVER_KEY;
+            },
+          },
+        ),
+      ).rejects.toThrow(/already has RB_MASTER_KEY/);
+      expect(read).toBe(false);
+      expect(h.calls.some((c) => c.args[1] === 'bulk' || c.args[0] === 'deploy')).toBe(false);
+
+      const forced = harness(list);
+      await runSetup({ ...OPTS, masterKeyStdin: true, replaceMasterKey: true }, withKey(forced));
+      const sent = JSON.parse(forced.calls.find((c) => c.args[1] === 'bulk')?.input ?? '{}');
+      expect(sent).toEqual({ RB_MASTER_KEY: SERVER_KEY });
+      expect(forced.logs.join('\n')).not.toMatch(/Kept existing secret RB_MASTER_KEY/);
+      expect(forced.revealed).toEqual([]);
+    });
+
+    it('restores a missing key next to an existing admin token without --replace-master-key', async () => {
+      const h = harness((a) =>
+        a[1] === 'list' ? { stdout: JSON.stringify([{ name: 'RB_ADMIN_TOKEN' }]) } : ok(a),
+      );
+      await runSetup({ ...OPTS, masterKeyStdin: true }, withKey(h));
+      expect(JSON.parse(h.calls.find((c) => c.args[1] === 'bulk')?.input ?? '{}')).toEqual({
+        RB_MASTER_KEY: SERVER_KEY,
+      });
+    });
+
+    it('sends and deploys nothing when the key is invalid or there is no stdin', async () => {
+      const h = harness(ok);
+      await expect(runSetup({ ...OPTS, masterKeyStdin: true }, withKey(h, 'not a key'))).rejects.toThrow(
+        /not valid/,
+      );
+      expect(h.calls.some((c) => c.args[1] === 'bulk' || c.args[0] === 'deploy')).toBe(false);
+      const none = harness(ok);
+      await expect(runSetup({ ...OPTS, masterKeyStdin: true }, none.deps)).rejects.toThrow(/no stdin/);
+    });
+
+    it('dry run says the key is read, not generated, and reads nothing', async () => {
+      const h = harness(ok);
+      let read = false;
+      await runSetup(
+        { ...OPTS, masterKeyStdin: true, dryRun: true },
+        {
+          ...h.deps,
+          readMasterKey: async () => {
+            read = true;
+            return SERVER_KEY;
+          },
+        },
+      );
+      expect(read).toBe(false);
+      expect(h.logs.join('\n')).toMatch(/read from stdin \(--master-key-stdin\)/);
+    });
   });
 
   it('refuses --assume-new when the Worker already has secrets', async () => {

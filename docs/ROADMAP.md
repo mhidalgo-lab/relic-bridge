@@ -325,6 +325,7 @@ Generated from task front matter (`pnpm tasks index`). Status lives in each task
 | P8-54 | [Signed releases - provenance attestations attached to GitHub Releases](tasks/phase-8-hardening-launch/P8-54-release-provenance-assets.md) | medium | — | done |
 | P8-55 | [OpenSSF Best Practices badge (passing)](tasks/phase-8-hardening-launch/P8-55-openssf-best-practices.md) | low | P8-53 | done |
 | P8-56 | [README reflects 0.9.0 and the current docs](tasks/phase-8-hardening-launch/P8-56-readme-refresh.md) | medium | — | done |
+| P8-57 | [trace_error(error_group_id) finds the group's traced occurrence](tasks/phase-8-hardening-launch/P8-57-trace-error-group-lookup.md) | high | — | review |
 | P8-60 | [Golden-metric trend notes say why there is no trend](tasks/phase-8-hardening-launch/P8-60-golden-trend-notes.md) | low | — | review |
 | P8-64 | [CI runs on GitHub-hosted runners only](tasks/phase-8-hardening-launch/P8-64-github-hosted-runners.md) | high | P8-07 | review |
 | P8-65 | [Hardening: event-type lists, redirects, subquery windows, remembered consent](tasks/phase-8-hardening-launch/P8-65-hardening-low-findings.md) | medium | — | review |

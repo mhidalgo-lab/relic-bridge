@@ -9,7 +9,15 @@ import {
   type FetchLike,
   type ToolContext,
 } from '../src/index.ts';
-import { groupTraceQuery, healthSignals, shapeTrace, toSpan, uriPath } from '../src/tools/investigations.ts';
+import {
+  groupTraceQuery,
+  healthSignals,
+  MAX_MATCH_MESSAGE,
+  matchable,
+  shapeTrace,
+  toSpan,
+  uriPath,
+} from '../src/tools/investigations.ts';
 import { testContext } from './helpers/context.ts';
 import { connectInMemory, resultText } from './helpers/mcp.ts';
 import { MOCK_ACCOUNT, MOCK_GUID, mockNerdGraph } from './helpers/mock-nerdgraph.ts';
@@ -69,7 +77,18 @@ interface Overrides {
   nrql?: (nrql: string) => Response | undefined;
   /** Titles of the entity's golden metrics (every one uses the same Throughput-style query). */
   goldenTitles?: string[];
+  /** Errors Inbox groups returned by the group lookup (default: the mock's eg-1). */
+  groups?: Record<string, unknown>[];
 }
+
+const GROUP = {
+  id: 'eg-1',
+  name: 'TypeError',
+  message: "Cannot read properties of undefined (reading 'id')",
+  source: 'TransactionError',
+  isCustom: false,
+  entityGuid: btoa(`${MOCK_ACCOUNT}|APM|APPLICATION|42`).replace(/=+$/, ''),
+};
 
 function nerdGraph(o: Overrides = {}): { fetch: FetchLike; calls: Recorded[] } {
   const base = mockNerdGraph();
@@ -127,6 +146,17 @@ function nerdGraph(o: Overrides = {}): { fetch: FetchLike; calls: Recorded[] } {
                   query: "FROM Metric SELECT rate(count(a), 1 minute) WHERE entity.guid = 'X'",
                 })),
               },
+            },
+          },
+        },
+      });
+    }
+    if (op === 'RbErrorGroups' && o.groups) {
+      return json({
+        data: {
+          actor: {
+            errorsInbox: {
+              errorGroups: { nextCursor: null, totalCount: o.groups.length, results: o.groups },
             },
           },
         },
@@ -216,11 +246,39 @@ describe('pure helpers', () => {
     expect(healthSignals([], 'NOT_ALERTING', true)).toEqual([]);
   });
 
-  it('builds the error group query with the nrql tag, excluding synthetics by default', () => {
-    const q = groupTraceQuery("g'1", undefined, false, 1000, 2000).text;
-    expect(q).toContain("`error.group.guid` = 'g\\'1'");
+  it('builds the error group query from class, message and entity with the nrql tag (P8-57)', () => {
+    const q = groupTraceQuery(
+      { errorClass: 'App\\Err_1%', message: "it's 100% \\ done_", entityGuid: API },
+      false,
+      1000,
+      2000,
+    ).text;
+    expect(q).toContain("`error.class` = 'App\\\\Err_1%'");
+    expect(q).toContain("`error.message` = 'it\\'s 100% \\\\ done_'");
+    expect(q).toContain(`\`entityGuid\` = '${API}'`);
+    expect(q).toContain('traceId IS NOT NULL');
     expect(q).toContain('`nr.syntheticsMonitorId` IS NULL');
-    expect(groupTraceQuery('g', API, true, 1000, 2000).text).not.toContain('syntheticsMonitorId');
+    expect(q).toContain('AS exactTrace');
+    expect(q).toContain('AS classTrace');
+    expect(q).not.toContain('error.group.guid');
+    expect(q).not.toMatch(/\bLIKE\b/);
+    const loose = groupTraceQuery(
+      { errorClass: 'E', message: null, entityGuid: null },
+      true,
+      1000,
+      2000,
+    ).text;
+    expect(loose).not.toContain('syntheticsMonitorId');
+    expect(loose).not.toContain('exactTrace');
+    expect(loose).not.toContain('entityGuid');
+  });
+
+  it('matches only messages the template accepts and that are short enough', () => {
+    expect(matchable("a 'quoted' \\ msg")).toBe("a 'quoted' \\ msg");
+    expect(matchable('line one\nline two')).toBeNull();
+    expect(matchable('x'.repeat(MAX_MATCH_MESSAGE + 1))).toBeNull();
+    expect(matchable('')).toBeNull();
+    expect(matchable(null)).toBeNull();
   });
 });
 
@@ -248,15 +306,149 @@ describe('trace_error', () => {
     for (const c of ng.calls) expect(String(c.variables['nrql'])).toContain(`'${TRACE}'`);
   });
 
-  it('follows an error group to its latest traced occurrence (4 requests)', async () => {
+  it('follows an error group: lookup by id, its traced occurrence, then spans, errors and logs (NEW-13)', async () => {
     const ng = nerdGraph();
     const client = await connect(ng.fetch);
     const r = await client.callTool({ name: 'trace_error', arguments: { error_group_id: 'eg-1' } });
     expect(r.isError, resultText(r)).toBeFalsy();
-    expect((r.structuredContent as { traceId: string }).traceId).toBe(TRACE);
+    const s = r.structuredContent as {
+      traceId: string;
+      spans: { total: number };
+      errors: unknown[];
+      logs: unknown[];
+    };
+    expect(s.traceId).toBe(TRACE);
+    expect(s.spans.total).toBe(2);
+    expect(s.errors).toHaveLength(1);
+    expect(s.logs).toHaveLength(1);
+    expect(ng.calls.map((c) => c.op)).toEqual(['RbErrorGroups', 'RbNrql', 'RbNrql', 'RbNrql', 'RbNrql']);
+    expect(ng.calls[0]?.variables).toMatchObject({
+      filter: { accountIds: [A], ids: ['eg-1'] },
+      entityGuids: null,
+    });
     const nrqls = ng.calls.filter((c) => c.op === 'RbNrql').map((c) => String(c.variables['nrql']));
-    expect(nrqls).toHaveLength(4);
+    expect(nrqls[0]).toContain("`error.class` = 'TypeError'");
+    expect(nrqls[0]).toContain("`error.message` = 'Cannot read properties of undefined (reading \\'id\\')'");
+    expect(nrqls[0]).toContain(`\`entityGuid\` = '${GROUP.entityGuid}'`);
     expect(nrqls[0]).toContain('`nr.syntheticsMonitorId` IS NULL');
+    for (const q of nrqls) expect(q).not.toContain('error.group.guid');
+    expect((r.structuredContent as { notes: string[] }).notes).toEqual([]);
+  });
+
+  it('never runs the group eventsQuery text (T4)', async () => {
+    const ng = nerdGraph({
+      groups: [{ ...GROUP, eventsQuery: 'FROM Span SELECT * WHERE 1 = 1 -- injected' }],
+    });
+    const client = await connect(ng.fetch);
+    await client.callTool({ name: 'trace_error', arguments: { error_group_id: 'eg-1' } });
+    for (const c of ng.calls) expect(String(c.variables['nrql'] ?? '')).not.toContain('injected');
+  });
+
+  it('refuses an unknown error group id, or one of another account, with a clear error', async () => {
+    for (const groups of [[], [{ ...GROUP, id: 'other' }], [{ ...GROUP, entityGuid: FOREIGN }]]) {
+      const ng = nerdGraph({ groups });
+      const client = await connect(ng.fetch);
+      const r = await client.callTool({ name: 'trace_error', arguments: { error_group_id: 'eg-1' } });
+      expect(errorCode(r), JSON.stringify(groups)).toBe(ErrorCode.InputInvalid);
+      expect(resultText(r)).toContain('No error group with this id');
+      expect(resultText(r)).toContain('list_error_groups');
+      expect(ng.calls.filter((c) => c.op === 'RbNrql')).toHaveLength(0);
+    }
+  });
+
+  it('passes entity_guid to the lookup and the occurrence query', async () => {
+    const ng = nerdGraph({ groups: [{ ...GROUP, entityGuid: API }] });
+    const client = await connect(ng.fetch);
+    const r = await client.callTool({
+      name: 'trace_error',
+      arguments: { error_group_id: 'eg-1', entity_guid: API },
+    });
+    expect(r.isError, resultText(r)).toBeFalsy();
+    expect(ng.calls[0]?.variables['entityGuids']).toEqual([API]);
+    expect(String(ng.calls[1]?.variables['nrql'])).toContain(`\`entityGuid\` = '${API}'`);
+  });
+
+  it('says a group from another source is not supported, with a hint', async () => {
+    for (const source of ['Span', 'JavaScriptError', 'weird source!']) {
+      const ng = nerdGraph({ groups: [{ ...GROUP, source }] });
+      const client = await connect(ng.fetch);
+      const r = await client.callTool({ name: 'trace_error', arguments: { error_group_id: 'eg-1' } });
+      expect(errorCode(r)).toBe(ErrorCode.InputInvalid);
+      expect(resultText(r)).toContain('APM error groups (TransactionError events) only');
+      expect(resultText(r)).toContain('trace_id');
+      expect(resultText(r)).not.toContain('weird source!');
+      expect(ng.calls.filter((c) => c.op === 'RbNrql')).toHaveLength(0);
+    }
+  });
+
+  it('falls back to class and entity when the message does not match exactly, and says so', async () => {
+    const fallback = (q: string) =>
+      q.includes('AS classTrace')
+        ? nrqlBody([{ exactTrace: null, exactCount: 0, classTrace: TRACE, classCount: 4 }])
+        : undefined;
+    for (const [group, why] of [
+      [GROUP, 'exact message'],
+      [{ ...GROUP, isCustom: true }, 'custom group'],
+    ] as const) {
+      const ng = nerdGraph({ groups: [group], nrql: fallback });
+      const client = await connect(ng.fetch);
+      const r = await client.callTool({ name: 'trace_error', arguments: { error_group_id: 'eg-1' } });
+      expect(r.isError, resultText(r)).toBeFalsy();
+      const s = r.structuredContent as { traceId: string; notes: string[] };
+      expect(s.traceId).toBe(TRACE);
+      expect(s.notes.join(' ')).toContain('Matched on error class and entity only');
+      expect(s.notes.join(' ')).toContain(why);
+    }
+  });
+
+  it('matches on class only when the message has control characters or is too long', async () => {
+    for (const message of ['first line\nsecond line', 'x'.repeat(MAX_MATCH_MESSAGE + 1)]) {
+      const ng = nerdGraph({ groups: [{ ...GROUP, message }] });
+      const client = await connect(ng.fetch);
+      const r = await client.callTool({ name: 'trace_error', arguments: { error_group_id: 'eg-1' } });
+      expect(r.isError, resultText(r)).toBeFalsy();
+      const q = String(ng.calls[1]?.variables['nrql']);
+      expect(q).not.toContain('error.message');
+      expect((r.structuredContent as { notes: string[] }).notes.join(' ')).toContain(
+        'cannot be matched exactly',
+      );
+    }
+  });
+
+  it('escapes quotes and backslashes and keeps LIKE wildcards literal in class and message', async () => {
+    const ng = nerdGraph({
+      groups: [{ ...GROUP, name: 'Vendor\\Http\\Exception', message: "Noticed 'Vendor\\X' at 100%_done" }],
+    });
+    const client = await connect(ng.fetch);
+    const r = await client.callTool({ name: 'trace_error', arguments: { error_group_id: 'eg-1' } });
+    expect(r.isError, resultText(r)).toBeFalsy();
+    const q = String(ng.calls[1]?.variables['nrql']);
+    expect(q).toContain("`error.class` = 'Vendor\\\\Http\\\\Exception'");
+    expect(q).toContain("`error.message` = 'Noticed \\'Vendor\\\\X\\' at 100%_done'");
+    expect(q).not.toMatch(/\bLIKE\b/);
+  });
+
+  it('says tracing works when traced errors exist but none matches the group (NEW-13)', async () => {
+    const ng = nerdGraph({
+      nrql: (q) =>
+        q.includes('FROM Span, TransactionError')
+          ? nrqlBody([{ spans: 900, tracedErrors: 1159, errors: 1159 }])
+          : nrqlBody([]),
+    });
+    const client = await connect(ng.fetch);
+    const r = await client.callTool({ name: 'trace_error', arguments: { error_group_id: 'eg-1' } });
+    expect(r.isError, resultText(r)).toBeFalsy();
+    const text = resultText(r);
+    expect(text).toContain('No traced occurrence of this error group');
+    expect(text).toContain(
+      "Tracing works for this entity: 1159 of 1159 errors carry a trace id, but none of them matches this group's error class",
+    );
+    expect(text).not.toContain('even though');
+    expect(text).not.toContain('appears to be disabled');
+    const check = ng.calls
+      .map((c) => String(c.variables['nrql'] ?? ''))
+      .find((q) => q.includes('FROM Span, TransactionError'));
+    expect(check).toContain(`'${GROUP.entityGuid}'`);
   });
 
   it('says so when the error group has no traced occurrence, and when tracing appears disabled (BUG-12)', async () => {

@@ -2,11 +2,11 @@
 id: P8-74
 title: CLI fixes - read-only doctor, purge argument checks, import cap, audit-off warning
 phase: 8
-status: todo
+status: in-progress
 priority: low
 depends_on: []
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P8-74 — CLI fixes: read-only doctor, purge argument checks, import cap, audit-off warning

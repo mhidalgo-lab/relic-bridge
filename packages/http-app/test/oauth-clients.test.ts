@@ -209,6 +209,13 @@ describe('redirect URIs', () => {
     for (const bad of ['', '   ', 'a\u0000b', 'a\nb', 'Cl‮aude', 'a​b', 'a b', 'ab', 'x'.repeat(101), 3]) {
       expect(safeClientName(bad), JSON.stringify(bad)).toBeNull();
     }
+    // Unsafe characters at the ends, which `trim()` would hide while the registration keeps them (P8-87).
+    for (const bad of ['\u8c48\t', '\tClaude', 'Claude\n', '\ufeffClaude', 'Claude\u2028', '\u2029Claude']) {
+      expect(safeClientName(bad), JSON.stringify(bad)).toBeNull();
+    }
+    expect(
+      checkRegistration(JSON.stringify({ redirect_uris: ['https://x.example/cb'], client_name: 'Claude\t' })),
+    ).toMatchObject({ reason: 'client_name' });
   });
 });
 

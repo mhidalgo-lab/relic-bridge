@@ -13,6 +13,12 @@ import { serveSettings } from '../src/serve.ts';
 /** Plain secrets with no recognizable shape: only "never echoed" protects them, not pattern redaction. */
 const PLAIN_SECRET = 'plain-Secret-Value-7f3a91c2';
 const OTEL_SECRET = 'otelHeaderValue9b2e';
+/**
+ * The same kind of shapeless token for variables that are not secret. Errors may rightly quote a non-secret value (a
+ * bad `RB_HOST` is named in the message), so the secret values above are only ever generated for secret variables: a
+ * value they share with a non-secret variable would make "the secret never appears in an error" untestable (P8-87).
+ */
+const NOT_SECRET = 'plain-Value-not-secret-4c1d';
 
 const ON = ['on', 'true', '1'];
 const OFF = ['off', 'false', '0'];
@@ -66,12 +72,27 @@ const value = fc.oneof(
       '5',
       '6',
       'https://otlp.nr-data.net',
-      `api-key=${OTEL_SECRET}`,
-      PLAIN_SECRET,
+      'api-key=not-secret',
+      NOT_SECRET,
     ),
   },
   { weight: 1, arbitrary: fc.string({ unit: 'binary', maxLength: 24 }) },
 );
+
+/** A value for a secret variable: anything a non-secret one gets, or one of the planted secrets. */
+const secretValue = fc.oneof(
+  { weight: 1, arbitrary: value },
+  {
+    weight: 2,
+    arbitrary: fc.constantFrom(PLAIN_SECRET, `api-key=${OTEL_SECRET}`, `x=1,api-key=${OTEL_SECRET}`),
+  },
+);
+
+/** Whether a generated environment carries a planted secret in a variable that is not secret (never, by design). */
+const leaksIntoPlain = (env: Record<string, string>, secretNames: readonly string[]): boolean =>
+  Object.entries(env).some(
+    ([k, v]) => !secretNames.includes(k) && (v.includes(PLAIN_SECRET) || v.includes(OTEL_SECRET)),
+  );
 
 describe('serve settings from RB_* variables (T20/T24)', { timeout: FUZZ_TIMEOUT }, () => {
   const NAMES = [
@@ -97,19 +118,25 @@ describe('serve settings from RB_* variables (T20/T24)', { timeout: FUZZ_TIMEOUT
     'RB_OAUTH',
     'RB_OTEL',
     'RB_OTEL_ENDPOINT',
-    'RB_OTEL_HEADERS',
     'RB_PUBLIC_URL',
     'RB_GITHUB_CLIENT_ID',
-    'RB_GITHUB_CLIENT_SECRET',
     'RB_MCP_APPS',
     'RB_TASKS',
     'RB_QUERY_CACHE_TTL',
   ];
+  const SECRET_NAMES = ['RB_GITHUB_CLIENT_SECRET', 'RB_OTEL_HEADERS'];
+  const environment = fc
+    .tuple(
+      fc.dictionary(fc.constantFrom(...NAMES), value, { maxKeys: 10 }),
+      fc.dictionary(fc.constantFrom(...SECRET_NAMES), secretValue, { maxKeys: 2 }),
+    )
+    .map(([plain, secret]) => ({ ...plain, ...secret }));
 
   it('gives settings or a ConfigError; every protection stays on unless its variable says off exactly', () => {
     let accepted = 0;
     fc.assert(
-      fc.property(fc.dictionary(fc.constantFrom(...NAMES), value, { maxKeys: 10 }), (env) => {
+      fc.property(environment, (env) => {
+        expect(leaksIntoPlain(env, SECRET_NAMES)).toBe(false);
         let s: ReturnType<typeof serveSettings>;
         try {
           s = serveSettings({
@@ -120,10 +147,9 @@ describe('serve settings from RB_* variables (T20/T24)', { timeout: FUZZ_TIMEOUT
         } catch (error) {
           expect(error).toBeInstanceOf(ConfigError);
           const e = error as ConfigError;
+          // Unconditional: the planted secrets are only ever in the secret variables (see NOT_SECRET).
           for (const secret of [PLAIN_SECRET, OTEL_SECRET]) {
-            if (env['RB_GITHUB_CLIENT_SECRET'] === secret || env['RB_OTEL_HEADERS']?.includes(secret)) {
-              expect(`${e.message} ${e.hint ?? ''}`).not.toContain(secret);
-            }
+            expect(`${e.message} ${e.hint ?? ''}`).not.toContain(secret);
           }
           return;
         }

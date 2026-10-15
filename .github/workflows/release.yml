@@ -9,8 +9,12 @@
 # tarball is identical to the one on npm and creates only the GitHub Release (this is also the run after a staged
 # version was approved on npmjs.com).
 #
-# Safety rails (THREAT_MODEL T18): never runs on pull requests; build/publish run only on `main`, only when the
-# repository variable RB_RELEASE_ENABLED is 'true', and publish only after a reviewer approves the protected `release`
+# Backports (P8-68): the same flow runs on a `release/x.y` branch (created on demand from a release tag, protected by a
+# ruleset like `main`). `plan` refuses any other ref and a version outside `x.y`; a backport is staged with the npm
+# dist-tag `release-x.y` (never `latest`) and its GitHub Release is not marked latest. docs/dev/releasing.md.
+#
+# Safety rails (THREAT_MODEL T18): never runs on pull requests; build/publish run only on `main` or `release/*`, only
+# when the repository variable RB_RELEASE_ENABLED is 'true', and publish only after a reviewer approves the protected `release`
 # environment. The version goes live only after a second approval with 2FA on npmjs.com. Only the `publish` job can
 # mint an OIDC token, and it never checks out the repository, installs dependencies or runs project code
 # (scripts/test/release.test.ts asserts this). `plan` and `publish` refuse a `v<version>` tag that points at another
@@ -19,7 +23,7 @@ name: Release
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'release/*']
   workflow_dispatch:
 
 permissions: {}
@@ -31,7 +35,7 @@ concurrency:
 jobs:
   plan:
     name: Plan
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release/')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -39,6 +43,7 @@ jobs:
     outputs:
       mode: ${{ steps.plan.outputs.mode }}
       version: ${{ steps.plan.outputs.version }}
+      npm-tag: ${{ steps.plan.outputs.npm-tag }}
     steps:
       - uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
         with:
@@ -100,7 +105,8 @@ jobs:
     name: Build release artifacts
     needs: plan
     if: >-
-      github.ref == 'refs/heads/main' && vars.RB_RELEASE_ENABLED == 'true' &&
+      (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release/')) &&
+      vars.RB_RELEASE_ENABLED == 'true' &&
       (needs.plan.outputs.mode == 'publish' || needs.plan.outputs.mode == 'release')
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -169,7 +175,8 @@ jobs:
     name: Stage on npm and release on GitHub
     needs: [plan, build]
     if: >-
-      github.ref == 'refs/heads/main' && vars.RB_RELEASE_ENABLED == 'true' &&
+      (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release/')) &&
+      vars.RB_RELEASE_ENABLED == 'true' &&
       (needs.plan.outputs.mode == 'publish' || needs.plan.outputs.mode == 'release')
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -184,6 +191,7 @@ jobs:
     env:
       VERSION: ${{ needs.plan.outputs.version }}
       MODE: ${{ needs.plan.outputs.mode }}
+      NPM_TAG: ${{ needs.plan.outputs.npm-tag }}
       ARTIFACT_ID: ${{ needs.build.outputs.artifact-id }}
       SUMS_SHA256: ${{ needs.build.outputs.sums-sha256 }}
     steps:
@@ -201,6 +209,16 @@ jobs:
           [[ "$MODE" == publish || "$MODE" == release ]] || { echo "::error::bad mode"; exit 1; }
           [[ "$ARTIFACT_ID" =~ ^[0-9]+$ ]] || { echo "::error::bad artifact id"; exit 1; }
           [[ "$SUMS_SHA256" =~ ^[0-9a-f]{64}$ ]] || { echo "::error::bad checksum digest"; exit 1; }
+          # `latest` only from main; a release/x.y backport only as `release-x.y` with an x.y.* version (P8-68).
+          if [[ "$GITHUB_REF" == refs/heads/main ]]; then
+            [[ "$NPM_TAG" == latest ]] || { echo "::error::main publishes with the latest tag only"; exit 1; }
+          else
+            [[ "$GITHUB_REF" =~ ^refs/heads/release/([0-9]+)\.([0-9]+)$ ]] || { echo "::error::bad ref"; exit 1; }
+            line="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}"
+            [[ "$NPM_TAG" == "release-${line}" && "$VERSION" == "${line}".* ]] || {
+              echo "::error::a backport from release/${line} publishes ${line}.x as release-${line} only"; exit 1
+            }
+          fi
       # Downloads by id from this run; the action fails on an artifact digest mismatch.
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -288,7 +306,7 @@ jobs:
           integrity="sha512-$(openssl dgst -sha512 -binary "dist-release/release/relic-bridge-${VERSION}.tgz" | base64 -w0)"
           summary() { printf '%s\n' "$1" >> "${GITHUB_STEP_SUMMARY:-/dev/null}"; }
           if npm stage publish "${PWD}/dist-release/release/relic-bridge-${VERSION}.tgz" \
-            --provenance --access public --ignore-scripts >"$out" 2>&1; then
+            --tag "$NPM_TAG" --provenance --access public --ignore-scripts >"$out" 2>&1; then
             cat "$out"
             summary "relic-bridge@${VERSION} is **staged, not published**. Approve it with 2FA on npmjs.com (Staged Packages) after checking its integrity is \`${integrity}\`, then run this workflow again to create the GitHub Release."
             echo "::notice::relic-bridge@${VERSION} is staged; approve it on npmjs.com, then run this workflow again"
@@ -316,9 +334,12 @@ jobs:
           # `--bundle`. Kept outside dist-release/release, which SHA256SUMS covers.
           mkdir -p dist-release/provenance
           jq -c . "$BUNDLE_PATH" > "dist-release/provenance/relic-bridge-${VERSION}.intoto.jsonl"
+          # A backport is never the repository's "Latest" release (GitHub would otherwise pick the newest one created).
+          latest=true; [[ "$NPM_TAG" == latest ]] || latest=false
           gh release create "v${VERSION}" dist-release/release/* \
             "dist-release/provenance/relic-bridge-${VERSION}.intoto.jsonl" \
             --repo "$GITHUB_REPOSITORY" \
+            --latest="$latest" \
             --target "$GITHUB_SHA" \
             --title "v${VERSION}" \
             --notes-file dist-release/release-meta/release-notes.md

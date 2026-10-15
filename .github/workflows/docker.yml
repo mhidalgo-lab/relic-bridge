@@ -4,7 +4,7 @@
 # high/critical findings) and smoke-test the amd64 image (hardened `docker run`, `serve` starts, an operator creates a
 # project and a token with the CLI, MCP `tools/list` answers). Nothing is pushed or signed.
 #
-# Release: runs after the `Release` workflow succeeded on `main` (GITHUB_TOKEN events cannot trigger workflows, so the
+# Release: runs after the `Release` workflow succeeded on `main` or a `release/x.y` backport branch (P8-68; GITHUB_TOKEN events cannot trigger workflows, so the
 # GitHub Release created there cannot start this one directly). `plan` proceeds only when the repository variable
 # RB_RELEASE_ENABLED is 'true' and `v<version>` is a published GitHub Release whose tag points at this commit.
 # `build` (read-only token, no OIDC, no registry credentials) builds and scans the multi-arch image and uploads it as an
@@ -31,7 +31,7 @@ on:
   workflow_run:
     workflows: [Release]
     types: [completed]
-    branches: [main]
+    branches: [main, 'release/*']
 
 permissions: {}
 
@@ -47,7 +47,8 @@ jobs:
     name: Plan
     if: >-
       github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.head_branch == 'main' && vars.RB_RELEASE_ENABLED == 'true'
+      (github.event.workflow_run.head_branch == 'main' ||
+      startsWith(github.event.workflow_run.head_branch, 'release/')) && vars.RB_RELEASE_ENABLED == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -67,6 +68,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
         run: |
           [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::bad sha"; exit 1; }
           # Read the version through the contents API instead of checking out the workflow_run commit: this job never
@@ -87,9 +89,9 @@ jobs:
           done
           [[ "$type" == commit && "$sha" == "$HEAD_SHA" ]] || none "tag v${version} is not this commit: nothing to publish"
           # `:latest` moves only for the highest stable release: a re-run for an older tag (or a delayed workflow_run)
-          # must never roll it back. Prereleases never move it.
+          # must never roll it back. Prereleases and backports (release/x.y, P8-68) never move it.
           latest=false
-          if [[ "$(jq -r .isPrerelease <<<"$rel")" == false ]]; then
+          if [[ "$HEAD_BRANCH" == main && "$(jq -r .isPrerelease <<<"$rel")" == false ]]; then
             highest="$(gh release list --repo "$GITHUB_REPOSITORY" --exclude-drafts --exclude-pre-releases --limit 1000 \
               --json tagName --jq '.[].tagName' | sed -n 's/^v\([0-9]\+\.[0-9]\+\.[0-9]\+\)$/\1/p' |
               sort -V | tail -n1)"
@@ -220,7 +222,9 @@ jobs:
     name: Publish to GHCR, sign and attest
     needs: [plan, build]
     if: >-
-      github.event_name == 'workflow_run' && github.event.workflow_run.head_branch == 'main' &&
+      github.event_name == 'workflow_run' &&
+      (github.event.workflow_run.head_branch == 'main' ||
+      startsWith(github.event.workflow_run.head_branch, 'release/')) &&
       vars.RB_RELEASE_ENABLED == 'true' && needs.plan.outputs.release == 'true' && needs.build.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 20

@@ -2,6 +2,7 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { parse } from 'yaml';
+import { evalGuard } from './gha-expr.ts';
 
 // THREAT_MODEL T18 (P2-11): the Docker workflow must never push or sign from a pull request, and the job that holds the
 // OIDC token and the registry credentials must not run project code.
@@ -9,6 +10,7 @@ import { parse } from 'yaml';
 interface Step {
   uses?: string;
   run?: string;
+  env?: Record<string, string>;
 }
 interface Job {
   steps?: Step[];
@@ -65,15 +67,36 @@ describe('.github/workflows/docker.yml (THREAT_MODEL T18, P2-11)', () => {
     );
   });
 
-  it('pull requests never reach publish; it needs main, the opt-in variable and the release environment', () => {
+  it('pull requests never reach publish; it needs main or release/*, the opt-in variable and the release environment', () => {
     const { publish, plan } = workflow.jobs;
     expect(publish.needs).toEqual(['plan', 'build']);
     expect(publish.environment).toMatchObject({ name: 'release' });
+    const ctx = (event: string, branch: string, enabled = 'true') => ({
+      'github.event_name': event,
+      'github.event.workflow_run.conclusion': 'success',
+      'github.event.workflow_run.head_branch': branch,
+      'vars.RB_RELEASE_ENABLED': enabled,
+      'needs.plan.outputs.release': 'true',
+      'needs.build.result': 'success',
+    });
     for (const job of [plan, publish]) {
-      expect(job.if).toContain("github.event.workflow_run.head_branch == 'main'");
-      expect(job.if).toContain("vars.RB_RELEASE_ENABLED == 'true'");
+      const guard = job.if as string;
+      for (const branch of ['main', 'release/1.2'])
+        expect(evalGuard(guard, ctx('workflow_run', branch))).toBe(true);
+      for (const branch of ['feature/x', 'releases/1.2', 'v1.2.3', '']) {
+        expect(evalGuard(guard, ctx('workflow_run', branch))).toBe(false);
+      }
+      expect(evalGuard(guard, ctx('pull_request', 'main'))).toBe(false);
+      expect(evalGuard(guard, ctx('workflow_run', 'release/1.2', 'false'))).toBe(false);
     }
-    expect(publish.if).toContain("github.event_name == 'workflow_run'");
+    expect((workflow.on['workflow_run'] as { branches: string[] }).branches).toEqual(['main', 'release/*']);
+  });
+
+  it('a backport (release/x.y) never moves :latest (P8-68)', () => {
+    const run = (workflow.jobs.plan.steps ?? []).find((s) => s.run?.includes('latest='))?.run ?? '';
+    expect(run).toMatch(/latest=false\n\s*if \[\[ "\$HEAD_BRANCH" == main && /);
+    const env = (workflow.jobs.plan.steps ?? []).find((s) => s.run?.includes('latest='))?.env ?? {};
+    expect(env['HEAD_BRANCH']).toBe('${{ github.event.workflow_run.head_branch }}');
   });
 
   it('build never pushes and has no registry login', () => {

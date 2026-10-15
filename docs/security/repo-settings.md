@@ -28,6 +28,12 @@ Applied on 2026-10-14 (ruleset `main`, enforcement active, **no bypass actors**)
 - Optional: require signed commits.
 - Tag ruleset `v*`: only maintainers / the release workflow may create tags.
 
+## Ruleset for `release/*` (backports, P8-68)
+**Owner action, not applied yet.** Create a branch ruleset targeting `release/*` that mirrors `main`: enforcement active,
+no bypass actors, restrict creation to maintainers, restrict deletions, block force pushes, require a pull request
+(squash only, same review settings) and the same required status checks as `main`. Needed before the `release`
+environment accepts `release/*` (below); see `docs/dev/releasing.md`, *Backport releases*.
+
 ## Code security (Settings → Code security)
 - Dependency graph: on. Dependabot alerts: on. (Updates are done by Renovate, so Dependabot version updates stay off.)
 - **Secret scanning: on**, with **push protection: on**.
@@ -44,8 +50,10 @@ Applied on 2026-10-14 (ruleset `main`, enforcement active, **no bypass actors**)
 - Fork PR workflows: require approval for first-time contributors. CI runs on GitHub-hosted runners only; there is no
   self-hosted fallback (P8-64, THREAT_MODEL T18).
 - Environments: `release` (npm trusted publishing, required reviewer), `staging` (Workers smoke tests,
-  required reviewer) and `live` (optional live suite, required reviewer). `release`, `staging` and `live` each allow
-  deployment from `main` only (a `workflow_dispatch` from a feature branch must not reach their secrets, P8-07).
+  required reviewer) and `live` (optional live suite, required reviewer). `staging` and `live` allow deployment from
+  `main` only (a `workflow_dispatch` from a feature branch must not reach their secrets, P8-07). `release` allows `main`
+  and, once the `release/*` ruleset exists, `release/*` (**owner action pending**, P8-68: Settings, Environments,
+  `release`, Deployment branches and tags, add the branch rule `release/*`).
   Secrets live only in environments, never at repository level.
 
 ## Apps

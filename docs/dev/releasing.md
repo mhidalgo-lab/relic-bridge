@@ -9,13 +9,50 @@ settings are an owner decision (THREAT_MODEL T13, T18).
 | Setting | Required value | Why |
 | --- | --- | --- |
 | Environment `release` | **Required reviewers**: at least one maintainer who is not the person who triggered the run; **prevent self-review** on. | `publish` (OIDC token, staging on npm) waits for this approval. This is the first of two approvals. Without reviewers the gate is a no-op. |
-| Environment `release` | **Deployment branches**: selected branches, only `main` (no tags rule, no "all branches"). | A workflow on another branch must not obtain the approval prompt or the environment's permissions. |
+| Environment `release` | **Deployment branches**: selected branches, `main` and `release/*` (no tags rule, no "all branches"). | A workflow on another branch must not obtain the approval prompt or the environment's permissions. `release/*` is safe only together with the `release/*` ruleset below (P8-68). |
 | Repository variable `RB_RELEASE_ENABLED` | unset or `false` until the first release is intended; then `true`. | Every release job is skipped without it. |
 | Branch protection / ruleset on `main` | Pull request required, status checks required (including `Docker` and `CI`), no force push, no deletion. | The release workflows run for what is on `main`. |
+| Branch ruleset `release/*` | Same rules as `main`: pull request required (squash only), the same required status checks, no force push, no deletion; creation restricted to maintainers. | A backport release runs for what is on `release/x.y` (P8-68); without the ruleset anyone with write access could push a branch that reaches the `release` environment. |
 | Tag ruleset `v*` | Only maintainers can create; no update, no deletion. | `plan` trusts that `v<version>` points at the released commit; image tags are immutable by convention. |
 | Environment `live` | **Deployment branches**: selected branches, only `main`; required reviewers. | `Live` is a manual workflow that holds `RB_LIVE_API_KEY`: a dispatch from a feature branch must not reach the secret (P8-07). |
 | Actions permissions | Default `GITHUB_TOKEN` read-only; "allow GitHub Actions to create pull requests" only if the release PR is used; actions pinned by SHA. | Each job declares its own permissions. |
 | GHCR package `relic-bridge` | Visibility public after the first push; package settings link it to this repository; only the workflow can write. | Consumers verify signatures; nobody should push by hand. |
+
+## Backport releases (`release/x.y`, P8-68)
+
+From 1.0 the previous minor gets security fixes for a while (`docs/guide/versioning.md`). A backport ships from a
+`release/x.y` branch that is created only when it is needed, from the newest tag of that minor, and is never kept in
+advance. `release.yml` runs for pushes to `main` and `release/*`; `plan` (`scripts/release.ts`) refuses any other ref,
+a nested name such as `release/1.2/x`, and a version outside `x.y` (`release/1.2` can only release `1.2.z`). The `build`
+and `publish` jobs keep every other rail: `RB_RELEASE_ENABLED`, the `release` environment approval and the npm approval.
+
+What a backport never does:
+- **npm `latest`:** `plan` outputs the dist-tag `release-x.y` for a backport (`latest` only from `main`), `publish`
+  re-checks the pair against the ref and runs `npm stage publish --tag "$NPM_TAG"`. `npm install relic-bridge` keeps
+  resolving to the newest minor; users of the old line install `relic-bridge@release-1.2` or an exact version.
+- **GitHub "Latest release":** the GitHub Release is created with `--latest=false`.
+- **`:latest` image:** `docker.yml` `plan` sets `latest=true` only when the triggering branch is `main` (and the release
+  is the highest stable one). The image gets its `:<version>` tag only. `docker.yml` runs through `workflow_run`, so its
+  jobs run with the default branch's workflow file and ref: the `release` environment and the cosign identity
+  (`docker.yml@refs/heads/main`) are unchanged for backports.
+
+Procedure (example: security fix for 1.2 while `main` is on 1.3):
+
+1. Fix on `main` first, in a normal pull request with a `relic-bridge` patch changeset, and release it as `1.3.z`.
+2. Create the branch from the newest 1.2 tag (maintainer): `git fetch --tags && git push origin v1.2.3^{commit}:refs/heads/release/1.2`.
+   Check the `release/*` ruleset applies to it (Settings, Rules, Rulesets).
+3. Cherry-pick onto a work branch and open a pull request **into `release/1.2`**:
+   `git switch -c backport/1.2-<slug> origin/release/1.2 && git cherry-pick -x <sha>`. Keep the changeset (patch only;
+   no migration, versioning policy). The same CI checks run as for `main`.
+4. Merging it starts `release.yml` on `release/1.2`: `plan` finds the changeset and the `version` job opens the
+   version PR `changeset-release/release/1.2` against `release/1.2` (changesets uses the current branch). Close and
+   reopen it to run CI (PRs opened with the workflow token do not trigger workflows), then merge it.
+5. The run for the merge stages `1.2.4` with the dist-tag `release-1.2` after the `release` environment approval.
+   Check the dist-tag and integrity on npmjs.com, approve with 2FA, then run *Release* again with **Use workflow from:
+   `release/1.2`** to create the GitHub Release (not marked latest). `docker.yml` then publishes `:1.2.4`.
+6. Bring the `1.2.4` CHANGELOG section to `main` only if you want it listed there (optional, normal pull request).
+7. Retire the branch when the minor leaves the support window: stop merging into it and remove it from the
+   supported-versions table. The ruleset forbids deletion; delete it only by editing the ruleset, as an owner decision.
 
 ## `:latest` rule
 

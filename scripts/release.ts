@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // Release helpers (P1-15), used by .github/workflows/release.yml and `pnpm version-packages`.
 //
-//   node scripts/release.ts plan                 → prints `mode=version|publish|release|none` and `version=<semver>`
-//                                                  lines (needs GITHUB_REPOSITORY, GITHUB_SHA and a GH_TOKEN that can
-//                                                  read the repository when there are no pending changesets)
+//   node scripts/release.ts plan                 → prints `mode=version|publish|release|none`, `version=<semver>` and
+//                                                  `npm-tag=<dist-tag>` lines (needs GITHUB_REF, and GITHUB_REPOSITORY,
+//                                                  GITHUB_SHA and a GH_TOKEN that can read the repository when there
+//                                                  are no pending changesets)
 //   node scripts/release.ts notes <version>      → prints the CHANGELOG section of <version>
 //   node scripts/release.ts sync-version [--check] → writes (or checks) VERSION in packages/core/src/version.ts and
 //                                                  the versions in the MCP Registry metadata (server.json, P7-14)
@@ -158,6 +159,34 @@ function readChangesets(root: string): { file: string; text: string }[] {
     file,
     text: readFileSync(`${root}/.changeset/${file}`, 'utf8'),
   }));
+}
+
+/** What a release from a branch may do (P8-68). */
+export interface ReleaseRef {
+  /** `true` on a `release/x.y` backport branch. */
+  backport: boolean;
+  /** npm dist-tag for `npm stage publish --tag`: `latest` from `main`, `release-x.y` from a backport branch. */
+  npmTag: string;
+}
+
+/** `release-1.2`: the npm dist-tag of backports from `release/1.2`. Never a SemVer range, so npm accepts it. */
+export const BACKPORT_TAG_RE = /^release-\d+\.\d+$/;
+
+/**
+ * The branches a release may run from: `main`, or `release/x.y` for a patch of the `x.y` minor (P8-68). Anything else
+ * (another branch, a tag, `release/x.y` carrying another minor's version) throws. A backport never takes the npm
+ * `latest` dist-tag: `npm stage publish` would otherwise move `latest` back to the older line on approval.
+ */
+export function releaseRef(ref: string, version: string): ReleaseRef {
+  if (!SEMVER_RE.test(version)) throw new Error(`Not a SemVer version: ${version}`);
+  if (ref === 'refs/heads/main') return { backport: false, npmTag: 'latest' };
+  const m = /^refs\/heads\/release\/(\d+)\.(\d+)$/.exec(ref);
+  if (m === null) throw new Error(`releases run from main or release/<major>.<minor> only, not ${ref}`);
+  const [major, minor] = version.split('.');
+  if (major !== m[1] || minor !== m[2]) {
+    throw new Error(`release/${m[1]}.${m[2]} can only release ${m[1]}.${m[2]}.x, not ${version}`);
+  }
+  return { backport: true, npmTag: `release-${m[1]}.${m[2]}` };
 }
 
 /** Pending changesets → open the version PR; otherwise publish only a version npm doesn't have yet. */
@@ -322,6 +351,13 @@ function main(argv: readonly string[]): number {
   switch (command) {
     case 'plan': {
       const version = cliVersion(root);
+      let ref: ReleaseRef;
+      try {
+        ref = releaseRef(process.env['GITHUB_REF'] ?? '', version);
+      } catch (error) {
+        console.error(`✗ release plan: ${(error as Error).message}`);
+        return 1;
+      }
       const changesets = readChangesets(root);
       const pending = changesets.length;
       const report = changesetReport(changesets, versionablePackages(root));
@@ -348,7 +384,7 @@ function main(argv: readonly string[]): number {
           return 1;
         }
       }
-      process.stdout.write(`mode=${mode}\nversion=${version}\n`);
+      process.stdout.write(`mode=${mode}\nversion=${version}\nnpm-tag=${ref.npmTag}\n`);
       return 0;
     }
     case 'notes': {

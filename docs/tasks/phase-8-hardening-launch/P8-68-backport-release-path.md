@@ -2,11 +2,11 @@
 id: P8-68
 title: Backport release path with on-demand release/x.y branches
 phase: 8
-status: todo
+status: review
 priority: medium
 depends_on: []
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P8-68 — Backport release path with on-demand release/x.y branches
@@ -31,10 +31,10 @@ After 1.0 a security or critical fix must be releasable for the previous minor w
   `release/*` ruleset; record both in `docs/security/repo-settings.md`.
 
 ## Acceptance criteria
-- [ ] A run from `release/1.2` passes the guards; from any other branch or a tag the release jobs are skipped (tests).
-- [ ] A backport release never sets `:latest` or the npm `latest` tag (tests).
-- [ ] `docs/dev/releasing.md` has the backport procedure.
-- [ ] `docs/security/repo-settings.md` lists the new ruleset and environment setting.
+- [x] A run from `release/1.2` passes the guards; from any other branch or a tag the release jobs are skipped (tests).
+- [x] A backport release never sets `:latest` or the npm `latest` tag (tests).
+- [x] `docs/dev/releasing.md` has the backport procedure.
+- [x] `docs/security/repo-settings.md` lists the new ruleset and environment setting.
 - [ ] Owner action done and a dry run verified (leave unticked until the owner has changed the settings).
 
 ## Security notes
@@ -48,3 +48,22 @@ unchanged.
 
 ## Out of scope
 - Long-lived maintenance branches; automating cherry-picks.
+
+## Owner action (pending)
+In this order, after this change is on `main`:
+1. Settings, Rules, Rulesets, **New branch ruleset** `release/*`: target pattern `release/*`, enforcement active, no
+   bypass actors; restrict creations (maintainers only), restrict deletions, block force pushes; require a pull request
+   (squash only, same review settings as `main`); require the same status checks as the `main` ruleset.
+2. Settings, Environments, `release`, Deployment branches and tags: keep `main`, **add the branch rule `release/*`**.
+3. Dry run when the first backport is needed (or with a throwaway `release/0.x` while `RB_RELEASE_ENABLED` stays as is):
+   check that `plan` runs, that the version PR targets `release/x.y` and that the stage step uses `--tag release-x.y`.
+
+## Outcome
+- `release.yml` runs on `main` and `release/*`; `plan`, `build` and `publish` share one ref guard;
+  `scripts/release.ts plan` also refuses nested names and a version outside the branch's minor and outputs `npm-tag`
+  (`latest` from `main`, `release-x.y` from a backport). `publish` re-checks the pair, stages with `--tag "$NPM_TAG"`
+  and creates the GitHub Release with `--latest=false` for a backport.
+- `docker.yml` accepts `workflow_run` from `release/*`; `plan` sets `latest=true` only for `main`. Its jobs run with the
+  default branch's ref (`workflow_run`), so the environment rule and the cosign identity are unchanged.
+- Tests evaluate the job guards with a small expression evaluator (`scripts/test/gha-expr.ts`) against allowed and
+  refused refs.

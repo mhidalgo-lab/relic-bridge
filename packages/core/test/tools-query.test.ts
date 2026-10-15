@@ -277,8 +277,9 @@ describe('run_nrql', () => {
   });
 
   it('reports NRQL syntax errors as tool errors with a docs hint', async () => {
+    // The recorded reply is New Relic's syntax error; the query sent is balanced (unbalanced ones never leave, P8-75).
     const { client } = await setup([fixtureResponse('error_bad_nrql')]);
-    const r = await client.callTool({ name: 'run_nrql', arguments: { nrql: 'SELEC count(* FROM Nowhere' } });
+    const r = await client.callTool({ name: 'run_nrql', arguments: { nrql: 'SELEC count(*) FROM Nowhere' } });
     expect(r.isError).toBe(true);
     expect(errorCode(r)).toBe(ErrorCode.InputInvalid);
     expect(text(r)).toContain('NRQL Syntax Error');

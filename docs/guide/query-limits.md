@@ -47,7 +47,10 @@ The checks use a small tokenizer, not a full NRQL parser. It recognises:
 - comments (`--`, `//`, `/* */`);
 - parentheses depth.
 
-A keyword inside a string is never mistaken for a clause, and unterminated quotes are rejected.
+A keyword inside a string is never mistaken for a clause, and unterminated quotes are rejected. Parentheses must
+balance: a query with an unclosed `(`, an extra `)` or a `)` before its `(` is rejected (parentheses inside strings,
+backtick identifiers and comments don't count). Otherwise the `LIMIT` added to a raw event query could land inside the
+open parenthesis, where it would not limit the outer query.
 
 **Comments** are allowed, and NRQL reads them exactly as the tokenizer does. That includes `x--1`, which is `x`
 followed by a comment, not arithmetic. They're checked out and **removed before sending**, so New Relic receives

@@ -2,11 +2,11 @@
 id: P8-75
 title: Input and limits fixes - OTLP header values, unbalanced NRQL parentheses, logger field overwrite
 phase: 8
-status: todo
+status: review
 priority: low
 depends_on: []
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P8-75 — Input and limits fixes: OTLP header values, unbalanced NRQL parentheses, logger field overwrite
@@ -34,13 +34,13 @@ Three input-handling gaps in core code.
   field (for example `field_ts`); pick one and test both the base fields and `child()` fields.
 
 ## Acceptance criteria
-- [ ] `RB_OTEL_HEADERS` with a value that decodes outside Latin-1 (for example `x=%E2%82%AC`) fails at start-up with the
+- [x] `RB_OTEL_HEADERS` with a value that decodes outside Latin-1 (for example `x=%E2%82%AC`) fails at start-up with the
       config error; a Latin-1 value still works (tests in `packages/http-app/test`).
-- [ ] NRQL with unbalanced parentheses (extra `(`, extra `)`, `)` before `(`) is refused; balanced subqueries and
+- [x] NRQL with unbalanced parentheses (extra `(`, extra `)`, `)` before `(`) is refused; balanced subqueries and
       `FACET cases(...)` still pass; parentheses inside strings and comments are ignored (tests, including the case where
       the LIMIT would have landed inside the open parenthesis).
-- [ ] Logger fields named `ts`, `level`, `msg` cannot replace the record's values (tests for `info`, `child`).
-- [ ] The NRQL template check (`scripts/check-nrql-templates.ts`) and the existing limits tests still pass.
+- [x] Logger fields named `ts`, `level`, `msg` cannot replace the record's values (tests for `info`, `child`).
+- [x] The NRQL template check (`scripts/check-nrql-templates.ts`) and the existing limits tests still pass.
 
 ## Security notes
 T4 (NRQL injection surface: the limit checker must reason about the text New Relic will parse), T17 and T30 (log record
@@ -52,3 +52,13 @@ integrity, a field must not forge a level or timestamp in what the OTLP exporter
 
 ## Out of scope
 - Rewriting the NRQL tokenizer; other header validation.
+
+## Outcome
+- Logger: a colliding caller field is renamed with a `field_` prefix (`field_ts`, `field_level`, `field_msg`), so the value
+  stays visible and redacted and the record's own keys still come first.
+- NRQL: the parenthesis check runs over the tokenizer's punctuation (strings, backtick identifiers and comments are
+  separate tokens) and refuses with `RB_INPUT_INVALID` before event-type, window and LIMIT handling. With balanced
+  parentheses the appended LIMIT always lands at depth 0; a trailing comment is replaced by a space before sending, so
+  the LIMIT never lands inside one. Two tests that sent `SELEC count(* FROM Nowhere` to reach New Relic's syntax error
+  now send a balanced query.
+- OTLP headers: refused values are named by header, never echoed.

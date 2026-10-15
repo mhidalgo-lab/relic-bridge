@@ -38,6 +38,36 @@ describe('logger', () => {
     expect(records()[0]).toMatchObject({ requestId: 'r1', msg: 'hi' });
   });
 
+  it('keeps the record identity: fields named ts, level or msg are renamed, never replace it (P8-75)', () => {
+    const { logger, records } = capture('info');
+    logger.info('real', { ts: 'forged', level: 'error', msg: `forged ${KEY}`, n: 1 });
+    logger
+      .child({ level: 'error', requestId: 'r1' })
+      .child({ ts: '2099-01-01T00:00:00.000Z' })
+      .warn('child', { msg: 'forged' });
+    const [info, child] = records();
+    expect(info).toEqual({
+      ts: '1970-01-01T00:00:00.000Z',
+      level: 'info',
+      msg: 'real',
+      field_ts: 'forged',
+      field_level: 'error',
+      field_msg: expect.not.stringContaining(KEY),
+      n: 1,
+    });
+    expect(child).toEqual({
+      ts: '1970-01-01T00:00:00.000Z',
+      level: 'warn',
+      msg: 'child',
+      field_level: 'error',
+      field_ts: '2099-01-01T00:00:00.000Z',
+      field_msg: 'forged',
+      requestId: 'r1',
+    });
+    // The real keys come first, so a line still starts with its own timestamp and level.
+    expect(Object.keys(child as object).slice(0, 3)).toEqual(['ts', 'level', 'msg']);
+  });
+
   it('never throws when the sink fails', () => {
     const logger = createLogger({
       sink: () => {

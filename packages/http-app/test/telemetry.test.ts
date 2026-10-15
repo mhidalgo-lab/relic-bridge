@@ -306,6 +306,39 @@ describe('configuration', () => {
     expect(() => parseSampleRate('2')).toThrow(TelemetryConfigError);
     expect(() => parseSampleRate('x')).toThrow(TelemetryConfigError);
   });
+
+  it('refuses header values that are not Latin-1 or hold control characters, without echoing them (P8-75)', () => {
+    const env = (headers: string) => ({
+      RB_OTEL: 'on',
+      RB_OTEL_ENDPOINT: 'https://otlp.example.com',
+      RB_OTEL_HEADERS: headers,
+    });
+    // U+20AC (euro sign), a raw non-Latin-1 character, C0 controls and DEL.
+    for (const bad of [
+      'api-key=k1%E2%82%AC',
+      'api-key=k1€',
+      'api-key=k1%01',
+      'api-key=k1%1B',
+      'api-key=k1%7F',
+      'api-key=k1%0D',
+      'api-key=k1%0A',
+      'api-key=k1%00',
+    ]) {
+      expect(() => parseOtlpHeaders(bad)).toThrow(TelemetryConfigError);
+      expect(() => telemetrySettingsFromEnv(env(bad))).toThrow(TelemetryConfigError);
+      try {
+        parseOtlpHeaders(bad);
+      } catch (e) {
+        expect((e as Error).message).toContain('api-key');
+        expect((e as Error).message).not.toContain('k1');
+      }
+    }
+    // Latin-1 (incl. U+00E9 and U+00FF) and a horizontal tab are valid header values, and `Headers` accepts them.
+    const ok = parseOtlpHeaders('api-key=caf%C3%A9%09%C3%BF');
+    expect(ok).toEqual({ 'api-key': 'café\tÿ' });
+    expect(() => new Headers(ok)).not.toThrow();
+    expect(telemetrySettingsFromEnv(env('api-key=caf%C3%A9'))?.headers).toEqual({ 'api-key': 'café' });
+  });
 });
 
 const EVENT = {

@@ -99,6 +99,9 @@ export function parseOtlpEndpoint(raw: string): string {
 }
 
 const HEADER_NAME = /^[A-Za-z0-9-]{1,64}$/;
+/** C0 controls except HT, DEL, and anything above U+00FF (not Latin-1). */
+// biome-ignore lint/suspicious/noControlCharactersInRegex: the point is to match control characters.
+const HEADER_VALUE_BAD = /[\u0000-\u0008\u000a-\u001f\u007f]|[^\u0000-ÿ]/u;
 
 /** Parse `name=value,name2=value2` (the `OTEL_EXPORTER_OTLP_HEADERS` format; values may be percent-encoded). */
 export function parseOtlpHeaders(raw: string | undefined): Record<string, string> {
@@ -114,7 +117,14 @@ export function parseOtlpHeaders(raw: string | undefined): Record<string, string
     } catch {
       throw new TelemetryConfigError('the OTLP headers are not name=value pairs');
     }
-    if (/[\r\n\0]/.test(value)) throw new TelemetryConfigError('the OTLP headers are not name=value pairs');
+    // A header value is Latin-1 text without control characters (horizontal tab allowed): `Headers` throws on anything
+    // else, which would fail every export at runtime instead of refusing the configuration at start-up. The message
+    // names the header but never repeats the value (it is usually a key).
+    if (HEADER_VALUE_BAD.test(value)) {
+      throw new TelemetryConfigError(
+        `the OTLP header ${name} has a value with a control character or a character outside Latin-1`,
+      );
+    }
     out[name.toLowerCase()] = value;
   }
   return out;

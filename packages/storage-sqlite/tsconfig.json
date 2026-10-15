@@ -5,6 +5,8 @@
     // Source-only workspace package, bundled into the CLI: no published declarations.
     "declaration": false,
     "isolatedDeclarations": false,
+    // Upgrade fixtures (P8-05) are JSON imports.
+    "resolveJsonModule": true,
     "paths": {
       "@relic-bridge/storage": ["../storage/src/index.ts"],
       "@relic-bridge/storage/testing": ["../storage/src/testing.ts"]

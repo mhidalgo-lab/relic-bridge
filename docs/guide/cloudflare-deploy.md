@@ -194,6 +194,8 @@ corepack enable && pnpm install
 pnpm cf:setup --plan free          # same plan as before; existing secrets and resources are kept
 ```
 
+- Read the [upgrade notes](upgrading.md) of the versions you skip. To run a published version rather than whatever
+  `main` holds, check out its release tag `v<version>` before `pnpm install` ([versioning policy](versioning.md)).
 - **Reconnect your MCP clients after upgrading.** They keep the tool list from before; reconnect (Claude Code: `/mcp`) to
   see new tools and parameters ([troubleshooting](troubleshooting.md)).
 - **Schema upgrades are automatic.** The first request into a new isolate applies pending D1 migrations (embedded,

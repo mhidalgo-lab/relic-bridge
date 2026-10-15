@@ -1382,26 +1382,62 @@ export function oauthSuite(): void {
       expect(docs.calls).toHaveLength(OAUTH_CIMD_FETCHES_PER_IP.requests + 1);
     });
 
-    it('CIMD: stored document clients are capped; more are refused without a fetch (P5-10)', async () => {
-      for (let i = 0; i < MAX_OAUTH_CIMD_CLIENTS; i++) {
-        await h.world.storage.kv.put(
-          `oauth:client:https://stored${i}.example.com/c.json`,
-          JSON.stringify({ clientId: `https://stored${i}.example.com/c.json` }),
-          { expirationTtl: 3600 },
-        );
-      }
-      const res = await cimd.send(
-        new Request(
-          cimd.authorizeUrl({
-            client_id: CLAUDE_CODE_ID,
-            redirect_uri: 'http://127.0.0.1/callback',
-            resource: resourceOf('prod'),
-          }),
-        ),
+    it('CIMD: at the cap the oldest unused document client makes room; clients in use are never evicted (P5-10)', async () => {
+      const ipApp = h.makeApp({ oauth: oauthWith({ clientIp: byIp }) });
+      await new Client(h, ipApp, secrets).register(); // a clock reference (appExpiry)
+      const code = new Client(h, ipApp, secrets);
+      code.clientId = CLAUDE_CODE_ID;
+      code.redirectUri = 'http://127.0.0.1:49152/callback';
+      await code.tokens('prod');
+      const hex = async (text: string): Promise<string> =>
+        [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)))]
+          .map((b) => b.toString(16).padStart(2, '0'))
+          .join('');
+      const expiryOf = async (key: string) =>
+        (await h.world.storage.kv.list({ prefix: key })).keys[0]?.expiration ?? null;
+      // A full cache of unused records (all younger than the minimum lifetime), the first one the oldest.
+      const stored = Array.from(
+        { length: MAX_OAUTH_CIMD_CLIENTS },
+        (_, i) => `https://stored${i}.example.com/c.json`,
       );
-      expect(res.status).toBe(400);
-      expect(docs.calls).toEqual([]);
-      expect(logged('too_many_clients')).toBe(true);
+      for (const [i, id] of stored.entries()) {
+        await h.world.storage.kv.put(
+          `oauth-cimd-new:${await hex(id)}`,
+          JSON.stringify({ clientId: id, ttl: 300 }),
+          {
+            expirationTtl: 60 + i,
+          },
+        );
+        await h.world.storage.kv.put(`oauth:client:${id}`, JSON.stringify({ clientId: id }), {
+          expirationTtl: 60 + i,
+        });
+      }
+      const late = longLivedDocs(30, 'late');
+      const first = await askFrom(ipApp, '198.51.100.20', late[0] as string);
+      // The client was found (no PKCE: the error goes back to its redirect URI).
+      expect(first.status).toBe(302);
+      expect(new URL(first.headers.get('location') ?? '').searchParams.get('error')).toBe('invalid_request');
+      expect(await expiryOf(`oauth:client:${stored[0]}`)).toBeNull();
+      expect(await expiryOf(`oauth:client:${stored[1]}`)).not.toBeNull();
+      // Unused: kept for the minimum lifetime, whatever max-age says.
+      expect(
+        Math.abs(((await expiryOf(`oauth:client:${late[0]}`)) ?? 0) - (await appExpiry(300))),
+      ).toBeLessThanOrEqual(2);
+      for (const [i, url] of late.slice(1).entries()) await askFrom(ipApp, `198.51.100.${30 + i}`, url);
+      expect(await expiryOf(`oauth:client:${stored[late.length - 1]}`)).toBeNull();
+      expect((await h.world.storage.kv.list({ prefix: 'oauth-cimd-new:' })).keys.length).toBe(
+        MAX_OAUTH_CIMD_CLIENTS,
+      );
+      // The client in use was never a candidate; when its record ends it comes back with the document's lifetime.
+      expect(await expiryOf(`oauth:client:${CLAUDE_CODE_ID}`)).not.toBeNull();
+      await h.world.storage.kv.delete(`oauth:client:${CLAUDE_CODE_ID}`);
+      expect((await code.authorize('prod')).code).not.toBeNull();
+      expect(
+        Math.abs(((await expiryOf(`oauth:client:${CLAUDE_CODE_ID}`)) ?? 0) - (await appExpiry(600))),
+      ).toBeLessThanOrEqual(2);
+      expect((await h.world.storage.kv.list({ prefix: 'oauth-cimd-new:' })).keys.length).toBe(
+        MAX_OAUTH_CIMD_CLIENTS,
+      );
     });
 
     it('DCR: a registration nobody uses expires after a day; the first exchange renews it', async () => {
@@ -1423,6 +1459,83 @@ export function oauthSuite(): void {
       expect(gone.res.status).toBe(400);
       expect(gone.res.headers.get('location')).toBeNull();
       expect((await cimd.authorize('prod')).code).not.toBeNull();
+    });
+
+    /** An authorization request for a metadata-document client from `ip` (only the client lookup matters here). */
+    const askFrom = (app: AuthzApp, ip: string, url: string): Promise<Captured> => {
+      const u = new URL(`${ISSUER}/oauth/authorize`);
+      u.searchParams.set('response_type', 'code');
+      u.searchParams.set('client_id', url);
+      u.searchParams.set('redirect_uri', 'http://127.0.0.1/cb');
+      u.searchParams.set('resource', resourceOf('prod'));
+      return h.send(new Request(u, { headers: { 'x-test-ip': ip } }), app);
+    };
+    /** `n` valid documents that ask to be cached for a day. */
+    const longLivedDocs = (n: number, tag: string): string[] =>
+      Array.from({ length: n }, (_, i) => {
+        const url = `https://${tag}${i}.example.com/oauth/client.json`;
+        docs.docs.set(
+          url,
+          jsonDoc(
+            { client_id: url, client_name: `App ${i}`, redirect_uris: ['http://127.0.0.1/cb'] },
+            { 'cache-control': 'max-age=86400' },
+          ),
+        );
+        return url;
+      });
+
+    it('CIMD: documents nobody used cannot keep a client in use from fetching its document again', async () => {
+      const ipApp = h.makeApp({ oauth: oauthWith({ clientIp: byIp }) });
+      const claude = new Client(h, ipApp, secrets);
+      claude.clientId = CLAUDE_AI_ID;
+      claude.redirectUri = CLAUDE_AI_CALLBACK;
+      const t = await claude.tokens('prod');
+      // One address, within its fetch budget hour after hour, keeps asking for documents cached for a day.
+      const urls = longLivedDocs(MAX_OAUTH_CIMD_CLIENTS, 'filler');
+      const perHour = OAUTH_CIMD_FETCHES_PER_IP.requests;
+      for (let i = 0; i < urls.length; i++) {
+        await askFrom(ipApp, '198.51.100.9', urls[i] as string);
+        if ((i + 1) % perHour === 0) advance(3_600_000);
+      }
+      // Claude's record ends (memory and SQLite hosts: by hand), and the same address takes the freed room.
+      await h.world.storage.kv.delete(`oauth:client:${CLAUDE_AI_ID}`);
+      advance(3_600_000);
+      for (const url of urls) await askFrom(ipApp, '198.51.100.9', url);
+      // Claude's next refresh needs its document again.
+      const refreshed = await claude.form('/oauth/token', {
+        grant_type: 'refresh_token',
+        refresh_token: t.refresh_token,
+        client_id: CLAUDE_AI_ID,
+        resource: resourceOf('prod'),
+      });
+      expect(refreshed.status, refreshed.text).toBe(200);
+      const r = JSON.parse(refreshed.text) as Tokens;
+      secrets.push(r.access_token, r.refresh_token);
+      await h.world.storage.kv.delete(`oauth:client:${CLAUDE_AI_ID}`);
+      expect((await claude.authorize('prod')).code).not.toBeNull();
+    });
+
+    it('DCR: requests the provider rejects cost their sender, not the deployment-wide cap', async () => {
+      const ipApp = h.makeApp({
+        oauth: oauthWith({
+          registrationLimit: { requests: 5, perSeconds: 3600 },
+          registrationIpLimit: { requests: 3, perSeconds: 3600 },
+          clientIp: byIp,
+        }),
+      });
+      // Passes our policy, then the provider refuses it.
+      const bogus = { redirect_uris: [REDIRECT], grant_types: ['bogus'] };
+      const answers: number[] = [];
+      for (let i = 0; i < 6; i++) {
+        answers.push((await h.send(fromIp('203.0.113.1', '/oauth/register', bogus), ipApp)).status);
+      }
+      expect(answers.slice(0, 3).every((s) => s === 400)).toBe(true);
+      expect(answers.slice(3)).toEqual([429, 429, 429]);
+      const other = await h.send(
+        fromIp('203.0.113.2', '/oauth/register', { redirect_uris: [REDIRECT] }),
+        ipApp,
+      );
+      expect(other.status, other.text).toBe(201);
     });
   });
 }

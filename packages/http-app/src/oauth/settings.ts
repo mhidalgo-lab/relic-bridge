@@ -4,7 +4,8 @@
 //   RB_OAUTH                     on | off (default off): the OAuth 2.1 server, sign-in and consent screen
 //   RB_OAUTH_DCR                 on | off (default on): RFC 7591 dynamic client registration at /oauth/register
 //   RB_OAUTH_DCR_LIMIT           registrations per hour for the whole deployment (default 30), or off
-//   RB_OAUTH_DCR_IP_LIMIT        registrations per hour for one client address (default 10), or off
+//   RB_OAUTH_DCR_IP_LIMIT        registration attempts per hour for one client address that passed the policy,
+//                                accepted or not (default 10), or off
 //   RB_OAUTH_DCR_REDIRECT_HOSTS  comma-separated https redirect hosts dynamic clients may use (default: any)
 //   RB_OAUTH_ACCESS_TTL          access-token lifetime (default 1h; 60s-24h), P5-05
 //   RB_OAUTH_REFRESH_TTL         absolute refresh lifetime of a device authorization (default 30d; 1h-365d), P5-05

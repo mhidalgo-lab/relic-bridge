@@ -344,7 +344,8 @@ OAuth for MCP clients (serve; off by default; needs sign-in; docs/guide/oauth.md
                          signs in and approves the app.
   RB_OAUTH_DCR           on (default) or off: dynamic client registration at /oauth/register.
   RB_OAUTH_DCR_LIMIT     Dynamic registrations per hour for the whole server (default 30), or off.
-  RB_OAUTH_DCR_IP_LIMIT  Dynamic registrations per hour for one client address (default 10), or off.
+  RB_OAUTH_DCR_IP_LIMIT  Registration attempts per hour for one client address that passed the
+                         policy, accepted or not (default 10), or off.
   RB_OAUTH_DCR_REDIRECT_HOSTS
                          Comma-separated https redirect hosts dynamic clients may use.
   RB_OAUTH_ACCESS_TTL    Access-token lifetime (default 1h; 60s-24h; seconds or 90m, 12h, 30d).

@@ -23,7 +23,7 @@ themselves.
 | `RB_OAUTH` | `off` | `on` serves `/oauth/*`, the consent page and OAuth tokens on `/p/<project>/mcp`. |
 | `RB_OAUTH_DCR` | `on` | Dynamic client registration (`/oauth/register`). Clients with a metadata document (claude.ai, Claude Code) don't need it. |
 | `RB_OAUTH_DCR_LIMIT` | `30` | Dynamic registrations per hour for the whole server, or `off`. |
-| `RB_OAUTH_DCR_IP_LIMIT` | `10` | Dynamic registrations per hour for one client address, or `off`. |
+| `RB_OAUTH_DCR_IP_LIMIT` | `10` | Dynamic registration attempts per hour for one client address (refused ones count too), or `off`. |
 | `RB_OAUTH_DCR_REDIRECT_HOSTS` | any | Comma-separated https hosts dynamically registered clients may send codes to (for example `claude.ai`). Loopback addresses are always allowed. |
 | `RB_OAUTH_ACCESS_TTL` | `1h` | How long one access token lives (60 s to 24 h; seconds, or `90m`, `12h`). Apps renew it on their own. |
 | `RB_OAUTH_REFRESH_TTL` | `30d` | How long an approval lasts in total (1 h to 365 days). Renewing does not extend it: after it the app asks you again. |

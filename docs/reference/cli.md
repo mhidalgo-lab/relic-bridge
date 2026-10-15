@@ -81,7 +81,8 @@ next with that verified email takes the account, so read
 [Moving a user to another provider](../guide/identity-providers.md#moving-a-user-to-another-provider) first.
 
 `setup-link` prints a single-use link (stdout only) that makes whoever signs in through it an `owner`; `--ttl` is in
-minutes (1-10080, default 60). With `--remote` the server builds the link from its own `RB_PUBLIC_URL`; locally the
+minutes (1-10080, default 60). The link has the form `<RB_PUBLIC_URL>/auth/setup[?provider=<id>]#setup=rb_setup_…`: the
+code is in the URL fragment, never sent to or logged by any server. With `--remote` the server builds the link from its own `RB_PUBLIC_URL`; locally the
 command needs `RB_PUBLIC_URL` and the provider variables in its environment, as for `serve`. The code is never logged
 and not stored in clear.
 

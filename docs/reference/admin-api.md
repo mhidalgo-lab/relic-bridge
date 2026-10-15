@@ -769,7 +769,7 @@ Request body (`ImportConfig`):
 
 Issue a single-use owner setup link
 
-First-owner bootstrap (P4-01): the identity that signs in through this link becomes `owner` (the sign-in allowlist does not apply; email verification and identity conflicts still do). Single use; expires after `ttlMinutes` (default 60). The link is shown once, only its hash is stored. Needs sign-in to be configured (`RB_PUBLIC_URL` and an identity provider), else `422 not_permitted`.
+First-owner bootstrap (P4-01): the identity that signs in through this link becomes `owner` (the sign-in allowlist does not apply; email verification and identity conflicts still do). Single use; expires after `ttlMinutes` (default 60). The link is shown once, only its hash is stored. The code is in the URL fragment (`/auth/setup#setup=…`), never in a query string. Needs sign-in to be configured (`RB_PUBLIC_URL` and an identity provider), else `422 not_permitted`.
 
 Request body (`CreateSetupLink`):
 
@@ -1698,7 +1698,7 @@ The grant's whole quota; `null` removes it. Counters are kept.
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `url` | `string` | yes | Open it in a browser and sign in: that identity becomes `owner`. Shown once; single use. |
+| `url` | `string` | yes | Open it in a browser and sign in: that identity becomes `owner`. Shown once; single use. The code is in the URL fragment (`#setup=…`), which browsers never send to a server. |
 | `expiresAt` | `integer` | yes | Epoch milliseconds. |
 | `provider` | `string \| null` | yes |  |
 

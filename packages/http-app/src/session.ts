@@ -65,6 +65,24 @@ export type SessionAuth =
 /** Why a cookie-authenticated request is refused before its handler (403). */
 export type FetchOriginProblem = 'cross_site' | 'origin_mismatch' | 'origin_missing';
 
+/**
+ * Fetch-metadata and `Origin` checks of a browser request to this origin (null when fine). Fetch metadata (all current
+ * browsers): only our own pages may make the request, for reads too; `none` is a typed URL or bookmark, fine for a read,
+ * never for a change. A change also needs `Origin` to be ours (or, without it, `Sec-Fetch-Site: same-origin`).
+ */
+export function fetchOriginProblem(
+  c: Context,
+  publicOrigin: string,
+  unsafe: boolean,
+): FetchOriginProblem | null {
+  const site = c.req.header('sec-fetch-site');
+  if (site !== undefined && site !== 'same-origin' && !(site === 'none' && !unsafe)) return 'cross_site';
+  if (!unsafe) return null;
+  const origin = c.req.header('origin');
+  if (origin !== undefined) return origin === publicOrigin ? null : 'origin_mismatch';
+  return site === 'same-origin' ? null : 'origin_missing';
+}
+
 export interface SessionManager {
   readonly cookieName: string;
   /** `RB_PUBLIC_URL`'s origin: the only `Origin` cookie-authenticated unsafe requests may carry. */
@@ -180,16 +198,7 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
       return { ok: true, principal: { kind: 'session', role: user.role, user, session: found.session } };
     },
 
-    checkFetchOrigin(c, unsafe) {
-      // Fetch metadata (all current browsers): only our own pages may use the session, for reads too. `none` is a
-      // typed URL or bookmark: fine for a read, never for a change.
-      const site = c.req.header('sec-fetch-site');
-      if (site !== undefined && site !== 'same-origin' && !(site === 'none' && !unsafe)) return 'cross_site';
-      if (!unsafe) return null;
-      const origin = c.req.header('origin');
-      if (origin !== undefined) return origin === publicOrigin ? null : 'origin_mismatch';
-      return site === 'same-origin' ? null : 'origin_missing';
-    },
+    checkFetchOrigin: (c, unsafe) => fetchOriginProblem(c, publicOrigin, unsafe),
 
     csrfMatches: (principal, presented) => csrfTokenMatches(principal.session.record, presented),
 

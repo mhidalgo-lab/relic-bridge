@@ -94,4 +94,6 @@ export {
   MessagePage,
   type MessagePageProps,
   renderDocument,
+  SetupPage,
+  type SetupPageProps,
 } from './pages.tsx';

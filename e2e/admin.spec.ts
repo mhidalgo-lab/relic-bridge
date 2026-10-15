@@ -83,8 +83,16 @@ test('owner: sign-in, keys, projects, grants, tokens, connect, audit, my access,
   const mobile = info.project.name.startsWith('mobile');
 
   await test.step('setup link makes the first sign-in the owner', async () => {
-    await page.goto(await server.setupLink());
+    // The setup page posts the code from the link's fragment (P8-86); the code is never in a requested URL.
+    const requested: string[] = [];
+    page.on('request', (r) => requested.push(r.url()));
+    const link = await server.setupLink();
+    const code = new URL(link).hash.slice('#setup='.length);
+    await page.goto(link);
+    await expect(page).toHaveURL(rel('/auth/login?provider=oidc'));
+    await page.getByRole('link', { name: /^Sign in with/ }).click();
     await expect(page).toHaveURL(rel('/admin'));
+    expect(requested.filter((u) => u.includes(code))).toEqual([]);
     await expect(page.getByText(OWNER_EMAIL).first()).toBeVisible();
     await expectNoHorizontalScroll(page);
     await shoot(page, 'overview');

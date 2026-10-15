@@ -1363,3 +1363,18 @@ did not). The skip rule itself was not run on a zone by the maintainers.
   only options are turning it off or Super Bot Fight Mode (Pro and above), which a Skip rule can bypass.
 - Custom rules: dashboard path Security > Security rules > Create rule > Custom rules; rules run in order, so a skip
   rule goes first. `starts_with()` and `ends_with()` must be written as function calls in an expression.
+
+## One-time codes in URL fragments (P8-86, from specifications 2026-10-15)
+
+- A URL's fragment is not part of the HTTP request: browsers strip it before sending, so server, proxy and platform
+  request logs never record it (the HTTP request target has no fragment: RFC 9112 §3.2, RFC 3986 §3.5).
+- The `Referer` header never carries a fragment: the referrer is serialized with the fragment removed (Referrer Policy
+  §8.4 "strip url for use as a referrer"), whatever the policy.
+- `Referrer-Policy: no-referrer` also makes browsers send `Origin: null` on a form POST (Fetch "append a request
+  `Origin` header"), which a same-origin check must refuse; `same-origin` sends the real `Origin` to this server and no
+  referrer elsewhere.
+- CSP `form-action` applies to the redirects that follow a form submission (CSP Level 3 §6.4.1 and browser behaviour),
+  so a page with `form-action 'self'` cannot post a form whose answer redirects to another origin (an IdP). A plain link
+  navigation is not governed by `form-action`.
+- `history.replaceState(null, '', path)` replaces the current session-history entry's URL without a navigation (HTML
+  "URL and history update steps"), removing the fragment from the address bar and the back/forward list.

@@ -4,7 +4,7 @@
 // (sign-in, message, error).
 import type { Child } from 'hono/jsx';
 import type { JSX } from 'hono/jsx/jsx-runtime';
-import { Layout, type LayoutProps, localHref } from './components.tsx';
+import { Layout, type LayoutProps, localHref, TextField } from './components.tsx';
 import { UI_PAGE_HEADERS } from './headers.ts';
 
 /** Render a document synchronously (no async components in the UI) with the doctype. */
@@ -54,6 +54,47 @@ export function LoginPage(props: {
           ))}
         </ul>
       )}
+    </Layout>
+  );
+}
+
+export interface SetupPageProps {
+  /** Same-origin path the form posts to. */
+  readonly action: string;
+  /** Provider id named by the link (non-secret), passed through to the sign-in chooser. */
+  readonly provider?: string | undefined;
+  /** Validated post-login path, passed through. */
+  readonly next?: string | undefined;
+}
+
+/**
+ * The first-owner setup form (P8-86). The link carries the one-time code in the URL fragment, which browsers never send
+ * to a server; `admin.js` copies it into this form, removes it from the address bar and submits the form. Without
+ * script the code is pasted by hand. The code never appears in the page, a URL or a log.
+ */
+export function SetupPage(props: SetupPageProps): JSX.Element {
+  return (
+    <Layout title="Set up the owner">
+      <p>
+        This setup link makes the account you sign in with the owner of this instance. Continue, then choose
+        how to sign in.
+      </p>
+      <form method="post" action={localHref(props.action)} aria-label="Setup code" data-setup-form="">
+        {props.provider === undefined ? null : <input type="hidden" name="provider" value={props.provider} />}
+        {props.next === undefined ? null : <input type="hidden" name="next" value={props.next} />}
+        <TextField
+          name="code"
+          label="Setup code"
+          hint="Filled in from the link. Without it, paste the part of the link after #setup= here."
+          required
+          autocomplete="off"
+          spellcheck={false}
+          maxlength={128}
+        />
+        <button type="submit" class="button">
+          Continue
+        </button>
+      </form>
     </Layout>
   );
 }

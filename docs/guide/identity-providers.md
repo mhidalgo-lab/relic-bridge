@@ -61,12 +61,21 @@ With the admin token, ask for a setup link and open it in a browser:
 curl -s -X POST "$URL/api/admin/v1/setup-links" \
   -H "Authorization: Bearer $RB_ADMIN_TOKEN" -H 'Content-Type: application/json' \
   -d '{"provider":"google","ttlMinutes":30}'
-# → {"data":{"url":"https://bridge.example.com/auth/login/google?setup=rb_setup_…","expiresAt":…}}
+# → {"data":{"url":"https://bridge.example.com/auth/setup?provider=google#setup=rb_setup_…","expiresAt":…}}
 ```
 
 The account you sign in with becomes `owner` (an existing user is promoted, else one is created). The link works
 **once** and expires after `ttlMinutes` (default 60, at most 7 days). Only its hash is stored. Leave out `provider`
 to get the provider list instead. Treat the link like a password until it is used.
+
+The one-time code is in the URL **fragment** (after `#`), which browsers never send to a server, so no request log,
+proxy or `Referer` header ever sees it. Opening the link shows a short setup page: it posts the code to the server in a
+form (same-origin only), removes it from the address bar and continues to the sign-in page. Without JavaScript, paste the
+part after `#setup=` into the field and select **Continue**. Between the setup page and the provider choice the browser
+keeps only a hash of the code, in a 10-minute `HttpOnly` cookie.
+
+Links created before relic-bridge 0.11 carried the code in the query string (`?setup=`). They are refused with a page
+that asks for a new link: issue another one with `relic-bridge setup-link`.
 
 The CLI does the same without curl, against a remote instance or on the machine that runs `serve`:
 

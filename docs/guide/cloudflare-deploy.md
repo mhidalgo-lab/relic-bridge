@@ -469,6 +469,9 @@ When it finishes, the script prints the redirect URL to register with each provi
 relic-bridge setup-link --remote https://relic-bridge.acme.workers.dev   # admin token from RB_ADMIN_TOKEN
 ```
 
+The link looks like `https://relic-bridge.acme.workers.dev/auth/setup#setup=rb_setup_…`: the code after `#` is never
+sent to the Worker, so it does not appear in Workers Logs or any other request log.
+
 The hourly cron trigger also deletes expired sign-in rows (abandoned logins, unused setup links, ended sessions) from D1,
 in batches of 500 (at most 10 statements per run), whatever `RB_AUDIT_RETENTION_DAYS` is.
 

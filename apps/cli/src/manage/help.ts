@@ -21,9 +21,9 @@ Usage:
                     provider (they are signed out everywhere). Whoever then signs in with that
                     verified email, at any configured provider, takes the account.
   relic-bridge setup-link [--provider google|github|cf-access|oidc|oidc-<name>] [--ttl <minutes>]
-                    Print a single-use link that makes whoever signs in with it an owner. Locally
-                    it needs RB_PUBLIC_URL and the provider variables as for serve; with --remote
-                    it asks the server.
+                    Print a single-use link that makes whoever signs in with it an owner. The code
+                    is after '#' in the link, never sent to a server. Locally it needs RB_PUBLIC_URL
+                    and the provider variables as for serve; with --remote it asks the server.
   relic-bridge credential add --label <l> --region US|EU|JP [--owner <user id>] [key source]
   relic-bridge credential list | rotate <id> [key source] | revalidate <id> | remove <id> [--yes]
   relic-bridge project add --slug <s> --default-account <id> [--accounts 1,2] [--tools a,b]

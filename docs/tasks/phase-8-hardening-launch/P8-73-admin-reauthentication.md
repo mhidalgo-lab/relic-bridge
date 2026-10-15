@@ -32,6 +32,32 @@ second proof. Sensitive actions should require a fresh login or an explicit step
 - The in-process calls the admin UI makes as the session must pass the same check.
 - Audit: a refused action writes an `admin.forbidden` (or a dedicated) row; a successful step-up writes one.
 
+## Refinement (2026-10-15, before building)
+Checked against main:
+- Sign-in methods: Google, GitHub, generic OIDC (redirect + PKCE/state/nonce) and Cloudflare Access (header JWT). There are
+  no passkeys. Every successful sign-in creates a **new** session (`SessionManager.login` rotates), so the session record's
+  `createdAt` is set only by a real sign-in and is the "last authenticated at". No new session field and no ADR are
+  needed. The session model is unchanged.
+- Mechanism (a): an action is allowed when `now - session.createdAt < RB_SESSION_REAUTH_MINUTES` (default 10, range
+  1-60), decided server-side from storage. The step-up is a normal sign-in through the same provider and routes, so
+  PKCE, state and nonce are untouched.
+- Refusal: `403 {"error":{"code":"forbidden","detail":"reauth_required",…}}`, the same on every route. Keeping
+  `forbidden` as the code means existing clients still read it as a refusal; `detail` makes it distinct. It is audited:
+  `admin.forbidden` with `reason: reauth_required`, or for a check that depends on the body, the action's own `denied`
+  row with `details.reason`.
+- The admin token (`admin_token`, CLI) is exempt. It is a long secret held outside the browser, so the risks this task
+  covers (a stolen or left-open session cookie) do not apply to it. Recorded as an owner decision.
+- Final sensitive set (session principals only):
+  path only: `POST /keys/rotate`, `POST /config/import` (dry run included), `POST /setup-links` (mints an owner),
+  `POST /users/{id}/unbind`, `POST /oauth/clients/remove`, `POST /oauth/registration`, `POST /credentials/{id}/rotate`,
+  `DELETE /projects/{id}` (revokes every token of a project);
+  body or target dependent: `POST /users` with role `admin`/`owner`, `PATCH /users/{id}` changing `role` or `disabled`,
+  `POST /users/{id}/sessions/revoke` for another user, `POST /tokens` with `ttlSeconds` `never` or above 90 days.
+- `/me/*` is out: those routes act on the caller's own rows and reach nothing beyond the caller's own access.
+- Admin UI: `kit.callAdmin` turns the refusal into a 303 to `/auth/login?next=<page>&reauth=1` (the page comes from the
+  same-origin `Referer`, else `/admin`). The sign-in page explains why. A sign-in that replaces a live session of the
+  same user is audited `session.create` with `stepUp: true`.
+
 ## Acceptance criteria
 - [ ] Each sensitive route refuses a session whose last authentication is older than the window, with the same status and
       body for every route, and the refusal is audited (negative authorization tests, one per route).

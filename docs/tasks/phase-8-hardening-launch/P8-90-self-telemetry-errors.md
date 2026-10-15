@@ -2,11 +2,11 @@
 id: P8-90
 title: Self-telemetry - error status on spans, logs in context, spans for every MCP method
 phase: 8
-status: todo
+status: review
 priority: medium
 depends_on: []
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P8-90 — Self-telemetry: error status on spans, logs in context, spans for every MCP method
@@ -30,11 +30,11 @@ Review 4 (NEW-27) read relic-bridge's own OTLP data in New Relic:
 - Never put arguments, NRQL text, keys or tokens on spans or logs (existing redaction rules).
 
 ## Acceptance criteria
-- [ ] Tests: a tool error gives span status ERROR plus `error.type`; a caller error doesn't set
+- [x] Tests: a tool error gives span status ERROR plus `error.type`; a caller error doesn't set
       `rpc.grpc.status_code`.
-- [ ] Tests: a `resources/read` and a `prompts/get` each produce one span.
-- [ ] Tests: a log line inside a tool call carries the span's trace and span ids (Node and the Workers runtime test).
-- [ ] `docs/guide/observability.md` and `docs/security/logging.md` list the new attributes.
+- [x] Tests: a `resources/read` and a `prompts/get` each produce one span.
+- [x] Tests: a log line inside a tool call carries the span's trace and span ids (Node and the Workers runtime test).
+- [x] `docs/guide/observability.md` and `docs/security/logging.md` list the new attributes.
 
 ## Security notes
 T8 (no secrets in telemetry). The logging inventory (`docs/security/logging.md`) must stay accurate.

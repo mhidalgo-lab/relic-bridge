@@ -114,6 +114,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Assumption made:** a local rule in `telemetry.ts`: the two `RB_WRITE_APPROVAL_*` codes set span status ERROR while
   keeping `fault=caller` and no `rpc.grpc.status_code`. Replace with the P8-90 helper once it lands.
 - **Needs:** none unless P8-90 chooses a different rule.
+- **Resolved (P8-90):** the local rule is gone. Every failed call marks its span ERROR (see the P8-90 entry below); the refused write keeps `fault=caller` and no gRPC status code.
 
 ### P8-89 — Tracing check scope and the cost of trace_error
 - **Context:** the task asks for an account-wide `count(*) FROM Span` when a trace has no spans, "one extra request at
@@ -149,3 +150,35 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   response says which happened (`ownSessionKept`). Browser sessions only: device tokens, OAuth apps and keys are
   untouched.
 - **Needs:** none unless "end all" should also revoke OAuth devices (that is a separate, larger action).
+
+### P8-90 — Span ERROR for caller errors too
+- **Context:** P8-59 left the span status unset for caller errors (only `rpc.server.duration` decides what New Relic counts
+  as a service error). The task and P8-88 ask for failed tool calls to be span errors, with `rpc.grpc.status_code` kept
+  on server errors only.
+- **Assumption made:** one rule for every span (`spanStatus`): any failure is `ERROR` with `error.type` set to the `RB_*`
+  code. The metric is untouched (`error.type` and `rpc.grpc.status_code` on server errors only), so the service error rate
+  stays as P8-59 decided; `fault` tells the sides apart. The cost: caller errors (a bad query id, an input mistake by the
+  model) can open Errors Inbox groups, which read from spans.
+- **Options:** (a) as made; (b) ERROR only for server errors and refused writes (the previous behaviour plus P8-88's rule),
+  callers' mistakes stay Unset.
+- **Needs:** confirm (a), or choose (b) if Errors Inbox gets noisy.
+
+### P8-90 — Method spans take the outcome from the HTTP status; stdio logs carry no trace ids
+- **Context:** the span for `initialize`, `tools/list`, `prompts/get`, `resources/read`, `tasks/*` is recorded in the
+  `afterMcp` / `afterPassthrough` hook, which sees the HTTP status, not the JSON-RPC body. A JSON-RPC error answered with
+  HTTP 200 (an unknown resource URI) shows as an `OK` span. stdio records its tool spans after the call and has no
+  per-request logger, so its log lines carry no `traceId`/`spanId`; stdio also emits tool spans only (no method spans).
+- **Assumption made:** HTTP status only (no body inspection, which would mean buffering the response), and log
+  correlation for the HTTP hosts (Node `serve` and the Worker) only.
+- **Options:** (a) as made; (b) a response wrapper that reads the JSON-RPC `error` member of a small response; (c) carry
+  the request id in `ToolCallEvent` so stdio can allocate span ids per call and put them on its logger.
+- **Needs:** say whether (b) or (c) is worth a follow-up task.
+
+### P8-90 — Span sampling is decided when the request begins
+- **Context:** log lines need the span id before the span is exported, so the sample decision moved from the end of a tool
+  call to the start of the request (`startSpan`). Behaviour per call is the same (`RB_OTEL_SAMPLE` share of requests); a
+  sampled-out request now has no ids on its logs. The sampling rate now applies to every MCP request, not just tool calls,
+  so the span volume grows with `tools/list`, `server/discover` and similar calls (metrics are unchanged).
+- **Assumption made:** one sample rate for all spans.
+- **Needs:** none unless the span volume matters (then a lower `RB_OTEL_SAMPLE`).
+

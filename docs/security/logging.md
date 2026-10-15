@@ -12,7 +12,7 @@ gaps are listed with the task that covers them.
 |---|---|---|---|---|---|---|
 | [Structured log](#structured-log-stderr) | Diagnostics, one access line per HTTP request, boot and warning lines | One JSON object per line | stderr (Node: `serve`, stdio, CLI); Workers Logs (Worker) | yes | Operator's (Node); Cloudflare's: 3 days on Workers Free, 7 days on Paid | Whoever reads the process output; Cloudflare account members with Workers observability access |
 | [Audit log](#audit-log) | Tool calls, refusals, sign-ins, admin changes, write intents | Rows in table `audit_log` | The application database (SQLite file for `serve`, D1 for the Worker) | yes (`RB_AUDIT=on`) | 90 days (`RB_AUDIT_RETENTION_DAYS`) | Owners and admins (all rows), members (their own rows), the bootstrap admin token, anyone with database access |
-| [OTLP export](#otlp-export) | Metrics, one span per tool call, and the structured log through an allowlist | OTLP/HTTP JSON | The collector at `RB_OTEL_ENDPOINT` (https) | no (`RB_OTEL=on`) | The collector's (New Relic: per its data retention) | Whoever can read that collector |
+| [OTLP export](#otlp-export) | Metrics, one span per MCP request, and the structured log through an allowlist | OTLP/HTTP JSON | The collector at `RB_OTEL_ENDPOINT` (https) | no (`RB_OTEL=on`) | The collector's (New Relic: per its data retention) | Whoever can read that collector |
 
 stdio has no audit database: write tool calls are recorded on stderr instead (`apps/cli/src/stdio.ts`, `write tool call`
 lines: tool, status, error code and the tool's own write record, never the arguments' text).
@@ -31,7 +31,8 @@ lines: tool, status, error code and the tool's own write record, never the argum
 - **Record:** `{"ts": ISO 8601 UTC, "level", "msg", ...fields}` serialised whole with `JSON.stringify`, one line each.
   Child loggers add fixed fields: `app: "relic-bridge"` (CLI), `requestId` and `tool` (tool calls,
   `packages/core/src/server.ts`), `project` and `grantId` (MCP requests, `packages/http-app/src/app.ts`), `keyId`
-  (pass-through), `component: "nerdgraph"` and `op` (NerdGraph client). Known issue: a field named `ts`, `level` or
+  (pass-through), `traceId` and `spanId` (every MCP request, and its access line, when telemetry is on and the request is
+  sampled: random hex ids, P8-90), `component: "nerdgraph"` and `op` (NerdGraph client). Known issue: a field named `ts`, `level` or
   `msg` overwrites the record's own value (P8-75).
 - **Redaction (mandatory):** the message goes through `redact()` and every field through `redactValue()` before the line
   is built. `redact()` replaces New Relic keys (`NRAK-`, `NRAA-`, `NRII-`, ... and license keys), `rb_` tokens, `Bearer`
@@ -133,8 +134,8 @@ Off unless `RB_OTEL=on`.
 |---|---|---|
 | Resource | once per exporter | `service.name`, `service.version`, `service.instance.id` (random, never from host or request data), `telemetry.sdk.*`, `process.runtime.name` |
 | Metrics | tool calls, durations, NerdGraph calls and response bytes, rejected requests, `rpc.server.duration` | tool name, `ok` / `error`, `RB_*` code and fault class, project slug (token mode), mode (`token`, `passthrough`, `stdio`), refusal reason, HTTP status |
-| Traces | one span per tool call (sampled by `RB_OTEL_SAMPLE`) | as metrics, plus MCP and `gen_ai` semantic attributes; a caller's `traceparent` only with `RB_OTEL_TRACEPARENT=on` |
-| Logs | the structured log at `info` and above, after redaction | message only when it looks like a fixed phrase (`LOG_MESSAGE`, no NRQL words or long opaque runs), else `other`; only the fields in `LOG_FIELDS`: `tool`, `code`, `errorCode`, `status`, `method`, `route`, `mcpMethod`, `mcpName` (tool name with `tools/call` only), `error` (class), `path` (route paths only), `reason`, `ms`, `removed`. Everything else is dropped. |
+| Traces | one span per MCP request (sampled by `RB_OTEL_SAMPLE`): `tools/call <tool>` for a tool call, the method name (`initialize`, `tools/list`, `prompts/get`, `resources/read`, `tasks/*`, ...) for every other request (P8-90) | as metrics, plus MCP and `gen_ai` semantic attributes, `error.type` (an `RB_*` code, or the HTTP status for a method span), `http.response.status_code` (method spans), and for write tools `write.applied`, `write.confirmation` and `elicitation.result` (fixed words); a caller's `traceparent` only with `RB_OTEL_TRACEPARENT=on`. Never a prompt name, a resource URI or an argument |
+| Logs | the structured log at `info` and above, after redaction | message only when it looks like a fixed phrase (`LOG_MESSAGE`, no NRQL words or long opaque runs), else `other`; only the fields in `LOG_FIELDS`: `tool`, `code`, `errorCode`, `status`, `method`, `route`, `mcpMethod`, `mcpName` (tool name with `tools/call` only), `error` (class), `path` (route paths only), `reason`, `ms`, `removed`. Everything else is dropped. Each record also carries the OTLP `traceId` and `spanId` of the request's span when it was sampled (P8-90): 32 and 16 lowercase hex characters, checked before export, never attributes. |
 
 **Never exported:** NRQL text (not even masked), tool arguments, results, account ids, user, grant, token and OAuth
 client ids, emails, IP addresses, keys, tokens, the master key, the endpoint and its headers. **Destination trust:** the

@@ -203,6 +203,8 @@ export {
   parseOtlpHeaders,
   parseSampleRate,
   parseTraceparent,
+  type SpanIds,
+  spanStatus,
   TELEMETRY_BACKOFF_MS,
   TELEMETRY_LOG_BUFFER,
   TELEMETRY_NAMES,
@@ -212,6 +214,7 @@ export {
   type TelemetryOptions,
   type TelemetrySettings,
   type ToolCallOrigin,
+  type TraceContext,
   type TraceParent,
   telemetrySettingsFromEnv,
 } from './telemetry.ts';

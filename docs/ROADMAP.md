@@ -358,7 +358,7 @@ Generated from task front matter (`pnpm tasks index`). Status lives in each task
 | P8-87 | [Flaky fuzz properties - CLI config secrets and OAuth registration](tasks/phase-8-hardening-launch/P8-87-fuzz-property-flakes.md) | low | — | review |
 | P8-88 | [Report refused writes as errors and document how write approval is detected](tasks/phase-8-hardening-launch/P8-88-write-refusal-reporting.md) | high | — | review |
 | P8-89 | [Restore the tracing-off diagnosis and remove false zeros in the user impact report](tasks/phase-8-hardening-launch/P8-89-diagnosis-regressions.md) | high | — | review |
-| P8-90 | [Self-telemetry - error status on spans, logs in context, spans for every MCP method](tasks/phase-8-hardening-launch/P8-90-self-telemetry-errors.md) | medium | — | todo |
+| P8-90 | [Self-telemetry - error status on spans, logs in context, spans for every MCP method](tasks/phase-8-hardening-launch/P8-90-self-telemetry-errors.md) | medium | — | review |
 | P8-91 | [Insights lookback clamp, create_dashboard errors and NRQL check, change events by entity, error group message match](tasks/phase-8-hardening-launch/P8-91-composite-and-write-polish.md) | medium | — | todo |
 | P8-92 | [Protocol surface - tasks extension, listChanged, resource error codes, prompt texts, unknown event types](tasks/phase-8-hardening-launch/P8-92-protocol-surface-polish.md) | medium | — | todo |
 | P8-93 | [Workers query cache honesty, budget notes, and review 4 polish items](tasks/phase-8-hardening-launch/P8-93-workers-cache-and-polish.md) | low | — | todo |

@@ -8,6 +8,7 @@ import type { Storage } from '../src/index.ts';
 import v07 from './fixtures/db/v0.7.json' with { type: 'json' };
 import v08 from './fixtures/db/v0.8.json' with { type: 'json' };
 import v09 from './fixtures/db/v0.9.json' with { type: 'json' };
+import v010 from './fixtures/db/v0.10.json' with { type: 'json' };
 
 export interface DbFixture {
   readonly minor: string;
@@ -22,7 +23,7 @@ export interface DbFixture {
 }
 
 /** One per published minor. Add the new file here when `gen-db-fixtures.ts` writes one (the SQLite test checks). */
-export const DB_FIXTURES: readonly DbFixture[] = [v07, v08, v09];
+export const DB_FIXTURES: readonly DbFixture[] = [v07, v08, v09, v010];
 
 /** `sqlite_master` rows that make up the schema, comparable across databases (internal and D1 tables left out). */
 export const SCHEMA_SQL =

@@ -2,7 +2,7 @@
 id: P8-82
 title: cf:setup polish - real URLs, quieter drift warning, login permission check, CLI next steps
 phase: 8
-status: review
+status: done
 priority: low
 depends_on: [P8-81]
 adr: []

@@ -2,7 +2,7 @@
 id: P8-83
 title: Cloudflare guide clarity - CLI build step, zone security note, no internal ids, section order
 phase: 8
-status: review
+status: done
 priority: low
 depends_on: [P8-82]
 adr: []

@@ -40,8 +40,8 @@ and `telemetry.sdk.language` for language-aware pages.
 
 | Signal | Name | Attributes |
 | --- | --- | --- |
-| Span (one per tool call, sampled) | `tools/call <tool>` (`tools/call other` for an unknown name) | `tool`, `status` (`ok`/`error`), `error.code` (an `RB_*` code, errors only), `project` (slug, token connections), `mode` (`token`/`passthrough`/`stdio`), `nerdgraph.calls`, `nerdgraph.response_bytes` |
-| Histogram (ms, delta) | `rpc.server.duration` | `rpc.system=jsonrpc`, `rpc.service=mcp`, `rpc.method` (the tool name, else `other`), `error.type` (an `RB_*` code, errors only). New Relic builds the service's throughput, response time and error rate from this metric (see below) |
+| Span (one per tool call, sampled) | `tools/call <tool>` (`tools/call other` for an unknown name) | `tool`, `status` (`ok`/`error`), `error.code` (an `RB_*` code, errors only), `fault` (`caller`/`server`, errors only, see [Caller and server errors](#caller-and-server-errors)), `project` (slug, token connections), `mode` (`token`/`passthrough`/`stdio`), `nerdgraph.calls`, `nerdgraph.response_bytes` |
+| Histogram (ms, delta) | `rpc.server.duration` | `rpc.system=jsonrpc`, `rpc.service=mcp`, `rpc.method` (the tool name, else `other`), and on **server** errors only `error.type` (the `RB_*` code) and `rpc.grpc.status_code` (an integer, see below). New Relic builds the service's throughput, response time and error rate from this metric |
 | Counter | `relic_bridge.tool.calls` | same as the span |
 | Histogram (ms, delta) | `relic_bridge.tool.duration` | same as the span |
 | Counter | `relic_bridge.nerdgraph.calls` | New Relic API calls the tool call made (retries included; query-cache hits are not calls); attributes as the span, without the usage numbers |
@@ -50,12 +50,51 @@ and `telemetry.sdk.language` for language-aware pages.
 | Counter | `relic_bridge.requests.rejected` | `reason` (e.g. `rate_limit_ip`), `http.response.status_code` |
 
 Spans also carry the OpenTelemetry MCP attributes `mcp.method.name=tools/call`, `gen_ai.operation.name=execute_tool`,
-`gen_ai.tool.name`, the `rpc.system`, `rpc.service`, `rpc.method` and `error.type` described above, and
-`network.transport` (`tcp` for HTTP, `pipe` for stdio). The existing `tool`, `status`, `error.code`, `mode` and
-`project` attributes are unchanged. Tool arguments, results and the MCP session id are never attributes.
+`gen_ai.tool.name`, the `rpc.system`, `rpc.service`, `rpc.method` and `error.type` (server errors only) described
+above, and `network.transport` (`tcp` for HTTP, `pipe` for stdio). Span status is `OK` for a successful call, `ERROR`
+(with the `RB_*` code as the description) for a server error and **Unset** for a caller error. Tool arguments, results
+and the MCP session id are never attributes.
 
 Every value is checked against a fixed pattern before export; anything unexpected (a made-up tool name from a client)
 becomes `other`, so the number of distinct values stays small.
+
+### Caller and server errors
+
+A failed tool call is either the **caller's** (the request can't be served as asked: they can fix it by changing the
+request) or the **server's** (relic-bridge, its New Relic credential or New Relic failed). Following the OpenTelemetry
+conventions for a server operation, only server errors are errors: they set span status `ERROR`, `error.type` and count
+in the New Relic service's Error rate and Errors Inbox. A caller error is the equivalent of an HTTP 4xx (or the MCP
+convention's "invalid params", which a server SHOULD NOT treat as an error): span status stays Unset, there is no
+`error.type`, and it is still counted by `status = 'error'`, `error.code` and `fault = 'caller'` on the spans and the
+`relic_bridge.*` metrics.
+
+| `error.code` | `fault` | `rpc.grpc.status_code` | Why |
+| --- | --- | --- | --- |
+| `RB_INPUT_INVALID` | caller | | Invalid arguments, or New Relic rejected the request as invalid (an NRQL syntax error). |
+| `RB_AUTH_UNAUTHORIZED`, `RB_AUTH_FORBIDDEN` | caller | | The connection is not allowed this account or resource. |
+| `RB_LIMIT_QUERY`, `RB_LIMIT_RESPONSE_TOO_LARGE` | caller | | The query exceeds the connection's limits (window, LIMIT, size): narrow it. |
+| `RB_LIMIT_RATE`, `RB_LIMIT_QUOTA` | caller | | The caller's rate limit or quota. |
+| `RB_QUERY_NOT_FOUND` | caller | | The `query_id` is unknown or expired. |
+| `RB_TOOL_DISABLED` | caller | | The connection is not granted the tool (or arbitrary NRQL). |
+| `RB_BUDGET_EXHAUSTED` | caller | | The request needs more NerdGraph calls than one tool call may make: like a query limit, the hint is to narrow the request (fewer entities, shorter window). |
+| `RB_AUTH_INVALID_KEY`, `RB_AUTH_WRONG_REGION` | server (token, stdio); caller (pass-through) | 13 (INTERNAL) | New Relic refused the key. On a token connection or stdio it is the operator's stored key, which no caller can fix; on pass-through it is the caller's own key. |
+| `RB_NERDGRAPH_UNAVAILABLE` | server | 14 (UNAVAILABLE) | New Relic could not be reached or answered 5xx. |
+| `RB_NERDGRAPH_RATE_LIMITED` | server | 14 (UNAVAILABLE) | New Relic throttled the key (gRPC's HTTP mapping also turns 429 into UNAVAILABLE). |
+| `RB_NERDGRAPH_TIMEOUT` | server | 4 (DEADLINE_EXCEEDED) | New Relic, or the query, did not answer in time. |
+| `RB_NERDGRAPH_ERROR` | server | 2 (UNKNOWN) | New Relic answered something unexpected. |
+| `RB_INTERNAL`, any other value (`other`, a future code) | server | 13 (INTERNAL), 2 (UNKNOWN) | A relic-bridge failure; an unexplained code counts rather than hides. |
+
+**Why `rpc.grpc.status_code`.** New Relic counts a `rpc.server.duration` data point in `apm.service.error.count`
+(the service's Error rate) only when `rpc.grpc.status_code` is 2, 4, 12, 13, 14 or 15; `error.type` alone is ignored on
+this metric. relic-bridge speaks JSON-RPC, not gRPC, so setting a gRPC status code is a deliberate deviation from the
+conventions: it is set on server errors only, on that metric only (not on spans), from the fixed table above. If you
+send to another backend, ignore it and use `error.type`.
+
+Count both kinds in New Relic (`fault` exists from the version with this change on):
+
+```sql
+SELECT count(*) FROM Span WHERE service.name = 'relic-bridge' AND status = 'error' FACET fault, error.code SINCE 1 day ago
+```
 
 ### Logs
 
@@ -129,16 +168,18 @@ response time, error rate) are computed from `apm.service.transaction.duration`,
 OpenTelemetry **metric** `rpc.server.duration` (or `http.server.request.duration`), not from spans; spans only feed
 the transaction overview and Errors Inbox. relic-bridge exports `rpc.server.duration` for this reason, so the entity's
 transactions are named `WebTransaction/server/jsonrpc/mcp.<tool>`. Spans are named `tools/call <tool>`, so Errors Inbox
-groups are distinct per tool.
+groups are distinct per tool. Only server errors open Errors Inbox groups and count in the Error rate (see
+[Caller and server errors](#caller-and-server-errors)).
 
-Check after deploying (replace `relic-bridge` if you changed the service name):
+Check after deploying (replace `relic-bridge` if you changed the service name; filter on `service.name`: on the
+synthesized metric a `WHERE entity.name = ...` filter returned nothing in our tests although the attribute is there):
 
 ```sql
 SELECT count(apm.service.transaction.duration), rate(count(apm.service.transaction.duration), 1 minute),
   average(convert(apm.service.transaction.duration, unit OR 's', 'ms')), sum(apm.service.error.count)
-FROM Metric WHERE entity.name = 'relic-bridge' SINCE 1 hour ago FACET transactionName
+FROM Metric WHERE service.name = 'relic-bridge' SINCE 1 hour ago FACET transactionName
 ```
 
-The entity's Summary page should then show throughput and response time. Error rate counts only when New Relic
-resolves `error.type` for the RPC convention (its documentation lists gRPC status codes for `rpc.server.duration`);
-if it stays empty while `apm.service.error.count` is 0, see the open question in `docs/RESEARCH.md`.
+The entity's Summary page then shows throughput, response time and (after a server error) the Error rate. Versions
+before this change exported `error.type` without `rpc.grpc.status_code`, so their Error rate stays 0, and every caller
+error opened an Errors Inbox group; resolve those groups once you upgrade.

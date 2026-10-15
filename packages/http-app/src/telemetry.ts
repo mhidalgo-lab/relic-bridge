@@ -19,6 +19,7 @@
 import type { ToolCallEvent } from '@relic-bridge/core';
 import {
   type Clock,
+  ErrorCode,
   type FetchLike,
   type LogFields,
   type Logger,
@@ -238,6 +239,66 @@ export function parseTraceparent(raw: string | null | undefined): TraceParent | 
   return { traceId, spanId };
 }
 
+/** Who a failed tool call is attributed to (P8-59): the caller (their input, limits, grants) or the server side. */
+export type ErrorFault = 'caller' | 'server';
+
+/** How a failed tool call is exported (P8-59). */
+export interface ErrorClassification {
+  readonly fault: ErrorFault;
+  /**
+   * Server errors only: the gRPC status code set as `rpc.grpc.status_code` on `rpc.server.duration`, the attribute New
+   * Relic reads to count an RPC data point in `apm.service.error.count` (only 2, 4, 12, 13, 14 and 15 count). A
+   * deliberate deviation (`rpc.system` is `jsonrpc`), documented in docs/guide/observability.md.
+   */
+  readonly grpcStatusCode?: number;
+}
+
+/** gRPC status codes (https://grpc.github.io/grpc/core/md_doc_statuscodes.html) that New Relic counts as errors. */
+const GRPC = Object.freeze({ unknown: 2, deadlineExceeded: 4, internal: 13, unavailable: 14 });
+const CALLER: ErrorClassification = Object.freeze({ fault: 'caller' });
+const server = (grpcStatusCode: number): ErrorClassification =>
+  Object.freeze({ fault: 'server', grpcStatusCode });
+
+/**
+ * Every `RB_*` code, classified (P8-59; the table in docs/guide/observability.md). Caller errors are answers the caller
+ * can fix by changing the request: invalid input, limits and quotas, a missing query id, a tool or account the
+ * connection does not grant, a request too broad for the per-call NerdGraph budget. Server errors are failures of
+ * relic-bridge, of its New Relic credential or of New Relic. A full record, so a new code cannot stay unclassified.
+ */
+export const ERROR_CLASSIFICATION: Readonly<Record<ErrorCode, ErrorClassification>> = Object.freeze({
+  [ErrorCode.InputInvalid]: CALLER,
+  [ErrorCode.AuthUnauthorized]: CALLER,
+  [ErrorCode.AuthForbidden]: CALLER,
+  // The configured New Relic key is refused: the operator's credential (pass-through: the caller's own key, below).
+  [ErrorCode.AuthInvalidKey]: server(GRPC.internal),
+  [ErrorCode.AuthWrongRegion]: server(GRPC.internal),
+  [ErrorCode.LimitQuery]: CALLER,
+  [ErrorCode.LimitResponseTooLarge]: CALLER,
+  [ErrorCode.LimitRate]: CALLER,
+  [ErrorCode.LimitQuota]: CALLER,
+  [ErrorCode.QueryNotFound]: CALLER,
+  [ErrorCode.NerdGraphError]: server(GRPC.unknown),
+  // gRPC's HTTP-to-gRPC mapping turns an upstream 429 into UNAVAILABLE, like 502, 503 and 504.
+  [ErrorCode.NerdGraphRateLimited]: server(GRPC.unavailable),
+  [ErrorCode.NerdGraphTimeout]: server(GRPC.deadlineExceeded),
+  [ErrorCode.NerdGraphUnavailable]: server(GRPC.unavailable),
+  [ErrorCode.BudgetExhausted]: CALLER,
+  [ErrorCode.ToolDisabled]: CALLER,
+  [ErrorCode.Internal]: server(GRPC.internal),
+});
+const CLASSIFIED: ReadonlyMap<string, ErrorClassification> = new Map(Object.entries(ERROR_CLASSIFICATION));
+/** Pass-through connections bring their own New Relic key: a refused key is the caller's to fix. */
+const CALLER_KEY_ERRORS: ReadonlySet<string> = new Set([ErrorCode.AuthInvalidKey, ErrorCode.AuthWrongRegion]);
+
+/**
+ * Classify a failed tool call's error code. Anything that is not a known `RB_*` code (a future code, or `other` after
+ * the pattern check) is a server error with gRPC UNKNOWN: an unexplained failure should show up, not hide.
+ */
+export function classifyToolError(code: string, mode: ToolCallOrigin['mode']): ErrorClassification {
+  if (mode === 'passthrough' && CALLER_KEY_ERRORS.has(code)) return CALLER;
+  return CLASSIFIED.get(code) ?? server(GRPC.unknown);
+}
+
 type Attr = { key: string; value: { stringValue: string } | { intValue: string } };
 const str = (key: string, value: string): Attr => ({ key, value: { stringValue: value } });
 const int = (key: string, value: number): Attr => ({ key, value: { intValue: String(value) } });
@@ -405,7 +466,11 @@ export function createTelemetry(options: TelemetryOptions): Telemetry {
     const durationMs = Number.isFinite(event.durationMs) ? Math.max(0, event.durationMs) : 0;
     const start = end - durationMs;
     const tool = pick(event.tool, TOOL_NAME);
-    const errorType = event.status === 'error' ? pick(event.errorCode, ERROR_CODE) : undefined;
+    const errorCode = event.status === 'error' ? pick(event.errorCode, ERROR_CODE) : undefined;
+    const failure = errorCode === undefined ? undefined : classifyToolError(errorCode, origin.mode);
+    // Semconv: `error.type` (and span status ERROR) only when the operation failed on the server side; a caller's
+    // mistake is not a failed server operation (P8-59). Caller errors stay countable by `status`, `error.code`, `fault`.
+    const errorType = failure?.fault === 'server' ? errorCode : undefined;
     // OpenTelemetry `rpc.*` attributes of the server operation, for New Relic's transaction name
     // (`WebTransaction/server/jsonrpc/mcp.<tool>`) and error count.
     const rpcAttrs: Attr[] = [
@@ -417,7 +482,9 @@ export function createTelemetry(options: TelemetryOptions): Telemetry {
     const attrs: Attr[] = [
       str('tool', tool),
       str('status', event.status === 'ok' ? 'ok' : 'error'),
-      ...(event.status === 'error' ? [str('error.code', pick(event.errorCode, ERROR_CODE))] : []),
+      ...(errorCode === undefined || failure === undefined
+        ? []
+        : [str('error.code', errorCode), str('fault', failure.fault)]),
       ...(origin.mode === 'token' ? [str('project', pick(origin.projectSlug, SLUG))] : []),
       str('mode', origin.mode),
     ];
@@ -452,7 +519,11 @@ export function createTelemetry(options: TelemetryOptions): Telemetry {
           aggregationTemporality: 1,
           dataPoints: [
             {
-              attributes: rpcAttrs,
+              // New Relic counts an RPC error only from `rpc.grpc.status_code` (P8-59): set on server errors only.
+              attributes:
+                failure?.grpcStatusCode === undefined
+                  ? rpcAttrs
+                  : [...rpcAttrs, int('rpc.grpc.status_code', failure.grpcStatusCode)],
               startTimeUnixNano: nanos(start),
               timeUnixNano: nanos(end),
               count: '1',
@@ -503,10 +574,12 @@ export function createTelemetry(options: TelemetryOptions): Telemetry {
                       startTimeUnixNano: nanos(start),
                       endTimeUnixNano: nanos(end),
                       attributes: spanAttrs,
-                      status:
-                        event.status === 'ok'
-                          ? { code: 1 }
-                          : { code: 2, message: pick(event.errorCode, ERROR_CODE) },
+                      // OK; ERROR for a server error; Unset (no status) for a caller error (P8-59).
+                      ...(event.status === 'ok'
+                        ? { status: { code: 1 } }
+                        : errorType === undefined
+                          ? {}
+                          : { status: { code: 2, message: errorType } }),
                     },
                   ],
                 },

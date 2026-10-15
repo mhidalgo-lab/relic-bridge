@@ -2,11 +2,11 @@
 id: P8-84
 title: Release guards - DB fixture for a new minor and changesets for private packages
 phase: 8
-status: todo
+status: in-progress
 priority: medium
 depends_on: [P8-05]
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P8-84 — Release guards: DB fixture for a new minor and changesets for private packages

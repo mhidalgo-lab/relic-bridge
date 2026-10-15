@@ -359,7 +359,7 @@ const json = <T extends z.ZodType>(schema: T, description: string) => ({
 const ERROR_DESCRIPTIONS: Readonly<Record<number, string>> = {
   400: 'Invalid request (`invalid_request`): unknown field, wrong type, rule broken',
   401: 'Missing or wrong admin token, or no live session (`unauthorized`)',
-  403: 'Session refused: role too low, missing/invalid CSRF token or cross-origin request (`forbidden`)',
+  403: 'Session refused (`forbidden`): role too low, missing/invalid CSRF token, cross-origin request, or a sensitive action whose sign-in is too old (`detail: reauth_required`)',
   404: 'No such resource (`not_found`)',
   409: 'Conflicts with existing data (`conflict`, `read_only`)',
   413: 'Body too large (`payload_too_large`)',
@@ -1053,7 +1053,40 @@ export function requiredRole(method: string, rel: string): 'owner' | 'admin' | '
   return 'admin';
 }
 
+const CREDENTIAL_ROTATE = /^\/credentials\/[^/]+\/rotate$/;
+const PROJECT = /^\/projects\/[^/]+$/;
+
+/**
+ * Sensitive routes (P8-73) whose path alone makes them so: a session must have signed in within the re-authentication
+ * window. Routes that are sensitive only for some bodies or targets (an admin or owner created, a role changed or a
+ * user disabled, another user signed out, a long-lived token) are checked in their handlers with `requireFresh`.
+ * `/me/*` is never sensitive: it acts on the caller's own rows. The admin token is exempt (see the admin access guide).
+ */
+export function sensitiveRoute(method: string, rel: string): boolean {
+  if (method === 'POST') {
+    return (
+      rel === '/keys/rotate' ||
+      rel === '/config/import' ||
+      rel === '/setup-links' ||
+      rel === '/oauth/clients/remove' ||
+      rel === '/oauth/registration' ||
+      UNBIND.test(rel) ||
+      CREDENTIAL_ROTATE.test(rel)
+    );
+  }
+  // Deleting a project revokes every token and grant of it.
+  return method === 'DELETE' && PROJECT.test(rel);
+}
+
+/** Device tokens above this lifetime (the default, 90 days) are sensitive to issue (P8-73); `never` too. */
+export const SENSITIVE_TOKEN_TTL_SECONDS: number = 90 * 86_400;
+
+/** The answer to a sensitive action from a session whose sign-in is too old: one message for every route. */
+const REAUTH_MESSAGE =
+  'this action needs a recent sign-in: sign in again (GET /auth/login), then retry within the re-authentication window';
+
 const FORBIDDEN_MESSAGES: Readonly<Record<string, string>> = {
+  reauth_required: REAUTH_MESSAGE,
   role: 'your role does not allow this',
   csrf: 'missing or invalid CSRF token: send the token from GET /session as X-CSRF-Token',
   cross_site: 'cross-site request refused',
@@ -1245,6 +1278,10 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
       if (ROLE_RANK[principal.role] < ROLE_RANK[requiredRole(c.req.method, relPath(c))]) {
         return forbidden(c, 'role');
       }
+      // Re-authentication (P8-73): after the role, so a role that can never do this is told so first.
+      if (sensitiveRoute(c.req.method, relPath(c)) && !deps.sessions.isFresh(principal)) {
+        return forbidden(c, 'reauth_required');
+      }
     }
     // Self-service routes belong to a user; the bootstrap admin token is nobody (audited like any refusal).
     if (principal.kind !== 'session' && /^\/me(?:\/|$)/.test(relPath(c))) return forbidden(c, 'no_user');
@@ -1320,6 +1357,10 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
         projectId: meta.projectId ?? null,
         status: mapped?.code === 'not_permitted' || mapped?.code === 'forbidden' ? 'denied' : 'error',
         errorCode: mapped?.code ?? 'internal_error',
+        // Why a change was refused (`owner`, `self`, `reauth_required`, …): stable codes only.
+        ...(mapped?.code === 'forbidden' && mapped.detail !== undefined
+          ? { details: { reason: mapped.detail } }
+          : {}),
       });
       throw error;
     }
@@ -1360,9 +1401,19 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
         : Promise.resolve(0);
 
   /** A refusal inside a handler (audited by `change` as `denied`). */
-  const denied = (reason: 'self' | 'owner' | 'role' | 'no_user') =>
+  const denied = (reason: 'self' | 'owner' | 'role' | 'no_user' | 'reauth_required') =>
     new AdminApiError('forbidden', FORBIDDEN_MESSAGES[reason] ?? 'not allowed', { detail: reason });
   const actsAsOwner = (c: Context) => (c.get('principal') as AdminPrincipal | undefined)?.role === 'owner';
+  /**
+   * A sensitive change that depends on the body or target (P8-73): a session must have signed in within the
+   * re-authentication window. Call it after the permission checks and before any effect.
+   */
+  const requireFresh = (c: Context): void => {
+    const principal = c.get('principal') as AdminPrincipal | undefined;
+    if (principal?.kind === 'session' && deps.sessions && !deps.sessions.isFresh(principal)) {
+      throw denied('reauth_required');
+    }
+  };
 
   /**
    * "Only owners touch owners" also covers an owner's keys, grants and tokens (phase 4 review H1): without this, an
@@ -1484,6 +1535,7 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
       { action: 'user.create', targetType: 'user', details: { role: body.role ?? 'member' } },
       async () => {
         if ((body.role === 'owner' || body.role === 'admin') && !actsAsOwner(c)) throw denied('owner');
+        if (body.role === 'owner' || body.role === 'admin') requireFresh(c);
         return storage.users.create({
           id: newId('usr'),
           email: normalizeEmail(body.email),
@@ -1529,6 +1581,7 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
           await userWriteScope(storage, existing, body),
           'a user whose grants have write tools',
         );
+        if (privileged) requireFresh(c);
         const patch: { -readonly [K in keyof UserPatch]: UserPatch[K] } = {};
         if (body.displayName !== undefined) patch.displayName = body.displayName;
         if (body.role !== undefined) patch.role = body.role;
@@ -1606,6 +1659,7 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
         const self = principal?.kind === 'session' && principal.user.id === target.id;
         if ((target.role === 'owner' || target.role === 'admin') && !self && !actsAsOwner(c))
           throw denied('owner');
+        if (!self) requireFresh(c);
         return revokeAll(target.id);
       },
       (n) => ({ details: { revoked: n } }),
@@ -2027,6 +2081,12 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
         const target = await storage.grants.get(body.grantId);
         if (target) await guardOwnerAssets(c, await grantUsers(target));
         guardWriteScope(c, tokenWriteScope(target));
+        if (
+          body.ttlSeconds === 'never' ||
+          (body.ttlSeconds !== undefined && body.ttlSeconds > SENSITIVE_TOKEN_TTL_SECONDS)
+        ) {
+          requireFresh(c);
+        }
         const result = await issueAccessToken(
           storage,
           { grantId: body.grantId, label: body.label, ...(ttl === undefined ? {} : { ttl }) },
@@ -2838,7 +2898,12 @@ export function adminOpenApiDocument(api: OpenAPIHono<AdminEnv>): Record<string,
         'API-first management of a relic-bridge instance: users, New Relic credentials, projects, grants, device ' +
         'tokens and the audit log. Authenticate with the bootstrap admin token (`Authorization: Bearer …`, role ' +
         '`owner`) or, from a browser, an admin session (cookie + `X-CSRF-Token`; roles `owner` > `admin` > `member`). ' +
-        'New Relic keys are accepted in request bodies only and never returned; token hashes are never returned.',
+        'New Relic keys are accepted in request bodies only and never returned; token hashes are never returned. ' +
+        'Sensitive actions from a session need a recent sign-in (`RB_SESSION_REAUTH_MINUTES`, default 10), else ' +
+        '`403 forbidden` with `detail: reauth_required`: `POST /keys/rotate`, `/config/import`, `/setup-links`, ' +
+        '`/users/{id}/unbind`, `/oauth/clients/remove`, `/oauth/registration`, `/credentials/{id}/rotate`, ' +
+        '`DELETE /projects/{id}`, creating an admin or owner, changing a role or disabling a user, signing out another ' +
+        'user, and a device token longer than 90 days or `never`. The admin token is exempt.',
     },
     servers: [{ url: ADMIN_API_BASE }],
     security: SECURITY,

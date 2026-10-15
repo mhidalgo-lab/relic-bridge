@@ -119,6 +119,12 @@ Every destructive action asks first: revoking a token or grant, deleting a key, 
 or user, signing someone out everywhere, and replacing a key. Buttons in lists open a confirmation page; detail pages
 show the explanation and the real button inline.
 
+Sensitive changes need a recent sign-in (default: the last 10 minutes; list in
+[admin access](admin-access.md#re-authentication-for-sensitive-actions)): promoting, disabling or signing out another
+user, owner setup links, key and master-key rotation, deleting a project, configuration import, the OAuth settings
+and device tokens longer than 90 days. When your sign-in is older, the panel takes you to the sign-in page with a note.
+Sign in, and you are back on the same page. Repeat the change there: nothing was saved the first time.
+
 Errors from the admin API show up where they belong: a field message next to the field, a note above the form, or a
 banner on the next page. *New Relic could not be reached* means nothing was changed and you can retry. Lists show 50
 rows per page with *Next page*.

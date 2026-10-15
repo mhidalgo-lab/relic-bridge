@@ -172,6 +172,8 @@ scrolling, and follows your light or dark setting.
 - Sessions end after **30 minutes without a request** and **12 hours after sign-in**, whatever you do. On a phone you can
   lengthen them with `RB_SESSION_IDLE_MINUTES` (5 to 1440) and `RB_SESSION_MAX_HOURS` (1 to 168); the idle time may not
   exceed the maximum. Shorter is safer, so lengthen only as far as you need.
+- Sensitive changes (promoting or disabling a user, rotating keys, setup links and others) also need a sign-in from the
+  last 10 minutes (`RB_SESSION_REAUTH_MINUTES`). The panel sends you through sign-in and back when yours is older.
 - The Claude mobile app and claude.ai on the web cannot use device tokens: they need OAuth, which is Phase 5. Until then
   the phone is for **managing** relic-bridge, and for MCP clients that accept a bearer token.
 
@@ -270,6 +272,7 @@ Three soft spots to know about (all deliberate):
 | `RB_LOGIN_AUTO_PROVISION` | `off` | `off`, `member` or `admin`. Never `owner`. |
 | `RB_SESSION_IDLE_MINUTES` | `30` | 5 to 1440. |
 | `RB_SESSION_MAX_HOURS` | `12` | 1 to 168. |
+| `RB_SESSION_REAUTH_MINUTES` | `10` | 1 to 60: how recent a sign-in sensitive changes need ([admin access](admin-access.md#re-authentication-for-sensitive-actions)). |
 | `RB_RATE_LIMIT_SIGN_IN` | `60/300` | Sign-in requests per client address (`serve` only; fixed on Workers, per isolate unless `RB_SHARED_LIMITER` is on). |
 
 Variables go in the environment for `serve` (also Docker and compose). On a Worker, ids and public settings are

@@ -2,7 +2,7 @@
 id: P8-73
 title: Re-authentication for sensitive admin actions
 phase: 8
-status: in-progress
+status: review
 priority: medium
 depends_on: []
 adr: []
@@ -59,13 +59,13 @@ Checked against main:
   same user is audited `session.create` with `stepUp: true`.
 
 ## Acceptance criteria
-- [ ] Each sensitive route refuses a session whose last authentication is older than the window, with the same status and
+- [x] Each sensitive route refuses a session whose last authentication is older than the window, with the same status and
       body for every route, and the refusal is audited (negative authorization tests, one per route).
-- [ ] After a fresh sign-in the same action succeeds; the window and the sign-in time cannot be altered by the client.
-- [ ] Non-sensitive routes are unaffected (test).
-- [ ] The admin UI shows the re-authentication flow and returns to the page (browser/axe test where the UI has one).
-- [ ] Member self-service routes (`/me/*`) are classified explicitly (in or out) with a test.
-- [ ] `docs/THREAT_MODEL.md` rows updated (T13, T14).
+- [x] After a fresh sign-in the same action succeeds; the window and the sign-in time cannot be altered by the client.
+- [x] Non-sensitive routes are unaffected (test).
+- [x] The admin UI shows the re-authentication flow and returns to the page (browser/axe test where the UI has one).
+- [x] Member self-service routes (`/me/*`) are classified explicitly (in or out) with a test.
+- [x] `docs/THREAT_MODEL.md` rows updated (T13, T14).
 
 ## Security notes
 T13, T14, T8. The check must be server-side and based on stored session data, never a cookie or form field the client sends.
@@ -75,6 +75,18 @@ window must be safe (short) and configurable only downward or within a bounded r
 ## Docs to update
 - `docs/guide/admin-access.md`, `docs/guide/admin-panel.md`, `docs/reference/admin-api.md` (generated; regenerate),
   `docs/THREAT_MODEL.md`, `docs/dev/admin-ui.md`, possibly a new ADR, changeset.
+
+## Outcome
+- `RB_SESSION_REAUTH_MINUTES` (default 10, 1-60) on `serve` and the Worker; `sessionIsFresh` in `@relic-bridge/auth`,
+  `SessionManager.isFresh`, `sensitiveRoute` and `requireFresh` in the admin API.
+- Tests: `packages/http-app/test/authz/reauth.test.ts` (P2-12 suite, Node and workerd): one negative case per sensitive
+  action with an identical body and an audit row, positive controls (fresh session, admin token), the window boundary,
+  client-supplied hints ignored, non-sensitive routes, `/me/*`, and the admin UI round trip (form to sign-in and back,
+  Referer fallback). Auth unit tests for the setting and `sessionIsFresh`; a11y for the sign-in notice; `stepUp` audit.
+- Owner decisions (defaults taken): window 10 minutes (1-60); the admin token is exempt; `/me/*` is out; the
+  "fresh" proof is the relic-bridge sign-in, without forcing the IdP to prompt again.
+- Possible follow-up: ask the IdP to re-prompt on a step-up (`prompt=login` / `max_age=0` with an `auth_time` check for
+  OIDC; support differs for the other providers; Cloudflare Access cannot be forced from here).
 
 ## Out of scope
 - Multi-factor enrolment inside relic-bridge (the identity provider owns MFA).

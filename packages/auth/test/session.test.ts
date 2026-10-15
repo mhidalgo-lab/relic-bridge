@@ -16,6 +16,7 @@ import {
   revokeSession,
   revokeUserSessions,
   SESSION_TOUCH_INTERVAL_MS,
+  sessionIsFresh,
 } from '../src/index.ts';
 
 const T0 = 1_800_000_000_000;
@@ -237,11 +238,47 @@ describe('session settings', () => {
       ['RB_SESSION_MAX_HOURS', '0'],
       ['RB_SESSION_MAX_HOURS', '169'],
       ['RB_SESSION_MAX_HOURS', 'abc'],
+      ['RB_SESSION_REAUTH_MINUTES', '0'],
+      ['RB_SESSION_REAUTH_MINUTES', '61'],
+      ['RB_SESSION_REAUTH_MINUTES', '5.5'],
     ] as const) {
       expect(() => identitySettingsFromEnv({ ...base, [name]: value })).toThrow(IdentityConfigError);
     }
     expect(() =>
       identitySettingsFromEnv({ ...base, RB_SESSION_IDLE_MINUTES: '120', RB_SESSION_MAX_HOURS: '1' }),
     ).toThrow(/must not exceed/);
+  });
+});
+
+describe('re-authentication window (P8-73)', () => {
+  const base = {
+    RB_GITHUB_CLIENT_ID: 'id',
+    RB_GITHUB_CLIENT_SECRET: 's',
+    RB_PUBLIC_URL: 'https://b.example.com',
+  };
+
+  it('RB_SESSION_REAUTH_MINUTES sets it (1-60); unset keeps the 10-minute default', () => {
+    expect(identitySettingsFromEnv({ ...base, RB_SESSION_REAUTH_MINUTES: '5' })?.session).toEqual({
+      idleMs: 1_800_000,
+      absoluteMs: 43_200_000,
+      reauthMs: 300_000,
+    });
+    expect(identitySettingsFromEnv(base)?.session.reauthMs).toBeUndefined();
+    expect(() => checkSessionTimeouts({ ...DEFAULT_SESSION_TIMEOUTS, reauthMs: 59_000 })).toThrow(RangeError);
+    expect(() => checkSessionTimeouts({ ...DEFAULT_SESSION_TIMEOUTS, reauthMs: 3_600_001 })).toThrow(
+      RangeError,
+    );
+    expect(checkSessionTimeouts({ ...DEFAULT_SESSION_TIMEOUTS, reauthMs: 60_000 }).reauthMs).toBe(60_000);
+  });
+
+  it('a session is fresh for the window after its sign-in, never before it was created', () => {
+    const record = { createdAt: T0 };
+    expect(sessionIsFresh(record, {}, T0)).toBe(true);
+    expect(sessionIsFresh(record, {}, T0 + 10 * 60_000 - 1)).toBe(true);
+    expect(sessionIsFresh(record, {}, T0 + 10 * 60_000)).toBe(false);
+    expect(sessionIsFresh(record, { reauthMs: 60_000 }, T0 + 60_000)).toBe(false);
+    expect(sessionIsFresh(record, { reauthMs: 60_000 }, T0 + 59_999)).toBe(true);
+    // A record dated in the future (clock skew, tampering) is not fresh.
+    expect(sessionIsFresh(record, {}, T0 - 1)).toBe(false);
   });
 });

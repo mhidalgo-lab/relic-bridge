@@ -29,9 +29,52 @@ Sign-in itself (Google, GitHub, Cloudflare Access, OIDC, the first-owner setup l
 - **Sign out**: `POST /auth/logout` with the CSRF token (form field `_csrf` or header `X-CSRF-Token`). Add
   `everywhere=1` to end every session of your user (all devices). An admin can do the same for a user with
   `POST /api/admin/v1/users/{id}/sessions/revoke`.
+- **Recent sign-in for sensitive actions** (P8-73): see [below](#re-authentication-for-sensitive-actions).
 - **Privilege changes end sessions**: changing a user's role or disabling them ends all their sessions at once. A
   disabled user's session is also refused on every request (the user record is re-read at most every 5 seconds per
   server instance).
+
+## Re-authentication for sensitive actions
+
+A session alone is not enough for the most damaging changes. They also need a sign-in from the last
+`RB_SESSION_REAUTH_MINUTES` (default **10**, 1 to 60). Otherwise the admin API answers `403` with
+`{"error": {"code": "forbidden", "detail": "reauth_required", ...}}`. The answer is the same on every route, and the
+refusal is audited (`admin.forbidden`, or the action's own `denied` row, with `reason: reauth_required`).
+
+| Sensitive action | Route |
+|---|---|
+| Master-key rotation | `POST /keys/rotate` |
+| Configuration import (dry run included) | `POST /config/import` |
+| Owner setup link | `POST /setup-links` |
+| Clearing a user's sign-in identity | `POST /users/{id}/unbind` |
+| OAuth clients and dynamic registration | `POST /oauth/clients/remove`, `POST /oauth/registration` |
+| Replacing a stored New Relic key | `POST /credentials/{id}/rotate` |
+| Deleting a project (all its grants and tokens) | `DELETE /projects/{id}` |
+| Creating an administrator or an owner | `POST /users` with `role` `admin` or `owner` |
+| Changing a role, disabling or re-enabling a user | `PATCH /users/{id}` with `role` or `disabled` |
+| Signing another user out everywhere | `POST /users/{id}/sessions/revoke` (not yourself) |
+| A device token for more than 90 days, or `never` | `POST /tokens` with `ttlSeconds` above 7776000 or `never` |
+
+How it works:
+
+- A session is only ever created by a sign-in, so its creation time *is* the time you last authenticated. The check
+  reads that time from the stored session. Nothing the browser sends (cookie, header, form field or query parameter)
+  can change it. Signing in again creates a new session, which is fresh. The session model, cookies and CSRF checks
+  are unchanged.
+- In the admin panel a refused change sends you to the sign-in page (`/auth/login?next=<the page>&reauth=1`), which
+  says why. Sign in with your usual provider, then repeat the change on the page you come back to: nothing was saved
+  the first time. The `session.create` audit row of that sign-in shows `stepUp: true`.
+- **How strong the step-up is depends on your identity provider.** relic-bridge sends you through the provider's
+  normal sign-in. If your Google, GitHub or OIDC session (or your Cloudflare Access session) is still live, the provider
+  may answer without asking for your password or second factor again. The step-up then proves that the browser can
+  still sign in, not that the person typed a credential again. It still stops a stolen session cookie used from
+  elsewhere. For a stronger confirmation, keep the provider's own session short or require MFA on every sign-in at
+  the provider.
+- **Not sensitive:** reads, member self-service (`/me/*`, which acts only on your own keys, grants and tokens), signing
+  yourself out, creating members, renaming, and device tokens of up to 90 days.
+- **The admin token is exempt.** `Authorization: Bearer <RB_ADMIN_TOKEN>` (the CLI, automation) has no session and no
+  sign-in. It is a long secret kept outside the browser, so a stolen cookie or an open browser does not give it away.
+  Protect it like the master key, and remove it (`RB_ADMIN_TOKEN` unset) once sign-in works if you don't need it.
 
 ## Roles
 

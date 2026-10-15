@@ -457,6 +457,7 @@ survive later runs because of `--keep-vars`:
 | `RB_LOGIN_AUTO_PROVISION` | `off` (default), `member` or `admin`: the role of a user created at first sign-in. |
 | `RB_GOOGLE_HOSTED_DOMAIN` | Restrict Google sign-in to one Workspace domain. |
 | `RB_SESSION_IDLE_MINUTES`, `RB_SESSION_MAX_HOURS` | Session lifetime (5 to 1440 minutes idle, default 30; 1 to 168 hours, default 12). |
+| `RB_SESSION_REAUTH_MINUTES` | How recent a sign-in sensitive admin actions need (1 to 60 minutes, default 10). |
 | `RB_CF_ACCESS_TEAM`, `RB_CF_ACCESS_AUD` | Cloudflare Access as a sign-in provider. |
 | `RB_OAUTH` | `on`: MCP clients such as claude.ai and Claude on your phone connect with OAuth (sign-in + a consent page). Needs sign-in. See [OAuth](oauth.md). |
 | `RB_PUBLIC_URL` (for OAuth) | Must be exactly the address clients use (custom domain or workers.dev, no alias): it is the issuer and the `resource` of each project. |

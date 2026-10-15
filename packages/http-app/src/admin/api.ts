@@ -2667,7 +2667,7 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
   });
   const devicesOf = async (userId: string): Promise<readonly OAuthDevice[]> =>
     deps.oauthDevices === undefined ? [] : deps.oauthDevices.list(userId);
-  /** Revoke one device of `userId`, audited as `oauth_device.revoke` (404 when the user has no such device). */
+  /** Revoke one device of `userId`, audited as `oauth_device.revoke` (404, audited, for an unknown user or device). */
   const revokeDeviceOf = async (c: Context, userId: string, deviceId: string, self: boolean) =>
     change(
       c,
@@ -2678,10 +2678,12 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
         details: { userId, ...(self ? { self: true } : {}) },
       },
       async () => {
+        // An admin names the user: look it up inside the change, so an unknown user is audited like any failure.
+        const ownerId = self ? userId : (await must('user', userId, (x) => storage.users.get(x))).id;
         // Only owners touch owners' devices (like their tokens, phase 4 review H1); one's own are always one's own.
-        if (!self) await guardOwnerAssets(c, [userId]);
+        if (!self) await guardOwnerAssets(c, [ownerId]);
         const device =
-          deps.oauthDevices === undefined ? null : await deps.oauthDevices.revoke(userId, deviceId);
+          deps.oauthDevices === undefined ? null : await deps.oauthDevices.revoke(ownerId, deviceId);
         if (device === null) throw notFound('OAuth device', deviceId);
         return device;
       },
@@ -2719,8 +2721,7 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
 
   api.openapi(routes.revokeUserOAuthDevice, async (c) => {
     const { id, deviceId } = c.req.valid('param');
-    const user = await must('user', id, (x) => storage.users.get(x));
-    return c.json({ data: deviceView(await revokeDeviceOf(c, user.id, deviceId, false)) }, 200);
+    return c.json({ data: deviceView(await revokeDeviceOf(c, id, deviceId, false)) }, 200);
   });
 
   // ------------------------------------------------------------------------------------- OAuth clients (P5-08)

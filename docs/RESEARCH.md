@@ -1254,3 +1254,19 @@ Sources: [server.json format](https://github.com/modelcontextprotocol/registry/b
   (the convention's "low-cardinality representation", and more useful). Revisit (c) if New Relic documents
   `rpc.server.call.duration` as a source.
 - Not verified yet: that New Relic counts the integer `rpc.grpc.status_code` after a deploy (P8-59 live check).
+
+## Access-log `mcpMethod = other` (P8-61, live export 2026-10-14)
+
+- Live (0.9.1, 24 h): 5 `http request` records on `POST /p/:slug/mcp`, status 200 in 7-13 ms, had `mcpMethod = other`.
+  They came in pairs a few ms before a client's pair of `subscriptions/listen` and its `tools/list`/`prompts/list`
+  round, the shape of a 2026-07-28 client connecting. A JSON-RPC response or unparsable body has no method (no field),
+  and batches are refused with 400, so `other` meant a method string outside the P8-50 pattern.
+- The MCP 2026-07-28 schema (`schema/2026-07-28/schema.ts`, modelcontextprotocol/modelcontextprotocol) defines
+  `ClientRequest` = `server/discover`, `completion/complete`, `prompts/get`, `prompts/list`, `resources/list`,
+  `resources/templates/list`, `resources/read`, `subscriptions/listen`, `tools/call`, `tools/list`, and
+  `ClientNotification` = `notifications/cancelled`; `server/discover` is "a request from the client asking the server
+  to advertise its supported protocol versions, capabilities, and other metadata". `initialize`, `ping`,
+  `logging/setLevel` (deprecated in favour of a per-request `_meta` log level) and `tasks/*` are not in that schema;
+  the SDK (`@modelcontextprotocol/core` 2.2.0) still defines them for the 2025-11-25 era. `server/discover` was the only
+  client-to-server method missing from the pattern, so P8-61 adds it; `sampling/createMessage`, `roots/list` and
+  `elicitation/create` are server-to-client and never arrive as requests.

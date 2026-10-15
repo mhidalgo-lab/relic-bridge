@@ -17,6 +17,7 @@ import {
   telemetrySettingsFromEnv,
 } from '../src/index.ts';
 import { connect, mockNerdGraph, NR_KEY, seedWorld, type World } from './fixtures.ts';
+import { rpcRequest } from './tasks-fixtures.ts';
 
 const LICENSE = `lic-${'k'.repeat(30)}NRAL`;
 
@@ -463,6 +464,75 @@ describe('OTLP logs (P7-18)', () => {
     expect(keys(4)).toEqual({ 'log.mcpMethod': 'tasks/get' });
     expect(received.map((r) => r.body).join('\n')).not.toContain('victim');
     expect(received.map((r) => r.body).join('\n')).not.toContain('nrql://');
+  });
+
+  it('names every client-to-server method of the spec and SDK, server/discover included (P8-61)', async () => {
+    // MCP 2026-07-28 schema (ClientRequest, ClientNotification) plus the 2025-11-25-era methods the server still
+    // serves, as defined by @modelcontextprotocol/core 2.2.0. Server-to-client requests never arrive as requests.
+    const methods = [
+      'server/discover',
+      'initialize',
+      'ping',
+      'completion/complete',
+      'logging/setLevel',
+      'prompts/list',
+      'prompts/get',
+      'resources/list',
+      'resources/templates/list',
+      'resources/read',
+      'resources/subscribe',
+      'resources/unsubscribe',
+      'subscriptions/listen',
+      'tools/list',
+      'tools/call',
+      'tasks/get',
+      'tasks/result',
+      'tasks/list',
+      'tasks/cancel',
+      'notifications/initialized',
+      'notifications/cancelled',
+      'notifications/progress',
+      'notifications/roots/list_changed',
+      'notifications/elicitation/complete',
+    ];
+    const t = createTelemetry({ endpoint: base, fetch: receiverFetch });
+    const log = t.wrapLogger(createLogger({ level: 'debug', sink: (l) => logLines.push(l) }));
+    for (const mcpMethod of methods) log.info('http request', { mcpMethod });
+    await t.flush();
+    const exported = bodies('/v1/logs')
+      .flatMap((b) => b.resourceLogs[0].scopeLogs[0].logRecords)
+      .map(
+        (r: { attributes: { key: string; value: { stringValue: string } }[] }) =>
+          r.attributes.find((a) => a.key === 'log.mcpMethod')?.value.stringValue,
+      );
+    expect(exported).toEqual(methods);
+  });
+
+  it('a real server/discover request is named in the exported access log (P8-61)', async () => {
+    const telemetry = createTelemetry({ endpoint: base, fetch: receiverFetch });
+    const app = createHttpApp({
+      storage: world.storage,
+      keyring: world.keyring,
+      clock: world.clock,
+      logger: telemetry.wrapLogger(logger()),
+      fetch: mockNerdGraph().fetch,
+      hooks: mergeHooks(telemetry.hooks),
+    });
+    const res = await app.fetch(rpcRequest(world.tokens.prod, 'server/discover', {}, { tasks: false }));
+    expect(res.status).toBe(200);
+    await res.text();
+    await telemetry.flush();
+    const access = bodies('/v1/logs')
+      .flatMap((b) => b.resourceLogs[0].scopeLogs[0].logRecords)
+      .filter((r: { body: { stringValue: string } }) => r.body.stringValue === 'http request');
+    expect(access.length).toBe(1);
+    const attrs = Object.fromEntries(
+      access[0].attributes.map((a: { key: string; value: Record<string, string> }) => [
+        a.key,
+        a.value['stringValue'] ?? a.value['intValue'],
+      ]),
+    );
+    expect(attrs).toMatchObject({ 'log.mcpMethod': 'server/discover', 'log.route': '/p/:slug/mcp' });
   });
 
   it('keeps writing the wrapped logger unchanged and bounds the buffer', async () => {

@@ -101,8 +101,9 @@ relic-bridge's limits.
 
 That approval is mandatory by default: `RB_WRITE_APPROVAL` is `required` unless you set it (`serve`, Worker and stdio;
 only the person running the server can change it; ADR-0016). A write from a client that cannot be asked (no elicitation
-support, or a stateless HTTP client on a 2025-era protocol version) is refused: nothing is changed, the agent is told
-why, and the audit row records `confirmation: unavailable`. Such a client can dry-run but not apply a write until you set
+support, or a stateless HTTP client on a 2025-era protocol version) is refused as an error (`RB_WRITE_APPROVAL_UNAVAILABLE`,
+`isError: true`): nothing is changed, the agent is told why, and the audit row records `confirmation: unavailable`. How a
+client is detected and what each outcome returns: [write tools](write-tools.md). Such a client can dry-run but not apply a write until you set
 `RB_WRITE_APPROVAL=client`, which lets the model's own `confirm: true` through (a prompt-injected agent is then the
 only gate) and logs a warning at startup. Dry runs and read tools are unaffected, and the write tools stay listed.
 

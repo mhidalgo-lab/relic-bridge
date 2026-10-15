@@ -23,8 +23,11 @@ import { cleanName } from './identity.ts';
 import { MAX_NRQL_CHARS } from './query.ts';
 import { accountIdSchema, accountInput, singleAccount } from './shared.ts';
 import {
+  APPROVAL_NOTICE,
   assertConfirmed,
   assertWriteGranted,
+  type Confirmation,
+  confirmationOf,
   confirmInput,
   dryRunInput,
   gateStopped,
@@ -167,7 +170,7 @@ const dashboardOutput = z.object({
 
 const DESCRIPTION = `Create a new private New Relic dashboard from NRQL queries: pages of charts (line, area, bar, billboard, pie, table) and plain-text markdown widgets.
 
-Write tool, opt-in. ${SIDE_EFFECT_NOTICE} Needs confirm: true; dry_run: true returns the plan without creating it. Each call creates a new dashboard (not idempotent; it cannot be edited or deleted here), always PRIVATE. Widget NRQL is checked like run_nrql and every query account must be on this connection. Limits: ${DASHBOARD_LIMITS.pages} pages, ${DASHBOARD_LIMITS.widgetsPerPage} widgets per page, ${DASHBOARD_LIMITS.widgets} in all, ${DASHBOARD_LIMITS.queriesPerWidget} queries per widget. To read dashboards use list_dashboards and get_dashboard. To record a change event instead, use create_change_event.`;
+Write tool, opt-in. ${SIDE_EFFECT_NOTICE} Needs confirm: true; dry_run: true returns the plan without creating it. ${APPROVAL_NOTICE} Each call creates a new dashboard (not idempotent; it cannot be edited or deleted here), always PRIVATE. Widget NRQL is checked like run_nrql and every query account must be on this connection. Limits: ${DASHBOARD_LIMITS.pages} pages, ${DASHBOARD_LIMITS.widgetsPerPage} widgets per page, ${DASHBOARD_LIMITS.widgets} in all, ${DASHBOARD_LIMITS.queriesPerWidget} queries per widget. To read dashboards use list_dashboards and get_dashboard. To record a change event instead, use create_change_event.`;
 
 /** Prefix an error with where it happened, keeping its code (limits → RB_LIMIT_QUERY, accounts → RB_AUTH_FORBIDDEN). */
 function at(where: string, e: unknown): never {
@@ -417,9 +420,15 @@ export function createDashboardWriteTool(client: (ctx: ToolContext) => NerdGraph
         ...writeMeta(r),
         'relic-bridge/result': { accounts: plan.accounts },
       });
-      const shaped = (applied: boolean, guid: string | null, warnings: string[]) => ({
+      const shaped = (
+        applied: boolean,
+        guid: string | null,
+        warnings: string[],
+        confirmation: Confirmation | undefined = undefined,
+      ) => ({
         applied,
         dryRun,
+        confirmation: confirmationOf(dryRun, confirmation),
         accountId: account,
         dashboardGuid: guid,
         name: input.name,
@@ -450,7 +459,6 @@ export function createDashboardWriteTool(client: (ctx: ToolContext) => NerdGraph
       );
       if (gate.state !== 'go') {
         return gateStopped(gate, {
-          structured: shaped(false, null, []),
           record: record(false, null),
           meta: { 'relic-bridge/result': { accounts: plan.accounts } },
         });
@@ -513,7 +521,7 @@ export function createDashboardWriteTool(client: (ctx: ToolContext) => NerdGraph
       if (messages.length > 0) lines.push(envelope(messages.join('\n'), { source: 'New Relic messages' }));
       return {
         text: lines.join('\n') + notesText,
-        structured: shaped(true, guid, warnings),
+        structured: shaped(true, guid, warnings, gate.confirmation),
         meta: metaOf({
           ...record(
             true,

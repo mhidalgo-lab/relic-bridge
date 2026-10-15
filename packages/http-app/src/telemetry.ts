@@ -29,6 +29,7 @@ import {
   silentLogger,
   systemClock,
   VERSION,
+  WRITE_META_KEY,
 } from '@relic-bridge/core';
 import type { Context } from 'hono';
 import type { HttpAppHooks, McpRequestInfo, RejectInfo } from './app.ts';
@@ -294,6 +295,10 @@ export const ERROR_CLASSIFICATION: Readonly<Record<ErrorCode, ErrorClassificatio
   [ErrorCode.NerdGraphUnavailable]: server(GRPC.unavailable),
   [ErrorCode.BudgetExhausted]: CALLER,
   [ErrorCode.ToolDisabled]: CALLER,
+  // A refused write (P8-88): the owner's approval setting or the person's answer, not a failure of relic-bridge. The span
+  // is still marked ERROR (a write that did not happen must stand out); `rpc.server.duration` is not an RPC error.
+  [ErrorCode.WriteApprovalUnavailable]: CALLER,
+  [ErrorCode.WriteApprovalDeclined]: CALLER,
   [ErrorCode.Internal]: server(GRPC.internal),
 });
 const CLASSIFIED: ReadonlyMap<string, ErrorClassification> = new Map(Object.entries(ERROR_CLASSIFICATION));
@@ -316,6 +321,7 @@ const int = (key: string, value: number): Attr => ({ key, value: { intValue: Str
 const TOOL_NAME = /^[a-z][a-z0-9_]{0,63}$/;
 const ERROR_CODE = /^RB_[A-Z0-9_]{1,48}$/;
 const SLUG = /^[a-z0-9][a-z0-9-]{0,63}$/;
+const WRITE_CONFIRMATION = /^(?:asked|accepted|declined|cancelled|unavailable)$/;
 const REASON = /^[a-z][a-z0-9_]{0,48}$/;
 const SEVERITY: Record<LogLevel, number> = { debug: 5, info: 9, warn: 13, error: 17 };
 // The only log fields that are exported, and the pattern each value must match (`count`: a non-negative number).
@@ -499,6 +505,34 @@ export function createTelemetry(options: TelemetryOptions): Telemetry {
       ...(origin.mode === 'token' ? [str('project', pick(origin.projectSlug, SLUG))] : []),
       str('mode', origin.mode),
     ];
+    // P8-88: what a write did (`applied`) and how it was authorized, from the tool's own record: booleans and a fixed set.
+    const writeRecord = event.meta?.[WRITE_META_KEY];
+    const writeFacts =
+      typeof writeRecord === 'object' && writeRecord !== null
+        ? (writeRecord as { applied?: unknown; confirmation?: unknown; dryRun?: unknown })
+        : undefined;
+    const writeAttrs: Attr[] =
+      writeFacts === undefined
+        ? []
+        : [
+            { key: 'write.applied', value: { stringValue: String(writeFacts.applied === true) } },
+            // The same words as the tool output's `confirmation`, plus the refusals (`unavailable`, `declined`, `cancelled`).
+            str(
+              'write.confirmation',
+              writeFacts.dryRun === true
+                ? 'dry_run'
+                : writeFacts.confirmation === 'accepted'
+                  ? 'approved'
+                  : typeof writeFacts.confirmation === 'string' &&
+                      WRITE_CONFIRMATION.test(writeFacts.confirmation)
+                    ? writeFacts.confirmation
+                    : 'not_required',
+            ),
+          ];
+    const refusedWrite =
+      errorCode === ErrorCode.WriteApprovalUnavailable || errorCode === ErrorCode.WriteApprovalDeclined
+        ? errorCode
+        : undefined;
     const calls = count(event.nerdgraphCalls);
     const bytes = count(event.nerdgraphBytes);
     const metrics: unknown[] = [
@@ -566,6 +600,7 @@ export function createTelemetry(options: TelemetryOptions): Telemetry {
         str('network.transport', origin.mode === 'stdio' ? 'pipe' : 'tcp'),
         ...(calls === undefined ? [] : [int('nerdgraph.calls', calls)]),
         ...(bytes === undefined ? [] : [int('nerdgraph.response_bytes', bytes)]),
+        ...writeAttrs,
       ];
       tasks.push(
         post('/v1/traces', {
@@ -588,9 +623,11 @@ export function createTelemetry(options: TelemetryOptions): Telemetry {
                       // OK; ERROR for a server error; Unset (no status) for a caller error (P8-59).
                       ...(event.status === 'ok'
                         ? { status: { code: 1 } }
-                        : errorType === undefined
-                          ? {}
-                          : { status: { code: 2, message: errorType } }),
+                        : errorType !== undefined
+                          ? { status: { code: 2, message: errorType } }
+                          : refusedWrite !== undefined
+                            ? { status: { code: 2, message: refusedWrite } }
+                            : {}),
                     },
                   ],
                 },

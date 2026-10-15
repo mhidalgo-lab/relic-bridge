@@ -91,3 +91,26 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Assumption made:** a new copy gets `"name": "<name>"`; an old copy still naming `relic-bridge` is rewritten once (with a note); a copy naming anything else, or a default-name run against a copy naming another Worker, is refused with the fix rather than rewritten. No THREAT_MODEL row: no existing threat matches an operator targeting the wrong Worker (T15 is token revocation), so none was added.
 - **Options:** also rewrite any mismatched name (riskier: may overwrite a deliberate rename); add a new threat row for operator mistakes in deployment.
 - **Needs:** owner choice on the new threat row. No changeset: only the private scripts and docs changed.
+
+### P8-88 — Question-round path kept, refused instead of answered when it cannot ask (NEW-16)
+- **Context:** a request that declares form elicitation only in its own `_meta` (the per-request capability path) but is
+  not a 2026-07-28 request reaches the server with no way to send an MCP input request, because the server does not
+  keep `initialize` (ADR-0005). It used to be refused with "handled as a question round" and a hint that told a caller
+  who had already sent `confirm: true` to add it.
+- **Assumption made:** keep the path (the write limit and the fuzz tests classify rounds from the raw body) and keep it
+  fail closed: it is still refused with nothing sent, now with a truthful message, a hint that never mentions
+  `confirm: true`, and the code `RB_WRITE_APPROVAL_UNAVAILABLE` when `RB_WRITE_APPROVAL=required`
+  (`RB_INPUT_INVALID` otherwise). A 2026-07-28 client already gets the real input request.
+- **Options:** (a) as made; (b) build the input request on the legacy path too (needs the SDK to carry a per-request
+  capability on 2025-era connections, or a server-side session, which ADR-0005 rules out); (c) stop classifying a
+  `_meta`-declared request as a question round (it would then be charged to the write limit and refused the same way).
+- **Needs:** owner confirmation that (a) is enough, or a decision to pursue (b) after the MCP SDK exposes per-request
+  capabilities on 2025-era connections.
+
+### P8-88 — Span status for a refused write (P8-90 helper not landed)
+- **Context:** P8-59 leaves the span status unset for caller errors. A write refused for lack of approval is classified
+  as a caller error (`fault=caller`, no gRPC status code, so New Relic's service error rate is not moved by it), but the
+  task asks the span to be marked as an error.
+- **Assumption made:** a local rule in `telemetry.ts`: the two `RB_WRITE_APPROVAL_*` codes set span status ERROR while
+  keeping `fault=caller` and no `rpc.grpc.status_code`. Replace with the P8-90 helper once it lands.
+- **Needs:** none unless P8-90 chooses a different rule.

@@ -2,11 +2,11 @@
 id: P8-88
 title: Report refused writes as errors and document how write approval is detected
 phase: 8
-status: todo
+status: review
 priority: high
 depends_on: []
 adr: [0015, 0016]
-owner: ""
+owner: claude-agent
 ---
 
 # P8-88 — Report refused writes as errors and document how write approval is detected
@@ -40,12 +40,12 @@ know which clients can approve a write.
   the P8-90 helper if it has landed, otherwise a local status set).
 
 ## Acceptance criteria
-- [ ] Tests: refused write (unavailable, declined) → `isError: true`, code, no NerdGraph mutation sent, and no
+- [x] Tests: refused write (unavailable, declined) → `isError: true`, code, no NerdGraph mutation sent, and no
       "untrusted" block.
-- [ ] Tests: dry run of `create_change_event` has `plan` in `structuredContent` that matches the output schema.
-- [ ] Tests: the per-request capability path either returns an input request or is gone; the hint text is correct.
-- [ ] `whoami.limits.writeApproval` present, with a schema and test.
-- [ ] Authorization suite: a refused write is not counted as applied in the audit log (an audit row records the
+- [x] Tests: dry run of `create_change_event` has `plan` in `structuredContent` that matches the output schema.
+- [x] Tests: the per-request capability path either returns an input request or is gone; the hint text is correct.
+- [x] `whoami.limits.writeApproval` present, with a schema and test.
+- [x] Authorization suite: a refused write is not counted as applied in the audit log (an audit row records the
       refusal).
 
 ## Security notes

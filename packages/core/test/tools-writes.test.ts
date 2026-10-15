@@ -317,8 +317,21 @@ describe('create_change_event', () => {
     const r = await client.callTool({ name: 'create_change_event', arguments: { ...rest, dry_run: true } });
     expect(r.isError ?? false, text(r)).toBe(false);
     expect(mutationsOf(ng.calls)).toEqual([]);
-    expect(r.structuredContent).toMatchObject({ applied: false, dryRun: true });
+    expect(r.structuredContent).toMatchObject({
+      applied: false,
+      dryRun: true,
+      confirmation: 'dry_run',
+      // The planned payload, as create_dashboard's dry run carries its pages (P8-88); validated against the output schema.
+      plan: { changeType: 'DEPLOYMENT__BASIC', version: 'v1.2' },
+    });
     expect(text(r)).toContain('Nothing was changed');
+  });
+
+  it('reports how a write that applied was authorized: not_required without an approval prompt', async () => {
+    const ng = nerdGraph();
+    const client = await connect(ng.fetch);
+    const r = await client.callTool({ name: 'create_change_event', arguments: DEPLOY });
+    expect(r.structuredContent).toMatchObject({ applied: true, confirmation: 'not_required' });
   });
 
   it('an entity NerdGraph puts in another account is refused before the mutation', async () => {
@@ -855,6 +868,7 @@ describe('write confirmation through elicitation (2025-era connection, as on std
     expect(asked[0]).toContain('"checkout"');
     expect(mutationsOf(ng.calls).length).toBe(1);
     expect(r._meta?.[WRITE_META_KEY]).toMatchObject({ applied: true, confirmation: 'accepted' });
+    expect(r.structuredContent).toMatchObject({ applied: true, confirmation: 'approved' });
     // Both rounds are audited: the question, then the applied change.
     expect(events.map((e) => e.status)).toEqual(['ok', 'ok']);
     expect(events[0]?.meta?.[WRITE_META_KEY]).toMatchObject({ applied: false, confirmation: 'asked' });
@@ -875,14 +889,21 @@ describe('write confirmation through elicitation (2025-era connection, as on std
       { name: 'create_dashboard', arguments: ELICIT_DASH },
     ]) {
       const r = await client.callTool(args);
-      expect(r.isError ?? false, args.name).toBe(false);
-      expect(r.structuredContent, args.name).toMatchObject({ applied: false });
+      // P8-88: a refusal is an error, not an `applied: false` success.
+      expect(r.isError, args.name).toBe(true);
+      expect(code(r), args.name).toBe(ErrorCode.WriteApprovalDeclined);
       expect(text(r), args.name).toMatch(/declined|cancelled/);
+      expect(text(r), args.name).toContain('nothing was changed');
+      expect(text(r), args.name).not.toContain('untrusted');
     }
     expect(mutationsOf(ng.calls)).toEqual([]);
-    const last = events.at(-1)?.meta?.[WRITE_META_KEY] as { confirmation?: string; applied: boolean };
-    expect(last.applied).toBe(false);
-    expect(['declined', 'cancelled']).toContain(last.confirmation);
+    // The audit row of the refusal: not applied, and the answer.
+    const last = events.at(-1);
+    expect(last?.status).toBe('error');
+    expect(last?.errorCode).toBe(ErrorCode.WriteApprovalDeclined);
+    const record = last?.meta?.[WRITE_META_KEY] as { confirmation?: string; applied: boolean };
+    expect(record.applied).toBe(false);
+    expect(['declined', 'cancelled']).toContain(record.confirmation);
   });
 
   it('shows New Relic text escaped on one quoted line', async () => {
@@ -948,19 +969,27 @@ describe('write confirmation through elicitation (2025-era connection, as on std
       ['create_dashboard', ELICIT_DASH],
     ] as const) {
       const r = await client.callTool({ name, arguments: args });
-      expect(r.isError ?? false).toBe(false);
-      expect(r.structuredContent).toMatchObject({ applied: false });
-      expect(r._meta?.[WRITE_META_KEY]).toMatchObject({ applied: false, confirmation: 'unavailable' });
+      expect(r.isError).toBe(true);
+      expect(code(r)).toBe(ErrorCode.WriteApprovalUnavailable);
+      expect(text(r)).toContain('nothing was changed');
+      expect(text(r)).not.toContain('untrusted');
+      expect(r.structuredContent).toBeUndefined();
     }
     expect(mutationsOf(ng.calls)).toEqual([]);
     expect(events.length).toBe(2);
+    for (const e of events) {
+      expect(e.status).toBe('error');
+      expect(e.errorCode).toBe(ErrorCode.WriteApprovalUnavailable);
+      expect(e.meta?.[WRITE_META_KEY]).toMatchObject({ applied: false, confirmation: 'unavailable' });
+    }
   });
 
   it('requireWriteApproval: elicitWrites false refuses too, and a declaring client is still asked', async () => {
     const ng = nerdGraph();
     const off = await connectAsking(ng.fetch, era, yes, { elicitWrites: false, requireWriteApproval: true });
     const r = await off.client.callTool({ name: 'create_change_event', arguments: DEPLOY });
-    expect(r._meta?.[WRITE_META_KEY]).toMatchObject({ confirmation: 'unavailable' });
+    expect(code(r)).toBe(ErrorCode.WriteApprovalUnavailable);
+    expect(off.events[0]?.meta?.[WRITE_META_KEY]).toMatchObject({ confirmation: 'unavailable' });
     expect(mutationsOf(ng.calls)).toEqual([]);
     const on = await connectAsking(ng.fetch, era, yes, { requireWriteApproval: true });
     const ok = await on.client.callTool({ name: 'create_change_event', arguments: DEPLOY });
@@ -1095,9 +1124,13 @@ describe('approval shows and binds the whole change (phase 7 review H2)', () => 
           writeQuestionOnly: true,
           requireWriteApproval,
         } as ToolContext;
-        await expect(humanGate(ctx, 'create_change_event', message, change)).rejects.toThrow(
-          /question round/,
-        );
+        const refusal = humanGate(ctx, 'create_change_event', message, change);
+        await expect(refusal).rejects.toThrow(/cannot send it an approval question/);
+        // The hint never tells a caller to add confirm: true, and the refusal is a stable code when approval is required.
+        await expect(refusal).rejects.toMatchObject({
+          code: requireWriteApproval ? ErrorCode.WriteApprovalUnavailable : ErrorCode.InputInvalid,
+          hint: expect.not.stringContaining('confirm: true'),
+        });
       }
     });
 
@@ -1113,9 +1146,9 @@ describe('approval shows and binds the whole change (phase 7 review H2)', () => 
       const first = await humanGate(asking, 'create_change_event', message, change);
       expect(first.state).toBe('ask');
       approved.add((first as { ask: { key: string } }).ask.key);
-      await expect(humanGate(asking, 'create_change_event', message, change)).rejects.toThrow(
-        /question round/,
-      );
+      const refused = humanGate(asking, 'create_change_event', message, change);
+      await expect(refused).rejects.toThrow(/question round/);
+      await expect(refused).rejects.toMatchObject({ hint: expect.stringContaining('inputResponses') });
     });
   });
 

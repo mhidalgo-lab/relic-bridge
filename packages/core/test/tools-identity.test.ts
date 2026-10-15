@@ -39,7 +39,11 @@ const identityBody = (
   user = { id: 7, email: 'jane.doe@example.com', name: 'Jane' },
 ) => json({ data: { actor: { user, accounts } } });
 
-async function setup(steps: Parameters<typeof scriptedFetch>, overrides: Partial<ToolContext> = {}) {
+async function setup(
+  steps: Parameters<typeof scriptedFetch>,
+  overrides: Partial<ToolContext> = {},
+  requireWriteApproval = false,
+) {
   const { fetch, calls } = scriptedFetch(...steps);
   const ctx = testContext({
     accounts: { allowed: [A, B], default: A },
@@ -47,7 +51,11 @@ async function setup(steps: Parameters<typeof scriptedFetch>, overrides: Partial
     clock: { now: () => NOW },
     ...overrides,
   });
-  const server = buildMcpServer({ tools: [...createIdentityTools({ fetch }), ...createTimeTools()], ctx });
+  const server = buildMcpServer({
+    tools: [...createIdentityTools({ fetch }), ...createTimeTools()],
+    ctx,
+    requireWriteApproval,
+  });
   const [clientT, serverT] = InMemoryTransport.createLinkedPair();
   await server.connect(serverT);
   const client = new Client({ name: 'test', version: '0.0.0' });
@@ -111,6 +119,28 @@ describe('whoami budget (BUG-28)', () => {
     expect(limits).not.toHaveProperty('callBudget');
     expect(limits).toHaveProperty('perCallBudget');
   });
+});
+
+describe('whoami write approval (P8-88)', () => {
+  it.each([
+    [true, 'required'],
+    [false, 'off'],
+  ] as const)(
+    'RB_WRITE_APPROVAL requirement %s is reported as limits.writeApproval %s',
+    async (required, mode) => {
+      const { client } = await setup([fixtureResponse('identity_A')], { budget: createBudget(10) }, required);
+      const r = await client.callTool({ name: 'whoami', arguments: {} });
+      expect((r.structuredContent as { limits: { writeApproval: string } }).limits.writeApproval).toBe(mode);
+      expect(text(r)).toContain(`Write approval: ${mode}`);
+      const tool = (await client.listTools()).tools.find((t) => t.name === 'whoami');
+      const props = (
+        (tool as NonNullable<typeof tool>).outputSchema as {
+          properties: { limits: { properties: Record<string, { enum?: string[] }> } };
+        }
+      ).properties.limits.properties;
+      expect(props['writeApproval']?.enum).toEqual(['required', 'off']);
+    },
+  );
 });
 
 describe('list_accounts', () => {

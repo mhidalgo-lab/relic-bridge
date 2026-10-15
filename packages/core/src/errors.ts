@@ -23,6 +23,10 @@ export const ErrorCode = {
   NerdGraphUnavailable: 'RB_NERDGRAPH_UNAVAILABLE',
   BudgetExhausted: 'RB_BUDGET_EXHAUSTED',
   ToolDisabled: 'RB_TOOL_DISABLED',
+  /** A write was refused because no person could be asked to approve it (RB_WRITE_APPROVAL=required). Nothing changed. */
+  WriteApprovalUnavailable: 'RB_WRITE_APPROVAL_UNAVAILABLE',
+  /** A write was refused because the person declined, cancelled or did not answer the approval. Nothing changed. */
+  WriteApprovalDeclined: 'RB_WRITE_APPROVAL_DECLINED',
   Internal: 'RB_INTERNAL',
 } as const;
 
@@ -39,6 +43,11 @@ export interface RbErrorOptions {
    * text instead of inside the untrusted-data envelope. Default false (enveloped).
    */
   localDetails?: boolean;
+  /**
+   * Result `_meta` the observers (audit log, telemetry) read although the call failed, e.g. the write record of a refused
+   * write (P8-88). Server-side only: never put into the error result sent to the client.
+   */
+  meta?: Record<string, unknown>;
 }
 
 /** An expected, agent-actionable failure. `message` must be safe to show to the client. */
@@ -47,6 +56,7 @@ export class RbError extends Error {
   readonly hint: string | undefined;
   readonly details: Record<string, unknown> | undefined;
   readonly localDetails: boolean;
+  readonly meta: Record<string, unknown> | undefined;
 
   constructor(code: ErrorCode, message: string, options: RbErrorOptions = {}) {
     super(message, options.cause === undefined ? undefined : { cause: options.cause });
@@ -55,6 +65,7 @@ export class RbError extends Error {
     this.hint = options.hint;
     this.details = options.details;
     this.localDetails = options.localDetails === true;
+    this.meta = options.meta;
   }
 }
 

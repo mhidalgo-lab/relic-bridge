@@ -354,4 +354,5 @@ Generated from task front matter (`pnpm tasks index`). Status lives in each task
 | P8-83 | [Cloudflare guide clarity - CLI build step, zone security note, no internal ids, section order](tasks/phase-8-hardening-launch/P8-83-cloudflare-guide-clarity.md) | low | P8-82 | done |
 | P8-84 | [Release guards - DB fixture for a new minor and changesets for private packages](tasks/phase-8-hardening-launch/P8-84-release-guards.md) | medium | P8-05 | todo |
 | P8-86 | [The one-time setup code never travels in a URL](tasks/phase-8-hardening-launch/P8-86-setup-code-out-of-url.md) | high | — | review |
+| P8-87 | [Flaky fuzz properties - CLI config secrets and OAuth registration](tasks/phase-8-hardening-launch/P8-87-fuzz-property-flakes.md) | low | — | in-progress |
 <!-- tasks:end -->

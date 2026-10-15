@@ -1,13 +1,15 @@
 # relic-bridge
 
-> **Status: alpha, 0.9.0 released.** Phases 1-7 (local stdio, self-hosted HTTP, Cloudflare Worker, sign-in and admin
-> panel, OAuth, more tools, power features) shipped in 0.7.0; 0.8.0 and 0.9.0 fix what live verification runs against
-> real New Relic accounts found. Each release is on [npm](https://www.npmjs.com/package/relic-bridge) (with provenance),
-> as a [GitHub Release](https://github.com/mhidalgo-lab/relic-bridge/releases) and as the signed
+> **Status: alpha (pre-1.0).** Phases 1-7 (local stdio, self-hosted HTTP, Cloudflare Worker, sign-in and admin
+> panel, OAuth, more tools, power features) shipped in 0.7.0; later releases fix what live verification runs against
+> real New Relic accounts found and add the Phase 8 hardening. The current version is on the npm badge below and in the
+> [CHANGELOG](apps/cli/CHANGELOG.md). Each release is on [npm](https://www.npmjs.com/package/relic-bridge) (with
+> provenance), as a [GitHub Release](https://github.com/mhidalgo-lab/relic-bridge/releases) and as the signed
 > `ghcr.io/mhidalgo-lab/relic-bridge` image. Phase 8 (hardening and launch) is in progress toward v1.0. OAuth is
 > implemented and documented for claude.ai and Claude mobile, but has **not** been verified with the real apps
 > ([compatibility](docs/reference/client-compatibility.md)).
 
+[![npm](https://img.shields.io/npm/v/relic-bridge)](https://www.npmjs.com/package/relic-bridge)
 [![CI](https://github.com/mhidalgo-lab/relic-bridge/actions/workflows/ci.yml/badge.svg)](https://github.com/mhidalgo-lab/relic-bridge/actions/workflows/ci.yml)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/mhidalgo-lab/relic-bridge/badge)](https://scorecard.dev/viewer/?uri=github.com/mhidalgo-lab/relic-bridge)
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/15490/badge)](https://www.bestpractices.dev/projects/15490)

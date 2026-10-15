@@ -5,6 +5,9 @@ Docker and a Cloudflare Worker, so you do not retype them. Both are **owner-only
 an owner session), work locally and with `--remote`, and are recorded in the audit log (`config.export`,
 `config.import`).
 
+Moving a whole self-hosted server to a Cloudflare Worker, and keeping its device tokens, encrypted keys and audit log?
+Use `relic-bridge db export --format d1` instead: [Migrate from a self-hosted server](cloudflare-deploy.md#migrate-from-a-self-hosted-server).
+
 ## What moves, and what never does
 
 | Moves | Never moves |

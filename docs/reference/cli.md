@@ -89,12 +89,27 @@ Options for every management command: `--db <path>` (local), `--remote <url>`, `
 `--log-level <level>` and `-h/--help`. `credential remove` also takes `--yes`. Option names are checked per command; an
 option that does not belong to the command is a usage error.
 
-The earlier maintenance commands are unchanged: `serve`, `db backup`, `keys generate|rotate`,
+The earlier maintenance commands are unchanged: `serve`, `db backup`, `db export`, `keys generate|rotate`,
 `credential revalidate` (no id: every stored key, local), `audit purge`. `keys rotate` with `--remote` is a management
 command: the server re-encrypts the stored keys under its own `RB_MASTER_KEY` (reading old rows with its
 `RB_MASTER_KEY_PREVIOUS`) through `POST /api/admin/v1/keys/rotate`, in batches of `--batch-size` rows (default 25), until
 every row was visited. It needs the admin token, never a master key. Exit `0` when every credential is on the current
 version, `1` when rows are left (listed on stderr with the reason). `--json` prints each batch's answer, one per line.
+
+`db export <file> --format d1 [--no-audit] [--force] [--db <path>]` writes the local database as a SQL file for a
+Cloudflare Worker's D1 database (`wrangler d1 execute <database> --remote --file <file>`), to move a self-hosted server
+to a Worker ([guide](../guide/cloudflare-deploy.md#migrate-from-a-self-hosted-server)). It reads one consistent snapshot
+from a read-only connection (safe while `serve` runs) and never decrypts: New Relic keys stay ciphertext, tokens stay
+hashes, so it needs no master key. It refuses a database whose migrations or schema differ from this build. The file
+holds the schema the embedded migrations create (`CREATE ... IF NOT EXISTS`), the `schema_migrations` rows,
+`PRAGMA defer_foreign_keys = true`, then one row per statement (text with control characters and BLOBs as hex
+literals, every statement under D1's 100 KB limit); a guard makes the import fail when the target database already has
+users, keys, projects, grants or tokens. Left out: the `kv` table (sessions, sign-in state, OAuth clients and
+connections, task results, counters), and the audit log with `--no-audit`. The file is created with mode `0600`, an
+existing file is refused unless `--force` (which replaces it with a new file), and a path next to `RB_MASTER_KEY_FILE`
+is refused. Prints the row counts and the master key version the Worker needs; warns when stored keys use more than one
+key version or the import would write more than half of the Workers Free daily D1 row writes. Exit `0` on success, `1`
+when refused.
 
 - **`init`**: creates the master key file unless one is configured (`--master-key-file`, default
   `~/.config/relic-bridge/master.key` (`$XDG_CONFIG_HOME`, `%APPDATA%\relic-bridge` on Windows), mode `0600`, never

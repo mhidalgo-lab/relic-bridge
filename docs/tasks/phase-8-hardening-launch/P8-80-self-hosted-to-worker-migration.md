@@ -2,7 +2,7 @@
 id: P8-80
 title: Supported migration from a self-hosted server to the Cloudflare Worker
 phase: 8
-status: in-progress
+status: review
 priority: high
 depends_on: []
 adr: [0006, 0007]
@@ -44,19 +44,20 @@ and the audit log.
   changeset.
 
 ## Acceptance criteria
-- [ ] `db export` writes a D1-importable file from a live database without decrypting anything; mode `0600`; refuses an
+- [x] `db export` writes a D1-importable file from a live database without decrypting anything; mode `0600`; refuses an
       existing file unless `--force`; refuses a schema that does not match this build.
-- [ ] The file has the embedded-migration schema, the `schema_migrations` rows, `PRAGMA defer_foreign_keys = true`,
+- [x] The file has the embedded-migration schema, the `schema_migrations` rows, `PRAGMA defer_foreign_keys = true`,
       no transaction statements, no `kv` rows; audit rows unless `--no-audit`.
-- [ ] Unit tests: escaping (quotes, NUL and control characters, blobs, unicode, large integers), file mode, overwrite
+- [x] Unit tests: escaping (quotes, NUL and control characters, blobs, unicode, large integers), file mode, overwrite
       refusal and `--force`, exclusions, statement size limit, schema mismatch refusal.
-- [ ] Round-trip test in workerd: export → D1 import → Worker with the same master key serves the token and decrypts
+- [x] Round-trip test in workerd: export → D1 import → Worker with the same master key serves the token and decrypts
       the credential; a second import into the populated database is refused by the guard.
-- [ ] `cf:setup --master-key-stdin` sends the given key, never reveals it or writes it to the backup file, validates
+- [x] `cf:setup --master-key-stdin` sends the given key, never reveals it or writes it to the backup file, validates
       its format; tests.
-- [ ] "Migrate from a self-hosted server" section: order, what moves and what does not, rollback, never regenerate
+- [x] "Migrate from a self-hosted server" section: order, what moves and what does not, rollback, never regenerate
       the master key; CLI reference and help; THREAT_MODEL; changeset.
-- [ ] Verified against a real Cloudflare account (left to the owner: needs a live deploy).
+- [ ] Verified against a real Cloudflare account. Not ticked: needs a live deploy (owner). Checked locally with
+      `wrangler d1 execute --local --file` (wrangler 4.144.0) and in workerd (Miniflare D1).
 
 ## Security notes
 T7 (the export holds credential ciphertext and token hashes: it must never sit next to the master key; `0600`; no

@@ -2,11 +2,11 @@
 id: P8-62
 title: Remove the deprecated whoami limits.callBudget alias in 0.11.0
 phase: 8
-status: todo
+status: review
 priority: low
 depends_on: [P8-05, P8-47]
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P8-62 — Remove the deprecated whoami limits.callBudget alias in 0.11.0
@@ -35,12 +35,12 @@ minors of warning.
 - `docs/guide/upgrading.md`: a `0.10.x → 0.11.0` note with the same line.
 
 ## Acceptance criteria
-- [ ] 0.10.0 is published (CHANGELOG or tag) before this is merged; the PR description says which release takes it.
-- [ ] `whoami` returns `limits.perCallBudget` and no `limits.callBudget`; the output schema no longer lists it.
-- [ ] Tests updated; a test asserts the alias is gone. The `tools/list` size budget test still passes.
-- [ ] `docs/reference/tools.md` regenerated; the policy's deprecations table and the upgrade notes updated.
-- [ ] Changeset is `minor`, marked **Breaking**, and names the 0.9.1 announcement and the replacement.
-- [ ] `pnpm lint && pnpm typecheck && pnpm test` pass.
+- [x] 0.10.0 is published (CHANGELOG or tag) before this is merged; the PR description says which release takes it.
+- [x] `whoami` returns `limits.perCallBudget` and no `limits.callBudget`; the output schema no longer lists it.
+- [x] Tests updated; a test asserts the alias is gone. The `tools/list` size budget test still passes.
+- [x] `docs/reference/tools.md` regenerated; the policy's deprecations table and the upgrade notes updated.
+- [x] Changeset is `minor`, marked **Breaking**, and names the 0.9.1 announcement and the replacement.
+- [x] `pnpm lint && pnpm typecheck && pnpm test` pass.
 
 ## Security notes
 None: an output field that duplicates another is removed; no input, access or limit changes.

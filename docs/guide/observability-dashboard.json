@@ -22,7 +22,7 @@
           }
         },
         {
-          "title": "Server error % (needs the P8-59 version)",
+          "title": "Server error %",
           "layout": { "column": 4, "row": 1, "width": 3, "height": 3 },
           "visualization": { "id": "viz.billboard" },
           "rawConfiguration": {

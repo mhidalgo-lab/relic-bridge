@@ -350,4 +350,5 @@ Generated from task front matter (`pnpm tasks index`). Status lives in each task
 | P8-79 | [get_dashboard returns widget visualizations; dashboard recipe title](tasks/phase-8-hardening-launch/P8-79-dashboard-viz-readback.md) | medium | — | review |
 | P8-80 | [Supported migration from a self-hosted server to the Cloudflare Worker](tasks/phase-8-hardening-launch/P8-80-self-hosted-to-worker-migration.md) | high | — | review |
 | P8-81 | [Record the D1 database id in the local Wrangler config and stop the "remote configuration differs" noise](tasks/phase-8-hardening-launch/P8-81-d1-database-id.md) | medium | — | review |
+| P8-82 | [cf:setup polish - real URLs, quieter drift warning, login permission check, CLI next steps](tasks/phase-8-hardening-launch/P8-82-cf-setup-polish.md) | low | P8-81 | review |
 <!-- tasks:end -->

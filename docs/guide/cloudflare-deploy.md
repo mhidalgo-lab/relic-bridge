@@ -20,16 +20,22 @@ pnpm cf:setup --plan free                                   # or --plan paid; --
 
 The script:
 
-1. generates `RB_MASTER_KEY` (encrypts stored New Relic keys) and `RB_ADMIN_TOKEN` (opens the admin API) with your
+1. checks the Wrangler login first (`wrangler whoami`): it stops before changing anything when Wrangler is not logged
+   in, or when the login lacks `workers_scripts:write` or `d1:write` (and `zone:read` once the local config has
+   `routes`), for example a login made for another project. Run `wrangler login` again then. An API token
+   (`CLOUDFLARE_API_TOKEN`) does not list its permissions, so the script only notes what it needs;
+2. generates `RB_MASTER_KEY` (encrypts stored New Relic keys) and `RB_ADMIN_TOKEN` (opens the admin API) with your
    machine's secure random generator, and passes them to Wrangler **on stdin**: never as command-line arguments
    (visible in the process list), never written to a repo file;
-2. deploys using `apps/worker/wrangler.local.jsonc`, a git-ignored copy of `wrangler.jsonc`. Wrangler creates the D1
+3. deploys using `apps/worker/wrangler.local.jsonc`, a git-ignored copy of `wrangler.jsonc`. Wrangler creates the D1
    database on the first deploy (or binds an existing database with the same name), and the script then records the
    database's id in the copy, never in a committed file. Another `--name` gets its own copy
    (`wrangler.<name>.local.jsonc`) and its own D1 database named after the Worker, so a staging Worker never binds to
    the production database, and its own Rate Limiting namespace (two Workers on one account would otherwise share the
    `1701` counters);
-3. prints the Worker URL and the next steps.
+4. prints the URLs Wrangler deployed (custom domain and `workers.dev`) and the next steps, with `RB_REMOTE` set to the
+   custom domain when there is one. The steps call the CLI from the clone (`node apps/cli/dist/index.mjs`) and start
+   with the build command when it is not built yet.
 
 The two secrets are **shown once**, right after they are set (before the deploy, so a failed deploy doesn't lose them). Save them in a password manager. If you lose `RB_MASTER_KEY`, stored New
 Relic keys can't be decrypted and you must re-add them. `--backup-file <path>` also writes them to a new file with mode
@@ -56,8 +62,10 @@ refused too: a new master key would orphan every stored New Relic key. Restore t
 
 `wrangler.local.jsonc` is never overwritten (it holds the database id and any edits of yours, such as a custom
 domain); the script only adds the `database_id` to it when it is missing. On a re-run the script compares it with
-`wrangler.jsonc`, ignoring comments, whitespace and the ids, and **warns** when they differ, for example after a
-`git pull` added a binding or cron. Copy the new entries into the local file, keeping its `database_id`. Deleting the
+`wrangler.jsonc` and **warns**, naming the settings, when the copy lacks a setting of `wrangler.jsonc` or has it with
+another value, for example after a `git pull` added a binding or cron. Settings that are yours to change are not
+compared: `routes`, `workers_dev`, `preview_urls`, `vars`, `account_id`, the database id and anything only in the copy.
+Copy the named entries into the local file, keeping its `database_id`. Deleting the
 file loses your edits but not your data: the next run makes a new copy, and Wrangler binds the same database by its
 name.
 

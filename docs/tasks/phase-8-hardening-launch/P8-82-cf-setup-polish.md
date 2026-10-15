@@ -2,7 +2,7 @@
 id: P8-82
 title: cf:setup polish - real URLs, quieter drift warning, login permission check, CLI next steps
 phase: 8
-status: in-progress
+status: review
 priority: low
 depends_on: [P8-81]
 adr: []
@@ -42,15 +42,15 @@ guide (Path A) with a custom domain and `workers_dev: false`:
 - `--dry-run` lists each new step (login check, URL, CLI build check) and still calls nothing.
 
 ## Acceptance criteria
-- [ ] The printed `RB_REMOTE` and `curl` lines use the custom domain when one is deployed, else the `workers.dev`
+- [x] The printed `RB_REMOTE` and `curl` lines use the custom domain when one is deployed, else the `workers.dev`
       address; every deployed URL is listed; no URL in the output → an explicit "find the URL in the dashboard" line.
-- [ ] A copy that only adds `routes`, `workers_dev: false`, `vars` or ids gets no warning; a copy that lacks a binding,
+- [x] A copy that only adds `routes`, `workers_dev: false`, `vars` or ids gets no warning; a copy that lacks a binding,
       cron or setting of `wrangler.jsonc` gets a warning naming it.
-- [ ] Not logged in, or an OAuth login without `d1:write` / `workers_scripts:write` (or `zone:read` with routes), stops
+- [x] Not logged in, or an OAuth login without `d1:write` / `workers_scripts:write` (or `zone:read` with routes), stops
       before anything is generated, copied or sent, and says to run `wrangler login` again; an API token gets a note.
-- [ ] Next steps work from a fresh clone (build command when the CLI is not built; `node apps/cli/dist/index.mjs` form).
-- [ ] `--dry-run` matches the real run's steps and calls nothing.
-- [ ] Tests for each (mocked Wrangler output, no network).
+- [x] Next steps work from a fresh clone (build command when the CLI is not built; `node apps/cli/dist/index.mjs` form).
+- [x] `--dry-run` matches the real run's steps and calls nothing.
+- [x] Tests for each (mocked Wrangler output, no network).
 
 ## Security notes
 None. `whoami --json` output contains the account email and ids; the script reads only `loggedIn`, `authType` and

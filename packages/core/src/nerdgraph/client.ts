@@ -295,6 +295,9 @@ export class NerdGraphClient {
           'API-Key': credential.apiKey.reveal(),
         },
         body: JSON.stringify({ query: document.query, variables, operationName: document.name }),
+        // Never follow a redirect: it would carry the API-Key header (and the query) to wherever it points (P8-65).
+        // `manual` (not `error`) so the answer is a clear, non-retried error instead of a network failure.
+        redirect: 'manual',
         signal: controller.signal,
       });
     } catch (cause) {
@@ -323,6 +326,16 @@ export class NerdGraphClient {
         }
         this.#o.budget.noteNerdGraphBytes?.(bytes.byteLength);
         return { kind: 'ok', body, bytes: bytes.byteLength };
+      }
+      if (res.type === 'opaqueredirect' || (status >= 300 && status < 400)) {
+        discard(res);
+        throw new RbError(
+          ErrorCode.NerdGraphError,
+          'NerdGraph answered with a redirect, which is not followed.',
+          {
+            hint: 'relic-bridge only sends the User API key to the NerdGraph endpoint itself. Check for a proxy or a changed endpoint.',
+          },
+        );
       }
       if (status === 401) {
         discard(res);

@@ -55,7 +55,9 @@ address that differs from `RB_PUBLIC_URL` is refused by careful clients.
      grant. No grant? The page says so and offers Deny only.
    - **Device name** (optional) labels this connection in your device list.
    - **Don't ask again for this app** (off by default) remembers the approval for 30 days, for this app, this
-     address and this project only.
+     address and this project only. It is offered only to apps identified by their website (metadata-document apps,
+     such as claude.ai). An app that registered itself (**not verified**) asks every time, because anyone can register
+     any name.
    - **Changes in New Relic** (only on servers with write tools on, and only when the app asks for the `mcp:write`
      scope): a separate box lists the changes your access allows and an unticked **Also allow changes** checkbox.
      Leave it unticked and the app is read-only. Such requests are never remembered and never answered silently
@@ -131,7 +133,8 @@ switch can't turn it back on). Turning it on asks for a confirmation.
 `/oauth/approvals` lists the apps you told not to ask again, with **Forget**. Forgetting makes the app ask next time;
 tokens it already has keep working until they expire (use **Disconnect** under [Connected apps](#connected-apps) to
 end them now). A remembered approval also ends by
-itself when its grant stops working (revoked, expired, key removed): you are asked again.
+itself when its grant stops working (revoked, expired, key removed): you are asked again. Approvals that versions up to
+0.9.1 remembered for self-registered (**not verified**) apps are no longer used or listed: those apps ask again.
 
 ![Remembered apps](images/oauth-approvals-light.png)
 

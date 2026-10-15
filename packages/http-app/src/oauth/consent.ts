@@ -10,7 +10,8 @@
 // re-validated by the provider every time, so nothing a page showed can differ from what is approved. The user can only
 // pick one of their own grants on the project the `resource` names; `approve()` re-runs the access resolver anyway.
 // Remembered approvals are `kv` rows per user + client + redirect URI + resource, written only after an explicit
-// approval with the box ticked; they still go through `approve()` (grant usable, CIMD document valid).
+// approval with the box ticked, and only for client ID metadata-document clients (a dynamically registered client's
+// identity is not verified, P8-65); they still go through `approve()` (grant usable, CIMD document valid).
 import {
   ApprovalsPage,
   CONSENT_FIELDS,
@@ -352,6 +353,9 @@ export function createConsentScreen(deps: ConsentScreenDeps): ConsentScreen {
     return response;
   };
 
+  /** "Don't ask again" is offered and honoured only for client ID metadata-document clients (P8-65). */
+  const remembersClient = (api: OAuthConsentApi): boolean => api.request.clientKind === 'metadata_document';
+
   /** A remembered approval for this request, still in date and covering the requested scopes. */
   const remembered = async (
     userId: string,
@@ -360,6 +364,12 @@ export function createConsentScreen(deps: ConsentScreenDeps): ConsentScreen {
   ): Promise<StoredApproval | null> => {
     const stored = parseStored(await kv.get(rememberKey(userId, id)));
     if (stored === null || stored.expiresAt <= clock.now()) return null;
+    // Only metadata-document clients are identified (by their https client id). A dynamically registered client is
+    // not, so it is never answered from memory; rows stored for one before P8-65 are dropped when met.
+    if (!remembersClient(api) || stored.clientKind !== 'metadata_document') {
+      await kv.delete(rememberKey(userId, id));
+      return null;
+    }
     if (stored.projectSlug !== api.request.projectSlug) return null;
     if (api.request.scope.includes(MCP_WRITE_SCOPE)) return null;
     return api.request.scope.every((s) => stored.scope.includes(s)) ? stored : null;
@@ -541,9 +551,10 @@ export function createConsentScreen(deps: ConsentScreenDeps): ConsentScreen {
           principal,
         );
       }
-      // An approval that involved `mcp:write` is never remembered (P7-09).
+      // An approval that involved `mcp:write` is never remembered (P7-09), nor one for a dynamic client (P8-65).
       const saved =
         !writeRequested &&
+        remembersClient(api) &&
         single(fields, CONSENT_FIELDS.remember) === '1' &&
         (await remember(principal, api, grant, label));
       consentAudit(c, 'oauth.consent.approve', principal, api, {
@@ -566,7 +577,14 @@ export function createConsentScreen(deps: ConsentScreenDeps): ConsentScreen {
       for (const k of keys) {
         const stored = parseStored(await kv.get(k.name));
         const id = k.name.slice(prefix.length);
-        if (stored === null || stored.expiresAt <= clock.now() || !APPROVAL_ID_RE.test(id)) continue;
+        // Rows of dynamic clients (stored before P8-65) are no longer honoured, so they are not listed either.
+        if (
+          stored === null ||
+          stored.expiresAt <= clock.now() ||
+          stored.clientKind !== 'metadata_document' ||
+          !APPROVAL_ID_RE.test(id)
+        )
+          continue;
         rows.push({
           id,
           client: {

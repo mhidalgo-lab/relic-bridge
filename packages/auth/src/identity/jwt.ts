@@ -42,7 +42,8 @@ export function remoteKeySource(url: URL, fetch: FetchLike): KeySource {
   return createRemoteJWKSet(url, {
     // The JWKS body goes through the same size cap as every other IdP answer (P4-07): jose reads it whole otherwise.
     [customFetch]: async (u: string, init: RequestInit) => {
-      const res = await fetch(u, init);
+      // No redirects (jose asks for `manual` too; kept explicit so a JWKS answer only comes from the configured URL).
+      const res = await fetch(u, { ...init, redirect: 'manual' });
       const text = await readCapped(res, IDP_MAX_RESPONSE_BYTES);
       return new Response(res.status === 204 || res.status === 304 ? null : text, {
         status: res.status,

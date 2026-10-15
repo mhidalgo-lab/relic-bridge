@@ -20,8 +20,8 @@ import { CONSENT_ROUTES, MCP_ROUTES, type RouteCase, requestFor } from './matrix
 const ISSUER = PUBLIC_ORIGIN;
 const REDIRECT = 'http://127.0.0.1:53682/callback';
 const resourceOf = (slug: string): string => `${ISSUER}/p/${slug}/mcp`;
-const CLAUDE_AI_ID = 'https://claude.ai/oauth/mcp-oauth-client-metadata';
-const CLAUDE_AI_CALLBACK = 'https://claude.ai/api/mcp/auth_callback';
+export const CLAUDE_AI_ID = 'https://claude.ai/oauth/mcp-oauth-client-metadata';
+export const CLAUDE_AI_CALLBACK = 'https://claude.ai/api/mcp/auth_callback';
 const HOSTILE_NAME = '<img src=x onerror=alert(1)> "Totally Claude"';
 
 const b64u = (bytes: Uint8Array): string =>
@@ -186,6 +186,28 @@ export function codeOf(res: Captured): string | null {
   return new URL(location).searchParams.get('code');
 }
 
+/** Serves claude.ai's client metadata document (a CIMD client: identified by its https client id). */
+export const claudeDocs: ClientMetadataFetch = async (url) =>
+  url === CLAUDE_AI_ID
+    ? new Response(
+        JSON.stringify({
+          client_id: CLAUDE_AI_ID,
+          client_name: 'Claude',
+          redirect_uris: [CLAUDE_AI_CALLBACK],
+          grant_types: ['authorization_code', 'refresh_token'],
+          response_types: ['code'],
+          token_endpoint_auth_method: 'none',
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      )
+    : new Response('no', { status: 404 });
+
+/** The remembered-approval id of a request, as the consent screen computes it. */
+async function approvalIdOf(clientId: string, redirectUri: string, resource: string): Promise<string> {
+  const material = JSON.stringify([clientId, redirectUri, resource]);
+  return b64u(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(material))));
+}
+
 const WHOAMI = { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'whoami', arguments: {} } };
 
 export function consentSuite(): void {
@@ -224,6 +246,17 @@ export function consentSuite(): void {
     return (await h.auditRows())
       .filter((r) => r.action.startsWith('oauth.consent.'))
       .sort((a, b) => a.id - b.id);
+  };
+
+  /** A browser for claude.ai's metadata-document client, on an app that resolves client ids (replaces `app`). */
+  const metadataBrowser = (): Browser => {
+    app = h.makeApp({
+      oauth: { accessTokenTtlSeconds: 600, clientMetadataDocuments: { fetch: claudeDocs } },
+    });
+    const b = new Browser(h, app, secrets);
+    b.clientId = CLAUDE_AI_ID;
+    b.redirectUri = CLAUDE_AI_CALLBACK;
+    return b;
   };
 
   /** Signed in, page shown, form posted with the first offered grant. */
@@ -321,29 +354,13 @@ export function consentSuite(): void {
     });
 
     it('a metadata-document client is shown with the host that vouches for it', async () => {
-      const docs: ClientMetadataFetch = async (url) =>
-        url === CLAUDE_AI_ID
-          ? new Response(
-              JSON.stringify({
-                client_id: CLAUDE_AI_ID,
-                client_name: 'Claude',
-                redirect_uris: [CLAUDE_AI_CALLBACK],
-                grant_types: ['authorization_code', 'refresh_token'],
-                response_types: ['code'],
-                token_endpoint_auth_method: 'none',
-              }),
-              { status: 200, headers: { 'content-type': 'application/json' } },
-            )
-          : new Response('no', { status: 404 });
-      const cimdApp = h.makeApp({ oauth: { clientMetadataDocuments: { fetch: docs } } });
-      const cimd = new Browser(h, cimdApp, secrets);
-      cimd.clientId = CLAUDE_AI_ID;
-      cimd.redirectUri = CLAUDE_AI_CALLBACK;
+      const cimd = metadataBrowser();
       const { res } = await cimd.open(owner);
       expect(res.status, res.text).toBe(200);
       expect(res.text).toContain('identified');
       expect(res.text).toMatch(/website\s*<strong class="consent-host">claude\.ai<\/strong>/);
       expect(res.text).not.toContain('a program on the computer');
+      expect(res.text).toContain('name="remember"');
       expect(res.headers.get('content-security-policy')).toContain("form-action 'self' https://claude.ai;");
       const { action, grants } = parseConsent(res);
       const done = await cimd.post(owner, action, { decision: 'approve', grant: grants[0] as string });
@@ -580,7 +597,7 @@ export function consentSuite(): void {
     });
 
     it('prompt=none with a remembered approval is answered silently with a code', async () => {
-      await browser.register();
+      browser = metadataBrowser();
       expect((await approve(owner, { remember: '1' })).res.status).toBe(303);
       const again = await browser.open(owner, 'prod', { prompt: 'none' });
       expect(again.res.status).toBe(303);
@@ -613,8 +630,12 @@ export function consentSuite(): void {
   });
 
   describe('remembered approvals', () => {
+    // "Don't ask again" exists only for metadata-document clients (P8-65); the dynamic-client cases are below.
+    beforeEach(() => {
+      browser = metadataBrowser();
+    });
+
     it('remember: the next authorization of the same client is answered at once; forgetting brings the page back', async () => {
-      await browser.register();
       const first = await approve(owner, { remember: '1' });
       expect(first.res.status).toBe(303);
       // Same client, redirect and resource: no page, a fresh code.
@@ -639,7 +660,7 @@ export function consentSuite(): void {
         new Request(`${ISSUER}/oauth/approvals`, { headers: navigation(owner) }),
       );
       expect(list.status).toBe(200);
-      expect(list.text).toContain('Consent test client');
+      expect(list.text).toContain('Claude');
       const id = /name="id" value="([A-Za-z0-9_-]{43})"/.exec(list.text)?.[1] as string;
       expect(id).toBeDefined();
       // Another user can't forget it (their prefix has no such row), nor can a post without the CSRF token.
@@ -661,7 +682,6 @@ export function consentSuite(): void {
     });
 
     it('review H1: a silent re-authorization disconnects nothing; redeeming its code replaces the earlier device', async () => {
-      await browser.register();
       const first = await approve(owner, { remember: '1' });
       const tok = await browser.exchange(codeOf(first.res) as string, first.verifier);
       expect(tok.status, tok.text).toBe(200);
@@ -716,7 +736,6 @@ export function consentSuite(): void {
     });
 
     it('a remembered approval whose grant was revoked is dropped and the page is shown', async () => {
-      await browser.register();
       await approve(owner, { remember: '1' });
       await h.world.storage.grants.update(h.world.grantIds.prod, { revokedAt: h.world.clock.now() });
       const again = await browser.open(owner);
@@ -728,7 +747,6 @@ export function consentSuite(): void {
     });
 
     it('remembering is opt-in, and asking for more scope asks again', async () => {
-      await browser.register();
       await approve(owner);
       expect((await browser.open(owner)).res.status).toBe(200);
       // Remembered for `mcp:read` only; a request with `offline_access` too is asked again.
@@ -737,6 +755,66 @@ export function consentSuite(): void {
       await browser.post(owner, action, { decision: 'approve', grant: grants[0] as string, remember: '1' });
       expect((await browser.open(owner, 'prod', { scope: 'mcp:read' })).res.status).toBe(303);
       expect((await browser.open(owner, 'prod', { scope: 'mcp:read offline_access' })).res.status).toBe(200);
+    });
+
+    it('P8-65: a dynamically registered client is never offered, saved or answered from memory', async () => {
+      const dynamic = new Browser(h, h.makeApp({ oauth: { accessTokenTtlSeconds: 600 } }), secrets);
+      await dynamic.register();
+      const { res: page } = await dynamic.open(owner);
+      expect(page.status, page.text).toBe(200);
+      expect(page.text).not.toContain('name="remember"');
+      expect(page.text).not.toContain('ask again');
+      // A forged `remember=1` is ignored: nothing is stored, the next request shows the page again.
+      const { action, grants } = parseConsent(page);
+      const done = await dynamic.post(owner, action, {
+        decision: 'approve',
+        grant: grants[0] as string,
+        remember: '1',
+      });
+      expect(done.status).toBe(303);
+      expect((await h.world.storage.kv.list({ prefix: 'oauth-consent:usr_a:' })).keys).toEqual([]);
+      expect((await dynamic.open(owner)).res.status).toBe(200);
+      const silent = await dynamic.open(owner, 'prod', { prompt: 'none' });
+      expect(new URL(silent.res.headers.get('location') as string).searchParams.get('error')).toBe(
+        'consent_required',
+      );
+      expect((await consentRows()).at(-1)).toMatchObject({ action: 'oauth.consent.approve' });
+    });
+
+    it('P8-65: a remembered approval stored for a dynamic client before the change is ignored, dropped and not listed', async () => {
+      const dynamic = new Browser(h, h.makeApp({ oauth: { accessTokenTtlSeconds: 600 } }), secrets);
+      const clientId = await dynamic.register('Old dynamic client');
+      const id = await approvalIdOf(clientId, REDIRECT, resourceOf('prod'));
+      const legacy = {
+        grantId: h.world.grantIds.prod,
+        clientId,
+        scope: ['mcp:read', 'offline_access'],
+        label: null,
+        clientName: 'Old dynamic client',
+        clientKind: 'dynamic',
+        clientHost: null,
+        redirectHost: '127.0.0.1:53682',
+        projectSlug: 'prod',
+        grantLabel: 'prod',
+        expiresAt: h.world.clock.now() + 86_400_000,
+      };
+      const key = `oauth-consent:usr_a:${id}`;
+      await h.world.storage.kv.put(key, JSON.stringify(legacy), { expirationTtl: 86_400 });
+      const list = await dynamic.send(
+        new Request(`${ISSUER}/oauth/approvals`, { headers: navigation(owner) }),
+      );
+      expect(list.status).toBe(200);
+      expect(list.text).not.toContain('Old dynamic client');
+      // Neither a normal nor a silent request is answered from it; the row is deleted when met.
+      const silent = await dynamic.open(owner, 'prod', { prompt: 'none' });
+      expect(codeOf(silent.res)).toBeNull();
+      expect(new URL(silent.res.headers.get('location') as string).searchParams.get('error')).toBe(
+        'consent_required',
+      );
+      expect(await h.world.storage.kv.get(key)).toBeNull();
+      const again = await dynamic.open(owner);
+      expect(again.res.status).toBe(200);
+      expect(codeOf(again.res)).toBeNull();
     });
   });
 

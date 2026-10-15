@@ -170,6 +170,35 @@ describe('NerdGraphClient: retries', () => {
     expect(calls).toHaveLength(2);
   });
 
+  // P8-65: a followed redirect would carry the API-Key header to wherever it points.
+  it('never follows redirects and refuses a 3xx without a retry', async () => {
+    const modes: (RequestRedirect | undefined)[] = [];
+    for (const answer of [
+      new Response(null, { status: 307, headers: { location: 'https://elsewhere.example/graphql' } }),
+      new Response(null, { status: 301, headers: { location: 'https://elsewhere.example/' } }),
+      // What a browser-style fetch returns for `redirect: 'manual'`.
+      {
+        type: 'opaqueredirect',
+        status: 0,
+        body: null,
+        bodyUsed: false,
+        headers: new Headers(),
+      } as unknown as Response,
+    ]) {
+      let calls = 0;
+      const fetch: FetchLike = async (_url, init) => {
+        calls++;
+        modes.push(init.redirect);
+        return answer;
+      };
+      const error = await failure(setup(fetch).client.query(NRQL, VARS));
+      expect(error.code).toBe(ErrorCode.NerdGraphError);
+      expect(error.message).toMatch(/redirect/);
+      expect(calls).toBe(1);
+    }
+    expect(modes).toEqual(['manual', 'manual', 'manual']);
+  });
+
   it('does not retry auth errors, GraphQL errors or timeouts', async () => {
     for (const res of [
       fixtureResponse('error_invalid_user_key'),

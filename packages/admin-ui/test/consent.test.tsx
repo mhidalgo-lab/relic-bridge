@@ -91,9 +91,11 @@ describe('consent page: write access (P7-09)', () => {
   });
 
   it('not requested: nothing about changes, remember box as before', () => {
-    const doc = parse(html(props({ grants: withWrites.grants })));
+    const doc = parse(html(props({ client: cimdClient, grants: withWrites.grants })));
     expect(doc.querySelector('input#write')).toBeNull();
     expect(doc.querySelector('input#remember')).not.toBeNull();
+    // P8-65: never offered to a dynamically registered client (its identity is not verified).
+    expect(parse(html(props({ grants: withWrites.grants }))).querySelector('input#remember')).toBeNull();
     expect(doc.body.textContent).not.toContain('Changes, only if');
   });
 });

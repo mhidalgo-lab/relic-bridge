@@ -15,7 +15,14 @@ import {
   type OAuthConsentHandler,
 } from '../../src/index.ts';
 import { CATALOG, connect, NR_KEY } from '../fixtures.ts';
-import { Browser, codeOf, parseConsent } from './consent-suite.ts';
+import {
+  Browser,
+  CLAUDE_AI_CALLBACK,
+  CLAUDE_AI_ID,
+  claudeDocs,
+  codeOf,
+  parseConsent,
+} from './consent-suite.ts';
 import {
   ADMIN_TOKEN,
   type AuthzApp,
@@ -846,10 +853,15 @@ describe('OAuth: mcp:write', () => {
 
   it('consent screen: a separate unticked box, never remembered, never silent', async () => {
     const { grantId } = await setup('o-ui', { userId: 'usr_a', grantTools: ['whoami', 'acknowledge_issue'] });
-    const app = h.makeApp({ writeTools: true, oauth: { accessTokenTtlSeconds: 600 } });
+    // A metadata-document client: the only kind a read-only approval can be remembered for (P8-65).
+    const app = h.makeApp({
+      writeTools: true,
+      oauth: { accessTokenTtlSeconds: 600, clientMetadataDocuments: { fetch: claudeDocs } },
+    });
     const browser = new Browser(h, app, secrets);
+    browser.clientId = CLAUDE_AI_ID;
+    browser.redirectUri = CLAUDE_AI_CALLBACK;
     const owner = await h.addSession({ userId: 'usr_a' });
-    await browser.register();
     const form = (session = owner) => ({
       cookie: session.cookie,
       origin: PUBLIC_ORIGIN,

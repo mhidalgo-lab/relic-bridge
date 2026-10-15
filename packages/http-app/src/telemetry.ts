@@ -348,7 +348,9 @@ export function createTelemetry(options: TelemetryOptions): Telemetry {
         headers,
         body: JSON.stringify(body),
         signal: controller.signal,
-        redirect: 'error',
+        // Never follow a redirect (the headers hold the license key). `manual`, not `error`: workerd rejects
+        // `error` ("use manual and check the status"), so a 3xx (or an opaque redirect) fails as `!ok` below (P8-65).
+        redirect: 'manual',
       });
       await response.body?.cancel().catch(() => undefined);
       if (!response.ok) throw new Error(`status ${response.status}`);

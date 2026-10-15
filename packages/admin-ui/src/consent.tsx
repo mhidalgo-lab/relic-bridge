@@ -244,7 +244,8 @@ export function ConsentPage(props: ConsentPageProps): JSX.Element {
               maxlength={CONSENT_LABEL_MAX}
               autocomplete="off"
             />
-            {writeRequested ? null : (
+            {/* Never for `mcp:write` (P7-09) or a dynamically registered client, whose identity is unverified (P8-65). */}
+            {writeRequested || props.client.kind !== 'metadata_document' ? null : (
               <div class="check">
                 <input
                   type="checkbox"

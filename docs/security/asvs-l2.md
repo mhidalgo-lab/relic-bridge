@@ -38,7 +38,7 @@ has **no passwords**, no file uploads, no WebSockets and no WebRTC.
 | V13 Configuration | yes | 8 | 3 | 2 | 0 |
 | V14 Data Protection | yes | 7 | 2 | 0 | 0 |
 | V15 Secure Coding and Architecture | yes | 10 | 3 | 0 | 0 |
-| V16 Security Logging and Error Handling | yes | 12 | 4 | 0 | 0 |
+| V16 Security Logging and Error Handling | yes | 14 | 2 | 0 | 0 |
 | V17 WebRTC | no | 0 | 0 | 0 | 7 |
 
 No requirement is *not met*. The partial items are listed under [open items](#open-items) at the end.
@@ -338,10 +338,10 @@ relic-bridge issues no JWTs; it verifies IdP ID tokens and Cloudflare Access ass
 
 | Id | L | Topic | Applies | Status | Evidence |
 |---|---|---|---|---|---|
-| V16.1.1 | 2 | Logging inventory | yes | partial | Described across [audit log](../guide/audit-log.md), [observability](../guide/observability.md), [self-hosting](../guide/self-hosting.md) and T8 / T17. Gap: no single inventory of layers, formats, storage, access and retention. |
+| V16.1.1 | 2 | Logging inventory | yes | met | [Logging inventory](logging.md): each sink (stderr / Workers Logs, audit table, OTLP) with its fields, format, redaction, retention, readers and the ASVS V16.3 event coverage, verified against the code; gaps tracked in P8-85. |
 | V16.2.1 | 2 | Log metadata (when, where, who, what) | yes | met | JSON lines with time, level, request id, route, status, principal, token and grant ids; audit rows carry the actor. Tests: `http/test/app.test.ts`, `http/test/audit.test.ts` |
 | V16.2.2 | 2 | Synchronized time, UTC timestamps | yes | met | ISO 8601 UTC in the logger (`core/src/logger.ts`); clock sync is the platform's. |
-| V16.2.3 | 2 | Logs only to documented sinks | yes | partial | stderr, the audit table, opt-in OTLP and Workers Logs, each documented. Gap: no central inventory (V16.1.1). |
+| V16.2.3 | 2 | Logs only to documented sinks | yes | met | stderr (Workers Logs on Cloudflare), the audit table and opt-in OTLP, listed in the [logging inventory](logging.md#sinks-at-a-glance); product code logs only through `console.error`, and the CLI sends third-party `console.log` / `console.info` output to stderr too (`cli/src/index.ts`). |
 | V16.2.4 | 2 | Machine-readable logs | yes | met | Structured JSON, one line each; OTLP export allow-listed. |
 | V16.2.5 | 2 | Sensitive data logged per protection level | yes | met | Mandatory redaction in the logger; audit stores no tokens and masks NRQL by default (T8). Tests: `core/test/redact.test.ts`, `core/test/logger.test.ts`, `http/test/audit.test.ts` |
 | V16.3.1 | 2 | Authentication events logged | yes | met | `auth.denied`, `login.ok` / `login.denied`, session events, admin-token failures. Tests: `http/test/audit.test.ts`, `auth/test/p4-review-signin.test.ts` |
@@ -369,7 +369,7 @@ The partial items, grouped. Each is a candidate for a task; none is a known vuln
 
 - **Documentation**: risk justification for session timeouts (V7.1.1), federated session behaviour (V7.1.3),
   field-level rules (V8.1.2), outbound destinations (V13.1.1), a per-class data protection table (V14.1.2), third-party remediation time frames
-  (V15.1.1, V15.2.1), a logging inventory (V16.1.1, V16.2.3).
+  (V15.1.1, V15.2.1).
 - **Product**: HSTS by default behind a TLS proxy (V3.4.1); MFA claim or step-up re-authentication for sensitive
   admin actions (V6.3.3, V6.8.4, V7.5.1, V7.5.2); "end every user's sessions" (V7.4.5); `Clear-Site-Data` on logout
   (V14.3.1); offering "don't ask again" only for clients whose identity is assured (V10.7.1); an explicit redirect

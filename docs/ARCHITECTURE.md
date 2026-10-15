@@ -297,6 +297,7 @@ environment variable (`secrets.ts`); the node-only terminal pieces live in `host
 - **Errors**: stable error codes (`RB_AUTH_*`, `RB_LIMIT_*`, `RB_NERDGRAPH_*`, `RB_BUDGET_EXHAUSTED`, …), mapped to
   MCP tool errors with actionable messages for the agent. Secrets are never echoed.
 - **Observability**: structured JSON logs (redacted); optional OTLP/HTTP self-monitoring export, off by default (P7-08, `docs/guide/observability.md`).
+  Every sink, its fields, retention and readers: [logging inventory](security/logging.md).
 - **Cryptography**: WebCrypto only on both runtimes; keys derived from the master key with HKDF-SHA-256, AES-256-GCM for stored
   secrets, SHA-256 hashes for every issued bearer value. Every key, algorithm and random source is listed in the
   [cryptographic inventory](security/cryptography.md).

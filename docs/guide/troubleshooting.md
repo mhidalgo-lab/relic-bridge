@@ -6,7 +6,8 @@ MCP log file, VS Code *MCP: List Servers > Show Output*).
 
 Or run `relic-bridge doctor` (add `--remote https://your-server` for a deployed instance, `--offline` to avoid network
 calls, `--json` for scripts). It checks Node, your config, the New Relic key and region, the master key, the database,
-`RB_PUBLIC_URL`, clock skew and the remote server, and prints a fix for each problem without ever showing a secret. See
+`RB_PUBLIC_URL`, clock skew and the remote server, and prints a fix for each problem without ever showing a secret. It
+changes nothing; `relic-bridge doctor --fix` applies the one safe local fix (database file mode `0600`) and says so. See
 the [CLI reference](../reference/cli.md#doctor).
 
 If a client cannot connect to your server, run `relic-bridge doctor --client-configs --remote https://your-server`: it

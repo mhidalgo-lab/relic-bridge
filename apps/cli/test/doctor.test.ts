@@ -1,7 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // `relic-bridge doctor` (P7-05): every check's ok/warn/fail path with mocked fetch and file systems. No network, and
 // no secret may reach the output.
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
+import {
+  chmodSync,
+  closeSync,
+  fstatSync,
+  mkdirSync,
+  mkdtempSync,
+  openSync,
+  readFileSync,
+  rmSync,
+  statSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -349,6 +359,15 @@ describe('database', () => {
     );
     return { code, report: JSON.parse(out) as ReturnType<typeof buildReport>, out };
   }
+  /** Mode and content read through one descriptor (no check-then-use on the path). */
+  const fileState = (path: string): { mode: number; bytes: string } => {
+    const fd = openSync(path, 'r');
+    try {
+      return { mode: fstatSync(fd).mode & 0o777, bytes: readFileSync(fd).toString('base64') };
+    } finally {
+      closeSync(fd);
+    }
+  };
   const dbStatus = (r: { report: ReturnType<typeof buildReport> }) =>
     r.report.checks.find((c) => c.id === 'database');
 
@@ -387,6 +406,45 @@ describe('database', () => {
     const r = await runReal(['--db', path], {});
     expect(dbStatus(r)?.status).toBe('warn');
     expect(dbStatus(r)?.fix).toContain('chmod 600');
+  });
+
+  it('changes nothing it diagnoses: mode, journal mode and content stay as they were (P8-74)', async () => {
+    const path = join(dir, 'untouched.db');
+    await (await openSqliteStorage({ path })).close();
+    const raw = new DatabaseSync(path);
+    raw.exec('PRAGMA journal_mode = DELETE');
+    raw.close();
+    chmodSync(path, 0o644);
+    const before = fileState(path);
+    expect(before.mode).toBe(0o644);
+    const r = await runReal(['--db', path], { RB_MASTER_KEY: generateMasterKey() });
+    // A master key that was never registered: the read-only open must not register it either.
+    expect(dbStatus(r)?.status).not.toBe('ok');
+    expect(fileState(path)).toEqual(before);
+    const after = new DatabaseSync(path, { readOnly: true });
+    expect((after.prepare('PRAGMA journal_mode').get() as { journal_mode: string }).journal_mode).toBe(
+      'delete',
+    );
+    after.close();
+    expect(fileState(path)).toEqual(before);
+
+    const plain = await runReal(['--db', path], {});
+    expect(dbStatus(plain)?.status).toBe('warn');
+    expect(dbStatus(plain)?.fix).toContain(`chmod 600 ${path}`);
+    expect(dbStatus(plain)?.fix).toContain('--fix');
+    expect(fileState(path)).toEqual(before);
+  });
+
+  it('--fix tightens the database file mode and says so', async () => {
+    const path = join(dir, 'fixme.db');
+    await (await openSqliteStorage({ path })).close();
+    chmodSync(path, 0o640);
+    const r = await runReal(['--db', path, '--fix'], {});
+    expect(dbStatus(r)?.status).toBe('ok');
+    expect(dbStatus(r)?.detail).toContain('--fix changed the database file mode from 640 to 600');
+    expect(statSync(path).mode & 0o777).toBe(0o600);
+    const again = await runReal(['--db', path, '--fix'], {});
+    expect(dbStatus(again)?.detail).not.toContain('--fix');
   });
 
   it('fails pending migrations and a file that is not a database', async () => {

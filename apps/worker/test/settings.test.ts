@@ -14,6 +14,12 @@ const fails = (vars: Record<string, unknown>, variable: string): void => {
 };
 
 describe('parseWorkerSettings', () => {
+  it('RB_AUDIT=off warns that every kind of audit row is lost (P8-74)', () => {
+    const w = parseWorkerSettings({ RB_AUDIT: 'off' }).warnings.join('\n');
+    for (const kind of ['every audit row', 'tool calls', 'refusals', 'admin changes'])
+      expect(w).toContain(kind);
+  });
+
   it('warns once per deprecated variable present, by name only (P8-67, fake registry)', () => {
     const registry = [
       {

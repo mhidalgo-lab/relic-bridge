@@ -6,6 +6,7 @@ import type { Logger } from '@relic-bridge/core';
 import { createAuditRecorder } from '@relic-bridge/http-app';
 import { StorageError } from '@relic-bridge/storage';
 import { openSqliteStorage } from '@relic-bridge/storage-sqlite';
+import { OLDER_THAN_DAYS_USAGE, parseOlderThanDays } from './args.ts';
 import { ConfigError, type Env } from './config.ts';
 
 export const DEFAULT_RETENTION_DAYS = 90;
@@ -23,7 +24,7 @@ export function parseRetentionDays(raw: string | undefined): number {
 export interface AuditPurgeOptions {
   readonly dbPath: string;
   readonly env: Env;
-  /** `--older-than-days`; overrides RB_AUDIT_RETENTION_DAYS. */
+  /** `--older-than-days`; overrides RB_AUDIT_RETENTION_DAYS. Re-validated here (exit 2 when invalid). */
   readonly olderThanDays?: string;
   readonly stdout: (text: string) => void;
   readonly logger: Logger;
@@ -31,11 +32,18 @@ export interface AuditPurgeOptions {
 
 export async function auditPurge(options: AuditPurgeOptions): Promise<number> {
   const { logger } = options;
+  // Defence in depth (P8-74): the parser already checks the flag, but a caller that skips it must not reach the
+  // purge with NaN, a fraction or a negative number.
+  let olderThan: number | undefined;
+  if (options.olderThanDays !== undefined) {
+    olderThan = parseOlderThanDays(options.olderThanDays);
+    if (olderThan === undefined) {
+      logger.error(OLDER_THAN_DAYS_USAGE);
+      return 2;
+    }
+  }
   try {
-    const days =
-      options.olderThanDays === undefined
-        ? parseRetentionDays(options.env['RB_AUDIT_RETENTION_DAYS'])
-        : Number(options.olderThanDays);
+    const days = olderThan ?? parseRetentionDays(options.env['RB_AUDIT_RETENTION_DAYS']);
     if (days <= 0) {
       options.stdout('Retention is 0 (keep everything): nothing purged.\n');
       return 0;

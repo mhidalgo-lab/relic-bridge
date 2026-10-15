@@ -52,7 +52,7 @@ the key is valid.
 relic-bridge init [--db <path>] [--master-key-file <path>] [--label <l> --region US|EU|JP [key source]]
                   [--slug <s> --default-account <id> --accounts 1,2] [--device <name>] [--url <https://host>]
                   [--client claude-code|claude-code-powershell|claude-desktop|cursor|vscode|all] [--no-config]
-relic-bridge doctor [--config <file>] [--project <slug>] [--db <path>] [--offline] [--remote <url> [--insecure]] [--client-configs] [--token-file <path>] [--json]
+relic-bridge doctor [--config <file>] [--project <slug>] [--db <path>] [--offline] [--remote <url> [--insecure]] [--client-configs] [--token-file <path>] [--fix] [--json]
 relic-bridge keychain set <name> [key source] | keychain delete <name> | keychain status
 relic-bridge admin-token generate
 relic-bridge config export --out <file> [--with-credentials (--passphrase-file <f> | --passphrase-env <VAR>)]
@@ -142,6 +142,11 @@ for every warning or failure, a `fix:` line. With `--json` it prints one documen
 `{"ok":true,"summary":{"ok":n,"warn":n,"fail":n,"skip":n},"checks":[{"id","status","title","detail"?,"fix"?}]}`.
 Exit codes: `0` when nothing failed (warnings are allowed), `1` when a check failed, `2` for a usage error.
 
+doctor changes nothing it checks: the database is opened read-only (no permission change, no journal-mode change, no
+migration, no key-check registration). `--fix` is the one opt-in exception: it sets a group- or world-accessible
+database file to mode `0600`, and the `database` line says what it changed (`--fix changed the database file mode from
+644 to 600`). Without `--fix` the warning prints the `chmod 600` command.
+
 | Check | What it verifies |
 |---|---|
 | `node` | Node 24.11 or later. |
@@ -150,7 +155,7 @@ Exit codes: `0` when nothing failed (warnings are allowed), `1` when a check fai
 | `newrelic-key` | One NerdGraph call with your own key: User-key format, validity, region (a wrong region says which to use) and that the default account is reachable. Shows the key's prefix and last four characters only. `--offline` skips it. |
 | `keychain` | OS keychain backend usable and the entries that `keychain:<name>` / `RB_MASTER_KEY_KEYCHAIN` name exist (names only, never values). Skipped when nothing references the keychain. |
 | `master-key` | `RB_MASTER_KEY[_FILE\|_KEYCHAIN]` loads (file mode `0600`); prints key versions, never the key. |
-| `database` | The SQLite file exists, is not readable by others, opens, has no pending migrations, and the master key matches the stored key checks. Nothing is written. |
+| `database` | The SQLite file exists, is not readable by others, opens read-only, has no pending migrations, and the master key matches the stored key checks. Nothing is written (SQLite may create the usual `-wal`/`-shm` side files of a WAL database to read it); `--fix` only sets the file mode to `0600`. |
 | `public-url` | `RB_PUBLIC_URL` is https (or localhost), a bare origin, and its host is in `RB_ALLOWED_HOSTS`. |
 | `clock` | Skew against New Relic's (or, with `--remote`, the server's) `Date` header: warning over 30 s, failure over 300 s. |
 | `remote-*` | With `--remote <url>` (or `RB_REMOTE`): `/health`, `/version`, that the MCP endpoint refuses an unauthenticated probe, and that the OAuth issuer is the origin you reached. No admin token is needed. |

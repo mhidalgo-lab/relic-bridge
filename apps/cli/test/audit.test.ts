@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { createLogger } from '@relic-bridge/core';
 import { openSqliteStorage } from '@relic-bridge/storage-sqlite';
 import { afterAll, describe, expect, it } from 'vitest';
-import { parseCliArgs, UsageError } from '../src/args.ts';
+import { parseCliArgs, parseOlderThanDays, UsageError } from '../src/args.ts';
 import { auditPurge, parseRetentionDays } from '../src/audit.ts';
 import { ConfigError } from '../src/config.ts';
 
@@ -36,6 +36,16 @@ describe('audit purge arguments', () => {
     }
     expect(() => parseCliArgs(['audit', 'purge', '--older-than-days', '0'])).toThrow(UsageError);
     expect(() => parseCliArgs(['audit', 'purge', '--older-than-days', 'x'])).toThrow(UsageError);
+  });
+
+  it('refuses every non-integer or less-than-1 value, and accepts surrounding blanks (P8-74)', () => {
+    for (const v of [...['1.5', 'NaN', 'Infinity', '1e3', '-1', '0x10', '0', '', ' ', '100000'], 'x']) {
+      expect(() => parseCliArgs(['audit', 'purge', '--older-than-days', v]), v).toThrow(UsageError);
+      expect(parseOlderThanDays(v), v).toBeUndefined();
+    }
+    expect(parseCliArgs(['audit', 'purge', '--older-than-days', ' 5 ']).olderThanDays?.trim()).toBe('5');
+    expect(parseOlderThanDays(' 5 ')).toBe(5);
+    expect(parseOlderThanDays('99999')).toBe(99999);
   });
 });
 
@@ -91,6 +101,20 @@ describe('audit purge', () => {
     const keep = await seed('keep.db');
     expect((await run(keep, { env: { RB_AUDIT_RETENTION_DAYS: '0' } })).out).toMatch(/nothing purged/);
     expect(await actions(keep)).toEqual(['whoami', 'old']);
+  });
+
+  it('auditPurge itself refuses invalid --older-than-days with exit 2 and deletes nothing (P8-74)', async () => {
+    const path = await seed('invalid.db');
+    for (const v of ['1.5', 'NaN', 'Infinity', '1e3', '-1', '0x10', '0', '', ' ', '100000']) {
+      const r = await run(path, { olderThanDays: v });
+      expect(r.code, v).toBe(2);
+      expect(r.err, v).toContain('--older-than-days');
+      expect(r.out, v).toBe('');
+    }
+    expect(await actions(path)).toEqual(['whoami', 'old']);
+    expect((await run(path, { olderThanDays: ' 6 ' })).out).toMatch(
+      /Deleted 1 audit row\(s\) older than 6 day/,
+    );
   });
 
   it('exits 1 for a missing database', async () => {

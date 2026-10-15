@@ -2,11 +2,11 @@
 id: P8-74
 title: CLI fixes - read-only doctor, purge argument checks, import cap, audit-off warning
 phase: 8
-status: todo
+status: review
 priority: low
 depends_on: []
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P8-74 — CLI fixes: read-only doctor, purge argument checks, import cap, audit-off warning
@@ -44,12 +44,29 @@ Four small CLI defects found in review. All are in `apps/cli`.
   places that describe it (`docs/guide/audit-log.md`, `docs/guide/configuration.md`).
 
 ## Acceptance criteria
-- [ ] Running `doctor` on a database with mode `0644` leaves mode, journal mode and file content unchanged (test with a
+- [x] Running `doctor` on a database with mode `0644` leaves mode, journal mode and file content unchanged (test with a
       temporary database, comparing before and after) and prints the chmod hint.
-- [ ] `audit purge` refuses every non-integer or less-than-1 value at the parser and in `auditPurge` (tests above).
-- [ ] The import file cap and the API body cap are the same documented number (test of the CLI refusal and of the API).
-- [ ] The `RB_AUDIT=off` warning names every kind of row that is lost (test on the warning text).
-- [ ] If an explicit fix flag is added, it is covered by a test and appears in `docs/reference/cli.md`.
+- [x] `audit purge` refuses every non-integer or less-than-1 value at the parser and in `auditPurge` (tests above).
+- [x] The import file cap and the API body cap are the same documented number (test of the CLI refusal and of the API).
+- [x] The `RB_AUDIT=off` warning names every kind of row that is lost (test on the warning text).
+- [x] If an explicit fix flag is added, it is covered by a test and appears in `docs/reference/cli.md`.
+
+## Outcome and decisions
+- `openSqliteStorage({ readOnly: true })`: no file creation, chmod, journal-mode/synchronous pragma or migration;
+  writes fail. SQLite may still create the `-wal`/`-shm` side files of a WAL database in order to read it (documented).
+  `doctor` uses it. `doctor --fix` (opt-in) sets the database file mode to `0600` and reports the change in the
+  `database` line. Without `--fix`, the warning gives the `chmod 600` command and mentions `--fix`.
+- `parseOlderThanDays` (in `apps/cli/src/args.ts`) is shared by the parser and `auditPurge`. Surrounding blanks are
+  accepted (` 5 ` is 5), as the parser already did. Every other non-integer and anything below 1 is refused, and
+  `auditPurge` exits 2 with nothing deleted.
+- **Import cap: 1 MiB for both.** The API's `POST /config/import` now takes `CONFIG_IMPORT_MAX_BYTES` (1 MiB); the
+  other admin routes keep 64 KiB. Keeping 64 KiB would have refused bundles the schema allows: `secrets.sealed`
+  alone may be 300,000 characters, plus 200 users, 100 keys, 100 projects and 500 grants. The body is still read only
+  after authentication, and the Worker's outer 1 MiB limit is the same. The CLI checks both the file and the JSON
+  request it builds (YAML can grow when converted to JSON).
+- `AUDIT_OFF_WARNING` (http-app) is the one string used by `serve` and the Worker. The audit-log guide now also says
+  that local management commands still record their rows. `configuration.md` does not describe `RB_AUDIT`
+  (stdio has no audit), so it is unchanged, and the wording in `self-hosting.md` was already right.
 
 ## Security notes
 T28 (doctor must not change the system it diagnoses; printed strings stay scrubbed), T17 (the audit-off warning must not

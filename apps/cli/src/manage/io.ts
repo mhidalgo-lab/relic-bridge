@@ -28,6 +28,8 @@ export interface ManageHost {
   readonly nodeVersion?: string;
   /** Clock for `doctor` (tests); defaults to `Date.now`. */
   readonly now?: () => number;
+  /** `doctor --fix` file-mode change (tests); defaults to `fs.chmodSync`. */
+  readonly chmod?: (path: string, mode: number) => void;
   /** Deprecated-config registry for `doctor` (tests); defaults to `DEPRECATED_CONFIG` (P8-67). */
   readonly deprecations?: readonly DeprecatedConfig[];
   /** `audit tail --follow` stops when this aborts. */

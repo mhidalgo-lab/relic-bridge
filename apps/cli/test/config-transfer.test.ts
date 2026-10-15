@@ -288,4 +288,26 @@ describe('export and import', () => {
     expect(b.err).toContain('invalid_request');
     expect((await cli(['config', 'import', tmp], { env: DST() })).code).toBe(1);
   });
+
+  it('uses the API import cap (1 MiB): refuses larger files and requests early, sends anything below (P8-74)', async () => {
+    const huge = join(tmp, 'huge.yaml');
+    writeFileSync(huge, `format: relic-bridge-config\npad: '${'x'.repeat(1024 * 1024)}'\n`, { mode: 0o600 });
+    const h = await cli(['config', 'import', huge], { env: DST() });
+    expect(h.code).toBe(1);
+    expect(h.err).toContain('larger than 1048576 bytes');
+    // Under 1 MiB as YAML, over it as the JSON request (every `"` is escaped): refused before sending.
+    const quotes = join(tmp, 'quotes.yaml');
+    writeFileSync(quotes, `format: relic-bridge-config\npad: '${'"'.repeat(600 * 1024)}'\n`, { mode: 0o600 });
+    const q = await cli(['config', 'import', quotes], { env: DST() });
+    expect(q.code).toBe(1);
+    expect(q.err).toContain('import request');
+    expect(q.err).toContain('1048576');
+    // Over the general 64 KiB admin cap but under the import cap: the server reads it (and refuses the content).
+    const big = join(tmp, 'big.yaml');
+    writeFileSync(big, `format: relic-bridge-config\npad: '${'x'.repeat(200 * 1024)}'\n`, { mode: 0o600 });
+    const b = await cli(['config', 'import', big], { env: DST() });
+    expect(b.code).toBe(1);
+    expect(b.err).toContain('invalid_request');
+    expect(b.err).not.toContain('payload_too_large');
+  });
 });

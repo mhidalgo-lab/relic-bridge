@@ -50,6 +50,11 @@ Then:
 
 Only what needs action or changes what a script sees. Everything else is in the CHANGELOG.
 
+### 0.10.x → 0.11.0
+
+- **Breaking**: removed `whoami` `limits.callBudget` (deprecated in 0.9.1, announced for removal in 0.11.0); read
+  `limits.perCallBudget`, which has the same value. Reconnect your MCP client after upgrading.
+
 ### 0.9.0 → 0.9.1
 
 - `whoami` returns `limits.callBudget` again, as a **deprecated alias** of `limits.perCallBudget` (same value). It is

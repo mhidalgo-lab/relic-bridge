@@ -87,7 +87,8 @@ describe('whoami budget (BUG-28)', () => {
     const { client } = await setup([fixtureResponse('identity_A')], { budget: createBudget(10) });
     const r = await client.callTool({ name: 'whoami', arguments: {} });
     const limits = (r.structuredContent as { limits: Record<string, number> }).limits;
-    expect(limits).toMatchObject({ perCallBudget: 10, callBudget: 10 });
+    expect(limits).toMatchObject({ perCallBudget: 10 });
+    expect(limits).not.toHaveProperty('callBudget');
     expect(limits).not.toHaveProperty('callsUsed');
     expect(limits).not.toHaveProperty('callsRemaining');
     expect(text(r)).toMatch(
@@ -97,7 +98,7 @@ describe('whoami budget (BUG-28)', () => {
     expect(text(r)).not.toMatch(/used so far|left\./);
   });
 
-  it('marks callBudget deprecated in the schema and explains perCallBudget in the description', async () => {
+  it('drops the callBudget alias from the schema and explains perCallBudget in the description', async () => {
     const { client } = await setup([]);
     const tool = (await client.listTools()).tools.find((t) => t.name === 'whoami');
     expect(tool).toBeDefined();
@@ -107,7 +108,8 @@ describe('whoami budget (BUG-28)', () => {
         properties: { limits: { properties: Record<string, { description?: string }> } };
       }
     ).properties.limits.properties;
-    expect(limits['callBudget']?.description).toMatch(/deprecated.*perCallBudget/i);
+    expect(limits).not.toHaveProperty('callBudget');
+    expect(limits).toHaveProperty('perCallBudget');
   });
 });
 

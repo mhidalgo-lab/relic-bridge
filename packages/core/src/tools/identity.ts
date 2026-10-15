@@ -39,13 +39,6 @@ const whoamiOutput = z.object({
   limits: z.object({
     /** Most New Relic calls ONE tool call may make (ADR-0010). Not a running total: nothing carries over between calls. */
     perCallBudget: z.number().int(),
-    /** Deprecated alias of perCallBudget (same value); removed in the minor after next. Use perCallBudget. */
-    callBudget: z
-      .number()
-      .int()
-      .describe(
-        'Deprecated: same value as perCallBudget, removed in the minor after next. Use perCallBudget.',
-      ),
     maxResponseBytes: z.number().int(),
     maxLimit: z.number().int(),
     maxWindowDays: z.number(),
@@ -164,7 +157,6 @@ export function createIdentityTools(deps: ToolDeps = {}): ToolDefinition[] {
         unavailableTools: unavailable.map((u) => ({ name: u.name, reason: u.reason })),
         limits: {
           perCallBudget: ctx.budget.limit,
-          callBudget: ctx.budget.limit,
           maxResponseBytes: ctx.limits.maxResponseBytes,
           maxLimit: ctx.limits.maxLimit,
           maxWindowDays: ctx.limits.maxWindowDays,

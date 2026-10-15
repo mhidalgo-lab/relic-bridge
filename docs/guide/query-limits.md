@@ -17,7 +17,7 @@ Limits are set per connection (project): `limits:` in the YAML config or `RB_LIM
 | `rawNrql` | on | When off, `run_nrql` (arbitrary NRQL) and `get_query_result` are not offered at all by the stdio CLI, and refuse with `RB_TOOL_DISABLED` if reached another way. The purpose-built tools still work. |
 | `maxResponseBytes` | 512 KiB | Larger responses are cut off while streaming → `RB_LIMIT_RESPONSE_TOO_LARGE`. |
 
-**The call budget is per tool call.** `RB_CALL_BUDGET` (`whoami`: `limits.perCallBudget`; `limits.callBudget` is a deprecated alias, same value, removed in the minor after next) is the most New Relic calls ONE tool
+**The call budget is per tool call.** `RB_CALL_BUDGET` (`whoami`: `limits.perCallBudget`) is the most New Relic calls ONE tool
 call may make (45 on Workers Free, 1000 otherwise). It is not a running total: every tool call starts at zero and nothing
 carries over, so it never counts what a client did earlier. What limits use across calls: the per-grant and per-address
 rate limits, and a grant's daily and monthly [quota](admin-guide.md#quotas-per-grant) (usage on the admin panel's *Usage* page).

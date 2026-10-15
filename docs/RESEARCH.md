@@ -626,6 +626,19 @@ database.
   embedded migrations itself (ADR-0006 update P3-02).
 - **Test isolation:** in `@cloudflare/vitest-plugin` 1.3.3 the local D1 database is shared by the tests of a file;
   tests that need an empty database drop the tables first (`wipeD1`).
+- **Importing a SQL file** (P8-80, checked 2026-10-15; sources:
+  <https://developers.cloudflare.com/d1/best-practices/import-export-data/>,
+  <https://developers.cloudflare.com/d1/platform/limits/>, <https://developers.cloudflare.com/d1/get-started/>):
+  `wrangler d1 execute <db> --remote --file <f>` uploads the file and runs it; "if the execution fails to complete, your
+  DB will return to its original state". The file must not contain `BEGIN TRANSACTION` / `COMMIT` ("cannot start a
+  transaction within a transaction") and must not create `_cf_KV`; use `PRAGMA defer_foreign_keys = true` where rows
+  arrive before their parents. Limits: 100,000 bytes per SQL statement ("Statement too long": split multi-row
+  `INSERT`s), 2 MB per string, BLOB or row, 100 bound parameters, 30 s per query, 5 GB per imported file. Indexes add a
+  row written per indexed write, which counts against Workers Free's 100,000 rows written a day. Checked locally with
+  wrangler 4.144.0 (`--local --file`): multi-line `CREATE TABLE` statements, `;`, `--` and quotes inside string literals,
+  and `CAST(X'…' AS TEXT)` (NUL, newlines) import correctly, and a failing statement (a `CHECK` guard) leaves the local
+  database unchanged too. `-y` answers the remote confirmation prompt. Not yet run against a remote database by the
+  maintainers (the deploy report that led to P8-80 imported a hand-made file of the same shape remotely).
 
 ## 13. Workers Rate Limiting binding (P3-04, checked 2026-10-03)
 

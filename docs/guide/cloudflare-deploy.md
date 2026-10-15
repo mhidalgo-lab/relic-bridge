@@ -40,7 +40,11 @@ and note that Windows ignores the mode.
 Other options: `--name <worker>` (default `relic-bridge`), `--passthrough` (also generates `RB_FINGERPRINT_SECRET` and
 sets `RB_PASSTHROUGH=on`), `--shared-limiter rules|on` (sets `RB_SHARED_LIMITER`: limits counted once for the whole
 deployment by a Durable Object instead of per isolate, see [Cloudflare limits](cloudflare-limits.md#shared-limiter-durable-object-optional)),
-`--assume-new` (see below).
+`--assume-new` (see below), `--master-key-stdin` (use an existing server's master key instead of generating one, see
+[Migrate from a self-hosted server](#migrate-from-a-self-hosted-server)).
+
+> **Moving an existing `relic-bridge serve` server?** Read [Migrate from a self-hosted server](#migrate-from-a-self-hosted-server)
+> before the first run: the setup must take your server's master key, not generate a new one.
 
 **Re-running is safe.** Secrets that already exist are kept, never regenerated (a new master key would orphan every
 stored credential), so you can re-run the script to redeploy after `git pull`. If Wrangler can't tell whether the Worker
@@ -238,6 +242,94 @@ it (T7).
 Restoring an export into a new empty D1 database (`wrangler d1 execute <name> --remote --file <export>.sql`) and binding
 it is expected to work but has not been exercised by the maintainers; prefer Time Travel for point-in-time recovery.
 Worker secrets are not part of any export: set `RB_MASTER_KEY` (the same value) on the new Worker.
+
+## Migrate from a self-hosted server
+
+Move a `relic-bridge serve` server (SQLite, Docker or a plain process) to a Worker without re-adding anything: the
+server's database is exported as a SQL file, imported into the Worker's D1 database, and the Worker runs with **the
+server's master key**. Device tokens keep working (they are stored as hashes), New Relic keys stay encrypted the whole
+way (nothing is decrypted, and the export needs no master key).
+
+| Moves | Does not move |
+|---|---|
+| Users, sign-in identity bindings, roles | Admin sessions and sign-in transactions: people sign in again |
+| New Relic keys (encrypted, with their validation state) | OAuth connections (claude.ai, phones): connect the app again |
+| Projects, grants, usage quotas and their counters | OAuth client registrations, remembered consents, setup links |
+| Device tokens (revoked ones stay revoked) | MCP task results and rate-limit counters (short-lived) |
+| Settings, including the master key check value | Worker secrets and variables: set them as described below |
+| The audit log (`--no-audit` leaves it out) | |
+
+What does not move lives in the `kv` table and is either short-lived or bound to the server's public URL (OAuth
+redirects, issuer and resource URLs), so it could not work on the Worker's address anyway. Pass-through key ids in the
+audit log (`pt_…`) stay comparable only if you also give the Worker the server's `RB_FINGERPRINT_SECRET`.
+
+**Never let the setup generate a new master key in this flow.** The imported New Relic keys are encrypted under the
+server's key: a Worker with another key answers `503` (`key_mismatch`) and cannot read them.
+
+### Steps
+
+1. **Same release on both sides.** Upgrade the server to the release you deploy (start `relic-bridge serve` once: it
+   migrates) or check out the server's release tag in the clone. The export refuses a database whose schema differs from
+   the CLI's, and the Worker refuses a database newer than its code.
+2. **If you rotated the master key**, finish the rotation on the server first (`relic-bridge keys rotate`): the export
+   warns when stored keys use more than one key version. Otherwise also give the Worker the older key
+   (`wrangler secret put RB_MASTER_KEY_PREVIOUS`) after step 3.
+3. **Set up the Worker with the server's master key.** Pipe it from where you keep it (a password manager CLI, the
+   server's `RB_MASTER_KEY_FILE`), or run in a terminal to get a hidden prompt:
+
+   ```sh
+   # from the clone, as in Path A; replace the first command with however you read the key
+   cat /path/to/master.key | pnpm cf:setup --plan free --master-key-stdin --backup-file ~/rb-worker-secrets.env
+   ```
+
+   The key is sent to `wrangler secret bulk` on stdin like the generated secrets, but it is **not shown and not written
+   to the backup file**: you already have it. `RB_ADMIN_TOKEN` is still generated and shown once (set the server's own
+   value with `wrangler secret put RB_ADMIN_TOKEN` if you prefer). If the Worker already has a master key (you ran the
+   setup before), the script refuses; add `--replace-master-key` only when that Worker holds no data yet.
+   With `--sign-in` and a piped key, give the sign-in answers in the environment (`RB_PUBLIC_URL`,
+   `RB_<PROVIDER>_CLIENT_ID` / `_CLIENT_SECRET`): stdin is taken by the key.
+4. **Export on the server** (safe while it runs; it reads one consistent snapshot):
+
+   ```sh
+   relic-bridge db export /secure/place/relic-bridge-d1.sql --format d1     # --db <path> if not the default database
+   ```
+
+   The file is created with mode `0600` and never overwrites an existing one (`--force` replaces it). It holds encrypted
+   New Relic keys and token hashes: keep it away from the master key (the command refuses to write next to
+   `RB_MASTER_KEY_FILE`), never in the repository, and delete it after the import. The command prints the row counts and
+   the master key version the Worker must run with.
+5. **Import into the Worker's D1 database** (`relic-bridge`, or the `--name` you gave; pass an absolute path, `pnpm
+   --filter` runs in `apps/worker`):
+
+   ```sh
+   pnpm --filter @relic-bridge/worker exec wrangler d1 execute relic-bridge --remote --file /secure/place/relic-bridge-d1.sql
+   ```
+
+   D1 runs the file as one transaction: if anything fails, the database is left as it was. The file refuses to import
+   into a database that already has users, New Relic keys, projects, grants or tokens, so it cannot merge into (or
+   overwrite) a deployment in use. Key check values a fresh Worker registered for a key of its own are replaced by the
+   server's.
+6. **First request and checks.**
+
+   ```sh
+   curl https://<your-worker>/health                                  # 200
+   export RB_REMOTE=https://<your-worker>
+   relic-bridge project list && relic-bridge token list && relic-bridge audit tail
+   ```
+
+   Then point each device at the Worker URL with its existing token (only the URL changes), and reconnect OAuth apps.
+   A `503` with `key_mismatch` in the Worker log means the Worker's `RB_MASTER_KEY` is not the server's: set the right
+   one with `wrangler secret put RB_MASTER_KEY` (never generate a new one) and retry.
+
+Large audit logs: every imported row and index entry counts as a D1 row written, and Workers Free allows 100,000 a
+day (the export warns above half of that). Purge old rows on the server first (`relic-bridge audit purge`) or export
+with `--no-audit`. A single row larger than D1's 100 KB statement limit is refused with its table named.
+
+**Rollback.** Nothing changes on the server: keep it running until the Worker is checked, then stop it. To retry the
+import, drop the Worker's data and import again (`wrangler d1 time-travel restore relic-bridge --timestamp=<before the
+import>`, or delete and recreate the D1 database), or start over with a new Worker. Once people use the Worker, the two
+copies diverge: there is no way back from D1 to SQLite other than `relic-bridge config export` / `config import`
+([moving configuration](migrating-config.md), which does not keep tokens or the audit log).
 
 ## Rotate the master key
 

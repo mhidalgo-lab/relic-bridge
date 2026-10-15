@@ -9,9 +9,13 @@ export interface CliArgs {
   readonly config?: string;
   readonly project?: string;
   readonly logLevel?: LogLevel;
-  /** `db backup <file>`: the subcommand and its destination. */
-  readonly dbAction?: 'backup';
+  /** `db backup <file>` / `db export <file>`: the subcommand and its destination. */
+  readonly dbAction?: 'backup' | 'export';
   readonly file?: string;
+  /** `db export`: `--format d1` (the only format), `--force`, `--no-audit`. */
+  readonly format?: 'd1';
+  readonly force?: boolean;
+  readonly noAudit?: boolean;
   /** `credential revalidate`. */
   readonly credentialAction?: 'revalidate';
   /** `--db <path>`: the SQLite database file (or RB_DB_PATH). */
@@ -72,18 +76,22 @@ export function parseCliArgs(argv: readonly string[]): CliArgs {
     }
     command = given as Command;
   }
-  let dbAction: 'backup' | undefined;
+  let dbAction: 'backup' | 'export' | undefined;
   let file: string | undefined;
   let keysAction: 'generate' | 'rotate' | undefined;
   let credentialAction: 'revalidate' | undefined;
   let auditAction: 'purge' | undefined;
   if (command === 'db' && !values.help && !values.version) {
-    if (positionals[1] !== 'backup')
-      throw new UsageError('Usage: relic-bridge db backup <file> [--db <path>].');
-    if (positionals.length !== 3 || (positionals[2] ?? '').trim() === '') {
-      throw new UsageError('db backup needs exactly one destination file.');
+    const action = positionals[1];
+    if (action !== 'backup' && action !== 'export') {
+      throw new UsageError(
+        'Usage: relic-bridge db backup <file> [--db <path>] | db export <file> --format d1 [--no-audit] [--force] [--db <path>].',
+      );
     }
-    dbAction = 'backup';
+    if (positionals.length !== 3 || (positionals[2] ?? '').trim() === '') {
+      throw new UsageError(`db ${action} needs exactly one destination file.`);
+    }
+    dbAction = action;
     file = positionals[2];
   } else if (command === 'keys' && !values.help && !values.version) {
     const action = positionals[1];
@@ -139,6 +147,15 @@ export function parseCliArgs(argv: readonly string[]): CliArgs {
   if (values.db !== undefined && command === 'keys' && keysAction !== 'rotate') {
     throw new UsageError('--db only applies to keys rotate.');
   }
+  const format = values.format;
+  if (format !== undefined && dbAction !== 'export')
+    throw new UsageError('--format only applies to db export.');
+  if (dbAction === 'export' && format !== 'd1') {
+    throw new UsageError('db export needs --format d1 (the Cloudflare D1 import format, the only one).');
+  }
+  for (const flag of ['force', 'no-audit'] as const) {
+    if (values[flag] && dbAction !== 'export') throw new UsageError(`--${flag} only applies to db export.`);
+  }
   const olderThan = values['older-than-days'];
   if (olderThan !== undefined) {
     if (auditAction !== 'purge') throw new UsageError('--older-than-days only applies to audit purge.');
@@ -158,6 +175,9 @@ export function parseCliArgs(argv: readonly string[]): CliArgs {
   return {
     command,
     ...(dbAction === undefined || file === undefined ? {} : { dbAction, file }),
+    ...(dbAction === 'export'
+      ? { format: 'd1' as const, force: values.force === true, noAudit: values['no-audit'] === true }
+      : {}),
     ...(values.db === undefined ? {} : { db: values.db }),
     ...(keysAction === undefined ? {} : { keysAction }),
     ...(credentialAction === undefined ? {} : { credentialAction }),
@@ -185,6 +205,9 @@ function parse(argv: readonly string[]) {
       host: { type: 'string' },
       'key-version': { type: 'string' },
       'older-than-days': { type: 'string' },
+      format: { type: 'string' },
+      force: { type: 'boolean' },
+      'no-audit': { type: 'boolean' },
       'log-level': { type: 'string' },
       help: { type: 'boolean', short: 'h' },
       version: { type: 'boolean', short: 'v' },
@@ -198,6 +221,7 @@ Usage:
   relic-bridge [stdio] [--config <file> [--project <slug>]] [--log-level <level>]
   relic-bridge serve [--port <n>] [--host <addr>] [--db <path>]
   relic-bridge db backup <file> [--db <path>]
+  relic-bridge db export <file> --format d1 [--no-audit] [--force] [--db <path>]
   relic-bridge keys generate [--key-version <n>]
   relic-bridge keys rotate [--db <path>]
   relic-bridge keys rotate --remote <url> [--batch-size <n>]
@@ -215,6 +239,12 @@ Commands:
                      Needs RB_MASTER_KEY. Binds 127.0.0.1:8787 by default.
   db backup <file>   Write a consistent snapshot of the SQLite database to <file> (mode 0600,
                      never overwrites). Safe while the server is running.
+  db export <file> --format d1
+                     Write the database as a SQL file for a Cloudflare Worker's D1 database
+                     (wrangler d1 execute <db> --remote --file <file>): keys stay encrypted,
+                     tokens stay hashed; sessions and OAuth connections are left out. Mode
+                     0600, never overwrites without --force. Safe while the server is running.
+                     See "Migrate from a self-hosted server" in docs/guide/cloudflare-deploy.md.
   keys generate      Print a new random master key (v<n>:<base64>) once, on stdout.
                      Store it in a secret manager and back it up.
   keys rotate        Re-encrypt every stored New Relic key under RB_MASTER_KEY, reading
@@ -243,6 +273,9 @@ Options:
                      address also needs RB_ALLOWED_HOSTS.
   --older-than-days <n>
                      audit purge: delete rows older than this many days.
+  --format d1        db export: the output format (Cloudflare D1).
+  --no-audit         db export: leave the audit log out.
+  --force            db export: replace an existing output file.
   --key-version <n>  Version written into a generated key (default 1).
   --log-level <lvl>  debug | info | warn | error (or RB_LOG_LEVEL; default info).
   -h, --help         Show this help.

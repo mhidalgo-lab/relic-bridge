@@ -10,6 +10,10 @@
 //      or a hidden prompt, never from an argument, never written to a file),
 //   4. prints the next steps (credential, project, grant and token through `relic-bridge ... --remote`).
 //
+//   --master-key-stdin (P8-80): use the master key of an existing server (piped on stdin, or a hidden prompt) instead of
+//   generating one, for a database imported with `relic-bridge db export --format d1`. That key is never printed and
+//   never written to --backup-file.
+//
 // Migrations are not a step: the Worker migrates D1 itself when it boots (ADR-0006 update, P3-02).
 // Re-running is safe: secrets that already exist are never regenerated (a new master key would make every stored
 // New Relic key undecryptable).
@@ -36,6 +40,8 @@ export interface SetupOptions {
   replaceMasterKey: boolean;
   /** `--shared-limiter rules|on`: deploy with RB_SHARED_LIMITER (P7-10, the Durable Object limiter). */
   sharedLimiter: 'rules' | 'on' | undefined;
+  /** `--master-key-stdin` (P8-80): RB_MASTER_KEY is the existing server's key, read by `deps.readMasterKey`. */
+  masterKeyStdin: boolean;
 }
 
 export interface WranglerResult {
@@ -58,6 +64,8 @@ export interface SetupDeps {
   prompt?: (question: string) => Promise<string>;
   /** Ask on the terminal without echo. Present only when stdin is a terminal. */
   promptSecret?: (question: string) => Promise<string>;
+  /** `--master-key-stdin`: the existing master key (all of stdin, or a hidden prompt on a terminal). */
+  readMasterKey?: () => Promise<string>;
   /** The secrets text shown once (stdout). Separate from `log` so tests can assert what is printed where. */
   reveal: (line: string) => void;
   /** Worker directory (holds wrangler.jsonc). */
@@ -133,6 +141,7 @@ export function parseArgs(argv: readonly string[]): SetupOptions | 'help' {
     publicUrl: undefined,
     replaceMasterKey: false,
     sharedLimiter: undefined,
+    masterKeyStdin: false,
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i] as string;
@@ -151,6 +160,7 @@ export function parseArgs(argv: readonly string[]): SetupOptions | 'help' {
     else if (a === '--dry-run') o.dryRun = true;
     else if (a === '--assume-new') o.assumeNew = true;
     else if (a === '--replace-master-key') o.replaceMasterKey = true;
+    else if (a === '--master-key-stdin') o.masterKeyStdin = true;
     else if (a === '--backup-file') o.backupFile = value();
     else if (a === '--sign-in') o.signIn = true;
     else if (a === '--public-url') o.publicUrl = value();
@@ -177,6 +187,10 @@ Deploys relic-bridge to your Cloudflare account (run \`wrangler login\` first).
   --assume-new         First deploy: treat an unreadable secret list as "no Worker yet" (refused if the Worker exists)
   --replace-master-key Generate a new RB_MASTER_KEY although the Worker already has RB_ADMIN_TOKEN. DESTRUCTIVE:
                        every stored New Relic key becomes undecryptable. Rarely what you want.
+  --master-key-stdin   Use the master key of the server you are migrating from (P8-80) instead of generating one: piped
+                       on stdin (e.g. from your password manager's CLI), or typed at a hidden prompt. Never printed, never
+                       written to --backup-file. Replacing a key the Worker already has also needs --replace-master-key.
+                       Then import the data: see "Migrate from a self-hosted server" in docs/guide/cloudflare-deploy.md.
   --sign-in            Also set up sign-in (P4-09): asks for the public URL and, per provider (Google, GitHub, generic
                        OIDC), the client id and secret. Answers can come from RB_PUBLIC_URL and
                        RB_<GOOGLE|GITHUB|OIDC>_CLIENT_ID / _CLIENT_SECRET (and RB_OIDC_ISSUER) in your environment, so
@@ -300,6 +314,28 @@ export async function collectSignIn(
   return Object.freeze({ publicUrl, vars, secrets, providers });
 }
 
+const MASTER_KEY_RE = /^(?:v([1-9][0-9]{0,5}):)?([A-Za-z0-9+/_=-]+)$/;
+
+/**
+ * Check a master key given with --master-key-stdin: `[v<N>:]<base64 of 32 bytes>`, as the Worker parses it
+ * (packages/auth/src/crypto/keyring.ts). Returns the trimmed key and its version; errors never echo the value.
+ */
+export function checkMasterKey(raw: string): { key: string; version: number } {
+  const key = raw.trim();
+  const m = MASTER_KEY_RE.exec(key);
+  const fail = (why: string): SetupError =>
+    new SetupError(`the master key on stdin is not valid (${why}); expected v<N>:<base64 of 32 bytes>`);
+  if (key === '') throw fail('empty');
+  if (m === null) throw fail('unexpected characters or a second line');
+  const body = (m[2] ?? '').replaceAll('-', '+').replaceAll('_', '/');
+  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(body)) throw fail('not base64');
+  const bytes = Buffer.from(body, 'base64');
+  if (bytes.byteLength !== 32) throw fail(`${bytes.byteLength} bytes instead of 32`);
+  if (bytes.every((b) => b === bytes[0])) throw fail('all bytes are equal');
+  bytes.fill(0);
+  return { key, version: m[1] === undefined ? 1 : Number(m[1]) };
+}
+
 const b64 = (bytes: Uint8Array): string => Buffer.from(bytes).toString('base64');
 const b64url = (bytes: Uint8Array): string => Buffer.from(bytes).toString('base64url');
 
@@ -381,6 +417,14 @@ export async function runSetup(opts: SetupOptions, deps: SetupDeps): Promise<{ u
     log(
       `  2. generate ${wanted.join(', ')} for Worker "${opts.name}" and send them to \`wrangler secret bulk\` on stdin,`,
     );
+    if (opts.masterKeyStdin) {
+      log(
+        '     RB_MASTER_KEY is not generated: it is read from stdin (--master-key-stdin), sent the same way, never shown or',
+      );
+      log(
+        '     written to the backup file; a Worker that already has RB_MASTER_KEY is refused unless --replace-master-key',
+      );
+    }
     log(
       '     skipping any that already exist; a missing RB_MASTER_KEY next to an existing RB_ADMIN_TOKEN is refused',
     );
@@ -444,8 +488,22 @@ export async function runSetup(opts: SetupOptions, deps: SetupDeps): Promise<{ u
   }
 
   const have = new Set(await existingSecrets(opts, deps, cfg));
-  const missing = wanted.filter((n) => !have.has(n));
-  if (missing.includes('RB_MASTER_KEY') && have.has('RB_ADMIN_TOKEN')) {
+  let supplied: string | undefined;
+  if (opts.masterKeyStdin) {
+    if (have.has('RB_MASTER_KEY') && !opts.replaceMasterKey) {
+      throw new SetupError(
+        'This Worker already has RB_MASTER_KEY. Replacing it makes every New Relic key stored on this Worker undecryptable. ' +
+          'For a migration into a Worker that holds no data yet, add --replace-master-key; otherwise leave the key as it is.',
+      );
+    }
+    if (deps.readMasterKey === undefined)
+      throw new SetupError('--master-key-stdin: no stdin to read the key from');
+    const checked = checkMasterKey(await deps.readMasterKey());
+    supplied = checked.key;
+    log(`Read the existing master key (version ${checked.version}) from stdin.`);
+  }
+  const missing = wanted.filter((n) => !have.has(n) && !(n === 'RB_MASTER_KEY' && supplied !== undefined));
+  if (supplied === undefined && missing.includes('RB_MASTER_KEY') && have.has('RB_ADMIN_TOKEN')) {
     if (!opts.replaceMasterKey) {
       throw new SetupError(
         'This Worker has RB_ADMIN_TOKEN but no RB_MASTER_KEY: a new master key would make every stored New Relic key undecryptable. ' +
@@ -459,7 +517,11 @@ export async function runSetup(opts: SetupOptions, deps: SetupDeps): Promise<{ u
   // Asked before anything is generated or sent, so a mistyped answer costs nothing.
   const signIn = opts.signIn ? await collectSignIn(opts, deps, have) : undefined;
   const generated = generateSecrets(missing, deps.random);
-  const toSend: Record<string, string> = { ...generated, ...(signIn?.secrets ?? {}) };
+  const toSend: Record<string, string> = {
+    ...generated,
+    ...(supplied === undefined ? {} : { RB_MASTER_KEY: supplied }),
+    ...(signIn?.secrets ?? {}),
+  };
   if (Object.keys(toSend).length > 0) {
     const r = await deps.wrangler(['secret', 'bulk', ...cfg], JSON.stringify(toSend));
     if (r.code !== 0) {
@@ -469,7 +531,14 @@ export async function runSetup(opts: SetupOptions, deps: SetupDeps): Promise<{ u
     }
     log(`Set secrets: ${Object.keys(toSend).join(', ')}.`);
   }
-  for (const n of wanted.filter((x) => have.has(x))) log(`Kept existing secret ${n} (not regenerated).`);
+  for (const n of wanted.filter((x) => have.has(x) && !(x === 'RB_MASTER_KEY' && supplied !== undefined))) {
+    log(`Kept existing secret ${n} (not regenerated).`);
+  }
+  if (supplied !== undefined) {
+    log(
+      'RB_MASTER_KEY is the key you supplied: not shown and not written to the backup file. Keep the copy you already have.',
+    );
+  }
 
   // Reveal right after the secrets are set: if the deploy fails, a re-run keeps them and could not show them again.
   if (missing.length > 0) {
@@ -600,6 +669,19 @@ function ttyPrompt(hidden: boolean): (question: string) => Promise<string> {
     });
 }
 
+/** All of stdin (a piped secret); at most 4 KiB, so a wrong pipe fails fast instead of buffering a file. */
+async function readAllStdin(): Promise<string> {
+  const chunks: Buffer[] = [];
+  let size = 0;
+  for await (const chunk of process.stdin) {
+    const b = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk));
+    size += b.byteLength;
+    if (size > 4096) throw new SetupError('--master-key-stdin: stdin is larger than a master key');
+    chunks.push(b);
+  }
+  return Buffer.concat(chunks).toString('utf8');
+}
+
 async function main(): Promise<number> {
   try {
     const opts = parseArgs(process.argv.slice(2));
@@ -615,6 +697,13 @@ async function main(): Promise<number> {
       reveal: (l) => process.stdout.write(`${l}\n`),
       env: process.env,
       ...(process.stdin.isTTY ? { prompt: ttyPrompt(false), promptSecret: ttyPrompt(true) } : {}),
+      ...(opts.masterKeyStdin
+        ? {
+            readMasterKey: process.stdin.isTTY
+              ? () => ttyPrompt(true)('Master key of the server you are migrating from (hidden): ')
+              : readAllStdin,
+          }
+        : {}),
       workerDir,
       repoRoot: resolve(workerDir, '..', '..'),
       fs: {

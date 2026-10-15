@@ -13,6 +13,7 @@ connection) or from a **YAML file** (one or more projects). This page is the ref
 ```text
 relic-bridge [stdio] [--config <file> [--project <slug>]] [--log-level <level>]
 relic-bridge db backup <file> [--db <path>]
+relic-bridge db export <file> --format d1 [--no-audit] [--force] [--db <path>]
 relic-bridge --help | --version
 ```
 
@@ -21,10 +22,11 @@ relic-bridge --help | --version
 | `--config <file>` | `RB_CONFIG` | YAML config file. Use an absolute path in client configs (`~/` is expanded). Without it, env mode is used. |
 | `--project <slug>` | `RB_PROJECT` | Project to serve from the file. Optional when the file has one project. |
 | `--log-level <level>` | `RB_LOG_LEVEL` | `debug`, `info` (default), `warn`, `error`. |
-| `--db <path>` | `RB_DB_PATH` | SQLite database for `serve`, the management commands, `db backup`, `keys rotate`, `credential revalidate` and `audit purge`; default `<data dir>/relic-bridge.db` (`RB_DATA_DIR`, see [self-hosting](self-hosting.md)). |
+| `--db <path>` | `RB_DB_PATH` | SQLite database for `serve`, the management commands, `db backup`, `db export`, `keys rotate`, `credential revalidate` and `audit purge`; default `<data dir>/relic-bridge.db` (`RB_DATA_DIR`, see [self-hosting](self-hosting.md)). |
 | — | `RB_MASTER_KEY` / `RB_MASTER_KEY_FILE` / `RB_MASTER_KEY_KEYCHAIN` | Master key that encrypts stored New Relic keys (remote modes, `keys rotate`, `credential revalidate`). See [secrets](secrets.md). |
 | — | `RB_MASTER_KEY_PREVIOUS` / `RB_MASTER_KEY_PREVIOUS_FILE` / `RB_MASTER_KEY_PREVIOUS_KEYCHAIN` | Previous master key, only while rotating. |
 | `--key-version <n>` | — | Version written into a key by `keys generate` (default 1). |
+| `--format d1`, `--no-audit`, `--force` | — | `db export`: write the database for a Cloudflare Worker's D1 database, optionally without the audit log, replacing an existing file. See [Migrate from a self-hosted server](cloudflare-deploy.md#migrate-from-a-self-hosted-server). |
 
 Flags win over env vars. There is deliberately **no flag for the API key**: command lines show up in process lists and
 shell history. Unknown flags are refused.

@@ -12,6 +12,7 @@ import { HELP_TEXT, isLogLevel, parseCliArgs, UsageError } from './args.ts';
 import { auditPurge } from './audit.ts';
 import { ConfigError, type ConfigFs, type Env, loadConfig } from './config.ts';
 import { credentialRevalidate } from './credentials.ts';
+import { dbExport } from './db-export.ts';
 import { keysGenerate, keysRotate } from './keys.ts';
 import { isManageArgv, parseManageArgs } from './manage/args.ts';
 import { MANAGE_HELP } from './manage/help.ts';
@@ -112,7 +113,24 @@ export function main(rt: CliRuntime): MainResult {
     }
   };
 
-  if (args.command === 'db' && args.file !== undefined) {
+  if (args.command === 'db' && args.dbAction === 'export' && args.file !== undefined) {
+    const dbPath = maintenanceDbPath(args.db);
+    if (dbPath === null) return exit(2);
+    return {
+      kind: 'pending',
+      done: dbExport({
+        dbPath,
+        file: args.file,
+        includeAudit: args.noAudit !== true,
+        force: args.force === true,
+        env: rt.env,
+        stdout: rt.stdout,
+        logger,
+      }),
+    };
+  }
+
+  if (args.command === 'db' && args.dbAction === 'backup' && args.file !== undefined) {
     const dbPath = maintenanceDbPath(args.db);
     if (dbPath === null) return exit(2);
     try {

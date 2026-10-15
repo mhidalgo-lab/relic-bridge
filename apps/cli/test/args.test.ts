@@ -110,6 +110,30 @@ describe('parseCliArgs', () => {
     expect(() => parseCliArgs(['db', 'backup', 'a', '--db', ' '])).toThrow(/--db/);
   });
 
+  it('parses db export (P8-80)', () => {
+    expect(parseCliArgs(['db', 'export', 'out.sql', '--format', 'd1'])).toEqual({
+      command: 'db',
+      dbAction: 'export',
+      file: 'out.sql',
+      format: 'd1',
+      force: false,
+      noAudit: false,
+    });
+    expect(
+      parseCliArgs(['db', 'export', 'o.sql', '--format', 'd1', '--no-audit', '--force', '--db', 'x.db']),
+    ).toMatchObject({ dbAction: 'export', force: true, noAudit: true, db: 'x.db' });
+    expect(() => parseCliArgs(['db', 'export', 'o.sql'])).toThrow(/--format d1/);
+    expect(() => parseCliArgs(['db', 'export', 'o.sql', '--format', 'sqlite'])).toThrow(/--format d1/);
+    expect(() => parseCliArgs(['db', 'export', '--format', 'd1'])).toThrow(/one destination/);
+    expect(() => parseCliArgs(['db', 'backup', 'o.db', '--force'])).toThrow(/--force only applies/);
+    expect(() => parseCliArgs(['db', 'backup', 'o.db', '--format', 'd1'])).toThrow(/--format only applies/);
+    expect(() => parseCliArgs(['serve', '--no-audit'])).toThrow(/--no-audit only applies/);
+    // No secret can ride along as a flag.
+    expect(() => parseCliArgs(['db', 'export', 'o.sql', '--format', 'd1', '--master-key', 'v1:x'])).toThrow(
+      UsageError,
+    );
+  });
+
   it('help text documents the env block and never suggests key flags', () => {
     expect(HELP_TEXT).toContain('NEW_RELIC_API_KEY');
     expect(HELP_TEXT).toContain('"env" block');

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-import { existsSync, mkdtempSync, rmSync, statSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { generateMasterKey, Keyring } from '@relic-bridge/auth';
@@ -140,6 +140,62 @@ describe('main', () => {
       expect(missing.result).toEqual({ kind: 'exit', code: 1 });
       expect(existsSync(join(dir, 'nope.db'))).toBe(false);
       expect(existsSync(join(dir, 'c.db'))).toBe(false);
+    });
+  });
+
+  describe('db export --format d1 (P8-80)', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'rb-cli-export-'));
+    afterAll(() => rmSync(dir, { recursive: true, force: true, maxRetries: 5 }));
+
+    const pending = async (r: ReturnType<typeof run>): Promise<number> => {
+      if (r.result.kind !== 'pending') throw new Error(`expected pending, got ${r.result.kind}`);
+      return r.result.done;
+    };
+
+    it('writes a 0600 SQL file with no secret, prints the next steps, refuses to overwrite without --force', async () => {
+      const masterKey = generateMasterKey(3);
+      const db = join(dir, 'a.db');
+      const s = await openSqliteStorage({ path: db });
+      const keyring = await Keyring.create({ current: masterKey });
+      await s.users.create({ id: 'usr_a', email: 'a@example.com', role: 'owner' });
+      const sealed = await keyring.encryptCredentialKey('cred_a', FAKE_KEY);
+      await s.credentials.create({ id: 'cred_a', label: 'main', region: 'US', key: sealed });
+      await s.kv.put('sess:x', '{}', { expirationTtl: 3600 });
+      await s.close();
+
+      const dest = join(dir, 'out', 'export.sql');
+      const ok = run(['db', 'export', dest, '--format', 'd1', '--db', db], { RB_MASTER_KEY: masterKey });
+      expect(await pending(ok)).toBe(0);
+      expect(ok.stdout).toContain('Rows: ');
+      expect(ok.stdout).toContain('master key (version 3)');
+      expect(ok.stdout).toContain('--master-key-stdin');
+      expect(ok.stdout).toContain(`wrangler d1 execute <database> --remote --file ${dest}`);
+      if (process.platform !== 'win32') expect(statSync(dest).mode & 0o777).toBe(0o600);
+      const text = readFileSync(dest, 'utf8');
+      for (const secret of [masterKey, FAKE_KEY, masterKey.slice(3)]) {
+        expect(text).not.toContain(secret);
+        expect(ok.stdout + ok.stderr).not.toContain(secret);
+      }
+      expect(text).not.toContain('sess:x');
+
+      const again = run(['db', 'export', dest, '--format', 'd1', '--db', db]);
+      expect(await pending(again)).toBe(1);
+      expect(again.stderr).toContain('--force');
+      const forced = run(['db', 'export', dest, '--format', 'd1', '--no-audit', '--force', '--db', db]);
+      expect(await pending(forced)).toBe(0);
+      expect(forced.stdout).toContain('and the audit log');
+    });
+
+    it('refuses to write next to the master key file (T7)', async () => {
+      const db = join(dir, 'b.db');
+      await (await openSqliteStorage({ path: db })).close();
+      const keyDir = join(dir, 'keys');
+      const r = run(['db', 'export', join(keyDir, 'export.sql'), '--format', 'd1', '--db', db], {
+        RB_MASTER_KEY_FILE: join(keyDir, 'master.key'),
+      });
+      expect(await pending(r)).toBe(1);
+      expect(r.stderr).toContain('next to the master key');
+      expect(existsSync(join(keyDir, 'export.sql'))).toBe(false);
     });
   });
 

@@ -314,6 +314,10 @@ run while the server is up, opens the source read-only (it never migrates or mod
 
 To restore, stop the server and put the backup file in place of the database (remove stale `-wal` / `-shm` files).
 
+To move the server to a Cloudflare Worker with its tokens, encrypted keys and audit log, export the database for D1
+(`relic-bridge db export <file> --format d1`) and follow
+[Migrate from a self-hosted server](cloudflare-deploy.md#migrate-from-a-self-hosted-server).
+
 ## Security: the database and the master key
 
 New Relic keys are stored only as AES-256-GCM ciphertext, and device tokens only as SHA-256 hashes. **The database

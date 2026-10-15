@@ -2,11 +2,11 @@
 id: P8-75
 title: Input and limits fixes - OTLP header values, unbalanced NRQL parentheses, logger field overwrite
 phase: 8
-status: todo
+status: in-progress
 priority: low
 depends_on: []
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P8-75 — Input and limits fixes: OTLP header values, unbalanced NRQL parentheses, logger field overwrite

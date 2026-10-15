@@ -99,9 +99,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
-      ACTIONLINT_VERSION: 1.7.12
+      # renovate: datasource=github-release-attachments depName=rhysd/actionlint
+      ACTIONLINT_VERSION: v1.7.12
       # sha256 of the linux/amd64 tarball, pinned here (P8-07) so a tampered release cannot also replace its checksums
-      # file. Update both values together; `sha256sum` the tarball after reading the release notes.
+      # file. Renovate (P8-70) bumps the tag and this digest together, taking the digest from that release's checksums
+      # file; scripts/test/tool-pins.test.ts checks the pair.
       ACTIONLINT_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
     steps:
       - uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
@@ -112,8 +114,8 @@ jobs:
           persist-credentials: false
       - name: Install actionlint (pinned checksum) and lint workflows
         run: |
-          base="https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}"
-          file="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          base="https://github.com/rhysd/actionlint/releases/download/${ACTIONLINT_VERSION}"
+          file="actionlint_${ACTIONLINT_VERSION#v}_linux_amd64.tar.gz"
           curl -fsSLO "$base/$file"
           echo "${ACTIONLINT_SHA256}  $file" | sha256sum -c --strict -
           tar -xzf "$file" actionlint

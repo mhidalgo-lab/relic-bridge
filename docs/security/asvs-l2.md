@@ -3,7 +3,7 @@
 relic-bridge checked against the [OWASP Application Security Verification Standard](https://owasp.org/www-project-application-security-verification-standard/)
 **5.0.0** (released 2025-05-30, the current stable release per the [OWASP ASVS releases](https://github.com/OWASP/ASVS/releases)),
 Level 2: every L1 and L2 requirement of the chapters that apply. Prepared in P8-01 (2026-10-14) for the independent
-review (P8-02). Requirement text is not copied here (the standard is CC BY-SA 4.0); the **Topic** column is a short
+review (P8-02). Refreshed in P8-95 (2026-10-15) after P8-65, P8-66 and P8-73. Requirement text is not copied here (the standard is CC BY-SA 4.0); the **Topic** column is a short
 paraphrase, so read each id against the standard.
 
 **Applies**: whether the requirement can apply to relic-bridge. **Status**: *met*, *partial* (the gap is stated),
@@ -25,19 +25,19 @@ has **no passwords**, no file uploads, no WebSockets and no WebRTC.
 |---|---|---|---|---|---|
 | V1 Encoding and Sanitization | yes | 14 | 0 | 0 | 13 |
 | V2 Validation and Business Logic | yes | 9 | 1 | 0 | 1 |
-| V3 Web Frontend Security | yes | 17 | 1 | 1 | 0 |
+| V3 Web Frontend Security | yes | 18 | 0 | 1 | 0 |
 | V4 API and Web Service | yes | 4 | 0 | 1 | 5 |
 | V5 File Handling | partly (config bundle, audit CSV) | 5 | 0 | 0 | 4 |
 | V6 Authentication | yes (IdP sign-in, tokens) | 9 | 2 | 0 | 24 |
-| V7 Session Management | yes | 10 | 5 | 2 | 1 |
-| V8 Authorization | yes | 6 | 1 | 0 | 0 |
+| V7 Session Management | yes | 13 | 2 | 2 | 1 |
+| V8 Authorization | yes | 7 | 0 | 0 | 0 |
 | V9 Self-contained Tokens | consumed only (IdP ID tokens, Access assertions) | 6 | 0 | 0 | 1 |
-| V10 OAuth and OIDC | yes (server and client) | 23 | 1 | 1 | 4 |
+| V10 OAuth and OIDC | yes (server and client) | 24 | 0 | 1 | 4 |
 | V11 Cryptography | yes | 12 | 1 | 0 | 1 |
 | V12 Secure Communication | yes (TLS at the hosting layer) | 3 | 1 | 2 | 3 |
-| V13 Configuration | yes | 8 | 3 | 2 | 0 |
-| V14 Data Protection | yes | 7 | 2 | 0 | 0 |
-| V15 Secure Coding and Architecture | yes | 10 | 3 | 0 | 0 |
+| V13 Configuration | yes | 9 | 2 | 2 | 0 |
+| V14 Data Protection | yes | 8 | 1 | 0 | 0 |
+| V15 Secure Coding and Architecture | yes | 12 | 1 | 0 | 0 |
 | V16 Security Logging and Error Handling | yes | 14 | 2 | 0 | 0 |
 | V17 WebRTC | no | 0 | 0 | 0 | 7 |
 
@@ -101,7 +101,7 @@ No requirement is *not met*. The partial items are listed under [open items](#op
 | V3.3.2 | 2 | `SameSite` per purpose | yes | met | `SameSite=Lax` (Strict would drop the cookie after the IdP redirect); CSRF covered by token, `Origin` and fetch metadata. Test: `http/test/p4-review-sessions.test.ts` |
 | V3.3.3 | 2 | `__Host-` prefix | yes | met | All cookies `__Host-` on https, `Path=/`, no `Domain`; a cookie named twice is no cookie. Test: `http/test/p4-review-sessions.test.ts` (cookie tossing) |
 | V3.3.4 | 2 | `HttpOnly` for script-inaccessible cookies | yes | met | `HttpOnly` on every cookie; the page gets a separate CSRF token. Test: `http/test/p4-review-sessions.test.ts` |
-| V3.4.1 | 1 | HSTS on all responses | yes | partial | `max-age=31536000; includeSubDomains` when the request is https or `RB_HSTS=true` (`http/src/security.ts`); always on Workers. Gap: `serve` behind a TLS proxy sends none unless `RB_HSTS=true` (documented in [self-hosting](../guide/self-hosting.md)). Test: `http/test/app.test.ts` |
+| V3.4.1 | 1 | HSTS on all responses | yes | met | `max-age=31536000; includeSubDomains` on every response when the request is https, when `RB_HSTS=true`, or (P8-66) when `RB_PUBLIC_URL` is https and `RB_HSTS` is unset or `auto` (`hstsAlways`, set in `cli/src/serve.ts`; `http/src/app.ts`); always on Workers, including the boot-failure 503 (`worker/src/worker.ts` `unavailable`). `RB_HSTS=false` turns it off. Deriving HSTS from the public URL does not relax the pass-through TLS guard. Tests: `http/test/app.test.ts` (`hstsAlways`), `cli/test/serve.test.ts` (settings parser), `http/test/passthrough.test.ts` (guard still refuses plain http), `worker/test/worker.test.ts` (503 carries HSTS). A plain-http `RB_PUBLIC_URL` sends none unless `RB_HSTS=true`, by design (no `X-Forwarded-Proto` trust) |
 | V3.4.2 | 1 | CORS `Allow-Origin` fixed or allow-listed | yes | met | Off by default; `RB_CORS_ORIGINS` allow-list without credentials; `Origin` checked before the OAuth provider's CORS. Test: `http/test/app.test.ts` ("CORS is off by default…") |
 | V3.4.3 | 2 | CSP with `object-src` / `base-uri` restrictions | yes | met | JSON: `default-src 'none'; frame-ancestors 'none'`; HTML: `UI_CSP` (`script-src 'self'`, `base-uri 'none'`, Trusted Types, no inline code); chart view meta CSP. Tests: `authz/ui.test.ts`, `ui/test/app.test.ts` |
 | V3.4.4 | 2 | `X-Content-Type-Options: nosniff` | yes | met | On every response including errors and the Worker's 503. Tests: `http/test/app.test.ts`, `worker/test/worker.test.ts`, `cli/test/serve-e2e.test.ts` |
@@ -167,15 +167,15 @@ OAuth tokens or the bootstrap admin token.
 | V6.8.1 | 2 | Identities from several IdPs cannot be spoofed | yes | met | Users are unique on `(idp, idp_subject)` with namespaced idps; an email never moves an account between identities (`auth/src/identity/policy.ts`). Tests: `auth/test/login-race.ts`, `auth/test/identity.test.ts`. Accepted: a pre-created unbound user binds at its first verified sign-in from any enabled IdP (T14). |
 | V6.8.2 | 2 | Signatures on assertions verified | yes | met | `jose` `jwtVerify` with an asymmetric allow-list; `none` and HMAC refused; keys from the issuer's JWKS (`auth/src/identity/jwt.ts`). Tests: `auth/test/p4-review-signin.test.ts` (key confusion), `auth/test/identity.test.ts` |
 | V6.8.3 | 2 | SAML assertions used once | no | N/A | No SAML. |
-| V6.8.4 | 2 | Expected authentication strength from the IdP verified | yes | partial | The ID token must be at most 10 minutes old; no `acr` / `amr` / `max_age` is requested or checked. Gap: sensitive admin actions rely on the session and role, with no recent-authentication check. |
+| V6.8.4 | 2 | Expected authentication strength from the IdP verified | yes | partial | The ID token must be at most 10 minutes old. Sensitive admin actions need a relic-bridge sign-in from the last `RB_SESSION_REAUTH_MINUTES` (P8-73, see V7.5.1). Gap: no `acr` / `amr` / `max_age` is requested or checked, so the strength of the IdP's own authentication is not verified and a live IdP session may answer without a prompt ([admin access](../guide/admin-access.md#re-authentication-for-sensitive-actions)). Possible follow-up: `prompt=login` / `max_age=0` with an `auth_time` check for OIDC. |
 
 ## V7 Session Management
 
 | Id | L | Topic | Applies | Status | Evidence |
 |---|---|---|---|---|---|
-| V7.1.1 | 2 | Timeouts documented and justified | yes | partial | Idle 30 min, absolute 12 h, with allowed ranges ([admin access](../guide/admin-access.md), `auth/src/identity/session.ts`). Gap: no written risk justification for the defaults. |
+| V7.1.1 | 2 | Timeouts documented and justified | yes | met | Idle 30 min, absolute 12 h, re-authentication 10 min, with the allowed ranges, the reason for each default and the risk of changing it in [admin access, why these timeouts](../guide/admin-access.md#why-these-timeouts). Code: `auth/src/identity/session.ts` (`validateSessionTimeouts`), `auth/src/identity/config.ts`. Tests: `auth/test/session.test.ts` |
 | V7.1.2 | 2 | Concurrent sessions documented | yes | met | At most 20 per user, the oldest evicted ([admin access](../guide/admin-access.md)). Test: `auth/test/session.test.ts` |
-| V7.1.3 | 2 | Federated session behaviour documented | yes | partial | The relic-bridge session is independent of the IdP session (no back-channel logout). Gap: not stated in [identity providers](../guide/identity-providers.md). |
+| V7.1.3 | 2 | Federated session behaviour documented | yes | met | The relic-bridge session is independent of the IdP session, and there is no back-channel or front-channel logout; what follows from that (sign-out, removing a person, no stored IdP tokens) is stated in [identity providers, what is checked](../guide/identity-providers.md#5-what-is-checked-security-notes). Tests: `authz/session-revocation.test.ts` (disabling a user ends their sessions) |
 | V7.2.1 | 1 | Session verification on the backend | yes | met | Every request loads the session from storage (`http/src/session.ts`). Test: `authz/session-revocation.test.ts` |
 | V7.2.2 | 1 | Dynamic tokens, not static secrets | yes | accepted | Sessions and OAuth tokens are generated per sign-in / grant. Per-device `rb_` tokens are long-lived bearer secrets by design (ADR-0009): hash-only, bound to one project, revocable, 90-day default. |
 | V7.2.3 | 1 | Reference tokens unique and random (≥ 128 bits) | yes | met | Session secret 256 bits (`auth/src/identity/login.ts` `randomValue`); `rb_` tokens 256 bits; provider tokens 192 bits. Tests: `auth/test/session.test.ts`, `auth/test/tokens.test.ts`, `auth/test/fuzz.test.ts` |
@@ -187,8 +187,8 @@ OAuth tokens or the bootstrap admin token.
 | V7.4.3 | 2 | Option to end other sessions after a factor change | no | N/A | No factors held by relic-bridge; a role change already ends every session. |
 | V7.4.4 | 2 | Visible logout | yes | met | A sign-out form on every admin page (`ui/src/components.tsx`). Test: `ui/test/components.test.tsx` |
 | V7.4.5 | 2 | Administrators can end sessions of one user or all | yes | partial | Per user: `POST /users/{id}/sessions/revoke`. Gap: no "end every user's sessions" operation. Test: `authz/routes.test.ts` |
-| V7.5.1 | 2 | Re-authentication before sensitive account changes | yes | partial | Sensitive changes need CSRF, the role (owner-only for owners and write scope) and typed or single-use confirmations. Gap: no re-authentication step. |
-| V7.5.2 | 2 | Users can view and end their sessions | yes | partial | Users can end all their sessions and list and revoke their own OAuth devices (`/me/oauth-devices`). Gap: no list of active browser sessions and no re-authentication before ending them. |
+| V7.5.1 | 2 | Re-authentication before sensitive account changes | yes | met | Sensitive admin changes (master-key rotation, config import, owner setup links, unbind, credential rotation, project deletion, creating or promoting admins and owners, disabling users, signing another user out, long-lived device tokens, OAuth clients and registration) need a sign-in from the last `RB_SESSION_REAUTH_MINUTES` (default 10, 1-60), decided server side from the stored session (`auth/src/identity/session.ts` `sessionIsFresh`; `http/src/admin/api.ts` `sensitiveRoute`, `requireFresh`), plus CSRF, the role and typed or single-use confirmations. A stale session gets one `403 forbidden` / `reauth_required` answer on every route, audited. The admin token is exempt (a secret held outside the browser). Tests: `authz/reauth.test.ts` (one negative case per action, window boundary, client hints ignored, `/me/*` out of scope, UI round trip), `auth/test/session.test.ts`. Limit: the proof is a relic-bridge sign-in; it does not force the IdP to prompt (V6.8.4) |
+| V7.5.2 | 2 | Users can view and end their sessions | yes | partial | Users can end all their sessions and list and revoke their own OAuth devices (`/me/oauth-devices`). Ending another user's sessions needs a recent sign-in (P8-73, `authz/reauth.test.ts`). Gap: no list of active browser sessions, and ending your own sessions needs no recent sign-in. |
 | V7.6.1 | 2 | RP / IdP session lifetimes behave as documented | yes | accepted | The relic-bridge session lifetime is independent of the IdP's; re-authentication at the IdP happens at the next sign-in. |
 | V7.6.2 | 2 | Session creation needs consent or an explicit action | yes | met | A session is created only after an explicit sign-in start and a callback with single-use, browser-bound state. Test: `http/test/identity.test.ts` |
 
@@ -197,7 +197,7 @@ OAuth tokens or the bootstrap admin token.
 | Id | L | Topic | Applies | Status | Evidence |
 |---|---|---|---|---|---|
 | V8.1.1 | 1 | Function and data access rules documented | yes | met | [Access model](../guide/access-model.md), [admin access](../guide/admin-access.md) roles, admin API reference. |
-| V8.1.2 | 2 | Field-level rules documented | yes | partial | Field-level behaviour exists (members see only their own audit rows; keys shown as a last-four hint; client secrets never listed) but is described piecemeal. Gap: no single field-level rules section. |
+| V8.1.2 | 2 | Field-level rules documented | yes | met | One section: [data protection, field-level rules](data-protection.md#field-level-rules) (what each view returns, never returns and to whom). Code: the `*View` functions in `http/src/admin/api.ts`. Tests: `http/test/admin.test.ts` (no key material or token hash in responses), `authz/routes.test.ts` (member audit rows), `authz/member-self-service.test.ts`, `authz/ui-screens.test.ts` |
 | V8.2.1 | 1 | Function-level access | yes | met | `requiredRole` on every admin route (`http/src/admin/api.ts`); tools exist only if granted. Tests: `authz/routes.test.ts`, `authz/tools.test.ts` ("ungranted tools") |
 | V8.2.2 | 1 | Data-specific access (IDOR) | yes | met | `/me/*` touches own rows only; tokens bound to one project; accounts enforced by `resolveAccounts`; cursors bound to tool, account and filters. Tests: `authz/member-self-service.test.ts`, `authz/tools.test.ts` (foreign accounts, forged cursors) |
 | V8.2.3 | 2 | Field-level access | yes | met | Responses never carry ciphertext, hashes or secrets; tools drop out-of-scope rows; bodies ignore ownership fields. Tests: `http/test/admin.test.ts`, `authz/` leak scan, `authz/member-self-service.test.ts` |
@@ -248,7 +248,7 @@ relic-bridge issues no JWTs; it verifies IdP ID tokens and Cloudflare Access ass
 | V10.5.5 | 2 | Back-channel logout DoS | no | N/A | No OIDC back-channel logout. |
 | V10.6.1 | 2 | OP response types | no | N/A | relic-bridge is an OAuth authorization server, not an OpenID Provider (no ID tokens; `code` only). |
 | V10.6.2 | 2 | OP forced-logout DoS | no | N/A | No OIDC logout endpoints. |
-| V10.7.1 | 2 | Consent for each request (always for unassured clients) | yes | partial | Consent per authorization request (`http/src/oauth/consent.ts`); an opt-in "don't ask again" (30 days, per user, client, redirect URI and resource; never for `mcp:write`). Gap: the remember option is also offered for dynamically registered clients, whose identity is not assured. |
+| V10.7.1 | 2 | Consent for each request (always for unassured clients) | yes | met | Consent per authorization request (`http/src/oauth/consent.ts`); an opt-in "don't ask again" (30 days, per user, client, redirect URI and resource; never for `mcp:write`) that is offered and honoured only for client ID metadata-document clients (P8-65, `remembersClient`). A forged `remember=1` from a dynamic client is not saved, and a stored approval of a dynamic client is ignored, deleted and not listed. Tests: `authz/consent-suite.ts` ("P8-65: a dynamically registered client is never offered, saved or answered from memory"; "a remembered approval stored for a dynamic client before the change is ignored, dropped and not listed") |
 | V10.7.2 | 2 | Consent shows enough information | yes | met | Escaped client name, the vouching host or "not verified", the redirect host, a loopback warning, the project, tools and accounts (`ui/src/consent.tsx`). Tests: `authz/consent-suite.ts`, `ui/test/consent.test.tsx` |
 | V10.7.3 | 2 | Users can review and revoke consents | yes | met | `/oauth/approvals` list and forget; connected apps in `/admin/me`; owners remove clients. Tests: `authz/consent-suite.ts`, `authz/oauth-lifecycle-suite.ts` |
 
@@ -288,7 +288,7 @@ relic-bridge issues no JWTs; it verifies IdP ID tokens and Cloudflare Access ass
 
 | Id | L | Topic | Applies | Status | Evidence |
 |---|---|---|---|---|---|
-| V13.1.1 | 2 | Communication needs documented | yes | partial | Trust boundaries in THREAT_MODEL section 1, [OAuth how it works](../guide/oauth-how-it-works.md), [observability](../guide/observability.md). Gap: no single list of outbound destinations (NerdGraph regions, IdP and JWKS, metadata documents, OTLP). |
+| V13.1.1 | 2 | Communication needs documented | yes | met | One list: [data protection, outbound destinations](data-protection.md#outbound-destinations) (NerdGraph regions, IdP and JWKS, metadata documents, OTLP, `doctor`, `--remote`), with what is sent, the credential and the redirect rule. Trust boundaries in THREAT_MODEL section 1, [OAuth how it works](../guide/oauth-how-it-works.md), [observability](../guide/observability.md). Tests: `core/test/nerdgraph-client.test.ts` (redirect refused), `http/test/telemetry.test.ts`, `authz/oauth-clients-suite.ts` |
 | V13.2.1 | 2 | Backend credentials not static where avoidable | yes | accepted | New Relic accepts only static User API keys; the admin token is static (hashed compare, strength-checked). Device and OAuth tokens are per device and revocable. |
 | V13.2.2 | 2 | Least privilege for backend communication | yes | met | Dedicated User key recommended ([security basics](../guide/security-basics.md)); Docker non-root, read-only root; database `0600`; keys scoped per grant. Test: `packages/storage-sqlite/test/sqlite.test.ts` |
 | V13.2.3 | 2 | No default credentials | yes | met | Master key required; weak or placeholder admin tokens refused (`http/src/admin/token.ts`). Test: `http/test/admin-token.test.ts` |
@@ -307,7 +307,7 @@ relic-bridge issues no JWTs; it verifies IdP ID tokens and Cloudflare Access ass
 | Id | L | Topic | Applies | Status | Evidence |
 |---|---|---|---|---|---|
 | V14.1.1 | 2 | Sensitive data identified and classified | yes | met | THREAT_MODEL section 2 (assets and sensitivity). |
-| V14.1.2 | 2 | Protection requirements per level | yes | partial | Requirements are in [secrets](../guide/secrets.md), [audit log](../guide/audit-log.md), [query cache](../guide/query-cache.md) and T7 / T8 / T17. Gap: no single table per class (encryption, retention, logging). |
+| V14.1.2 | 2 | Protection requirements per level | yes | met | One table per class of data (where it lives, encryption, retention, logging): [data protection by class](data-protection.md#data-protection-by-class), with [cryptography](cryptography.md) and [logging](logging.md) for detail; also [secrets](../guide/secrets.md), [audit log](../guide/audit-log.md), [query cache](../guide/query-cache.md), T7 / T8 / T17 |
 | V14.2.1 | 1 | Sensitive data only in bodies or headers | yes | met | Keys in bodies or headers, tokens in `Authorization`, one-time tokens in a body. In URLs only the single-use, hashed, expiring setup code and the standard OAuth `code` / `state` (with a same-origin referrer policy and no third-party resources). |
 | V14.2.2 | 2 | No sensitive data in server caches | yes | met | Query cache TTL-bound, bounded, HMAC-keyed and scoped; Workers Cache API bodies encrypted (T16); `Cache-Control: no-store` on responses. Test: `core/test/query-cache.test.ts` |
 | V14.2.3 | 2 | No sensitive data to untrusted parties | yes | met | No trackers or third-party resources (CSP); OTLP export opt-in and allow-listed (T30). Test: `http/test/telemetry.test.ts` |
@@ -320,10 +320,10 @@ relic-bridge issues no JWTs; it verifies IdP ID tokens and Cloudflare Access ass
 
 | Id | L | Topic | Applies | Status | Evidence |
 |---|---|---|---|---|---|
-| V15.1.1 | 1 | Remediation time frames for third-party components | yes | partial | [SECURITY.md](../../SECURITY.md) sets response targets for vulnerabilities in relic-bridge; Renovate and `pnpm audit` keep dependencies current. Gap: no documented time frame per severity for third-party advisories. |
+| V15.1.1 | 1 | Remediation time frames for third-party components | yes | met | [SECURITY.md](../../SECURITY.md) sets response targets for vulnerabilities in relic-bridge and, in "Advisories in third-party components", time frames per severity (critical 7 days, high 14, moderate 30, low next update or 90); Renovate security updates skip the release-age delay. The time frames are a proposal the owner confirms (pending decision P8-95) |
 | V15.1.2 | 2 | SBOM / inventory of components | yes | met | Lockfile, exact pins, CycloneDX SBOM in releases and the image attestation, `scripts/check-licenses.ts`. |
 | V15.1.3 | 2 | Resource-heavy functionality documented | yes | met | [Query limits](../guide/query-limits.md), [Cloudflare limits](../guide/cloudflare-limits.md), [query cache](../guide/query-cache.md), ARCHITECTURE (budgets, semaphore, caps). |
-| V15.2.1 | 1 | Components within the remediation policy | yes | partial | `pnpm audit --audit-level high` gates CI; Renovate security updates skip the release-age delay. Gap: moderate advisories are not gated (follows from V15.1.1). |
+| V15.2.1 | 1 | Components within the remediation policy | yes | met | `pnpm audit --audit-level high`, dependency review (`fail-on-severity: high`) and the Docker image scan (high and critical) gate CI; SECURITY.md states that moderate and low advisories are not gated and are fixed within their time frames through Renovate and the dependency dashboard (`.github/workflows/security.yml`, `renovate.json`) |
 | V15.2.2 | 2 | Availability defences for heavy functionality | yes | met | Per-credential semaphore, call budget, body caps, request deadline, response caps, rate limits, quotas. Tests: `http/test/stream-deadline.test.ts`, `http/test/rate-limit.test.ts`, `http/test/fuzz-http.test.ts` |
 | V15.2.3 | 2 | Only required functionality in production | yes | met | Test hooks compiled out; distroless image; npm package `dist` only; spikes and e2e not shipped. |
 | V15.3.1 | 1 | Only required fields returned | yes | met | Admin API builds outputs field by field (masked keys, tokens without hashes); `whoami` returns no key material. Tests: `http/test/admin.test.ts`, `authz/` leak scan |
@@ -365,15 +365,14 @@ relic-bridge issues no JWTs; it verifies IdP ID tokens and Cloudflare Access ass
 
 ## Open items
 
-The partial items, grouped. Each is a candidate for a task; none is a known vulnerability.
+The partial items, grouped. Each is a candidate for a task; none is a known vulnerability. P8-95 closed the
+documentation items (V7.1.1, V7.1.3, V8.1.2, V13.1.1, V14.1.2, V15.1.1, V15.2.1) and the product items that had been
+fixed since (V3.4.1, V7.5.1, V10.7.1).
 
-- **Documentation**: risk justification for session timeouts (V7.1.1), federated session behaviour (V7.1.3),
-  field-level rules (V8.1.2), outbound destinations (V13.1.1), a per-class data protection table (V14.1.2), third-party remediation time frames
-  (V15.1.1, V15.2.1).
-- **Product**: HSTS by default behind a TLS proxy (V3.4.1); MFA claim or step-up re-authentication for sensitive
-  admin actions (V6.3.3, V6.8.4, V7.5.1, V7.5.2); "end every user's sessions" (V7.4.5); `Clear-Site-Data` on logout
-  (V14.3.1); offering "don't ask again" only for clients whose identity is assured (V10.7.1); an explicit redirect
-  policy on every outbound client (V15.3.2); an operator allow-list for metadata-document hosts (V13.2.4).
+- **Product**: IdP-asserted authentication strength or a forced IdP prompt on step-up (V6.3.3, V6.8.4); a list of
+  active browser sessions and a recent-sign-in check before ending your own (V7.5.2); "end every user's sessions"
+  (V7.4.5); `Clear-Site-Data` on logout (V14.3.1); an explicit redirect policy on every outbound client (V15.3.2); an
+  operator allow-list for metadata-document hosts (V13.2.4).
 - **Platform or design** (recorded, no change planned): all-or-nothing multi-row admin operations on D1 (V2.3.3); TLS
   versions and certificates at the hosting layer (V12.1.1); vault / HSM integration (V13.3.1); tamper-evident and
   off-host logs by default (V16.4.2, V16.4.3); crypto agility beyond versioned formats (V11.2.2).

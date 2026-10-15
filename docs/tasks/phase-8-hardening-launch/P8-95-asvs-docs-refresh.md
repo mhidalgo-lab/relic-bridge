@@ -2,11 +2,11 @@
 id: P8-95
 title: ASVS refresh after P8-65/66/73 and the documentation-only open items
 phase: 8
-status: todo
+status: review
 priority: medium
 depends_on: []
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P8-95 — ASVS refresh after P8-65/66/73 and the documentation-only open items
@@ -31,9 +31,9 @@ P8-65). Its documentation-only open items can be closed by writing the missing s
 - Update the "Open items" list. Keep "Platform or design" items as recorded limits.
 
 ## Acceptance criteria
-- [ ] Every status change cites code and a test.
-- [ ] Every new doc section linked from the ASVS row.
-- [ ] Chapter totals add up.
+- [x] Every status change cites code and a test.
+- [x] Every new doc section linked from the ASVS row.
+- [x] Chapter totals add up.
 
 ## Security notes
 Documentation only. Don't describe CI runner infrastructure.
@@ -43,3 +43,11 @@ Documentation only. Don't describe CI runner infrastructure.
 
 ## Out of scope
 - Product changes (P8-96).
+
+## Outcome
+- Rows changed: V3.4.1, V7.5.1 and V10.7.1 partial to met; V6.8.4 and V7.5.2 stay partial with a narrower gap; V7.1.1,
+  V7.1.3, V8.1.2, V13.1.1, V14.1.2, V15.1.1 and V15.2.1 partial to met (documentation).
+- New: `docs/security/data-protection.md` (field-level rules, outbound destinations, data classes); "Why these
+  timeouts" in the admin access guide; IdP session independence in the identity providers guide; "Advisories in
+  third-party components" in `SECURITY.md`.
+- The third-party time frames are a proposal: see `docs/pending-decisions/phase-8.md`.

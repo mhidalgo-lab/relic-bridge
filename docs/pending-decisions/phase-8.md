@@ -70,3 +70,18 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   re-authentication for sensitive admin actions); remembered consent for dynamically registered OAuth clients; HSTS by
   default when `RB_PUBLIC_URL` is https. Other findings were reported to the owner privately (SECURITY.md).
 - **Decision (2026-10-14):** cryptographic inventory (P8-71), logging inventory (P8-72) and admin re-authentication (P8-73) before 1.0; remembered consent only for metadata-document clients (P8-65); HSTS on by default for an https public URL (P8-66); other follow-ups filed as P8-74 to P8-78.
+
+## ASVS refresh
+
+### P8-95 — Remediation time frames for third-party advisories (SECURITY.md)
+- **Context:** ASVS V15.1.1 asks for documented time frames per severity for third-party components. SECURITY.md only
+  had targets for reports against relic-bridge itself.
+- **Assumption made:** critical 7 days, high 14 days, moderate 30 days, low at the next scheduled update or 90 days,
+  counted from when we learn of an advisory that affects a version we ship. Only high and above block a merge
+  (`pnpm audit --audit-level high`, dependency review, image scan); moderate and low are tracked through Renovate and
+  fixed within their time frames. V15.1.1 and V15.2.1 are marked met on this basis.
+- **Options:** keep these values; shorten them (for example critical 3 days, high 7); gate moderate advisories in CI
+  too (`--audit-level moderate`, which will fail builds on advisories with no fix yet); or promise nothing numeric
+  beyond best effort.
+- **Needs:** owner confirmation of the policy, since it is a public commitment.
+

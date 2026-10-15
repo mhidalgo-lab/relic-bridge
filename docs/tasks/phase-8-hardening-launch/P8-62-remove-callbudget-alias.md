@@ -2,11 +2,11 @@
 id: P8-62
 title: Remove the deprecated whoami limits.callBudget alias in 0.11.0
 phase: 8
-status: todo
+status: in-progress
 priority: low
 depends_on: [P8-05, P8-47]
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P8-62 — Remove the deprecated whoami limits.callBudget alias in 0.11.0

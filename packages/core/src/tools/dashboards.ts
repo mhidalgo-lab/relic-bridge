@@ -43,6 +43,20 @@ const MAX_DESCRIPTION_CHARS = 500;
 // Pure readers
 // ---------------------------------------------------------------------------------------------------------------------
 
+/**
+ * New Relic visualization ids carry dots (`viz.line`, `<nerdpack-uuid>.<name>`), which `label()` rejects. Untrusted text:
+ * only dotted segments of a safe charset, bounded in count and length, ever pass.
+ */
+const VIZ_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}(\.[A-Za-z0-9_-]{1,64}){0,3}$/;
+/** The `viz` values `create_dashboard` accepts: a read-back of these can be fed straight to it. */
+const CREATE_VIZ = new Set(['line', 'area', 'bar', 'billboard', 'pie', 'table', 'markdown']);
+
+export function visualizationOf(id: string | null | undefined): string | null {
+  if (typeof id !== 'string' || !VIZ_ID_RE.test(id)) return null;
+  const short = id.startsWith('viz.') ? id.slice(4) : null;
+  return short !== null && CREATE_VIZ.has(short) ? short : id;
+}
+
 export interface WidgetQuery {
   readonly accountId: number | null;
   readonly nrql: string;
@@ -96,7 +110,7 @@ export function readWidget(
   return {
     id: typeof w.id === 'string' ? cleanName(w.id, 80) : null,
     title: cleanName(w.title ?? ''),
-    visualization: label(w.visualization?.id),
+    visualization: visualizationOf(w.visualization?.id),
     queries: show
       ? parsed.map((q) => ({ accountId: q.accountId, nrql: cleanName(q.nrql, MAX_NRQL_CHARS) }))
       : [],
@@ -184,7 +198,7 @@ const LIST_DESCRIPTION = `List the dashboards of one account (name, guid, permis
 
 Use it to find a dashboard for get_dashboard. Page with cursor. ${UNTRUSTED}`;
 
-const GET_DESCRIPTION = `Get one dashboard (guid or name): its pages and widgets, with each widget's title, visualization and NRQL queries (and markdown text), so you can reuse the queries.
+const GET_DESCRIPTION = `Get one dashboard (guid or name): its pages and widgets, with each widget's title, visualization (line, area, bar, billboard, pie, table, markdown as create_dashboard takes them; other ids in full) and NRQL queries (and markdown text), so you can reuse the queries.
 
 Widgets are NOT executed: pass a widget's NRQL to run_nrql for numbers. Widgets on accounts this connection cannot read are listed with their NRQL withheld. Shows up to ${MAX_PAGES} pages and ${MAX_WIDGETS_PER_PAGE} widgets per page. To find a dashboard use list_dashboards. ${UNTRUSTED}`;
 

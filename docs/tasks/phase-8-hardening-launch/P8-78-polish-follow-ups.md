@@ -2,7 +2,7 @@
 id: P8-78
 title: Polish - golden-metric trend note, timeout recipe, deprecated alias schema, upgrade steps
 phase: 8
-status: in-progress
+status: review
 priority: low
 depends_on: [P8-52, P8-60]
 adr: []
@@ -30,11 +30,10 @@ Four small inconsistencies, three of them follow-ups of recent tasks.
    (the `wrangler.local.jsonc` drift notes).
 
 ## Acceptance criteria
-- [ ] Golden-metric notes are accurate per metric: halves note only when halves were used; an unknown trend says so (test in
+- [x] Golden-metric notes are accurate per metric: halves note only when halves were used; an unknown trend says so (test in
       `packages/core/test/tools-golden.test.ts`).
-- [ ] The timeout query in `docs/guide/observability.md` facets by `service.version` and runs against a live export (leave
-      unticked until checked).
-- [ ] Both guides give the same upgrade steps, and the Cloudflare guide no longer tells users to pull `main`.
+- [x] The timeout query in `docs/guide/observability.md` facets by `service.version` and runs against a live export (checked 2026-10-15 on 0.7.0 to 0.10.0 data).
+- [x] Both guides give the same upgrade steps, and the Cloudflare guide no longer tells users to pull `main`.
 
 ## Security notes
 None (documentation and messages).

@@ -125,8 +125,10 @@ the JSON-RPC method from a fixed list: the client-to-server methods of MCP 2026-
 2025-11-25 era the server still serves (`initialize`, `ping`, `logging/setLevel`, `tasks/*`); anything else is `other`.
 A body without a method (a JSON-RPC response) or one that is not JSON has no `mcpMethod`; a batch is refused with 400
 before it is logged with a method. `mcpName` is set only for `tools/call` (the tool name, same pattern check as `tool`). Resource URIs and prompt
-names are never exported. To see what the timeouts are:
-`SELECT count(*) FROM Log WHERE service.name = 'relic-bridge' AND message = 'mcp request timed out' FACET mcpMethod SINCE 1 day ago`.
+names are never exported. To see what the timeouts are, by version and method:
+`SELECT count(*) FROM Log WHERE service.name = 'relic-bridge' AND message = 'mcp request timed out' FACET service.version, if(mcpMethod IS NULL, '(no method)', mcpMethod) AS method SINCE 1 day ago`.
+A plain `FACET mcpMethod` drops every record without the attribute (versions before 0.9.1 did not set it, and a body
+without a method has none), so the `if()` labels those rows instead of hiding them.
 
 **Deadlines.** `mcp request timed out` (WARN) means a request did not finish within the request timeout
 (`requestTimeoutMs`, 180 s by default): a tool call that hung or a body that never arrived. An open-ended stream (a

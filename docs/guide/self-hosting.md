@@ -336,7 +336,11 @@ Creating, storing, backing up and rotating the master key: [secrets](secrets.md)
 
 ## Upgrading
 
-Take a [backup](#back-it-up) first, then deploy the new version. **Reconnect your MCP clients afterwards**: they keep the
+Take a [backup](#back-it-up) first, then deploy the new version: `npm install -g relic-bridge@<version>` and restart the
+service, or a new image tag for Docker. From a source checkout (a build you made yourself, or the Cloudflare Worker),
+check out the release tag, then install and redeploy:
+`git fetch --tags && git checkout v<version>`, `corepack enable && pnpm install`, and rebuild (or `pnpm cf:setup` for
+the Worker); do not follow `main`. **Reconnect your MCP clients afterwards**: they keep the
 tool list from before the upgrade, and a stateless server can't tell them it changed (Claude Code: `/mcp`; see
 [troubleshooting](troubleshooting.md)). Steps per mode, rollback and version notes: [upgrading](upgrading.md); what a
 version number promises: [versioning policy](versioning.md).

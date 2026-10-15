@@ -2,11 +2,11 @@
 id: P8-84
 title: Release guards - DB fixture for a new minor and changesets for private packages
 phase: 8
-status: todo
+status: review
 priority: medium
 depends_on: [P8-05]
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P8-84 — Release guards: DB fixture for a new minor and changesets for private packages
@@ -32,9 +32,9 @@ Two things blocked or broke CI around the 0.10.0 release (2026-10-15):
   staying in `version` mode.
 
 ## Acceptance criteria
-- [ ] A new minor release cannot leave `main` failing the fixture check (test or documented step that is automated).
-- [ ] A changeset for a private package fails CI with a clear message (tests).
-- [ ] `release.ts plan` reports changesets that cannot be consumed (tests).
+- [x] A new minor release cannot leave `main` failing the fixture check (test or documented step that is automated).
+- [x] A changeset for a private package fails CI with a clear message (tests).
+- [x] `release.ts plan` reports changesets that cannot be consumed (tests).
 
 ## Security notes
 None (release tooling); the release job keeps its permissions (THREAT_MODEL T18 unchanged unless the job gains a write).
@@ -44,3 +44,17 @@ None (release tooling); the release job keeps its permissions (THREAT_MODEL T18 
 
 ## Out of scope
 - Changing the changesets configuration for private packages.
+
+## Outcome
+- Fixture: the **version PR** writes it. `pnpm version-packages` ends with `gen-db-fixtures.ts --next-release`: for a
+  stable `X.Y.0` whose minor has no fixture it writes `vX.Y.json` from the build's migrations (the tag points at the
+  version PR's merge commit, so they are what ships; the PR is regenerated on every push to `main`). The fixture list the
+  upgrade tests import is now generated (`packages/storage/test/db-fixtures.generated.ts`, checked by `--check`), so
+  nothing is registered by hand in `upgrade.ts`. The release `build` job runs `--check-release <version>` before
+  packing: a missing or stale fixture (or a patch that adds a migration) stops the release instead of breaking `main`
+  after the tag. Chosen over "warn until the next version PR" because the check stays strict and nothing depends on a
+  follow-up commit.
+- 0.11.0: the open version PR (#259) is regenerated when this lands on `main` and then contains `v0.11.json`. If #259 is
+  merged first, 0.11.0 ships the old way and the documented fallback (`pnpm db:fixtures` after the tag) applies once.
+- Changesets: `release.ts check-changesets` runs in `pnpm lint`; `plan` warns per changeset it cannot consume and fails
+  when none of the pending ones can be consumed.

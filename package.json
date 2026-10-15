@@ -20,7 +20,7 @@
     "e2e:screenshots": "RB_E2E_SCREENSHOTS=1 playwright test -c e2e/playwright.config.ts --project=desktop --project=mobile-320",
     "test:live": "vitest run --config vitest.live.config.ts",
     "test:watch": "vitest",
-    "lint": "biome check . && node scripts/check-runtime-imports.ts && node scripts/check-nrql-templates.ts && node scripts/check-ui-escaping.ts && node scripts/check-spdx.ts && node scripts/tasks.ts check && node scripts/gen-tool-docs.ts --check && node scripts/gen-migrations.ts --check && node scripts/gen-db-fixtures.ts --check && node scripts/gen-admin-assets.ts --check && node scripts/gen-app-assets.ts --check && node scripts/release.ts sync-version --check",
+    "lint": "biome check . && node scripts/check-runtime-imports.ts && node scripts/check-nrql-templates.ts && node scripts/check-ui-escaping.ts && node scripts/check-spdx.ts && node scripts/tasks.ts check && node scripts/gen-tool-docs.ts --check && node scripts/gen-migrations.ts --check && node scripts/gen-db-fixtures.ts --check && node scripts/gen-admin-assets.ts --check && node scripts/gen-app-assets.ts --check && node scripts/release.ts sync-version --check && node scripts/release.ts check-changesets",
     "format": "biome format --write .",
     "lint:fix": "biome check --write .",
     "tasks": "node scripts/tasks.ts",
@@ -37,7 +37,7 @@
     "docs:admin-api": "vitest run --project http-app test/admin-docs.test.ts -u",
     "changeset": "changeset",
     "prepare": "lefthook install || true",
-    "version-packages": "changeset version && node scripts/release.ts sync-version",
+    "version-packages": "changeset version && node scripts/release.ts sync-version && node scripts/gen-db-fixtures.ts --next-release",
     "check:package": "node scripts/check-package.ts",
     "db:generate": "pnpm --filter @relic-bridge/storage db:generate",
     "db:fixtures": "node scripts/gen-db-fixtures.ts"

@@ -352,7 +352,7 @@ Generated from task front matter (`pnpm tasks index`). Status lives in each task
 | P8-81 | [Record the D1 database id in the local Wrangler config and stop the "remote configuration differs" noise](tasks/phase-8-hardening-launch/P8-81-d1-database-id.md) | medium | — | done |
 | P8-82 | [cf:setup polish - real URLs, quieter drift warning, login permission check, CLI next steps](tasks/phase-8-hardening-launch/P8-82-cf-setup-polish.md) | low | P8-81 | done |
 | P8-83 | [Cloudflare guide clarity - CLI build step, zone security note, no internal ids, section order](tasks/phase-8-hardening-launch/P8-83-cloudflare-guide-clarity.md) | low | P8-82 | done |
-| P8-84 | [Release guards - DB fixture for a new minor and changesets for private packages](tasks/phase-8-hardening-launch/P8-84-release-guards.md) | medium | P8-05 | todo |
+| P8-84 | [Release guards - DB fixture for a new minor and changesets for private packages](tasks/phase-8-hardening-launch/P8-84-release-guards.md) | medium | P8-05 | review |
 | P8-86 | [The one-time setup code never travels in a URL](tasks/phase-8-hardening-launch/P8-86-setup-code-out-of-url.md) | high | — | review |
 | P8-87 | [Flaky fuzz properties - CLI config secrets and OAuth registration](tasks/phase-8-hardening-launch/P8-87-fuzz-property-flakes.md) | low | — | review |
 <!-- tasks:end -->

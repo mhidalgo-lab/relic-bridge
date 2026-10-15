@@ -2,11 +2,11 @@
 id: P8-69
 title: Release jobs egress policy block
 phase: 8
-status: todo
+status: in-progress
 priority: low
 depends_on: [P8-07]
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P8-69 — Release jobs egress policy block

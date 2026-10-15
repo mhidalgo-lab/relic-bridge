@@ -342,6 +342,36 @@ describe('admin screens: who may use them (P4-04)', () => {
   });
 });
 
+// P8-76 (THREAT_MODEL T13): every POST in the UI route table runs the CSRF check before its handler. UI_ROUTES is kept
+// complete by the route-table guard in routes.test.ts, so a new form that skips `kit.form` fails here.
+describe('admin screens: every form target checks the CSRF token (route-table guard)', () => {
+  const POSTS = UI_ROUTES.filter((r) => r.method === 'POST');
+
+  it('lists form targets to check', () => {
+    expect(POSTS.length).toBeGreaterThan(30);
+  });
+
+  it('refuses a missing or wrong token on every POST route, audits it as csrf, and changes nothing', async () => {
+    const owner = await h.addSession({ role: 'owner' });
+    const users = JSON.stringify(await h.world.storage.users.list());
+    const projects = JSON.stringify(await h.world.storage.projects.list());
+    for (const route of POSTS) {
+      for (const csrf of [null, 'x'.repeat(43)]) {
+        const res = await submit(owner, route.path, {}, { csrf });
+        expect(res.status, `${route.pattern} csrf=${csrf === null ? 'none' : 'wrong'}`).toBe(403);
+      }
+    }
+    const reasons = (await h.auditRows())
+      .filter((r) => r.action === 'admin.forbidden')
+      .map((r) => (r.details as { reason?: string } | null)?.reason);
+    expect(reasons.filter((r) => r === 'csrf')).toHaveLength(POSTS.length * 2);
+    expect(reasons.filter((r) => r !== 'csrf')).toEqual([]);
+    expect(JSON.stringify(await h.world.storage.users.list())).toBe(users);
+    expect(JSON.stringify(await h.world.storage.projects.list())).toBe(projects);
+    expect(h.nerdGraph.calls).toEqual([]);
+  });
+});
+
 describe('admin screens: destructive actions need a confirmation (P4-04)', () => {
   it('without confirm=yes the answer is a confirmation page and nothing changes; with it, the action runs', async () => {
     const owner = await h.addSession({ role: 'owner' });

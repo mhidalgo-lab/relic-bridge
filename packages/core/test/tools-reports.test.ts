@@ -5,6 +5,7 @@ import {
   createBudget,
   createReportTools,
   createTask,
+  DEFAULT_LIMITS,
   ERROR_META_KEY,
   ErrorCode,
   type FetchLike,
@@ -345,6 +346,26 @@ describe('generate_alert_insights_report', () => {
     expect(ng.calls.length).toBeLessThanOrEqual(14);
   });
 
+  // P8-76 (T5): like every tool, the report refuses a window beyond the connection limit before any request.
+  it('refuses a lookback beyond the window limit before any request', async () => {
+    const ng = nerdGraph();
+    const client = await connect(ng.fetch);
+    for (const lookback of ['last 8 days', 'last 30 days']) {
+      const r = await client.callTool({
+        name: 'generate_alert_insights_report',
+        arguments: { issue_id: 'issue-1', lookback },
+      });
+      expect(errorCode(r), lookback).toBe(ErrorCode.LimitQuery);
+    }
+    const narrow = await connect(ng.fetch, { limits: { ...DEFAULT_LIMITS, maxWindowDays: 1 } });
+    const r = await narrow.callTool({
+      name: 'generate_alert_insights_report',
+      arguments: { issue_id: 'issue-1', lookback: 'last 2 days' },
+    });
+    expect(errorCode(r)).toBe(ErrorCode.LimitQuery);
+    expect(ng.calls).toEqual([]);
+  });
+
   it('plans against the remaining budget: reduces golden metrics, skips the rest and says so', async () => {
     const ng = nerdGraph();
     const client = await connect(ng.fetch, { budget: createBudget(11) });
@@ -640,6 +661,23 @@ describe('generate_user_impact_report', () => {
     expect(s.notes.join(' ')).toContain('not run: request budget exhausted');
     // The mock answers synchronously, so each NRQL really takes one request.
     expect(ng.calls).toHaveLength(3);
+  });
+
+  // P8-76 (T5): the measured window and the issue lookback are checked before any request, on both paths.
+  it('refuses a time range or lookback beyond the window limit before any request', async () => {
+    const ng = nerdGraph();
+    const client = await connect(ng.fetch);
+    const calls: Record<string, unknown>[] = [
+      { entity_guid: MOCK_GUID, time_range: 'last 8 days' },
+      { entity_guid: MOCK_GUID, time_range: 'last 30 days' },
+      { issue_id: 'issue-1', time_range: 'last 8 days' },
+      { issue_id: 'issue-1', lookback: 'last 8 days' },
+    ];
+    for (const args of calls) {
+      const r = await client.callTool({ name: 'generate_user_impact_report', arguments: args });
+      expect(errorCode(r), JSON.stringify(args)).toBe(ErrorCode.LimitQuery);
+    }
+    expect(ng.calls).toEqual([]);
   });
 
   it('needs exactly one of issue_id and entity_guid, and refuses foreign entities offline', async () => {

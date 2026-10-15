@@ -4,7 +4,8 @@
 //   1. generates RB_MASTER_KEY and RB_ADMIN_TOKEN (and RB_FINGERPRINT_SECRET with --passthrough) with the CSPRNG,
 //   2. sends them to `wrangler secret bulk` on STDIN (never as arguments, never written to a repo file),
 //   3. deploys with a git-ignored copy of wrangler.jsonc, so Wrangler's automatic provisioning creates the D1 database
-//      and writes its id into the copy, not into the committed file,
+//      without an id in the committed file; Wrangler writes ids back only in an interactive terminal, so the script then
+//      looks the database up and records its `database_id` in the copy itself (P8-81),
 //   3b. with --sign-in (P4-09): asks for RB_PUBLIC_URL and the sign-in provider settings. Client ids and issuer go to the
 //      deploy as `--var`; client SECRETS go through the same `wrangler secret bulk` stdin call (read from the environment
 //      or a hidden prompt, never from an argument, never written to a file),
@@ -77,6 +78,8 @@ export interface SetupDeps {
     read: (path: string) => string;
     /** Writes a new file; throws when it exists. */
     writeNew: (path: string, content: string, mode: number) => void;
+    /** Replaces the content of an existing file, keeping its mode. Used only for the git-ignored local config. */
+    replace: (path: string, content: string) => void;
   };
 }
 
@@ -87,8 +90,8 @@ export const LOCAL_CONFIG = 'wrangler.local.jsonc';
 const DEFAULT_NAME = 'relic-bridge';
 
 /**
- * The git-ignored config a Worker deploys with. One per Worker name: Wrangler writes the provisioned D1 id into
- * it, so a second Worker (staging) sharing the default copy would bind to the first one's database.
+ * The git-ignored config a Worker deploys with. One per Worker name: it names (and, after the first deploy, holds the
+ * id of) that Worker's D1 database, so a second Worker (staging) sharing the default copy would bind to the first one's.
  */
 export function localConfigName(name: string): string {
   return name === DEFAULT_NAME ? LOCAL_CONFIG : `wrangler.${name}.local.jsonc`;
@@ -128,6 +131,86 @@ export function normalizeConfig(text: string): string {
     .replace(/\s+/g, '');
 }
 const WORKER_NAME_RE = /^[a-z0-9][a-z0-9-]{0,62}$/;
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** The `DB` entry of `d1_databases`. A D1 binding has no nested objects, so `{...}` without inner braces is all of it. */
+const DB_BINDING_RE = /("d1_databases"\s*:\s*\[[^\]]*?)(\{[^{}]*"binding"\s*:\s*"DB"[^{}]*\})/;
+
+/** The `DB` binding of a wrangler config text: its `database_name` and whether it already has a `database_id`. */
+export function d1Binding(text: string): { name: string; hasId: boolean } | undefined {
+  const entry = DB_BINDING_RE.exec(text)?.[2];
+  if (entry === undefined) return undefined;
+  const name = /"database_name"\s*:\s*"([^"]+)"/.exec(entry)?.[1];
+  if (name === undefined) return undefined;
+  return { name, hasId: /"database_id"\s*:\s*"[^"]*"/.test(entry) };
+}
+
+/**
+ * `text` with `"database_id": "<id>"` added right after the `DB` binding's `database_name`, everything else byte for
+ * byte; `undefined` when there is no such binding, it already has an id, or `id` is not a UUID.
+ */
+export function withDatabaseId(text: string, id: string): string | undefined {
+  if (!UUID_RE.test(id)) return undefined;
+  const b = d1Binding(text);
+  if (b === undefined || b.hasId) return undefined;
+  return text.replace(
+    DB_BINDING_RE,
+    (_m, head: string, entry: string) =>
+      head + entry.replace(/("database_name"\s*:\s*"[^"]+")/, `$1, "database_id": "${id}"`),
+  );
+}
+
+/** The uuid of the one database named `name` in `wrangler d1 list --json` output, or why there is none. */
+export function databaseIdFromList(stdout: string, name: string): { id: string } | { reason: string } {
+  let rows: unknown;
+  try {
+    // Wrangler may print a notice (an update hint) before the JSON array.
+    const start = stdout.indexOf('[');
+    rows = JSON.parse(start === -1 ? stdout : stdout.slice(start));
+  } catch {
+    return { reason: '`wrangler d1 list --json` did not return JSON' };
+  }
+  if (!Array.isArray(rows)) return { reason: '`wrangler d1 list --json` did not return a list' };
+  const ids = rows.flatMap((r: unknown) => {
+    if (typeof r !== 'object' || r === null) return [];
+    const row = r as { name?: unknown; uuid?: unknown };
+    return row.name === name && typeof row.uuid === 'string' ? [row.uuid] : [];
+  });
+  if (ids.length === 0) return { reason: `no D1 database named "${name}" is listed` };
+  if (ids.length > 1) return { reason: `more than one D1 database is named "${name}"` };
+  const id = ids[0] as string;
+  if (!UUID_RE.test(id)) return { reason: 'the listed database id is not a UUID' };
+  return { id };
+}
+
+/**
+ * After a deploy: record the bound database's id in the local copy (P8-81). Wrangler writes provisioned ids back only
+ * in an interactive terminal (this script pipes its output), and a binding by name alone makes every later deploy
+ * print a "remote configuration differs" diff (`- database_id` / `+ database_name`). Never fatal: by name works.
+ */
+async function recordDatabaseId(deps: SetupDeps, localConfig: string, localName: string): Promise<void> {
+  const text = deps.fs.read(localConfig);
+  const binding = d1Binding(text);
+  if (binding === undefined || binding.hasId) return;
+  const r = await deps.wrangler(['d1', 'list', '--json', '-c', localConfig]);
+  const found =
+    r.code === 0
+      ? databaseIdFromList(r.stdout, binding.name)
+      : { reason: `wrangler d1 list failed (exit ${r.code})` };
+  const updated = 'id' in found ? withDatabaseId(text, found.id) : undefined;
+  if (updated === undefined) {
+    const reason = 'reason' in found ? found.reason : 'the D1 entry could not be updated';
+    deps.log(
+      `NOTE: could not record the D1 database id in ${localName} (${reason}). Deploys still work: Wrangler finds the ` +
+        'database by name. To add it by hand, run `wrangler d1 list` and add "database_id": "<uuid>" next to "database_name".',
+    );
+    return;
+  }
+  deps.fs.replace(localConfig, updated);
+  deps.log(
+    `Recorded the id of D1 database "${binding.name}" in ${localName} (later deploys no longer list it as a "remote configuration" difference).`,
+  );
+}
 
 export function parseArgs(argv: readonly string[]): SetupOptions | 'help' {
   const o: SetupOptions = {
@@ -408,7 +491,7 @@ export async function runSetup(opts: SetupOptions, deps: SetupDeps): Promise<{ u
   if (opts.dryRun) {
     log('Dry run: nothing is generated, sent or deployed.');
     log(
-      `  1. copy wrangler.jsonc to ${localName} (git-ignored; Wrangler writes the D1 id there)` +
+      `  1. copy wrangler.jsonc to ${localName} (git-ignored; it gets the D1 database id after the deploy)` +
         (opts.name === DEFAULT_NAME
           ? ''
           : `, with D1 database "${opts.name}" and rate-limit namespace ${rateLimitNamespace(opts.name)}`),
@@ -438,7 +521,11 @@ export async function runSetup(opts: SetupOptions, deps: SetupDeps): Promise<{ u
       );
       log('     ids and URLs go to the deploy as --var, client secrets into the same secret bulk call');
     }
-    log('  4. print next steps (the Worker applies its D1 migrations when it first boots)');
+    log(
+      `  4. when ${localName} has no D1 database_id yet: look the database up (\`wrangler d1 list --json\`) and add its id`,
+    );
+    log('     to the copy, so later deploys bind it by id (a failed lookup is only a note)');
+    log('  5. print next steps (the Worker applies its D1 migrations when it first boots)');
     return { url: undefined };
   }
 
@@ -475,7 +562,7 @@ export async function runSetup(opts: SetupOptions, deps: SetupDeps): Promise<{ u
         `WARNING: ${localName} differs from wrangler.jsonc (a git pull may have added a binding, cron or setting that this deploy will not include, or you edited the copy on purpose, e.g. a custom domain).`,
       );
       log(
-        `  Compare the two files, copy new entries into ${localName} and keep its provisioned ids. Deleting the copy would make Wrangler provision a new D1 database.`,
+        `  Compare the two files, copy new entries into ${localName} and keep its database_id. (Deleting the copy loses your edits; the database stays bound by name.)`,
       );
     }
   }
@@ -574,6 +661,7 @@ export async function runSetup(opts: SetupOptions, deps: SetupDeps): Promise<{ u
   if (dep.code !== 0)
     throw new SetupError(`wrangler deploy failed (exit ${dep.code}). ${firstLine(dep.stderr)}`);
   const url = WORKERS_DEV_RE.exec(dep.stdout + dep.stderr)?.[0];
+  await recordDatabaseId(deps, localConfig, localName);
 
   const remote = url ?? 'https://<your-worker>.workers.dev';
   log('');
@@ -710,6 +798,7 @@ async function main(): Promise<number> {
         exists: existsSync,
         read: (p) => readFileSync(p, 'utf8'),
         writeNew: (p, c, mode) => writeFileSync(p, c, { flag: 'wx', mode }),
+        replace: (p, c) => writeFileSync(p, c),
       },
     });
     return 0;

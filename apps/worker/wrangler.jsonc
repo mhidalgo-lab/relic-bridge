@@ -1,5 +1,6 @@
 // relic-bridge on Cloudflare Workers (P3-01). No account or resource ids are committed: `wrangler dev` uses local
 // resources, and Wrangler's automatic provisioning creates D1 on the first deploy (P3-05 documents the setup).
+// `pnpm cf:setup` deploys a git-ignored copy (wrangler.local.jsonc) and records the D1 `database_id` there.
 // Secrets (`RB_MASTER_KEY`, `RB_ADMIN_TOKEN`) come from `wrangler secret put` or a local `.dev.vars`, never `vars`.
 {
   "$schema": "node_modules/wrangler/config-schema.json",

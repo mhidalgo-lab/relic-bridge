@@ -23,8 +23,9 @@ The script:
 1. generates `RB_MASTER_KEY` (encrypts stored New Relic keys) and `RB_ADMIN_TOKEN` (opens the admin API) with your
    machine's secure random generator, and passes them to Wrangler **on stdin**: never as command-line arguments
    (visible in the process list), never written to a repo file;
-2. deploys using `apps/worker/wrangler.local.jsonc`, a git-ignored copy of `wrangler.jsonc`, so Wrangler creates the D1
-   database and records their ids in the copy, not in a committed file. Another `--name` gets its own copy
+2. deploys using `apps/worker/wrangler.local.jsonc`, a git-ignored copy of `wrangler.jsonc`. Wrangler creates the D1
+   database on the first deploy (or binds an existing database with the same name), and the script then records the
+   database's id in the copy, never in a committed file. Another `--name` gets its own copy
    (`wrangler.<name>.local.jsonc`) and its own D1 database named after the Worker, so a staging Worker never binds to
    the production database, and its own Rate Limiting namespace (two Workers on one account would otherwise share the
    `1701` counters);
@@ -53,10 +54,12 @@ exists (network or login problem), the script stops instead of guessing; pass `-
 refused too: a new master key would orphan every stored New Relic key. Restore the original key, or pass
 `--replace-master-key` to accept that and re-add the credentials.
 
-`wrangler.local.jsonc` is never overwritten (it holds the provisioned ids and any edits of yours, such as a custom
-domain). On a re-run the script compares it with `wrangler.jsonc`, ignoring comments, whitespace and the ids, and
-**warns** when they differ, for example after a `git pull` added a binding or cron. Copy the new entries into the local
-file, keeping its ids; deleting it would make Wrangler provision a new D1 database.
+`wrangler.local.jsonc` is never overwritten (it holds the database id and any edits of yours, such as a custom
+domain); the script only adds the `database_id` to it when it is missing. On a re-run the script compares it with
+`wrangler.jsonc`, ignoring comments, whitespace and the ids, and **warns** when they differ, for example after a
+`git pull` added a binding or cron. Copy the new entries into the local file, keeping its `database_id`. Deleting the
+file loses your edits but not your data: the next run makes a new copy, and Wrangler binds the same database by its
+name.
 
 **Windows (PowerShell).** Everything above works the same (the script starts Wrangler with Node, no shell). Where the
 guide shows bash, use the PowerShell form given next to it.
@@ -214,7 +217,7 @@ pnpm cf:setup --plan free          # same plan as before; existing secrets and r
   overwrites `RB_PLAN` (and `RB_PASSTHROUGH` with `--passthrough`, `RB_SHARED_LIMITER` with `--shared-limiter`). A plain `wrangler deploy` without `--keep-vars`
   **deletes** dashboard variables such as `RB_ALLOWED_HOSTS`.
 - `wrangler.local.jsonc` is copied from `wrangler.jsonc` once and never refreshed: after a `git pull` that changes
-  `wrangler.jsonc` (new binding, cron or compatibility date), carry the change over by hand (keep the provisioned ids).
+  `wrangler.jsonc` (new binding, cron or compatibility date), carry the change over by hand (keep the `database_id`).
   Since P7-10 that includes the `durable_objects` and `exports` entries of the `SharedLimiter` class (needed only for
   `RB_SHARED_LIMITER`; without them the Worker logs a warning and keeps per-isolate limits).
 - **Upgrade note (P5-13): the `OAUTH_KV` namespace is gone.** Earlier versions declared a KV namespace that was never
@@ -478,7 +481,19 @@ checked 2026-10-03). Use it only where a **person with a browser** is the client
   backoff (5 s, 15 s, then every 60 s), so after fixing the setting wait up to a minute (the `Retry-After` header says
   how long) or redeploy, which starts new isolates and boots at once.
 - **`wrangler deploy` says required secrets are missing:** run `pnpm cf:setup` (it sets them first) or `wrangler secret put`.
-- **Start over locally:** delete `apps/worker/wrangler.local.jsonc` (only forgets resource ids; resources stay linked by name).
+- **Start over locally:** delete `apps/worker/wrangler.local.jsonc`. It forgets the database id and your edits (a custom
+  domain), not data: the next `pnpm cf:setup` binds the same D1 database by its name and records the id again.
+- **`wrangler deploy` prints "The local configuration being used ... differs from the remote configuration" and
+  "Uploading the Worker will override the remote configuration with your local one":** Wrangler shows this when the
+  Worker was last changed outside Wrangler (for example in the dashboard) and the deploy would remove or change
+  something. A `d1_databases` entry with `- database_id` and `+ database_name` is only the local copy lacking the id: the
+  database stays bound. `pnpm cf:setup` adds the id to the copy, after which that entry no longer shows; read any other
+  lines, because they are real (a variable or route set in the dashboard that this deploy replaces). Background:
+  [Wrangler's remote configuration check](https://developers.cloudflare.com/changelog/post/2025-11-21-wrangler-deploy-remote-config-management/).
+- **An account that already has a D1 database called `relic-bridge`:** a name identifies one database per account, and
+  Wrangler looks the database up by name while the copy has no id. On a first deploy, that existing database (another
+  project's, say) is bound instead of a new one being created. Check with `wrangler d1 list` first; to keep them apart,
+  deploy with `--name <worker>`, which uses a database named after the Worker.
 - **503 `key_version_retired` / `key_version_unknown` after a mistyped new key:** booting once with a wrong `RB_MASTER_KEY`
   of a new version registers that key's check value (`crypto.key_check.v<N>` in the `settings` table). Put the old key
   back as `RB_MASTER_KEY`, then delete that row (`wrangler d1 execute <database_name> --remote --command "DELETE FROM

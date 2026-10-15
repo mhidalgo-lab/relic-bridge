@@ -566,7 +566,8 @@ Sources: <https://developers.cloudflare.com/workers/wrangler/configuration/>,
 - **`env` identity**: the same `env` object is passed to every request of an isolate (observed under `wrangler dev`),
   so a per-isolate cache can key on it.
 - **Automatic provisioning** (wrangler ≥ 4.45, open beta): D1/KV/R2 bindings without ids work in `wrangler dev`
-  (local resources) and are created on the first `wrangler deploy`, which writes the ids back into the config file.
+  (local resources) and are created on the first `wrangler deploy`, which writes the ids back into the config file
+  (only in an interactive terminal: see "Wrangler provisioning and the D1 binding by name", P8-81).
   The committed `apps/worker/wrangler.jsonc` therefore has no ids.
 - **`secrets.required`** declares secret names: `wrangler deploy` fails when one is not set; `wrangler dev` then loads
   only those names from `.dev.vars`/`.env` and warns about missing ones (the Vitest integration prints the same warning;
@@ -659,7 +660,9 @@ database.
   the default build command; no account was used.
 - **Automatic provisioning** (Wrangler >= 4.45, now in the config reference): bindings without ids are created on
   `wrangler deploy` with the Worker name as prefix, and ids are written back **into the config file used**. The setup
-  script therefore deploys a git-ignored copy. Dashboard/Git deploys keep ids only in the dashboard.
+  script therefore deploys a git-ignored copy. Dashboard/Git deploys keep ids only in the dashboard. (Corrected by
+  P8-81: the write-back happens only in an interactive terminal, and a binding with a `database_name` uses that name,
+  not the Worker-name prefix; the setup script records the id itself.)
 - **`secrets.required`** (2026-03-24): `wrangler deploy` and `versions upload` fail if a required secret isn't set on the
   Worker, so the setup script sets secrets before the first deploy. `wrangler secret bulk` (stdin JSON when no file is
   given) sets several at once without argv exposure. Whether `secret bulk` creates a not-yet-deployed Worker is not
@@ -1301,3 +1304,38 @@ Sources: [server.json format](https://github.com/modelcontextprotocol/registry/b
   PUBLIC_READ_WRITE, `pages[].widgets[]` with `visualization.id`, `layout`, `rawConfiguration.nrqlQueries[].accountIds`)
   (https://docs.newrelic.com/docs/apis/nerdgraph/examples/nerdgraph-dashboards/). graphql 17 checks it against the schema
   snapshot with `validateInputValue` (`coerceInputValue` no longer takes an error callback in 17; it returns undefined).
+
+## Wrangler provisioning and the D1 binding by name (P8-81, Wrangler 4.144.0 source and docs, 2026-10-15)
+
+Sources: the pinned Wrangler's bundled source (`apps/worker/node_modules/wrangler/wrangler-dist/cli.js`, 4.144.0:
+`provisionBindings`, `D1Handler`, `getRemoteConfigDiff`, `isNonDestructive`, `constructWranglerConfig`), the
+[automatic provisioning changelog](https://developers.cloudflare.com/changelog/post/2025-10-24-automatic-resource-provisioning/),
+the [remote config diff changelog](https://developers.cloudflare.com/changelog/post/2025-11-21-wrangler-deploy-remote-config-management/),
+the [D1 get-database API](https://developers.cloudflare.com/api/resources/d1/subresources/database/methods/get/) (its
+`database_id` path parameter takes a UUID or a name) and a deploy report following the Cloudflare guide (Path A).
+Not re-measured on an account by the maintainers.
+
+- **Ids are written back only in an interactive terminal.** After provisioning, Wrangler patches the config file only
+  when `!isNonInteractiveOrCI()` (a TTY and not CI); otherwise it says nothing and deploys. `pnpm cf:setup` runs Wrangler with piped stdio, so it never wrote the
+  `database_id`; that is why the report found `wrangler.local.jsonc` without one. The changelog's "IDs will be
+  automatically written back" holds for a person running `wrangler deploy` in a terminal. This corrects §11 and §14.
+- **How a binding without an id resolves.** For a D1 binding with a `database_name` and no `database_id`, `wrangler
+  deploy` (1) reads the Worker's current settings; if it already has a `DB` D1 binding whose database has that name, the
+  binding is sent as **inherited** (shown as `inherited` in the bindings table) and keeps pointing at the same database;
+  (2) otherwise it looks the name up (`GET /accounts/{id}/d1/database/{name}`) and binds the database it finds;
+  (3) only when no database has that name does it create one. Deleting `wrangler.local.jsonc` therefore does **not**
+  create a new database: the fresh copy binds the existing one by name.
+- **Same name.** The D1 API addresses a database by UUID or by name in the same path parameter, so a name identifies at
+  most one database per account for this lookup. The risk is the other way round: on a first deploy, an existing
+  database that happens to be called `relic-bridge` (another project's) is **adopted**, not replaced. A Worker
+  named with `--name` uses its own database name, which avoids a clash between relic-bridge Workers.
+- **The "remote configuration differs" message.** When the API reports the Worker's last change as made outside
+  Wrangler (`last_deployed_from: "dash"`), `wrangler deploy` downloads the remote configuration and diffs it against the
+  local one. The remote D1 entry is rebuilt as `{ binding, database_id }` (no name); a local entry with only
+  `database_name` becomes `- database_id` / `+ database_name`. A removal or change counts as destructive, so Wrangler
+  prints the diff and "Uploading the Worker will override the remote configuration with your local one", then asks
+  (non-interactive runs take the default and continue). A diff with additions only is non-destructive and Wrangler
+  deploys without the message. With both `database_name` and `database_id` locally, the D1 entry differs only by an
+  added `database_name`, so it no longer triggers the message; any remaining diff is a real one.
+- **`wrangler d1 list --json`** prints the account's databases as a JSON array of objects with `uuid` and `name` (plus
+  version, sizes and dates). `pnpm cf:setup` uses it after the deploy to record the `database_id` in the local copy.

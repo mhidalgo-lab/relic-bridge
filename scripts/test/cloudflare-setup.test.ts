@@ -2,6 +2,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   checkMasterKey,
+  d1Binding,
+  databaseIdFromList,
   generateSecrets,
   LOCAL_CONFIG,
   localConfigFor,
@@ -13,6 +15,7 @@ import {
   SetupError,
   type SetupOptions,
   type WranglerResult,
+  withDatabaseId,
 } from '../cloudflare-setup.ts';
 
 const OPTS: SetupOptions = {
@@ -38,6 +41,14 @@ const COMMITTED =
   '{ "name": "relic-bridge", "d1_databases": [{ "binding": "DB", "database_name": "relic-bridge" }], ' +
   '"ratelimits": [{ "name": "RATE_LIMITER", "namespace_id": "1701" }] }';
 
+const DB_ID = '00000000-0000-4000-8000-000000000001';
+const STAGING_DB_ID = '00000000-0000-4000-8000-000000000002';
+const D1_LIST = JSON.stringify([
+  { uuid: '00000000-0000-4000-8000-000000000009', name: 'other-app' },
+  { uuid: DB_ID, name: 'relic-bridge' },
+  { uuid: STAGING_DB_ID, name: 'rb-staging' },
+]);
+
 function harness(
   replies: (args: readonly string[]) => Partial<WranglerResult>,
   existingConfig = false,
@@ -49,6 +60,7 @@ function harness(
   const revealed: string[] = [];
   const files = new Map<string, { content: string; mode: number }>();
   const copies: string[][] = [];
+  const replaced: string[][] = [];
   let counter = 0;
   const deps: SetupDeps = {
     wrangler: async (args, input) => {
@@ -64,6 +76,8 @@ function harness(
       exists: (p) => (p.endsWith('.jsonc') ? existingConfig : existing.includes(p) || files.has(p)),
       read: (p) => {
         if (p === '/w/wrangler.jsonc') return COMMITTED;
+        const copy = copies.findLast(([path]) => path === p)?.[1];
+        if (copy !== undefined) return copy;
         if (p.endsWith('.local.jsonc') && localContent !== undefined) return localContent;
         throw new Error(`unexpected read ${p}`);
       },
@@ -72,9 +86,12 @@ function harness(
         if (p.endsWith('.jsonc')) copies.push([p, content]);
         else files.set(p, { content, mode });
       },
+      replace: (p, content) => {
+        replaced.push([p, content]);
+      },
     },
   };
-  return { deps, calls, logs, revealed, files, copies };
+  return { deps, calls, logs, revealed, files, copies, replaced };
 }
 
 const ok = (args: readonly string[]): Partial<WranglerResult> => {
@@ -82,6 +99,7 @@ const ok = (args: readonly string[]): Partial<WranglerResult> => {
     return { code: 1, stderr: 'A request failed [code: 10007]' };
   if (args[0] === 'deploy')
     return { stdout: 'Deployed relic-bridge\n  https://relic-bridge.acme.workers.dev\n' };
+  if (args[0] === 'd1' && args[1] === 'list') return { stdout: D1_LIST };
   return {};
 };
 
@@ -559,5 +577,117 @@ describe('runSetup', () => {
         expect(h.calls.some((c) => c.args[1] === 'bulk' || c.args[0] === 'deploy')).toBe(false);
       }
     });
+  });
+});
+
+describe('D1 database id in the local copy (P8-81)', () => {
+  const JSONC = `// my notes
+{
+  "name": "relic-bridge",
+  // the database
+  "d1_databases": [{ "binding": "DB", "database_name": "relic-bridge" }],
+  "routes": [{ "pattern": "mcp.example.com", "custom_domain": true }]
+}
+`;
+
+  it('reads the DB binding and inserts the id, everything else byte for byte', () => {
+    expect(d1Binding(JSONC)).toEqual({ name: 'relic-bridge', hasId: false });
+    const out = withDatabaseId(JSONC, DB_ID);
+    expect(out).toBe(
+      JSONC.replace(
+        '"database_name": "relic-bridge"',
+        `"database_name": "relic-bridge", "database_id": "${DB_ID}"`,
+      ),
+    );
+    expect(d1Binding(out ?? '')).toEqual({ name: 'relic-bridge', hasId: true });
+    // never twice, never a non-UUID, never without a DB binding
+    expect(withDatabaseId(out ?? '', STAGING_DB_ID)).toBeUndefined();
+    expect(withDatabaseId(JSONC, 'abc"; "x')).toBeUndefined();
+    expect(
+      withDatabaseId('{ "d1_databases": [{ "binding": "OTHER", "database_name": "x" }] }', DB_ID),
+    ).toBeUndefined();
+  });
+
+  it('only touches the DB entry when there are several D1 bindings', () => {
+    const two =
+      '{ "d1_databases": [{ "binding": "AUX", "database_name": "aux" }, { "binding": "DB", "database_name": "relic-bridge" }] }';
+    expect(withDatabaseId(two, DB_ID)).toBe(
+      `{ "d1_databases": [{ "binding": "AUX", "database_name": "aux" }, { "binding": "DB", "database_name": "relic-bridge", "database_id": "${DB_ID}" }] }`,
+    );
+  });
+
+  it('picks the one database with the exact name from `d1 list --json`', () => {
+    expect(databaseIdFromList(D1_LIST, 'relic-bridge')).toEqual({ id: DB_ID });
+    expect(databaseIdFromList(`Update available\n${D1_LIST}`, 'rb-staging')).toEqual({ id: STAGING_DB_ID });
+    expect(databaseIdFromList(D1_LIST, 'relic')).toHaveProperty('reason');
+    expect(databaseIdFromList('not json', 'relic-bridge')).toHaveProperty('reason');
+    expect(databaseIdFromList('{"a":1}', 'relic-bridge')).toHaveProperty('reason');
+    const twice = JSON.stringify([
+      { uuid: DB_ID, name: 'relic-bridge' },
+      { uuid: STAGING_DB_ID, name: 'relic-bridge' },
+    ]);
+    expect(databaseIdFromList(twice, 'relic-bridge')).toEqual({
+      reason: 'more than one D1 database is named "relic-bridge"',
+    });
+    expect(
+      databaseIdFromList(JSON.stringify([{ uuid: 'x', name: 'relic-bridge' }]), 'relic-bridge'),
+    ).toHaveProperty('reason');
+  });
+
+  it('records the id after the deploy on a first run', async () => {
+    const h = harness(ok);
+    await runSetup(OPTS, h.deps);
+    const list = h.calls.findIndex((c) => c.args[0] === 'd1' && c.args[1] === 'list');
+    expect(list).toBeGreaterThan(h.calls.findIndex((c) => c.args[0] === 'deploy'));
+    expect(h.calls[list]?.args).toEqual(['d1', 'list', '--json', '-c', `/w/${LOCAL_CONFIG}`]);
+    expect(h.replaced).toEqual([[`/w/${LOCAL_CONFIG}`, withDatabaseId(COMMITTED, DB_ID)]]);
+    expect(h.logs.join('\n')).toMatch(
+      /Recorded the id of D1 database "relic-bridge" in wrangler\.local\.jsonc/,
+    );
+    // the id is not printed
+    expect(h.logs.join('\n')).not.toContain(DB_ID);
+  });
+
+  it('uses the Worker-named database of a --name copy', async () => {
+    const h = harness(ok);
+    await runSetup({ ...OPTS, name: 'rb-staging' }, h.deps);
+    expect(h.replaced).toHaveLength(1);
+    expect(h.replaced[0]?.[0]).toBe('/w/wrangler.rb-staging.local.jsonc');
+    expect(h.replaced[0]?.[1]).toContain(`"database_name": "rb-staging", "database_id": "${STAGING_DB_ID}"`);
+  });
+
+  it('fills in a copy from an earlier run that has no id, and leaves a copy with an id alone', async () => {
+    const h = harness(ok, true, [], JSONC);
+    await runSetup(OPTS, h.deps);
+    expect(h.replaced).toEqual([[`/w/${LOCAL_CONFIG}`, withDatabaseId(JSONC, DB_ID)]]);
+    const done = harness(ok, true, [], withDatabaseId(JSONC, DB_ID));
+    await runSetup(OPTS, done.deps);
+    expect(done.calls.some((c) => c.args[0] === 'd1')).toBe(false);
+    expect(done.replaced).toEqual([]);
+  });
+
+  it('only notes a failed lookup, and the setup still succeeds', async () => {
+    for (const reply of [
+      { code: 1, stderr: 'Authentication error' },
+      { stdout: 'oops' },
+      { stdout: '[]' },
+      { stdout: JSON.stringify([{ uuid: 'not-a-uuid', name: 'relic-bridge' }]) },
+    ]) {
+      const h = harness((a) => (a[0] === 'd1' ? reply : ok(a)));
+      const r = await runSetup(OPTS, h.deps);
+      expect(r.url).toBe('https://relic-bridge.acme.workers.dev');
+      expect(h.replaced).toEqual([]);
+      expect(h.logs.join('\n')).toMatch(
+        /NOTE: could not record the D1 database id in wrangler\.local\.jsonc/,
+      );
+    }
+  });
+
+  it('describes the step in a dry run and calls nothing', async () => {
+    const h = harness(ok);
+    await runSetup({ ...OPTS, dryRun: true }, h.deps);
+    expect(h.calls).toEqual([]);
+    expect(h.replaced).toEqual([]);
+    expect(h.logs.join('\n')).toMatch(/wrangler d1 list --json/);
   });
 });

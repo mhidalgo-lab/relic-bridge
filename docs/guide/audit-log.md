@@ -2,7 +2,8 @@
 
 `relic-bridge serve` records who used the server and what they asked for, so you can answer "which device ran that
 query?" or "who created that token?" later. It is **on by default**, stored in the same SQLite file as everything else
-(table `audit_log`, append-only: the server only inserts and, for retention, deletes old rows).
+(table `audit_log`, append-only: the server only inserts and, for retention, deletes old rows). How it compares with the
+stderr log and the OTLP export, and which security events each one covers: [logging inventory](../security/logging.md).
 
 ## What is stored
 
@@ -24,7 +25,7 @@ One row per event, with these fields (empty when they don't apply):
 | `target_type`, `target_id`, `details` | For admin actions: what was changed. `details` holds small non-secret facts only. |
 
 **Never stored**: access tokens (not even a prefix of a presented token), New Relic keys, the master key, request
-bodies, or any result rows. Everything written passes through the same redaction as the logs, and a test scans the
+bodies (except a write tool's arguments, capped and redacted, in `details.write`), or any result rows. Everything written passes through the same redaction as the logs, and a test scans the
 audit rows for secrets.
 
 Rows for requests that failed **before** a token was accepted (`auth.denied`, and `request.rejected` for the per-IP
@@ -133,7 +134,8 @@ On Cloudflare Workers an hourly cron trigger (`triggers.crons` in `wrangler.json
 the next run continues; a failure is logged as `audit purge failed` and never affects requests. It is recorded as
 `audit.purge` with `source: cron` when it removed rows. Delete the trigger (or set the retention to `0`) to keep history.
 
-The purge is itself recorded (`admin` / `audit.purge`, with the number of rows removed). `RB_AUDIT=off` turns recording
+`relic-bridge audit purge` and the Worker cron record the purge (`admin` / `audit.purge`, with the number of rows
+removed); the hourly purge of `serve` only logs `audit rows purged` to stderr (P8-85). `RB_AUDIT=off` turns recording
 off entirely: no audit row of any kind (tool calls, refusals and admin changes made through that server), warned at
 start. Management commands run on the database itself (`relic-bridge` without `--remote`, `audit purge`) still record
 their rows.

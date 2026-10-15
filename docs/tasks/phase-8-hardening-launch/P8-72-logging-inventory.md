@@ -2,7 +2,7 @@
 id: P8-72
 title: Logging inventory (ASVS 5.0 V16)
 phase: 8
-status: in-progress
+status: review
 priority: medium
 depends_on: []
 adr: []
@@ -36,9 +36,11 @@ guides. One inventory makes gaps visible.
 Gaps found become new task files, not fixes in this PR.
 
 ## Acceptance criteria
-- [ ] Each sink has a section with fields, redaction, retention and readers, each verified against the code.
-- [ ] A coverage table for the ASVS V16 event list with a "gap" column; every gap links to an existing or new task.
-- [ ] Linked from `docs/guide/audit-log.md`, `docs/guide/observability.md` and the best-practices answers.
+- [x] Each sink has a section with fields, redaction, retention and readers, each verified against the code.
+- [x] A coverage table for the ASVS V16 event list with a "gap" column; every gap links to an existing or new task
+      (new: P8-85; existing: P8-75 for the logger field overwrite).
+- [x] Linked from `docs/guide/audit-log.md`, `docs/guide/observability.md` and the best-practices answers
+      (also ARCHITECTURE and the ASVS checklist, where V16.1.1 and V16.2.3 move from partial to met).
 
 ## Security notes
 T17 (repudiation), T30 (telemetry egress), T28 (diagnostics leak). Documentation only; do not include real identifiers in

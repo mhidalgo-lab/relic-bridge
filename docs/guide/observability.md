@@ -4,7 +4,8 @@ relic-bridge can report how it behaves (tool latency, errors, refused requests) 
 OpenTelemetry collector. It is **off by default** and nothing is sent until you turn it on.
 
 Logs go to stderr as structured, redacted JSON; the [audit log](audit-log.md) records who did what. This page is only
-about the optional OTLP export.
+about the optional OTLP export. The [logging inventory](../security/logging.md) compares all three sinks: fields,
+redaction, retention and who can read them.
 
 ## Turn it on
 

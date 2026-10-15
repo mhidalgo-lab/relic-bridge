@@ -71,7 +71,7 @@ each. Keep this file in sync with the entry on bestpractices.dev when practices 
 
 | Criterion | Answer | Evidence |
 |---|---|---|
-| know_secure_design | Met | [THREAT_MODEL.md](../THREAT_MODEL.md) (STRIDE, T1–T33, verified in P8-01), [ASVS 5.0 Level 2 checklist](asvs-l2.md), ADRs on secrets, access model, auth. |
+| know_secure_design | Met | [THREAT_MODEL.md](../THREAT_MODEL.md) (STRIDE, T1–T33, verified in P8-01), [ASVS 5.0 Level 2 checklist](asvs-l2.md), [cryptographic inventory](cryptography.md), [logging inventory](logging.md), ADRs on secrets, access model, auth. |
 | know_common_errors | Met | Threat model covers injection (NRQL/GraphQL variables only, T4), XSS/CSRF/clickjacking in the admin panel, SSRF, token theft, prompt injection labelling. |
 | crypto_published | Met | Only standard algorithms: AES-256-GCM, AES-KW (inside the OAuth provider library), HKDF-SHA-256, PBKDF2-HMAC-SHA-256, SHA-256, HMAC-SHA-256; RSA, ECDSA and EdDSA signatures are only verified. Full list: [cryptographic inventory](cryptography.md), [ADR-0007](../adr/0007-secrets-envelope-encryption.md). |
 | crypto_call | Met | No custom crypto; uses the platform Web Crypto API (`crypto.subtle`), `jose` for JWT verification and `@cloudflare/workers-oauth-provider` for OAuth tokens ([inventory](cryptography.md)). |

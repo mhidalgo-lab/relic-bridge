@@ -12,7 +12,7 @@
 //   100 KB, one row per statement.
 // - The `kv` table is left out: sign-in sessions, login transactions, setup links, OAuth clients, OAuth grants, codes and
 //   refresh tokens, remembered consents, task records and counters are short-lived or bound to the old public URL.
-import { closeSync, existsSync, lstatSync, mkdirSync, openSync, unlinkSync, writeSync } from 'node:fs';
+import { closeSync, existsSync, mkdirSync, openSync, unlinkSync, writeSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { MIGRATIONS, migrate, StorageError } from '@relic-bridge/storage';
@@ -346,16 +346,6 @@ export async function exportForD1(
   if ([source, `${source}-wal`, `${source}-shm`, `${source}-journal`].some((p) => sameFile(p, destination))) {
     throw new StorageError('invalid', 'the export file cannot be the database or one of its files');
   }
-  if (existsSync(destination) || isDanglingLink(destination)) {
-    if (!(options.force ?? false)) {
-      throw new StorageError(
-        'conflict',
-        'export destination already exists; refusing to overwrite it (use --force)',
-      );
-    }
-    if (lstatSync(destination).isDirectory())
-      throw new StorageError('invalid', 'export destination is a directory');
-  }
   const db = new DatabaseSync(source, { readOnly: true });
   let built: D1Export;
   try {
@@ -364,16 +354,31 @@ export async function exportForD1(
   } finally {
     db.close();
   }
-  // Only now touch the destination: a refused export leaves an existing file as it was.
+  // Only now touch the destination: a refused export leaves an existing file as it was. No exists-then-open check:
+  // `wx` creates atomically or fails, so nothing can be swapped in between.
   if (options.force ?? false) {
     try {
       unlinkSync(destination); // a new file (and inode), so an old mode or a symlink target is never reused
-    } catch {
-      // did not exist
+    } catch (cause) {
+      if ((cause as NodeJS.ErrnoException).code !== 'ENOENT') {
+        throw new StorageError('invalid', 'cannot replace the export destination (a directory?)', { cause });
+      }
     }
   }
   mkdirSync(dirname(destination), { recursive: true, mode: 0o700 });
-  const fd = openSync(destination, 'wx', 0o600);
+  let fd: number;
+  try {
+    fd = openSync(destination, 'wx', 0o600);
+  } catch (cause) {
+    if ((cause as NodeJS.ErrnoException).code === 'EEXIST') {
+      throw new StorageError(
+        'conflict',
+        'export destination already exists; refusing to overwrite it (use --force)',
+        { cause },
+      );
+    }
+    throw new StorageError('invalid', 'cannot create the export file', { cause });
+  }
   try {
     writeSync(fd, built.sql);
   } catch (cause) {
@@ -387,12 +392,4 @@ export async function exportForD1(
   }
   closeSync(fd);
   return built.summary;
-}
-
-function isDanglingLink(path: string): boolean {
-  try {
-    return lstatSync(path).isSymbolicLink();
-  } catch {
-    return false;
-  }
 }

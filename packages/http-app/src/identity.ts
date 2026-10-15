@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // Admin sign-in routes (P4-01, ADR-0009 step 2, THREAT_MODEL T14). Web-standard only (ADR-0004).
 //
-//   GET /auth/login                 provider chooser (keeps `next` and `setup`)
+//   GET /auth/setup                 first-owner setup form; the link's code is in the URL fragment (P8-86)
+//   POST /auth/setup                checks the code (same-origin form post), keeps its hash in a short cookie → chooser
+//   GET /auth/login                 provider chooser (keeps `next`; the setup cookie shows the owner card)
 //   GET /auth/login/:provider       starts a redirect login: transaction in storage + binding cookie → 302 to the IdP
 //   GET /auth/callback/:provider    finishes it: consume the transaction once, exchange the code, verify, map to a user
 //   GET /auth/cf-access             Cloudflare Access: verify the `Cf-Access-Jwt-Assertion` header, map to a user
@@ -11,8 +13,11 @@
 // session (P4-02, `session.ts`).
 // Every outcome is audited (`auth` / `login.ok` | `login.denied`); the browser gets one generic failure page whose
 // only detail is the request id. Nothing here reads the `Authorization` header: bearer tokens confer nothing.
+//
+// Setup codes never travel in a URL (P8-86): query strings end up in host and proxy request logs, browser history and
+// `Referer`. A `?setup=` (the old link form) is refused on every route without reading storage.
 
-import { htmlResponse, LoginPage, MessagePage } from '@relic-bridge/admin-ui';
+import { htmlResponse, LoginPage, MessagePage, SetupPage } from '@relic-bridge/admin-ui';
 import {
   CF_ACCESS_HEADER,
   consumeSetupLink,
@@ -35,7 +40,13 @@ import type { Storage, UserRecord, UserRole } from '@relic-bridge/storage';
 import { type Context, Hono } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import type { AdminAuditEvent } from './audit.ts';
-import { CSRF_FIELD, CSRF_HEADER, type SessionManager, type SessionOptions } from './session.ts';
+import {
+  CSRF_FIELD,
+  CSRF_HEADER,
+  fetchOriginProblem,
+  type SessionManager,
+  type SessionOptions,
+} from './session.ts';
 
 export const IDENTITY_BASE: '/auth' = '/auth';
 /** Where a login continues when no (valid) `next` was given. */
@@ -109,6 +120,12 @@ export interface IdentityRouteDeps {
 
 /** Largest logout form body (it carries a CSRF token and a flag). */
 const MAX_LOGOUT_BODY = 2048;
+/** Largest setup form body (a code, a provider id and a `next` path). */
+const MAX_SETUP_BODY = 4096;
+/** How long the setup cookie lives between the setup form and the provider choice. */
+export const SETUP_COOKIE_SECONDS = 600;
+/** The setup cookie's value: the SHA-256 hex of a setup code (never the code). */
+const SETUP_HASH_RE = /^[0-9a-f]{64}$/;
 
 type Vars = { requestId: string; started: number; log: Record<string, unknown> };
 
@@ -180,6 +197,7 @@ export function createIdentityRoutes(
   const secure = publicUrl.startsWith('https:');
   // `__Host-`: Secure, Path=/, no Domain, so no sibling subdomain can set or read it. Plain name on http loopback.
   const cookieName = secure ? '__Host-rb_login' : 'rb_login';
+  const setupCookieName = secure ? '__Host-rb_setup' : 'rb_setup';
   const providers = new Map<string, IdentityProvider>();
   for (const p of options.providers) {
     if (!PROVIDER_ID_RE.test(p.id)) throw new TypeError(`invalid identity provider id ${p.id}`);
@@ -187,22 +205,34 @@ export function createIdentityRoutes(
     providers.set(p.id, p);
   }
   const redirectUri = (id: string) => `${publicUrl}${IDENTITY_BASE}/callback/${id}`;
-  const cookie = (value: string, maxAge: number) =>
-    `${cookieName}=${value}; Path=/; Max-Age=${maxAge}; HttpOnly; SameSite=Lax${secure ? '; Secure' : ''}`;
+  const cookieFor = (name: string) => (value: string, maxAge: number) =>
+    `${name}=${value}; Path=/; Max-Age=${maxAge}; HttpOnly; SameSite=Lax${secure ? '; Secure' : ''}`;
+  const cookie = cookieFor(cookieName);
   const clearCookie = cookie('', 0);
-  const readCookie = (c: Context): string | undefined => {
+  // Setup cookie (P8-86): the code's hash between the setup form and the provider choice. `Lax`, not `Strict`: the
+  // Cloudflare Access sign-in can come back to `/auth/cf-access` through the Access login on another site.
+  const setupCookie = cookieFor(setupCookieName);
+  const clearSetupCookie = setupCookie('', 0);
+  const readNamedCookie = (c: Context, name: string): string | undefined => {
     const header = c.req.header('cookie');
     if (header === undefined) return undefined;
     // Like the session cookie: a header naming the cookie more than once (cookie tossing) is no cookie at all.
     let found: string | undefined;
     for (const part of header.split(';')) {
       const i = part.indexOf('=');
-      if (i > 0 && part.slice(0, i).trim() === cookieName) {
+      if (i > 0 && part.slice(0, i).trim() === name) {
         if (found !== undefined) return undefined;
         found = part.slice(i + 1).trim();
       }
     }
     return found;
+  };
+  const readCookie = (c: Context) => readNamedCookie(c, cookieName);
+  /** The setup code hash this browser carries: undefined when none, null when present but malformed. */
+  const cookieSetup = (c: Context): string | null | undefined => {
+    const raw = readNamedCookie(c, setupCookieName);
+    if (raw === undefined || raw === '') return undefined;
+    return SETUP_HASH_RE.test(raw) ? raw : null;
   };
 
   const audit = (c: Context, event: Omit<LoginAuditEvent, 'requestId'>) => {
@@ -304,36 +334,126 @@ export function createIdentityRoutes(
     await next();
   });
 
+  // Old-form setup links (`?setup=rb_setup_…`, before P8-86) are refused on every route, before anything else and
+  // without reading storage: a code in a URL has been written to request logs on the way here, so it must not work.
+  // The response names no code; the access log records only the route and a fixed deny reason.
+  app.use('*', async (c, next) => {
+    if (new URL(c.req.url).searchParams.has('setup')) {
+      (c.get('log') as Record<string, unknown>)['deny'] = 'setup_in_url';
+      return page(
+        400,
+        'This setup link no longer works',
+        [
+          'Setup links no longer carry their code in the address. Ask the administrator for a new setup link ' +
+            '(relic-bridge setup-link) and open it in this browser.',
+        ],
+        { requestId: c.get('requestId') as string },
+      );
+    }
+    await next();
+  });
+
   const queryNext = (c: Context) => safeNextPath(c.req.query('next'), publicUrl) ?? DEFAULT_LOGIN_NEXT;
 
-  /** The setup link carried by `?setup=`: undefined when absent, null when present but unusable. */
-  const querySetup = async (c: Context): Promise<string | null | undefined> => {
-    const raw = c.req.query('setup');
-    if (raw === undefined) return undefined;
-    const hash = await setupCodeHash(raw);
-    if (hash === null || !(await setupLinkUsable(storage.kv, hash, clock))) return null;
-    return hash;
+  /**
+   * The setup link this browser carries (the setup cookie): undefined when none, null when malformed, unknown, used
+   * or expired. Checked, not consumed: only a completed sign-in consumes it.
+   */
+  const browserSetup = async (c: Context): Promise<string | null | undefined> => {
+    const hash = cookieSetup(c);
+    if (hash === undefined || hash === null) return hash;
+    return (await setupLinkUsable(storage.kv, hash, clock)) ? hash : null;
   };
 
-  app.get('/login', async (c) => {
+  const providerLinks = (c: Context, only: string | undefined) => {
     const params = new URLSearchParams();
     const next = safeNextPath(c.req.query('next'), publicUrl);
     if (next !== null) params.set('next', next);
-    const setup = c.req.query('setup');
-    if (setup !== undefined && (await setupCodeHash(setup)) !== null) params.set('setup', setup);
     const qs = params.size > 0 ? `?${params.toString()}` : '';
-    const list = [...providers.values()].map((p) => ({
+    const all = [...providers.values()];
+    const picked = only === undefined ? all : all.filter((p) => p.id === only);
+    return (picked.length > 0 ? picked : all).map((p) => ({
       href: p.kind === 'header' ? `${IDENTITY_BASE}/cf-access${qs}` : `${IDENTITY_BASE}/login/${p.id}${qs}`,
       label: p.label,
     }));
-    return htmlResponse(LoginPage({ providers: list, setup: params.has('setup') }));
+  };
+
+  app.get('/login', (c) => {
+    // With a setup cookie the list narrows to the link's provider when it named one (`?provider=`, from `POST /setup`).
+    const setup = cookieSetup(c) !== undefined;
+    const only = setup ? c.req.query('provider') : undefined;
+    return htmlResponse(LoginPage({ providers: providerLinks(c, only), setup }));
+  });
+
+  app.get('/setup', (c) => {
+    const provider = c.req.query('provider');
+    const next = safeNextPath(c.req.query('next'), publicUrl);
+    return htmlResponse(
+      SetupPage({
+        action: `${IDENTITY_BASE}/setup`,
+        provider: provider !== undefined && providers.has(provider) ? provider : undefined,
+        next: next ?? undefined,
+      }),
+    );
+  });
+
+  const setupCapped = bodyLimit({
+    maxSize: MAX_SETUP_BODY,
+    onError: () => page(413, 'Setup refused', ['The request is too large.']),
+  });
+
+  app.post('/setup', setupCapped, async (c) => {
+    const log = c.get('log') as Record<string, unknown>;
+    const refuse = (reason: string, status: number) => {
+      log['deny'] = reason;
+      return page(
+        status,
+        'Setup link not accepted',
+        [
+          status === 403
+            ? 'This setup request did not come from this site. Open the setup link in your browser again.'
+            : status === 415
+              ? 'Send the setup form from the setup page.'
+              : 'This setup link is invalid, already used or expired. Ask the administrator for a new one ' +
+                '(relic-bridge setup-link).',
+        ],
+        { requestId: c.get('requestId') as string },
+      );
+    };
+    // Same-origin only: another site must not be able to post a code into this browser (login CSRF). There is no
+    // session yet, so no CSRF token; the code itself is the unguessable value.
+    const origin = fetchOriginProblem(c, publicUrl, true);
+    if (origin !== null) return refuse(origin, 403);
+    if (!/^application\/x-www-form-urlencoded\s*(;|$)/i.test(c.req.header('content-type') ?? '')) {
+      return refuse('unsupported_media_type', 415);
+    }
+    // The body is capped while it is read (`bodyLimit` above). The code is never logged or echoed.
+    const form = new URLSearchParams(await c.req.text());
+    const hash = await setupCodeHash(form.get('code')?.trim());
+    if (hash === null || !(await setupLinkUsable(storage.kv, hash, clock)))
+      return refuse('setup_invalid', 400);
+    const params = new URLSearchParams();
+    const provider = form.get('provider');
+    if (provider !== null && providers.has(provider)) params.set('provider', provider);
+    const next = safeNextPath(form.get('next') ?? undefined, publicUrl);
+    if (next !== null) params.set('next', next);
+    log['setup'] = 'accepted';
+    return new Response(null, {
+      status: 303,
+      headers: {
+        Location: `${IDENTITY_BASE}/login${params.size > 0 ? `?${params.toString()}` : ''}`,
+        'Set-Cookie': setupCookie(hash, SETUP_COOKIE_SECONDS),
+      },
+    });
   });
 
   app.get('/login/:provider', async (c) => {
     const provider = providers.get(c.req.param('provider'));
     if (provider === undefined || provider.kind !== 'redirect') return c.json({ error: 'not_found' }, 404);
-    const setup = await querySetup(c);
-    if (setup === null) return fail(c, provider.id, provider.idp, 'setup_invalid');
+    const setup = await browserSetup(c);
+    if (setup === null) {
+      return fail(c, provider.id, provider.idp, 'setup_invalid', { 'Set-Cookie': clearSetupCookie });
+    }
     try {
       const started = await startLogin(
         storage.kv,
@@ -346,10 +466,11 @@ export function createIdentityRoutes(
         nonce: started.nonce,
         codeChallenge: started.codeChallenge,
       });
-      return new Response(null, {
-        status: 302,
-        headers: { Location: url.href, 'Set-Cookie': cookie(started.binding, LOGIN_TTL_SECONDS) },
-      });
+      const headers = new Headers({ Location: url.href });
+      headers.append('Set-Cookie', cookie(started.binding, LOGIN_TTL_SECONDS));
+      // The setup moved into the login transaction: the browser no longer needs it.
+      if (setup !== undefined) headers.append('Set-Cookie', clearSetupCookie);
+      return new Response(null, { status: 302, headers });
     } catch (error) {
       if (isIdentityError(error)) return fail(c, provider.id, provider.idp, error.code);
       throw error;
@@ -404,11 +525,15 @@ export function createIdentityRoutes(
   app.get('/cf-access', async (c) => {
     const provider = [...providers.values()].find((p) => p.kind === 'header');
     if (provider === undefined || provider.kind !== 'header') return c.json({ error: 'not_found' }, 404);
-    const setup = await querySetup(c);
-    if (setup === null) return fail(c, provider.id, provider.idp, 'setup_invalid');
+    const setup = await browserSetup(c);
+    if (setup === null) {
+      return fail(c, provider.id, provider.idp, 'setup_invalid', { 'Set-Cookie': clearSetupCookie });
+    }
+    // Whatever happens next, the setup cookie has done its job (the code is consumed or refused below).
+    const extra: Record<string, string> = setup === undefined ? {} : { 'Set-Cookie': clearSetupCookie };
     try {
       const identity = await provider.verify(c.req.raw.headers);
-      return await complete(c, provider, identity, setup ?? null, queryNext(c), {});
+      return await complete(c, provider, identity, setup ?? null, queryNext(c), extra);
     } catch (error) {
       if (isIdentityError(error)) return fail(c, provider.id, provider.idp, error.code);
       logger.error('login failed', {

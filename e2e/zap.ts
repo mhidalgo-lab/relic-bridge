@@ -31,10 +31,24 @@ interface Report {
   readonly site?: readonly { readonly alerts?: readonly Alert[] }[];
 }
 
-/** Follows redirects by hand with a tiny cookie jar (the page is a browser flow: setup link, IdP, callback). */
+/**
+ * Follows redirects by hand with a tiny cookie jar (the page is a browser flow: setup form post, IdP, callback). The
+ * setup code is in the link's fragment (P8-86): posted like the setup page does.
+ */
 async function signIn(server: TestServer): Promise<string> {
   const jar = new Map<string, string>();
-  let url = await server.setupLink();
+  const link = new URL(await server.setupLink());
+  const posted = await fetch(`${link.origin}/auth/setup`, {
+    method: 'POST',
+    redirect: 'manual',
+    headers: { origin: link.origin, 'content-type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ code: link.hash.slice('#setup='.length) }).toString(),
+  });
+  for (const line of posted.headers.getSetCookie()) {
+    const [pair = ''] = line.split(';');
+    jar.set(pair.slice(0, pair.indexOf('=')), pair.slice(pair.indexOf('=') + 1));
+  }
+  let url = `${link.origin}/auth/login/${link.searchParams.get('provider') ?? 'oidc'}`;
   for (let i = 0; i < 10; i++) {
     const res = await fetch(url, {
       redirect: 'manual',

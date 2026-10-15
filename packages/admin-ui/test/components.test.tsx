@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 /** @jsxImportSource hono/jsx */
 // Component and page rendering (P4-03): structure (DOM), snapshots, and escaping of hostile strings everywhere.
+
+import { readFileSync } from 'node:fs';
+import { JSDOM } from 'jsdom';
 import { describe, expect, it } from 'vitest';
 import {
   Checkbox,
@@ -18,6 +21,7 @@ import {
   renderDocument,
   SecretOnce,
   SelectField,
+  SetupPage,
   TextField,
   Time,
   type UiViewer,
@@ -245,6 +249,56 @@ describe('pages', () => {
     expect(stable(renderDocument(<LoginPage providers={providers} setup={false} />))).toMatchSnapshot();
     const none = parse(renderDocument(<LoginPage providers={[]} setup={false} />));
     expect(none.querySelector('ul')).toBeNull();
+  });
+
+  it('setup page (P8-86): a same-origin form for the code, the provider and next passed through, no code in it', () => {
+    const doc = parse(renderDocument(<SetupPage action="/auth/setup" provider="github" next="/admin" />));
+    const form = doc.querySelector('form[data-setup-form]') as HTMLFormElement;
+    expect(form.getAttribute('method')).toBe('post');
+    expect(form.getAttribute('action')).toBe('/auth/setup');
+    const fields = [...form.querySelectorAll('input')].map((i) => [i.name, i.type, i.value]);
+    expect(fields).toEqual([
+      ['provider', 'hidden', 'github'],
+      ['next', 'hidden', '/admin'],
+      ['code', 'text', ''],
+    ]);
+    expect(form.querySelector('input[name="code"]')?.getAttribute('autocomplete')).toBe('off');
+    expect(doc.body.textContent).toContain('the owner of this instance');
+    const bare = parse(renderDocument(<SetupPage action="/auth/setup" />));
+    expect([...bare.querySelectorAll('input')].map((i) => i.name)).toEqual(['code']);
+    expect(() => renderDocument(<SetupPage action="https://evil.example/" />)).toThrow(/same-origin/);
+  });
+
+  it('admin.js (P8-86): fills the setup form from the fragment, clears the fragment and submits', () => {
+    const script = readFileSync(new URL('../assets/admin.js', import.meta.url), 'utf8');
+    const html = renderDocument(<SetupPage action="/auth/setup" />);
+    const run = (url: string) => {
+      const dom = new JSDOM(html, { url, runScripts: 'outside-only' });
+      const submitted: string[] = [];
+      const form = dom.window.document.querySelector('form') as HTMLFormElement;
+      form.submit = () => {
+        submitted.push((form.querySelector('input[name="code"]') as HTMLInputElement).value);
+      };
+      dom.window.eval(script);
+      const href = dom.window.location.href;
+      dom.window.close();
+      return { href, submitted };
+    };
+    const code = `rb_setup_${'ab'.repeat(32)}`;
+    expect(run(`https://bridge.example.com/auth/setup?provider=github#setup=${code}`)).toEqual({
+      href: 'https://bridge.example.com/auth/setup?provider=github',
+      submitted: [code],
+    });
+    // A malformed fragment is still removed from the address bar, and nothing is submitted.
+    expect(run('https://bridge.example.com/auth/setup#setup=nonsense')).toEqual({
+      href: 'https://bridge.example.com/auth/setup',
+      submitted: [],
+    });
+    // Other fragments (skip links) are left alone.
+    expect(run('https://bridge.example.com/auth/setup#main')).toEqual({
+      href: 'https://bridge.example.com/auth/setup#main',
+      submitted: [],
+    });
   });
 
   it('message page shows the request id and nothing else of the failure', () => {

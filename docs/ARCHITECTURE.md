@@ -254,7 +254,10 @@ code exchanged; ID token verified) or `GET /auth/cf-access` → setup link consu
 (existing binding → bind an unbound user by verified email → allowlist + auto-provisioning; email never moves an
 account between identities; deny by default) → audit `login.ok` / `login.denied` → `onLogin(c, CompletedLogin)`, the
 seam `createHttpApp` fills with the admin session (P4-02). `POST /api/admin/v1/setup-links` (admin token) issues the single-use owner
-bootstrap link. Guide: [identity providers](guide/identity-providers.md).
+bootstrap link, `<public URL>/auth/setup[?provider=…]#setup=<code>` (P8-86): the code is in the fragment, so no server
+sees it in a URL; `GET /auth/setup` serves a form that `admin.js` fills from the fragment, `POST /auth/setup`
+(same-origin) checks the code and keeps its SHA-256 in a 10-minute `HttpOnly` cookie that `GET /auth/login/:provider` moves
+into the transaction (`GET /auth/cf-access` consumes it); any `?setup=` on `/auth/*` is refused. Guide: [identity providers](guide/identity-providers.md).
 
 ### Management CLI (P2-10)
 

@@ -176,3 +176,42 @@ export async function connect(
   await client.connect(transport);
   return client;
 }
+
+/** A setup link split the way a browser sees it (P8-86): the code is in the fragment, never in the request. */
+export function parseSetupLink(url: string): { path: string; code: string; provider: string | null } {
+  const u = new URL(url);
+  const m = /^#setup=(rb_setup_[0-9a-f]{64})$/.exec(u.hash);
+  if (m === null || u.searchParams.has('setup')) throw new Error('not a fragment setup link');
+  return { path: `${u.pathname}${u.search}`, code: m[1] as string, provider: u.searchParams.get('provider') };
+}
+
+/**
+ * What the setup page posts (`admin.js` fills the form from the fragment): a same-origin, form-encoded body with the
+ * code. `headers` overrides the browser's fetch metadata (`origin: ''` drops the header).
+ */
+export function setupPostRequest(
+  publicUrl: string,
+  form: Record<string, string>,
+  headers: Record<string, string> = {},
+): Request {
+  const h = new Headers({
+    origin: new URL(publicUrl).origin,
+    'sec-fetch-site': 'same-origin',
+    'content-type': 'application/x-www-form-urlencoded',
+  });
+  for (const [k, v] of Object.entries(headers)) {
+    if (v === '') h.delete(k);
+    else h.set(k, v);
+  }
+  return new Request(`${new URL(publicUrl).origin}/auth/setup`, {
+    method: 'POST',
+    headers: h,
+    body: new URLSearchParams(form).toString(),
+  });
+}
+
+/** The `name=value` of the setup cookie a response sets, or null. */
+export function setupCookieOf(res: Response): string | null {
+  const line = res.headers.getSetCookie().find((c) => /^(__Host-)?rb_setup=[0-9a-f]{64};/.test(c));
+  return line === undefined ? null : (line.split(';')[0] as string);
+}

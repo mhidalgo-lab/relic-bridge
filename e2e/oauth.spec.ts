@@ -82,6 +82,8 @@ test('OAuth: sign-in, consent, code at a loopback callback, token, deny, remembe
 
   // Setup through the admin API: the owner signs in once (setup link), then a key, a project and their grant.
   await page.goto(await server.setupLink());
+  await expect(page).toHaveURL(`${server.base}/auth/login?provider=oidc`);
+  await page.getByRole('link', { name: /^Sign in with/ }).click();
   await expect(page).toHaveURL(`${server.base}/admin`);
   const users = (await api('/users')) as { id: string; email: string }[];
   const ownerId = users.find((u) => u.email === OWNER_EMAIL)?.id as string;

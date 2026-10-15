@@ -82,7 +82,8 @@ relic-bridge setup-link --remote https://bridge.example.com --provider google --
 ```
 
 Whoever signs in through the link becomes `owner`. It works once, expires after `--ttl` minutes (default 60) and is
-printed once on stdout: treat it like a password until used. If a sign-in through it is refused (a disabled user, an
+printed once on stdout: treat it like a password until used. The code is in the part after `#`, which the browser never
+sends to the server: the setup page posts it in a form and then shows the sign-in choice. If a sign-in through it is refused (a disabled user, an
 identity conflict), the link is used up; ask for a new one. Other ways to get one (curl, local database) are in
 [identity providers](identity-providers.md#3-first-owner-setup-link).
 

@@ -33,7 +33,14 @@ import {
   MemoryRateLimiter,
   safeNextPath,
 } from '../src/index.ts';
-import { randomAdminToken } from './fixtures.ts';
+import {
+  ManualClock,
+  parseSetupLink,
+  randomAdminToken,
+  setupCookieOf,
+  setupPostRequest,
+  T0,
+} from './fixtures.ts';
 
 const PUBLIC = 'https://bridge.example.com';
 const ADMIN = randomAdminToken();
@@ -102,8 +109,8 @@ async function get(app: App, path: string, headers: Record<string, string> = {})
 }
 
 /** The browser: start, follow the IdP, come back with the cookie. */
-async function browserLogin(app: App, provider: string, query = '') {
-  const start = await get(app, `/auth/login/${provider}${query}`);
+async function browserLogin(app: App, provider: string, query = '', setupCookie?: string) {
+  const start = await get(app, `/auth/login/${provider}${query}`, setupCookie ? { cookie: setupCookie } : {});
   expect(start.res.status).toBe(302);
   const setCookie = start.res.headers.get('set-cookie') ?? '';
   const cookie = setCookie.split(';')[0] as string;
@@ -450,24 +457,69 @@ describe('setup links (first-owner bootstrap)', () => {
     return { status: res.status, body: (await res.json()) as { data: { url: string; expiresAt: number } } };
   }
 
-  it('makes the signing-in identity owner, once', async () => {
+  /** The browser: open the setup page, post the code from the fragment, keep the setup cookie. */
+  async function redeem(app: App, url: string, headers: Record<string, string> = {}) {
+    const link = parseSetupLink(url);
+    const pageRes = await get(app, link.path);
+    expect(pageRes.res.status).toBe(200);
+    expect(pageRes.text).not.toContain(link.code);
+    const form: Record<string, string> = { code: link.code };
+    if (link.provider !== null) form['provider'] = link.provider;
+    const res = await app.fetch(setupPostRequest(PUBLIC, form, headers));
+    const text = await res.text();
+    bodies.push(text);
+    return { res, text, code: link.code, cookie: setupCookieOf(res) };
+  }
+
+  const clearsSetupCookie = (res: Response) =>
+    res.headers.getSetCookie().some((c) => /^__Host-rb_setup=; .*Max-Age=0/.test(c));
+
+  it('the link carries the code in the fragment only; the page posts it and the sign-in makes the owner, once', async () => {
     const app = makeApp();
     const { status, body } = await issue(app, { provider: 'oidc', ttlMinutes: 30 });
     expect(status).toBe(201);
     const link = new URL(body.data.url);
-    expect(`${link.origin}${link.pathname}`).toBe(`${PUBLIC}/auth/login/oidc`);
-    const code = link.searchParams.get('setup') as string;
-    expect(code).toMatch(/^rb_setup_[0-9a-f]{64}$/);
-    const { done } = await browserLogin(app, 'oidc', link.search);
+    expect(`${link.origin}${link.pathname}${link.search}`).toBe(`${PUBLIC}/auth/setup?provider=oidc`);
+    expect(link.hash).toMatch(/^#setup=rb_setup_[0-9a-f]{64}$/);
+    // The setup page: the UI CSP and referrer policy, the form, no inline script; the code never in it.
+    const setupPage = await get(app, `${link.pathname}${link.search}`);
+    expect(setupPage.res.headers.get('content-security-policy')).toContain("script-src 'self'");
+    expect(setupPage.res.headers.get('content-security-policy')).not.toContain('unsafe-inline');
+    expect(setupPage.res.headers.get('referrer-policy')).toBe('same-origin');
+    expect(setupPage.text).toContain('data-setup-form');
+    expect(setupPage.text).toContain('action="/auth/setup"');
+    expect(setupPage.text).not.toMatch(/<script(?![^>]*\bsrc=)/);
+
+    const posted = await redeem(app, body.data.url);
+    expect(posted.res.status).toBe(303);
+    expect(posted.res.headers.get('location')).toBe('/auth/login?provider=oidc');
+    expect(posted.cookie).toMatch(/^__Host-rb_setup=[0-9a-f]{64}$/);
+    expect(posted.res.headers.get('set-cookie')).toMatch(
+      /Path=\/; Max-Age=600; HttpOnly; SameSite=Lax; Secure/,
+    );
+    expect(posted.cookie).not.toContain(posted.code);
+    // The chooser shows the owner card and only the link's provider.
+    const chooser = await get(app, '/auth/login?provider=oidc', { cookie: posted.cookie as string });
+    expect(chooser.text).toContain('becomes the owner');
+    expect(chooser.text).toContain('/auth/login/oidc');
+    expect(chooser.text).not.toContain('/auth/login/google');
+
+    const { start, done } = await browserLogin(app, 'oidc', '', posted.cookie as string);
+    // The setup moved into the login transaction: the start clears the setup cookie.
+    expect(clearsSetupCookie(start.res)).toBe(true);
     expect(done.res.status).toBe(303);
     expect((await storage.users.list()).map((u) => [u.email, u.role])).toEqual([
       ['owner@example.com', 'owner'],
     ]);
-    // Used: a second login through the same link is refused at the start.
-    expect((await get(app, `/auth/login/oidc${link.search}`)).res.status).toBe(403);
-    // The code never reaches the logs or the audit log (only the admin answer).
+    // Used: posting the code again is refused, and so is the old cookie at the start.
+    expect((await redeem(app, body.data.url)).res.status).toBe(400);
+    expect((await get(app, '/auth/login/oidc', { cookie: posted.cookie as string })).res.status).toBe(403);
+    // The code (and the cookie value) never reach the logs, the audit log or a page.
     const audit = JSON.stringify(await storage.auditLog.list({ limit: 100 }));
-    expect(`${logs.join('\n')}\n${audit}`).not.toContain(code);
+    const all = `${logs.join('\n')}\n${audit}\n${bodies.join('\n')}`;
+    expect(all).not.toContain(posted.code);
+    expect(all).not.toContain((posted.cookie as string).split('=')[1]);
+    expect(logs.join('\n')).toContain('"setup":"accepted"');
     const created = await storage.auditLog.list({ action: 'setup_link.create' });
     expect(created[0]?.details).toMatchObject({ ttlMinutes: 30, provider: 'oidc' });
     const ok = await storage.auditLog.list({ action: 'login.ok' });
@@ -475,11 +527,119 @@ describe('setup links (first-owner bootstrap)', () => {
     expect(ok[0]?.details).not.toHaveProperty('previousRole');
   });
 
+  it('a link without a provider leads to the full chooser', async () => {
+    const app = makeApp();
+    const { body } = await issue(app);
+    expect(new URL(body.data.url).search).toBe('');
+    const posted = await redeem(app, body.data.url);
+    expect(posted.res.headers.get('location')).toBe('/auth/login');
+    const chooser = await get(app, '/auth/login', { cookie: posted.cookie as string });
+    expect(chooser.text).toContain('becomes the owner');
+    expect(chooser.text).toContain('/auth/login/google');
+    expect(chooser.text).toContain('/auth/cf-access');
+  });
+
+  it('an old-form link (?setup=) is refused on every route, reads no storage and logs no code', async () => {
+    const app = makeApp();
+    const { body } = await issue(app, { provider: 'oidc' });
+    const { code } = parseSetupLink(body.data.url);
+    const assertion = await idp.accessAssertion();
+    const take = vi.spyOn(storage.kv, 'take');
+    const read = vi.spyOn(storage.kv, 'get');
+    for (const path of [
+      `/auth/login/oidc?setup=${code}`,
+      `/auth/login?setup=${code}`,
+      `/auth/cf-access?setup=${code}`,
+      `/auth/setup?setup=${code}`,
+      `/auth/login/oidc?next=%2Fadmin&setup=${code}`,
+    ]) {
+      const res = await get(app, path, { 'cf-access-jwt-assertion': assertion });
+      expect(res.res.status, path).toBe(400);
+      expect(res.text).toContain('relic-bridge setup-link');
+      expect(res.text).not.toContain(code);
+      expect(res.res.headers.get('location')).toBeNull();
+      expect(res.res.headers.get('set-cookie')).toBeNull();
+    }
+    expect(take).not.toHaveBeenCalled();
+    expect(read).not.toHaveBeenCalled();
+    take.mockRestore();
+    read.mockRestore();
+    expect(logs.join('\n')).not.toContain(code);
+    expect(logs.join('\n')).toContain('"deny":"setup_in_url"');
+    expect(JSON.stringify(await storage.auditLog.list({ limit: 100 }))).not.toContain(code);
+    // Still unused: the fragment link works.
+    expect((await redeem(app, body.data.url)).res.status).toBe(303);
+  });
+
+  it('the setup post is same-origin, form-encoded and capped', async () => {
+    const app = makeApp();
+    const { body } = await issue(app);
+    const { code } = parseSetupLink(body.data.url);
+    const post = (headers: Record<string, string>, form: Record<string, string> = { code }) =>
+      app.fetch(setupPostRequest(PUBLIC, form, headers));
+    const cases: [string, Record<string, string>, number][] = [
+      ['cross-site', { 'sec-fetch-site': 'cross-site', origin: 'https://evil.example' }, 403],
+      ['same-site', { 'sec-fetch-site': 'same-site', origin: 'https://sub.bridge.example.com' }, 403],
+      ['foreign origin', { 'sec-fetch-site': '', origin: 'https://evil.example' }, 403],
+      ['null origin', { 'sec-fetch-site': '', origin: 'null' }, 403],
+      ['no origin, no metadata', { 'sec-fetch-site': '', origin: '' }, 403],
+      ['typed URL', { 'sec-fetch-site': 'none', origin: '' }, 403],
+      ['json', { 'content-type': 'application/json' }, 415],
+      ['multipart', { 'content-type': 'multipart/form-data; boundary=x' }, 415],
+    ];
+    for (const [what, headers, status] of cases) {
+      const res = await post(headers);
+      expect(res.status, what).toBe(status);
+      expect(setupCookieOf(res), what).toBeNull();
+    }
+    expect((await post({}, { code, pad: 'x'.repeat(8192) })).status).toBe(413);
+    // None of these used the link up.
+    expect((await post({})).status).toBe(303);
+    expect(logs.join('\n')).not.toContain(code);
+  });
+
+  it('malformed, unknown and expired codes are refused; the post never consumes the link', async () => {
+    const clock = new ManualClock(T0);
+    const app = makeApp({ clock });
+    for (const bad of ['', 'nonsense', `rb_setup_${'0'.repeat(64)}`, `rb_setup_${'A'.repeat(64)}`]) {
+      const res = await app.fetch(setupPostRequest(PUBLIC, { code: bad }));
+      expect(res.status, bad).toBe(400);
+      expect(setupCookieOf(res)).toBeNull();
+    }
+    const { body } = await issue(app, { ttlMinutes: 1 });
+    const { code } = parseSetupLink(body.data.url);
+    // Posting twice is fine (not consumed); only a completed sign-in uses it.
+    expect((await app.fetch(setupPostRequest(PUBLIC, { code }))).status).toBe(303);
+    const again = await app.fetch(setupPostRequest(PUBLIC, { code }));
+    expect(again.status).toBe(303);
+    const cookie = setupCookieOf(again) as string;
+    clock.advance(61_000);
+    expect((await app.fetch(setupPostRequest(PUBLIC, { code }))).status).toBe(400);
+    // An expired link in the cookie is refused at the start, and the cookie is cleared.
+    const start = await get(app, '/auth/login/oidc', { cookie });
+    expect(start.res.status).toBe(403);
+    expect(clearsSetupCookie(start.res)).toBe(true);
+    // A malformed cookie is refused too.
+    expect((await get(app, '/auth/login/oidc', { cookie: '__Host-rb_setup=zz' })).res.status).toBe(403);
+  });
+
+  it('a setup cookie named twice is no cookie (cookie tossing): a plain sign-in', async () => {
+    const app = makeApp();
+    const { body } = await issue(app, { provider: 'oidc' });
+    const posted = await redeem(app, body.data.url);
+    const tossed = `${posted.cookie}; __Host-rb_setup=${'1'.repeat(64)}`;
+    const { done } = await browserLogin(app, 'oidc', '', tossed);
+    // No setup: the default policy denies the unknown identity.
+    expect(done.res.status).toBe(403);
+    expect(await storage.users.list()).toEqual([]);
+  });
+
   it('audits the previous role when a setup link promotes an existing user (P4-16)', async () => {
     await storage.users.create({ id: 'usr_m', email: 'owner@example.com', role: 'member' });
     const app = makeApp();
     const { body } = await issue(app, { provider: 'oidc' });
-    const { done } = await browserLogin(app, 'oidc', new URL(body.data.url).search);
+    const posted = await redeem(app, body.data.url);
+    const { done } = await browserLogin(app, 'oidc', '', posted.cookie as string);
     expect(done.res.status).toBe(303);
     expect((await storage.users.get('usr_m'))?.role).toBe('owner');
     await vi.waitFor(async () => {
@@ -497,14 +657,14 @@ describe('setup links (first-owner bootstrap)', () => {
   it('two logins racing on one link: only one becomes owner', async () => {
     const app = makeApp();
     const { body } = await issue(app);
-    const search = new URL(body.data.url).search;
-    const a = await get(app, `/auth/login/oidc${search}`);
+    const cookie = (await redeem(app, body.data.url)).cookie as string;
+    const a = await get(app, '/auth/login/oidc', { cookie });
     idp.user = { ...idp.user, sub: 'user-2', email: 'second@example.com' };
-    const b = await get(app, `/auth/login/oidc${search}`);
+    const b = await get(app, '/auth/login/oidc', { cookie });
     const finish = async (start: typeof a) => {
-      const cookie = (start.res.headers.get('set-cookie') ?? '').split(';')[0] as string;
+      const login = (start.res.headers.get('set-cookie') ?? '').split(';')[0] as string;
       const cb = await idp.authorize(start.res.headers.get('location') as string);
-      return (await get(app, `${cb.pathname}${cb.search}`, { cookie })).res.status;
+      return (await get(app, `${cb.pathname}${cb.search}`, { cookie: login })).res.status;
     };
     idp.user = { ...idp.user, sub: 'user-1', email: 'owner@example.com' };
     const first = await finish(a);
@@ -514,17 +674,22 @@ describe('setup links (first-owner bootstrap)', () => {
     expect((await storage.users.list()).filter((u) => u.role === 'owner')).toHaveLength(1);
   });
 
-  it('works through Cloudflare Access too; an unknown or malformed code is refused', async () => {
+  it('works through Cloudflare Access too; an unknown or malformed setup cookie is refused', async () => {
     const app = makeApp();
     const { body } = await issue(app, { provider: 'cf-access' });
-    const link = new URL(body.data.url);
-    expect(link.pathname).toBe('/auth/cf-access');
+    expect(parseSetupLink(body.data.url).path).toBe('/auth/setup?provider=cf-access');
     const assertion = { 'cf-access-jwt-assertion': await idp.accessAssertion() };
-    expect((await get(app, `/auth/cf-access?setup=rb_setup_${'0'.repeat(64)}`, assertion)).res.status).toBe(
-      403,
-    );
-    expect((await get(app, '/auth/cf-access?setup=nonsense', assertion)).res.status).toBe(403);
-    expect((await get(app, `${link.pathname}${link.search}`, assertion)).res.status).toBe(303);
+    for (const bad of [`__Host-rb_setup=${'0'.repeat(64)}`, '__Host-rb_setup=nonsense']) {
+      const res = await get(app, '/auth/cf-access', { ...assertion, cookie: bad });
+      expect(res.res.status, bad).toBe(403);
+    }
+    const posted = await redeem(app, body.data.url);
+    const chooser = await get(app, '/auth/login?provider=cf-access', { cookie: posted.cookie as string });
+    expect(chooser.text).toContain('/auth/cf-access');
+    expect(chooser.text).not.toContain('/auth/login/oidc');
+    const done = await get(app, '/auth/cf-access', { ...assertion, cookie: posted.cookie as string });
+    expect(done.res.status).toBe(303);
+    expect(clearsSetupCookie(done.res)).toBe(true);
     expect((await storage.users.list()).map((u) => u.role)).toEqual(['owner']);
   });
 
@@ -544,13 +709,13 @@ describe('setup links (first-owner bootstrap)', () => {
 describe('pages and guards', () => {
   it('the chooser escapes labels and keeps a valid next; unknown providers are 404', async () => {
     const app = makeApp();
-    const page = await get(app, '/auth/login?next=%2Fadmin%2Fx&setup=bad');
+    const page = await get(app, '/auth/login?next=%2Fadmin%2Fx');
     expect(page.res.status).toBe(200);
     expect(page.res.headers.get('content-type')).toContain('text/html');
     expect(page.text).toContain('Corp &lt;SSO&gt;');
     expect(page.text).not.toContain('<SSO>');
     expect(page.text).toContain('/auth/login/oidc?next=%2Fadmin%2Fx');
-    expect(page.text).not.toContain('setup=bad');
+    expect(page.text).not.toContain('becomes the owner');
     expect(page.text).toContain('/auth/cf-access?next=');
     expect((await get(app, '/auth/login/nope')).res.status).toBe(404);
     expect((await get(app, '/auth/callback/cf-access?state=x')).res.status).toBe(404);

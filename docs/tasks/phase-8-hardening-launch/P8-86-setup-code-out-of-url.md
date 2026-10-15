@@ -2,7 +2,7 @@
 id: P8-86
 title: The one-time setup code never travels in a URL
 phase: 8
-status: in-progress
+status: review
 priority: high
 depends_on: []
 adr: []
@@ -55,22 +55,22 @@ and `Referer`: the link carries the code in the URL **fragment**, which browsers
   authz suite rows for the new routes.
 
 ## Acceptance criteria
-- [ ] `POST /setup-links` and `relic-bridge setup-link` (local, `--remote`) return `…/auth/setup[?provider=…]#setup=rb_setup_…`;
+- [x] `POST /setup-links` and `relic-bridge setup-link` (local, `--remote`) return `…/auth/setup[?provider=…]#setup=rb_setup_…`;
       no setup code in any query string.
-- [ ] `GET /auth/setup` serves the setup form under the UI CSP (`script-src 'self'`, no inline script, no CSP change);
+- [x] `GET /auth/setup` serves the setup form under the UI CSP (`script-src 'self'`, no inline script, no CSP change);
       `admin.js` fills the form from the fragment, clears it with `history.replaceState` and submits.
-- [ ] `POST /auth/setup`: same-origin only (cross-site, foreign `Origin`, missing `Origin` refused), form-encoded and
+- [x] `POST /auth/setup`: same-origin only (cross-site, foreign `Origin`, missing `Origin` refused), form-encoded and
       capped; a live code sets the setup cookie and redirects to the chooser; malformed, unknown, used or expired codes
       are refused; the code is consumed only by the completed sign-in (single use, replay refused).
-- [ ] Any `/auth/*` request with `?setup=` is refused (`400`) with a "request a new link" page, reads no storage and
+- [x] Any `/auth/*` request with `?setup=` is refused (`400`) with a "request a new link" page, reads no storage and
       logs, echoes and audits no code.
-- [ ] The setup code (and its cookie value) appears in no log line, audit row or error page in the tests; the audit
+- [x] The setup code (and its cookie value) appears in no log line, audit row or error page in the tests; the audit
       log still records `setup_link.create` and the `owner_bootstrap` sign-in.
-- [ ] Worker runtime test: setup link → POST → OIDC sign-in → owner, on D1.
-- [ ] Negative authorization rows for `GET`/`POST /auth/setup` in the authz suite.
-- [ ] Docs: identity providers, admin guide, Cloudflare guide, CLI reference/help, admin API reference regenerated;
+- [x] Worker runtime test: setup link → POST → OIDC sign-in → owner, on D1.
+- [x] Negative authorization rows for `GET`/`POST /auth/setup` in the authz suite.
+- [x] Docs: identity providers, admin guide, Cloudflare guide, CLI reference/help, admin API reference regenerated;
       THREAT_MODEL row; changeset with the upgrade note.
-- [ ] `pnpm lint && pnpm typecheck && pnpm test` pass.
+- [x] `pnpm lint && pnpm typecheck && pnpm test` pass.
 
 ## Security notes
 T14 (admin takeover), T8 (secrets in logs). Bearer secrets stay out of URLs: the code is in the URL fragment, never sent

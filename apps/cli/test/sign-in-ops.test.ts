@@ -108,9 +108,10 @@ describe('setup-link (local)', () => {
     });
     expect(r.code).toBe(0);
     const url = new URL(r.out.trim());
-    expect(url.origin + url.pathname).toBe(`${PUBLIC_URL}/auth/login/github`);
-    const code = url.searchParams.get('setup') ?? '';
-    expect(code).toMatch(/^rb_[A-Za-z0-9_-]{20,}$/);
+    // The code is in the fragment (P8-86), never in the query string.
+    expect(url.origin + url.pathname + url.search).toBe(`${PUBLIC_URL}/auth/setup?provider=github`);
+    const code = url.hash.replace(/^#setup=/, '');
+    expect(code).toMatch(/^rb_setup_[0-9a-f]{64}$/);
     expect(r.err).not.toContain(code);
     expect(r.err).not.toContain(CLIENT_SECRET);
     expect(r.err).toMatch(/Single-use/);
@@ -130,7 +131,9 @@ describe('setup-link (local)', () => {
     const json = await cli(['setup-link', '--json'], {
       env: { ...GITHUB_ENV, RB_GITHUB_CLIENT_SECRET: CLIENT_SECRET },
     });
-    expect(JSON.parse(json.out).data.url).toContain(`${PUBLIC_URL}/auth/login?setup=`);
+    expect(JSON.parse(json.out).data.url).toMatch(
+      new RegExp(`^${PUBLIC_URL}/auth/setup#setup=rb_setup_[0-9a-f]{64}$`),
+    );
   });
 
   it('links a named OIDC provider to its route id, like the HTTP app and --remote (phase 4 review L2)', async () => {
@@ -144,7 +147,7 @@ describe('setup-link (local)', () => {
     const r = await cli(['setup-link', '--provider', 'oidc-corp'], { env });
     expect(r.code).toBe(0);
     const url = new URL(r.out.trim());
-    expect(url.pathname).toBe('/auth/login/oidc-corp');
+    expect(url.pathname + url.search).toBe('/auth/setup?provider=oidc-corp');
     // The bare name is not a route: refused instead of printing a dead link.
     expect((await cli(['setup-link', '--provider', 'corp'], { env })).code).toBe(1);
   });
@@ -261,7 +264,7 @@ describe('remote', () => {
     });
     expect(r.code).toBe(0);
     expect(r.out.trim()).toMatch(
-      new RegExp(`^${PUBLIC_URL}/auth/login/github\\?setup=rb_[A-Za-z0-9_-]{20,}$`),
+      new RegExp(`^${PUBLIC_URL}/auth/setup\\?provider=github#setup=rb_setup_[0-9a-f]{64}$`),
     );
     const bad = await cli(['setup-link', ...remote()], {
       env: { RB_ADMIN_TOKEN: randomBytes(32).toString('base64url') },

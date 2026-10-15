@@ -15,6 +15,7 @@ import {
   renderDocument,
   SecretOnce,
   SelectField,
+  SetupPage,
   TextField,
 } from '../src/index.ts';
 import { axeViolations } from './dom.ts';
@@ -118,6 +119,10 @@ describe('axe-core', () => {
       ),
     );
     await expectAccessible('sign-in, none', renderDocument(<LoginPage providers={[]} setup={false} />));
+    await expectAccessible(
+      'setup',
+      renderDocument(<SetupPage action="/auth/setup" provider="github" next="/admin" />),
+    );
     await expectAccessible(
       'message',
       renderDocument(

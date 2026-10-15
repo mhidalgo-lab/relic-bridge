@@ -835,7 +835,9 @@ export const CreateSetupLinkBody = z
 export const SetupLinkSchema = z
   .object({
     url: z.string().openapi({
-      description: 'Open it in a browser and sign in: that identity becomes `owner`. Shown once; single use.',
+      description:
+        'Open it in a browser and sign in: that identity becomes `owner`. Shown once; single use. The code is in ' +
+        'the URL fragment (`#setup=…`), which browsers never send to a server.',
     }),
     expiresAt: z.number().int().openapi({ description: 'Epoch milliseconds.' }),
     provider: z.string().nullable(),

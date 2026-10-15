@@ -233,6 +233,9 @@ export const IDENTITY_ROUTES: readonly RouteCase[] = [
   { method: 'GET', pattern: '/auth/login/:provider', path: '/auth/login/github' },
   { method: 'GET', pattern: '/auth/callback/:provider', path: '/auth/callback/github' },
   { method: 'GET', pattern: '/auth/cf-access', path: '/auth/cf-access' },
+  // First-owner setup (P8-86): the form page, and its same-origin post of the code from the link's fragment.
+  { method: 'GET', pattern: '/auth/setup', path: '/auth/setup' },
+  { method: 'POST', pattern: '/auth/setup', path: '/auth/setup' },
   // Sign-out (P4-02): ends the session the cookie names, only with its CSRF token from our own origin.
   { method: 'POST', pattern: '/auth/logout', path: '/auth/logout' },
 ];

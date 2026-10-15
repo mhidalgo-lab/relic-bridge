@@ -13,7 +13,7 @@ import {
 } from '@relic-bridge/auth';
 import { createLogger, Secret } from '@relic-bridge/core';
 import { createMemoryStorage, type Storage } from '@relic-bridge/storage';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import {
   CF_AUD,
   CF_TEAM,
@@ -33,7 +33,7 @@ import {
   MemoryRateLimiter,
   safeNextPath,
 } from '../src/index.ts';
-import { randomAdminToken } from './fixtures.ts';
+import { parseSetupLink, randomAdminToken, setupCookieOf, setupPostRequest } from './fixtures.ts';
 
 const PUBLIC = 'https://bridge.example.com';
 const ADMIN = randomAdminToken();
@@ -102,8 +102,8 @@ async function get(app: App, path: string, headers: Record<string, string> = {})
 }
 
 /** The browser: start, follow the IdP, come back with the cookie. */
-async function browserLogin(app: App, provider: string, query = '') {
-  const start = await get(app, `/auth/login/${provider}${query}`);
+async function browserLogin(app: App, provider: string, query = '', setupCookie?: string) {
+  const start = await get(app, `/auth/login/${provider}${query}`, setupCookie ? { cookie: setupCookie } : {});
   expect(start.res.status).toBe(302);
   const setCookie = start.res.headers.get('set-cookie') ?? '';
   const cookie = setCookie.split(';')[0] as string;
@@ -276,14 +276,21 @@ describe('P4-07 review: setup links', () => {
     return ((await res.json()) as { data: { url: string } }).data.url;
   }
 
+  /** The setup page's post (P8-86): the setup cookie for this link. */
+  async function setupCookie(app: App, url: string): Promise<string> {
+    const res = await app.fetch(setupPostRequest(PUBLIC, { code: parseSetupLink(url).code }));
+    expect(res.status).toBe(303);
+    return setupCookieOf(res) as string;
+  }
+
   it('truly concurrent completions on one link: exactly one owner', async () => {
     const app = makeApp();
-    const search = new URL(await issue(app)).search;
+    const cookie = await setupCookie(app, await issue(app));
     const starts = [];
     const callbacks: { path: string; cookie: string }[] = [];
     for (let i = 0; i < 6; i++) {
       idp.user = { sub: `u-${i}`, email: `user${i}@example.com`, email_verified: true };
-      const s = await get(app, `/auth/login/oidc${search}`);
+      const s = await get(app, '/auth/login/oidc', { cookie });
       expect(s.res.status).toBe(302);
       starts.push(s);
       const cb = await idp.authorize(s.res.headers.get('location') as string);
@@ -297,13 +304,19 @@ describe('P4-07 review: setup links', () => {
     expect((await storage.users.list()).filter((u) => u.role === 'owner')).toHaveLength(1);
   });
 
-  it('the setup code is not reflected into the login-start response or the sign-in chooser href unvalidated', async () => {
+  it('the setup code is not reflected into the login-start response or the sign-in chooser hrefs', async () => {
     const app = makeApp();
-    const page = await get(app, `/auth/login?setup=rb_setup_${'0'.repeat(64)}&next=/admin`);
+    const url = await issue(app);
+    const { code } = parseSetupLink(url);
+    const cookie = await setupCookie(app, url);
+    const page = await get(app, '/auth/login?next=/admin', { cookie });
     expect(page.res.headers.get('cache-control')).toBe('no-store');
     expect(page.text).toContain('same-origin');
-    const start = await get(app, '/auth/login/oidc');
+    expect(page.text).not.toContain('setup=');
+    expect(page.text).not.toContain(code);
+    const start = await get(app, '/auth/login/oidc', { cookie });
     expect(start.res.headers.get('location')).not.toContain('setup');
+    expect(start.res.headers.get('location')).not.toContain(code);
   });
 
   // Finding I1 (accepted): the link is used up before the user decision, so a denied sign-in (disabled user,
@@ -313,10 +326,11 @@ describe('P4-07 review: setup links', () => {
     await storage.users.update('usr_x', { disabledAt: Date.now() });
     const app = makeApp();
     const url = await issue(app);
-    const search = new URL(url).search;
-    const { done } = await browserLogin(app, 'oidc', search);
+    const cookie = await setupCookie(app, url);
+    const { done } = await browserLogin(app, 'oidc', '', cookie);
     expect(done.res.status).toBe(403);
-    expect((await get(app, `/auth/login/oidc${search}`)).res.status).not.toBe(302);
+    expect((await get(app, '/auth/login/oidc', { cookie })).res.status).not.toBe(302);
+    expect((await app.fetch(setupPostRequest(PUBLIC, { code: parseSetupLink(url).code }))).status).toBe(400);
   });
 });
 

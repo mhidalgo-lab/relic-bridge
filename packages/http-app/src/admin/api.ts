@@ -803,7 +803,8 @@ const routes = {
     description:
       'First-owner bootstrap (P4-01): the identity that signs in through this link becomes `owner` (the sign-in ' +
       'allowlist does not apply; email verification and identity conflicts still do). Single use; expires after ' +
-      '`ttlMinutes` (default 60). The link is shown once, only its hash is stored. Needs sign-in to be configured ' +
+      '`ttlMinutes` (default 60). The link is shown once, only its hash is stored. The code is in the URL fragment ' +
+      '(`/auth/setup#setup=…`), never in a query string. Needs sign-in to be configured ' +
       '(`RB_PUBLIC_URL` and an identity provider), else `422 not_permitted`.',
     request: BODY(S.CreateSetupLinkBody),
     responses: { 201: json(S.SetupLinkOne, 'Issued'), ...errors(413, 415, 422) },
@@ -2233,13 +2234,10 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
       },
       () => createSetupLink(setup.kv, ttlMinutes * 60_000, clock),
     );
-    const path =
-      provider === null
-        ? '/auth/login'
-        : provider.kind === 'header'
-          ? '/auth/cf-access'
-          : `/auth/login/${provider.id}`;
-    const url = `${setup.publicUrl}${path}?setup=${link.code}`;
+    // The code goes in the URL fragment (P8-86): browsers never send it to a server, so no request log, proxy or
+    // `Referer` sees it. The setup page posts it in a form body. Only the non-secret provider id is in the query.
+    const query = provider === null ? '' : `?provider=${encodeURIComponent(provider.id)}`;
+    const url = `${setup.publicUrl}/auth/setup${query}#setup=${link.code}`;
     return c.json({ data: { url, expiresAt: link.expiresAt, provider: provider?.id ?? null } }, 201);
   });
 

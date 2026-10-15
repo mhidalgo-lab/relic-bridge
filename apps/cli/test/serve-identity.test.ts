@@ -74,10 +74,25 @@ describe('serve: sign-in over a localhost redirect', () => {
       });
       expect(issued.status).toBe(201);
       const link = ((await issued.json()) as { data: { url: string } }).data.url;
-      expect(link.startsWith(`${base}/auth/login/oidc?setup=rb_setup_`)).toBe(true);
+      expect(link).toMatch(new RegExp(`^${base}/auth/setup\\?provider=oidc#setup=rb_setup_[0-9a-f]{64}$`));
+      const code = new URL(link).hash.slice('#setup='.length);
 
-      // The browser: our server → the IdP → back to our callback, carrying the binding cookie.
-      const start = await fetch(link, { redirect: 'manual' });
+      // The browser: the setup page posts the code from the fragment (P8-86), then our server → the IdP → back to our
+      // callback, carrying the binding cookie.
+      const posted = await fetch(`${base}/auth/setup`, {
+        method: 'POST',
+        redirect: 'manual',
+        headers: { origin: base, 'content-type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ code, provider: 'oidc' }).toString(),
+      });
+      expect(posted.status).toBe(303);
+      expect(posted.headers.get('location')).toBe('/auth/login?provider=oidc');
+      const setupCookie = (posted.headers.get('set-cookie') ?? '').split(';')[0] as string;
+      expect(setupCookie).toMatch(/^rb_setup=[0-9a-f]{64}$/);
+      const start = await fetch(`${base}/auth/login/oidc`, {
+        redirect: 'manual',
+        headers: { cookie: setupCookie },
+      });
       expect(start.status).toBe(302);
       const cookie = (start.headers.get('set-cookie') ?? '').split(';')[0] as string;
       expect(cookie).toMatch(/^rb_login=/);
@@ -147,7 +162,8 @@ describe('serve: sign-in over a localhost redirect', () => {
       expect(out).toContain('"signIn"');
       expect(out).not.toContain(MOCK_CLIENT_SECRET);
       expect(out).not.toContain(session.split('=')[1] as string);
-      expect(out).not.toContain(link.split('setup=')[1] as string);
+      expect(out).not.toContain(code);
+      expect(out).not.toContain(setupCookie.split('=')[1] as string);
     } finally {
       await server.close();
       await new Promise<void>((r) => idpServer.close(() => r()));

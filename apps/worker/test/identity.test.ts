@@ -71,8 +71,33 @@ describe('sign-in on the Worker', () => {
     });
     expect(issued.res.status).toBe(201);
     const link = new URL((JSON.parse(issued.text) as { data: { url: string } }).data.url);
+    // P8-86: the code is in the fragment only; the setup page posts it, and an old-form link is refused.
+    expect(`${link.pathname}${link.search}`).toBe('/auth/setup?provider=oidc');
+    const code = link.hash.slice('#setup='.length);
+    expect(code).toMatch(/^rb_setup_[0-9a-f]{64}$/);
+    const page = await send(a, workerEnv, `${link.pathname}${link.search}`);
+    expect(page.res.status).toBe(200);
+    expect(page.res.headers.get('content-security-policy')).toContain("script-src 'self'");
+    const old = await send(a, workerEnv, `/auth/login/oidc?setup=${code}`);
+    expect(old.res.status).toBe(400);
+    const setupPost = (headers: Record<string, string>) =>
+      send(a, workerEnv, '/auth/setup', {
+        method: 'POST',
+        redirect: 'manual',
+        headers: { 'content-type': 'application/x-www-form-urlencoded', ...headers },
+        body: new URLSearchParams({ code, provider: 'oidc' }).toString(),
+      });
+    expect(
+      (await setupPost({ origin: 'https://evil.example', 'sec-fetch-site': 'cross-site' })).res.status,
+    ).toBe(403);
+    const posted = await setupPost({ origin: PUBLIC, 'sec-fetch-site': 'same-origin' });
+    expect(posted.res.status).toBe(303);
+    expect(posted.res.headers.get('location')).toBe('/auth/login?provider=oidc');
+    const setupCookie = (posted.res.headers.get('set-cookie') ?? '').split(';')[0] as string;
+    expect(setupCookie).toMatch(/^__Host-rb_setup=[0-9a-f]{64}$/);
 
-    const start = await send(a, workerEnv, `${link.pathname}${link.search}`);
+    // Another isolate starts the login: the setup is read from D1.
+    const start = await send(worker(), workerEnv, '/auth/login/oidc', { headers: { cookie: setupCookie } });
     expect(start.res.status).toBe(302);
     const cookie = (start.res.headers.get('set-cookie') ?? '').split(';')[0] as string;
     expect(cookie).toMatch(/^__Host-rb_login=/);
@@ -129,7 +154,10 @@ describe('sign-in on the Worker', () => {
     );
     const out = lines.join('\n');
     expect(out).not.toContain(MOCK_CLIENT_SECRET);
-    expect(out).not.toContain(link.searchParams.get('setup') as string);
+    expect(out).not.toContain(code);
+    expect(out).not.toContain(setupCookie.split('=')[1] as string);
+    // Used: the code is refused now.
+    expect((await setupPost({ origin: PUBLIC, 'sec-fetch-site': 'same-origin' })).res.status).toBe(400);
   });
 
   it('Cloudflare Access: a valid assertion signs in a pre-created user; wrong AUD and expiry are refused', async () => {

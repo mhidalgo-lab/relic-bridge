@@ -3,7 +3,7 @@
 // route family's single answer (byte-identical apart from the request id), reach no credential or NerdGraph, write an
 // `auth.denied` audit row with the stable reason, and leak no secret anywhere. Every MCP denial has a positive control:
 // the same caller without the defect gets in.
-import { DENY_REASONS } from '@relic-bridge/auth';
+import { createSetupLink, DENY_REASONS } from '@relic-bridge/auth';
 import { Secret } from '@relic-bridge/core';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createHttpApp } from '../../src/index.ts';
@@ -669,6 +669,78 @@ describe('sign-in routes (P4-01)', () => {
     const unknown = await h.send(new Request('http://localhost/auth/login/nope'));
     expect(`${unknown.status} ${unknown.text}`).toBe('404 {"error":"not_found"}');
     expect(h.idpCalls).toEqual([]);
+  });
+
+  describe('first-owner setup (P8-86)', () => {
+    const ORIGIN = 'http://localhost';
+    const setupPost = (code: string, headers: Record<string, string> = {}) =>
+      new Request(`${ORIGIN}/auth/setup`, {
+        method: 'POST',
+        headers: {
+          origin: ORIGIN,
+          'sec-fetch-site': 'same-origin',
+          'content-type': 'application/x-www-form-urlencoded',
+          ...headers,
+        },
+        body: new URLSearchParams({ code }).toString(),
+      });
+    const setsSetupCookie = (r: Captured) =>
+      /(^|, )rb_setup=[0-9a-f]/.test(r.headers.get('set-cookie') ?? '');
+
+    it('no credential is a setup code, and no cookie value is a setup', async () => {
+      const users = (await h.world.storage.users.list()).length;
+      // Every credential the app knows, posted as the code, with every credential presented alongside.
+      for (const code of [ADMIN_TOKEN, h.world.tokens.prod, `rb_setup_${'0'.repeat(64)}`, '']) {
+        for (const caller of callers()) {
+          const res = await h.send(setupPost(code, caller.headers));
+          expect(res.status, `${code.slice(0, 12)} ${JSON.stringify(caller.headers)}`).toBe(400);
+          expect(setsSetupCookie(res)).toBe(false);
+        }
+      }
+      // A planted setup cookie (unknown hash, malformed, a token) starts no login and reaches no IdP.
+      for (const value of ['0'.repeat(64), ADMIN_TOKEN, h.world.tokens.prod]) {
+        const start = await h.send(
+          new Request(`${ORIGIN}/auth/login/github`, { headers: { cookie: `rb_setup=${value}` } }),
+        );
+        expect(start.status, value.slice(0, 12)).toBe(403);
+        expect(start.headers.get('location')).toBeNull();
+      }
+      expect(h.idpCalls).toEqual([]);
+      expect((await h.world.storage.users.list()).length).toBe(users);
+      const rows = await h.auditRows();
+      expect(rows.filter((r) => r.action === 'login.ok')).toEqual([]);
+    });
+
+    it('a real code is refused cross-site and in the query string; accepted only as a same-origin post', async () => {
+      const link = await createSetupLink(h.world.storage.kv, 60_000 * 10, h.world.clock);
+      for (const headers of [
+        { 'sec-fetch-site': 'cross-site', origin: 'https://evil.example' },
+        { 'sec-fetch-site': 'same-site', origin: 'http://sub.localhost' },
+        { 'sec-fetch-site': 'none', origin: '' },
+      ]) {
+        const h2: Record<string, string> = { ...headers };
+        if (h2['origin'] === '') delete h2['origin'];
+        const res = await h.send(
+          new Request(`${ORIGIN}/auth/setup`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/x-www-form-urlencoded', ...h2 },
+            body: new URLSearchParams({ code: link.code }).toString(),
+          }),
+        );
+        expect(res.status, JSON.stringify(headers)).toBe(403);
+        expect(setsSetupCookie(res)).toBe(false);
+      }
+      for (const path of ['/auth/login/github', '/auth/login', '/auth/cf-access', '/auth/setup']) {
+        const res = await h.send(new Request(`${ORIGIN}${path}?setup=${link.code}`));
+        expect(res.status, path).toBe(400);
+        expect(res.text).not.toContain(link.code);
+      }
+      // Positive control: the same code, posted from our own page.
+      const ok = await h.send(setupPost(link.code));
+      expect(ok.status).toBe(303);
+      expect(setsSetupCookie(ok)).toBe(true);
+      expect(h.idpCalls).toEqual([]);
+    });
   });
 
   it.skipIf(authzHostKind() !== 'http-app')('do not exist unless sign-in is configured', async () => {

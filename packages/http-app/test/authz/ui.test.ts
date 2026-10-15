@@ -254,7 +254,18 @@ describe('admin UI headers on every HTML page (P4-03)', () => {
       ['overview', await get('/admin', navigation(s.cookie))],
       ['ui 404', await get('/admin/nope', navigation(s.cookie))],
       ['sign-in', await get('/auth/login')],
-      ['sign-in with setup', await get(`/auth/login?setup=rb_setup_${'0'.repeat(64)}`)],
+      ['old setup link refusal', await get(`/auth/login?setup=rb_setup_${'0'.repeat(64)}`)],
+      ['setup page', await get('/auth/setup?provider=github')],
+      [
+        'setup refusal',
+        await h.send(
+          new Request(`${PUBLIC_ORIGIN}/auth/setup`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/x-www-form-urlencoded', 'sec-fetch-site': 'cross-site' },
+            body: `code=rb_setup_${'0'.repeat(64)}`,
+          }),
+        ),
+      ],
       ['callback failure', await get('/auth/callback/github')],
       ['access failure', await get('/auth/cf-access')],
       ['asset 404', await get('/admin/assets/nope.css')],

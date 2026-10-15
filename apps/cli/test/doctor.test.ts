@@ -1,7 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // `relic-bridge doctor` (P7-05): every check's ok/warn/fail path with mocked fetch and file systems. No network, and
 // no secret may reach the output.
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
+import {
+  chmodSync,
+  closeSync,
+  fstatSync,
+  mkdirSync,
+  mkdtempSync,
+  openSync,
+  readFileSync,
+  rmSync,
+  statSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -349,6 +359,15 @@ describe('database', () => {
     );
     return { code, report: JSON.parse(out) as ReturnType<typeof buildReport>, out };
   }
+  /** Mode and content read through one descriptor (no check-then-use on the path). */
+  const fileState = (path: string): { mode: number; bytes: string } => {
+    const fd = openSync(path, 'r');
+    try {
+      return { mode: fstatSync(fd).mode & 0o777, bytes: readFileSync(fd).toString('base64') };
+    } finally {
+      closeSync(fd);
+    }
+  };
   const dbStatus = (r: { report: ReturnType<typeof buildReport> }) =>
     r.report.checks.find((c) => c.id === 'database');
 
@@ -396,24 +415,24 @@ describe('database', () => {
     raw.exec('PRAGMA journal_mode = DELETE');
     raw.close();
     chmodSync(path, 0o644);
-    const before = readFileSync(path);
+    const before = fileState(path);
+    expect(before.mode).toBe(0o644);
     const r = await runReal(['--db', path], { RB_MASTER_KEY: generateMasterKey() });
     // A master key that was never registered: the read-only open must not register it either.
     expect(dbStatus(r)?.status).not.toBe('ok');
-    expect(statSync(path).mode & 0o777).toBe(0o644);
+    expect(fileState(path)).toEqual(before);
     const after = new DatabaseSync(path, { readOnly: true });
     expect((after.prepare('PRAGMA journal_mode').get() as { journal_mode: string }).journal_mode).toBe(
       'delete',
     );
     after.close();
-    expect(readFileSync(path).equals(before)).toBe(true);
+    expect(fileState(path)).toEqual(before);
 
     const plain = await runReal(['--db', path], {});
     expect(dbStatus(plain)?.status).toBe('warn');
     expect(dbStatus(plain)?.fix).toContain(`chmod 600 ${path}`);
     expect(dbStatus(plain)?.fix).toContain('--fix');
-    expect(statSync(path).mode & 0o777).toBe(0o644);
-    expect(readFileSync(path).equals(before)).toBe(true);
+    expect(fileState(path)).toEqual(before);
   });
 
   it('--fix tightens the database file mode and says so', async () => {

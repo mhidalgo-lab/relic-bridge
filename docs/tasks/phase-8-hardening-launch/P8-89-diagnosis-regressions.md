@@ -2,11 +2,11 @@
 id: P8-89
 title: Restore the tracing-off diagnosis and remove false zeros in the user impact report
 phase: 8
-status: todo
+status: review
 priority: high
 depends_on: []
 adr: []
-owner: ""
+owner: "claude-agent"
 ---
 
 # P8-89 — Restore the tracing-off diagnosis and remove false zeros in the user impact report
@@ -29,9 +29,9 @@ Two regressions of earlier fixes that review 4 (0.11.0) found:
 - Regression tests that pin both behaviours, named after BUG-12 and BUG-13, so the next refactor can't drop them again.
 
 ## Acceptance criteria
-- [ ] Tests for each `trace_error` input path with zero and non-zero account span counts.
-- [ ] Tests: previous window without session ids → `null` plus a note; totals `null` when a part is `null`.
-- [ ] Tool docs regenerated if descriptions change.
+- [x] Tests for each `trace_error` input path with zero and non-zero account span counts.
+- [x] Tests: previous window without session ids → `null` plus a note; totals `null` when a part is `null`.
+- [x] Tool docs regenerated if descriptions change.
 
 ## Security notes
 None. The values are built only from NRQL templates (T4).

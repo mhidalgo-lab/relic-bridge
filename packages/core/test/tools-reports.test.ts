@@ -597,8 +597,60 @@ describe('generate_user_impact_report', () => {
     expect(s.frontEnds[0]?.name).toBe('<APP>');
     expect(s.frontEnds[0]?.current['sessionsWithErrors']).toBeNull();
     expect(s.notes.join(' ')).toContain('sessionsWithErrors is null');
-    expect(s.totals['browserSessionsWithErrors']).toBe(0);
+    expect(s.totals['browserSessionsWithErrors']).toBeNull();
+    expect(s.notes.join(' ')).toContain('Totals for sessionsWithErrors are null');
     expect(ng.calls.some((c) => String(c.variables['nrql']).includes('latest(`appName`)'))).toBe(true);
+  });
+
+  it('previous window without session ids is null with a note, and totals stay null (BUG-13, NEW-18)', async () => {
+    const curSince = Math.floor((NOW - 60 * MIN) / 1000);
+    const ng = nerdGraph({
+      nrql: (q) =>
+        q.includes('FROM PageView')
+          ? nrqlBody([
+              q.includes(`SINCE ${curSince} `)
+                ? { facet: BROWSER, pageViews: 500, sessions: 200, jsErrors: 80, sessionsWithErrors: 40 }
+                : { facet: BROWSER, pageViews: 500, sessions: 200, jsErrors: 30, sessionsWithErrors: 0 },
+            ])
+          : undefined,
+    });
+    const client = await connect(ng.fetch);
+    const r = await client.callTool({
+      name: 'generate_user_impact_report',
+      arguments: { entity_guid: BROWSER },
+    });
+    expect(r.isError, resultText(r)).toBeFalsy();
+    const s = r.structuredContent as {
+      frontEnds: { current: Record<string, unknown>; previous: Record<string, unknown> | null }[];
+      totals: Record<string, number | null>;
+      notes: string[];
+    };
+    expect(s.frontEnds[0]?.current['sessionsWithErrors']).toBe(40);
+    expect(s.frontEnds[0]?.previous?.['sessionsWithErrors']).toBeNull();
+    expect(s.notes.join(' ')).toContain('sessionsWithErrors is null');
+    expect(s.totals['browserSessionsWithErrors']).toBe(40);
+  });
+
+  it('a total is null when any front end part is null (BUG-13, NEW-18)', async () => {
+    const ng = nerdGraph({
+      issues: [issueRow({ entityGuids: [BROWSER, MOCK_GUID], entityNames: ['a', 'b'] })],
+      nrql: (q) =>
+        q.includes('FROM PageView')
+          ? nrqlBody([
+              { facet: BROWSER, pageViews: 500, sessions: 200, jsErrors: 80, sessionsWithErrors: 0 },
+              { facet: MOCK_GUID, pageViews: 500, sessions: 200, jsErrors: 0, sessionsWithErrors: 3 },
+            ])
+          : undefined,
+    });
+    const client = await connect(ng.fetch);
+    const r = await client.callTool({
+      name: 'generate_user_impact_report',
+      arguments: { issue_id: 'issue-1', compare_previous: false },
+    });
+    expect(r.isError, resultText(r)).toBeFalsy();
+    const s = r.structuredContent as { totals: Record<string, number | null>; notes: string[] };
+    expect(s.totals['browserSessionsWithErrors']).toBeNull();
+    expect(s.notes.join(' ')).toContain('Totals for sessionsWithErrors are null');
   });
 
   it('uses the issue window and its entities; compare false skips the previous window', async () => {

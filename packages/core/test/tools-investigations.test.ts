@@ -603,6 +603,54 @@ describe('trace_error', () => {
     expect(s.notes.join(' ')).toContain('sampled out');
   });
 
+  describe('account-wide tracing diagnosis when the trace has no spans (BUG-12, NEW-17)', () => {
+    const accountCount = (spans: number) => (q: string) => {
+      if (q.includes('count(*) AS spans FROM Span SINCE')) return nrqlBody([{ spans }]);
+      if (q.includes('AS exactTrace')) return nrqlBody([{ exactTrace: TRACE, exactCount: 1 }]);
+      if (q.includes('FROM Span WHERE')) return nrqlBody([]);
+      return undefined;
+    };
+    const paths: [string, Record<string, unknown>][] = [
+      ['trace_id', { trace_id: TRACE }],
+      ['error_group_id', { error_group_id: 'eg-1' }],
+      ['error_group_id with entity_guid', { error_group_id: 'eg-1', entity_guid: GROUP.entityGuid }],
+    ];
+    for (const [name, args] of paths) {
+      it(`${name}: zero account spans says tracing is disabled (BUG-12)`, async () => {
+        const ng = nerdGraph({ nrql: accountCount(0) });
+        const client = await connect(ng.fetch);
+        const r = await client.callTool({ name: 'trace_error', arguments: args });
+        expect(r.isError, resultText(r)).toBeFalsy();
+        const s = r.structuredContent as { spansMissing: boolean; notes: string[] };
+        expect(s.spansMissing).toBe(true);
+        expect(s.notes.join(' ')).toContain('distributed tracing or span collection appears to be disabled');
+        expect(s.notes.join(' ')).not.toContain('sampled out');
+        expect(
+          ng.calls.filter((c) => String(c.variables['nrql'] ?? '').includes('count(*) AS spans FROM Span')),
+        ).toHaveLength(1);
+      });
+
+      it(`${name}: non-zero account spans keeps the generic wording (BUG-12)`, async () => {
+        const ng = nerdGraph({ nrql: accountCount(1200) });
+        const client = await connect(ng.fetch);
+        const r = await client.callTool({ name: 'trace_error', arguments: args });
+        expect(r.isError, resultText(r)).toBeFalsy();
+        const s = r.structuredContent as { notes: string[] };
+        expect(s.notes.join(' ')).toContain('sampled out');
+        expect(s.notes.join(' ')).not.toContain('appears to be disabled');
+      });
+    }
+
+    it('skips the check without budget and keeps the generic wording (BUG-12)', async () => {
+      const ng = nerdGraph({ nrql: accountCount(0) });
+      const client = await connect(ng.fetch, { budget: createBudget(1) });
+      const r = await client.callTool({ name: 'trace_error', arguments: { trace_id: TRACE } });
+      expect(r.isError, resultText(r)).toBeFalsy();
+      const s = r.structuredContent as { notes: string[] };
+      expect(s.notes.join(' ')).not.toContain('appears to be disabled');
+    });
+  });
+
   it('plans against the budget: spans, then errors, then logs; the rest is partial', async () => {
     const ng = nerdGraph();
     const client = await connect(ng.fetch, { budget: createBudget(4) });

@@ -2,11 +2,11 @@
 id: P8-78
 title: Polish - golden-metric trend note, timeout recipe, deprecated alias schema, upgrade steps
 phase: 8
-status: todo
+status: in-progress
 priority: low
 depends_on: [P8-52, P8-60]
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P8-78 — Polish: golden-metric trend note, timeout recipe, deprecated alias schema, upgrade steps

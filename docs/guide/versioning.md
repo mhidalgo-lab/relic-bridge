@@ -95,8 +95,10 @@ six months after the deprecation was released.
 | From 1.0 | Latest minor only. | Latest minor, and the previous minor for 3 months after a new minor is released. |
 
 A security fix lands on `main` first and ships as a patch of the latest minor. Where a backport is supported it ships
-as a patch of the older minor at the same time. Backports will be cut from `release/x.y` branches; that release path
-is planned (P8-68) and does not exist yet, which is moot until 1.0 because nothing is backported before then. Reports and timelines: [SECURITY.md](../../SECURITY.md). Advisories are
+as a patch of the older minor at the same time, from a `release/x.y` branch created for it (P8-68). A backport is
+published on npm under the dist-tag `release-x.y`, never `latest`, and never moves the `:latest` image tag, so
+`npm install relic-bridge` and `docker pull …:latest` keep giving the newest minor. Before 1.0 nothing is backported.
+Reports and timelines: [SECURITY.md](../../SECURITY.md). Advisories are
 published as GitHub Security Advisories and linked from the release notes.
 
 relic-bridge supports the Node.js lines in `engines` (currently 24.11 or newer; CI runs 24 and 26) and the MCP

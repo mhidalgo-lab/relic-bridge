@@ -15,11 +15,13 @@ import {
   pendingChangesets,
   type ReleaseState,
   readVersionConst,
+  releaseRef,
   resolveTagCommit,
   SEMVER_RE,
   versionablePackages,
   writeVersionConst,
 } from '../release.ts';
+import { evalGuard } from './gha-expr.ts';
 
 describe('pendingChangesets / decideMode', () => {
   it('ignores the changeset README and config', () => {
@@ -235,6 +237,7 @@ interface Job {
   needs?: string | string[];
   environment?: { name?: string } | string;
   if?: string;
+  outputs?: Record<string, string>;
 }
 
 describe('.github/workflows/release.yml (THREAT_MODEL T18, P1-16)', () => {
@@ -296,9 +299,75 @@ describe('.github/workflows/release.yml (THREAT_MODEL T18, P1-16)', () => {
     expect(publish?.needs).toEqual(['plan', 'build']);
     expect(publish?.environment).toMatchObject({ name: 'release' });
     for (const job of [publish, workflow.jobs.build]) {
-      expect(job?.if).toContain("github.ref == 'refs/heads/main'");
       expect(job?.if).toContain("vars.RB_RELEASE_ENABLED == 'true'");
     }
+  });
+
+  describe('runs from main or release/x.y only (P8-68)', () => {
+    const ctx = (ref: string, enabled = 'true') => ({
+      'github.ref': ref,
+      'vars.RB_RELEASE_ENABLED': enabled,
+      'needs.plan.outputs.mode': 'publish',
+    });
+    const guarded = (['plan', 'build', 'publish'] as const).map((name) => {
+      const guard = workflow.jobs[name]?.if;
+      expect(guard, name).toBeTypeOf('string');
+      return [name, guard as string] as const;
+    });
+
+    it('triggers on pushes to main and release/*', () => {
+      expect((workflow.on['push'] as { branches: string[] }).branches).toEqual(['main', 'release/*']);
+    });
+
+    it.each(['refs/heads/main', 'refs/heads/release/1.2'])('%s passes every release job guard', (ref) => {
+      for (const [name, guard] of guarded) expect(evalGuard(guard, ctx(ref)), name).toBe(true);
+    });
+
+    it.each([
+      'refs/heads/feature/x',
+      'refs/heads/mainline',
+      'refs/heads/releases/1.2',
+      'refs/heads/backport/release/1.2',
+      'refs/tags/v1.2.3',
+      'refs/tags/release/1.2',
+      'refs/pull/7/merge',
+    ])('%s is skipped by every release job', (ref) => {
+      for (const [name, guard] of guarded) expect(evalGuard(guard, ctx(ref)), name).toBe(false);
+    });
+
+    it('build and publish still need the opt-in variable on a release branch', () => {
+      for (const name of ['build', 'publish'] as const) {
+        expect(evalGuard(workflow.jobs[name]?.if as string, ctx('refs/heads/release/1.2', 'false'))).toBe(
+          false,
+        );
+      }
+    });
+
+    it('plan refuses refs the job guard lets through but the ruleset does not cover, and other minors', () => {
+      expect(releaseRef('refs/heads/main', '1.3.0')).toEqual({ backport: false, npmTag: 'latest' });
+      expect(releaseRef('refs/heads/release/1.2', '1.2.4')).toEqual({
+        backport: true,
+        npmTag: 'release-1.2',
+      });
+      expect(() => releaseRef('refs/heads/release/1.2/x', '1.2.4')).toThrow(/main or release/);
+      expect(() => releaseRef('refs/heads/release/next', '1.2.4')).toThrow(/main or release/);
+      expect(() => releaseRef('refs/tags/v1.2.4', '1.2.4')).toThrow(/main or release/);
+      expect(() => releaseRef('refs/heads/release/1.2', '1.3.0')).toThrow(/only release 1\.2\.x/);
+      expect(() => releaseRef('refs/heads/release/1.2', '11.2.0')).toThrow(/only release 1\.2\.x/);
+      expect(() => releaseRef('', '1.2.4')).toThrow(/main or release/);
+    });
+
+    it('a backport is staged with its own dist-tag, never latest, and is not the latest GitHub Release', () => {
+      const runs = (workflow.jobs.publish?.steps ?? []).map((s) => s.run ?? '').join('\n');
+      expect(workflow.jobs['plan']?.outputs).toMatchObject({
+        'npm-tag': '${{ steps.plan.outputs.npm-tag }}',
+      });
+      expect(runs).toMatch(/npm stage publish [^\n]*\\\n\s*--tag "\$NPM_TAG"/);
+      expect(runs).toContain('main publishes with the latest tag only');
+      expect(runs).toContain('publishes ${line}.x as release-${line} only');
+      expect(runs).toMatch(/latest=true; \[\[ "\$NPM_TAG" == latest \]\] \|\| latest=false/);
+      expect(runs).toContain('--latest="$latest"');
+    });
   });
 
   it('publish verifies the checksums before attesting or publishing', () => {

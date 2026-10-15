@@ -187,9 +187,10 @@ describe('redirect login (generic OIDC)', () => {
     expect(await me(second)).toBe(200);
     // The session id never reaches logs or the audit log; the audit names the user and a short reference only.
     const audit = await storage.auditLog.list({ action: 'session.create' });
-    expect(audit.map((r) => [r.userId, r.details?.['rotated']])).toEqual([
-      ['usr_1', true],
-      ['usr_1', false],
+    // Signing in over a live session of the same user is a step-up (P8-73, re-authentication).
+    expect(audit.map((r) => [r.userId, r.details?.['rotated'], r.details?.['stepUp']])).toEqual([
+      ['usr_1', true, true],
+      ['usr_1', false, undefined],
     ]);
     const dump = `${logs.join('\n')}\n${JSON.stringify(await storage.auditLog.list({ limit: 100 }))}`;
     for (const c of [first, second]) expect(dump).not.toContain(c.split('.')[1] as string);

@@ -124,6 +124,12 @@ describe('axe-core', () => {
       renderDocument(<SetupPage action="/auth/setup" provider="github" next="/admin" />),
     );
     await expectAccessible(
+      'sign-in, re-authentication (P8-73)',
+      renderDocument(
+        <LoginPage providers={[{ href: '/auth/login/github', label: 'GitHub' }]} setup={false} reauth />,
+      ),
+    );
+    await expectAccessible(
       'message',
       renderDocument(
         <MessagePage

@@ -21,6 +21,7 @@ import {
   revokeUserSessions,
   SESSION_COOKIE,
   type SessionTimeouts,
+  sessionIsFresh,
 } from '@relic-bridge/auth';
 import type { Clock, Logger } from '@relic-bridge/core';
 import type { KvRepository, UserRecord, UserRole, UsersRepository } from '@relic-bridge/storage';
@@ -95,6 +96,11 @@ export interface SessionManager {
   /** Fetch-metadata and Origin checks for a cookie-authenticated request (null when fine). */
   checkFetchOrigin(c: Context, unsafe: boolean): FetchOriginProblem | null;
   csrfMatches(principal: SessionPrincipal, presented: string | undefined): boolean;
+  /**
+   * The session's sign-in is recent enough for a sensitive admin action (P8-73): younger than the re-authentication
+   * window. Decided from the stored session record only.
+   */
+  isFresh(principal: SessionPrincipal): boolean;
   /** `onLogin`: rotate, create, set the cookie, 303 to `next`. */
   login(c: Context, login: CompletedLogin): Promise<Response>;
   /** End the session this request presents (logout). */
@@ -202,10 +208,18 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
 
     csrfMatches: (principal, presented) => csrfTokenMatches(principal.session.record, presented),
 
+    isFresh: (principal) => sessionIsFresh(principal.session.record, timeouts, clock.now()),
+
     async login(c, login) {
       // Rotation: whatever session this browser had ends here, so a planted or older cookie never survives sign-in.
       const previous = readCookie(c);
-      if (previous) await revokeSession(kv, previous);
+      // A sign-in over a live session of the same user is a step-up (P8-73, re-authentication for a sensitive action).
+      let stepUp = false;
+      if (previous) {
+        const live = await loadSession(kv, previous, timeouts, clock).catch(() => null);
+        stepUp = live?.ok === true && live.session.record.userId === login.user.id;
+        await revokeSession(kv, previous);
+      }
       const issued = await createSession(
         kv,
         { userId: login.user.id, provider: login.provider, idp: login.identity.idp },
@@ -226,6 +240,7 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
           role: login.user.role,
           rotated: Boolean(previous),
           evicted: issued.evicted,
+          ...(stepUp ? { stepUp: true } : {}),
         },
       });
       return new Response(null, {

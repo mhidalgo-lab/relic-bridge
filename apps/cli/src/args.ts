@@ -371,6 +371,8 @@ Sign-in (serve; off until a provider is set; docs/guide/identity-providers.md):
                          identities on first sign-in.
   RB_SESSION_IDLE_MINUTES  Admin sessions end after this many idle minutes (5-1440, default 30).
   RB_SESSION_MAX_HOURS   Admin sessions end this many hours after sign-in (1-168, default 12).
+  RB_SESSION_REAUTH_MINUTES  Sensitive admin actions need a sign-in this recent (1-60,
+                         default 10).
 
 OAuth for MCP clients (serve; off by default; needs sign-in; docs/guide/oauth.md):
   RB_OAUTH               on: claude.ai, phones and other OAuth clients connect after a person

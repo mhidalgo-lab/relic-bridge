@@ -49,6 +49,9 @@ and for the screens the tool catalogue `tools`, `publicUrl` and the clock `now`)
    for API clients. GET needs no form. POST, PATCH and DELETE throw unless you pass the `VerifiedForm` of the same
    request, so a handler can't skip the CSRF check. Build paths with `adminPath` so every id is one encoded segment.
    The result is `{ status, body }`; errors are `{ error: { code, message } }` (see `docs/reference/admin-api.md`).
+   One refusal never reaches your handler: a sensitive change refused for an old sign-in (`403`,
+   `detail: reauth_required`, P8-73) makes `kit.callAdmin` throw `ReauthRequiredError`, and `kit.form` answers with a
+   `303` to `/auth/login?next=<the Referer page>&reauth=1`. Don't catch it.
 5. After a change, Post/Redirect/Get: `return kit.redirect('/admin/things', 'saved')`. Flash codes come from the
    catalogue in `flash.ts`. Add new codes there (the cookie carries the code, never text). For validation errors,
    render the form again with `error=` on the fields and status `422`.

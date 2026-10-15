@@ -30,6 +30,10 @@ export const MIN_SESSION_IDLE_MS: number = 5 * 60_000;
 export const MAX_SESSION_IDLE_MS: number = 24 * 60 * 60_000;
 export const MIN_SESSION_ABSOLUTE_MS: number = 60 * 60_000;
 export const MAX_SESSION_ABSOLUTE_MS: number = 7 * 24 * 60 * 60_000;
+/** Sensitive admin actions need a sign-in this recent (P8-73). Default 10 minutes, 1-60. */
+export const DEFAULT_SESSION_REAUTH_MS: number = 10 * 60_000;
+export const MIN_SESSION_REAUTH_MS: number = 60_000;
+export const MAX_SESSION_REAUTH_MS: number = 60 * 60_000;
 /** Activity is written at most this often per session (bounds D1 writes; the idle timeout is ≥ 5 min). */
 export const SESSION_TOUCH_INTERVAL_MS: number = 60_000;
 /** Live sessions a user may hold (P4-17): sign-in number cap+1 evicts the oldest. */
@@ -51,6 +55,11 @@ export interface SessionTimeouts {
   readonly idleMs: number;
   /** Ends a session this long after sign-in, whatever the activity. */
   readonly absoluteMs: number;
+  /**
+   * Sensitive admin actions (P8-73) need the session's sign-in to be younger than this. Default
+   * {@link DEFAULT_SESSION_REAUTH_MS}.
+   */
+  readonly reauthMs?: number;
 }
 
 export const DEFAULT_SESSION_TIMEOUTS: SessionTimeouts = Object.freeze({
@@ -68,7 +77,28 @@ export function checkSessionTimeouts(t: SessionTimeouts): SessionTimeouts {
     throw new RangeError('session lifetime must be between 1 hour and 7 days');
   }
   if (t.idleMs > t.absoluteMs) throw new RangeError('session idle timeout must not exceed its lifetime');
-  return Object.freeze({ idleMs: t.idleMs, absoluteMs: t.absoluteMs });
+  if (t.reauthMs !== undefined && !ok(t.reauthMs, MIN_SESSION_REAUTH_MS, MAX_SESSION_REAUTH_MS)) {
+    throw new RangeError('re-authentication window must be between 1 and 60 minutes');
+  }
+  return Object.freeze({
+    idleMs: t.idleMs,
+    absoluteMs: t.absoluteMs,
+    ...(t.reauthMs === undefined ? {} : { reauthMs: t.reauthMs }),
+  });
+}
+
+/**
+ * Whether a session's sign-in is recent enough for a sensitive admin action (P8-73). Every sign-in creates a new
+ * session (the old one is revoked), so `createdAt` is the time of the last real authentication: stored server-side,
+ * never taken from the request.
+ */
+export function sessionIsFresh(
+  record: Pick<SessionRecord, 'createdAt'>,
+  timeouts: Pick<SessionTimeouts, 'reauthMs'>,
+  now: number,
+): boolean {
+  const window = timeouts.reauthMs ?? DEFAULT_SESSION_REAUTH_MS;
+  return now >= record.createdAt && now - record.createdAt < window;
 }
 
 /** What storage holds for a session. Never the session secret. */
@@ -77,6 +107,7 @@ export interface SessionRecord {
   /** Provider id the user signed in with (URL key) and its `idp`. */
   readonly provider: string;
   readonly idp: string;
+  /** Sign-in time (epoch ms): sessions are only created by a sign-in, so this is the last authentication (P8-73). */
   readonly createdAt: number;
   /** Absolute expiry (epoch ms). */
   readonly expiresAt: number;

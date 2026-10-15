@@ -83,6 +83,7 @@ relic-bridge serve --port 9000 --db /var/lib/relic-bridge/relic-bridge.db
 | `RB_LOGIN_AUTO_PROVISION` | `off` | `member` or `admin`: create a user for an allowlisted identity on its first sign-in. Never `owner`. |
 | `RB_SESSION_IDLE_MINUTES` | `30` | Admin sessions end after this many minutes without a request (5-1440). See [admin access](admin-access.md). |
 | `RB_SESSION_MAX_HOURS` | `12` | Admin sessions end this many hours after sign-in, whatever the activity (1-168). |
+| `RB_SESSION_REAUTH_MINUTES` | `10` | Sensitive admin actions need a sign-in this recent (1-60). See [admin access](admin-access.md#re-authentication-for-sensitive-actions). |
 | `RB_OAUTH` | `off` | `on` lets MCP clients without static headers (claude.ai, Claude on your phone, Claude Code) connect with OAuth: people sign in and approve each app on a consent page. Needs sign-in (`RB_PUBLIC_URL` and a provider). See [OAuth](oauth.md). |
 | `RB_OAUTH_DCR` | `on` | `off` turns dynamic client registration (`/oauth/register`) off; clients with a metadata document (claude.ai, Claude Code) still work. |
 | `RB_OAUTH_DCR_LIMIT` | `30` | Dynamic registrations per hour for the whole server, or `off`. |

@@ -38,7 +38,7 @@ export interface IdentitySettings {
   readonly publicUrl: string;
   readonly providers: readonly ProviderSettings[];
   readonly policy: LoginPolicy;
-  /** Admin session timeouts (P4-02): `RB_SESSION_IDLE_MINUTES`, `RB_SESSION_MAX_HOURS`. */
+  /** Admin session timeouts (P4-02): `RB_SESSION_IDLE_MINUTES`, `RB_SESSION_MAX_HOURS`, `RB_SESSION_REAUTH_MINUTES`. */
   readonly session: SessionTimeouts;
   /** Boot warnings (never values). */
   readonly warnings: readonly string[];
@@ -288,10 +288,14 @@ function wholeNumber(
   return n;
 }
 
-/** `RB_SESSION_IDLE_MINUTES` (5-1440, default 30) and `RB_SESSION_MAX_HOURS` (1-168, default 12). */
+/**
+ * `RB_SESSION_IDLE_MINUTES` (5-1440, default 30), `RB_SESSION_MAX_HOURS` (1-168, default 12) and
+ * `RB_SESSION_REAUTH_MINUTES` (1-60, default 10: how recent a sign-in sensitive admin actions need, P8-73).
+ */
 function sessionTimeouts(env: IdentityEnv): SessionTimeouts {
   const idleMin = wholeNumber(env, 'RB_SESSION_IDLE_MINUTES', 5, 1440, 'minutes');
   const maxHours = wholeNumber(env, 'RB_SESSION_MAX_HOURS', 1, 168, 'hours');
+  const reauthMin = wholeNumber(env, 'RB_SESSION_REAUTH_MINUTES', 1, 60, 'minutes');
   const idleMs = idleMin === undefined ? DEFAULT_SESSION_IDLE_MS : idleMin * 60_000;
   const absoluteMs = maxHours === undefined ? DEFAULT_SESSION_ABSOLUTE_MS : maxHours * 3_600_000;
   if (idleMs > absoluteMs) {
@@ -300,7 +304,11 @@ function sessionTimeouts(env: IdentityEnv): SessionTimeouts {
       'RB_SESSION_IDLE_MINUTES must not exceed RB_SESSION_MAX_HOURS.',
     );
   }
-  return Object.freeze({ idleMs, absoluteMs });
+  return Object.freeze({
+    idleMs,
+    absoluteMs,
+    ...(reauthMin === undefined ? {} : { reauthMs: reauthMin * 60_000 }),
+  });
 }
 
 /** Build the providers of `settings`. `fetch` reaches the IdPs (tests inject a mock IdP). */

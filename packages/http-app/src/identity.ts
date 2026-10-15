@@ -382,7 +382,10 @@ export function createIdentityRoutes(
     // With a setup cookie the list narrows to the link's provider when it named one (`?provider=`, from `POST /setup`).
     const setup = cookieSetup(c) !== undefined;
     const only = setup ? c.req.query('provider') : undefined;
-    return htmlResponse(LoginPage({ providers: providerLinks(c, only), setup }));
+    // `reauth=1` (P8-73): the admin UI sent the user here to confirm a sensitive change. Display only: freshness is
+    // decided from the session the sign-in creates, never from this parameter.
+    const reauth = c.req.query('reauth') === '1';
+    return htmlResponse(LoginPage({ providers: providerLinks(c, only), setup, reauth }));
   });
 
   app.get('/setup', (c) => {

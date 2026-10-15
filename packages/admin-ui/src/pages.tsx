@@ -35,9 +35,16 @@ export function LoginPage(props: {
   readonly providers: readonly LoginProvider[];
   /** A setup link is being used: the account becomes the owner. */
   readonly setup: boolean;
+  /** A sensitive change was refused for an old sign-in (P8-73): explain why the user is asked again. */
+  readonly reauth?: boolean;
 }): JSX.Element {
   return (
-    <Layout title="Sign in">
+    <Layout title={props.reauth === true ? 'Confirm it is you' : 'Sign in'}>
+      {props.reauth === true ? (
+        <p class="card" role="status">
+          This change needs a recent sign-in. Sign in again, then repeat the change: nothing was saved.
+        </p>
+      ) : null}
       {props.setup ? (
         <p class="card">Setup link: the account you sign in with becomes the owner of this instance.</p>
       ) : null}

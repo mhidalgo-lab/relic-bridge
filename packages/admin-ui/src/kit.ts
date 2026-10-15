@@ -155,6 +155,24 @@ function randomHandle(): string {
   return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
+/**
+ * Thrown by `kit.callAdmin` when the admin API refuses a sensitive action because the session's sign-in is too old
+ * (P8-73, `403` with `detail: reauth_required`). `kit.form` turns it into the re-authentication redirect.
+ */
+export class ReauthRequiredError extends Error {
+  constructor() {
+    super('a recent sign-in is required');
+    this.name = 'ReauthRequiredError';
+  }
+}
+
+/** The admin API's re-authentication refusal (P8-73). */
+export function isReauthRefusal(res: AdminCallResult): boolean {
+  if (res.status !== 403) return false;
+  const error = (res.body as { error?: { detail?: unknown } } | null)?.error;
+  return error?.detail === 'reauth_required';
+}
+
 export const DEFAULT_MAX_FORM_BYTES: number = 16 * 1024;
 const FORM_TYPE = /^application\/x-www-form-urlencoded\s*(;|$)/i;
 const LOGIN_PATH = '/auth/login';
@@ -243,6 +261,21 @@ export function createUiKit(deps: AdminUiDeps): UiKit {
     return new Response(null, { status: 303, headers });
   };
 
+  /**
+   * Re-authentication (P8-73): back to sign-in, then to the admin page the form was on (the same-origin `Referer`,
+   * which our pages send with `Referrer-Policy: same-origin`), else the overview. The session stays: signing in
+   * replaces it with a fresh one.
+   */
+  const toReauth = (c: Context): Response => {
+    const next = refererPage(c, deps.publicUrl) ?? '/admin';
+    const log = c.get('log') as Record<string, unknown> | undefined;
+    if (log) log['deny'] = 'reauth_required';
+    return new Response(null, {
+      status: 303,
+      headers: { Location: `${LOGIN_PATH}?${new URLSearchParams({ next, reauth: '1' })}` },
+    });
+  };
+
   const forbidden = (c: Context, principal: UiPrincipal, reason: string): Response => {
     const log = c.get('log') as Record<string, unknown> | undefined;
     if (log) log['deny'] = reason;
@@ -317,7 +350,12 @@ export function createUiKit(deps: AdminUiDeps): UiKit {
       if (!allowed(principal, minRole)) return forbidden(c, principal, 'role');
       const form: VerifiedForm = Object.freeze({ fields, principal });
       verified.add(form);
-      return handler(c, principal, form);
+      try {
+        return await handler(c, principal, form);
+      } catch (error) {
+        if (error instanceof ReauthRequiredError) return toReauth(c);
+        throw error;
+      }
     },
 
     async callAdmin(c, principal, call, form) {
@@ -330,7 +368,10 @@ export function createUiKit(deps: AdminUiDeps): UiKit {
       if (!call.path.startsWith('/') || call.path.startsWith('//')) {
         throw new TypeError('admin API paths start with one /');
       }
-      return deps.callAdmin(c, principal, call);
+      const res = await deps.callAdmin(c, principal, call);
+      // A sensitive change refused for an old sign-in: no screen handles it, the form wrapper redirects (P8-73).
+      if (call.method !== 'GET' && isReauthRefusal(res)) throw new ReauthRequiredError();
+      return res;
     },
 
     async issueOnce(principal) {
@@ -363,6 +404,21 @@ export function createUiKit(deps: AdminUiDeps): UiKit {
       return new Response(null, { status: 303, headers });
     },
   };
+}
+
+/** The admin page a form was posted from: a same-origin `/admin` path from `Referer`, or null. */
+function refererPage(c: Context, publicUrl: string | undefined): string | null {
+  const raw = c.req.header('referer');
+  if (raw === undefined || raw.length > 2048) return null;
+  try {
+    const origin = new URL(publicUrl ?? c.req.url).origin;
+    const u = new URL(raw);
+    if (u.origin !== origin) return null;
+    const path = `${u.pathname}${u.search}`;
+    return /^\/admin(?:[/?]|$)/.test(path) && !path.startsWith('//') && /^[!-~]+$/.test(path) ? path : null;
+  } catch {
+    return null;
+  }
 }
 
 function queryOf(c: Context): string {

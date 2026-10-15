@@ -95,6 +95,8 @@ export interface WorkerVars {
   /** Admin session timeouts: idle minutes (5-1440, default 30) and absolute hours (1-168, default 12). */
   readonly RB_SESSION_IDLE_MINUTES?: string;
   readonly RB_SESSION_MAX_HOURS?: string;
+  /** Minutes a sign-in stays recent enough for sensitive admin actions (1-60, default 10; P8-73). */
+  readonly RB_SESSION_REAUTH_MINUTES?: string;
 }
 
 /** Secret bindings. Values are read once per isolate at boot and kept only inside the keyring / admin verifier. */

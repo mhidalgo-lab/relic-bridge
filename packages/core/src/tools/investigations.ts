@@ -281,7 +281,24 @@ const spanQuery = (traceId: string, sinceMs: number, untilMs: number): NrqlQuery
   nrql`SELECT ${nrql.identifier('timestamp')}, id, ${nrql.identifier('parent.id')} AS parentId, name, ${nrql.identifier('entity.name')} AS service, category, ${nrql.identifier('duration.ms')} AS durationMs, ${nrql.identifier('error.class')} AS errorClass, ${nrql.identifier('error.message')} AS errorMessage FROM Span WHERE ${nrql.identifier('trace.id')} = ${traceId} LIMIT ${SPAN_LIMIT} SINCE ${Math.floor(sinceMs / 1000)} UNTIL ${Math.ceil(untilMs / 1000)}`;
 
 const errorQuery = (traceId: string, sinceMs: number, untilMs: number): NrqlQuery =>
-  nrql`SELECT ${nrql.identifier('timestamp')}, appName, ${nrql.identifier('error.class')} AS errorClass, ${nrql.identifier('error.message')} AS errorMessage, ${nrql.identifier('request.method')} AS requestMethod, ${nrql.identifier('request.uri')} AS requestUri, httpResponseCode, transactionName FROM TransactionError WHERE traceId = ${traceId} ORDER BY timestamp DESC LIMIT ${ERROR_LIMIT} SINCE ${Math.floor(sinceMs / 1000)} UNTIL ${Math.ceil(untilMs / 1000)}`;
+  nrql`SELECT ${nrql.identifier('timestamp')}, appName, ${nrql.identifier('error.class')} AS errorClass, ${nrql.identifier('error.message')} AS errorMessage, ${nrql.identifier('request.method')} AS requestMethod, ${nrql.identifier('request.uri')} AS requestUri, ${nrql.identifier('http.statusCode')} AS httpStatusCode, ${nrql.identifier('response.statusCode')} AS responseStatusCode, ${nrql.identifier('response.status')} AS responseStatus, httpResponseCode, transactionName FROM TransactionError WHERE traceId = ${traceId} ORDER BY timestamp DESC LIMIT ${ERROR_LIMIT} SINCE ${Math.floor(sinceMs / 1000)} UNTIL ${Math.ceil(untilMs / 1000)}`;
+
+/** Where agents put the response status on TransactionError, newest attribute first (P8-58). */
+const STATUS_FIELDS = ['httpStatusCode', 'responseStatusCode', 'responseStatus', 'httpResponseCode'] as const;
+
+/**
+ * The first valid HTTP status (100-599) among the row's status attributes. Agents differ: PHP sends `httpResponseCode`
+ * as a string ("500") and `http.statusCode` as a number, so a 3-digit string counts too.
+ */
+export function httpStatusOf(row: Record<string, unknown>): number | null {
+  for (const field of STATUS_FIELDS) {
+    const v = row[field];
+    const n =
+      typeof v === 'number' ? v : typeof v === 'string' && /^\d{3}$/.test(v.trim()) ? Number(v.trim()) : NaN;
+    if (Number.isInteger(n) && n >= 100 && n <= 599) return n;
+  }
+  return null;
+}
 
 const logQuery = (traceId: string, sinceMs: number, untilMs: number): NrqlQuery =>
   nrql`SELECT timestamp, level, message FROM Log WHERE ${nrql.identifier('trace.id')} = ${traceId} ORDER BY timestamp ASC LIMIT ${LOG_LIMIT} SINCE ${Math.floor(sinceMs / 1000)} UNTIL ${Math.ceil(untilMs / 1000)}`;
@@ -816,7 +833,7 @@ export function createInvestigationTools(deps: ToolDeps = {}): ToolDefinition[] 
         errorMessage: str(r['errorMessage'], 500),
         requestMethod: label(typeof r['requestMethod'] === 'string' ? r['requestMethod'] : null),
         requestPath: uriPath(r['requestUri']),
-        httpStatus: num(r['httpResponseCode']),
+        httpStatus: httpStatusOf(r),
       }));
       const logRows = rowsOf('logs').map((r) => ({
         timestamp: isoOf(r['timestamp']),

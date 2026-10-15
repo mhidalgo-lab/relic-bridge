@@ -1197,7 +1197,6 @@ Sources: [server.json format](https://github.com/modelcontextprotocol/registry/b
   `apps/worker/test/redirect-modes.test.ts`), although the Request docs list `error`
   (https://developers.cloudflare.com/workers/runtime-apis/request/). Node's fetch (undici) supports all three. With
   `manual`, Node and workerd return the 3xx response itself; browsers return an `opaqueredirect` response (status 0).
-
 ## Errors Inbox groups and their TransactionError events (P8-57, 2026-10-14)
 
 - `TransactionError` events have **no `error.group.guid`** (nor any `error.group.*`) attribute: 0 of about 1.5 K events

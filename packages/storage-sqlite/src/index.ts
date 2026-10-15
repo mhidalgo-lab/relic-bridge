@@ -1,19 +1,32 @@
 // SPDX-License-Identifier: Apache-2.0
 // `@relic-bridge/storage-sqlite`: the `sqlite` adapter for Node (ADR-0006), on the built-in `node:sqlite`.
 // Node only; the runtime-agnostic packages never import it (ADR-0004).
-import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
+import { DatabaseSync } from 'node:sqlite';
+import { MIGRATIONS, MigrationError, migrate, type Storage } from '@relic-bridge/storage';
 import {
-  MIGRATIONS,
-  type MigrationDriver,
-  MigrationError,
-  migrate,
-  type Storage,
-} from '@relic-bridge/storage';
+  buildD1Export,
+  type D1Export,
+  type D1ExportOptions,
+  type D1ExportSummary,
+  exportForD1,
+  MAX_D1_STATEMENT_BYTES,
+  sqlLiteral,
+} from './d1-export.ts';
+import { driverFor } from './driver.ts';
 import { mapSqliteError } from './errors.ts';
 import { backupDatabase, MEMORY_PATH, prepareDatabaseFile, snapshotInto } from './file.ts';
 import { createRepositories } from './repos.ts';
 
-export { backupDatabase };
+export {
+  backupDatabase,
+  buildD1Export,
+  type D1Export,
+  type D1ExportOptions,
+  type D1ExportSummary,
+  exportForD1,
+  MAX_D1_STATEMENT_BYTES,
+  sqlLiteral,
+};
 
 export interface SqliteStorageOptions {
   /** Database file, or `:memory:`. Created (`0600`, parent `0700`) when missing. */
@@ -34,24 +47,6 @@ export interface SqliteStorage extends Storage {
   readonly path: string;
   /** Consistent snapshot into a new file (`0600`); never overwrites. Safe while serving. */
   backup(destination: string): Promise<void>;
-}
-
-function driverFor(db: DatabaseSync): MigrationDriver {
-  return {
-    async all(sql, params = []) {
-      return db.prepare(sql).all(...(params as SQLInputValue[])) as Record<string, unknown>[];
-    },
-    async batch(statements) {
-      db.exec('BEGIN IMMEDIATE');
-      try {
-        for (const s of statements) db.prepare(s.sql).run(...((s.params ?? []) as SQLInputValue[]));
-        db.exec('COMMIT');
-      } catch (error) {
-        db.exec('ROLLBACK');
-        throw error;
-      }
-    },
-  };
 }
 
 /** Throws unless every embedded migration is applied (and nothing newer is). Read-only. */

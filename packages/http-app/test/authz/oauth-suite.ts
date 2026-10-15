@@ -265,6 +265,30 @@ export function observable(r: Captured): string {
   return JSON.stringify({ status: r.status, headers, body: r.text });
 }
 
+/**
+ * The credentials in a token response body: `access_token` and `refresh_token` only. The other fields (`token_type`
+ * "Bearer", `expires_in` 600, `scope`, `resource`) are public values, short enough to occur by chance inside a request
+ * id or a timestamp in a log line, so listing them as secrets made the leak scan fail about once in thirty runs (P8-97).
+ */
+export function credentialsOf(body: string): string[] {
+  const parsed = JSON.parse(body) as Record<string, unknown>;
+  return ['access_token', 'refresh_token'].flatMap((k) =>
+    typeof parsed[k] === 'string' ? [parsed[k] as string] : [],
+  );
+}
+
+/** Shortest value the leak scan accepts as a secret: shorter strings match request ids by chance. */
+export const MIN_SECRET_LENGTH = 16;
+
+/** Fail loudly when something that is not a credential (empty, short, a public field) is queued as a secret. */
+export function expectOnlyCredentials(secrets: readonly string[]): void {
+  for (const s of secrets) {
+    expect(s.length, 'a value too short to be a secret would match logs by chance').toBeGreaterThanOrEqual(
+      MIN_SECRET_LENGTH,
+    );
+  }
+}
+
 export function oauthSuite(): void {
   let h: Harness;
   let consent: Consent;
@@ -288,6 +312,7 @@ export function oauthSuite(): void {
     await h.scan();
     const audit = JSON.stringify(await h.auditRows());
     const logs = h.logLines.join('\n');
+    expectOnlyCredentials(secrets);
     for (const s of secrets) {
       expect(logs.includes(s), 'an OAuth secret reached a log line').toBe(false);
       expect(audit.includes(s), 'an OAuth secret reached the audit log').toBe(false);
@@ -326,7 +351,7 @@ export function oauthSuite(): void {
         resource: resourceOf('prod'),
       });
       expect(refreshed.status, refreshed.text).toBe(200);
-      secrets.push(...Object.values(JSON.parse(refreshed.text) as Record<string, string>).map(String));
+      secrets.push(...credentialsOf(refreshed.text));
       const grantId = h.world.grantIds.prod;
       const slug = /(^|[^A-Za-z0-9_])prod([^A-Za-z0-9_]|$)/;
       const found: string[] = [];

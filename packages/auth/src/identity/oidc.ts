@@ -9,7 +9,7 @@
 //   at most 10 min old, `nonce` equal to the transaction's;
 // - identity: `sub` present, `email` present and `email_verified` true (from the ID token, else the userinfo endpoint
 //   whose `sub` must match).
-import { type Clock, type FetchLike, type Secret, systemClock } from '@relic-bridge/core';
+import { type Clock, type FetchLike, outboundFetch, type Secret, systemClock } from '@relic-bridge/core';
 import type { JWTPayload } from 'jose';
 import { timingSafeEqual, utf8 } from '../crypto/bytes.ts';
 import { IdentityError } from './errors.ts';
@@ -133,7 +133,7 @@ function displayNameOf(claims: Record<string, unknown>): string | null {
 }
 
 export function createOidcProvider(options: OidcProviderOptions): RedirectIdentityProvider {
-  const fetch = options.fetch ?? ((url, init) => globalThis.fetch(url, init));
+  const fetch = options.fetch ?? outboundFetch;
   const clock = options.clock ?? systemClock;
   const scopes = options.scopes ?? DEFAULT_SCOPES;
   if (!scopes.includes('openid')) throw new TypeError('OIDC scopes must include openid');

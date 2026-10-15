@@ -1,0 +1,5 @@
+---
+"relic-bridge": minor
+---
+
+Product hardening from the ASVS review. Owners can end every user's browser sessions (`POST /api/admin/v1/users/sessions/revoke-all`, admin panel "End all sessions", typed confirmation, recent sign-in required, audited as `session.revoke_all_users`; the caller stays signed in unless `includeSelf` is set). Everyone can list their own active browser sessions (browser and system label, sign-in time, last use) and end one (`GET /me/sessions`, `POST /me/sessions/{id}/revoke`, "My browser sessions" under My access). Sign-out sends `Clear-Site-Data: "cookies", "storage"`. Every outbound request (NerdGraph, identity providers and key sets, OTLP, the CLI's own calls, metadata documents) now has an explicit no-redirect policy through one wrapper, and a test fails when source code calls the global `fetch` directly. New optional setting `RB_OAUTH_CIMD_HOSTS`: a comma-separated allow-list of host names whose client metadata documents may be fetched; an app on another host is refused and audited as `oauth.client.refused`. Unset keeps today's behaviour.

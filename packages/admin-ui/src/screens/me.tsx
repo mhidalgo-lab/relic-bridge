@@ -16,6 +16,7 @@
 //   POST /admin/me/tokens               issue → the one-time page (single-use form handle)
 //   POST /admin/me/tokens/:id/revoke    revoke (needs confirm=yes)
 //   POST /admin/me/apps/:id/revoke      disconnect an app connected with OAuth (needs confirm=yes, P5-05)
+//   POST /admin/me/sessions/:id/revoke  end one of my browser sessions (needs confirm=yes, P8-96)
 import type { Context, Hono } from 'hono';
 import {
   Button,
@@ -39,6 +40,7 @@ import {
   isId,
   type MyGrant,
   one,
+  parseBrowserSession,
   parseCredential,
   parseMyGrant,
   parseOAuthDevice,
@@ -400,6 +402,9 @@ export function registerMe(ui: Hono, kit: UiKit): void {
   const myApps = (c: Context, principal: UiPrincipal) =>
     listAll(kit, c, principal, '/me/oauth-devices', parseOAuthDevice);
 
+  const mySessions = (c: Context, principal: UiPrincipal) =>
+    listAll(kit, c, principal, '/me/sessions', parseBrowserSession);
+
   const findKey = async (c: Context, principal: UiPrincipal, id: string) =>
     isId(id) ? ((await myKeys(c, principal)) ?? []).find((k) => k.id === id) : undefined;
 
@@ -407,11 +412,12 @@ export function registerMe(ui: Hono, kit: UiKit): void {
     ROUTE,
     kit.page('member', async (c, page) => {
       const { principal } = page;
-      const [keys, grants, tokens, apps] = await Promise.all([
+      const [keys, grants, tokens, apps, sessions] = await Promise.all([
         myKeys(c, principal),
         myGrants(c, principal),
         myTokens(c, principal),
         myApps(c, principal),
+        mySessions(c, principal),
       ]);
       if (keys === null || grants === null || tokens === null) return failed(c, principal);
       const t = now();
@@ -512,6 +518,46 @@ export function registerMe(ui: Hono, kit: UiKit): void {
               ]}
             />
           </section>
+
+          {sessions !== null && sessions.length > 0 ? (
+            <section aria-labelledby="sessions-heading">
+              <h2 id="sessions-heading">My browser sessions</h2>
+              <p>
+                Where you are signed in to this panel. End any you do not recognise; the browser is signed out
+                at once. Device tokens and apps are not affected.
+              </p>
+              <DataTable
+                caption="My browser sessions"
+                empty="No other sessions."
+                rows={sessions}
+                columns={[
+                  {
+                    header: 'Browser',
+                    cell: (s) => (
+                      <span>
+                        {s.client ?? 'Unknown browser'}{' '}
+                        {s.current ? <StatusBadge tone="info" text="this browser" /> : null}
+                      </span>
+                    ),
+                  },
+                  { header: 'Signed in', cell: (s) => <When at={s.createdAt} /> },
+                  { header: 'Last used', cell: (s) => <When at={s.lastSeenAt} /> },
+                  { header: 'Ends', cell: (s) => <When at={s.expiresAt} /> },
+                  {
+                    header: 'Action',
+                    cell: (s) => (
+                      <RowAction
+                        action={`${BASE}${adminPath`/sessions/${s.id}/revoke`}`}
+                        csrf={principal.csrf}
+                        label={s.current ? 'Sign out…' : 'End…'}
+                        name={`End the session of ${s.client ?? 'an unknown browser'}`}
+                      />
+                    ),
+                  },
+                ]}
+              />
+            </section>
+          ) : null}
 
           {apps !== null && apps.length > 0 ? (
             <section aria-labelledby="apps-heading">
@@ -942,6 +988,39 @@ export function registerMe(ui: Hono, kit: UiKit): void {
         form,
       );
       if (isOk(res)) return kit.redirect(BASE, 'revoked');
+      const problem = problemOf(res);
+      return problem.status === 404 ? missing(c, principal) : kit.redirect(BASE, flashFor(problem));
+    }),
+  );
+
+  ui.post(
+    `${ROUTE}/sessions/:id/revoke`,
+    kit.form('member', async (c, principal, form) => {
+      const id = idOf(c);
+      const found = isId(id) ? ((await mySessions(c, principal)) ?? []).find((s) => s.id === id) : undefined;
+      // Another user's session id, an ended one and one that never existed look the same.
+      if (found === undefined) return missing(c, principal);
+      if (!confirmed(form)) {
+        return confirmPage({
+          viewer: principal,
+          current: BASE,
+          title: found.current ? 'Sign out of this browser?' : 'End this browser session?',
+          paragraphs: [
+            `${found.client ?? 'An unknown browser'} is signed out at once.`,
+            'Your device tokens and connected apps keep working.',
+          ],
+          action: `${BASE}${adminPath`/sessions/${id}/revoke`}`,
+          confirm: found.current ? 'Sign out' : 'End session',
+          cancel: BASE,
+        });
+      }
+      const res = await kit.callAdmin(
+        c,
+        principal,
+        { method: 'POST', path: adminPath`/me/sessions/${id}/revoke` },
+        form,
+      );
+      if (isOk(res)) return kit.redirect(found.current ? '/auth/login' : BASE, 'revoked');
       const problem = problemOf(res);
       return problem.status === 404 ? missing(c, principal) : kit.redirect(BASE, flashFor(problem));
     }),

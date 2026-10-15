@@ -5,6 +5,7 @@ import { closeSync, mkdirSync, openSync, writeSync } from 'node:fs';
 import { userInfo } from 'node:os';
 import { dirname } from 'node:path';
 import { createInterface } from 'node:readline';
+import { outboundFetch } from '@relic-bridge/core';
 import type { ManageHost } from './io.ts';
 
 function currentUser(): string {
@@ -83,7 +84,7 @@ export function nodeHost(signal?: AbortSignal): ManageHost {
       ).trim();
       return answer === '' ? (fallback ?? '') : answer;
     },
-    fetch: (url, init) => fetch(url, init),
+    fetch: outboundFetch,
     userName: currentUser,
     writeSecretFile(path, text) {
       mkdirSync(dirname(path), { recursive: true, mode: 0o700 });

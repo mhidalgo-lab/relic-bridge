@@ -14,10 +14,13 @@
 //   POST /admin/users/:id/signout      end every session (needs confirm=yes)
 //   GET  /admin/users/:id/unbind       owner only: confirmation page (takeover warning, asks for the email again)
 //   POST /admin/users/:id/unbind       owner only: clear the provider identity (needs confirm=yes and the email)
+//   GET  /admin/users/sessions/revoke-all   owner only: end every user's sessions (typed confirmation, P8-96)
+//   POST /admin/users/sessions/revoke-all   owner only
 //   POST /admin/users/:id/apps/:device/revoke  disconnect one of the user's OAuth apps (needs confirm=yes, P5-05)
 import type { Context, Hono } from 'hono';
 import {
   Button,
+  Checkbox,
   CONFIRM_FIELD,
   ConfirmAction,
   DataTable,
@@ -170,6 +173,40 @@ function unbindPage(viewer: UiPrincipal, user: User, error?: string, flash: Flas
         <div class="actions">
           <Button variant="danger">Clear sign-in identity</Button>
           <LinkButton href={self} variant="secondary">
+            Cancel
+          </LinkButton>
+        </div>
+      </Form>
+    </Layout>
+  );
+}
+
+/** The phrase the API asks for (`REVOKE_ALL_SESSIONS_CONFIRMATION` in the admin API schemas). */
+const END_ALL_PHRASE = 'end all sessions';
+
+function endAllSessionsPage(viewer: UiPrincipal, error?: string) {
+  return (
+    <Layout title="End all sessions" viewer={viewer} current={BASE}>
+      <div class="flash flash-error" role="alert">
+        <strong>Every user is signed out.</strong> All browser sessions of every user end at once, yours
+        excepted unless you tick the box below. Device tokens, connected apps and New Relic keys are not
+        affected.
+      </div>
+      <Form action={`${BASE}/sessions/revoke-all`} csrf={viewer.csrf} label="End all sessions">
+        <input type="hidden" name={CONFIRM_FIELD} value="yes" />
+        <TextField
+          name="phrase"
+          label={`Type "${END_ALL_PHRASE}" to confirm`}
+          autocomplete="off"
+          spellcheck={false}
+          required
+          maxlength={64}
+          error={error}
+        />
+        <Checkbox name="includeSelf" label="Also sign me out" />
+        <div class="actions">
+          <Button variant="danger">End all sessions</Button>
+          <LinkButton href={BASE} variant="secondary">
             Cancel
           </LinkButton>
         </div>
@@ -387,6 +424,11 @@ export function registerUsers(ui: Hono, kit: UiKit): void {
           <p>People who may sign in to this panel, and whose grants and personal keys are managed here.</p>
           <div class="actions page-actions">
             <LinkButton href={`${BASE}/new`}>Add a user</LinkButton>
+            {page.principal.role === 'owner' ? (
+              <LinkButton href={`${BASE}/sessions/revoke-all`} variant="secondary">
+                End all sessions…
+              </LinkButton>
+            ) : null}
           </div>
           <DataTable
             caption="Users"
@@ -589,6 +631,42 @@ export function registerUsers(ui: Hono, kit: UiKit): void {
       if (isOk(res)) return kit.redirect(self, 'revoked');
       const problem = problemOf(res);
       return kit.redirect(problem.status === 404 ? BASE : self, flashFor(problem));
+    }),
+  );
+
+  // Registered before the `:id` routes. Owner only; the admin API decides again (role, recent sign-in, the phrase).
+  ui.get(
+    `${ROUTE}/sessions/revoke-all`,
+    kit.page('owner', (_c, page) => page.html(endAllSessionsPage(page.principal))),
+  );
+  ui.post(
+    `${ROUTE}/sessions/revoke-all`,
+    kit.form('owner', async (c, principal, form) => {
+      const phrase = field(form, 'phrase');
+      if (!confirmed(form) || phrase === null) {
+        return htmlResponse(endAllSessionsPage(principal, 'Type the phrase to confirm.'), 422);
+      }
+      const res = await kit.callAdmin(
+        c,
+        principal,
+        {
+          method: 'POST',
+          path: '/users/sessions/revoke-all',
+          body: { confirm: phrase, includeSelf: form.fields.get('includeSelf') === '1' },
+        },
+        form,
+      );
+      if (isOk(res)) {
+        return form.fields.get('includeSelf') === '1'
+          ? kit.redirect('/auth/login', 'all_sessions_ended')
+          : kit.redirect(BASE, 'all_sessions_ended');
+      }
+      const problem = problemOf(res);
+      // Never echo what was typed: a fixed line.
+      if (problem.status === 400 && problem.field === 'confirm') {
+        return htmlResponse(endAllSessionsPage(principal, `That is not "${END_ALL_PHRASE}".`), 422);
+      }
+      return kit.redirect(BASE, flashFor(problem));
     }),
   );
 

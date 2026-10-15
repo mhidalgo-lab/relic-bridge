@@ -888,6 +888,65 @@ export const SessionsRevokedOne = z
   .object({ data: SessionsRevokedSchema })
   .openapi('SessionsRevokedResponse');
 
+export const SessionItemSchema = z
+  .object({
+    id: z.string().openapi({
+      description:
+        'Short reference of the session (16 hex characters). Not a credential: it only names the session.',
+    }),
+    createdAt: timestamp('Sign-in time'),
+    lastSeenAt: timestamp('Last request'),
+    expiresAt: timestamp('Absolute end of the session'),
+    idleExpiresAt: timestamp('End of the session if no request comes'),
+    client: z.string().nullable().openapi({
+      description:
+        'Coarse browser and system label ("Firefox on Linux"); null for a session older than the label.',
+    }),
+    provider: z.string().openapi({ description: 'The sign-in provider used' }),
+    current: z.boolean().openapi({ description: 'The session making this request' }),
+  })
+  .openapi('SessionItem', {
+    description:
+      'One live browser session of the caller (P8-96). Never the cookie, its hash or the CSRF token.',
+  });
+
+export const SessionPage = page(SessionItemSchema, 'SessionPage');
+
+export const SessionEndedSchema = z
+  .object({
+    id: z.string(),
+    current: z.boolean().openapi({ description: 'It was the caller’s own session.' }),
+  })
+  .openapi('SessionEnded');
+export const SessionEndedOne = one(SessionEndedSchema, 'SessionEndedResponse');
+
+/** The phrase an owner types to end every user's sessions. */
+export const REVOKE_ALL_SESSIONS_CONFIRMATION = 'end all sessions';
+
+export const RevokeAllSessionsBody = z
+  .strictObject({
+    confirm: z
+      .string()
+      .min(1)
+      .max(64)
+      .openapi({
+        description: `The phrase \`${REVOKE_ALL_SESSIONS_CONFIRMATION}\`, typed as a confirmation.`,
+      }),
+    includeSelf: z.boolean().optional().openapi({
+      description: 'Also end the caller’s own session. Default false: the caller stays signed in.',
+    }),
+  })
+  .openapi('RevokeAllSessions');
+
+export const AllSessionsRevokedSchema = z
+  .object({
+    users: z.number().int().openapi({ description: 'Users who had sessions that ended.' }),
+    revoked: z.number().int().openapi({ description: 'Browser sessions ended.' }),
+    ownSessionKept: z.boolean().openapi({ description: 'The caller’s own session was left alone.' }),
+  })
+  .openapi('AllSessionsRevoked');
+export const AllSessionsRevokedOne = one(AllSessionsRevokedSchema, 'AllSessionsRevokedResponse');
+
 // ---------------------------------------------------------------------------------------------------------------
 // Config import/export (P7-06)
 // ---------------------------------------------------------------------------------------------------------------

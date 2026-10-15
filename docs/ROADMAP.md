@@ -364,6 +364,6 @@ Generated from task front matter (`pnpm tasks index`). Status lives in each task
 | P8-93 | [Workers query cache honesty, budget notes, and review 4 polish items](tasks/phase-8-hardening-launch/P8-93-workers-cache-and-polish.md) | low | — | todo |
 | P8-94 | [cf:setup --name writes the Worker name, migration next steps, and guide fixes](tasks/phase-8-hardening-launch/P8-94-cf-setup-name-and-migration.md) | high | — | review |
 | P8-95 | [ASVS refresh after P8-65/66/73 and the documentation-only open items](tasks/phase-8-hardening-launch/P8-95-asvs-docs-refresh.md) | medium | — | review |
-| P8-96 | [ASVS product open items - end all sessions, Clear-Site-Data, outbound redirect policy, metadata host allow-list](tasks/phase-8-hardening-launch/P8-96-asvs-product-hardening.md) | medium | — | todo |
+| P8-96 | [ASVS product open items - end all sessions, Clear-Site-Data, outbound redirect policy, metadata host allow-list](tasks/phase-8-hardening-launch/P8-96-asvs-product-hardening.md) | medium | — | review |
 | P8-97 | [OAuth leak scan false positive - public token-response fields listed as secrets](tasks/phase-8-hardening-launch/P8-97-oauth-leak-scan-false-positive.md) | medium | — | review |
 <!-- tasks:end -->

@@ -242,6 +242,12 @@ export interface OAuthOptions {
    * `global_fetch_strictly_public` flag). Then https client ids are resolved by fetching their document.
    */
   readonly clientMetadataDocuments?: { readonly fetch: ClientMetadataFetch };
+  /**
+   * Operator allow-list for CIMD (P8-96, V13.2.4): when set, a metadata-document client id must be on one of these
+   * exact host names, or the client is refused (audited `oauth.client.refused`, nothing fetched). Unset: any public
+   * host, as before. Empty is refused at startup (it would turn CIMD off silently; use no `clientMetadataDocuments`).
+   */
+  readonly clientMetadataHosts?: readonly string[];
 }
 
 export type OAuthAuthentication =
@@ -595,6 +601,10 @@ export function createOAuthRuntime(deps: OAuthRuntimeDeps): OAuthRuntime {
     checkInt('oauth.registrationIpLimit.perSeconds', registrationIpLimit.perSeconds, 60, 86_400);
   }
   const callerKey = (c: Context): string => options.clientIp?.(c) ?? 'unknown';
+  const requestIdOf = (c: Context): string | null => {
+    const id = c.get('requestId') as unknown;
+    return typeof id === 'string' ? id : null;
+  };
   const redirectHosts = options.registrationRedirectHosts?.map((h) => {
     const host = h.trim().toLowerCase();
     if (!/^[a-z0-9.-]{1,253}$/.test(host) || !host.includes('.')) {
@@ -606,6 +616,23 @@ export function createOAuthRuntime(deps: OAuthRuntimeDeps): OAuthRuntime {
   const consent = options.consent ?? deps.defaultConsent;
   if (typeof consent !== 'function') throw new TypeError('oauth.consent must be a function');
   const cimd = options.clientMetadataDocuments;
+  if (options.clientMetadataHosts?.length === 0) {
+    throw new TypeError(
+      'oauth.clientMetadataHosts must not be empty (leave it out to allow any public host)',
+    );
+  }
+  const metadataHosts =
+    options.clientMetadataHosts === undefined
+      ? undefined
+      : new Set(
+          options.clientMetadataHosts.map((h) => {
+            const host = h.trim().toLowerCase();
+            if (!/^[a-z0-9.-]{1,253}$/.test(host) || !host.includes('.')) {
+              throw new TypeError('oauth.clientMetadataHosts must be host names');
+            }
+            return host;
+          }),
+        );
   if (cimd !== undefined && typeof cimd.fetch !== 'function') {
     throw new TypeError('oauth.clientMetadataDocuments.fetch must be a function');
   }
@@ -869,12 +896,28 @@ export function createOAuthRuntime(deps: OAuthRuntimeDeps): OAuthRuntime {
   const resolveClient = async (
     clientId: string | null | undefined,
     caller: string,
+    requestId: string | null,
     refreshToken: string | null = null,
   ): Promise<string | null> => {
     if (clientId === null || clientId === undefined || !looksLikeClientIdUrl(clientId)) return null;
     if (cimd === undefined) return 'cimd_disabled';
     const problem = clientIdUrlProblem(clientId, issuerHost);
     if (problem !== null) return problem;
+    // Operator allow-list (P8-96, V13.2.4): checked before the cache, so narrowing the list takes effect at once for
+    // clients already cached, and before anything is fetched. Audited (capped like other refusals, T20).
+    if (metadataHosts !== undefined && !metadataHosts.has(new URL(clientId).hostname)) {
+      await deps.audit?.({
+        actor: { requestId },
+        action: 'oauth.client.refused',
+        targetType: 'oauth_client',
+        status: 'denied',
+        errorCode: 'client_host_not_allowed',
+        refusal: true,
+        // The host is public (it is in the URL the caller sent); never the full client id or a document.
+        details: { reason: 'client_host_not_allowed', clientHost: new URL(clientId).hostname.slice(0, 253) },
+      });
+      return 'client_host_not_allowed';
+    }
     if ((await env.OAUTH_KV.get(`client:${clientId}`)) !== null) return null;
     // Anonymous callers can make us fetch (T11, T20): bound the fetches one address may cause (counted before the
     // fetch; a failure is not cached, so failures count too), then the stored records of clients not in use.
@@ -1718,6 +1761,7 @@ export function createOAuthRuntime(deps: OAuthRuntimeDeps): OAuthRuntime {
       const clientProblem = await resolveClient(
         clientId,
         callerKey(c),
+        requestIdOf(c),
         grantType === 'refresh_token' ? (form?.get('refresh_token') ?? null) : null,
       );
       if (clientProblem !== null) return refusedClient(clientId as string, clientProblem);
@@ -1829,7 +1873,7 @@ export function createOAuthRuntime(deps: OAuthRuntimeDeps): OAuthRuntime {
       // 400 page, never a redirect: no redirect URI has been validated yet.
       const requestedClient = params.get('client_id');
       const caller = callerKey(c);
-      const clientProblem = await resolveClient(requestedClient, caller);
+      const clientProblem = await resolveClient(requestedClient, caller, requestIdOf(c));
       if (clientProblem !== null) return refusedClient(requestedClient as string, clientProblem);
       const mod = await provider();
       const as = await server([resource]);
@@ -1913,7 +1957,7 @@ export function createOAuthRuntime(deps: OAuthRuntimeDeps): OAuthRuntime {
           if (used) throw new Error('an authorization request is approved at most once');
           used = true;
           // The consent step may take a while (sign-in): a CIMD client's cached document may have expired since.
-          const clientProblem = await resolveClient(authRequest.clientId, caller);
+          const clientProblem = await resolveClient(authRequest.clientId, caller, requestIdOf(c));
           if (clientProblem !== null) return { ok: false, reason: 'client_refused' } as const;
           // The same deny-by-default decision a request with the resulting token will get (owner boundary included).
           const decision = await resolveAccess({

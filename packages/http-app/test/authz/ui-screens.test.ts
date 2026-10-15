@@ -296,9 +296,12 @@ describe('admin screens: who may use them (P4-04)', () => {
       const s = await h.addSession({ role });
       for (const route of screens.filter((r) => r.method === 'GET')) {
         const res = await open(s, route.path);
-        // The unbind page and the OAuth apps page (P5-08) are owner only: an admin gets the 403 page before any lookup.
+        // The unbind page, the OAuth apps page (P5-08) and "end all sessions" (P8-96) are owner only: an admin gets the 403 page before any lookup.
         const expected =
-          role === 'admin' && (route.pattern.endsWith('/unbind') || route.pattern === '/admin/oauth-clients')
+          role === 'admin' &&
+          (route.pattern.endsWith('/unbind') ||
+            route.pattern === '/admin/oauth-clients' ||
+            route.pattern === '/admin/users/sessions/revoke-all')
             ? 403
             : route.pattern.includes(':id')
               ? 404

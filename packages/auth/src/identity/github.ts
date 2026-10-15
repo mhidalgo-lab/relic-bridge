@@ -6,7 +6,7 @@
 // - email: the **primary** address, and only if GitHub marks it verified (`GET /user/emails`, scope `user:email`);
 // - orgs: for each configured organization, `GET /user/memberships/orgs/{org}` must say `state: active` (scope
 //   `read:org`); a pending invitation or a 404/403 is not membership.
-import type { FetchLike, Secret } from '@relic-bridge/core';
+import { type FetchLike, outboundFetch, type Secret } from '@relic-bridge/core';
 import { IdentityError } from './errors.ts';
 import { asRecord, IDP_TIMEOUT_MS, idpJson } from './http.ts';
 import {
@@ -34,7 +34,7 @@ export interface GitHubProviderOptions {
 }
 
 export function createGitHubProvider(options: GitHubProviderOptions): RedirectIdentityProvider {
-  const fetch = options.fetch ?? ((url, init) => globalThis.fetch(url, init));
+  const fetch = options.fetch ?? outboundFetch;
   const orgs = (options.orgs ?? []).map((o) => o.toLowerCase());
   for (const o of orgs) if (!GITHUB_ORG_RE.test(o)) throw new TypeError('invalid GitHub organization name');
   const scope = ['read:user', 'user:email', ...(orgs.length > 0 ? ['read:org'] : [])].join(' ');

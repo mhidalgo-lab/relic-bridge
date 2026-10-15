@@ -66,6 +66,8 @@ export interface WorkerVars {
   readonly RB_OAUTH_DCR_IP_LIMIT?: string;
   /** Comma-separated https redirect hosts dynamic clients may use (default: any). */
   readonly RB_OAUTH_DCR_REDIRECT_HOSTS?: string;
+  /** Comma-separated host names whose client metadata documents may be fetched (default: any public host). */
+  readonly RB_OAUTH_CIMD_HOSTS?: string;
   /** OAuth access token lifetime (default 1h, 60s-24h). */
   readonly RB_OAUTH_ACCESS_TTL?: string;
   /** OAuth refresh token lifetime (default 30d, 1h-365d). */

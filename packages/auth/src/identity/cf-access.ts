@@ -4,7 +4,7 @@
 // team's JWKS (`https://<team>.cloudflareaccess.com/cdn-cgi/access/certs`): RS256, `iss` = the team domain, `aud`
 // containing this application's AUD tag, `exp`. The `CF_Authorization` cookie is ignored (it is readable by any
 // application of the team domain). Service-token assertions carry no email and are refused.
-import { type Clock, type FetchLike, systemClock } from '@relic-bridge/core';
+import { type Clock, type FetchLike, outboundFetch, systemClock } from '@relic-bridge/core';
 import { IdentityError } from './errors.ts';
 import { type KeySource, remoteKeySource, verifyJwt } from './jwt.ts';
 import { canonicalEmail, type HeaderIdentityProvider, type VerifiedIdentity } from './types.ts';
@@ -40,7 +40,7 @@ export function createCloudflareAccessProvider(options: CloudflareAccessOptions)
   if (team === null) throw new TypeError('invalid Cloudflare Access team name');
   if (!isAccessAudience(options.audience)) throw new TypeError('invalid Cloudflare Access AUD tag');
   const issuer = `https://${team}.cloudflareaccess.com`;
-  const fetch = options.fetch ?? ((url, init) => globalThis.fetch(url, init));
+  const fetch = options.fetch ?? outboundFetch;
   const clock = options.clock ?? systemClock;
   const keys: KeySource = remoteKeySource(new URL(`${issuer}/cdn-cgi/access/certs`), fetch);
 

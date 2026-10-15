@@ -284,6 +284,8 @@ function controlStatus(route: RouteCase): number {
   // OAuth is off in these apps: the client list is empty, the rest is 404 (P5-08).
   if (route.path.endsWith('/oauth/clients/remove') || route.path.endsWith('/oauth/registration')) return 404;
   if (route.path.endsWith('/keys/rotate') || route.path.includes('/config/')) return 200;
+  // Ends every session but the caller's own (the admin token has none, so it ends all of them).
+  if (route.path.endsWith('/users/sessions/revoke-all')) return 200;
   return route.method === 'POST' ? 201 : 200;
 }
 
@@ -294,6 +296,7 @@ const OWNER_ONLY = new Set([
   'POST /api/admin/v1/config/export',
   'POST /api/admin/v1/config/import',
   'POST /api/admin/v1/users/:id/unbind',
+  'POST /api/admin/v1/users/sessions/revoke-all',
   'GET /api/admin/v1/oauth/clients',
   'POST /api/admin/v1/oauth/clients/remove',
   'GET /api/admin/v1/oauth/registration',
@@ -585,11 +588,14 @@ describe('sign-out (P4-02)', () => {
     ] as const) {
       const res = await h.send(logout({ ...headers }, body));
       expect(res.status).toBe(403);
+      // A refused sign-out wipes nothing (P8-96, V14.3.1).
+      expect(res.headers.get('clear-site-data')).toBeNull();
       expect((await h.send(sessionCheck(s.headers))).status).toBe(200);
     }
     const ok = await h.send(logout({ ...noToken }, `_csrf=${s.csrf}`));
     expect(ok.status).toBe(303);
     expect(ok.headers.get('location')).toBe('/auth/login');
+    expect(ok.headers.get('clear-site-data')).toBe('"cookies", "storage"');
     expect(ok.headers.get('set-cookie')).toMatch(/^rb_session=; Path=\/; Max-Age=0; HttpOnly; SameSite=Lax$/);
     expect((await h.send(sessionCheck(s.headers))).status).toBe(401);
     // The header form works too, and everywhere=1 ends every session of the user.
@@ -608,11 +614,13 @@ describe('sign-out (P4-02)', () => {
       const res = await h.send(logout({ cookie }));
       expect(res.status).toBe(303);
       expect(res.headers.get('set-cookie')).toContain('Max-Age=0');
+      expect(res.headers.get('clear-site-data')).toBe('"cookies", "storage"');
     }
     // A cross-site form arrives without the (SameSite=Lax) cookie: no forced sign-out of this browser.
     const bare = await h.send(logout({ 'sec-fetch-site': 'cross-site', origin: 'http://localhost:9999' }));
     expect(bare.status).toBe(303);
     expect(bare.headers.get('set-cookie')).toBeNull();
+    expect(bare.headers.get('clear-site-data')).toBeNull();
     // A disabled user's session is ended for good.
     const s = await h.addSession({ role: 'admin' });
     await h.world.storage.users.update(s.userId, { disabledAt: T0 });

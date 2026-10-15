@@ -1302,6 +1302,69 @@ export function oauthSuite(): void {
       expect(docs.calls).toEqual([]);
     });
 
+    it('RB_OAUTH_CIMD_HOSTS (P8-96): an app on an unlisted host is refused before any fetch and audited; listed hosts work', async () => {
+      const other = 'https://apps.example.org/oauth/client.json';
+      docs.docs.set(
+        other,
+        jsonDoc({ ...claudeAiDoc({ client_id: other }), redirect_uris: ['https://apps.example.org/cb'] }),
+      );
+      const restricted = new Client(
+        h,
+        h.makeApp({ oauth: oauthWith({ clientMetadataHosts: ['claude.ai'] }) }),
+        secrets,
+      );
+      restricted.clientId = other;
+      restricted.redirectUri = 'https://apps.example.org/cb';
+      const { res } = await restricted.authorize('prod');
+      expect(res.status).toBe(400);
+      expect(res.headers.get('location')).toBeNull();
+      expect(JSON.parse(res.text)).toMatchObject({ error: 'invalid_client' });
+      // Nothing was fetched, and the refusal is in the log and the audit log (host only, never the full client id).
+      expect(docs.calls).toEqual([]);
+      expect(consent.seen).toEqual([]);
+      expect(logged('client_host_not_allowed')).toBe(true);
+      const rows = (await h.auditRows()).filter((r) => r.action === 'oauth.client.refused');
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ status: 'denied', errorCode: 'client_host_not_allowed' });
+      expect(rows[0]?.details).toEqual({ reason: 'client_host_not_allowed', clientHost: 'apps.example.org' });
+      expect(JSON.stringify(rows)).not.toContain('/oauth/client.json');
+      // The token endpoint refuses it too.
+      const tok = await restricted.form('/oauth/token', {
+        grant_type: 'refresh_token',
+        refresh_token: `usr_a:${'g'.repeat(16)}:${'s'.repeat(32)}`,
+        client_id: other,
+        resource: resourceOf('prod'),
+      });
+      expect(tok.status).toBe(400);
+      expect(docs.calls).toEqual([]);
+      // A listed host completes the flow.
+      restricted.clientId = CLAUDE_AI_ID;
+      restricted.redirectUri = CLAUDE_AI_CALLBACK;
+      const t = await restricted.tokens('prod');
+      expect((await restricted.mcp('prod', t.access_token)).status).toBe(200);
+      expect(docs.calls).toEqual([CLAUDE_AI_ID]);
+      // Unset: any public host, as before.
+      cimd.clientId = other;
+      cimd.redirectUri = 'https://apps.example.org/cb';
+      expect((await cimd.authorize('prod')).res.status).toBeLessThan(400);
+    });
+
+    it('narrowing RB_OAUTH_CIMD_HOSTS applies at once to an app whose document is already cached', async () => {
+      cimd.clientId = CLAUDE_AI_ID;
+      cimd.redirectUri = CLAUDE_AI_CALLBACK;
+      expect((await cimd.authorize('prod')).res.status).toBeLessThan(400);
+      expect(docs.calls).toEqual([CLAUDE_AI_ID]);
+      const narrowed = new Client(
+        h,
+        h.makeApp({ oauth: oauthWith({ clientMetadataHosts: ['example.net'] }) }),
+        secrets,
+      );
+      narrowed.clientId = CLAUDE_AI_ID;
+      narrowed.redirectUri = CLAUDE_AI_CALLBACK;
+      expect((await narrowed.authorize('prod')).res.status).toBe(400);
+      expect(docs.calls).toEqual([CLAUDE_AI_ID]);
+    });
+
     it('without a fetcher, URL client ids are refused at authorize and token and nothing is fetched', async () => {
       client.clientId = CLAUDE_CODE_ID;
       const { res } = await client.authorize('prod');

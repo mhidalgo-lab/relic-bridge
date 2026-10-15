@@ -113,6 +113,60 @@ export interface SessionRecord {
   readonly expiresAt: number;
   /** Synchronizer CSRF token (43 base64url characters). Only this session's pages get it. */
   readonly csrf: string;
+  /** Coarse client label ("Firefox on Linux"), shown in the user's session list (P8-96). Absent on older sessions. */
+  readonly client?: string;
+}
+
+/** A session as its owner sees it in a list (P8-96): never the secret, the hash or the CSRF token. */
+export interface SessionSummary {
+  /** The short reference ({@link ActiveSession.ref}): 16 lowercase hex characters. Names the session for ending it. */
+  readonly id: string;
+  readonly createdAt: number;
+  readonly lastSeenAt: number;
+  readonly expiresAt: number;
+  readonly idleExpiresAt: number;
+  /** Coarse client label, or null for a session created before labels existed. */
+  readonly client: string | null;
+  readonly provider: string;
+}
+
+const MAX_CLIENT_LABEL = 60;
+const REF_RE = /^[0-9a-f]{16}$/;
+
+/**
+ * A coarse, bounded label from a `User-Agent` header (browser family and operating system), or undefined. Only fixed
+ * words ever come out of it, so nothing the client sends is stored or shown verbatim (no markup, no tracking detail).
+ */
+export function coarseClientLabel(userAgent: string | null | undefined): string | undefined {
+  if (typeof userAgent !== 'string' || userAgent === '') return undefined;
+  const ua = userAgent.slice(0, 512);
+  // Order matters: Edge and Opera also say Chrome, Chrome also says Safari.
+  const browser = /\bEdg(?:e|A|iOS)?\//.test(ua)
+    ? 'Edge'
+    : /\b(?:OPR|Opera)\//.test(ua)
+      ? 'Opera'
+      : /\b(?:Firefox|FxiOS)\//.test(ua)
+        ? 'Firefox'
+        : /\b(?:Chrome|CriOS|Chromium)\//.test(ua)
+          ? 'Chrome'
+          : /\bSafari\//.test(ua)
+            ? 'Safari'
+            : null;
+  const os = /\bWindows\b/.test(ua)
+    ? 'Windows'
+    : /\b(?:iPhone|iPad|iPod)\b/.test(ua)
+      ? 'iOS'
+      : /\bAndroid\b/.test(ua)
+        ? 'Android'
+        : /\b(?:Macintosh|Mac OS X)\b/.test(ua)
+          ? 'macOS'
+          : /\bCrOS\b/.test(ua)
+            ? 'ChromeOS'
+            : /\bLinux\b/.test(ua)
+              ? 'Linux'
+              : null;
+  if (browser === null && os === null) return undefined;
+  return `${browser ?? 'Unknown browser'} on ${os ?? 'unknown system'}`.slice(0, MAX_CLIENT_LABEL);
 }
 
 /** A live session, as `loadSession` returns it. */
@@ -174,7 +228,8 @@ function parseRecord(raw: string | null, userId: string): SessionRecord | null {
       typeof v['createdAt'] !== 'number' ||
       typeof v['expiresAt'] !== 'number' ||
       typeof v['csrf'] !== 'string' ||
-      !SECRET_RE.test(v['csrf'])
+      !SECRET_RE.test(v['csrf']) ||
+      (v['client'] !== undefined && typeof v['client'] !== 'string')
     ) {
       return null;
     }
@@ -215,7 +270,13 @@ async function enforceCap(kv: Kv, userId: string, max: number): Promise<number> 
  */
 export async function createSession(
   kv: Kv,
-  input: { readonly userId: string; readonly provider: string; readonly idp: string },
+  input: {
+    readonly userId: string;
+    readonly provider: string;
+    readonly idp: string;
+    /** {@link coarseClientLabel} of the browser, when known. */
+    readonly client?: string | undefined;
+  },
   timeouts: SessionTimeouts,
   clock: ClockLike,
   maxSessions: number = DEFAULT_MAX_SESSIONS_PER_USER,
@@ -235,6 +296,7 @@ export async function createSession(
     createdAt: now,
     expiresAt: now + timeouts.absoluteMs,
     csrf: randomValue(),
+    ...(input.client === undefined ? {} : { client: input.client.slice(0, MAX_CLIENT_LABEL) }),
   };
   // Activity first: a session row never exists without one (a crash in between leaves only a worthless row).
   await kv.put(seenKey(input.userId, hash), String(now), {
@@ -333,4 +395,96 @@ export function csrfTokenMatches(
   const value = presented !== undefined && SECRET_RE.test(presented) ? presented : '';
   // Equal lengths always (43): a wrong-length or absent value is compared as a fixed non-token.
   return timingSafeEqual(utf8(value.padEnd(43, '\0')), utf8(session.csrf)) && value !== '';
+}
+
+/**
+ * The live sessions of one user, newest first (P8-96): the list a person sees under "My sessions". Reads the user's own
+ * prefix only, so another user's session can never appear. Expired and idle ones are left out (they cannot be used).
+ * Bounded by the per-user cap ({@link DEFAULT_MAX_SESSIONS_PER_USER}) times a small factor.
+ */
+export async function listUserSessions(
+  kv: Kv,
+  userId: string,
+  timeouts: SessionTimeouts,
+  clock: ClockLike,
+): Promise<SessionSummary[]> {
+  if (!USER_ID_RE.test(userId)) return [];
+  const prefix = `${SESSION_PREFIX}${userId}:`;
+  const page = await kv.list({ prefix, limit: DEFAULT_MAX_SESSIONS_PER_USER * EVICT_READ_FACTOR + 1 });
+  const now = clock.now();
+  const rows = await Promise.all(
+    page.keys.map(async (k): Promise<SessionSummary | null> => {
+      const hash = k.name.slice(prefix.length);
+      if (!HASH_RE.test(hash)) return null;
+      const [raw, seenRaw] = await Promise.all([kv.get(k.name), kv.get(seenKey(userId, hash))]);
+      const record = parseRecord(raw, userId);
+      const seen = seenRaw === null ? Number.NaN : Number(seenRaw);
+      if (record === null || now >= record.expiresAt) return null;
+      if (!Number.isSafeInteger(seen) || now - seen >= timeouts.idleMs) return null;
+      return {
+        id: refOf(hash),
+        createdAt: record.createdAt,
+        lastSeenAt: seen,
+        expiresAt: record.expiresAt,
+        idleExpiresAt: Math.min(record.expiresAt, seen + timeouts.idleMs),
+        client: record.client ?? null,
+        provider: record.provider,
+      };
+    }),
+  );
+  return rows.filter((r): r is SessionSummary => r !== null).sort((a, b) => b.createdAt - a.createdAt);
+}
+
+/**
+ * End one session of `userId` by its short reference (what {@link listUserSessions} returns). The lookup runs inside
+ * the user's own prefix, so a reference that belongs to someone else matches nothing. Returns whether one was ended.
+ */
+export async function revokeUserSessionByRef(kv: Kv, userId: string, ref: string): Promise<boolean> {
+  if (!USER_ID_RE.test(userId) || !REF_RE.test(ref)) return false;
+  const prefix = `${SESSION_PREFIX}${userId}:`;
+  const page = await kv.list({ prefix: `${prefix}${ref}`, limit: 2 });
+  if (page.keys.length !== 1) return false;
+  return revokeSessionByHash(kv, userId, (page.keys[0] as { name: string }).name.slice(prefix.length));
+}
+
+/**
+ * End the admin sessions of every user (P8-96, "end every user's sessions"). `keep` spares one session (the caller's
+ * own, by user id and hash): everything else of that user still goes. Reads the key names page by page, then ends each
+ * user's sessions with the constant-cost prefix delete; only the kept user's sessions are ended one by one.
+ */
+export async function revokeAllSessions(
+  kv: Kv,
+  keep?: { readonly userId: string; readonly hash: string },
+): Promise<{ readonly users: number; readonly sessions: number }> {
+  const owners = new Set<string>();
+  const kept: string[] = [];
+  let cursor: string | undefined;
+  do {
+    const page = await kv.list({
+      prefix: SESSION_PREFIX,
+      limit: 1000,
+      ...(cursor === undefined ? {} : { cursor }),
+    });
+    for (const k of page.keys) {
+      const rest = k.name.slice(SESSION_PREFIX.length);
+      const colon = rest.lastIndexOf(':');
+      if (colon <= 0) continue;
+      const userId = rest.slice(0, colon);
+      const hash = rest.slice(colon + 1);
+      if (keep !== undefined && userId === keep.userId) {
+        if (hash !== keep.hash) kept.push(hash);
+        continue;
+      }
+      owners.add(userId);
+    }
+    cursor = page.complete ? undefined : page.cursor;
+  } while (cursor !== undefined);
+  let sessions = 0;
+  for (const userId of owners) sessions += await revokeUserSessions(kv, userId);
+  let users = owners.size;
+  if (kept.length > 0 && keep !== undefined) {
+    for (const hash of kept) if (await revokeSessionByHash(kv, keep.userId, hash)) sessions += 1;
+    users += 1;
+  }
+  return { users, sessions };
 }

@@ -65,6 +65,7 @@ export {
 } from './logger.ts';
 export * from './nerdgraph/index.ts';
 export * from './nrql/index.ts';
+export { noRedirects, outboundFetch, outboundRedirectMode } from './outbound.ts';
 export * from './output/index.ts';
 export {
   PROMPTS,

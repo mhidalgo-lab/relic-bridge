@@ -5,6 +5,7 @@
 // to our own zone go through Cloudflare's front door instead of straight to the origin. On top: `redirect: 'manual'`
 // (a redirect is a failure), and the http-app checks the client id (https, a DNS name, no internal names, port 443)
 // before calling this. Without the flag CIMD stays off.
+import { outboundFetch } from '@relic-bridge/core';
 import type { ClientMetadataFetch } from '@relic-bridge/http-app';
 
 interface CloudflareGlobal {
@@ -19,7 +20,7 @@ export function hasStrictlyPublicFetch(): boolean {
 
 /** The metadata-document fetcher, or null when the runtime offers no SSRF guard (then CIMD stays off). */
 export function strictlyPublicCimdFetch(
-  fetcher: typeof fetch = globalThis.fetch.bind(globalThis),
+  fetcher: typeof fetch = (input, init) => outboundFetch(String(input), init ?? {}),
 ): ClientMetadataFetch | null {
   if (!hasStrictlyPublicFetch()) return null;
   return (url, init) =>

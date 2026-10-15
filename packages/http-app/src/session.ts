@@ -12,14 +12,19 @@
 import {
   type ActiveSession,
   checkSessionTimeouts,
+  coarseClientLabel,
   createSession,
   csrfTokenMatches,
   DEFAULT_SESSION_TIMEOUTS,
   INSECURE_SESSION_COOKIE,
+  listUserSessions,
   loadSession,
+  revokeAllSessions,
   revokeSession,
+  revokeUserSessionByRef,
   revokeUserSessions,
   SESSION_COOKIE,
+  type SessionSummary,
   type SessionTimeouts,
   sessionIsFresh,
 } from '@relic-bridge/auth';
@@ -107,6 +112,18 @@ export interface SessionManager {
   revokeCurrent(c: Context): Promise<boolean>;
   /** End every session of a user (logout everywhere, role change, disable). */
   revokeUser(userId: string): Promise<number>;
+  /** The live sessions of a user, newest first (P8-96). `current` marks the one this request presents. */
+  listSessions(
+    userId: string,
+    currentRef?: string,
+  ): Promise<Array<SessionSummary & { readonly current: boolean }>>;
+  /** End one session of `userId` by its short reference; false when the user has no such session (P8-96). */
+  revokeSessionRef(userId: string, ref: string): Promise<boolean>;
+  /**
+   * End every user's sessions (P8-96). `keep`: the caller's own session, spared. Returns how many users and sessions
+   * were ended.
+   */
+  revokeEverySession(keep?: SessionPrincipal): Promise<{ readonly users: number; readonly sessions: number }>;
   /** Drop cached user records (after an admin change). */
   forgetUsers(): void;
   setCookie(value: string): string;
@@ -222,7 +239,12 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
       }
       const issued = await createSession(
         kv,
-        { userId: login.user.id, provider: login.provider, idp: login.identity.idp },
+        {
+          userId: login.user.id,
+          provider: login.provider,
+          idp: login.identity.idp,
+          client: coarseClientLabel(c.req.header('user-agent')),
+        },
         timeouts,
         clock,
       );
@@ -259,6 +281,22 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
     },
 
     revokeUser,
+
+    async listSessions(userId, currentRef) {
+      const rows = await listUserSessions(kv, userId, timeouts, clock);
+      return rows.map((r) => ({ ...r, current: r.id === currentRef }));
+    },
+
+    revokeSessionRef: (userId, ref) => revokeUserSessionByRef(kv, userId, ref),
+
+    async revokeEverySession(keep) {
+      users.clear();
+      return revokeAllSessions(
+        kv,
+        keep === undefined ? undefined : { userId: keep.user.id, hash: keep.session.hash },
+      );
+    },
+
     forgetUsers: () => users.clear(),
   };
 }

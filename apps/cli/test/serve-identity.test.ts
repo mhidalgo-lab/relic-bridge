@@ -223,6 +223,12 @@ describe('serve: sign-in over a localhost redirect', () => {
       registrationIpLimit: null,
       registrationRedirectHosts: ['claude.ai', 'example.com'],
     });
+    // P8-96: the metadata-document host allow-list (unset: no key at all, behaviour unchanged).
+    expect(settings({ ...signIn, RB_OAUTH: 'on' }).oauth).not.toHaveProperty('clientMetadataHosts');
+    expect(
+      settings({ ...signIn, RB_OAUTH: 'on', RB_OAUTH_CIMD_HOSTS: ' Claude.AI,example.com ' }).oauth
+        ?.clientMetadataHosts,
+    ).toEqual(['claude.ai', 'example.com']);
     expect(settings({ ...signIn, RB_OAUTH: 'on', RB_OAUTH_DCR_LIMIT: '5' }).oauth?.registrationLimit).toEqual(
       {
         requests: 5,
@@ -263,6 +269,10 @@ describe('serve: sign-in over a localhost redirect', () => {
       { RB_OAUTH_DCR_IP_LIMIT: '0' },
       { RB_OAUTH_DCR_REDIRECT_HOSTS: 'https://claude.ai' },
       { RB_OAUTH_DCR_REDIRECT_HOSTS: 'localhost' },
+      { RB_OAUTH_CIMD_HOSTS: 'https://claude.ai' },
+      { RB_OAUTH_CIMD_HOSTS: 'localhost' },
+      { RB_OAUTH_CIMD_HOSTS: ',' },
+      { RB_OAUTH_CIMD_HOSTS: '*.claude.ai' },
       { RB_OAUTH_DCR: 'sometimes' },
       { RB_OAUTH_REFRESH_REUSE_WINDOW: '121' },
       { RB_OAUTH_REFRESH_REUSE_WINDOW: '1h' },

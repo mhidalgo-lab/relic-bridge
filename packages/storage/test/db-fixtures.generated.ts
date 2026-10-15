@@ -4,6 +4,7 @@ import v0_7 from './fixtures/db/v0.7.json' with { type: 'json' };
 import v0_8 from './fixtures/db/v0.8.json' with { type: 'json' };
 import v0_9 from './fixtures/db/v0.9.json' with { type: 'json' };
 import v0_10 from './fixtures/db/v0.10.json' with { type: 'json' };
+import v0_11 from './fixtures/db/v0.11.json' with { type: 'json' };
 
 /** One per published minor (and the minor a pending version PR releases), oldest first. */
-export const FIXTURES = [v0_7, v0_8, v0_9, v0_10] as const;
+export const FIXTURES = [v0_7, v0_8, v0_9, v0_10, v0_11] as const;

@@ -1,5 +1,66 @@
 # relic-bridge
 
+## 0.11.0
+
+### Minor Changes
+
+- 56df551: Sensitive admin actions now need a recent sign-in. From an admin session, master-key rotation, configuration import,
+  owner setup links, unbinding a user, the OAuth client and registration settings, replacing a stored New Relic key,
+  deleting a project, creating an administrator or owner, changing a role, disabling or re-enabling a user, signing
+  another user out and device tokens longer than 90 days (or `never`) require a sign-in from the last 10 minutes
+  (`RB_SESSION_REAUTH_MINUTES`, 1 to 60). Otherwise the admin API answers `403 forbidden` with
+  `detail: reauth_required`. The admin panel sends you through sign-in and back to the page. The admin token used by
+  the CLI is not affected.
+- 0822a6e: CLI fixes:
+  
+  - `relic-bridge doctor` no longer changes what it checks. It opens the database read-only. Before, it set the file
+    mode to `0600` and the journal mode to WAL, then printed a `chmod 600` warning from the old mode. Now the warning
+    stands until you fix it. The new `doctor --fix` sets a group- or world-accessible database file to `0600` and says
+    what it changed.
+  - `audit purge --older-than-days` takes a whole number of days from 1 to 99999. A value such as `1.5`, `1e3` or `0x10`
+    is refused with exit code 2, by the command itself as well as by the argument parser.
+  - `config import` and the Admin API now use the same 1 MiB limit. `POST /config/import` accepts bodies up to 1 MiB
+    (it was 64 KiB, too small for a bundle with encrypted keys). The CLI refuses a larger file, or a larger import
+    request, before sending it, and its error message gives the limit. The other admin routes keep the 64 KiB limit.
+  - The `RB_AUDIT=off` startup warning (`serve` and the Worker) now says that it disables every audit row: tool
+    calls, refusals and admin changes.
+- 4917c96: Deprecated configuration is now announced where you run it. A new registry lists every deprecated environment
+  variable, config-file key and CLI flag with its replacement and the release that removes it. While you use one,
+  `relic-bridge serve` and the stdio server print one warning per name on stderr at startup, the Cloudflare Worker logs
+  one warning per deprecated variable once per isolate, and `relic-bridge doctor` adds a `deprecated-config` line for
+  each (one `ok` line when there is none). Only the name is shown, never its value. Nothing is deprecated today, so the
+  list is empty and only the `doctor` line is new.
+- 041f2be: HSTS is on by default for a public https server. When `RB_PUBLIC_URL` is an https URL and `RB_HSTS` is unset or
+  `auto`, `relic-bridge serve` now sends `Strict-Transport-Security: max-age=31536000; includeSubDomains` on every
+  response, even though it sees plain http behind a TLS-terminating proxy. Before, it was only sent with `RB_HSTS=true`
+  or when the request itself arrived over https. `includeSubDomains` makes browsers use https for every subdomain of
+  that host for a year: set `RB_HSTS=false` if other hosts under the same domain still serve plain http. An https
+  `RB_PUBLIC_URL` does not declare a TLS proxy: pass-through still needs `RB_HSTS=true` to accept plain-http requests
+  from the proxy. On Cloudflare Workers, the `503` answered while the Worker cannot start now carries HSTS too.
+- 705f3a5: **Breaking**: removed `whoami` `limits.callBudget` (deprecated in 0.9.1, announced for removal in 0.11.0); read
+  `limits.perCallBudget`, which has the same value. Reconnect your MCP client after upgrading.
+- 3003f93: Supported migration from a self-hosted server to the Cloudflare Worker. `relic-bridge db export <file> --format d1`
+  writes the server's SQLite database as a SQL file that `wrangler d1 execute <database> --remote --file <file>` imports
+  into the Worker's D1 database: device tokens, encrypted New Relic keys, projects, grants, settings and the audit log
+  (`--no-audit` leaves it out) move; sessions and OAuth connections do not. Nothing is decrypted, the file is created
+  with mode 0600 and never overwritten without `--force`, and the import refuses a D1 database that already has data.
+  `pnpm cf:setup --master-key-stdin` sets up the Worker with the server's existing master key instead of generating
+  one; that key is never printed or written to `--backup-file`. See "Migrate from a self-hosted server" in the
+  Cloudflare guide.
+- 0ed8f1e: Setup links keep their one-time code out of URLs, logs and `Referer`. A link now looks like `<RB_PUBLIC_URL>/auth/setup?provider=<id>#setup=rb_setup_…`: the code is in the URL fragment, which browsers never send to a server, and a small setup page posts it in a same-origin form before the sign-in choice. Links with the code in the query string (`?setup=`) are refused with a page that asks for a new link.
+  
+  Upgrade note: setup links created before this version no longer work; issue a new one with `relic-bridge setup-link`.
+- 800f1de: `trace_error` now follows error groups from OpenTelemetry services (Span-sourced groups in Errors Inbox). It matches their spans on the span name and status description, takes the latest traced error and continues into the trace, as it already did for APM groups. Groups from other sources (for example browser JavaScript errors) are still refused with a hint.
+
+### Patch Changes
+
+- 4ad99b3: `get_dashboard` now returns each widget's visualization. Every widget used to read back with `visualization: null`, because New Relic's dotted ids (`viz.line`) failed the code-label check. Built-in charts show as `line`, `area`, `bar`, `billboard`, `pie`, `table` and `markdown`, the values `create_dashboard` takes; other ids appear in full when they match a strict pattern. The observability dashboard's "Server error %" widget no longer says it needs an unreleased version.
+- 74ae191: `generate_user_impact_report` with an `issue_id` and a `time_range` longer than the connection allows is now refused before it looks the issue up, like every other tool; it used to spend one New Relic request on the lookup first.
+- 0694c57: Three input checks are stricter. `RB_OTEL_HEADERS` values must decode to Latin-1 text without control characters (tab allowed): anything else now stops start-up with a configuration error that names the header but not its value, instead of every export failing later. NRQL with unbalanced parentheses is refused before it is sent, so the `LIMIT` added to a raw event query can no longer land inside an open parenthesis. A log field named `ts`, `level` or `msg` is written as `field_ts`, `field_level` or `field_msg` and no longer replaces the record's own timestamp, level or message.
+- 6e31fc8: OAuth dynamic client registration now refuses a `client_name` that starts or ends with a control, format or line-separator character (for example a trailing tab or a leading U+FEFF). Such names used to pass the check because it trimmed them first, and were then stored as sent. Pages already showed the cleaned-up name.
+- 74ae191: Revoking a user's OAuth app through the admin API (`POST /api/admin/v1/users/{id}/oauth-devices/{deviceId}/revoke`) with an unknown user id now writes its `oauth_device.revoke` audit row with the `not_found` error, like every other failed admin change. It used to answer 404 without a row.
+- 91e58e8: `get_golden_metrics` now says what each metric's trend got when the previous window is beyond the window limit: the halves of the window, or no trend when there are too few points (it used to claim the halves for every metric). The documentation also gains a timeout query that facets by `service.version` without hiding records that have no `mcpMethod`, and the Cloudflare and self-hosting guides give the same upgrade steps as the upgrade guide (check out a release tag instead of pulling `main`).
+
 ## 0.10.0
 
 ### Minor Changes

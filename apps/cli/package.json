@@ -1,6 +1,6 @@
 {
   "name": "relic-bridge",
-  "version": "0.10.0",
+  "version": "0.11.0",
   "mcpName": "io.github.mhidalgo-lab/relic-bridge",
   "description": "Unofficial MCP server for New Relic via NerdGraph: query telemetry from AI agents with a User API key",
   "license": "Apache-2.0",

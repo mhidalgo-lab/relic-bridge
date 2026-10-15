@@ -2,7 +2,7 @@
 id: P8-87
 title: Flaky fuzz properties - CLI config secrets and OAuth registration
 phase: 8
-status: in-progress
+status: review
 priority: low
 depends_on: []
 adr: []
@@ -31,18 +31,18 @@ Two property tests fail intermittently in CI without a product bug behind the fa
 - OAuth registration: a weighted "likely valid" branch (a JSON registration whose name and redirect URIs are mostly
   valid, each sometimes mutated), next to the unchanged fuzzed requests.
 - The longer runs then found a real case: a client name with a control or format character at either end (`"豈\t"`,
-  `"﻿Claude"`, `"Claude "`) passed `safeClientName`, because it trims before checking, and was stored and
+  `"\ufeffClaude"`, `"Claude\u2028"`) passed `safeClientName`, because it trims before checking, and was stored and
   echoed as sent. Display paths re-apply `safeClientName`, so no page showed it. Fix: check the untrimmed value.
 
 ## Acceptance criteria
-- [ ] CLI properties: planted secrets only in secret variables; unconditional "never in an error" check; 300 000 runs
+- [x] CLI properties: planted secrets only in secret variables; unconditional "never in an error" check; 300 000 runs
       pass (`RB_FUZZ_RUNS=300000`). The previous generator fails at 100 000 runs (counterexample:
       `RB_LIMITS_EVENT_TYPES_ALLOW` set to the planted key).
-- [ ] OAuth registration property: `created` is 27-45 per 150 runs (20 runs measured); 8 x 20 000 runs pass, and the
+- [x] OAuth registration property: `created` is 27-45 per 150 runs (20 runs measured); 8 x 20 000 runs pass, and the
       seed that found the name case passes.
-- [ ] `safeClientName` refuses unsafe characters at the ends of the value; unit tests in `oauth-clients.test.ts`.
-- [ ] Both fuzz files pass 15 times in a row at the default run counts.
-- [ ] `pnpm lint && pnpm typecheck && pnpm test` pass.
+- [x] `safeClientName` refuses unsafe characters at the ends of the value; unit tests in `oauth-clients.test.ts`.
+- [x] Both fuzz files pass 15 times in a row at the default run counts.
+- [x] `pnpm lint && pnpm typecheck && pnpm test` pass.
 
 ## Security notes
 T10 (client metadata): registrations whose `client_name` starts or ends with a control, format or separator character

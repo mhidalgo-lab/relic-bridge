@@ -184,7 +184,9 @@ export function safeClientName(value: unknown): string | null {
   if (
     name.length === 0 ||
     [...name].length > MAX_CLIENT_NAME_CHARS ||
-    UNSAFE_TEXT.test(name) ||
+    // The whole value, not only the trimmed name: `trim()` drops tabs, newlines, U+FEFF and U+2028/2029 at the ends,
+    // and the registration stores the value as sent (P8-87).
+    UNSAFE_TEXT.test(value) ||
     MIXED_SCRIPT_WORD.test(name)
   )
     return null;

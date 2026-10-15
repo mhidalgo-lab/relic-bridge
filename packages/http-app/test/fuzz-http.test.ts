@@ -274,7 +274,7 @@ describe('OAuth client registration (T10)', { timeout: FUZZ_TIMEOUT }, () => {
       text,
     );
     const body = fc.oneof(
-      // Valid shapes with fuzzed names and an extra redirect URI, so some runs are stored.
+      // Valid shapes with fuzzed names and an extra redirect URI.
       fc
         .tuple(text, fc.array(uri, { maxLength: 2 }))
         .map(([name, extra]) => JSON.stringify({ client_name: name, redirect_uris: [REDIRECT, ...extra] })),
@@ -306,12 +306,30 @@ describe('OAuth client registration (T10)', { timeout: FUZZ_TIMEOUT }, () => {
       fc.jsonValue().map((v) => JSON.stringify(v)),
       fc.string({ unit: 'binary', maxLength: 60 }),
     );
+    // A fair share of runs must reach the stored-client checks below (P8-87): a JSON registration that is mostly valid
+    // (a plain name and usable redirect URIs, each sometimes mutated). With only the fuzzed shapes above about one run
+    // in 70 was accepted, so 150 runs stored nothing about once in ten.
+    const likelyValid = fc
+      .tuple(
+        mostly('Inspector', text),
+        fc.array(
+          mostly('https://app.example.com/cb', fc.constantFrom('http://127.0.0.1:9/cb', 'cursor://callback')),
+          { maxLength: 2 },
+        ),
+        fc.array(uri, { maxLength: 1 }),
+      )
+      .map(([name, good, extra]) => ({
+        body: JSON.stringify({ client_name: name, redirect_uris: [REDIRECT, ...good, ...extra] }),
+        type: 'application/json',
+      }));
+    const anyRequest = fc
+      .tuple(body, fc.constantFrom('application/json', 'text/plain', 'application/x-www-form-urlencoded'))
+      .map(([b, type]) => ({ body: b, type }));
     let created = 0;
     await fc.assert(
       fc.asyncProperty(
-        body,
-        fc.constantFrom('application/json', 'text/plain', 'application/x-www-form-urlencoded'),
-        async (b, type) => {
+        fc.oneof({ weight: 2, arbitrary: likelyValid }, { weight: 3, arbitrary: anyRequest }),
+        async ({ body: b, type }) => {
           const res = await client.send(
             new Request(`${ISSUER}/oauth/register`, {
               method: 'POST',

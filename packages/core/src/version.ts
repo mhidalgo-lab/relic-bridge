@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /** Package version, kept in sync with package.json by the release pipeline (P1-15). */
-export const VERSION = '0.9.1';
+export const VERSION = '0.10.0';
 
 export const REPOSITORY_URL = 'https://github.com/mhidalgo-lab/relic-bridge';
 

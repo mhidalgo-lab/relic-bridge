@@ -1,5 +1,29 @@
 # relic-bridge
 
+## 0.10.0
+
+### Minor Changes
+
+- 6837e8e: Self-monitoring separates caller errors from server errors. Only server errors (New Relic unreachable, rate limiting or timing out, an unexpected answer, a refused stored key, internal errors) set span status ERROR and `error.type`, and `rpc.server.duration` now also carries `rpc.grpc.status_code` for them, so the New Relic service's Error rate counts them (it stayed 0 before). Caller errors (invalid input, limits, quotas, unknown query ids, tools or accounts not granted) leave the span status unset, so they no longer open Errors Inbox groups; they are still counted by `status`, `error.code` and the new `fault` attribute (`caller`/`server`). Alerts on span status ERROR now see server errors only.
+
+### Patch Changes
+
+- 59e4792: Self-monitoring access logs name `server/discover` (the MCP 2026-07-28 discovery request) instead of `mcpMethod = other`.
+- db45930: Bound redaction and NRQL masking work on long input: every secret pattern now does work linear in the input, and
+  output cells, trailers, column names, error messages and the audit NRQL column redact only the text they keep (with a
+  margin so a secret crossing the cap is still recognised). An unterminated NRQL string ending in a backslash is now
+  masked too.
+- 074ed5e: A malformed `RB_RATE_LIMIT_*` value no longer appears in the startup error, so a secret pasted into the wrong variable never reaches the log.
+- bb78276: Hardening from the pre-launch review:
+  
+  - Event-type allow and deny lists now also cover queries without a `FROM` clause. With a list set, `run_nrql` refuses `SHOW EVENT TYPES` and other FROM-less statements or subqueries (`RB_LIMIT_QUERY`); use `list_event_types`, which respects the lists.
+  - `COMPARE WITH` inside a subquery is refused with a clear error (New Relic does not support it there).
+  - Requests to NerdGraph (which carry the User API key) and OTLP exports never follow redirects: a 3xx answer fails the request. This also makes OTLP export work on Cloudflare Workers, which rejects the `redirect: 'error'` mode the exporter used.
+  - **Behaviour change:** "Don't ask again" on the OAuth consent page is now offered only to apps identified by their client ID metadata document (such as claude.ai). Dynamically registered apps, whose identity is not verified, ask every time. Approvals remembered for them earlier are no longer used or listed.
+- 8e93886: OAuth client limits are fairer. Metadata-document clients that completed a token exchange (or hold a grant) can always fetch their document again; records of clients that never completed an exchange are kept for 5 minutes and, when 200 are stored, the oldest one makes room instead of new clients being refused. Dynamic client registration now counts toward the deployment-wide cap only once the registration succeeds, and every attempt that passes the registration policy counts toward the per-address cap, accepted or not.
+- 6a4e007: `trace_error` with `error_group_id` finds the group's traced occurrence again (0.9.1 verification, NEW-13). It filtered `TransactionError` on `error.group.guid`, which those events do not have, so it always said no traced occurrence was found. It now looks the group up in Errors Inbox and picks the latest traced error with the group's error class and message on its entity, falling back to class and entity (with a note) when the message does not match exactly. An unknown group id, or a group that does not come from APM `TransactionError` events (OpenTelemetry spans, browser errors), is a clear `RB_INPUT_INVALID` with a hint. When no occurrence is found but other errors carry trace ids, the note says tracing works instead of implying it is off. The call now makes up to 5 requests with `error_group_id`.
+- aead7e5: `trace_error` fills `errors[].httpStatus` for every agent (0.9.1 verification, NEW-14). It read only `httpResponseCode`, which the PHP agent sends as a string ("500"), so the status was null. It now takes the first valid HTTP status (100-599) from `http.statusCode`, `response.statusCode`, `response.status` or `httpResponseCode`, numeric or a 3-digit string.
+
 ## 0.9.1
 
 ### Patch Changes

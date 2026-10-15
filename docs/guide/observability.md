@@ -185,3 +185,41 @@ FROM Metric WHERE service.name = 'relic-bridge' SINCE 1 hour ago FACET transacti
 The entity's Summary page then shows throughput, response time and (after a server error) the Error rate. Versions
 before this change exported `error.type` without `rpc.grpc.status_code`, so their Error rate stays 0, and every caller
 error opened an Errors Inbox group; resolve those groups once you upgrade.
+
+## Alert conditions and a dashboard
+
+A starting point for NRQL alert conditions and a dashboard. Nothing here is created for you: copy the conditions into
+an alert policy (**Alerts > Alert conditions > New alert condition > Write your own query**) and import the dashboard
+yourself. Replace `relic-bridge` if you changed the service name. A personal or small-team server has bursts of calls
+and long quiet hours, so the conditions use sliding windows and the **event timer** aggregation method (it evaluates a
+window once data arrives instead of waiting on a clock that has no data), and none of them treats a quiet hour as a
+problem except the last one. Tune thresholds after a week of your own data.
+
+| Condition | NRQL | Suggested threshold | Notes |
+| --- | --- | --- | --- |
+| Server error rate | `SELECT filter(sum(relic_bridge.tool.calls), WHERE fault = 'server') * 100 / sum(relic_bridge.tool.calls) FROM Metric WHERE service.name = 'relic-bridge'` | Critical above 10 (%) for at least 15 minutes, 15-minute window sliding by 5 | **Needs the version with [caller and server errors](#caller-and-server-errors)**: before it there is no `fault` and the query returns 0. Counts failures of relic-bridge or New Relic only. |
+| Tool error rate (any error) | `SELECT filter(sum(relic_bridge.tool.calls), WHERE status = 'error') * 100 / sum(relic_bridge.tool.calls) FROM Metric WHERE service.name = 'relic-bridge'` | Warning above 25 (%) for at least 30 minutes | Works on every version; includes caller errors (bad input, limits), so it is noisy. Prefer the server error rate once available. |
+| p95 tool duration | `SELECT percentile(relic_bridge.tool.duration, 95) FROM Metric WHERE service.name = 'relic-bridge'` | Warning above 15000 (ms) for at least 15 minutes | Typical p95 was about 6 s on our server: most time is spent waiting for New Relic. Facet by `tool` to find the slow one. |
+| Refused requests | `SELECT sum(relic_bridge.requests.rejected) FROM Metric WHERE service.name = 'relic-bridge' FACET reason` | Warning above 20 in 5 minutes | One signal per `reason` (`rate_limit_ip`, `rate_limit_token`, or `http_<status>` when no hook named one): someone is hammering the server or a client is misconfigured. |
+| Real request timeouts | `SELECT count(*) FROM Log WHERE service.name = 'relic-bridge' AND message = 'mcp request timed out'` | Critical above 0 at least once in 5 minutes | Since the version that logs normal stream deadlines at info (`mcp stream closed at deadline`), every warning is a request that hung. Older versions logged up to 60 an hour of harmless stream deadlines here. |
+| Exporter gap (no data) | `SELECT count(*) FROM Log WHERE service.name = 'relic-bridge' AND message = 'http request'` | Loss of signal after 24 hours: open an incident | relic-bridge sends nothing when nobody uses it (no heartbeat), so only a long gap means something; on Workers logs leave with the next request. Pick the gap from your usage. |
+
+The same metric gives the service's golden Error rate,
+`SELECT sum(apm.service.error.count) * 100 / count(apm.service.transaction.duration) FROM Metric WHERE service.name = 'relic-bridge'`,
+which also needs the caller-and-server-errors version (before it, it is always 0).
+
+**Dashboard.** [`observability-dashboard.json`](observability-dashboard.json) has one page: tool calls, the server and
+overall error percentages, request timeouts, calls by tool, p50/p95/p99 duration, errors by code and tool and by
+`fault`, p95 by tool, NerdGraph calls and KiB read per tool call, refused requests by reason and HTTP 4xx/5xx by status
+and route. Replace every `"accountIds": [0]` with your account id, then **Dashboards > Import dashboard** and paste
+the file. It is `PRIVATE`; change `permissions` before importing to share it. The file is a NerdGraph `DashboardInput`,
+so the same JSON works as the `dashboard` variable of `dashboardCreate`. Two widgets (server error %, errors by
+`fault`) show data only from the caller-and-server-errors version on.
+
+**Verified** on 2026-10-14 against a live relic-bridge 0.9.1 export: every query above and every dashboard query ran
+through relic-bridge's own `run_nrql` (with a `SINCE` added; conditions and widgets take their window from the alert
+or the time picker). Refused requests and timeouts returned no rows on 0.9.1 (there were none); the server error queries
+returned 0 because 0.9.1 predates `fault` and `rpc.grpc.status_code`. The dashboard JSON is checked against the
+committed NerdGraph schema snapshot (`scripts/test/observability-dashboard.test.ts`); it was not created in an account.
+Facet tip: `FACET mcpMethod` alone drops records that have no `mcpMethod` (older versions), so a count can look smaller
+than the total; facet by `service.version` as well when comparing versions.

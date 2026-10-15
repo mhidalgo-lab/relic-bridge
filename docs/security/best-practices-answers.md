@@ -73,15 +73,15 @@ each. Keep this file in sync with the entry on bestpractices.dev when practices 
 |---|---|---|
 | know_secure_design | Met | [THREAT_MODEL.md](../THREAT_MODEL.md) (STRIDE, T1–T33, verified in P8-01), [ASVS 5.0 Level 2 checklist](asvs-l2.md), ADRs on secrets, access model, auth. |
 | know_common_errors | Met | Threat model covers injection (NRQL/GraphQL variables only, T4), XSS/CSRF/clickjacking in the admin panel, SSRF, token theft, prompt injection labelling. |
-| crypto_published | Met | Only standard algorithms: AES-256-GCM, HKDF-SHA-256, SHA-256, HMAC-SHA-256 ([ADR-0007](../adr/0007-secrets-envelope-encryption.md)). |
-| crypto_call | Met | No custom crypto; uses the platform Web Crypto API (`crypto.subtle`). |
+| crypto_published | Met | Only standard algorithms: AES-256-GCM, AES-KW (inside the OAuth provider library), HKDF-SHA-256, PBKDF2-HMAC-SHA-256, SHA-256, HMAC-SHA-256; RSA, ECDSA and EdDSA signatures are only verified. Full list: [cryptographic inventory](cryptography.md), [ADR-0007](../adr/0007-secrets-envelope-encryption.md). |
+| crypto_call | Met | No custom crypto; uses the platform Web Crypto API (`crypto.subtle`), `jose` for JWT verification and `@cloudflare/workers-oauth-provider` for OAuth tokens ([inventory](cryptography.md)). |
 | crypto_floss | Met | Web Crypto in Node.js and Cloudflare workerd (FLOSS implementations). |
 | crypto_keylength | Met | 256-bit AES keys, 256-bit random tokens, SHA-256. |
 | crypto_working | Met | No broken algorithms (no MD5/SHA-1/DES/RC4 for security). |
 | crypto_weaknesses | Met | Same as above. |
 | crypto_pfs | N/A | relic-bridge does not terminate TLS itself; the deployer's proxy (Caddy, Cloudflare) does, with modern TLS. Outbound calls to New Relic use HTTPS. |
-| crypto_password_storage | N/A | No passwords are stored: sign-in is delegated to Google/GitHub/Cloudflare Access; access tokens are 256-bit random values stored as SHA-256 hashes (ADR-0007). |
-| crypto_random | Met | `crypto.getRandomValues` / Web Crypto key generation for keys, tokens, nonces and ids. |
+| crypto_password_storage | N/A | No passwords are stored: sign-in is delegated to Google/GitHub/Cloudflare Access; access tokens are 256-bit random values stored as SHA-256 hashes ([ADR-0009](../adr/0009-authentication.md), [inventory](cryptography.md#bearer-values-relic-bridge-issues)). |
+| crypto_random | Met | `crypto.getRandomValues` / Web Crypto key generation for keys, tokens, nonces and ids; every call site listed in the [inventory](cryptography.md#random-sources). |
 | delivery_mitm | Met | npm (HTTPS, npm provenance), GHCR image signed with cosign, GitHub Release assets with Sigstore provenance (`*.intoto.jsonl`) and `SHA256SUMS`. |
 | delivery_unsigned | Met | Checksums and signatures are not fetched over HTTP; verification documented in [verify-release.md](../guide/verify-release.md). |
 | vulnerabilities_fixed_60_days | Met | No unpatched publicly known vulnerabilities older than 60 days; `pnpm audit` gates CI; Renovate updates dependencies. |

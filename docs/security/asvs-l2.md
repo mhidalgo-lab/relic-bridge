@@ -33,7 +33,7 @@ has **no passwords**, no file uploads, no WebSockets and no WebRTC.
 | V8 Authorization | yes | 6 | 1 | 0 | 0 |
 | V9 Self-contained Tokens | consumed only (IdP ID tokens, Access assertions) | 6 | 0 | 0 | 1 |
 | V10 OAuth and OIDC | yes (server and client) | 23 | 1 | 1 | 4 |
-| V11 Cryptography | yes | 10 | 3 | 0 | 1 |
+| V11 Cryptography | yes | 12 | 1 | 0 | 1 |
 | V12 Secure Communication | yes (TLS at the hosting layer) | 3 | 1 | 2 | 3 |
 | V13 Configuration | yes | 8 | 3 | 2 | 0 |
 | V14 Data Protection | yes | 7 | 2 | 0 | 0 |
@@ -256,19 +256,19 @@ relic-bridge issues no JWTs; it verifies IdP ID tokens and Cloudflare Access ass
 
 | Id | L | Topic | Applies | Status | Evidence |
 |---|---|---|---|---|---|
-| V11.1.1 | 2 | Key management policy and lifecycle | yes | partial | Generation, storage, rotation, retirement, backup and compromise are in [secrets](../guide/secrets.md) and ADR-0007. Gap: no stated cryptoperiods or NIST SP 800-57 mapping. |
-| V11.1.2 | 2 | Cryptographic inventory | yes | partial | Algorithms are described across ADR-0007, ADR-0009, [secrets](../guide/secrets.md) and T7 / T29. Gap: no single table of keys, algorithms and what each protects. |
-| V11.2.1 | 2 | Industry-validated implementations | yes | met | WebCrypto, `jose` and the Cloudflare OAuth provider only; the one custom routine is the CRC-32 typo checksum of `rb_` tokens (not a security primitive). Test: `auth/test/kat.test.ts` (NIST AES-GCM vectors) |
+| V11.1.1 | 2 | Key management policy and lifecycle | yes | met | [Cryptographic inventory](cryptography.md#long-lived-keys-and-secrets): source, storage, recommended cryptoperiod (with the NIST SP 800-57 reference), rotation and compromise procedure for every long-lived key; operational steps in [secrets](../guide/secrets.md) and ADR-0007. Rotation is an operator action, nothing expires on its own. |
+| V11.1.2 | 2 | Cryptographic inventory | yes | met | [Cryptographic inventory](cryptography.md): every key, algorithm, KDF, MAC, hash and random source with its file, what it protects and where it is stored, verified against the code. Test: `scripts/test/crypto-inventory.test.ts` (fails when a file uses a primitive or names an algorithm the inventory lacks) |
+| V11.2.1 | 2 | Industry-validated implementations | yes | met | WebCrypto, `jose` and the Cloudflare OAuth provider only (plus `node:crypto` in Node-only tooling); the only custom routines are the CRC-32 typo checksum of `rb_` tokens (not a security primitive) and the constant-time comparison `timingSafeEqual`. Test: `auth/test/kat.test.ts` (NIST AES-GCM vectors) |
 | V11.2.2 | 2 | Crypto agility | yes | partial | Formats are versioned (master key `v<N>:`, envelope versions, KDF parameters in the bundle, HKDF info labels), so migration is possible. Gap: algorithms are fixed constants, not configuration. |
 | V11.2.3 | 2 | ≥ 128-bit security | yes | met | AES-256-GCM, HKDF-SHA-256, HMAC-SHA-256, PBKDF2-SHA-256 (≥ 600 000), SHA-256. Tests: `auth/test/kat.test.ts`, `auth/test/keyring.test.ts` |
 | V11.3.1 | 1 | No ECB, no PKCS#1 v1.5 encryption | yes | met | AES-GCM only; RS256 is used only to verify IdP signatures. |
-| V11.3.2 | 1 | Approved ciphers and modes | yes | met | AES-256-GCM, random 96-bit IV, 128-bit tag (keyring, transfer seal, refresh replay records, query cache, task records). Tests: `auth/test/kat.test.ts`, `auth/test/keyring.test.ts` |
+| V11.3.2 | 1 | Approved ciphers and modes | yes | met | AES-256-GCM, random 96-bit IV, 128-bit tag (keyring, transfer seal, refresh replay records, query cache, task records); the OAuth provider's grant props use AES-256-GCM with a fresh key per encryption (fixed IV) and AES-KW key wrapping ([inventory](cryptography.md#oauth-authorization-server)). Tests: `auth/test/kat.test.ts`, `auth/test/keyring.test.ts` |
 | V11.3.3 | 2 | Authenticated encryption | yes | met | AEAD everywhere with injective AAD (credential id + version; bundle KDF parameters and credential metadata; task owner). Tests: `auth/test/keyring.test.ts` (bit flips, AAD swap), `http/test/oauth-refresh-replay.test.ts`, `auth/test/config-transfer.test.ts` |
 | V11.4.1 | 1 | Approved hash functions | yes | met | SHA-256, HMAC-SHA-256, HKDF-SHA-256 only; no MD5 or SHA-1. |
 | V11.4.2 | 2 | Password storage KDF | no | N/A | No passwords; `rb_` tokens are SHA-256 of 256-bit random values (ADR-0007). |
 | V11.4.3 | 2 | Collision-resistant hashes for integrity | yes | met | SHA-256 for token, session and identity hashes and cache ids. |
 | V11.4.4 | 2 | Key stretching when deriving keys from passwords | yes | met | PBKDF2-HMAC-SHA-256, ≥ 600 000 iterations, 16-byte salt for config-bundle passphrases (`auth/src/transfer/seal.ts`). Test: `auth/test/config-transfer.test.ts` |
-| V11.5.1 | 2 | CSPRNG for non-guessable values | yes | met | `crypto.getRandomValues` / `randomUUID` for every secret and id (sessions, state, nonce, tokens by rejection sampling, setup links, task ids); `Math.random` only for sampling and jitter. Tests: `auth/test/tokens.test.ts` |
+| V11.5.1 | 2 | CSPRNG for non-guessable values | yes | met | `crypto.getRandomValues` / `randomUUID` (or `node:crypto` `randomBytes` in Node tooling) for every secret and id (sessions, state, nonce, tokens by rejection sampling, setup links, task ids, OTLP ids); `Math.random` only for trace sampling, retry jitter and picking which of a user's own form handles to reuse ([inventory](cryptography.md#random-sources)). Tests: `auth/test/tokens.test.ts`, `scripts/test/crypto-inventory.test.ts` |
 | V11.6.1 | 2 | Approved algorithms for key generation | yes | met | No asymmetric keys are generated; signatures are only verified (allow-listed). |
 
 ## V12 Secure Communication
@@ -368,8 +368,7 @@ relic-bridge issues no JWTs; it verifies IdP ID tokens and Cloudflare Access ass
 The partial items, grouped. Each is a candidate for a task; none is a known vulnerability.
 
 - **Documentation**: risk justification for session timeouts (V7.1.1), federated session behaviour (V7.1.3),
-  field-level rules (V8.1.2), key management cryptoperiods and a cryptographic inventory (V11.1.1, V11.1.2), outbound
-  destinations (V13.1.1), a per-class data protection table (V14.1.2), third-party remediation time frames
+  field-level rules (V8.1.2), outbound destinations (V13.1.1), a per-class data protection table (V14.1.2), third-party remediation time frames
   (V15.1.1, V15.2.1), a logging inventory (V16.1.1, V16.2.3).
 - **Product**: HSTS by default behind a TLS proxy (V3.4.1); MFA claim or step-up re-authentication for sensitive
   admin actions (V6.3.3, V6.8.4, V7.5.1, V7.5.2); "end every user's sessions" (V7.4.5); `Clear-Site-Data` on logout

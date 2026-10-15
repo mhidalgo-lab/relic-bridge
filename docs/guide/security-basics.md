@@ -113,6 +113,12 @@ allowed. Enable only the tools you need, prefer `acknowledge_issue` over `close_
 apart from the ones you use with untrusted data or other powerful tools. The New Relic mutations are not verified live
 yet; try one with `dry_run` and then once by hand before relying on them.
 
+## How secrets are protected
+
+Stored New Relic keys are encrypted with a master key only you hold ([secrets](secrets.md)); device tokens, sessions and
+OAuth tokens are kept only as hashes. Every key and algorithm relic-bridge uses, and how to rotate each one, is listed in
+the [cryptographic inventory](../security/cryptography.md).
+
 ## Report problems
 
 See [SECURITY.md](../../SECURITY.md).

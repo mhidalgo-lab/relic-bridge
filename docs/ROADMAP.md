@@ -339,7 +339,7 @@ Generated from task front matter (`pnpm tasks index`). Status lives in each task
 | P8-68 | [Backport release path with on-demand release/x.y branches](tasks/phase-8-hardening-launch/P8-68-backport-release-path.md) | medium | — | review |
 | P8-69 | [Release jobs egress policy block](tasks/phase-8-hardening-launch/P8-69-release-egress-block.md) | low | P8-07 | todo |
 | P8-70 | [Renovate bumps pinned CI tool versions with their digests, and groups site deps](tasks/phase-8-hardening-launch/P8-70-renovate-tool-pins.md) | low | P8-07 | review |
-| P8-71 | [Cryptographic inventory (ASVS 5.0 V11)](tasks/phase-8-hardening-launch/P8-71-cryptographic-inventory.md) | medium | — | todo |
+| P8-71 | [Cryptographic inventory (ASVS 5.0 V11)](tasks/phase-8-hardening-launch/P8-71-cryptographic-inventory.md) | medium | — | review |
 | P8-72 | [Logging inventory (ASVS 5.0 V16)](tasks/phase-8-hardening-launch/P8-72-logging-inventory.md) | medium | — | todo |
 | P8-73 | [Re-authentication for sensitive admin actions](tasks/phase-8-hardening-launch/P8-73-admin-reauthentication.md) | medium | — | review |
 | P8-74 | [CLI fixes - read-only doctor, purge argument checks, import cap, audit-off warning](tasks/phase-8-hardening-launch/P8-74-cli-fixes.md) | low | — | review |

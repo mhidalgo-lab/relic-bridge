@@ -16,6 +16,7 @@ import {
   MAX_MATCH_MESSAGE,
   matchable,
   shapeTrace,
+  spanGroupTraceQuery,
   toSpan,
   uriPath,
 } from '../src/tools/investigations.ts';
@@ -89,6 +90,19 @@ const GROUP = {
   source: 'TransactionError',
   isCustom: false,
   entityGuid: btoa(`${MOCK_ACCOUNT}|APM|APPLICATION|42`).replace(/=+$/, ''),
+  // As NerdGraph returns it for an APM group (anonymised, P8-57).
+  eventsQuery:
+    "FROM TransactionError SELECT * WHERE error.class LIKE 'TypeError' AND error.message LIKE 'Cannot read properties of undefined (reading id)'",
+};
+
+// An OpenTelemetry (Span-sourced) group as NerdGraph returns it (anonymised, P8-77).
+const SPAN_GROUP = {
+  ...GROUP,
+  name: 'tools/call',
+  message: 'RB_LIMIT_QUERY',
+  source: 'Span',
+  eventsQuery:
+    "FROM Span SELECT * WHERE name = 'tools/call' AND nr.categories NOT LIKE '%:ceg:%' AND otel.status_description = 'RB_LIMIT_QUERY'",
 };
 
 function nerdGraph(o: Overrides = {}): { fetch: FetchLike; calls: Recorded[] } {
@@ -385,16 +399,47 @@ describe('trace_error', () => {
   });
 
   it('says a group from another source is not supported, with a hint', async () => {
-    for (const source of ['Span', 'JavaScriptError', 'weird source!']) {
+    for (const source of ['JavaScriptError', 'weird source!']) {
       const ng = nerdGraph({ groups: [{ ...GROUP, source }] });
       const client = await connect(ng.fetch);
       const r = await client.callTool({ name: 'trace_error', arguments: { error_group_id: 'eg-1' } });
       expect(errorCode(r)).toBe(ErrorCode.InputInvalid);
-      expect(resultText(r)).toContain('APM error groups (TransactionError events) only');
+      expect(resultText(r)).toContain('APM (TransactionError) and OpenTelemetry (Span) error groups only');
       expect(resultText(r)).toContain('trace_id');
       expect(resultText(r)).not.toContain('weird source!');
       expect(ng.calls.filter((c) => c.op === 'RbNrql')).toHaveLength(0);
     }
+  });
+
+  it('follows a Span-sourced error group on span name and status description (P8-77)', async () => {
+    const ng = nerdGraph({ groups: [SPAN_GROUP] });
+    const client = await connect(ng.fetch);
+    const r = await client.callTool({ name: 'trace_error', arguments: { error_group_id: 'eg-1' } });
+    expect(r.isError, resultText(r)).toBeFalsy();
+    const s = r.structuredContent as { traceId: string; notes: string[] };
+    expect(s.traceId).toBe('abcdef0123456789');
+    expect(s.notes.join(' ')).toContain('Span events (OpenTelemetry)');
+    const nrqls = ng.calls.filter((c) => c.op === 'RbNrql').map((c) => String(c.variables['nrql']));
+    expect(nrqls[0]).toContain("FROM Span WHERE name = 'tools/call'");
+    expect(nrqls[0]).toContain("`otel.status_description` = 'RB_LIMIT_QUERY'");
+    expect(nrqls[0]).toContain('AS classTrace');
+    expect(nrqls[0]).not.toContain('TransactionError');
+    expect(nrqls[0]).not.toContain('nr.categories');
+  });
+
+  it('builds the span group query with escaped values (P8-77)', () => {
+    const q = spanGroupTraceQuery(
+      { errorClass: "it's a name", message: "x' OR 1=1 --", entityGuid: API },
+      1000,
+      2000,
+    ).text;
+    expect(q).toContain("name = 'it\\'s a name'");
+    expect(q).toContain("`otel.status_description` = 'x\\' OR 1=1 --'");
+    expect(q).toContain(`\`entity.guid\` = '${API}'`);
+    expect(q).not.toMatch(/\bLIKE\b/);
+    const loose = spanGroupTraceQuery({ errorClass: 'n', message: null, entityGuid: null }, 1000, 2000).text;
+    expect(loose).not.toContain('exactTrace');
+    expect(loose).not.toContain('entity.guid');
   });
 
   it('falls back to class and entity when the message does not match exactly, and says so', async () => {

@@ -1233,6 +1233,16 @@ Sources: [server.json format](https://github.com/modelcontextprotocol/registry/b
   field) and the call's `timeWindow`. **Not yet live-verified:** that `ids` matches the ids `list_error_groups`
   returns, and whether a group without occurrences in the window is still returned.
 
+### Span-sourced groups (P8-77, live 2026-10-15)
+
+- A Span group from an OpenTelemetry service lists as `source: Span`, `name` = the span name (`<span name>`), `message` =
+  the span status description, and `eventsQuery` = `FROM Span SELECT * WHERE name = '<span name>' AND nr.categories NOT
+  LIKE '%:ceg:%' AND otel.status_description = '<status description>'`. The group's `entityGuid` is the service entity.
+- On `Span`, `entity.guid` filters to the service, and `trace.id` is the trace attribute (`traceId` on TransactionError).
+  Equality on `name` + `otel.status_description` counted exactly the group's occurrences (2 of 2 in 7 days for a
+  relic-bridge group); the `:ceg:` category filter is not needed. `trace_error` reads `latest(trace.id)` with the
+  exact match and falls back to the latest errored span (status `ERROR`) of the same name and entity.
+
 ## OTLP service error rate: caller vs server errors (P8-59, live export 2026-10-14)
 
 - Live evidence (relic-bridge 0.9.1, 24 h): `rpc.server.duration` data points carry `error.type`

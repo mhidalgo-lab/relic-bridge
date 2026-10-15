@@ -83,7 +83,7 @@ export function mockNerdGraph(): { fetch: FetchLike; calls: RecordedCall[] } {
           },
         ]);
       }
-      if (nrql.includes('FROM Span WHERE')) {
+      if (nrql.includes('FROM Span WHERE') && !nrql.includes('AS classTrace')) {
         return nrqlBody([
           { timestamp: 1790943000000, id: 's1', name: 'GET /checkout', service: 'checkout', durationMs: 120 },
           {

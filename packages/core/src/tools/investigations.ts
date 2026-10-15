@@ -352,6 +352,22 @@ export function groupTraceQuery(
   return nrql`SELECT ${exact}latest(traceId) AS classTrace, count(*) AS classCount FROM TransactionError WHERE ${nrql.identifier('error.class')} = ${match.errorClass} AND traceId IS NOT NULL ${entity} ${synthetic} SINCE ${Math.floor(sinceMs / 1000)} UNTIL ${Math.ceil(untilMs / 1000)}`;
 }
 
+/**
+ * The latest traced occurrence of a Span-sourced error group (OpenTelemetry services, P8-77). Errors Inbox matches these
+ * on the span `name` (the group name) and `otel.status_description` (the group message), scoped to the group's entity:
+ * the same equality match as the transaction path, with the latest errored span of the same name as the fallback.
+ */
+export function spanGroupTraceQuery(match: GroupMatch, sinceMs: number, untilMs: number): NrqlQuery {
+  const description = nrql.identifier('otel.status_description');
+  const exact =
+    match.message === null
+      ? nrql``
+      : nrql`filter(latest(${nrql.identifier('trace.id')}), WHERE ${description} = ${match.message}) AS exactTrace, filter(count(*), WHERE ${description} = ${match.message}) AS exactCount, `;
+  const entity =
+    match.entityGuid === null ? nrql`` : nrql`AND ${nrql.identifier('entity.guid')} = ${match.entityGuid}`;
+  return nrql`SELECT ${exact}latest(${nrql.identifier('trace.id')}) AS classTrace, count(*) AS classCount FROM Span WHERE name = ${match.errorClass} AND ${nrql.identifier('trace.id')} IS NOT NULL AND ${nrql.identifier('otel.status_code')} = 'ERROR' ${entity} SINCE ${Math.floor(sinceMs / 1000)} UNTIL ${Math.ceil(untilMs / 1000)}`;
+}
+
 /** Says how many errors carry a trace id, from the tracing check counts; empty when the counts are unusable. */
 export function errorTraceClause(
   traced: number | null | undefined,
@@ -687,15 +703,20 @@ export function createInvestigationTools(deps: ToolDeps = {}): ToolDefinition[] 
           );
         }
         const source = label(group.source);
-        if (group.source && source !== 'TransactionError') {
+        const spanGroup = source === 'Span';
+        if (group.source && source !== 'TransactionError' && !spanGroup) {
           throw new RbError(
             ErrorCode.InputInvalid,
-            `This error group comes from ${source ?? 'other'} events; trace_error follows APM error groups (TransactionError events) only.`,
+            `This error group comes from ${source ?? 'other'} events; trace_error follows APM (TransactionError) and OpenTelemetry (Span) error groups only.`,
             {
               hint: "Run the group's events_query (list_error_groups) with run_nrql to find a trace id, then call trace_error with trace_id.",
             },
           );
         }
+        if (spanGroup)
+          notes.push(
+            'This error group comes from Span events (OpenTelemetry): its occurrences are matched on span name and status description.',
+          );
         const errorClass = matchable(group.name, MAX_TEXT * 2);
         const message = matchable(group.message);
         const entityGuid =
@@ -712,12 +733,14 @@ export function createInvestigationTools(deps: ToolDeps = {}): ToolDefinition[] 
         const found = await query(
           ctx,
           account,
-          groupTraceQuery(
-            { errorClass, message, entityGuid },
-            args.include_synthetic ?? false,
-            range.sinceMs,
-            range.untilMs,
-          ),
+          spanGroup
+            ? spanGroupTraceQuery({ errorClass, message, entityGuid }, range.sinceMs, range.untilMs)
+            : groupTraceQuery(
+                { errorClass, message, entityGuid },
+                args.include_synthetic ?? false,
+                range.sinceMs,
+                range.untilMs,
+              ),
         );
         if ('note' in found) {
           throw new RbError(

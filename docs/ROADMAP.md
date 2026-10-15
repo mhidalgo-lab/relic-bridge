@@ -345,7 +345,7 @@ Generated from task front matter (`pnpm tasks index`). Status lives in each task
 | P8-74 | [CLI fixes - read-only doctor, purge argument checks, import cap, audit-off warning](tasks/phase-8-hardening-launch/P8-74-cli-fixes.md) | low | — | todo |
 | P8-75 | [Input and limits fixes - OTLP header values, unbalanced NRQL parentheses, logger field overwrite](tasks/phase-8-hardening-launch/P8-75-input-and-limits-fixes.md) | low | — | todo |
 | P8-76 | [Security test gaps (T12, T25, paging, windows, route-table guards, Worker host checks, workflow pins)](tasks/phase-8-hardening-launch/P8-76-security-test-gaps.md) | medium | — | todo |
-| P8-77 | [trace_error follows Span-sourced error groups](tasks/phase-8-hardening-launch/P8-77-trace-error-span-groups.md) | low | P8-57 | todo |
+| P8-77 | [trace_error follows Span-sourced error groups](tasks/phase-8-hardening-launch/P8-77-trace-error-span-groups.md) | low | P8-57 | review |
 | P8-78 | [Polish - golden-metric trend note, timeout recipe, deprecated alias schema, upgrade steps](tasks/phase-8-hardening-launch/P8-78-polish-follow-ups.md) | low | P8-52, P8-60 | todo |
 | P8-79 | [get_dashboard returns widget visualizations; dashboard recipe title](tasks/phase-8-hardening-launch/P8-79-dashboard-viz-readback.md) | medium | — | done |
 | P8-80 | [Supported migration from a self-hosted server to the Cloudflare Worker](tasks/phase-8-hardening-launch/P8-80-self-hosted-to-worker-migration.md) | high | — | done |

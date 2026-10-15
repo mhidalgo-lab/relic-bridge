@@ -2,11 +2,11 @@
 id: P8-77
 title: trace_error follows Span-sourced error groups
 phase: 8
-status: todo
+status: review
 priority: low
 depends_on: [P8-57]
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P8-77 — trace_error follows Span-sourced error groups
@@ -30,11 +30,11 @@ task makes `trace_error` follow them.
   the span case.
 
 ## Acceptance criteria
-- [ ] A Span-sourced error group yields a trace with `trace.id`, matching events by `name` + `otel.status_description`
+- [x] A Span-sourced error group yields a trace with `trace.id`, matching events by `name` + `otel.status_description`
       (tests with anonymised fixtures).
-- [ ] Transaction-sourced groups behave as before (existing tests, with corrected fixtures).
-- [ ] A group of an unknown source is still refused with the P8-57 message (test).
-- [ ] No NRQL from New Relic is executed; all values are bound through the template helpers (check-nrql-templates passes).
+- [x] Transaction-sourced groups behave as before (existing tests, with corrected fixtures).
+- [x] A group of an unknown source is still refused with the P8-57 message (test).
+- [x] No NRQL from New Relic is executed; all values are bound through the template helpers (check-nrql-templates passes).
 - [ ] Live check on a real OpenTelemetry service (leave unticked until done; note in the PR).
 
 ## Security notes

@@ -198,7 +198,7 @@ const LIST_DESCRIPTION = `List the dashboards of one account (name, guid, permis
 
 Use it to find a dashboard for get_dashboard. Page with cursor. ${UNTRUSTED}`;
 
-const GET_DESCRIPTION = `Get one dashboard (guid or name): its pages and widgets, with each widget's title, visualization (line, area, bar, billboard, pie, table, markdown as create_dashboard takes them; other ids in full) and NRQL queries (and markdown text), so you can reuse the queries.
+const GET_DESCRIPTION = `Get one dashboard (guid or name): its pages and widgets, with each widget's title, visualization and NRQL queries (and markdown text), so you can reuse the queries.
 
 Widgets are NOT executed: pass a widget's NRQL to run_nrql for numbers. Widgets on accounts this connection cannot read are listed with their NRQL withheld. Shows up to ${MAX_PAGES} pages and ${MAX_WIDGETS_PER_PAGE} widgets per page. To find a dashboard use list_dashboards. ${UNTRUSTED}`;
 

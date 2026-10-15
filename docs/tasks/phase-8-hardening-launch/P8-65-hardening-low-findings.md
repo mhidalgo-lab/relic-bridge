@@ -2,7 +2,7 @@
 id: P8-65
 title: "Hardening: event-type lists, redirects, subquery windows, remembered consent"
 phase: 8
-status: review
+status: done
 priority: medium
 depends_on: []
 adr: []

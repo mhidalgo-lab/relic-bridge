@@ -2,7 +2,7 @@
 id: P8-63
 title: "Verification guide: async query handles and write tools"
 phase: 8
-status: review
+status: done
 priority: low
 depends_on: [P8-43]
 adr: ["0005", "0015", "0016"]

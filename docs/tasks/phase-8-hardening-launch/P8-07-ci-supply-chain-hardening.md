@@ -2,7 +2,7 @@
 id: P8-07
 title: CI supply-chain hardening follow-ups
 phase: 8
-status: review
+status: done
 priority: medium
 depends_on: [P1-16]
 adr: []

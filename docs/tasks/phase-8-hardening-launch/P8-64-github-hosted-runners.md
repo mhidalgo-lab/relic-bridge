@@ -2,7 +2,7 @@
 id: P8-64
 title: CI runs on GitHub-hosted runners only
 phase: 8
-status: review
+status: done
 priority: high
 depends_on: [P8-07]
 adr: []

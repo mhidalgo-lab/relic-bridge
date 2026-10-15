@@ -2,7 +2,7 @@
 id: P8-04
 title: "Documentation site"
 phase: 8
-status: review
+status: done
 priority: high
 depends_on: [P7-04, P7-09]
 adr: []

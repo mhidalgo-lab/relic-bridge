@@ -2,7 +2,7 @@
 id: P8-03
 title: "Performance and cost benchmarks"
 phase: 8
-status: review
+status: done
 priority: medium
 depends_on: [P7-04, P7-09]
 adr: []

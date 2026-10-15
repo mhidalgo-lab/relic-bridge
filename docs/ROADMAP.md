@@ -269,13 +269,13 @@ Generated from task front matter (`pnpm tasks index`). Status lives in each task
 
 | ID | Task | Priority | Depends on | Status |
 |---|---|---|---|---|
-| P8-01 | [Threat model final review and fuzzing](tasks/phase-8-hardening-launch/P8-01-threat-model-final.md) | high | P7-04, P7-09 | review |
+| P8-01 | [Threat model final review and fuzzing](tasks/phase-8-hardening-launch/P8-01-threat-model-final.md) | high | P7-04, P7-09 | done |
 | P8-02 | [Independent security review](tasks/phase-8-hardening-launch/P8-02-external-review.md) | high | P8-01 | todo |
-| P8-03 | [Performance and cost benchmarks](tasks/phase-8-hardening-launch/P8-03-performance-cost.md) | medium | P7-04, P7-09 | review |
-| P8-04 | [Documentation site](tasks/phase-8-hardening-launch/P8-04-docs-site.md) | high | P7-04, P7-09 | review |
-| P8-05 | [Versioning, support and deprecation policy](tasks/phase-8-hardening-launch/P8-05-support-policy.md) | medium | P7-04, P7-09 | review |
+| P8-03 | [Performance and cost benchmarks](tasks/phase-8-hardening-launch/P8-03-performance-cost.md) | medium | P7-04, P7-09 | done |
+| P8-04 | [Documentation site](tasks/phase-8-hardening-launch/P8-04-docs-site.md) | high | P7-04, P7-09 | done |
+| P8-05 | [Versioning, support and deprecation policy](tasks/phase-8-hardening-launch/P8-05-support-policy.md) | medium | P7-04, P7-09 | done |
 | P8-06 | [1.0 launch](tasks/phase-8-hardening-launch/P8-06-launch.md) | high | P8-02, P8-03, P8-04, P8-05 | todo |
-| P8-07 | [CI supply-chain hardening follow-ups](tasks/phase-8-hardening-launch/P8-07-ci-supply-chain-hardening.md) | medium | P1-16 | review |
+| P8-07 | [CI supply-chain hardening follow-ups](tasks/phase-8-hardening-launch/P8-07-ci-supply-chain-hardening.md) | medium | P1-16 | done |
 | P8-08 | [Run CI on the organization's self-hosted runners, with a hosted fallback](tasks/phase-8-hardening-launch/P8-08-self-hosted-ci-runners.md) | high | — | done |
 | P8-09 | [Fix EPERM temp-dir cleanup in the SQLite tests on Windows](tasks/phase-8-hardening-launch/P8-09-windows-sqlite-test-cleanup.md) | medium | — | done |
 | P8-10 | [Clear the failing dependency audit (sharp and two other dev-only advisories)](tasks/phase-8-hardening-launch/P8-10-sharp-advisory.md) | high | — | done |
@@ -320,20 +320,20 @@ Generated from task front matter (`pnpm tasks index`). Status lives in each task
 | P8-49 | [trace_error note states how many errors carry a trace id](tasks/phase-8-hardening-launch/P8-49-trace-error-note-count.md) | low | — | done |
 | P8-50 | [Self-monitoring logs - stream deadlines, access-log fields, documented names](tasks/phase-8-hardening-launch/P8-50-otel-log-signal-quality.md) | medium | — | done |
 | P8-51 | [Self-monitoring spans - service entity golden metrics and per-tool span names](tasks/phase-8-hardening-launch/P8-51-otel-service-entity.md) | medium | — | done |
-| P8-52 | [Self-monitoring recipes - alert conditions and a dashboard](tasks/phase-8-hardening-launch/P8-52-self-monitoring-recipes.md) | low | P8-50, P8-51, P8-59 | review |
+| P8-52 | [Self-monitoring recipes - alert conditions and a dashboard](tasks/phase-8-hardening-launch/P8-52-self-monitoring-recipes.md) | low | P8-50, P8-51, P8-59 | done |
 | P8-53 | [Scorecard quick wins - spike lockfiles, workflow_run checkout, security policy link](tasks/phase-8-hardening-launch/P8-53-scorecard-quick-wins.md) | high | — | done |
 | P8-54 | [Signed releases - provenance attestations attached to GitHub Releases](tasks/phase-8-hardening-launch/P8-54-release-provenance-assets.md) | medium | — | done |
 | P8-55 | [OpenSSF Best Practices badge (passing)](tasks/phase-8-hardening-launch/P8-55-openssf-best-practices.md) | low | P8-53 | done |
 | P8-56 | [README reflects 0.9.0 and the current docs](tasks/phase-8-hardening-launch/P8-56-readme-refresh.md) | medium | — | done |
-| P8-57 | [trace_error(error_group_id) finds the group's traced occurrence](tasks/phase-8-hardening-launch/P8-57-trace-error-group-lookup.md) | high | — | review |
-| P8-58 | [trace_error fills httpStatus for every agent](tasks/phase-8-hardening-launch/P8-58-trace-error-http-status.md) | low | P8-57 | review |
-| P8-59 | [Self-monitoring errors - the service error rate counts real server errors](tasks/phase-8-hardening-launch/P8-59-service-error-rate.md) | high | P8-51 | review |
-| P8-60 | [Golden-metric trend notes say why there is no trend](tasks/phase-8-hardening-launch/P8-60-golden-trend-notes.md) | low | — | review |
-| P8-61 | [Access log names the MCP message instead of other](tasks/phase-8-hardening-launch/P8-61-access-log-mcp-method.md) | low | P8-50 | review |
+| P8-57 | [trace_error(error_group_id) finds the group's traced occurrence](tasks/phase-8-hardening-launch/P8-57-trace-error-group-lookup.md) | high | — | done |
+| P8-58 | [trace_error fills httpStatus for every agent](tasks/phase-8-hardening-launch/P8-58-trace-error-http-status.md) | low | P8-57 | done |
+| P8-59 | [Self-monitoring errors - the service error rate counts real server errors](tasks/phase-8-hardening-launch/P8-59-service-error-rate.md) | high | P8-51 | done |
+| P8-60 | [Golden-metric trend notes say why there is no trend](tasks/phase-8-hardening-launch/P8-60-golden-trend-notes.md) | low | — | done |
+| P8-61 | [Access log names the MCP message instead of other](tasks/phase-8-hardening-launch/P8-61-access-log-mcp-method.md) | low | P8-50 | done |
 | P8-62 | [Remove the deprecated whoami limits.callBudget alias in 0.11.0](tasks/phase-8-hardening-launch/P8-62-remove-callbudget-alias.md) | low | P8-05, P8-47 | todo |
-| P8-63 | [Verification guide: async query handles and write tools](tasks/phase-8-hardening-launch/P8-63-verification-guide.md) | low | P8-43 | review |
-| P8-64 | [CI runs on GitHub-hosted runners only](tasks/phase-8-hardening-launch/P8-64-github-hosted-runners.md) | high | P8-07 | review |
-| P8-65 | [Hardening: event-type lists, redirects, subquery windows, remembered consent](tasks/phase-8-hardening-launch/P8-65-hardening-low-findings.md) | medium | — | review |
+| P8-63 | [Verification guide: async query handles and write tools](tasks/phase-8-hardening-launch/P8-63-verification-guide.md) | low | P8-43 | done |
+| P8-64 | [CI runs on GitHub-hosted runners only](tasks/phase-8-hardening-launch/P8-64-github-hosted-runners.md) | high | P8-07 | done |
+| P8-65 | [Hardening: event-type lists, redirects, subquery windows, remembered consent](tasks/phase-8-hardening-launch/P8-65-hardening-low-findings.md) | medium | — | done |
 | P8-66 | [HSTS by default when the public URL is https, including the Worker's 503](tasks/phase-8-hardening-launch/P8-66-hsts-default-https.md) | medium | — | todo |
 | P8-67 | [Deprecated-config registry with startup warnings and doctor lines](tasks/phase-8-hardening-launch/P8-67-deprecated-config-warnings.md) | medium | — | todo |
 | P8-68 | [Backport release path with on-demand release/x.y branches](tasks/phase-8-hardening-launch/P8-68-backport-release-path.md) | medium | — | todo |
@@ -345,6 +345,6 @@ Generated from task front matter (`pnpm tasks index`). Status lives in each task
 | P8-74 | [CLI fixes - read-only doctor, purge argument checks, import cap, audit-off warning](tasks/phase-8-hardening-launch/P8-74-cli-fixes.md) | low | — | todo |
 | P8-75 | [Input and limits fixes - OTLP header values, unbalanced NRQL parentheses, logger field overwrite](tasks/phase-8-hardening-launch/P8-75-input-and-limits-fixes.md) | low | — | todo |
 | P8-76 | [Security test gaps (T12, T25, paging, windows, route-table guards, Worker host checks, workflow pins)](tasks/phase-8-hardening-launch/P8-76-security-test-gaps.md) | medium | — | todo |
-| P8-77 | [trace_error follows Span-sourced error groups](tasks/phase-8-hardening-launch/P8-77-trace-error-span-groups.md) | low | — | todo |
-| P8-78 | [Polish - golden-metric trend note, timeout recipe, deprecated alias schema, upgrade steps](tasks/phase-8-hardening-launch/P8-78-polish-follow-ups.md) | low | P8-52 | todo |
+| P8-77 | [trace_error follows Span-sourced error groups](tasks/phase-8-hardening-launch/P8-77-trace-error-span-groups.md) | low | P8-57 | todo |
+| P8-78 | [Polish - golden-metric trend note, timeout recipe, deprecated alias schema, upgrade steps](tasks/phase-8-hardening-launch/P8-78-polish-follow-ups.md) | low | P8-52, P8-60 | todo |
 <!-- tasks:end -->

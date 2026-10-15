@@ -4,7 +4,7 @@ title: Polish - golden-metric trend note, timeout recipe, deprecated alias schem
 phase: 8
 status: todo
 priority: low
-depends_on: [P8-52]   # P8-60 (PR #229): add once it is on main
+depends_on: [P8-52, P8-60]
 adr: []
 owner: ""
 ---

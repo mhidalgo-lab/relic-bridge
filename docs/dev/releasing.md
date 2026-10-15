@@ -54,6 +54,34 @@ Procedure (example: security fix for 1.2 while `main` is on 1.3):
 7. Retire the branch when the minor leaves the support window: stop merging into it and remove it from the
    supported-versions table. The ruleset forbids deletion; delete it only by editing the ruleset, as an owner decision.
 
+## Egress allowlist of the publish jobs (P8-69)
+
+The two jobs that hold the OIDC token, `release.yml` `publish` and `docker.yml` `publish`, run harden-runner with
+`egress-policy: block` and an `allowed-endpoints` list. Every other release job (`plan`, `version`, `build`) stays on
+`audit`: they install dependencies or build images, and their endpoint set changes with the dependencies. The lists come
+from the audited 0.10.0 runs (release.yml runs 38676388739 and 38677640166, docker.yml run 38678194338): the
+harden-runner agent log printed in each job's *Post* step lists every `endpoint called` with the process.
+
+| Job | Endpoint (process seen) | Class |
+| --- | --- | --- |
+| `release.yml` `publish` | `api.github.com` (gh, node) | GitHub API: tag check, release lookup, attestations |
+| | `uploads.github.com` (gh) | GitHub Release asset upload (mode `release` run only) |
+| | `token.actions.githubusercontent.com` (node) | OIDC token |
+| | `registry.npmjs.org` (node) | `npm view`, `npm stage publish` |
+| | `fulcio.sigstore.dev`, `rekor.sigstore.dev` (node) | Sigstore: `actions/attest`, npm provenance |
+| `docker.yml` `publish` | `ghcr.io` (dockerd, skopeo, cosign, node), `pkg-containers.githubusercontent.com` (dockerd, skopeo, cosign) | GHCR and its blob storage |
+| | `github.com`, `release-assets.githubusercontent.com` (curl) | cosign and syft binaries downloaded by `cosign-installer` / `sbom-action` |
+| | `raw.githubusercontent.com` (node) | `sbom-action` installer script |
+| | `api.github.com` (node), `token.actions.githubusercontent.com` (node) | GitHub API, OIDC token |
+| | `fulcio.sigstore.dev`, `rekor.sigstore.dev`, `timestamp.sigstore.dev`, `tuf-repo-cdn.sigstore.dev` (cosign, node) | Sigstore: keyless signing, attestations, trust root |
+| both | `results-receiver.actions.githubusercontent.com`, `run-actions-*.actions.githubusercontent.com`, `productionresultssa*.blob.core.windows.net` | Artifact download and job results: allowed implicitly by harden-runner (hard-coded GitHub Actions endpoints), not listed |
+
+If a release run is blocked (a step fails with a connection error and the harden-runner log shows a blocked
+endpoint): read the host from the log, add it to the job's list in a pull request with that evidence, and rerun.
+Fallback when time matters more than the allowlist: change that job's `egress-policy` to `audit` in a pull request
+(the hardening test must be updated in the same change, which makes it visible in review), release, and restore
+`block` with the corrected list afterwards. Never add a wildcard to get a run through.
+
 ## `:latest` rule
 
 `plan` (`docker.yml`) sets `latest=true` only when `v<version>` is a stable release **and** is the highest stable

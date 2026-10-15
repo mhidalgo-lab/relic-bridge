@@ -243,9 +243,29 @@ jobs:
       ARTIFACT_ID: ${{ needs.build.outputs.artifact-id }}
       ARCHIVE_SHA256: ${{ needs.build.outputs.archive-sha256 }}
     steps:
+      # Egress blocked (P8-69): the allowlist is every endpoint this job reached in the audited 0.10.0 run (docker.yml run
+      # 38678194338, harden-runner agent log in the job's post step). harden-runner also allows GitHub's own Actions
+      # endpoints implicitly (artifact storage, results receiver, *.actions.githubusercontent.com).
+      # Classes: GitHub API (api); tool downloads for cosign-installer and sbom-action (github.com, release-assets,
+      # raw.githubusercontent); OIDC token (token.actions); registry (ghcr.io, pkg-containers: GHCR blob storage);
+      # Sigstore (fulcio, rekor, timestamp, tuf-repo-cdn: cosign keyless signing and attestations). A blocked call fails
+      # the job and shows in the harden-runner log: add that exact host in a pull request, or set `audit` as the
+      # documented fallback (docs/dev/releasing.md). Never a wildcard (scripts/test/workflow-hardening.test.ts).
       - uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25 # v2.22.1
         with:
-          egress-policy: audit
+          egress-policy: block
+          allowed-endpoints: >
+            api.github.com:443
+            github.com:443
+            release-assets.githubusercontent.com:443
+            raw.githubusercontent.com:443
+            token.actions.githubusercontent.com:443
+            ghcr.io:443
+            pkg-containers.githubusercontent.com:443
+            fulcio.sigstore.dev:443
+            rekor.sigstore.dev:443
+            timestamp.sigstore.dev:443
+            tuf-repo-cdn.sigstore.dev:443
       - name: Check the inputs
         run: |
           [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || { echo "::error::bad version"; exit 1; }

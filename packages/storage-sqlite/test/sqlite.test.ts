@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-import { existsSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -184,6 +184,38 @@ describe('sqlite adapter', () => {
     db.close();
     await expect(openSqliteStorage({ path, migrate: false })).rejects.toBeInstanceOf(MigrationError);
     await expect(openSqliteStorage({ path })).rejects.toBeInstanceOf(MigrationError);
+  });
+
+  it('readOnly opens without changing mode, journal mode or content, refuses writes and missing files (P8-74)', async () => {
+    const path = file();
+    await (await openSqliteStorage({ path })).close();
+    const raw = new DatabaseSync(path);
+    raw.exec('PRAGMA journal_mode = DELETE');
+    raw.close();
+    if (posix) chmodSync(path, 0o644);
+    const before = readFileSync(path);
+    const s = await openSqliteStorage({ path, readOnly: true });
+    expect(s.readOnly).toBe(true);
+    expect(await s.auditLog.list()).toEqual([]);
+    await expect(
+      s.auditLog.append({ ts: 1, kind: 'admin', action: 'x', status: 'ok' }),
+    ).rejects.toBeInstanceOf(Error);
+    await s.close();
+    if (posix) expect(statSync(path).mode & 0o777).toBe(0o644);
+    expect(pragma(path, 'journal_mode')).toBe('delete');
+    expect(readFileSync(path).equals(before)).toBe(true);
+
+    const missing = join(root, 'ro-missing', 'relic.db');
+    await expect(openSqliteStorage({ path: missing, readOnly: true })).rejects.toBeInstanceOf(StorageError);
+    expect(existsSync(missing)).toBe(false);
+    expect(existsSync(join(root, 'ro-missing'))).toBe(false);
+
+    const old = new DatabaseSync(path);
+    old.exec('DELETE FROM schema_migrations WHERE version = (SELECT max(version) FROM schema_migrations)');
+    old.close();
+    await expect(openSqliteStorage({ path, readOnly: true, migrate: true })).rejects.toBeInstanceOf(
+      MigrationError,
+    );
   });
 
   it("waits for another connection's lock for the busy timeout, then fails", async () => {

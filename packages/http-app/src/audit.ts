@@ -43,6 +43,13 @@ export const AUDIT_MAX_DETAILS_CHARS = 2000;
 /** Default cap on refusal rows per minute (all kinds of `auth` rows together). */
 export const DEFAULT_AUDIT_AUTH_ROWS_PER_MINUTE = 120;
 export const DEFAULT_AUDIT_RETENTION_DAYS = 90;
+
+/**
+ * Startup warning for `RB_AUDIT=off` (`serve` and the Worker, P8-74): it names every kind of row that is lost, so the
+ * loss of accountability is not understated (THREAT_MODEL T17).
+ */
+export const AUDIT_OFF_WARNING =
+  'RB_AUDIT=off disables every audit row (tool calls, refusals and admin changes): this server records nothing.';
 /** A grant's quota refusals are audited at most once per this interval (P7-12): a runaway agent cannot flood the log. */
 export const QUOTA_DENIED_AUDIT_INTERVAL_MS: number = 15 * 60_000;
 const QUOTA_DENIED_MAX_GRANTS = 1000;

@@ -11,6 +11,7 @@ import {
 } from '@relic-bridge/core';
 import {
   AUDIT_NRQL_MODES,
+  AUDIT_OFF_WARNING,
   type AuditNrqlMode,
   DEFAULT_AUDIT_RETENTION_DAYS,
   MAX_ACCESS_CACHE_TTL_MS,
@@ -237,7 +238,7 @@ export function parseWorkerSettings(
       `RB_AUDIT_NRQL must be one of ${AUDIT_NRQL_MODES.join(', ')}`,
     );
   }
-  if (!auditEnabled) warnings.push('RB_AUDIT=off: tool calls and refused requests are not recorded.');
+  if (!auditEnabled) warnings.push(AUDIT_OFF_WARNING);
   if (nrql === 'full') {
     warnings.push(
       'RB_AUDIT_NRQL=full stores query text including literal values (redacted for secrets only).',

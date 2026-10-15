@@ -54,6 +54,7 @@ const OPTIONS = {
   confirm: { type: 'string' },
   config: { type: 'string' },
   offline: { type: 'boolean' },
+  fix: { type: 'boolean' },
   'client-configs': { type: 'boolean' },
   'token-file': { type: 'string' },
   out: { type: 'string' },
@@ -79,7 +80,7 @@ interface Spec {
 
 /** Command → what it accepts. A flag outside its command's list is a usage error. */
 const SPECS: Readonly<Record<string, Spec>> = {
-  doctor: { args: 0, flags: ['config', 'project', 'offline', 'client-configs', 'token-file'] },
+  doctor: { args: 0, flags: ['config', 'project', 'offline', 'fix', 'client-configs', 'token-file'] },
   init: {
     args: 0,
     flags: [
@@ -179,6 +180,7 @@ const BOOLEAN_FLAGS: ReadonlySet<string> = new Set([
   'follow',
   'no-config',
   'offline',
+  'fix',
   'with-credentials',
   'apply',
 ]);

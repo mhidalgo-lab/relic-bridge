@@ -134,7 +134,12 @@ the next run continues; a failure is logged as `audit purge failed` and never af
 `audit.purge` with `source: cron` when it removed rows. Delete the trigger (or set the retention to `0`) to keep history.
 
 The purge is itself recorded (`admin` / `audit.purge`, with the number of rows removed). `RB_AUDIT=off` turns recording
-off entirely (warned at start).
+off entirely: no audit row of any kind (tool calls, refusals and admin changes made through that server), warned at
+start. Management commands run on the database itself (`relic-bridge` without `--remote`, `audit purge`) still record
+their rows.
+
+`--older-than-days` must be a whole number of days from 1 to 99999 (`1.5`, `1e3`, `0x10`, `-1` and `0` are refused
+with exit code 2; to keep everything set `RB_AUDIT_RETENTION_DAYS=0`).
 
 ## Behaviour you can rely on
 

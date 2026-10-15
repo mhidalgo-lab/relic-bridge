@@ -342,7 +342,7 @@ Generated from task front matter (`pnpm tasks index`). Status lives in each task
 | P8-71 | [Cryptographic inventory (ASVS 5.0 V11)](tasks/phase-8-hardening-launch/P8-71-cryptographic-inventory.md) | medium | — | todo |
 | P8-72 | [Logging inventory (ASVS 5.0 V16)](tasks/phase-8-hardening-launch/P8-72-logging-inventory.md) | medium | — | todo |
 | P8-73 | [Re-authentication for sensitive admin actions](tasks/phase-8-hardening-launch/P8-73-admin-reauthentication.md) | medium | — | review |
-| P8-74 | [CLI fixes - read-only doctor, purge argument checks, import cap, audit-off warning](tasks/phase-8-hardening-launch/P8-74-cli-fixes.md) | low | — | todo |
+| P8-74 | [CLI fixes - read-only doctor, purge argument checks, import cap, audit-off warning](tasks/phase-8-hardening-launch/P8-74-cli-fixes.md) | low | — | review |
 | P8-75 | [Input and limits fixes - OTLP header values, unbalanced NRQL parentheses, logger field overwrite](tasks/phase-8-hardening-launch/P8-75-input-and-limits-fixes.md) | low | — | todo |
 | P8-76 | [Security test gaps (T12, T25, paging, windows, route-table guards, Worker host checks, workflow pins)](tasks/phase-8-hardening-launch/P8-76-security-test-gaps.md) | medium | — | todo |
 | P8-77 | [trace_error follows Span-sourced error groups](tasks/phase-8-hardening-launch/P8-77-trace-error-span-groups.md) | low | P8-57 | review |

@@ -6,6 +6,7 @@
 // wrap key is sent. The file is YAML, created exclusively with mode 0600; a keys-free export holds no secrets but is
 // written the same way. Import reads YAML or JSON, with aliases refused and a size cap.
 import { checkPassphrase, deriveWrapKey, newKdf } from '@relic-bridge/auth';
+import { CONFIG_IMPORT_MAX_BYTES } from '@relic-bridge/http-app';
 import { parse, stringify, YAMLError } from 'yaml';
 import { UsageError } from '../args.ts';
 import { ConfigError } from '../config.ts';
@@ -16,8 +17,16 @@ import { type Rec, type Run, rec, str, warn } from './commands.ts';
 import type { ManageContext } from './io.ts';
 import { plain } from './render.ts';
 
-/** Largest file `import` reads. The Admin API's own body limit (64 KiB by default) is the real ceiling. */
-const MAX_IMPORT_BYTES = 1024 * 1024;
+/**
+ * Largest file `import` reads, and the largest request it sends: the Admin API's cap for `POST /config/import`
+ * (P8-74), so a file the CLI accepts is never refused by the server for its size.
+ */
+const MAX_IMPORT_BYTES = CONFIG_IMPORT_MAX_BYTES;
+const tooLarge = (what: string): ConfigError =>
+  new ConfigError(
+    `${what} is larger than ${MAX_IMPORT_BYTES} bytes (1 MiB), the config import limit.`,
+    'Split the configuration into smaller files and import each one; import is idempotent.',
+  );
 const ENV_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]{0,127}$/;
 
 const toBase64 = (bytes: Uint8Array): string => btoa(String.fromCharCode(...bytes));
@@ -151,8 +160,7 @@ function readBundle(ctx: ManageContext, path: string): Rec {
     throw new ConfigError(`${path} not found or not readable.`);
   }
   if (!stat.isFile()) throw new ConfigError(`${path} is not a file.`);
-  if (stat.size > MAX_IMPORT_BYTES)
-    throw new ConfigError(`${path} is larger than ${MAX_IMPORT_BYTES} bytes.`);
+  if (stat.size > MAX_IMPORT_BYTES) throw tooLarge(path);
   let text: string;
   try {
     text = ctx.fs.readFile(path);
@@ -211,11 +219,12 @@ export async function configImport(run: Run): Promise<number> {
   } else if (args.values['passphrase-file'] !== undefined || args.values['passphrase-env'] !== undefined) {
     ctx.stderr('warning: the file holds no encrypted keys; the passphrase is not needed.');
   }
-  const result = rec(
-    await api(client, 'POST', '/config/import', {
-      body: { bundle, ...(apply ? { apply: true } : {}), ...(wrapKey === undefined ? {} : { wrapKey }) },
-    }),
-  );
+  const body = { bundle, ...(apply ? { apply: true } : {}), ...(wrapKey === undefined ? {} : { wrapKey }) };
+  // YAML can be shorter than the JSON request it becomes: check what is sent, too.
+  if (new TextEncoder().encode(JSON.stringify(body)).length > MAX_IMPORT_BYTES) {
+    throw tooLarge(`The import request built from ${path}`);
+  }
+  const result = rec(await api(client, 'POST', '/config/import', { body }));
   const data = rec(result['data']);
   const failed = data['failed'] === null || data['failed'] === undefined ? null : rec(data['failed']);
   if (json) {

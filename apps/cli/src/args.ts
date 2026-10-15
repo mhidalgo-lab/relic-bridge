@@ -56,6 +56,19 @@ export function isLogLevel(value: string): value is LogLevel {
   return (LOG_LEVELS as readonly string[]).includes(value);
 }
 
+export const OLDER_THAN_DAYS_USAGE = '--older-than-days must be a whole number of days, 1-99999.';
+
+/**
+ * `audit purge --older-than-days`: a whole number of days, 1-99999, surrounding blanks allowed. Anything else
+ * (`1.5`, `NaN`, `Infinity`, `1e3`, `-1`, `0x10`, `0`) is `undefined`. Shared by the parser and `auditPurge` (P8-74).
+ */
+export function parseOlderThanDays(raw: string): number | undefined {
+  const v = raw.trim();
+  if (!/^\d{1,5}$/.test(v)) return undefined;
+  const days = Number(v);
+  return days >= 1 ? days : undefined;
+}
+
 /**
  * Parse argv (without `node` and the script). Strict: unknown options fail, so no flag can carry a secret by accident
  * (T23 spirit: keys come from env or the config file). Error messages are redacted in case a key was typed anyway.
@@ -159,9 +172,7 @@ export function parseCliArgs(argv: readonly string[]): CliArgs {
   const olderThan = values['older-than-days'];
   if (olderThan !== undefined) {
     if (auditAction !== 'purge') throw new UsageError('--older-than-days only applies to audit purge.');
-    if (!/^\d{1,5}$/.test(olderThan.trim()) || Number(olderThan) < 1) {
-      throw new UsageError('--older-than-days must be an integer of at least 1.');
-    }
+    if (parseOlderThanDays(olderThan) === undefined) throw new UsageError(OLDER_THAN_DAYS_USAGE);
   }
   for (const flag of ['port', 'host'] as const) {
     const v = values[flag];

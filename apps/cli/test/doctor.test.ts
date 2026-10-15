@@ -389,6 +389,45 @@ describe('database', () => {
     expect(dbStatus(r)?.fix).toContain('chmod 600');
   });
 
+  it('changes nothing it diagnoses: mode, journal mode and content stay as they were (P8-74)', async () => {
+    const path = join(dir, 'untouched.db');
+    await (await openSqliteStorage({ path })).close();
+    const raw = new DatabaseSync(path);
+    raw.exec('PRAGMA journal_mode = DELETE');
+    raw.close();
+    chmodSync(path, 0o644);
+    const before = readFileSync(path);
+    const r = await runReal(['--db', path], { RB_MASTER_KEY: generateMasterKey() });
+    // A master key that was never registered: the read-only open must not register it either.
+    expect(dbStatus(r)?.status).not.toBe('ok');
+    expect(statSync(path).mode & 0o777).toBe(0o644);
+    const after = new DatabaseSync(path, { readOnly: true });
+    expect((after.prepare('PRAGMA journal_mode').get() as { journal_mode: string }).journal_mode).toBe(
+      'delete',
+    );
+    after.close();
+    expect(readFileSync(path).equals(before)).toBe(true);
+
+    const plain = await runReal(['--db', path], {});
+    expect(dbStatus(plain)?.status).toBe('warn');
+    expect(dbStatus(plain)?.fix).toContain(`chmod 600 ${path}`);
+    expect(dbStatus(plain)?.fix).toContain('--fix');
+    expect(statSync(path).mode & 0o777).toBe(0o644);
+    expect(readFileSync(path).equals(before)).toBe(true);
+  });
+
+  it('--fix tightens the database file mode and says so', async () => {
+    const path = join(dir, 'fixme.db');
+    await (await openSqliteStorage({ path })).close();
+    chmodSync(path, 0o640);
+    const r = await runReal(['--db', path, '--fix'], {});
+    expect(dbStatus(r)?.status).toBe('ok');
+    expect(dbStatus(r)?.detail).toContain('--fix changed the database file mode from 640 to 600');
+    expect(statSync(path).mode & 0o777).toBe(0o600);
+    const again = await runReal(['--db', path, '--fix'], {});
+    expect(dbStatus(again)?.detail).not.toContain('--fix');
+  });
+
   it('fails pending migrations and a file that is not a database', async () => {
     const path = join(dir, 'old.db');
     await await (await openSqliteStorage({ path })).close();

@@ -1,7 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
-// `relic-bridge doctor` (P7-05): read-only diagnostics for a local setup and, with `--remote`, a deployed server.
+// `relic-bridge doctor` (P7-05): read-only diagnostics for a local setup and, with `--remote`, a deployed server. It
+// changes nothing it diagnoses (P8-74): the database is opened read-only. `--fix` is the one opt-in exception and
+// reports what it changed.
 // Every check returns a status, a result line and (for warn/fail) a fix. All text passes through `scrub` before it is
 // printed, so a key that slips into an error message is masked; only fingerprints (prefix + last four) are shown.
+
+import { chmodSync } from 'node:fs';
 import {
   CryptoError,
   type Keyring,
@@ -358,6 +362,7 @@ export async function checkDatabase(
   keyring: Keyring | undefined,
   masterKeyFailed: boolean,
 ): Promise<CheckResult> {
+  const fix = args.values.fix === true;
   let path: string;
   try {
     path = resolveDbPath(args.values.db, ctx.env, ctx.platform, ctx.homeDir);
@@ -380,13 +385,25 @@ export async function checkDatabase(
         )
       : skip('database', `no local database at ${path}`);
   }
-  const permWarning =
-    ctx.platform !== 'win32' && (mode & 0o077) !== 0
-      ? `The database file is accessible to other users (mode ${(mode & 0o777).toString(8)}); run: chmod 600 ${path}`
-      : undefined;
+  const loose = ctx.platform !== 'win32' && (mode & 0o077) !== 0;
+  const modeText = (mode & 0o777).toString(8);
+  let permWarning: string | undefined;
+  let fixed: string | undefined;
+  if (loose && fix) {
+    // The only change doctor makes, and only when asked (`--fix`).
+    try {
+      (ctx.host.chmod ?? chmodSync)(path, 0o600);
+      fixed = `--fix changed the database file mode from ${modeText} to 600`;
+    } catch (error) {
+      permWarning = `The database file is accessible to other users (mode ${modeText}) and --fix could not change it (${errText(error)}); run: chmod 600 ${path}`;
+    }
+  } else if (loose) {
+    permWarning = `The database file is accessible to other users (mode ${modeText}); run: chmod 600 ${path} (or relic-bridge doctor --fix)`;
+  }
   let storage: Awaited<ReturnType<typeof openSqliteStorage>>;
   try {
-    storage = await openSqliteStorage({ path, migrate: false });
+    // Read-only: no chmod, no journal-mode change, no migration (P8-74).
+    storage = await openSqliteStorage({ path, readOnly: true });
   } catch (error) {
     const msg = errText(error);
     return /schema version|migrat/i.test(msg)
@@ -426,9 +443,9 @@ export async function checkDatabase(
         ? 'master key unusable: key match not checked'
         : 'no master key set: key match not checked'
       : 'migrations applied; master key matches';
-  return permWarning === undefined
-    ? ok('database', `${path} opens`, detail)
-    : warn('database', `${path} opens`, permWarning, detail);
+  const opened = `${path} opens (read-only)`;
+  if (permWarning !== undefined) return warn('database', opened, permWarning, detail);
+  return ok('database', opened, fixed === undefined ? detail : `${detail}; ${fixed}`);
 }
 
 export function checkPublicUrl(ctx: ManageContext): CheckResult {

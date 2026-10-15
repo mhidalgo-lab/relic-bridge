@@ -108,6 +108,13 @@ describe('serveSettings', () => {
     expect(serveSettings({ ...base, deprecations }).warnings.join()).not.toContain('deprecated');
   });
 
+  it('RB_AUDIT=off warns that every kind of audit row is lost (P8-74)', () => {
+    const w = serveSettings({ ...base, env: { RB_AUDIT: 'off' } }).warnings.join('\n');
+    for (const kind of ['every audit row', 'tool calls', 'refusals', 'admin changes'])
+      expect(w).toContain(kind);
+    expect(serveSettings(base).warnings.join('\n')).not.toContain('RB_AUDIT');
+  });
+
   it('MCP Tasks (P7-34): on by default, RB_TASKS=off is the kill switch, other values are refused', () => {
     expect(serveSettings(base).tasks).toBe(true);
     expect(serveSettings({ ...base, env: { ...base.env, RB_TASKS: 'off' } }).tasks).toBe(false);

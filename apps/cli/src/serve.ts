@@ -32,6 +32,7 @@ import {
 } from '@relic-bridge/core';
 import {
   AUDIT_NRQL_MODES,
+  AUDIT_OFF_WARNING,
   type AuditNrqlMode,
   adminTokenLooksWeak,
   type ClientMetadataFetch,
@@ -207,7 +208,7 @@ function auditSettings(env: Env, warnings: string[]): AuditSettings {
     throw new ConfigError(`RB_AUDIT_NRQL must be one of ${AUDIT_NRQL_MODES.join(', ')}.`);
   }
   const retentionDays = parseRetentionDays(env['RB_AUDIT_RETENTION_DAYS']);
-  if (!enabled) warnings.push('RB_AUDIT=off: tool calls and refused requests are not recorded.');
+  if (!enabled) warnings.push(AUDIT_OFF_WARNING);
   if (nrqlRaw === 'full') {
     warnings.push(
       'RB_AUDIT_NRQL=full stores query text including literal values (redacted for secrets only).',

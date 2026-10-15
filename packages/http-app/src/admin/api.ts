@@ -88,6 +88,13 @@ import { type AdminTokenVerifier, adminBearer } from './token.ts';
 export const ADMIN_API_BASE: '/api/admin/v1' = '/api/admin/v1';
 /** Largest admin request body (a project with 1000 accounts and every limit is a few KiB). */
 export const DEFAULT_ADMIN_MAX_BODY_BYTES: number = 64 * 1024;
+/**
+ * Body cap of `POST /config/import`, and the CLI's cap on the file it reads (P8-74), so the two agree. Larger than
+ * the general admin cap because a bundle may carry what its schema allows: `secrets.sealed` alone may be 300,000
+ * characters, plus up to 200 users, 100 keys, 100 projects and 500 grants. The body is read only after
+ * authentication, like every other admin body.
+ */
+export const CONFIG_IMPORT_MAX_BYTES: number = 1024 * 1024;
 const DEFAULT_PAGE = 50;
 const ADMIN_REALM = 'Bearer realm="relic-bridge-admin"';
 /** Recorded (`details.via`) for changes made with the bootstrap admin token. */
@@ -1227,13 +1234,17 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
       'header equal to the public URL.',
   });
 
+  /** `POST /config/import` takes {@link CONFIG_IMPORT_MAX_BYTES}; everything else `deps.maxBodyBytes`. */
+  const bodyCap = (c: Context): number =>
+    c.req.method === 'POST' && relPath(c) === '/config/import' ? CONFIG_IMPORT_MAX_BYTES : deps.maxBodyBytes;
+
   // 1. Declared body size, then pre-authentication hooks (per-IP limit, failed-auth throttle), then the token.
   api.use('*', async (c, next) => {
     const requestId = c.get('requestId');
     const log = c.get('log');
     log['admin'] = true;
     const declared = c.req.header('content-length');
-    if (declared !== undefined && (!/^\d{1,15}$/.test(declared) || Number(declared) > deps.maxBodyBytes)) {
+    if (declared !== undefined && (!/^\d{1,15}$/.test(declared) || Number(declared) > bodyCap(c))) {
       log['reject'] = 'body_size';
       return adminErrorResponse(new AdminApiError('payload_too_large', 'request body is too large'));
     }
@@ -1299,13 +1310,11 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
     }
     await next();
   });
-  api.use(
-    '*',
-    bodyLimit({
-      maxSize: deps.maxBodyBytes,
-      onError: () => adminErrorResponse(new AdminApiError('payload_too_large', 'request body is too large')),
-    }),
-  );
+  const tooLarge = () =>
+    adminErrorResponse(new AdminApiError('payload_too_large', 'request body is too large'));
+  const generalLimit = bodyLimit({ maxSize: deps.maxBodyBytes, onError: tooLarge });
+  const importLimit = bodyLimit({ maxSize: CONFIG_IMPORT_MAX_BYTES, onError: tooLarge });
+  api.use('*', (c, next) => (bodyCap(c) === CONFIG_IMPORT_MAX_BYTES ? importLimit : generalLimit)(c, next));
 
   /** Run a change: on success audit `ok` and clear the access cache; on failure audit the error code and rethrow. */
   const change = async <T>(

@@ -6,6 +6,7 @@ import { createLogger, ErrorCode, type Identity, RbError, Secret } from '@relic-
 import { type AuditRecord, createMemoryStorage, StorageError } from '@relic-bridge/storage';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  CONFIG_IMPORT_MAX_BYTES,
   createAuditRecorder,
   createHttpApp,
   createRateLimitHooks,
@@ -449,6 +450,37 @@ describe('validation and the error model', () => {
     );
     expect(res.status).toBe(413);
     expect(await world.storage.users.list()).toHaveLength(1);
+  });
+
+  it('POST /config/import takes bodies up to CONFIG_IMPORT_MAX_BYTES, the CLI file cap (P8-74)', async () => {
+    const app = makeApp();
+    expect(CONFIG_IMPORT_MAX_BYTES).toBe(1024 * 1024);
+    const sized = (bytes: number) => {
+      const shell = JSON.stringify({ bundle: { pad: '' } });
+      return JSON.stringify({ bundle: { pad: 'x'.repeat(bytes - shell.length) } });
+    };
+    const post = (raw: string, headers: Record<string, string> = {}) =>
+      admin(app, '/config/import', {
+        method: 'POST',
+        raw,
+        headers: { 'content-type': 'application/json', ...headers },
+      });
+    // Over the general 64 KiB, at the import cap: read and validated (400), not refused for size.
+    const atCap = sized(CONFIG_IMPORT_MAX_BYTES);
+    expect(new TextEncoder().encode(atCap).length).toBe(CONFIG_IMPORT_MAX_BYTES);
+    expect((await post(atCap)).status).toBe(400);
+    // One byte over: refused, declared or streamed.
+    const over = sized(CONFIG_IMPORT_MAX_BYTES + 1);
+    expect((await post(over, { 'content-length': String(over.length) })).status).toBe(413);
+    expect((await post(over)).status).toBe(413);
+    // Other routes keep the general cap.
+    expect((await post(sized(70 * 1024))).status).toBe(400);
+    const users = await admin(app, '/users', {
+      method: 'POST',
+      raw: sized(70 * 1024),
+      headers: { 'content-type': 'application/json' },
+    });
+    expect(users.status).toBe(413);
   });
 
   it('answers unknown endpoints with the admin error shape', async () => {

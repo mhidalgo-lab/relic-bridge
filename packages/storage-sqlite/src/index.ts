@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // `@relic-bridge/storage-sqlite`: the `sqlite` adapter for Node (ADR-0006), on the built-in `node:sqlite`.
 // Node only; the runtime-agnostic packages never import it (ADR-0004).
+import { existsSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
-import { MIGRATIONS, MigrationError, migrate, type Storage } from '@relic-bridge/storage';
+import { MIGRATIONS, MigrationError, migrate, type Storage, StorageError } from '@relic-bridge/storage';
 import {
   buildD1Export,
   type D1Export,
@@ -40,6 +41,12 @@ export interface SqliteStorageOptions {
   readonly migrate?: boolean;
   /** How long a writer waits for another connection's lock (default 5000). */
   readonly busyTimeoutMs?: number;
+  /**
+   * Open an existing file read-only, for diagnostics (`doctor`, P8-74): no file creation, no `chmod`, no journal-mode
+   * or other pragma that writes, no migration (an out-of-date database is refused, as with `migrate: false`), and every
+   * write fails. SQLite may still create the usual `-wal` / `-shm` side files of a WAL database to read it.
+   */
+  readonly readOnly?: boolean;
 }
 
 export interface SqliteStorage extends Storage {
@@ -72,16 +79,27 @@ export async function openSqliteStorage(options: SqliteStorageOptions): Promise<
   const busy = Math.trunc(options.busyTimeoutMs ?? 5000);
   if (!Number.isInteger(busy) || busy < 0)
     throw new RangeError('busyTimeoutMs must be a non-negative integer');
-  prepareDatabaseFile(path);
-  const db = new DatabaseSync(path, { enableForeignKeyConstraints: true });
+  const readOnly = options.readOnly === true;
+  if (readOnly) {
+    if (path === MEMORY_PATH || !existsSync(path))
+      throw new StorageError('not_found', 'database file not found');
+  } else {
+    prepareDatabaseFile(path);
+  }
+  let db: DatabaseSync;
+  try {
+    db = new DatabaseSync(path, { enableForeignKeyConstraints: true, readOnly });
+  } catch (error) {
+    throw mapSqliteError(error);
+  }
   try {
     db.exec(`PRAGMA busy_timeout = ${busy}`);
     db.exec('PRAGMA foreign_keys = ON');
-    if (path !== MEMORY_PATH) {
+    if (path !== MEMORY_PATH && !readOnly) {
       db.exec('PRAGMA journal_mode = WAL');
       db.exec('PRAGMA synchronous = NORMAL');
     }
-    if (options.migrate ?? true) await migrate(driverFor(db), MIGRATIONS, { now });
+    if (!readOnly && (options.migrate ?? true)) await migrate(driverFor(db), MIGRATIONS, { now });
     else assertCurrent(db);
   } catch (error) {
     db.close();
@@ -90,7 +108,7 @@ export async function openSqliteStorage(options: SqliteStorageOptions): Promise<
   let closed = false;
   return Object.freeze({
     kind: 'sqlite' as const,
-    readOnly: false,
+    readOnly,
     path,
     ...createRepositories(db, now),
     async backup(destination: string) {

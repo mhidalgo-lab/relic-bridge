@@ -71,7 +71,9 @@ Rules the import follows:
 
 - **Strict.** Unknown fields, wrong types, more than 200 users, 100 keys, 100 projects or 500 grants, duplicates,
   references that do not resolve inside the file and tool names this server does not have are all refused before
-  anything changes. The Admin API body limit (64 KiB by default) applies.
+  anything changes. A file may be at most 1 MiB, and so may the import request (the same limit in the CLI and on
+  the server's `POST /config/import`); the CLI refuses a larger one before sending it. Split a bigger configuration
+  into several files.
 - **Idempotent.** Entities are matched by natural key (user email, key owner + label, project slug, grant project +
   user or service label). Importing the same file twice changes nothing the second time.
 - **Additive.** It never deletes or revokes anything. **Users** are created, never modified, and are never created as

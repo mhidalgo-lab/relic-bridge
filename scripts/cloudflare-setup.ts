@@ -102,13 +102,31 @@ export function localConfigName(name: string): string {
 /** The committed config for Worker `name`: its own D1 database name, so provisioning never reuses another's. */
 export function localConfigFor(committed: string, name: string): string {
   if (name === DEFAULT_NAME) return committed;
+  if (!TOP_NAME_RE.test(committed)) throw new SetupError('wrangler.jsonc has no top-level "name" to rename');
   const re = /"database_name":\s*"relic-bridge"/;
   const ns = /("namespace_id":\s*)"1701"/;
   if (!re.test(committed))
     throw new SetupError('wrangler.jsonc has no relic-bridge D1 database_name to rename');
   if (!ns.test(committed))
     throw new SetupError('wrangler.jsonc has no ratelimits namespace_id "1701" to rename');
-  return committed.replace(re, `"database_name": "${name}"`).replace(ns, `$1"${rateLimitNamespace(name)}"`);
+  return withWorkerName(committed, name)
+    .replace(re, `"database_name": "${name}"`)
+    .replace(ns, `$1"${rateLimitNamespace(name)}"`);
+}
+
+/** The first `"name": "..."` of a config is the Worker name (it comes before any binding in wrangler.jsonc). */
+const TOP_NAME_RE = /("name"\s*:\s*)"([^"]*)"/;
+
+/** The Worker name a config text declares (P8-94), or undefined when it has none. */
+export function configWorkerName(text: string): string | undefined {
+  const parsed = parseJsonc(text);
+  if (isRecord(parsed)) return typeof parsed['name'] === 'string' ? parsed['name'] : undefined;
+  return TOP_NAME_RE.exec(text)?.[2];
+}
+
+/** `text` with the Worker name set to `name`, everything else byte for byte. */
+export function withWorkerName(text: string, name: string): string {
+  return text.replace(TOP_NAME_RE, `$1"${name}"`);
 }
 
 /** Cloudflare wants an account-unique integer string; derive one from the Worker name (FNV-1a), 1701 for the default. */
@@ -631,6 +649,7 @@ export async function runSetup(opts: SetupOptions, deps: SetupDeps): Promise<{ u
   const backupPath = opts.backupFile === undefined ? undefined : resolve(opts.backupFile);
   const cfg = ['-c', localConfig, '--name', opts.name] as const;
   const wanted = secretsToSet(opts);
+  const toGenerate = opts.masterKeyStdin ? wanted.filter((n) => n !== 'RB_MASTER_KEY') : wanted;
 
   if (opts.dryRun) {
     log('Dry run: nothing is generated, sent or deployed.');
@@ -642,14 +661,14 @@ export async function runSetup(opts: SetupOptions, deps: SetupDeps): Promise<{ u
       `  1. copy wrangler.jsonc to ${localName} (git-ignored; it gets the D1 database id after the deploy)` +
         (opts.name === DEFAULT_NAME
           ? ''
-          : `, with D1 database "${opts.name}" and rate-limit namespace ${rateLimitNamespace(opts.name)}`),
+          : `, with "name": "${opts.name}", D1 database "${opts.name}" and rate-limit namespace ${rateLimitNamespace(opts.name)}`),
     );
     log(
       '     on a re-run: warn about settings of wrangler.jsonc (a new binding or cron) that the copy lacks or changes;',
     );
     log('     routes, workers_dev, preview_urls, vars, account_id and ids are yours and are not compared');
     log(
-      `  2. generate ${wanted.join(', ')} for Worker "${opts.name}" and send them to \`wrangler secret bulk\` on stdin,`,
+      `  2. generate ${toGenerate.join(', ')} for Worker "${opts.name}" and send them to \`wrangler secret bulk\` on stdin,`,
     );
     if (opts.masterKeyStdin) {
       log(
@@ -714,7 +733,24 @@ export async function runSetup(opts: SetupOptions, deps: SetupDeps): Promise<{ u
     log(`Created ${localName} (git-ignored).`);
   } else {
     const wanted = localConfigFor(deps.fs.read(join(deps.workerDir, 'wrangler.jsonc')), opts.name);
-    const current = existingCopy ?? deps.fs.read(localConfig);
+    let current = existingCopy ?? deps.fs.read(localConfig);
+    const copyName = configWorkerName(current);
+    if (copyName !== opts.name) {
+      // A copy by an earlier version keeps the default name whatever --name was: rewrite it once. Any other name is
+      // the operator's; refuse rather than guess, because `wrangler -c <copy>` acts on the Worker the copy names.
+      if (copyName === DEFAULT_NAME && opts.name !== DEFAULT_NAME) {
+        current = withWorkerName(current, opts.name);
+        deps.fs.replace(localConfig, current);
+        log(
+          `NOTE: ${localName} named the Worker "${DEFAULT_NAME}" (an earlier version of this script kept the default name), so \`wrangler -c ${localName}\` commands would have acted on the production Worker. Rewrote it to "${opts.name}".`,
+        );
+      } else {
+        throw new SetupError(
+          `${localName} names the Worker ${copyName === undefined ? 'nothing' : `"${copyName}"`}, but --name is "${opts.name}": wrangler commands that use this copy would act on the wrong Worker. ` +
+            `Set "name": "${opts.name}" in ${localName}, or delete the copy (the database stays bound by name) and run again.`,
+        );
+      }
+    }
     if (/"kv_namespaces"\s*:\s*\[[^\]]*"OAUTH_KV"/.test(current)) {
       log(
         `NOTE: ${localName} still declares the OAUTH_KV KV namespace, which relic-bridge no longer uses. It is harmless; remove the "kv_namespaces" entry from the copy, and delete the namespace with \`wrangler kv namespace delete\` (see the upgrade note in docs/guide/cloudflare-deploy.md).`,
@@ -839,11 +875,20 @@ export async function runSetup(opts: SetupOptions, deps: SetupDeps): Promise<{ u
   );
   if (!cliBuilt) log('  pnpm --filter ./apps/cli build   # once: builds the CLI (pnpm install does not)');
   log(`  export RB_REMOTE=${remote}`);
-  log(
-    `  ${CLI} credential add --label main --region US   # your New Relic User API key: prompted, never a flag`,
-  );
-  log(`  ${CLI} project add ...  &&  ... grant create ...  &&  ... token create ...`);
-  log('  (details: docs/guide/cloudflare-deploy.md and docs/guide/multi-device.md)');
+  if (opts.masterKeyStdin) {
+    log(
+      '  # Your data comes from the server you migrate from: do NOT run credential add / project add (that duplicates it).',
+    );
+    log(
+      '  # Import the export, then check it: see "Migrate from a self-hosted server" in docs/guide/cloudflare-deploy.md',
+    );
+  } else {
+    log(
+      `  ${CLI} credential add --label main --region US   # your New Relic User API key: prompted, never a flag`,
+    );
+    log(`  ${CLI} project add ...  &&  ... grant create ...  &&  ... token create ...`);
+    log('  (details: docs/guide/cloudflare-deploy.md and docs/guide/multi-device.md)');
+  }
   log(`  curl ${url === undefined ? '"$RB_REMOTE"' : remote}/health`);
   if (signIn !== undefined) {
     log('');

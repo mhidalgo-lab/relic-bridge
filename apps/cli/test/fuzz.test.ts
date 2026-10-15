@@ -177,6 +177,7 @@ describe('serve settings from RB_* variables (T20/T24)', { timeout: FUZZ_TIMEOUT
         if (s.oauth !== null) expect(ON).toContain(norm(env['RB_OAUTH']));
         if (s.telemetry !== null) expect(ON).toContain(norm(env['RB_OTEL']));
         if (s.hsts === false) expect(['false', '0']).toContain(norm(env['RB_HSTS']));
+        if (s.hstsAlways) expect(s.hsts).toBe('auto');
         expect(s.trustedProxyHops).toBeGreaterThanOrEqual(0);
         expect(s.trustedProxyHops).toBeLessThanOrEqual(5);
         if (s.accessCacheTtlMs !== undefined) expect(s.accessCacheTtlMs).toBeLessThanOrEqual(60_000);

@@ -138,6 +138,7 @@ describe('serveSettings', () => {
       dbPath: '/home/u/.local/share/relic-bridge/relic-bridge.db',
       corsOrigins: [],
       hsts: 'auto',
+      hstsAlways: false,
     });
     expect(s.allowedHosts).toEqual(expect.arrayContaining(['localhost', '127.0.0.1']));
   });
@@ -165,6 +166,21 @@ describe('serveSettings', () => {
       hsts: true,
       dbPath: '/srv/rb.db',
     });
+  });
+
+  it('sends HSTS by default when RB_PUBLIC_URL is https, without declaring a TLS proxy (P8-66)', () => {
+    const hsts = (env: Record<string, string>) => {
+      const s = serveSettings({ ...base, env });
+      return [s.hsts, s.hstsAlways];
+    };
+    expect(hsts({})).toEqual(['auto', false]);
+    expect(hsts({ RB_PUBLIC_URL: 'https://mcp.example.com' })).toEqual(['auto', true]);
+    expect(hsts({ RB_PUBLIC_URL: ' https://mcp.example.com ', RB_HSTS: 'auto' })).toEqual(['auto', true]);
+    expect(hsts({ RB_PUBLIC_URL: 'http://localhost:8787' })).toEqual(['auto', false]);
+    expect(hsts({ RB_PUBLIC_URL: 'not a url' })).toEqual(['auto', false]);
+    expect(hsts({ RB_PUBLIC_URL: 'https://mcp.example.com', RB_HSTS: 'false' })).toEqual([false, false]);
+    expect(hsts({ RB_PUBLIC_URL: 'https://mcp.example.com', RB_HSTS: '0' })).toEqual([false, false]);
+    expect(hsts({ RB_HSTS: 'true' })).toEqual([true, false]);
   });
 
   it('needs RB_ALLOWED_HOSTS for a non-loopback bind; * is accepted with a warning', () => {
@@ -333,6 +349,33 @@ describe('startServer (in process)', () => {
       startServer({ ...common, env: { RB_MASTER_KEY: generateMasterKey(1) } }),
     ).rejects.toMatchObject({ code: 'key_mismatch' });
     await expect(startServer({ ...common, env: {} })).rejects.toMatchObject({ code: 'master_key_missing' });
+  });
+
+  it('sends HSTS over its plain-http listener when RB_PUBLIC_URL is https (P8-66)', async () => {
+    const key = generateMasterKey(1);
+    const db = join(tmp, 'rb.db');
+    const logger = createLogger({ sink: () => undefined });
+    const run = async (env: Record<string, string>) => {
+      const settings = serveSettings({ port: '0', db, env, platform: 'linux' });
+      const server = await startServer({
+        settings,
+        fs: memoryFs({}),
+        platform: 'linux',
+        logger,
+        env: { ...env, RB_MASTER_KEY: key },
+      });
+      try {
+        return (await fetch(`${server.url}/health`)).headers.get('strict-transport-security');
+      } finally {
+        await server.close();
+      }
+    };
+    expect(await run({ RB_PUBLIC_URL: 'https://mcp.example.com' })).toBe(
+      'max-age=31536000; includeSubDomains',
+    );
+    expect(await run({ RB_PUBLIC_URL: 'https://mcp.example.com', RB_HSTS: 'false' })).toBeNull();
+    expect(await run({ RB_PUBLIC_URL: 'http://localhost:8787' })).toBeNull();
+    expect(await run({})).toBeNull();
   });
 
   it('warns at boot when credentials sit under a key version the keyring lacks (P3-15)', async () => {

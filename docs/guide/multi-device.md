@@ -114,6 +114,8 @@ owner (`sudo -u relic-bridge env RB_DATA_DIR=/var/lib/relic-bridge ... relic-bri
 `127.0.0.1` and put Caddy or nginx in front, proxying `https://mcp.example.com` to `127.0.0.1:8787` with response
 buffering off (Streamable HTTP can answer with an event stream; the [Caddyfile](../../deploy/Caddyfile) shows the
 settings). `RB_TRUSTED_PROXY_HOPS=1` makes the server read the client address from the proxy's `X-Forwarded-For`.
+`RB_HSTS=true` sends `Strict-Transport-Security` although the server sees plain http from the proxy (an https
+`RB_PUBLIC_URL`, needed for sign-in, does that too; `RB_HSTS=false` turns it off).
 Every setting: [self-hosting](self-hosting.md#run-the-server).
 
 ### Check the server

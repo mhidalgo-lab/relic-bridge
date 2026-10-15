@@ -19,7 +19,7 @@ services:
       RB_MASTER_KEY_FILE: /run/secrets/rb_master_key
       RB_ALLOWED_HOSTS: ${MCP_HOSTNAME:?set MCP_HOSTNAME in .env}
       RB_TRUSTED_PROXY_HOPS: '1' # Caddy is one proxy hop
-      RB_HSTS: 'true' # Caddy terminates TLS: send HSTS, and let pass-through (RB_PASSTHROUGH) accept requests
+      RB_HSTS: 'true' # Caddy terminates TLS: send HSTS (an https RB_PUBLIC_URL also would) and let pass-through accept requests
       # RB_ADMIN_TOKEN_FILE: /run/secrets/rb_admin_token   # enables the admin API (same 0400 / uid 65532 rule)
     secrets: [rb_master_key]
     volumes:

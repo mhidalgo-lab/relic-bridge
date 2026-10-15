@@ -184,7 +184,9 @@ dashboard (Workers & Pages, your Worker, Settings, Domains & Routes, Add, Custom
 "routes": [{ "pattern": "mcp.example.com", "custom_domain": true }]
 ```
 
-Cloudflare then creates the DNS record and the certificate. Set `RB_ALLOWED_HOSTS=mcp.example.com`: the Host check is
+Cloudflare then creates the DNS record and the certificate. Every Worker response, the `503` of a failed boot
+included, carries `Strict-Transport-Security: max-age=31536000; includeSubDomains`: on a custom domain this covers
+the zone's subdomains too, so only use a hostname under a domain whose subdomains are all served over https. Set `RB_ALLOWED_HOSTS=mcp.example.com`: the Host check is
 **off** by default on Workers (Cloudflare only routes your own hostnames to the Worker); set it to refuse any other name.
 Use the new URL in the tokens you create from then on (`--url`); existing device configurations keep working on
 `workers.dev` until you set `"workers_dev": false`, which turns that address off. Source:

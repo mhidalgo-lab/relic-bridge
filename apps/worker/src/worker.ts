@@ -38,6 +38,7 @@ import {
   createTelemetry,
   DEFAULT_RATE_LIMITS,
   describeAdminTokenProblem,
+  HSTS_VALUE,
   mergeHooks,
   normalizeClientIp,
   OAuthConfigError,
@@ -221,6 +222,8 @@ function unavailable(retryAfterSeconds: number): Response {
     status: 503,
     headers: {
       ...SECURITY_HEADERS,
+      // Built outside the app's header middleware; Workers are only reached over https (P8-66).
+      'Strict-Transport-Security': HSTS_VALUE,
       'Content-Type': 'application/json',
       'Retry-After': String(retryAfterSeconds),
     },

@@ -3,6 +3,10 @@
 
 export const REDACTED = '[REDACTED]';
 
+// Every pattern below must do work linear in the input (no unbounded scan that can restart at each position): text
+// from New Relic data and NRQL reaches redact() and must not be able to stall it. Name prefixes and URL schemes are
+// bounded, and token shapes that may repeat inside one run of characters start only at the run's beginning.
+
 /** Value patterns: each match is replaced; the replacer keeps a short, non-secret prefix for debugging. */
 const VALUE_PATTERNS: ReadonlyArray<[RegExp, (match: string, ...groups: string[]) => string]> = [
   // New Relic keys: User (NRAK), admin (NRAA), ingest/insights/browser/mobile (NRII, NRIK, NRIQ, NRJS, NRBR, NRSP).
@@ -19,17 +23,21 @@ const VALUE_PATTERNS: ReadonlyArray<[RegExp, (match: string, ...groups: string[]
     (_m, name, scheme = '') => `${name}${scheme}${REDACTED}`,
   ],
   // key/value assignments: API-Key: x, apiKey=x, RB_MASTER_KEY=x, NEW_RELIC_API_KEY=x, DB_PASSWORD=x,
-  // client_secret=x, access_token=x, aws_secret_access_key=x. A name prefix (`DB_`, `client_`, `x-`) is allowed.
+  // client_secret=x, access_token=x, aws_secret_access_key=x. A name prefix (`DB_`, `client_`, `x-`) is allowed; only
+  // its last 40 characters are matched (bounded work), and a longer name still has its value redacted.
   [
-    /\b([A-Za-z0-9_.-]*?(?:api[_-]?key|(?:master|license|ingest|access)[_-]?key|passw(?:or)?d|secret|token|credentials?|private[_-]?key))("?\s*[:=]\s*"?)([^\s",;}&]+)/gi,
+    /([A-Za-z0-9_.-]{0,40}?(?:api[_-]?key|(?:master|license|ingest|access)[_-]?key|passw(?:or)?d|secret|token|credentials?|private[_-]?key))("?\s*[:=]\s*"?)([^\s",;}&]+)/gi,
     (_m, name, sep) => `${name}${sep}${REDACTED}`,
   ],
 ];
 
 /** Secret shapes that show up in free text (log lines, error messages, URLs) beyond the value patterns above. */
 const FREE_TEXT_PATTERNS: ReadonlyArray<[RegExp, string]> = [
-  // JSON web tokens.
-  [/\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]*/g, '[REDACTED_JWT]'],
+  // JSON web tokens; also one cut short at the end of the text (header and the start of the payload).
+  [
+    /(?<![A-Za-z0-9_-])eyJ[A-Za-z0-9_-]{8,}\.(?:[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]*|[A-Za-z0-9_-]*$)/g,
+    '[REDACTED_JWT]',
+  ],
   // AWS access key ids; GitHub, Slack, Stripe and OpenAI-style tokens.
   [/\b(?:AKIA|ASIA)[A-Z0-9]{16}\b/g, '[REDACTED_AWS_KEY]'],
   [/\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})/g, '[REDACTED_TOKEN]'],
@@ -37,7 +45,7 @@ const FREE_TEXT_PATTERNS: ReadonlyArray<[RegExp, string]> = [
   [/\b(?:sk|pk|rk)_(?:live|test)_[A-Za-z0-9]{10,}/g, '[REDACTED_TOKEN]'],
   [/\bsk-[A-Za-z0-9_-]{20,}/g, '[REDACTED_TOKEN]'],
   // Credentials in URLs: scheme://user:password@host.
-  [/\b([a-z][a-z0-9+.-]*:\/\/)[^\s/:@]+:[^\s/@]+@/gi, '$1[REDACTED]@'],
+  [/([a-z][a-z0-9+.-]{0,31}:\/\/)[^\s/:@]+:[^\s/@]+@/gi, '$1[REDACTED]@'],
   // PEM private key bodies.
   [
     /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z ]*PRIVATE KEY-----|$)/g,
@@ -59,6 +67,35 @@ export function redact(input: string): string {
   for (const [re, replace] of VALUE_PATTERNS) out = out.replace(re, replace as (m: string) => string);
   for (const [re, replacement] of FREE_TEXT_PATTERNS) out = out.replace(re, replacement);
   return out;
+}
+
+/** Characters redacted past a caller's cap (see redactHead), so a secret that crosses the cap is still recognised. */
+export const REDACT_CUT_MARGIN = 1024;
+
+export interface RedactedHead {
+  /** Redacted text: all of the input, or its start when `cut`. May be longer than the cap; the caller cuts it. */
+  readonly text: string;
+  /** True when the input was longer than the cap plus REDACT_CUT_MARGIN and only its start was redacted. */
+  readonly cut: boolean;
+}
+
+/**
+ * Redact only the part of `input` a caller keeps (its first `max` characters), so the work is bounded by the cap and
+ * not by the input. Redaction runs on the first `max` + REDACT_CUT_MARGIN characters: a secret that crosses the cap is
+ * matched with its tail. The end of that window can split a secret too, and a shrinking redaction (a long value
+ * replaced by REDACTED) can pull the window's end below the cap, so the untouched characters at the end of the window
+ * (up to the margin) are dropped: what is returned is either redacted or came from before the window's last margin.
+ */
+export function redactHead(input: string, max: number): RedactedHead {
+  const window = Math.max(0, max) + REDACT_CUT_MARGIN;
+  if (input.length <= window) return { text: redact(input), cut: false };
+  const head = input.slice(0, window);
+  const out = redact(head);
+  const limit = Math.min(REDACT_CUT_MARGIN, out.length);
+  let same = 0;
+  while (same < limit && out.charCodeAt(out.length - 1 - same) === head.charCodeAt(head.length - 1 - same))
+    same++;
+  return { text: out.slice(0, out.length - same), cut: true };
 }
 
 const MAX_DEPTH = 8;

@@ -61,7 +61,15 @@ export {
   renderPrompt,
   selectPrompts,
 } from './prompts.ts';
-export { isSecretKeyName, REDACTED, redact, redactValue } from './redact.ts';
+export {
+  isSecretKeyName,
+  REDACT_CUT_MARGIN,
+  REDACTED,
+  type RedactedHead,
+  redact,
+  redactHead,
+  redactValue,
+} from './redact.ts';
 export {
   additiveOutput,
   inputJsonSchema,

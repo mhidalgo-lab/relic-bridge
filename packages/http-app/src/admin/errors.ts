@@ -2,7 +2,7 @@
 // The admin API error model (P2-09): `{ "error": { "code", "message", "field"? } }` with stable codes. Messages name
 // fields and ids only and pass through `redact()`, so a key or token pasted into the wrong field is never echoed.
 import { isAccessError, isCryptoError, isKeyRejection } from '@relic-bridge/auth';
-import { isRbError, redact } from '@relic-bridge/core';
+import { isRbError, redactHead } from '@relic-bridge/core';
 import {
   ConflictError,
   InvalidInputError,
@@ -85,9 +85,9 @@ export function adminErrorBody(error: AdminApiError): Record<string, unknown> {
   return {
     error: {
       code: error.code,
-      message: redact(error.message).slice(0, MAX_MESSAGE),
+      message: redactHead(error.message, MAX_MESSAGE).text.slice(0, MAX_MESSAGE),
       // A field name can come from the request (an unknown key), so it is redacted like the message.
-      ...(error.field === undefined ? {} : { field: redact(error.field).slice(0, 100) }),
+      ...(error.field === undefined ? {} : { field: redactHead(error.field, 100).text.slice(0, 100) }),
       ...(error.detail === undefined ? {} : { detail: error.detail }),
     },
   };

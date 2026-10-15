@@ -43,7 +43,7 @@ import {
   userWriteScope,
   type WriteScopeChange,
 } from '@relic-bridge/auth';
-import { type Clock, type Logger, redact, Secret, siblingWarnings } from '@relic-bridge/core';
+import { type Clock, type Logger, redactHead, Secret, siblingWarnings } from '@relic-bridge/core';
 import {
   type AccessTokenRecord,
   type AuditQuery,
@@ -298,7 +298,7 @@ function b64urlDecode(text: string): string | null {
 }
 
 const cleanId = (id: string | null | undefined): string | null =>
-  id === undefined || id === null ? null : redact(id).slice(0, 64);
+  id === undefined || id === null ? null : redactHead(id, 64).text.slice(0, 64);
 
 const badCursor = (): AdminApiError =>
   new AdminApiError('invalid_request', 'cursor is not a cursor from this list', { field: 'cursor' });
@@ -1151,7 +1151,7 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
             via: viaOf(principal),
             reason,
             method: c.req.method,
-            route: redact(relPath(c)).slice(0, 100),
+            route: redactHead(relPath(c), 100).text.slice(0, 100),
             ...(principal ? { role: principal.role } : {}),
           },
         }),
@@ -1334,7 +1334,9 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
   };
 
   const notFound = (what: string, id: string) =>
-    new AdminApiError('not_found', `${what} ${redact(id).slice(0, 64)} not found`, { field: 'id' });
+    new AdminApiError('not_found', `${what} ${redactHead(id, 64).text.slice(0, 64)} not found`, {
+      field: 'id',
+    });
 
   const must = async <T>(what: string, id: string, get: (id: string) => Promise<T | null>): Promise<T> => {
     const row = await get(id);

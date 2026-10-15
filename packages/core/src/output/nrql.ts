@@ -3,7 +3,7 @@ import { z } from 'zod';
 import type { QueryCacheInfo } from '../cache/query-cache.ts';
 import type { NrqlTotals } from '../nrql/documents.ts';
 import type { NrqlComplete, NrqlOutcome, NrqlPending } from '../nrql/engine.ts';
-import { redact, redactValue } from '../redact.ts';
+import { redact, redactHead, redactValue } from '../redact.ts';
 import type { ToolOutput } from '../tool.ts';
 import { estimateTokens, type ShapeRowsOptions, shapeRows } from './format.ts';
 import { type DetailMode, type ResultSummary, SUMMARY_MIN_ROWS, summarizeRows } from './summarize.ts';
@@ -240,6 +240,9 @@ function shapeComplete(outcome: NrqlComplete, allOptions: ShapeNrqlOptions): Too
   ];
   const clean = (v: NrqlTotals) => ((options.redactSecrets ?? true) ? (redactValue(v) as NrqlTotals) : v);
   const scrub = (v: string) => ((options.redactSecrets ?? true) ? redact(v) : v);
+  // Cut to `max`, redacting only what is kept (redactHead) so the work follows the cap.
+  const scrubTo = (v: string, max: number) =>
+    ((options.redactSecrets ?? true) ? redactHead(v, max).text : v).slice(0, max);
   const md = outcome.metadata;
   const structured: NrqlResult = {
     status: 'complete',
@@ -265,7 +268,7 @@ function shapeComplete(outcome: NrqlComplete, allOptions: ShapeNrqlOptions): Too
             anomalies: reduced.summary.anomalies.map((a) => ({
               ...a,
               column: scrub(a.column),
-              ...(a.series === undefined ? {} : { series: scrub(a.series).slice(0, 200) }),
+              ...(a.series === undefined ? {} : { series: scrubTo(a.series, 200) }),
             })),
           },
         }

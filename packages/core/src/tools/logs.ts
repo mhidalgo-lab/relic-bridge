@@ -8,7 +8,7 @@ import { type NrqlComplete, runNrql } from '../nrql/engine.ts';
 import { type NrqlQuery, nrql } from '../nrql/template.ts';
 import { pickFields } from '../output/compact.ts';
 import { shapeRows } from '../output/format.ts';
-import { redact } from '../redact.ts';
+import { redactHead } from '../redact.ts';
 import { parseTimeRange } from '../time/range.ts';
 import { defineTool, type ToolDefinition } from '../tool.ts';
 import { likePattern } from './apm.ts';
@@ -146,8 +146,7 @@ const LEVEL_FIELD = z
  * A log message made safe to show: only the first characters are examined, secrets are redacted (the central patterns) BEFORE the cut so a secret can't be split by it, then single-lined and capped.
  */
 export function cleanLogMessage(raw: string, max: number = MAX_MESSAGE_CHARS): string {
-  const text = raw.slice(0, MAX_RAW_CHARS);
-  return cleanName(redact(text), max);
+  return cleanName(redactHead(raw, Math.min(max, MAX_RAW_CHARS)).text, max);
 }
 
 const NORMALISERS: readonly [RegExp, string][] = [

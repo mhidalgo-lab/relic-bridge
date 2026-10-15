@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import { ErrorCode, RbError } from '../errors.ts';
-import { redact } from '../redact.ts';
+import { redactHead } from '../redact.ts';
 import { envelope } from './envelope.ts';
 
 export type OutputFormat = 'auto' | 'table' | 'csv' | 'json';
@@ -105,9 +105,27 @@ export function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4);
 }
 
+/**
+ * Redacted (when `redactSecrets`) and cut to `max` like truncateText. Only the start of a long text is redacted
+ * (redactHead), so the work follows the cap and not the size of the value. `cut` says whether anything was dropped.
+ */
+export function redactTruncate(
+  text: string,
+  max: number,
+  redactSecrets = true,
+): { readonly text: string; readonly cut: boolean } {
+  if (!redactSecrets) return { text: truncateText(text, max), cut: text.length > max };
+  const head = redactHead(text, max);
+  if (!head.cut) return { text: truncateText(head.text, max), cut: head.text.length > max };
+  return { text: head.text.length < max ? `${head.text}…` : cutText(head.text, max), cut: true };
+}
+
 /** Cut to `max` UTF-16 units, never splitting a surrogate pair, marking the cut with `…`. */
 export function truncateText(text: string, max: number): string {
-  if (text.length <= max) return text;
+  return text.length <= max ? text : cutText(text, max);
+}
+
+function cutText(text: string, max: number): string {
   let end = Math.max(0, max - 1);
   const code = text.charCodeAt(end - 1);
   if (code >= 0xd800 && code <= 0xdbff) end -= 1;
@@ -135,15 +153,15 @@ function shapeValue(value: unknown, caps: OutputCaps, redactSecrets: boolean, co
   if (value === undefined) return null;
   if (value === null || typeof value === 'number' || typeof value === 'boolean') return value;
   const isString = typeof value === 'string';
-  let text = toText(value);
-  if (redactSecrets) text = redact(text);
-  if (text.length > caps.maxCellChars) {
+  const raw = toText(value);
+  const { text, cut } = redactTruncate(raw, caps.maxCellChars, redactSecrets);
+  if (cut) {
     counter.cut++;
-    return truncateText(text, caps.maxCellChars);
+    return text;
   }
   if (isString) return text;
   // Small objects / arrays stay structured (re-parsed only if redaction changed them).
-  return redactSecrets && text !== toText(value) ? text : value;
+  return redactSecrets && text !== raw ? text : value;
 }
 
 const NEWLINE_RE = /\r\n|\r|\n/g;
@@ -198,10 +216,10 @@ const TOO_WIDE = '(column names exceed the size cap)';
 const MAX_COLUMN_NAME = 256;
 
 /** Column names as displayed: cut to MAX_COLUMN_NAME and made unique again if the cut made two equal. */
-function displayNames(columns: readonly string[]): string[] {
+function displayNames(columns: readonly string[], redactSecrets: boolean): string[] {
   const used = new Set<string>();
   return columns.map((c) => {
-    const base = truncateText(c, MAX_COLUMN_NAME);
+    const base = redactTruncate(c, MAX_COLUMN_NAME, redactSecrets).text;
     let name = base;
     for (let i = 2; used.has(name); i++) name = `${base}~${i}`;
     used.add(name);
@@ -231,7 +249,7 @@ export function shapeRows(
   const counter: Counter = { cut: 0 };
   const sourceColumns = allColumns.slice(0, caps.maxColumns);
   // Column names are data too (attribute names, facet labels): redacted like values when redaction is on.
-  const columns = displayNames(redactSecrets ? sourceColumns.map(redact) : sourceColumns);
+  const columns = displayNames(sourceColumns, redactSecrets);
 
   const requested = options.format ?? 'auto';
   if (!OUTPUT_FORMATS.includes(requested)) {
@@ -287,8 +305,8 @@ export function shapeRows(
     ? `Truncated: ${parts.join('; ')}. To see the rest, ${options.narrowHint ?? DEFAULT_NARROW_HINT}.`
     : undefined;
 
-  const trailer = (options.trailer ?? []).map((l) =>
-    truncateText(redactSecrets ? redact(l) : l, TRAILER_MAX_CHARS),
+  const trailer = (options.trailer ?? []).map(
+    (l) => redactTruncate(l, TRAILER_MAX_CHARS, redactSecrets).text,
   );
   const body = [
     rows.length === 0 ? '(no rows)' : used > caps.maxChars ? TOO_WIDE : lines.join('\n'),

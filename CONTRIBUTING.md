@@ -106,7 +106,12 @@ Check the tarball locally at any time: `pnpm build && pnpm check:package` (`--sk
 - Secrets live only in protected environments, never available to fork PRs.
 - Every job on a Linux runner starts with `step-security/harden-runner` (egress audit; unconditional, CI uses GitHub-hosted runners only). A
   test (`scripts/test/workflow-hardening.test.ts`) fails when a job lacks it. Tools downloaded in CI (actionlint,
-  gitleaks) are verified against a sha256 pinned in the workflow; update the version and digest together.
+  gitleaks) are verified against a sha256 pinned in the workflow. Renovate bumps the release tag and the digest in one
+  PR (P8-70): a `# renovate: datasource=github-release-attachments depName=<owner>/<repo>` comment above
+  `<TOOL>_VERSION: v<x.y.z>` and `<TOOL>_SHA256` lets the custom regex manager in `renovate.json` find the pin, and the
+  new digest comes from the checksums file of the new release. Review the release notes before merging; the 3-day
+  minimum release age applies. A new pinned tool follows the same layout (`scripts/test/tool-pins.test.ts` checks it).
+  Docs-site dependencies (`site/`) arrive as one grouped PR.
 
 ### Repository settings the workflows assume
 

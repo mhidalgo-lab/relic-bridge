@@ -49,8 +49,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
-      GITLEAKS_VERSION: 8.30.1
-      # sha256 of the linux/x64 tarball, pinned here (P8-07); update both values together.
+      # renovate: datasource=github-release-attachments depName=gitleaks/gitleaks
+      GITLEAKS_VERSION: v8.30.1
+      # sha256 of the linux/x64 tarball, pinned here (P8-07). Renovate (P8-70) bumps the tag and this digest together,
+      # taking the digest from that release's checksums file; scripts/test/tool-pins.test.ts checks the pair.
       GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
     steps:
       - uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
@@ -62,8 +64,8 @@ jobs:
           persist-credentials: false
       - name: Install gitleaks (pinned checksum)
         run: |
-          base="https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}"
-          file="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          base="https://github.com/gitleaks/gitleaks/releases/download/${GITLEAKS_VERSION}"
+          file="gitleaks_${GITLEAKS_VERSION#v}_linux_x64.tar.gz"
           curl -fsSLO "$base/$file"
           echo "${GITLEAKS_SHA256}  $file" | sha256sum -c --strict -
           tar -xzf "$file" gitleaks

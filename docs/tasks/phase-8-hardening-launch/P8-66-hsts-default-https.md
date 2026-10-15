@@ -2,11 +2,11 @@
 id: P8-66
 title: HSTS by default when the public URL is https, including the Worker's 503
 phase: 8
-status: todo
+status: in-progress
 priority: medium
 depends_on: []
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P8-66 — HSTS by default when the public URL is https, including the Worker's 503

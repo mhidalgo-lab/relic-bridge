@@ -2,11 +2,11 @@
 id: P8-67
 title: Deprecated-config registry with startup warnings and doctor lines
 phase: 8
-status: todo
+status: in-progress
 priority: medium
 depends_on: []
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P8-67 — Deprecated-config registry with startup warnings and doctor lines

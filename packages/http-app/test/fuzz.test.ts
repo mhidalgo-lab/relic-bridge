@@ -675,7 +675,9 @@ describe('settings from the environment (T30, OAuth)', { timeout: FUZZ_TIMEOUT }
     const name = fc.stringMatching(/^[A-Za-z0-9-]{1,64}$/);
     const value = fc
       .string({ unit: 'binary', maxLength: 30 })
-      .filter((v) => !/[\r\n\0]/.test(v) && v === v.trim());
+      // A valid header value (P8-75): Latin-1 without control characters other than tab.
+      // biome-ignore lint/suspicious/noControlCharactersInRegex: matching control characters is the point.
+      .filter((v) => !/[\u0000-\u0008\u000a-\u001f\u007f]|[^\u0000-\u00ff]/u.test(v) && v === v.trim());
     fc.assert(
       fc.property(
         fc.uniqueArray(fc.tuple(name, value), { selector: ([n]) => n.toLowerCase(), maxLength: 6 }),
@@ -696,7 +698,7 @@ describe('settings from the environment (T30, OAuth)', { timeout: FUZZ_TIMEOUT }
     );
   });
 
-  it('parseOtlpHeaders: any text gives headers without CR, LF or NUL, or a fixed error that never echoes the input', () => {
+  it('parseOtlpHeaders: any text gives valid header values, or a fixed error that never echoes a value', () => {
     const raw = fc.oneof(
       fc.string({ unit: 'binary', maxLength: 80 }),
       fc
@@ -719,9 +721,15 @@ describe('settings from the environment (T30, OAuth)', { timeout: FUZZ_TIMEOUT }
             expect(n).toMatch(/^[a-z0-9-]{1,64}$/);
             expect(v).not.toMatch(/[\r\n\0]/);
           }
+          // Every accepted value is one `Headers` takes (P8-75).
+          expect(() => new Headers(headers)).not.toThrow();
         } catch (error) {
           expect(error).toBeInstanceOf(TelemetryConfigError);
-          expect((error as Error).message).toBe('the OTLP headers are not name=value pairs');
+          const message = (error as Error).message;
+          expect(message).toMatch(
+            /^(the OTLP headers are not name=value pairs|the OTLP header [A-Za-z0-9-]{1,64} has a value with a control character or a character outside Latin-1)$/,
+          );
+          expect(message).not.toContain(SECRET);
         }
       }),
       fuzzParams(2000),

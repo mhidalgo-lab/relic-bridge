@@ -204,6 +204,17 @@ export type AuthScope =
   | 'oauth';
 
 /**
+ * What a finished MCP request looked like to the hooks. `rpcErrorCode`: the JSON-RPC `error.code` of a JSON answer
+ * (an HTTP 200 or 404 can carry one, e.g. `-32601`); not read for `tools/call` (a tool's own errors are tool events) nor for
+ * a stream (P8-102).
+ */
+export interface McpOutcome {
+  readonly status: number;
+  readonly durationMs: number;
+  readonly rpcErrorCode?: number;
+}
+
+/**
  * Extension points for P2-07 (rate limiting) and P2-08 (audit). Hooks receive the Hono context so runtime-specific
  * code (client IP on Node, `waitUntil` on Workers) stays in the host.
  */
@@ -260,17 +271,9 @@ export interface HttpAppHooks {
    * period, what ran out, the cap and the reset time of that grant only.
    */
   onQuotaDenied?(c: Context, info: McpRequestInfo, denial: QuotaDenial): Promise<void> | void;
-  afterMcp?(
-    c: Context,
-    info: McpRequestInfo,
-    outcome: { readonly status: number; readonly durationMs: number },
-  ): Promise<void> | void;
+  afterMcp?(c: Context, info: McpRequestInfo, outcome: McpOutcome): Promise<void> | void;
   /** `afterMcp` for the pass-through route (P8-90). Runs in the background; must not throw. */
-  afterPassthrough?(
-    c: Context,
-    info: PassthroughRequestInfo,
-    outcome: { readonly status: number; readonly durationMs: number },
-  ): Promise<void> | void;
+  afterPassthrough?(c: Context, info: PassthroughRequestInfo, outcome: McpOutcome): Promise<void> | void;
   /**
    * An MCP request (a POST with a JSON-RPC method) is about to be handled, after authentication and the pre-handler
    * hooks (P8-90). Return the ids of the span this request will be recorded as: they are put on the request's log
@@ -527,6 +530,25 @@ async function peekWithin(request: Request, maxBytes: number, ms: number): Promi
     ]);
   } finally {
     clearTimeout(timer);
+  }
+}
+
+const RPC_PEEK_MAX = 8192;
+
+/** The JSON-RPC error code of a small JSON answer to a non-tool method, for the span status (P8-102). */
+async function rpcErrorOf(
+  response: Response,
+  mcpMethod: string | null,
+): Promise<{ readonly rpcErrorCode?: number }> {
+  if (mcpMethod === null || mcpMethod === 'tools/call') return {};
+  if (!(response.headers.get('content-type') ?? '').startsWith('application/json')) return {};
+  try {
+    const text = await response.clone().text();
+    if (text.length > RPC_PEEK_MAX) return {};
+    const code = (JSON.parse(text) as { error?: { code?: unknown } } | null)?.error?.code;
+    return typeof code === 'number' && Number.isInteger(code) ? { rpcErrorCode: code } : {};
+  } catch {
+    return {};
   }
 }
 
@@ -1585,7 +1607,11 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
         : await serveMcp(c, authInfo, mcpMethod, mcpName);
     if (hooks.afterMcp) {
       const after = hooks.afterMcp;
-      const outcome = Object.freeze({ status: response.status, durationMs: clock.now() - started });
+      const outcome: McpOutcome = Object.freeze({
+        status: response.status,
+        durationMs: clock.now() - started,
+        ...(await rpcErrorOf(response, mcpMethod)),
+      });
       runInBackground(
         c,
         Promise.resolve().then(() => after(c, info, outcome)),
@@ -1765,7 +1791,11 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
           : await serveMcp(c, authInfo, mcpMethod, mcpName);
       if (hooks.afterPassthrough) {
         const after = hooks.afterPassthrough;
-        const outcome = Object.freeze({ status: response.status, durationMs: clock.now() - started });
+        const outcome: McpOutcome = Object.freeze({
+          status: response.status,
+          durationMs: clock.now() - started,
+          ...(await rpcErrorOf(response, mcpMethod)),
+        });
         runInBackground(
           c,
           Promise.resolve().then(() => after(c, info, outcome)),

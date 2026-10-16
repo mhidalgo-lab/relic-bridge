@@ -53,13 +53,16 @@ and `telemetry.sdk.language` for language-aware pages.
 
 Spans also carry the OpenTelemetry MCP attributes `mcp.method.name=tools/call`, `gen_ai.operation.name=execute_tool`,
 `gen_ai.tool.name`, the `rpc.system`, `rpc.service`, `rpc.method` and `error.type` (server errors only) described
-above, and `network.transport` (`tcp` for HTTP, `pipe` for stdio). Span status is `OK` for a successful call and `ERROR`
-(with the `RB_*` code as the description, also in `error.type`) for a **server fault** and for a refused write
-(`RB_WRITE_APPROVAL_UNAVAILABLE`, `RB_WRITE_APPROVAL_DECLINED`). Any other caller error leaves the status **Unset**, as
-the OpenTelemetry server conventions do for a client-side failure such as an HTTP 4xx, but its span still carries
-`error.type` (the `RB_*` code) and `fault=caller` (P8-98). On a request that is not a tool call the span status comes
-from the HTTP status (5xx is `ERROR`, 4xx stays Unset with `error.type` set to the status); a JSON-RPC error answered
-with HTTP 200 is not visible there. Tool arguments, results and the MCP session id are
+above, and `network.transport` (`tcp` for HTTP, `pipe` for stdio). One rule for every method (P8-102): span status is `OK` for a
+successful call and `ERROR` (with the `RB_*` code as the description, also in `error.type`) only for a **server fault**
+or an upstream failure. Every **caller fault** leaves the status **Unset**, as the OpenTelemetry server conventions do
+for a client-side failure, but its span still carries `error.type` and `fault=caller`: an `RB_*` input, limit or
+authorization refusal, a declined or unavailable write approval (`RB_WRITE_APPROVAL_DECLINED`,
+`RB_WRITE_APPROVAL_UNAVAILABLE`), an HTTP 4xx and a JSON-RPC protocol error such as `-32601`. On a request that is not a
+tool call the outcome comes from the HTTP status (5xx is a server fault, 4xx a caller fault, `error.type` the status) and
+from the `error.code` of a small JSON answer (`-32603` is a server fault, any other code a caller fault, `error.type`
+the code); a JSON-RPC error is never recorded as `ok`. Errors of `tools/call` itself are tool errors and follow the
+`RB_*` table below. Tool arguments, results and the MCP session id are
 never attributes.
 
 ### Logs in the trace
@@ -81,7 +84,7 @@ request) or the **server's** (relic-bridge, its New Relic credential or New Reli
 conventions for a server operation, only server errors are errors **on the metric**: they set `error.type` and
 `rpc.grpc.status_code` on `rpc.server.duration` and count in the New Relic service's Error rate. A caller error is the
 equivalent of an HTTP 4xx (or the MCP convention's "invalid params"): the metric carries neither, so the Error rate is not
-moved by it. Only server errors (and refused writes) mark their span `ERROR`; a caller error leaves it Unset but keeps `error.type` (P8-98). Both kinds are counted by `status = 'error'`,
+moved by it. Only server errors mark their span `ERROR`; a caller error (refused writes included) leaves it Unset but keeps `error.type` (P8-98, P8-102). Both kinds are counted by `status = 'error'`,
 `error.code` and `fault` on the spans and the `relic_bridge.*` metrics; filter on `fault = 'server'` for the operator's
 view.
 

@@ -265,8 +265,9 @@ function at(where: string, e: unknown): never {
   throw new RbError(e.code, `${where}: ${e.message}${done}`, {
     ...(e.hint === undefined ? {} : { hint: e.hint }),
     details: { ...(e.details ?? {}), at: where },
-    // Details raised locally stay plain text (BUG-29); `at` is ours too.
-    ...(e.localDetails ? { localDetails: true } : {}),
+    // `at` is ours, and so are details raised locally (BUG-29, P8-102): plain text. Only details that came from New
+    // Relic keep the untrusted wrapper.
+    ...(e.details === undefined || e.localDetails ? { localDetails: true } : {}),
   });
 }
 

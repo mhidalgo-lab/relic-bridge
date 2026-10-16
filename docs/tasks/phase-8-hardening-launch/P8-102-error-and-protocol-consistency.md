@@ -2,11 +2,11 @@
 id: P8-102
 title: Local error formatting, tasks/* method-not-found, and one span status rule
 phase: 8
-status: todo
+status: review
 priority: low
 depends_on: []
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P8-102 — Local error formatting, tasks/* method-not-found, and one span status rule
@@ -32,9 +32,9 @@ Review 5 (0.12.0) consistency findings:
   unset. JSON-RPC errors are not recorded as `ok`. Document the rule where the telemetry attributes are documented.
 
 ## Acceptance criteria
-- [ ] Test: local `RB_INPUT_INVALID` details are not wrapped; New Relic details still are.
-- [ ] Test: `tasks/get`, `tasks/cancel`, `tasks/list`, `tasks/result` answer `-32601` when tasks are not advertised.
-- [ ] Tests for span status on approval refusals and on a `-32601` answer.
+- [x] Test: local `RB_INPUT_INVALID` details are not wrapped; New Relic details still are.
+- [x] Test: `tasks/get`, `tasks/cancel`, `tasks/list`, `tasks/result` answer `-32601` when tasks are not advertised.
+- [x] Tests for span status on approval refusals and on a `-32601` answer.
 
 ## Security notes
 T5: only text that really comes from New Relic may skip the untrusted wrapper; keep it on upstream details.

@@ -290,3 +290,17 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   future window is legitimate). `list_recent_issues` omits `groupsScope` without `group_by` (the output field is now optional).
 - **Needs:** say if a refusal is wanted instead.
 - **Decision (2026-10-16):** Refuse (implemented in P8-98): a range that starts in the future is `RB_INPUT_INVALID`, "The range is in the future: New Relic has no data there." A range that only ends in the future still works.
+
+### P8-102 — One span status rule, refused writes included; JSON-RPC errors read from small JSON answers
+- **Context:** P8-98 made refused writes (`RB_WRITE_APPROVAL_*`) span `ERROR` while every other caller fault stays Unset,
+  and the P8-90 decision "leave as is, no follow-up" kept method spans on the HTTP status only. Review 5 (NEW-34) found
+  both inconsistent (an `-32601` shown as `ok`).
+- **Assumption made:** the task asks for one rule, so refused writes are now `fault=caller`, status Unset, like every
+  other caller fault (they keep `error.type`, `write.applied`, `write.confirmation`, `elicitation.result`). Method spans
+  also read the JSON-RPC `error.code` of a small (up to 8 KiB) `application/json` answer to a non-`tools/call` method
+  (option (b) of the P8-90 entry, now done): `-32603` is a server fault, any other code a caller fault. Not read for
+  `tools/call` (tool errors have their own event) nor for streams. `tasks/*` answers `-32601` outside 2026-07-28.
+- **Needs:** confirm that refused writes should not open Errors Inbox groups.
+- **Decision (2026-10-16):** One rule: refused writes leave the span status Unset (no Errors Inbox groups; query them by
+  `error.type`). Keep reading the JSON-RPC `error.code` of small non-`tools/call` answers; this supersedes the P8-90
+  "HTTP status only" choice.

@@ -441,6 +441,14 @@ describe('answerTaskRpc (P7-22)', () => {
     expect((await answerTaskRpc(request('A'.repeat(43), false), options)).body['error']).toMatchObject({
       code: -32021,
     });
+    // Outside 2026-07-28 the extension is not advertised: unknown methods (P8-102).
+    const old = request('A'.repeat(43));
+    (old.params._meta as Record<string, unknown>)['io.modelcontextprotocol/protocolVersion'] = '2025-11-25';
+    for (const method of ['tasks/get', 'tasks/update', 'tasks/cancel']) {
+      expect((await answerTaskRpc({ ...old, method }, options)).body['error']).toMatchObject({
+        code: -32601,
+      });
+    }
     expect((await answerTaskRpc(request(7), options)).body['error']).toMatchObject({ code: -32602 });
     expect((await answerTaskRpc([], options)).status).toBe(400);
     const mismatch = await answerTaskRpc(request('A'.repeat(43)), {

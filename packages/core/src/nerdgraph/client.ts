@@ -81,6 +81,7 @@ export function wrongRegionError(region: Region): RbError {
   return new RbError(ErrorCode.AuthWrongRegion, `New Relic refused this account in the ${region} region.`, {
     hint: `The key or account probably belongs to another data center. Set the project region to ${others}.`,
     details: { region },
+    localDetails: true,
   });
 }
 
@@ -176,6 +177,7 @@ async function readCapped(res: Response, max: number): Promise<Uint8Array> {
       {
         hint: 'Ask for fewer rows or fields (LIMIT, fewer facets, a shorter window).',
         details: { maxBytes: max },
+        localDetails: true,
       },
     );
   const declared = Number(res.headers.get('content-length'));

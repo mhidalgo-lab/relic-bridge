@@ -195,9 +195,23 @@ jobs:
       ARTIFACT_ID: ${{ needs.build.outputs.artifact-id }}
       SUMS_SHA256: ${{ needs.build.outputs.sums-sha256 }}
     steps:
+      # Egress blocked (P8-69): the allowlist is every endpoint this job reached in the audited 0.10.0 runs (release.yml
+      # runs 38676388739 and 38677640166, harden-runner agent log in the job's post step). harden-runner also allows
+      # GitHub's own Actions endpoints implicitly (artifact storage, results receiver, *.actions.githubusercontent.com).
+      # Classes: GitHub API and release upload (api, uploads); OIDC token (token.actions); npm (registry, also used for
+      # `npm view`); Sigstore (fulcio, rekor: attestations and npm provenance). A blocked call fails the job and shows in
+      # the harden-runner log: add that exact host in a pull request, or set `audit` as the documented fallback
+      # (docs/dev/releasing.md). Never a wildcard (scripts/test/workflow-hardening.test.ts).
       - uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25 # v2.22.1
         with:
-          egress-policy: audit
+          egress-policy: block
+          allowed-endpoints: >
+            api.github.com:443
+            uploads.github.com:443
+            token.actions.githubusercontent.com:443
+            registry.npmjs.org:443
+            fulcio.sigstore.dev:443
+            rekor.sigstore.dev:443
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '24'

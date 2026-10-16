@@ -51,10 +51,69 @@ describe('harden-runner (P8-07)', () => {
     }
     for (const { file, jobs } of workflows) {
       for (const [id, job] of Object.entries(jobs)) {
-        // `block` needs an allowlist derived from audit runs (owner decision, P8-07); until then, audit only.
-        if (isHarden(job.steps?.[0])) {
+        // `block` only where the allowlist comes from audited release runs (P8-69); every other job audits.
+        if (isHarden(job.steps?.[0]) && !BLOCKED.has(`${file}#${id}`)) {
           expect(job.steps?.[0]?.with?.['egress-policy'], `${file} ${id}`).toBe('audit');
         }
+      }
+    }
+  });
+
+  // P8-69: the jobs that hold the OIDC token and publish block egress to an allowlist taken from the audited 0.10.0
+  // release runs. Exact hosts on 443 only: no wildcard, no other port, no going back to audit without changing this test.
+  const BLOCKED = new Map<string, readonly string[]>([
+    [
+      'release.yml#publish',
+      [
+        'api.github.com:443',
+        'uploads.github.com:443',
+        'token.actions.githubusercontent.com:443',
+        'registry.npmjs.org:443',
+        'fulcio.sigstore.dev:443',
+        'rekor.sigstore.dev:443',
+      ],
+    ],
+    [
+      'docker.yml#publish',
+      [
+        'api.github.com:443',
+        'github.com:443',
+        'release-assets.githubusercontent.com:443',
+        'raw.githubusercontent.com:443',
+        'token.actions.githubusercontent.com:443',
+        'ghcr.io:443',
+        'pkg-containers.githubusercontent.com:443',
+        'fulcio.sigstore.dev:443',
+        'rekor.sigstore.dev:443',
+        'timestamp.sigstore.dev:443',
+        'tuf-repo-cdn.sigstore.dev:443',
+      ],
+    ],
+  ]);
+
+  it.each([...BLOCKED])(
+    '%s blocks egress to its audited allowlist, without wildcards (P8-69)',
+    (key, hosts) => {
+      const [file, id] = key.split('#') as [string, string];
+      const job = workflows.find((w) => w.file === file)?.jobs[id];
+      const step = job?.steps?.[0];
+      expect(isHarden(step)).toBe(true);
+      expect(step?.with?.['egress-policy']).toBe('block');
+      const allowed = String(step?.with?.['allowed-endpoints'] ?? '')
+        .split(/\s+/)
+        .filter(Boolean);
+      for (const host of allowed) expect(host).toMatch(/^[a-z0-9-]+(\.[a-z0-9-]+)+:443$/);
+      expect(allowed).toEqual(hosts);
+    },
+  );
+
+  it('only jobs holding id-token: write are blocked, and every one of them is (P8-69)', () => {
+    for (const file of ['release.yml', 'docker.yml']) {
+      const jobs = (
+        parse(text(file)) as { jobs: Record<string, Job & { permissions?: Record<string, string> }> }
+      ).jobs;
+      for (const [id, job] of Object.entries(jobs)) {
+        expect(BLOCKED.has(`${file}#${id}`), `${file} ${id}`).toBe(job.permissions?.['id-token'] === 'write');
       }
     }
   });

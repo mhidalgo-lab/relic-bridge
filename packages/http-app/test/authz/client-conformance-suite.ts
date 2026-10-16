@@ -290,7 +290,7 @@ export function clientConformanceSuite(): void {
       const callback = await this.approve();
       await transport.finishAuth(callback);
       const tokens = this.provider.saved as OAuthTokens;
-      secrets.push(tokens.access_token, tokens.refresh_token ?? '');
+      secrets.push(...[tokens.access_token, tokens.refresh_token].filter((t): t is string => !!t));
       const client = this.sdk();
       await client.connect(this.transport(slug));
       // The SDK opens its standalone GET stream right after `initialized`, asynchronously: let it finish.
@@ -301,7 +301,7 @@ export function clientConformanceSuite(): void {
     /** The saved tokens (the SDK's own copy), pushed to the leak scan as they change. */
     get tokens(): OAuthTokens {
       const t = this.provider.saved as OAuthTokens;
-      secrets.push(t.access_token, t.refresh_token ?? '');
+      secrets.push(...[t.access_token, t.refresh_token].filter((t): t is string => !!t));
       return t;
     }
 

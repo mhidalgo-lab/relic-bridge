@@ -54,6 +54,21 @@ export function checkGuid(ctx: ToolContext, value: string): DecodedEntityGuid {
 }
 
 /**
+ * APM-only tools: a GUID of any other domain or type is refused up front (no request), naming what it is. The GUID
+ * encodes domain and type (`DecodedEntityGuid`), so this costs nothing and says the same for every tool.
+ */
+export function requireApmApplication(decoded: DecodedEntityGuid, tool: string): void {
+  if (decoded.domain === 'APM' && decoded.type === 'APPLICATION') return;
+  throw new RbError(
+    ErrorCode.InputInvalid,
+    `${tool} supports APM applications only; this entity is ${decoded.domain}/${decoded.type}.`,
+    {
+      hint: 'Use search_entities with domain APM and type APPLICATION, or get_golden_metrics, entity_health or run_nrql for other entities.',
+    },
+  );
+}
+
+/**
  * Whether a returned entity's GUID agrees with the account NerdGraph reported for it. A GUID encodes its account, so a
  * mismatch is inconsistent data and the row can't be vouched for (T3). A GUID that does not decode cannot be vouched
  * for either (and no tool can use it later).

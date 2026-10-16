@@ -23,6 +23,7 @@ import {
   type WindowStats,
 } from './changes.ts';
 import { checkGuid } from './entities.ts';
+import { requireApmApplication } from './entity-common.ts';
 import { cleanName, errorNote } from './identity.ts';
 import { listLimit } from './paging.ts';
 import {
@@ -300,6 +301,7 @@ export function createApmTools(deps: ToolDeps = {}): ToolDefinition[] {
     handler: async (args, ctx) => {
       // The account comes from the GUID, checked offline; the query runs in that account only (T3).
       const decoded = checkGuid(ctx, args.entity_guid);
+      requireApmApplication(decoded, 'list_top_transactions');
       const account = singleAccount(ctx, decoded.accountId);
       const range = parseTimeRange(args.time_range ?? DEFAULT_WINDOW, ctx.clock.now());
       assertWindowWithinLimit(range, ctx.limits, ctx.clock.now());
@@ -433,6 +435,7 @@ export function createApmTools(deps: ToolDeps = {}): ToolDefinition[] {
     phase: 6,
     handler: async (args, ctx) => {
       const decoded = checkGuid(ctx, args.entity_guid);
+      requireApmApplication(decoded, 'analyze_transactions');
       const account = singleAccount(ctx, decoded.accountId);
       const range = parseTimeRange(args.time_range ?? DEFAULT_WINDOW, ctx.clock.now());
       assertWindowWithinLimit(range, ctx.limits, ctx.clock.now());

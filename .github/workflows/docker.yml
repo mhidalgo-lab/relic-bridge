@@ -59,7 +59,7 @@ jobs:
       sha: ${{ steps.plan.outputs.sha }}
       latest: ${{ steps.plan.outputs.latest }}
     steps:
-      - uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
+      - uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25 # v2.22.1
         with:
           egress-policy: audit
       - id: plan
@@ -124,7 +124,7 @@ jobs:
       VERSION: ${{ needs.plan.outputs.version || '0.0.0-ci' }}
       REVISION: ${{ needs.plan.outputs.sha || github.sha }}
     steps:
-      - uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
+      - uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25 # v2.22.1
         with:
           egress-policy: audit
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -208,7 +208,7 @@ jobs:
           echo "archive-sha256=$(sha256sum release-image/relic-bridge-oci.tar | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
       - id: upload
         if: env.RELEASE == 'true'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: image-${{ env.VERSION }}
           path: release-image/relic-bridge-oci.tar
@@ -243,7 +243,7 @@ jobs:
       ARTIFACT_ID: ${{ needs.build.outputs.artifact-id }}
       ARCHIVE_SHA256: ${{ needs.build.outputs.archive-sha256 }}
     steps:
-      - uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
+      - uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25 # v2.22.1
         with:
           egress-policy: audit
       - name: Check the inputs
@@ -253,7 +253,7 @@ jobs:
           [[ "$ARTIFACT_ID" =~ ^[0-9]+$ ]] || { echo "::error::bad artifact id"; exit 1; }
           [[ "$ARCHIVE_SHA256" =~ ^[0-9a-f]{64}$ ]] || { echo "::error::bad checksum digest"; exit 1; }
       # Downloads by id from this run; the action fails on an artifact digest mismatch.
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           artifact-ids: ${{ needs.build.outputs.artifact-id }}
           path: image

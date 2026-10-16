@@ -16,12 +16,14 @@ import {
   type DashboardInputVariable,
   type DashboardWidgetVariable,
 } from '../nerdgraph/mutations.ts';
-import { assertRawNrqlAllowed, enforceQueryLimits } from '../nrql/limits.ts';
+import { runRawNrql } from '../nrql/engine.ts';
+import { assertRawNrqlAllowed, enforceQueryLimits, probeNrql } from '../nrql/limits.ts';
+import { tokenize } from '../nrql/tokenize.ts';
 import { envelope } from '../output/envelope.ts';
 import { defineTool, type ToolDefinition } from '../tool.ts';
 import { cleanName } from './identity.ts';
 import { MAX_NRQL_CHARS } from './query.ts';
-import { accountIdSchema, accountInput, singleAccount } from './shared.ts';
+import { accountIdSchema, accountInput, NRQL_COST, singleAccount } from './shared.ts';
 import {
   APPROVAL_NOTICE,
   assertConfirmed,
@@ -61,6 +63,8 @@ export const DASHBOARD_LIMITS: Readonly<{
   markdownChars: 2000,
 });
 
+/** Most widget queries a dry run sends to New Relic. */
+const MAX_CHECKS = 10;
 const GRID_COLUMNS = 12;
 const DEFAULT_WIDTH = 4;
 const DEFAULT_HEIGHT = 3;
@@ -158,6 +162,14 @@ const plannedWidget = z.object({
   markdown: z.string().nullable(),
 });
 
+const queryCheck = z.object({
+  page: z.number().int(),
+  widget: z.number().int(),
+  query: z.number().int(),
+  status: z.enum(['ok', 'error', 'not_checked']),
+  message: z.string().nullable(),
+});
+
 const dashboardOutput = z.object({
   ...writeOutput,
   dashboardGuid: z.string().nullable(),
@@ -166,11 +178,85 @@ const dashboardOutput = z.object({
   pages: z.array(z.object({ name: z.string(), widgets: z.array(plannedWidget) })),
   notes: z.array(z.string()),
   warnings: z.array(z.string()),
+  /** Dry run only: the syntax check of each widget query. */
+  checks: z.array(queryCheck),
 });
 
 const DESCRIPTION = `Create a new private New Relic dashboard from NRQL queries: pages of charts (line, area, bar, billboard, pie, table) and plain-text markdown widgets.
 
-Write tool, opt-in. ${SIDE_EFFECT_NOTICE} Needs confirm: true; dry_run: true returns the plan without creating it. ${APPROVAL_NOTICE} Each call creates a new dashboard (not idempotent; it cannot be edited or deleted here), always PRIVATE. Widget NRQL is checked like run_nrql and every query account must be on this connection. Limits: ${DASHBOARD_LIMITS.pages} pages, ${DASHBOARD_LIMITS.widgetsPerPage} widgets per page, ${DASHBOARD_LIMITS.widgets} in all, ${DASHBOARD_LIMITS.queriesPerWidget} queries per widget. To read dashboards use list_dashboards and get_dashboard. To record a change event instead, use create_change_event.`;
+Write tool, opt-in. ${SIDE_EFFECT_NOTICE} Needs confirm: true; dry_run: true returns the plan and syntax-checks each query (LIMIT 1, 5 minutes) without creating it. ${APPROVAL_NOTICE} Each call creates a new dashboard (not idempotent; it cannot be edited or deleted here), always PRIVATE. Widget NRQL is checked like run_nrql and every query account must be on this connection. Limits: ${DASHBOARD_LIMITS.pages} pages, ${DASHBOARD_LIMITS.widgetsPerPage} widgets per page, ${DASHBOARD_LIMITS.widgets} in all, ${DASHBOARD_LIMITS.queriesPerWidget} queries per widget. To read dashboards use list_dashboards and get_dashboard. To record a change event instead, use create_change_event.`;
+
+const SPLIT_HINT = `A query holds one statement: put each in its own query of the widget (up to ${DASHBOARD_LIMITS.queriesPerWidget}) or its own widget, or use COMPARE WITH / FACET to combine them.`;
+
+/** A chart query starts with SELECT or FROM; anything else (a typo, SHOW EVENT TYPES) is no widget. Offline. */
+function assertStartsLikeQuery(checked: string): void {
+  const first = tokenize(checked).find((t) => t.kind !== 'comment');
+  if (first?.kind === 'word' && (first.value === 'SELECT' || first.value === 'FROM')) return;
+  throw new RbError(
+    ErrorCode.InputInvalid,
+    'A widget query is a plain NRQL query: it must open with its first clause.',
+    {
+      hint: 'Begin it with the select clause or the from clause.',
+    },
+  );
+}
+
+type Check = z.infer<typeof queryCheck>;
+
+/**
+ * The dry run's syntax check: each widget query as a probe (LIMIT 1, last 5 minutes), one NRQL each, paid from the
+ * request budget (NRQL_COST apiece, at most MAX_CHECKS). Read-only: the probe is a query, and nothing is created.
+ */
+async function checkQueries(
+  ctx: ToolContext,
+  nerdGraph: NerdGraphClient,
+  plan: Plan,
+): Promise<{ checks: Check[]; notes: string[] }> {
+  const checks: Check[] = [];
+  let skipped = 0;
+  for (const probe of plan.probes) {
+    const base = { page: probe.page, widget: probe.widget, query: probe.query };
+    if (
+      checks.filter((c) => c.status !== 'not_checked').length >= MAX_CHECKS ||
+      ctx.budget.remaining < NRQL_COST
+    ) {
+      skipped += 1;
+      checks.push({ ...base, status: 'not_checked', message: null });
+      continue;
+    }
+    try {
+      await runRawNrql(
+        ctx,
+        {
+          nrql: probeNrql(probe.nrql).nrql,
+          accounts: [probe.account],
+          mode: 'sync',
+          timeoutS: 10,
+          maxPolls: 1,
+        },
+        { client: nerdGraph },
+      );
+      checks.push({ ...base, status: 'ok', message: null });
+    } catch (e) {
+      // Only a rejected query is a finding; a failing connection, grant or budget ends the check for everyone.
+      if (isRbError(e) && e.code === ErrorCode.InputInvalid) {
+        checks.push({ ...base, status: 'error', message: cleanName(e.message, 300) });
+      } else if (isRbError(e) && e.code !== ErrorCode.AuthForbidden) {
+        skipped += 1;
+        checks.push({ ...base, status: 'not_checked', message: cleanName(e.message, 300) });
+      } else throw e;
+    }
+  }
+  return {
+    checks,
+    notes:
+      skipped > 0
+        ? [
+            `${skipped} widget quer${skipped === 1 ? 'y was' : 'ies were'} not syntax-checked (request budget, ${MAX_CHECKS}-query cap or a failed check).`,
+          ]
+        : [],
+  };
+}
 
 /** Prefix an error with where it happened, keeping its code (limits → RB_LIMIT_QUERY, accounts → RB_AUTH_FORBIDDEN). */
 function at(where: string, e: unknown): never {
@@ -179,6 +265,8 @@ function at(where: string, e: unknown): never {
   throw new RbError(e.code, `${where}: ${e.message}${done}`, {
     ...(e.hint === undefined ? {} : { hint: e.hint }),
     details: { ...(e.details ?? {}), at: where },
+    // Details raised locally stay plain text (BUG-29); `at` is ours too.
+    ...(e.localDetails ? { localDetails: true } : {}),
   });
 }
 
@@ -186,6 +274,10 @@ interface Plan {
   readonly variable: DashboardInputVariable;
   readonly pages: z.infer<typeof dashboardOutput>['pages'];
   readonly notes: string[];
+  /** Advice that does not change the dashboard (a query without SINCE). */
+  readonly warnings: string[];
+  /** Every widget query as it will be stored, for the dry run's syntax check. */
+  readonly probes: { page: number; widget: number; query: number; account: number; nrql: string }[];
   readonly accounts: number[];
   readonly eventTypes: string[];
   readonly widgets: number;
@@ -208,6 +300,8 @@ function planDashboard(input: DashboardArgs, ctx: ToolContext, dashboardAccount:
   rejectSecrets({ name: input.name, description: input.description });
   const now = ctx.clock.now();
   const notes: string[] = [];
+  const warnings: string[] = [];
+  const probes: Plan['probes'] = [];
   const accounts = new Set<number>([dashboardAccount]);
   const eventTypes = new Set<string>();
   let queries = 0;
@@ -256,11 +350,17 @@ function planDashboard(input: DashboardArgs, ctx: ToolContext, dashboardAccount:
           const account = singleAccount(ctx, query.account ?? dashboardAccount);
           rejectSecrets({ nrql: query.nrql });
           // Same limits as run_nrql (T5); the checked text (LIMIT capped, comments removed) is what is stored.
-          const checked = enforceQueryLimits(query.nrql, ctx.limits, now);
+          const checked = enforceQueryLimits(query.nrql, ctx.limits, now, { splitHint: SPLIT_HINT });
+          assertStartsLikeQuery(checked.nrql);
           for (const n of checked.notes) notes.push(`${qWhere}: ${n}`);
           for (const e of checked.eventTypes) eventTypes.add(e);
           accounts.add(account);
           planned.push({ accountId: account, nrql: checked.nrql });
+          probes.push({ page: p + 1, widget: w + 1, query: q + 1, account, nrql: checked.nrql });
+          if (!probeNrql(checked.nrql).hasSince)
+            warnings.push(
+              `${qWhere}: no SINCE, so the dashboard's time picker sets its time range (add SINCE to fix it).`,
+            );
           queries += 1;
         } catch (e) {
           at(qWhere, e);
@@ -311,6 +411,8 @@ function planDashboard(input: DashboardArgs, ctx: ToolContext, dashboardAccount:
     variable,
     pages,
     notes,
+    warnings,
+    probes,
     accounts: [...accounts],
     eventTypes: [...eventTypes].slice(0, 20).map((e) => cleanName(e, 100)),
     widgets: total,
@@ -425,6 +527,7 @@ export function createDashboardWriteTool(client: (ctx: ToolContext) => NerdGraph
         guid: string | null,
         warnings: string[],
         confirmation: Confirmation | undefined = undefined,
+        checks: Check[] = [],
       ) => ({
         applied,
         dryRun,
@@ -435,15 +538,35 @@ export function createDashboardWriteTool(client: (ctx: ToolContext) => NerdGraph
         permissions: 'PRIVATE',
         pages: plan.pages,
         notes: plan.notes,
-        warnings,
+        warnings: [...plan.warnings, ...warnings],
+        checks,
       });
       const notesText =
         plan.notes.length > 0 ? `\nAdjusted by the connection's limits:\n- ${plan.notes.join('\n- ')}` : '';
 
+      const warningText = plan.warnings.length > 0 ? `\nWarning:\n- ${plan.warnings.join('\n- ')}` : '';
+
       if (dryRun) {
+        const { checks, notes: checkNotes } = await checkQueries(ctx, client(ctx), plan);
+        const bad = checks.filter((c) => c.status === 'error');
+        const checkText =
+          `\nSyntax check (LIMIT 1, last 5 minutes): ${checks.filter((c) => c.status === 'ok').length} ok, ${bad.length} rejected` +
+          `${checks.some((c) => c.status === 'not_checked') ? `, ${checks.filter((c) => c.status === 'not_checked').length} not checked` : ''}.` +
+          (bad.length > 0
+            ? `\n${envelope(
+                bad
+                  .map((c) => `Page ${c.page} widget ${c.widget} query ${c.query}: ${c.message ?? ''}`)
+                  .join('\n'),
+                { source: 'New Relic syntax errors' },
+              )}`
+            : '') +
+          (checkNotes.length > 0 ? `\n${checkNotes.join('\n')}` : '');
         return {
-          text: `Dry run: would create the private dashboard "${input.name}" in account ${account} with ${plan.widgets} widget(s) on ${plan.pages.length} page(s). Nothing was changed.\n${outline(plan)}${notesText}`,
-          structured: shaped(false, null, []),
+          text: `Dry run: would create the private dashboard "${input.name}" in account ${account} with ${plan.widgets} widget(s) on ${plan.pages.length} page(s). Nothing was changed.\n${outline(plan)}${notesText}${warningText}${checkText}`,
+          structured: {
+            ...shaped(false, null, [], undefined, checks),
+            notes: [...plan.notes, ...checkNotes],
+          },
           meta: metaOf(record(false, null)),
         };
       }
@@ -517,7 +640,8 @@ export function createDashboardWriteTool(client: (ctx: ToolContext) => NerdGraph
         `Created the private dashboard "${input.name}" in account ${account} with ${plan.widgets} widget(s) on ${plan.pages.length} page(s) (guid ${guid}).`,
         outline(plan),
       ];
-      if (warnings.length > 0) lines.push(`Warning:\n- ${warnings.join('\n- ')}`);
+      const allWarnings = [...plan.warnings, ...warnings];
+      if (allWarnings.length > 0) lines.push(`Warning:\n- ${allWarnings.join('\n- ')}`);
       if (messages.length > 0) lines.push(envelope(messages.join('\n'), { source: 'New Relic messages' }));
       return {
         text: lines.join('\n') + notesText,

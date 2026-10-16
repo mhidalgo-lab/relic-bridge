@@ -33,6 +33,7 @@ export {
   type CheckedNrql,
   type EnforceOptions,
   enforceQueryLimits,
+  probeNrql,
 } from './limits.ts';
 export {
   isNrqlQuery,

@@ -11,6 +11,7 @@ import {
   ALLOWED_MUTATIONS,
   annotationsFor,
   buildMcpServer,
+  createBudget,
   createBuiltinTools,
   createWriteTools,
   ERROR_META_KEY,
@@ -126,6 +127,22 @@ function nerdGraph(over: Record<string, Reply> = {}) {
                 permissions: 'PRIVATE',
               },
               errors: [],
+            },
+          },
+        });
+      case 'RbNrql':
+        return json({
+          data: {
+            actor: {
+              account: {
+                nrql: {
+                  results: [{ count: 1 }],
+                  metadata: { eventTypes: ['Transaction'], facets: null, messages: null, timeWindow: null },
+                  totalResult: null,
+                  otherResult: null,
+                  queryProgress: { queryId: null, completed: true, retryAfter: null, resultExpiration: null },
+                },
+              },
             },
           },
         });
@@ -600,19 +617,119 @@ describe('create_dashboard (P7-19)', () => {
     expect(ng.calls).toEqual([]);
   });
 
-  it('dry run checks everything and returns the plan, with no request at all', async () => {
+  it('dry run checks everything and returns the plan; the only requests are LIMIT 1 syntax probes, never a mutation', async () => {
     const { confirm: _c, ...rest } = DASH;
     const { r, ng } = await call({ ...rest, dry_run: true });
     expect(r.isError ?? false, text(r)).toBe(false);
-    expect(ng.calls).toEqual([]);
+    expect(mutationsOf(ng.calls)).toEqual([]);
+    expect(ng.calls.map((c) => c.operationName)).toEqual(['RbNrql', 'RbNrql']);
+    const probes = ng.calls.map((c) => String(c.variables['nrql']));
+    expect(probes[0]).toBe(
+      "SELECT count(*) FROM Transaction WHERE appName = 'o''brien' TIMESERIES SINCE 5 minutes ago LIMIT 1",
+    );
+    expect(probes[1]).toBe('SELECT average(duration) FROM Transaction SINCE 5 minutes ago LIMIT 1');
+    expect(ng.calls[1]?.variables['accountId']).toBe(B);
     expect(text(r)).toContain('Nothing was changed');
     expect(r.structuredContent).toMatchObject({
       applied: false,
       dryRun: true,
       dashboardGuid: null,
       pages: [{ name: 'Main', widgets: [{ title: 'Throughput' }, { title: 'Latency' }, { title: 'Notes' }] }],
+      checks: [
+        { page: 1, widget: 1, query: 1, status: 'ok', message: null },
+        { page: 1, widget: 2, query: 1, status: 'ok', message: null },
+      ],
     });
     expect(r._meta?.[WRITE_META_KEY]).toMatchObject({ dryRun: true, applied: false, target: { id: 'new' } });
+  });
+
+  it('a dry run reports the widget whose query New Relic rejects, in an untrusted block (NEW-20)', async () => {
+    const ng = nerdGraph({
+      RbNrql: () =>
+        json({
+          data: { actor: { account: { nrql: null } } },
+          errors: [
+            {
+              message: 'NRQL Syntax Error: Error at line 1 position 0, unexpected SELEKT',
+              path: ['actor', 'account', 'nrql'],
+              extensions: { errorClass: 'INVALID_INPUT' },
+            },
+          ],
+        }),
+    });
+    const client = await connect(ng.fetch);
+    const r = await client.callTool({
+      name: 'create_dashboard',
+      arguments: {
+        name: 'D',
+        dry_run: true,
+        pages: [{ name: 'P', widgets: [chart('FROM Transaction SELECT count(*) SINCE 1 hour ago')] }],
+      },
+    });
+    expect(r.isError ?? false, text(r)).toBe(false);
+    expect(mutationsOf(ng.calls)).toEqual([]);
+    expect(r.structuredContent).toMatchObject({
+      checks: [
+        { page: 1, widget: 1, query: 1, status: 'error', message: expect.stringContaining('Syntax Error') },
+      ],
+    });
+    expect(text(r)).toContain('1 rejected');
+    expect(text(r)).toMatch(/<untrusted-data[^>]*>[\s\S]*Page 1 widget 1 query 1: [\s\S]*<\/untrusted-data/);
+  });
+
+  it('refuses a query that does not start with SELECT or FROM, offline (NEW-20)', async () => {
+    const { r, ng } = await call({
+      ...DASH,
+      pages: [{ name: 'P', widgets: [chart('SELEKT count(*) FROM Transaction SINCE 1 hour ago')] }],
+    });
+    expect(code(r)).toBe(ErrorCode.InputInvalid);
+    expect(text(r)).toContain('must open with its first clause');
+    expect(ng.calls).toEqual([]);
+  });
+
+  it('local refusals show their details as plain text and give widget-specific hints (NEW-20)', async () => {
+    const wide = await call({
+      ...DASH,
+      pages: [{ name: 'P', widgets: [chart('SELECT count(*) FROM Transaction SINCE 30 days ago')] }],
+    });
+    expect(code(wide.r)).toBe(ErrorCode.LimitQuery);
+    expect(text(wide.r)).toContain('Details:');
+    expect(text(wide.r)).not.toContain('untrusted');
+    const multi = await call({
+      ...DASH,
+      pages: [
+        { name: 'P', widgets: [chart('SELECT count(*) FROM Transaction; SELECT count(*) FROM Transaction')] },
+      ],
+    });
+    expect(code(multi.r)).toBe(ErrorCode.InputInvalid);
+    expect(text(multi.r)).toContain('own query of the widget');
+    expect(text(multi.r)).not.toContain('run_nrql');
+    expect(multi.ng.calls).toEqual([]);
+  });
+
+  it('warns about a widget query without SINCE, on a dry run and on creation (NEW-20)', async () => {
+    const pages = [{ name: 'P', widgets: [chart('SELECT count(*) FROM Transaction TIMESERIES')] }];
+    const dry = await call({ name: 'D', pages, dry_run: true });
+    const s = dry.r.structuredContent as { warnings: string[] };
+    expect(s.warnings.join(' ')).toContain('no SINCE');
+    expect(text(dry.r)).toContain('time picker');
+    expect(mutationsOf(dry.ng.calls)).toEqual([]);
+    const real = await call({ name: 'D', pages, confirm: true });
+    expect((real.r.structuredContent as { warnings: string[] }).warnings.join(' ')).toContain('no SINCE');
+  });
+
+  it('syntax-checks at most the budget allows and says what it left out (NEW-20)', async () => {
+    const widgets = Array.from({ length: 4 }, (_, i) =>
+      chart('SELECT count(*) FROM Transaction SINCE 1 hour ago', { title: `W${i}` }),
+    );
+    const { r, ng } = await call(
+      { name: 'D', pages: [{ name: 'P', widgets }], dry_run: true },
+      { budget: createBudget(4) },
+    );
+    expect(ng.calls).toHaveLength(3);
+    const s = r.structuredContent as { checks: { status: string }[]; notes: string[] };
+    expect(s.checks.map((c) => c.status)).toEqual(['ok', 'ok', 'ok', 'not_checked']);
+    expect(s.notes.join(' ')).toContain('1 widget query was not syntax-checked');
   });
 
   it('widget NRQL gets the run_nrql limits: LIMIT capped and comments removed in what is stored', async () => {

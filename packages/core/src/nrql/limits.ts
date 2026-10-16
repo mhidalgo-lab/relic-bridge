@@ -229,6 +229,8 @@ export interface EnforceOptions {
    * (`list_event_types`). Only typed (`nrql`-tag) queries built by tool code may set it; never `run_nrql`.
    */
   readonly filtersEventTypeListing?: boolean;
+  /** What to suggest when the text holds several statements (default: call `run_nrql` once for each). */
+  readonly splitHint?: string;
 }
 
 function checkEventTypes(tokens: readonly Token[], limits: QueryLimits, options: EnforceOptions): string[] {
@@ -449,7 +451,8 @@ export function enforceQueryLimits(
     throw new RbError(ErrorCode.InputInvalid, 'Only one NRQL statement per call.', {
       hint:
         semi < tokens.length - 1
-          ? 'Split the statements and call run_nrql once for each (or use COMPARE WITH / FACET to combine them).'
+          ? (options.splitHint ??
+            'Split the statements and call run_nrql once for each (or use COMPARE WITH / FACET to combine them).')
           : 'Remove the trailing ";".',
     });
   }
@@ -474,4 +477,51 @@ export function assertRawNrqlAllowed(limits: QueryLimits): void {
       hint: 'Use the purpose-built tools (entities, golden metrics, logs) instead.',
     });
   }
+}
+
+/** The short window and row count a syntax probe uses. */
+const PROBE_WINDOW = 'SINCE 5 minutes ago';
+
+/**
+ * A cheap copy of checked NRQL for a syntax probe (create_dashboard dry run): the top-level SINCE becomes the last 5
+ * minutes, UNTIL is dropped and LIMIT becomes 1, so New Relic parses and plans the query but scans little. Nothing else
+ * changes, so a syntax error of the original is still an error of the probe. `hasSince` says whether the query set its
+ * own time range (a dashboard widget without one follows the dashboard's time picker). Pure; the result goes through the
+ * same limits as any raw query before it is sent.
+ */
+export function probeNrql(checked: string): { nrql: string; hasSince: boolean } {
+  const tokens = tokenize(checked).filter((t) => t.kind !== 'comment');
+  const edits: Edit[] = [];
+  const endOfClause = (i: number): number => {
+    for (let j = i + 1; j < tokens.length; j++) {
+      const t = tokens[j];
+      if (t !== undefined && t.depth === 0 && t.kind === 'word' && CLAUSES.has(t.value)) return t.start;
+    }
+    return checked.length;
+  };
+  let hasSince = false;
+  let hasLimit = false;
+  tokens.forEach((t, i) => {
+    if (t.depth !== 0 || t.kind !== 'word') return;
+    if (t.value === 'SINCE') {
+      hasSince = true;
+      const end = endOfClause(i);
+      edits.push({ start: t.start, end, text: end < checked.length ? `${PROBE_WINDOW} ` : PROBE_WINDOW });
+    } else if (t.value === 'UNTIL') {
+      edits.push({ start: t.start, end: endOfClause(i), text: '' });
+    } else if (t.value === 'LIMIT') {
+      hasLimit = true;
+      const v = tokens[i + 1];
+      if (v !== undefined) edits.push({ start: v.start, end: v.end, text: '1' });
+    }
+  });
+  if (!hasLimit) {
+    const offset = tokens.find((t) => t.depth === 0 && isWord(t, 'OFFSET'));
+    const at = offset?.start ?? checked.length;
+    edits.push({ start: at, end: at, text: offset ? 'LIMIT 1 ' : ' LIMIT 1' });
+  }
+  let out = checked;
+  for (const e of edits.sort((a, b) => b.start - a.start))
+    out = out.slice(0, e.start) + e.text + out.slice(e.end);
+  return { nrql: out, hasSince };
 }

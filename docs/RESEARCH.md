@@ -1393,3 +1393,18 @@ did not). The skip rule itself was not run on a zone by the maintainers.
   navigation is not governed by `form-action`.
 - `history.replaceState(null, '', path)` replaces the current session-history entry's URL without a navigation (HTML
   "URL and history update steps"), removing the fragment from the address bar and the back/forward list.
+
+## Syntax-checking widget NRQL without a dashboard (P8-91)
+
+- NerdGraph has no parse-only or explain mode for NRQL: `actor.account.nrql` always runs the query. A syntax error comes
+  back as an error on the `nrql` field (`NRQL Syntax Error: ...`, class `INVALID_INPUT`), before any scan, so the cheapest
+  check is the query itself with a short window and `LIMIT 1`. `create_dashboard` `dry_run` therefore sends each widget
+  query with its top-level `SINCE` replaced by `SINCE 5 minutes ago`, `UNTIL` removed and `LIMIT` set to 1 (appended when
+  absent), one synchronous NRQL per widget query, capped at 10 and paid from the request budget. A query without `SINCE`
+  keeps New Relic's default window (the last hour), since inserting a `SINCE` safely after `COMPARE WITH` needs a parser.
+- Errors Inbox `eventsQuery` is New Relic's own text and `list_error_groups` only passes it through; it is never run
+  (T4). New Relic normalises group messages with placeholders such as `<NUMBER>` and `<UUID>`; `trace_error` turns each
+  into `%` and matches with `LIKE` (a template value).
+- The change-tracking search filter has no entity argument that was verified; `list_change_events(entity_guid)` reads the
+  account feed (`changeTrackingSearch`) in the window and keeps the events whose `entity.guid` equals the entity.
+

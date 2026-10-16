@@ -159,6 +159,15 @@ export function issueWindow(
   return { sinceMs: since, untilMs: until, cut };
 }
 
+/** How far inside the window limit the changes range starts. */
+const CHANGE_EDGE_MS = 5 * MINUTE_MS;
+
+/** The note a partial composite report carries: which parts did not complete, and how. */
+export function partialNote(parts: readonly { name: string; status: string }[]): string {
+  const bad = parts.filter((s) => s.status !== 'ok' && s.status !== 'not_applicable');
+  return `Partial report: ${bad.map((s) => `${s.name} (${s.status})`).join(', ')}. See the section or status notes.`;
+}
+
 const isoText = (ms: number) => new Date(ms).toISOString();
 const rangeText = (sinceMs: number, untilMs: number) => `${isoText(sinceMs)} to ${isoText(untilMs)}`;
 
@@ -766,10 +775,19 @@ export function createReportTools(deps: ToolDeps = {}): ToolDefinition[] {
       return { ...base, items: [], argsFor: () => ['', {}] };
     }
     const window = rangeText(win.sinceMs, win.untilMs);
+    // The changes range must itself fit the connection's limit: both its length and how far back it starts (T5).
+    // A little inside the edge: a task reads it later, on a clock that has moved on.
+    const wantedSince = win.sinceMs - (args.change_lookback_hours ?? DEFAULT_CHANGE_LOOKBACK_HOURS) * HOUR_MS;
     const changeSince = Math.max(
-      win.sinceMs - (args.change_lookback_hours ?? DEFAULT_CHANGE_LOOKBACK_HOURS) * HOUR_MS,
-      win.untilMs - ctx.limits.maxWindowDays * DAY_MS,
+      wantedSince,
+      win.untilMs - ctx.limits.maxWindowDays * DAY_MS + CHANGE_EDGE_MS,
+      ctx.clock.now() - ctx.limits.maxWindowDays * DAY_MS + CHANGE_EDGE_MS,
     );
+    const notes = [...base.notes];
+    if (changeSince > wantedSince)
+      notes.push(
+        `Changes cover ${rangeText(changeSince, win.untilMs)}: the window limit of this connection (${ctx.limits.maxWindowDays} days) cut the lookback.`,
+      );
     const metrics = args.max_metrics ?? DEFAULT_REPORT_METRICS;
     const items = [
       { name: 'entity' as const, cost: 1 },
@@ -809,7 +827,7 @@ export function createReportTools(deps: ToolDeps = {}): ToolDefinition[] {
           return ['get_related_entities', { entity_guid: guid, limit: RELATED_LIMIT }];
       }
     };
-    return { ...base, items, argsFor };
+    return { ...base, notes, items, argsFor };
   };
 
   /** Look the issue up (one request), work out its window and the sections to run. */
@@ -886,6 +904,7 @@ export function createReportTools(deps: ToolDeps = {}): ToolDefinition[] {
       (s) => s.status === 'partial' || s.status === 'error' || s.status === 'skipped',
     );
     const count = (s: SectionStatus) => sections.filter((x) => x.status === s).length;
+    if (partial) notes.push(partialNote(sections));
     const lines = [
       `Alert insights for issue ${issue.id} in account ${account}` +
         `${win ? `, window ${isoText(win.sinceMs)} to ${isoText(win.untilMs)} (UTC)` : ''}: ` +

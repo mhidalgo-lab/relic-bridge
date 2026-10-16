@@ -366,6 +366,80 @@ describe('list_change_events', () => {
     expect(errorCode(bad)).toBe(ErrorCode.InputInvalid);
   });
 
+  it("also lists the entity's other change events, not those of other entities (NEW-21)", async () => {
+    const { fetch, calls } = recording((body) =>
+      body.query.includes('RbChangeEvents')
+        ? eventsBody([
+            event(B, 'flag-1', NOW - 2 * MIN, {
+              category: 'FEATURE_FLAG',
+              type: 'BASIC',
+              categoryAndType: 'FEATURE_FLAG__BASIC',
+            }),
+            event(B, 'd1', NOW - 5 * MIN),
+            { ...event(B, 'other-1', NOW - MIN), entity: { guid: guidOf(B, '77'), accountId: B } },
+          ])
+        : json({
+            data: {
+              actor: {
+                entity: {
+                  guid: guidOf(B),
+                  name: 'cart',
+                  accountId: B,
+                  domain: 'APM',
+                  type: 'APPLICATION',
+                  deploymentSearch: {
+                    results: [
+                      { deploymentId: 'd1', version: '2.0', timestamp: NOW - 5 * MIN, entityGuid: guidOf(B) },
+                    ],
+                  },
+                },
+              },
+            },
+          }),
+    );
+    const client = await connect(fetch);
+    const r = await client.callTool({ name: 'list_change_events', arguments: { entity_guid: guidOf(B) } });
+    expect(r.isError ?? false, text(r)).toBe(false);
+    const s = r.structuredContent as { events: { id: string; category: string }[] };
+    expect(s.events.map((e) => e.id)).toEqual(['flag-1', 'd1']);
+    expect(s.events[0]?.category).toBe('FEATURE_FLAG');
+    // Read-only: queries only, the account filter and window are variables.
+    expect(calls.every((c) => c.query.trimStart().startsWith('query'))).toBe(true);
+    const feed = calls.find((c) => c.query.includes('RbChangeEvents'));
+    expect(feed?.variables['filter']).toMatchObject({ accountIds: [B] });
+  });
+
+  it('shows the deployments when the other change events cannot be read (NEW-21)', async () => {
+    const { fetch } = recording((body) =>
+      body.query.includes('RbChangeEvents')
+        ? json({ data: null, errors: [{ message: 'boom', extensions: { errorClass: 'SERVER_ERROR' } }] })
+        : json({
+            data: {
+              actor: {
+                entity: {
+                  guid: guidOf(B),
+                  name: 'cart',
+                  accountId: B,
+                  domain: 'APM',
+                  type: 'APPLICATION',
+                  deploymentSearch: {
+                    results: [
+                      { deploymentId: 'd1', version: '2.0', timestamp: NOW - 5 * MIN, entityGuid: guidOf(B) },
+                    ],
+                  },
+                },
+              },
+            },
+          }),
+    );
+    const client = await connect(fetch);
+    const r = await client.callTool({ name: 'list_change_events', arguments: { entity_guid: guidOf(B) } });
+    expect(r.isError ?? false, text(r)).toBe(false);
+    const s = r.structuredContent as { events: { id: string }[]; notes: string[] };
+    expect(s.events.map((e) => e.id)).toEqual(['d1']);
+    expect(s.notes.join(' ')).toContain('Only deployments are shown');
+  });
+
   it('refuses a foreign account or entity, a long window and bad input before any request', async () => {
     const { fetch, calls } = recording(() => eventsBody([]));
     const client = await connect(fetch, {}, 7);

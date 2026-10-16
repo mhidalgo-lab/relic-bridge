@@ -2,11 +2,11 @@
 id: P8-91
 title: Insights lookback clamp, create_dashboard errors and NRQL check, change events by entity, error group message match
 phase: 8
-status: todo
+status: review
 priority: medium
 depends_on: []
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P8-91 — Insights lookback clamp, create_dashboard errors and NRQL check, change events by entity, error group match
@@ -34,9 +34,9 @@ Four tool findings from review 4 (0.11.0):
   class-only fallback.
 
 ## Acceptance criteria
-- [ ] Tests for each of the four items, including that every NRQL value goes through the `nrql` template (T4).
-- [ ] Dry-run syntax check never mutates; a test asserts no mutation is sent.
-- [ ] Tool docs regenerated.
+- [x] Tests for each of the four items, including that every NRQL value goes through the `nrql` template (T4).
+- [x] Dry-run syntax check never mutates; a test asserts no mutation is sent.
+- [x] Tool docs regenerated.
 
 ## Security notes
 T4 (NRQL injection: placeholder conversion and validation queries use the template helpers). Write tools stay

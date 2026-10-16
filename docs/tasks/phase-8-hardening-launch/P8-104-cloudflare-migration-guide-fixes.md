@@ -2,7 +2,7 @@
 id: P8-104
 title: Cloudflare migration - Docker export command, Worker name check, re-run next steps
 phase: 8
-status: review
+status: done
 priority: medium
 depends_on: []
 adr: []

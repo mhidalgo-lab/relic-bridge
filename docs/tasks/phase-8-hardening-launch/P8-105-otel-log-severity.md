@@ -2,7 +2,7 @@
 id: P8-105
 title: Read OpenTelemetry log severity, and keep log totals consistent with patterns
 phase: 8
-status: review
+status: done
 priority: high
 depends_on: []
 adr: []

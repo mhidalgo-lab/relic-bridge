@@ -2,7 +2,7 @@
 id: P8-107
 title: One issue state across tools, and names for AIOPS issue entities
 phase: 8
-status: review
+status: done
 priority: medium
 depends_on: []
 adr: []

@@ -2,7 +2,7 @@
 id: P8-102
 title: Local error formatting, tasks/* method-not-found, and one span status rule
 phase: 8
-status: review
+status: done
 priority: low
 depends_on: []
 adr: []

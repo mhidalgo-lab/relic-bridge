@@ -2,7 +2,7 @@
 id: P8-103
 title: Review 5 tool output polish - implicit groups, change event scope, budget note
 phase: 8
-status: review
+status: done
 priority: low
 depends_on: []
 adr: []

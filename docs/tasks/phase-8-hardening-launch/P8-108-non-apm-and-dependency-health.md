@@ -2,7 +2,7 @@
 id: P8-108
 title: Non-APM entities in APM tools, and dependency_health with no neighbours
 phase: 8
-status: review
+status: done
 priority: low
 depends_on: []
 adr: []

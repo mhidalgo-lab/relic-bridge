@@ -369,12 +369,12 @@ Generated from task front matter (`pnpm tasks index`). Status lives in each task
 | P8-98 | [Apply the owner's decisions on the P8-85 to P8-97 pending items](tasks/phase-8-hardening-launch/P8-98-owner-decisions.md) | medium | — | done |
 | P8-99 | [Fix the open CodeQL code-scanning alerts](tasks/phase-8-hardening-launch/P8-99-codeql-alerts.md) | medium | — | done |
 | P8-100 | [Note New Relic's read lag after acknowledge_issue and close_issue](tasks/phase-8-hardening-launch/P8-100-issue-write-lag.md) | low | — | done |
-| P8-101 | [State what write approval guarantees, and warn on rejected dashboard queries](tasks/phase-8-hardening-launch/P8-101-write-approval-guarantee-and-nrql-check.md) | medium | — | review |
-| P8-102 | [Local error formatting, tasks/* method-not-found, and one span status rule](tasks/phase-8-hardening-launch/P8-102-error-and-protocol-consistency.md) | low | — | review |
-| P8-103 | [Review 5 tool output polish - implicit groups, change event scope, budget note](tasks/phase-8-hardening-launch/P8-103-tool-output-polish.md) | low | — | review |
-| P8-104 | [Cloudflare migration - Docker export command, Worker name check, re-run next steps](tasks/phase-8-hardening-launch/P8-104-cloudflare-migration-guide-fixes.md) | medium | — | review |
-| P8-105 | [Read OpenTelemetry log severity, and keep log totals consistent with patterns](tasks/phase-8-hardening-launch/P8-105-otel-log-severity.md) | high | — | review |
-| P8-106 | [Tell a client in advance that it cannot approve writes](tasks/phase-8-hardening-launch/P8-106-write-approval-reachability.md) | medium | P8-101 | review |
-| P8-107 | [One issue state across tools, and names for AIOPS issue entities](tasks/phase-8-hardening-launch/P8-107-issue-state-and-names.md) | medium | — | review |
-| P8-108 | [Non-APM entities in APM tools, and dependency_health with no neighbours](tasks/phase-8-hardening-launch/P8-108-non-apm-and-dependency-health.md) | low | — | review |
+| P8-101 | [State what write approval guarantees, and warn on rejected dashboard queries](tasks/phase-8-hardening-launch/P8-101-write-approval-guarantee-and-nrql-check.md) | medium | — | done |
+| P8-102 | [Local error formatting, tasks/* method-not-found, and one span status rule](tasks/phase-8-hardening-launch/P8-102-error-and-protocol-consistency.md) | low | — | done |
+| P8-103 | [Review 5 tool output polish - implicit groups, change event scope, budget note](tasks/phase-8-hardening-launch/P8-103-tool-output-polish.md) | low | — | done |
+| P8-104 | [Cloudflare migration - Docker export command, Worker name check, re-run next steps](tasks/phase-8-hardening-launch/P8-104-cloudflare-migration-guide-fixes.md) | medium | — | done |
+| P8-105 | [Read OpenTelemetry log severity, and keep log totals consistent with patterns](tasks/phase-8-hardening-launch/P8-105-otel-log-severity.md) | high | — | done |
+| P8-106 | [Tell a client in advance that it cannot approve writes](tasks/phase-8-hardening-launch/P8-106-write-approval-reachability.md) | medium | P8-101 | done |
+| P8-107 | [One issue state across tools, and names for AIOPS issue entities](tasks/phase-8-hardening-launch/P8-107-issue-state-and-names.md) | medium | — | done |
+| P8-108 | [Non-APM entities in APM tools, and dependency_health with no neighbours](tasks/phase-8-hardening-launch/P8-108-non-apm-and-dependency-health.md) | low | — | done |
 <!-- tasks:end -->

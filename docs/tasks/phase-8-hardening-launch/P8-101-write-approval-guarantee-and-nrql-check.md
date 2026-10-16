@@ -2,7 +2,7 @@
 id: P8-101
 title: State what write approval guarantees, and warn on rejected dashboard queries
 phase: 8
-status: review
+status: done
 priority: medium
 depends_on: []
 adr: []

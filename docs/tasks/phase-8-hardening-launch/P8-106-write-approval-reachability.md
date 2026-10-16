@@ -2,7 +2,7 @@
 id: P8-106
 title: Tell a client in advance that it cannot approve writes
 phase: 8
-status: review
+status: done
 priority: medium
 depends_on: [P8-101]
 adr: []

@@ -391,16 +391,22 @@ describe('time_range tool', () => {
     expect(text(r)).toContain('Warning');
   });
 
-  it('warns when the whole range is in the future, not when it only ends there (P8-93)', async () => {
+  it('refuses a range that starts in the future, not one that only ends there (P8-98)', async () => {
     const { client } = await setup([identityBody([])]);
     const future = await client.callTool({
       name: 'time_range',
       arguments: { expression: '2099-01-01 to 2099-01-02' },
     });
-    expect(future.isError, text(future)).toBeFalsy();
-    expect(text(future)).toContain('entirely in the future');
+    expect(future.isError).toBe(true);
+    expect(errorCode(future)).toBe(ErrorCode.InputInvalid);
+    expect(text(future)).toContain('range is in the future');
     const past = await client.callTool({ name: 'time_range', arguments: { expression: 'last 2 hours' } });
-    expect(text(past)).not.toContain('in the future');
+    expect(past.isError).toBeFalsy();
+    const ends = await client.callTool({
+      name: 'time_range',
+      arguments: { expression: '2024-01-01 to 2030-01-01' },
+    });
+    expect(ends.isError, text(ends)).toBeFalsy();
   });
 
   it('works with an exhausted budget, rejects bad and unknown input', async () => {

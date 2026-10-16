@@ -80,7 +80,7 @@ const issuesInput = z.strictObject({
     .max(MAX_CONTAINS)
     .optional()
     .describe('Text to search for in the issue title, entity names and policy name.'),
-  group_by: z.enum(['condition', 'entity']).optional().describe('Count per condition or entity.'),
+  group_by: z.enum(['condition', 'entity']).optional().describe('Count per condition or entity (groups).'),
   time_range: windowInput,
   account: accountInput,
   limit: listLimit('rows', DEFAULT_LIMIT, MAX_LIMIT),
@@ -136,7 +136,7 @@ const incidentsOutput = z.object({ incidents: z.array(z.record(z.string(), z.unk
 
 const ISSUES_DESCRIPTION = `List recent alert issues of one account (what is or was alerting): title, state, priority, when it opened, was acknowledged and closed, and the entities, policy and condition behind it.
 
-Start here for "what is alerting?" or "what broke?": states ["ACTIVATED"] gives the open ones. An issue groups related incidents; for the individual violations use search_incidents. Filter by entity (guid or name). Page with cursor. Runs 1 request (${1 + MAX_GROUP_PAGES} with group_by: window counts, see groupsScope). Cannot acknowledge or close anything. Uses the experimental aiIssues API. ${UNTRUSTED}`;
+Start here for "what is alerting?" or "what broke?": states ["ACTIVATED"] gives the open ones. An issue groups related incidents; for the individual violations use search_incidents. Filter by entity (guid or name). Page with cursor. Runs 1 request (${1 + MAX_GROUP_PAGES} with group_by, see groupsScope). Cannot acknowledge or close anything. Uses the experimental aiIssues API. ${UNTRUSTED}`;
 
 const INCIDENTS_DESCRIPTION = `Search the alert incidents (individual violations) of one account: title, state (CREATED = open, CLOSED), priority, times and the entities involved.
 
@@ -564,9 +564,8 @@ export function createIssueTools(deps: ToolDeps = {}): ToolDefinition[] {
       if (hiddenOutsideScope) lines.push("Note: results outside this connection's accounts were left out.");
       if (nextCursor)
         lines.push('More results: call again with the same filters and cursor set to the nextCursor below.');
-      // Without group_by: only conditions that repeat on the page; with it: every group, over the whole window when
-      // the window fits in a few extra pages and the budget allows (NEW-07), else over this page, labelled.
-      const by = input.group_by ?? 'condition';
+      // Groups only with group_by: every group, over the whole window when the window fits in a few extra pages and
+      // the budget allows (NEW-07), else over this page, labelled. No implicit page summary (NEW-30).
       const win = paged.window ?? range;
       let groupRows: readonly IssueRow[] = rows;
       let groupsScope: 'window' | 'page' = 'page';
@@ -578,14 +577,12 @@ export function createIssueTools(deps: ToolDeps = {}): ToolDefinition[] {
           groupsScope = 'window';
         } else groupsNote = whole.note;
       }
-      const found = groupIssues(groupRows, by);
-      const shown = input.group_by ? found : found.filter((g) => g.count > 1);
-      const groups = shown.length > 0 ? shown : undefined;
-      if (groups) {
+      const by = input.group_by;
+      const found = by ? groupIssues(groupRows, by) : [];
+      const groups = found.length > 0 ? found : undefined;
+      if (by && groups) {
         lines.push(
-          input.group_by
-            ? `Issues ${groupsScope === 'window' ? 'in the window' : 'on this page'} per ${by} (${groupRows.length} issues; see groups):`
-            : `Repeated conditions on this page (${groups.reduce((n, g) => n + g.count, 0)} of ${rows.length} issues; see groups):`,
+          `Issues ${groupsScope === 'window' ? 'in the window' : 'on this page'} per ${by} (${groupRows.length} issues; see groups):`,
           ...groups
             .slice(0, MAX_LIST)
             .map(
@@ -633,7 +630,7 @@ export function createIssueTools(deps: ToolDeps = {}): ToolDefinition[] {
           until,
           issues,
           ...(groups ? { groups } : {}),
-          ...(input.group_by ? { groupsScope } : {}),
+          ...(by ? { groupsScope } : {}),
           ...(groupsNote ? { groupsNote } : {}),
           ...(limitNote ? { limitNote } : {}),
           ...(recordsNote ? { recordsNote } : {}),

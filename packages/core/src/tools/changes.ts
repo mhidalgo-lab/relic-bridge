@@ -118,7 +118,7 @@ const listOutput = z.object({
   accountId: z.number().int(),
   since: z.string(),
   until: z.string(),
-  scope: z.enum(['account', 'entity_deployments']),
+  scope: z.enum(['account', 'entity_changes']),
   events: z.array(z.record(z.string(), z.unknown())),
   /** Older events in the window exist: pass this as cursor (same filters) to read them. */
   nextCursor: z.string().nullable(),
@@ -850,7 +850,7 @@ export function createChangeTools(deps: ToolDeps = {}): ToolDefinition[] {
       let hiddenOutsideScope = false;
       const notes: string[] = [];
       let upstreamFull: boolean;
-      let scope: 'account' | 'entity_deployments';
+      let scope: 'account' | 'entity_changes';
       let at: Awaited<ReturnType<typeof position>>;
 
       if (args.entity_guid !== undefined) {
@@ -864,7 +864,7 @@ export function createChangeTools(deps: ToolDeps = {}): ToolDefinition[] {
           );
         }
         account = singleAccount(ctx, decoded.accountId);
-        scope = 'entity_deployments';
+        scope = 'entity_changes';
         at = await position(account, guid);
         const fetchSize = timeFetchSize(limit, at.pos);
         const result = await client(ctx).query(ENTITY_DEPLOYMENTS_QUERY, {
@@ -989,7 +989,7 @@ export function createChangeTools(deps: ToolDeps = {}): ToolDefinition[] {
       const since = at.pos === null ? range.since : new Date(at.sinceMs).toISOString();
       const until = at.pos === null ? range.until : new Date(at.untilMs).toISOString();
       const lines = [
-        `${rows.length} change event${rows.length === 1 ? '' : 's'} ${scope === 'entity_deployments' ? '(of the entity) ' : ''}in account ${account}, ${since} to ${until} (UTC), newest first.`,
+        `${rows.length} change event${rows.length === 1 ? '' : 's'} ${scope === 'entity_changes' ? '(of the entity) ' : ''}in account ${account}, ${since} to ${until} (UTC), newest first.`,
       ];
       if (hiddenOutsideScope) lines.push("Note: events outside this connection's accounts were left out.");
       for (const n of notes) lines.push(`Note: ${n}`);

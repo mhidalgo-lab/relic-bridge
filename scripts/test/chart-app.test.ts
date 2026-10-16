@@ -368,7 +368,7 @@ describe('chart page build', () => {
     expect(CHART_APP_HTML).not.toMatch(
       /innerHTML|outerHTML|insertAdjacentHTML|document\.write|eval\(|new Function|fetch\(|XMLHttpRequest|WebSocket|import\(|sendBeacon|localStorage|indexedDB/,
     );
-    expect(CHART_APP_HTML.match(/<script>/g)?.length).toBe(1);
+    expect(CHART_APP_HTML.match(/<script>/gi)?.length).toBe(1);
     expect(CHART_APP_HTML).toContain("connect-src 'none'");
     expect(CHART_APP_HTML.length).toBeLessThan(32_000);
   });

@@ -53,6 +53,7 @@ function typeLabel(doc: Json, node: Json | undefined): string {
 const cell = (text: unknown): string =>
   String(text ?? '')
     .replace(/\r?\n+/g, ' ')
+    .replace(/\\/g, '\\\\')
     .replace(/\|/g, '\\|')
     .trim();
 

@@ -2,7 +2,18 @@
 // Management commands (P2-10) in-process: local mode against a temp SQLite database and remote mode against an
 // in-process `serve`, both with a fake NerdGraph. Secrets must never appear in argv-derived output.
 import { randomBytes } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import {
+  closeSync,
+  existsSync,
+  fstatSync,
+  mkdirSync,
+  mkdtempSync,
+  openSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { generateMasterKey } from '@relic-bridge/auth';
@@ -210,8 +221,14 @@ describe('local mode', () => {
     // Never next to the database (P2-review): the default is the config directory, not the data directory.
     expect(existsSync(join(tmp, 'data', 'master.key'))).toBe(false);
     const keyFile = join(tmp, '.config', 'relic-bridge', 'master.key');
-    expect(statSync(keyFile).mode & 0o777).toBe(0o600);
-    expect(readFileSync(keyFile, 'utf8')).toMatch(/^v1:/);
+    // One open handle for both the mode and the content: no check-then-use on the path.
+    const keyFd = openSync(keyFile, 'r');
+    try {
+      expect(fstatSync(keyFd).mode & 0o777).toBe(0o600);
+      expect(readFileSync(keyFd, 'utf8')).toMatch(/^v1:/);
+    } finally {
+      closeSync(keyFd);
+    }
     token = r.out.trim();
     expect(token).toMatch(/^rb_live_/);
     expect(r.out.trim().split('\n')).toHaveLength(1);

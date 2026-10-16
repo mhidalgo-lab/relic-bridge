@@ -167,7 +167,7 @@ function shapeValue(value: unknown, caps: OutputCaps, redactSecrets: boolean, co
 const NEWLINE_RE = /\r\n|\r|\n/g;
 
 function tableCell(value: unknown): string {
-  return toText(value).replace(NEWLINE_RE, '\\n').replace(/\|/g, '\\|');
+  return toText(value).replace(/\\/g, '\\\\').replace(NEWLINE_RE, '\\n').replace(/\|/g, '\\|');
 }
 
 const CSV_QUOTE_RE = /[",\r\n]|^\s|\s$/;

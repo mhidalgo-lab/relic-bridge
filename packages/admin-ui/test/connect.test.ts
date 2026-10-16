@@ -128,3 +128,14 @@ describe('connect page', () => {
     expect(anon.status).toBe(303);
   });
 });
+
+describe('endpointFor on hostile input (P8-99)', () => {
+  it('trims trailing slashes in linear time', () => {
+    const started = performance.now();
+    expect(endpointFor(`https://rb.example.com${'/'.repeat(300_000)}x`, 'prod')).toContain('/p/prod/mcp');
+    expect(endpointFor(`https://rb.example.com${'/'.repeat(300_000)}`, 'prod')).toBe(
+      'https://rb.example.com/p/prod/mcp',
+    );
+    expect(performance.now() - started).toBeLessThan(1000);
+  });
+});

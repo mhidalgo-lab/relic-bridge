@@ -1,0 +1,6 @@
+# CodeQL configuration for the security workflow (P8-99).
+name: relic-bridge CodeQL
+paths-ignore:
+  # One-off research spikes (docs/RESEARCH.md); never built, published or deployed. Their probe output is redacted and
+  # written under spikes/**/results, which CodeQL reports as "network data written to file".
+  - spikes

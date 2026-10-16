@@ -39,9 +39,16 @@ export function shellWord(value: string): string {
   return /^[A-Za-z0-9_\-./:@%+=,]+$/.test(value) ? value : `'${value.replaceAll("'", `'\\''`)}'`;
 }
 
+/** Drop trailing slashes in linear time (a `/\/+$/` replace is quadratic on a long run of slashes). */
+function trimTrailingSlashes(text: string): string {
+  let end = text.length;
+  while (end > 0 && text.charCodeAt(end - 1) === 47) end--;
+  return text.slice(0, end);
+}
+
 /** The public endpoint of a project: the configured origin plus `/p/<slug>/mcp`. */
 export function endpointFor(publicUrl: string | undefined, slug: string): string {
-  return `${publicUrl === undefined ? '' : publicUrl.replace(/\/+$/, '')}/p/${slug}/mcp`;
+  return `${publicUrl === undefined ? '' : trimTrailingSlashes(publicUrl)}/p/${slug}/mcp`;
 }
 
 export function serverName(slug: string): string {

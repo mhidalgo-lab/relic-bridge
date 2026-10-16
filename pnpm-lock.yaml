@@ -217,13 +217,13 @@ importers:
     dependencies:
       '@hono/node-server':
         specifier: 2.1.4
-        version: 2.1.4(hono@4.13.11)
+        version: 2.1.4(hono@4.13.13)
       '@modelcontextprotocol/server':
         specifier: 2.3.1
         version: 2.3.1
       hono:
-        specifier: 4.13.11
-        version: 4.13.11
+        specifier: 4.13.13
+        version: 4.13.13
       yaml:
         specifier: 2.9.1
         version: 2.9.1
@@ -277,8 +277,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/storage
       hono:
-        specifier: 4.13.11
-        version: 4.13.11
+        specifier: 4.13.13
+        version: 4.13.13
     devDependencies:
       '@cloudflare/vitest-plugin':
         specifier: 1.4.0
@@ -302,8 +302,8 @@ importers:
   packages/admin-ui:
     dependencies:
       hono:
-        specifier: 4.13.11
-        version: 4.13.11
+        specifier: 4.13.13
+        version: 4.13.13
     devDependencies:
       '@types/jsdom':
         specifier: 30.0.0
@@ -363,7 +363,7 @@ importers:
         version: 1.2.3
       '@hono/zod-openapi':
         specifier: 1.6.3
-        version: 1.6.3(hono@4.13.11)(zod@4.6.7)
+        version: 1.6.3(hono@4.13.13)(zod@4.6.7)
       '@modelcontextprotocol/server':
         specifier: 2.3.1
         version: 2.3.1
@@ -380,8 +380,8 @@ importers:
         specifier: workspace:*
         version: link:../storage
       hono:
-        specifier: 4.13.11
-        version: 4.13.11
+        specifier: 4.13.13
+        version: 4.13.13
       zod:
         specifier: 4.6.7
         version: 4.6.7
@@ -2554,8 +2554,8 @@ packages:
   hastscript@9.0.1:
     resolution: {integrity: sha512-g7df9rMFX/SPi34tyGCyUBREQoKkapwdY/T04Qn9TDWfHhAYt4/I0gMVirzK5wEzeUqIjEB+LXC/ypb7Aqno5w==}
 
-  hono@4.13.11:
-    resolution: {integrity: sha512-/SMX/RQNJn7oNmFwH6DtwDqcrzZU2otm1FD6OJe2cWF6cfy/F8hq0XVBv7xW3FTJshRQwuBnXHDq2kNsdZnshg==}
+  hono@4.13.13:
+    resolution: {integrity: sha512-CQ46U0ZkAGmbT/4UxdzzGJpacP2IeKgY4a5/tOI9AABbpOMfK739wfDXmv1usCk+3RkKj1hQy4/fjhiwa2xlrA==}
     engines: {node: '>=16.9.0'}
 
   hookable@6.1.2:
@@ -4335,21 +4335,21 @@ snapshots:
     dependencies:
       '@expressive-code/core': 0.44.2
 
-  '@hono/node-server@2.1.4(hono@4.13.11)':
+  '@hono/node-server@2.1.4(hono@4.13.13)':
     dependencies:
-      hono: 4.13.11
+      hono: 4.13.13
 
-  '@hono/zod-openapi@1.6.3(hono@4.13.11)(zod@4.6.7)':
+  '@hono/zod-openapi@1.6.3(hono@4.13.13)(zod@4.6.7)':
     dependencies:
       '@asteasolutions/zod-to-openapi': 9.1.0(zod@4.6.7)
-      '@hono/zod-validator': 0.9.1(hono@4.13.11)(zod@4.6.7)
-      hono: 4.13.11
+      '@hono/zod-validator': 0.9.1(hono@4.13.13)(zod@4.6.7)
+      hono: 4.13.13
       openapi3-ts: 4.6.1
       zod: 4.6.7
 
-  '@hono/zod-validator@0.9.1(hono@4.13.11)(zod@4.6.7)':
+  '@hono/zod-validator@0.9.1(hono@4.13.13)(zod@4.6.7)':
     dependencies:
-      hono: 4.13.11
+      hono: 4.13.13
       zod: 4.6.7
 
   '@img/colour@1.1.0': {}
@@ -5475,7 +5475,7 @@ snapshots:
       property-information: 7.2.0
       space-separated-tokens: 2.0.2
 
-  hono@4.13.11: {}
+  hono@4.13.13: {}
 
   hookable@6.1.2: {}
 

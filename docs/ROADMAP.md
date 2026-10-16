@@ -367,4 +367,5 @@ Generated from task front matter (`pnpm tasks index`). Status lives in each task
 | P8-96 | [ASVS product open items - end all sessions, Clear-Site-Data, outbound redirect policy, metadata host allow-list](tasks/phase-8-hardening-launch/P8-96-asvs-product-hardening.md) | medium | — | done |
 | P8-97 | [OAuth leak scan false positive - public token-response fields listed as secrets](tasks/phase-8-hardening-launch/P8-97-oauth-leak-scan-false-positive.md) | medium | — | done |
 | P8-98 | [Apply the owner's decisions on the P8-85 to P8-97 pending items](tasks/phase-8-hardening-launch/P8-98-owner-decisions.md) | medium | — | done |
+| P8-99 | [Fix the open CodeQL code-scanning alerts](tasks/phase-8-hardening-launch/P8-99-codeql-alerts.md) | medium | — | in-progress |
 <!-- tasks:end -->

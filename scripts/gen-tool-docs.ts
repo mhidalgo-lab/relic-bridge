@@ -43,6 +43,7 @@ export function typeLabel(node: unknown): string {
 function cell(text: string): string {
   return text
     .replace(/\r?\n+/g, ' ')
+    .replace(/\\/g, '\\\\')
     .replace(/\|/g, '\\|')
     .trim();
 }
@@ -55,7 +56,7 @@ export function renderFields(schema: Json): string {
   if (names.length === 0) return '_No fields._\n';
   const rows = names.map((n) => {
     const p = props[n] as Json;
-    const type = typeLabel(p).replace(/\\\|/g, '\\|');
+    const type = typeLabel(p);
     const desc = typeof p['description'] === 'string' ? cell(p['description']) : '';
     const def = 'default' in p ? ` Default: \`${JSON.stringify(p['default'])}\`.` : '';
     return `| \`${n}\` | \`${type}\` | ${required.has(n) ? 'yes' : 'no'} | ${desc}${def} |`;

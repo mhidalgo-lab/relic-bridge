@@ -489,3 +489,12 @@ describe('shapeNrqlOutcome', () => {
     expect(JSON.parse(body)).toHaveLength(2);
   });
 });
+
+describe('table cell escaping (P8-99)', () => {
+  it('escapes backslashes first so a trailing backslash cannot swallow the pipe escape', () => {
+    const out = shapeRows([{ path: 'C:\\temp\\|x', note: 'a\\' }], { format: 'table', envelopeId: ID });
+    // Every `|` inside a cell is preceded by an odd number of backslashes, so it cannot end the cell.
+    const row = out.text.split('\n').find((l) => l.startsWith('| C:')) as string;
+    expect(row).toBe('| C:\\\\temp\\\\\\|x | a\\\\ |');
+  });
+});

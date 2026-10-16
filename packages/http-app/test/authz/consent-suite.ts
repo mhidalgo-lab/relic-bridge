@@ -54,13 +54,11 @@ const formPost = (session: SessionCaller): Record<string, string> => ({
   'content-type': 'application/x-www-form-urlencoded',
 });
 
+// One pass over the text: `&amp;lt;` decodes to `&lt;`, never on to `<`.
+const HTML_ENTITIES: Record<string, string> = { amp: '&', quot: '"', '#39': "'", lt: '<', gt: '>' };
+
 const decodeHtml = (s: string): string =>
-  s
-    .replaceAll('&amp;', '&')
-    .replaceAll('&quot;', '"')
-    .replaceAll('&#39;', "'")
-    .replaceAll('&lt;', '<')
-    .replaceAll('&gt;', '>');
+  s.replace(/&(amp|quot|#39|lt|gt);/g, (_m, name: string) => HTML_ENTITIES[name] as string);
 
 /** The consent form's action (decoded) and the grant ids it offers. */
 export function parseConsent(page: Captured): { action: string; grants: string[] } {
@@ -444,7 +442,9 @@ export function consentSuite(): void {
         for (const decision of ['approve', 'deny']) {
           const res = await browser.post(owner, target, { decision, grant: grants[0] as string });
           const location = res.headers.get('location') ?? '';
-          expect(location.startsWith('https://evil.example'), target).toBe(false);
+          expect(location === '' ? '' : new URL(location, PUBLIC_ORIGIN).host, target).not.toBe(
+            'evil.example',
+          );
           expect(codeOf(res)).toBeNull();
         }
       }

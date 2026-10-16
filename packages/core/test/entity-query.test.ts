@@ -167,3 +167,25 @@ describe('decodeEntityGuid', () => {
     }
   });
 });
+
+describe('entityQuery.and OR detection stays linear (P8-99)', () => {
+  it('parenthesises an OR outside quotes, never one inside a quoted value', () => {
+    const outer = entityQuery`name = ${'a'} OR name = ${'b'}`;
+    const inner = entityQuery`name = ${"x OR 'y' \\ z"}`;
+    expect(entityQuery.and([outer, inner]).text).toBe(`(${outer.text}) AND ${inner.text}`);
+    expect(entityQuery.and([inner, inner]).text).toBe(`${inner.text} AND ${inner.text}`);
+  });
+
+  it('is not quadratic on a hostile part (many quotes, backslashes, an unterminated quote)', () => {
+    const hostile = [
+      entityQuery`name = ${"'".repeat(MAX_ENTITY_QUERY_VALUE_CHARS)}`,
+      entityQuery`name = ${'\\'.repeat(MAX_ENTITY_QUERY_VALUE_CHARS)}`,
+    ];
+    const unterminated = entityQuery`type = ${'A'}`;
+    const raw = { ...unterminated, text: `name = '${"\\'".repeat(200_000)}` };
+    const started = performance.now();
+    for (const part of hostile) entityQuery.and([part, unterminated]);
+    entityQuery.and([raw, unterminated]);
+    expect(performance.now() - started).toBeLessThan(1000);
+  });
+});

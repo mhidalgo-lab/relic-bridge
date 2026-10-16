@@ -90,6 +90,22 @@ function render(value: unknown): string {
   return scalar(value);
 }
 
+/** Replace each complete single-quoted value (backslash escapes honoured) with `''`, in one linear pass. */
+function blankQuoted(text: string): string {
+  let out = '';
+  let i = 0;
+  while (i < text.length) {
+    const open = text.indexOf("'", i);
+    if (open < 0) break;
+    let j = open + 1;
+    while (j < text.length && text[j] !== "'") j += text[j] === '\\' ? 2 : 1;
+    if (j >= text.length) break; // unterminated: keep the rest as written
+    out += `${text.slice(i, open)}''`;
+    i = j + 1;
+  }
+  return out + text.slice(i);
+}
+
 function make(text: string): EntitySearchQuery {
   return Object.freeze({ text, [QUERY]: true as const });
 }
@@ -130,7 +146,7 @@ export const entityQuery: EntityQueryTag = Object.assign(tag, {
     }
     // A part with an OR operator (outside quoted values) is parenthesised, so it cannot widen the others. Other parts
     // stay bare: the queries measured in P0-09 and sent by every tool keep their exact shape.
-    const hasOr = (text: string) => /\bOR\b/i.test(text.replace(/'(?:[^'\\]|\\.)*'/g, "''"));
+    const hasOr = (text: string) => /\bOR\b/i.test(blankQuoted(text));
     const nonEmpty = parts.filter((p) => p.text !== '');
     return make(nonEmpty.map((p) => (hasOr(p.text) ? `(${p.text})` : p.text)).join(' AND '));
   },

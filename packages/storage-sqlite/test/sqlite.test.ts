@@ -1,11 +1,22 @@
 // SPDX-License-Identifier: Apache-2.0
-import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { MIGRATIONS, MigrationError, StorageError } from '@relic-bridge/storage';
 import { fakeEncryptedKey, runStorageContract } from '@relic-bridge/storage/testing';
 import { afterAll, describe, expect, it } from 'vitest';
+import { prepareDatabaseFile, snapshotInto } from '../src/file.ts';
 import { backupDatabase, openSqliteStorage } from '../src/index.ts';
 
 const root = mkdtempSync(join(tmpdir(), 'rb-sqlite-'));
@@ -274,5 +285,37 @@ describe('sqlite adapter', () => {
     const err = await s.users.create({ id: 'u2', email: 'secret@x.io', role: 'member' }).catch((e) => e);
     expect(String(err.message)).not.toContain('secret@x.io');
     await s.close();
+  });
+});
+
+describe('database file preparation without check-then-use (P8-99)', () => {
+  it.skipIf(!posix)('tightens an existing wide-open file through its own handle', () => {
+    const path = file();
+    prepareDatabaseFile(path);
+    chmodSync(path, 0o666);
+    prepareDatabaseFile(path);
+    expect(statSync(path).mode & 0o777).toBe(0o600);
+  });
+
+  it.skipIf(!posix)('refuses a symlink planted at the path and leaves its target alone', () => {
+    const dir = join(root, `link-${n++}`);
+    mkdirSync(dir, { recursive: true });
+    const target = join(dir, 'target');
+    writeFileSync(target, 'x', { mode: 0o644 });
+    const link = join(dir, 'relic.db');
+    symlinkSync(target, link);
+    expect(() => prepareDatabaseFile(link)).toThrow();
+    expect(statSync(target).mode & 0o777).toBe(0o644);
+  });
+
+  it('the backup never overwrites an existing destination', () => {
+    const db = new DatabaseSync(':memory:');
+    try {
+      const dest = join(root, `bk-${n++}`, 'copy.db');
+      snapshotInto(db, dest);
+      expect(() => snapshotInto(db, dest)).toThrow(StorageError);
+    } finally {
+      db.close();
+    }
   });
 });

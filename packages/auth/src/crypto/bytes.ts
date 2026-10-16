@@ -33,7 +33,7 @@ export function toBase64(bytes: Uint8Array): string {
   return btoa(binary);
 }
 
-const BASE64_RE = /^(?:[A-Za-z0-9+/]|[A-Za-z0-9_-])+={0,2}$/;
+const BASE64_RE = /^[A-Za-z0-9+/_-]+={0,2}$/;
 
 /**
  * Strict base64 decoding: standard or URL-safe alphabet (not mixed), padding optional, no whitespace inside.

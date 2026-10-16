@@ -1222,3 +1222,16 @@ describe('error status, a span per MCP method and logs in the trace (P8-90)', ()
     ]);
   });
 });
+
+describe('endpoint normalisation on hostile input (P8-99)', () => {
+  it('trims trailing slashes in linear time', () => {
+    const started = performance.now();
+    createTelemetry({ endpoint: `https://collector.example${'/'.repeat(300_000)}x`, fetch: receiverFetch });
+    const t = createTelemetry({
+      endpoint: `https://collector.example${'/'.repeat(300_000)}`,
+      fetch: receiverFetch,
+    });
+    expect(t).toBeDefined();
+    expect(performance.now() - started).toBeLessThan(1000);
+  });
+});

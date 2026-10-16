@@ -412,6 +412,13 @@ function hex(bytes: number): string {
   return Array.from(buf, (b) => b.toString(16).padStart(2, '0')).join('');
 }
 
+/** Drop trailing slashes in linear time (a `/\/+$/` replace is quadratic on a long run of slashes). */
+function trimTrailingSlashes(text: string): string {
+  let end = text.length;
+  while (end > 0 && text.charCodeAt(end - 1) === 47) end--;
+  return text.slice(0, end);
+}
+
 function bucketCounts(ms: number): string[] {
   const counts = new Array<number>(DURATION_BUCKETS_MS.length + 1).fill(0);
   const i = DURATION_BUCKETS_MS.findIndex((bound) => ms <= bound);
@@ -420,7 +427,7 @@ function bucketCounts(ms: number): string[] {
 }
 
 export function createTelemetry(options: TelemetryOptions): Telemetry {
-  const base = options.endpoint.replace(/\/+$/, '');
+  const base = trimTrailingSlashes(options.endpoint);
   const logger = options.logger ?? silentLogger;
   const clock = options.clock ?? systemClock;
   const doFetch: FetchLike = options.fetch ?? outboundFetch;

@@ -1,7 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // Database file hygiene (THREAT_MODEL T7): the file and its WAL/SHM siblings must not be readable by other users.
 // SQLite creates `-wal` and `-shm` with the permissions of the main file, so securing that one is enough.
-import { chmodSync, closeSync, existsSync, mkdirSync, openSync, statSync, unlinkSync } from 'node:fs';
+import {
+  closeSync,
+  constants,
+  existsSync,
+  fchmodSync,
+  fstatSync,
+  mkdirSync,
+  openSync,
+  unlinkSync,
+} from 'node:fs';
 import { dirname } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { StorageError } from '@relic-bridge/storage';
@@ -9,15 +18,37 @@ import { StorageError } from '@relic-bridge/storage';
 export const MEMORY_PATH = ':memory:';
 const isWindows = process.platform === 'win32';
 
-/** Create the parent directory (`0700`) and the file (`0600`) before SQLite touches it; tighten an existing file. */
+// `O_NOFOLLOW` (absent on Windows) refuses a symlink planted at the path, so we never chmod or open its target.
+const NOFOLLOW = constants.O_NOFOLLOW ?? 0;
+
+function isErrno(error: unknown, code: string): boolean {
+  return typeof error === 'object' && error !== null && (error as { code?: unknown }).code === code;
+}
+
+/**
+ * Create the parent directory (`0700`) and the file (`0600`) before SQLite touches it; tighten an existing file.
+ *
+ * No check-then-use: the file is created with `O_EXCL` (atomic, `0600` from the first byte) or, when it exists, opened
+ * once (`O_NOFOLLOW`) and inspected and chmod-ed through that handle, so a swap between the check and the chmod cannot
+ * redirect it to another file (CWE-367).
+ */
 export function prepareDatabaseFile(path: string): void {
   if (path === MEMORY_PATH) return;
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
-  if (!existsSync(path)) {
-    closeSync(openSync(path, 'wx', 0o600));
+  try {
+    closeSync(openSync(path, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | NOFOLLOW, 0o600));
     return;
+  } catch (error) {
+    if (!isErrno(error, 'EEXIST')) throw error;
   }
-  if (!isWindows && (statSync(path).mode & 0o077) !== 0) chmodSync(path, 0o600);
+  if (isWindows) return;
+  const fd = openSync(path, constants.O_RDONLY | NOFOLLOW);
+  try {
+    const stat = fstatSync(fd);
+    if (stat.isFile() && (stat.mode & 0o077) !== 0) fchmodSync(fd, 0o600);
+  } finally {
+    closeSync(fd);
+  }
 }
 
 /**
@@ -28,12 +59,19 @@ export function snapshotInto(db: DatabaseSync, destination: string): void {
   if (destination === MEMORY_PATH || destination.trim() === '') {
     throw new StorageError('invalid', 'backup needs a file path');
   }
-  if (existsSync(destination)) {
-    throw new StorageError('conflict', 'backup destination already exists; refusing to overwrite it');
-  }
   mkdirSync(dirname(destination), { recursive: true, mode: 0o700 });
-  // VACUUM INTO accepts only a missing or empty file; create it ourselves so it is `0600` from the start.
-  closeSync(openSync(destination, 'wx', 0o600));
+  // VACUUM INTO accepts only a missing or empty file; create it ourselves (`O_EXCL`: atomic, refuses an existing file
+  // or a symlink, `0600` from the start) rather than checking first.
+  try {
+    closeSync(
+      openSync(destination, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | NOFOLLOW, 0o600),
+    );
+  } catch (error) {
+    if (isErrno(error, 'EEXIST')) {
+      throw new StorageError('conflict', 'backup destination already exists; refusing to overwrite it');
+    }
+    throw error;
+  }
   try {
     db.prepare('VACUUM INTO ?').run(destination);
   } catch (cause) {

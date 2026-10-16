@@ -23,12 +23,15 @@ const routes = new Map<string, (res: import('node:http').ServerResponse) => void
 beforeAll(async () => {
   server = createServer((req, res) => {
     hits++;
-    const route = routes.get(req.url ?? '');
-    if (route) route(res);
-    else {
-      res.writeHead(404);
-      res.end();
+    // Iterate the registered handlers instead of calling one looked up by the request path.
+    for (const [path, handler] of routes) {
+      if (path === req.url) {
+        handler(res);
+        return;
+      }
     }
+    res.writeHead(404);
+    res.end();
   });
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
   port = (server.address() as AddressInfo).port;

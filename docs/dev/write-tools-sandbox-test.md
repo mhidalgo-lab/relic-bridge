@@ -130,7 +130,7 @@ With `RB_WRITE_APPROVAL` unset:
     already used for one attempt, so the change was not sent again". Still one marker. (A new call without an answer
     is simply asked again.)
   - Note whether the client auto-accepts the form (owner checklist).
-- Then `RB_WRITE_APPROVAL=client`, restart, reconnect: the startup log warns; client B's `confirm: true` now applies the
+- Then `RB_WRITE_APPROVAL=off`, restart, reconnect: the startup log warns; client B's `confirm: true` now applies the
   write (no form). Set it back (unset) afterwards and restart.
 
 ### 6. Issue writes apply once and are idempotent

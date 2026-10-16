@@ -156,12 +156,14 @@ describe('serveSettings', () => {
     const unset = serveSettings({ ...base, env: wt });
     expect(unset.requireWriteApproval).toBe(true);
     expect(unset.warnings.join(' ')).not.toContain('RB_WRITE_APPROVAL');
-    const optDown = serveSettings({ ...base, env: { ...wt, RB_WRITE_APPROVAL: 'client' } });
-    expect(optDown.requireWriteApproval).toBe(false);
-    expect(optDown.warnings.join(' ')).toContain('RB_WRITE_APPROVAL=client');
-    expect(
-      serveSettings({ ...base, env: { ...base.env, RB_WRITE_APPROVAL: 'client' } }).warnings.join(' '),
-    ).not.toContain('RB_WRITE_APPROVAL=client');
+    for (const value of ['off', 'OFF', 'client']) {
+      const optDown = serveSettings({ ...base, env: { ...wt, RB_WRITE_APPROVAL: value } });
+      expect(optDown.requireWriteApproval).toBe(false);
+      expect(optDown.warnings.join(' ')).toContain('RB_WRITE_APPROVAL=off');
+      expect(
+        serveSettings({ ...base, env: { ...base.env, RB_WRITE_APPROVAL: value } }).warnings.join(' '),
+      ).not.toContain('RB_WRITE_APPROVAL=off');
+    }
     expect(
       serveSettings({ ...base, env: { ...wt, RB_WRITE_APPROVAL: 'required' } }).requireWriteApproval,
     ).toBe(true);

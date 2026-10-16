@@ -130,10 +130,11 @@ describe('write tools on stdio (P7-09)', () => {
     expect(() => stdioWriteTools({ RB_WRITE_TOOLS: 'yes please' })).toThrow(ConfigError);
   });
 
-  it('RB_WRITE_APPROVAL parses client/required only (P7-25)', () => {
+  it('RB_WRITE_APPROVAL parses off (or its synonym client) and required only (P7-25)', () => {
     expect(stdioWriteApproval({})).toBe(true); // ADR-0016: required unless opted down
     expect(stdioWriteApproval({ RB_WRITE_APPROVAL: '' })).toBe(true);
-    expect(stdioWriteApproval({ RB_WRITE_APPROVAL: 'client' })).toBe(false);
+    expect(stdioWriteApproval({ RB_WRITE_APPROVAL: 'off' })).toBe(false);
+    expect(stdioWriteApproval({ RB_WRITE_APPROVAL: 'client' })).toBe(false); // synonym of off
     expect(stdioWriteApproval({ RB_WRITE_APPROVAL: 'required' })).toBe(true);
     expect(() => stdioWriteApproval({ RB_WRITE_APPROVAL: 'on' })).toThrow(ConfigError);
   });

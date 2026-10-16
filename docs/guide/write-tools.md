@@ -8,7 +8,7 @@ explains what a write returns, how approval is detected, and which clients can a
 
 | Outcome | `isError` | `structuredContent` | Nothing sent to New Relic? |
 | --- | --- | --- | --- |
-| Applied | `false` | `applied: true`, `confirmation: approved` (a person approved it) or `not_required` (`RB_WRITE_APPROVAL=client`) | no, one mutation |
+| Applied | `false` | `applied: true`, `confirmation: approved` (a person approved it) or `not_required` (`RB_WRITE_APPROVAL=off`) | no, one mutation |
 | Dry run (`dry_run: true`) | `false` | `applied: false`, `dryRun: true`, `confirmation: dry_run`, and the plan (`plan` for `create_change_event`, `pages` for `create_dashboard`) | yes |
 | Nothing to do (an issue already acknowledged or closed) | `false` | `applied: false`, `confirmation: not_required`, `note` | yes |
 | Refused: no way to ask a person | `true` | none | yes, code `RB_WRITE_APPROVAL_UNAVAILABLE` |
@@ -24,7 +24,7 @@ The audit log gets one row for the refusal (status `error`, `details.write.recor
 
 ## How approval is detected
 
-`RB_WRITE_APPROVAL` (see [configuration](configuration.md)) is `required` unless the owner sets `client`. `whoami`
+`RB_WRITE_APPROVAL` (see [configuration](configuration.md)) is `required` unless the owner sets `off` (`client` is a synonym). `whoami`
 reports it as `limits.writeApproval` (`required` or `off`).
 
 With `required`, a person must approve the exact change through MCP elicitation. relic-bridge is stateless (ADR-0005): it
@@ -52,7 +52,7 @@ requests):
   (and a line in its text) saying the real run will be refused from this client.
 
 This only informs: nothing here lets a client skip the approval. To use writes from a client that cannot approve, the
-owner can set `RB_WRITE_APPROVAL=client` on a sandbox project's deployment (the model's `confirm: true` is then the only
+owner can set `RB_WRITE_APPROVAL=off` on a sandbox project's deployment (the model's `confirm: true` is then the only
 gate); otherwise use Claude Code.
 
 ## What approval guarantees

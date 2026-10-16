@@ -170,7 +170,7 @@ dashboard (Worker, Settings, Variables); `pnpm cf:setup` sets `RB_PLAN` from `--
 
 Write tools stay off unless you set `RB_WRITE_TOOLS=on` (needs `RB_AUDIT=on`). When on, `RB_WRITE_APPROVAL` defaults to
 `required`: a write needs a person's approval through MCP elicitation, and a client that cannot be asked can only dry-run.
-Set `RB_WRITE_APPROVAL=client` only if you accept that the model's own `confirm: true` is then the only gate; the Worker
+Set `RB_WRITE_APPROVAL=off` only if you accept that the model's own `confirm: true` is then the only gate; the Worker
 logs a startup warning. See [write tools](security-basics.md#write-tools-opt-in).
 
 Audit history is trimmed by an hourly cron trigger (`triggers.crons` in `wrangler.jsonc`, registered at deploy): rows

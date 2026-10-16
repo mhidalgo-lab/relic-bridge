@@ -39,3 +39,10 @@ Informational only: the write path and its refusals are unchanged. Per-request c
 
 ## Out of scope
 - A per-project approval setting.
+
+## Owner decisions
+- 2026-10-16: rebase onto the updated P8-101 branch (write-tool notice now "Approved in the client (whoami
+  limits.writeApproval).").
+- 2026-10-16: `RB_WRITE_APPROVAL` accepts `off` as a synonym for `client` everywhere it is parsed (`serve`, stdio, the
+  Worker); `client` keeps working. Error messages, help text, startup warnings and the docs say `off`, matching
+  `whoami`'s `writeApproval: "off"`. No output schema change.

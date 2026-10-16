@@ -338,9 +338,9 @@ Write tools (stdio and serve, off by default; see docs/adr/0015-opt-in-write-too
                          acknowledge_issue, close_issue, create_dashboard). Even then a tool works
                          only when it is named explicitly (stdio: RB_TOOLS or the YAML tools list;
                          serve: the project and the grant). serve needs RB_AUDIT=on.
-  RB_WRITE_APPROVAL      required (default) or client: a write is refused unless the client supports
+  RB_WRITE_APPROVAL      required (default) or off (client works too): a write is refused unless the client supports
                          MCP elicitation and the person approves the exact change (a client that
-                         cannot be asked can only dry-run, nothing is changed). client lets the model
+                         cannot be asked can only dry-run, nothing is changed). off lets the model
                          set confirm: true instead and logs a warning at startup.
 
 MCP Apps (stdio and serve; see docs/guide/charts.md):

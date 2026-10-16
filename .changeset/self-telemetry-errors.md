@@ -1,5 +1,0 @@
----
-"relic-bridge": minor
----
-
-Self-monitoring (`RB_OTEL=on`) now shows failures and logs where New Relic expects them. Every failed tool call marks its span `ERROR` with `error.type` set to the `RB_*` code (caller errors too; `fault` still says which side, and `rpc.grpc.status_code` on `rpc.server.duration` stays on server errors only, so the service error rate is unchanged). Every MCP request that is not a tool call (`initialize`, `server/discover`, `tools/list`, `prompts/get`, `resources/read`, `tasks/*`, ...) now has its own span named after the method, with no prompt name, URI or argument. Log lines written while a sampled request was handled carry the span's `traceId` and `spanId` (OTLP log fields, and `traceId`/`spanId` on the structured log line), on Node and Workers. Write spans add `elicitation.result` (`accepted`, `declined`, `cancelled`, `unavailable`). Docs: observability guide and logging inventory list the new attributes. Because caller errors are now span errors, Errors Inbox can open groups for them; filter on `fault = 'caller'` if they are noise.

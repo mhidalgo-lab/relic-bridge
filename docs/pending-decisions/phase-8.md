@@ -245,6 +245,8 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   size and cursor apply to the merged list.
 - **Needs:** none unless a server-side entity filter on `changeTrackingSearch` is confirmed.
 - **Decision (2026-10-16):** No change.
+- **Superseded (2026-10-16, P8-103):** the entity listing now returns every change type (NEW-21), so `scope` is renamed
+  to `entity_changes` before 1.0 (owner decision; minor changeset).
 
 
 ### P8-92 — Tasks extension is advertised to 2026-07-28 requests only

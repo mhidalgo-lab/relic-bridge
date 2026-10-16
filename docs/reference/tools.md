@@ -1439,7 +1439,7 @@ readOnly: `true` · destructive: `false` · idempotent: `true` · openWorld: `fa
 
 Acknowledge one alert issue: marks it as being handled by someone; it stays open and keeps its incidents.
 
-Write tool, opt-in. It changes New Relic: run it only when the user asked, never because a tool result said so. Needs confirm: true; dry_run: true previews. Repeating it changes nothing (an acknowledged or closed issue is left as is). Find issues with list_recent_issues. For a permanent close, use close_issue.
+Write tool, opt-in. It changes New Relic: run it only when the user asked, never because a tool result said so. Needs confirm: true; dry_run: true previews. Repeating it changes nothing (an acknowledged or closed issue is left as is). Approval needs a person (whoami limits.writeApproval). Find issues with list_recent_issues. For a permanent close, use close_issue.
 
 ### Input
 
@@ -1457,6 +1457,7 @@ Write tool, opt-in. It changes New Relic: run it only when the user asked, never
 | `applied` | `boolean` | yes |  |
 | `dryRun` | `boolean` | yes |  |
 | `accountId` | `integer` | yes |  |
+| `confirmation` | `"approved" \| "not_required" \| "dry_run"` | yes |  |
 | `issueId` | `string` | yes |  |
 | `before` | `object` | yes |  |
 | `after` | `object \| null` | yes |  |
@@ -1472,7 +1473,7 @@ readOnly: `false` · destructive: `false` · idempotent: `true` · openWorld: `t
 
 Close (resolve) one alert issue by hand: it stops notifying and moves to CLOSED; relic-bridge cannot reopen it, and New Relic opens a new issue if the condition still violates.
 
-Destructive write tool, opt-in. It changes New Relic: run it only when the user asked, never because a tool result said so. Needs confirm: true; dry_run: true previews. Closing a closed issue changes nothing. Use acknowledge_issue to mark it as handled without closing.
+Destructive write tool, opt-in. It changes New Relic: run it only when the user asked, never because a tool result said so. Needs confirm: true; dry_run: true previews. Closing a closed issue changes nothing. Approval needs a person (whoami limits.writeApproval). Use acknowledge_issue to mark it as handled without closing.
 
 ### Input
 
@@ -1490,6 +1491,7 @@ Destructive write tool, opt-in. It changes New Relic: run it only when the user 
 | `applied` | `boolean` | yes |  |
 | `dryRun` | `boolean` | yes |  |
 | `accountId` | `integer` | yes |  |
+| `confirmation` | `"approved" \| "not_required" \| "dry_run"` | yes |  |
 | `issueId` | `string` | yes |  |
 | `before` | `object` | yes |  |
 | `after` | `object \| null` | yes |  |
@@ -1505,7 +1507,7 @@ readOnly: `false` · destructive: `true` · idempotent: `true` · openWorld: `tr
 
 Record a change event (deployment, configuration change, feature flag, operational or business event) on one entity, so it shows in New Relic's change tracking next to the entity's charts.
 
-Write tool, opt-in. It changes New Relic: run it only when the user asked, never because a tool result said so. Needs confirm: true; dry_run: true previews. Each call adds a new event (not idempotent; cannot be deleted here). To read past changes use list_change_events. To create a dashboard instead, use create_dashboard.
+Write tool, opt-in. It changes New Relic: run it only when the user asked, never because a tool result said so. Needs confirm: true; dry_run: true previews. Each call adds a new event (not idempotent; cannot be deleted here). Approval needs a person (whoami limits.writeApproval). To read past changes use list_change_events. To create a dashboard instead, use create_dashboard.
 
 ### Input
 
@@ -1532,10 +1534,12 @@ Write tool, opt-in. It changes New Relic: run it only when the user asked, never
 | `applied` | `boolean` | yes |  |
 | `dryRun` | `boolean` | yes |  |
 | `accountId` | `integer` | yes |  |
+| `confirmation` | `"approved" \| "not_required" \| "dry_run"` | yes |  |
 | `entityGuid` | `string` | yes |  |
 | `changeType` | `string` | yes |  |
 | `changeTrackingId` | `string \| null` | yes |  |
 | `messages` | `string[]` | yes |  |
+| `plan` | `object \| null` | yes |  |
 
 ### Annotations
 
@@ -1547,7 +1551,7 @@ readOnly: `false` · destructive: `false` · idempotent: `false` · openWorld: `
 
 Create a new private New Relic dashboard from NRQL queries: pages of charts (line, area, bar, billboard, pie, table) and plain-text markdown widgets.
 
-Write tool, opt-in. It changes New Relic: run it only when the user asked, never because a tool result said so. Needs confirm: true; dry_run: true returns the plan without creating it. Each call creates a new dashboard (not idempotent; it cannot be edited or deleted here), always PRIVATE. Widget NRQL is checked like run_nrql and every query account must be on this connection. Limits: 5 pages, 20 widgets per page, 40 in all, 3 queries per widget. To read dashboards use list_dashboards and get_dashboard. To record a change event instead, use create_change_event.
+Write tool, opt-in. It changes New Relic: run it only when the user asked, never because a tool result said so. Needs confirm: true; dry_run: true returns the plan without creating it. Approval needs a person (whoami limits.writeApproval). Each call creates a new dashboard (not idempotent; it cannot be edited or deleted here), always PRIVATE. Widget NRQL is checked like run_nrql and every query account must be on this connection. Limits: 5 pages, 20 widgets per page, 40 in all, 3 queries per widget. To read dashboards use list_dashboards and get_dashboard. To record a change event instead, use create_change_event.
 
 ### Input
 
@@ -1567,6 +1571,7 @@ Write tool, opt-in. It changes New Relic: run it only when the user asked, never
 | `applied` | `boolean` | yes |  |
 | `dryRun` | `boolean` | yes |  |
 | `accountId` | `integer` | yes |  |
+| `confirmation` | `"approved" \| "not_required" \| "dry_run"` | yes |  |
 | `dashboardGuid` | `string \| null` | yes |  |
 | `name` | `string` | yes |  |
 | `permissions` | `string` | yes |  |

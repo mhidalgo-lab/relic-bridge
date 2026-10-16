@@ -976,15 +976,26 @@ describe('confirmation through elicitation (P7-20): stateless HTTP', () => {
       const { client } = await asker(slug, 'modern', () => ({ action: 'decline' }));
       const before = h.nerdGraph.calls.length;
       const r = await client.callTool({ name: tool, arguments: GOOD[tool] as Record<string, unknown> });
-      expect(r.isError ?? false).toBe(false);
-      expect(r.structuredContent).toMatchObject({ applied: false });
+      // P8-88: a decline is an error with a stable code, and says nothing was changed.
+      expect(r.isError).toBe(true);
+      expect(JSON.stringify(r.content)).toContain('RB_WRITE_APPROVAL_DECLINED');
+      expect(JSON.stringify(r.content)).toContain('nothing was changed');
+      expect(JSON.stringify(r.content)).not.toContain('untrusted');
       expect(mutations(before)).toEqual([]);
       await vi.waitFor(async () => {
         const rows = (await h.auditRows()).filter((x) => x.kind === 'tool_call' && x.action === tool);
-        const record = rows.map(
-          (x) => (x.details as { write?: { record?: { confirmation?: string } } }).write?.record,
+        const declined = rows.filter(
+          (x) =>
+            (x.details as { write?: { record?: { confirmation?: string } } }).write?.record?.confirmation ===
+            'declined',
         );
-        expect(record.some((x) => x?.confirmation === 'declined')).toBe(true);
+        expect(declined.length).toBeGreaterThan(0);
+        // The refusal is its own audit row: an error, never counted as applied.
+        for (const x of declined) {
+          expect(x.status).toBe('error');
+          expect(x.errorCode).toBe('RB_WRITE_APPROVAL_DECLINED');
+          expect((x.details as { write: { record: { applied: boolean } } }).write.record.applied).toBe(false);
+        }
       });
     });
   }
@@ -1036,11 +1047,24 @@ describe('owner switch: a person must approve every write (P7-25, RB_WRITE_APPRO
       const client = await open(app, `req-none-${slug}`, token.value);
       const before = h.nerdGraph.calls.length;
       const r = await client.callTool({ name: tool, arguments: GOOD[tool] as Record<string, unknown> });
-      expect(r.isError ?? false).toBe(false);
-      expect(r.structuredContent).toMatchObject({ applied: false });
+      expect(r.isError).toBe(true);
+      expect(JSON.stringify(r.content)).toContain('RB_WRITE_APPROVAL_UNAVAILABLE');
       expect(JSON.stringify(r.content)).toContain('RB_WRITE_APPROVAL=required');
+      expect(JSON.stringify(r.content)).toContain('nothing was changed');
+      expect(JSON.stringify(r.content)).not.toContain('untrusted');
       expect(mutations(before)).toEqual([]);
-      await vi.waitFor(async () => expect(await confirmations(tool)).toContain('unavailable'));
+      await vi.waitFor(async () => {
+        expect(await confirmations(tool)).toContain('unavailable');
+        const refused = (await h.auditRows()).filter(
+          (x) =>
+            x.kind === 'tool_call' && x.action === tool && x.errorCode === 'RB_WRITE_APPROVAL_UNAVAILABLE',
+        );
+        expect(refused.length).toBeGreaterThan(0);
+        for (const x of refused) {
+          expect(x.status).toBe('error');
+          expect((x.details as { write: { record: { applied: boolean } } }).write.record.applied).toBe(false);
+        }
+      });
     });
 
     it(`${tool}: a 2025-era stateless client cannot be asked and is refused`, async () => {
@@ -1055,7 +1079,8 @@ describe('owner switch: a person must approve every write (P7-25, RB_WRITE_APPRO
       });
       const before = h.nerdGraph.calls.length;
       const r = await client.callTool({ name: tool, arguments: GOOD[tool] as Record<string, unknown> });
-      expect(r.structuredContent).toMatchObject({ applied: false });
+      expect(r.isError).toBe(true);
+      expect(JSON.stringify(r.content)).toContain('RB_WRITE_APPROVAL_UNAVAILABLE');
       expect(asked).toEqual([]);
       expect(mutations(before)).toEqual([]);
     });
@@ -1087,11 +1112,24 @@ describe('owner switch: a person must approve every write (P7-25, RB_WRITE_APPRO
       const client = await open(app, `unset-none-${slug}`, token.value);
       const before = h.nerdGraph.calls.length;
       const r = await client.callTool({ name: tool, arguments: GOOD[tool] as Record<string, unknown> });
-      expect(r.isError ?? false).toBe(false);
-      expect(r.structuredContent).toMatchObject({ applied: false });
+      expect(r.isError).toBe(true);
+      expect(JSON.stringify(r.content)).toContain('RB_WRITE_APPROVAL_UNAVAILABLE');
       expect(JSON.stringify(r.content)).toContain('RB_WRITE_APPROVAL=required');
+      expect(JSON.stringify(r.content)).toContain('nothing was changed');
+      expect(JSON.stringify(r.content)).not.toContain('untrusted');
       expect(mutations(before)).toEqual([]);
-      await vi.waitFor(async () => expect(await confirmations(tool)).toContain('unavailable'));
+      await vi.waitFor(async () => {
+        expect(await confirmations(tool)).toContain('unavailable');
+        const refused = (await h.auditRows()).filter(
+          (x) =>
+            x.kind === 'tool_call' && x.action === tool && x.errorCode === 'RB_WRITE_APPROVAL_UNAVAILABLE',
+        );
+        expect(refused.length).toBeGreaterThan(0);
+        for (const x of refused) {
+          expect(x.status).toBe('error');
+          expect((x.details as { write: { record: { applied: boolean } } }).write.record.applied).toBe(false);
+        }
+      });
     });
   }
 

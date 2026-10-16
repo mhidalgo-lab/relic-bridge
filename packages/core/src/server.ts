@@ -8,7 +8,7 @@ import {
 import { clientAppsSupport, toolUiMeta } from './apps/index.ts';
 import { toCallToolResult } from './call-result.ts';
 import { budgetUsage, type ElicitationBinding, type ToolContext } from './context.ts';
-import { ERROR_META_KEY, toToolErrorResult } from './errors.ts';
+import { ERROR_META_KEY, isRbError, toToolErrorResult } from './errors.ts';
 import { type PromptDefinition, promptConfig, renderPrompt, selectPrompts } from './prompts.ts';
 import { additiveOutput, withoutDialect } from './registry.ts';
 import { type ResourceDefinition, registerResources, selectResources } from './resources.ts';
@@ -275,7 +275,7 @@ export function buildMcpServer({
       const result = toToolErrorResult(error, ctx.requestId);
       const code = (result._meta?.[ERROR_META_KEY] as { code?: string } | undefined)?.code;
       logger.warn('tool error', { ms: ctx.clock.now() - started, code, error });
-      observe('error', code ?? null, undefined);
+      observe('error', code ?? null, isRbError(error) ? error.meta : undefined);
       throw error;
     }
   };
@@ -314,10 +314,14 @@ export function buildMcpServer({
           elicitWrites && def.kind !== 'read' && clientCanElicitForm(server.server.getClientCapabilities())
             ? Object.freeze({ ...withTasks, elicitation: Object.freeze(elicitationFrom(extra)) })
             : withTasks;
-        const ctx =
+        const gated =
           requireWriteApproval && def.kind !== 'read'
             ? Object.freeze({ ...asked, requireWriteApproval: true })
             : asked;
+        const ctx = Object.freeze({
+          ...gated,
+          writeApproval: requireWriteApproval ? 'required' : 'off',
+        } as const);
         try {
           let out = await invoke(def, input, ctx);
           if (out.inputRequired !== undefined && ctx.elicitation !== undefined) {

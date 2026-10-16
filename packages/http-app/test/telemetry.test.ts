@@ -863,6 +863,8 @@ describe('server and caller errors (P8-59)', () => {
         'RB_QUERY_NOT_FOUND',
         'RB_BUDGET_EXHAUSTED',
         'RB_TOOL_DISABLED',
+        'RB_WRITE_APPROVAL_UNAVAILABLE',
+        'RB_WRITE_APPROVAL_DECLINED',
       ].sort(),
     );
     expect(classifyToolError('RB_NERDGRAPH_TIMEOUT', 'token')).toEqual({
@@ -937,6 +939,45 @@ describe('server and caller errors (P8-59)', () => {
     expect(a['error.type']).toBeUndefined();
     expect(rpcPoint()).toEqual({ 'rpc.system': 'jsonrpc', 'rpc.service': 'mcp', 'rpc.method': 'run_nrql' });
     expect(callsPoint()).toMatchObject({ status: 'error', 'error.code': 'RB_LIMIT_QUERY', fault: 'caller' });
+  });
+
+  it('a refused write (P8-88): span ERROR, write.applied false and write.confirmation, no gRPC status code', async () => {
+    const t = createTelemetry({ endpoint: base, fetch: receiverFetch });
+    await t.hooks.onToolCall?.({} as never, { projectSlug: 'prod' } as never, {
+      tool: 'close_issue',
+      status: 'error',
+      errorCode: 'RB_WRITE_APPROVAL_UNAVAILABLE',
+      durationMs: 30,
+      input: {},
+      meta: { 'relic-bridge/write': { applied: false, dryRun: false, confirmation: 'unavailable' } },
+    });
+    const span = spanOf();
+    expect(span.status).toEqual({ code: 2, message: 'RB_WRITE_APPROVAL_UNAVAILABLE' });
+    expect(attrMap(span.attributes)).toMatchObject({
+      'write.applied': 'false',
+      'write.confirmation': 'unavailable',
+      fault: 'caller',
+    });
+    expect(rpcPoint()['rpc.grpc.status_code']).toBeUndefined();
+  });
+
+  it('an applied write records write.applied true and write.confirmation approved', async () => {
+    const t = createTelemetry({ endpoint: base, fetch: receiverFetch });
+    await t.recordToolCall(
+      {
+        tool: 'close_issue',
+        status: 'ok',
+        errorCode: null,
+        durationMs: 30,
+        input: {},
+        meta: { 'relic-bridge/write': { applied: true, dryRun: false, confirmation: 'accepted' } },
+      },
+      { mode: 'stdio' },
+    );
+    expect(attrMap(spanOf().attributes)).toMatchObject({
+      'write.applied': 'true',
+      'write.confirmation': 'approved',
+    });
   });
 
   it('pass-through: the caller’s own refused key is a caller error', async () => {

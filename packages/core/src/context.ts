@@ -137,6 +137,12 @@ export interface ToolContext {
    */
   readonly requireWriteApproval?: boolean;
   /**
+   * What `whoami.limits.writeApproval` reports (P8-88): `required` when the owner requires a person's approval for every
+   * write (`RB_WRITE_APPROVAL=required`), else `off`. Set per `tools/call` by the server on every tool, so the read tool
+   * `whoami` can say it; absent (tests, custom hosts) reads as `off`.
+   */
+  readonly writeApproval?: 'required' | 'off';
+  /**
    * Set by the host for a write `tools/call` it did not charge to the write limit because it can only ask (P7-35: no
    * `inputResponses`, form elicitation declared). Such a call never sends a change: `humanGate` refuses to let it go on,
    * whatever else the request holds, so the uncharged round cannot be used to mutate.

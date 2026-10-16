@@ -43,6 +43,13 @@ const whoamiOutput = z.object({
     maxLimit: z.number().int(),
     maxWindowDays: z.number(),
     rawNrql: z.boolean(),
+    /**
+     * Whether a person must approve every write (`RB_WRITE_APPROVAL`): `required` (a write fails with
+     * RB_WRITE_APPROVAL_UNAVAILABLE unless the client can be asked) or `off` (`confirm: true` is enough). Detection: the
+     * server is stateless, so it asks only a client that declares the elicitation capability with each request (MCP
+     * 2026-07-28, e.g. Claude Code); a 2025-era client's `initialize` is not remembered, so it cannot approve.
+     */
+    writeApproval: z.enum(['required', 'off']),
   }),
 });
 
@@ -161,6 +168,7 @@ export function createIdentityTools(deps: ToolDeps = {}): ToolDefinition[] {
           maxLimit: ctx.limits.maxLimit,
           maxWindowDays: ctx.limits.maxWindowDays,
           rawNrql: ctx.limits.rawNrql,
+          writeApproval: ctx.writeApproval ?? 'off',
         },
       };
       const lines = [
@@ -168,7 +176,8 @@ export function createIdentityTools(deps: ToolDeps = {}): ToolDefinition[] {
         `Default account: ${structured.defaultAccountId}${defaultReachable ? '' : ' (WARNING: the key cannot read it)'}. ` +
           `Usable accounts: ${accounts.length} (see list_accounts).`,
         `Query limits: up to ${ctx.limits.maxLimit} rows, ${ctx.limits.maxWindowDays} day window, ` +
-          `raw NRQL ${ctx.limits.rawNrql ? 'allowed' : 'disabled'}.`,
+          `raw NRQL ${ctx.limits.rawNrql ? 'allowed' : 'disabled'}. ` +
+          `Write approval: ${ctx.writeApproval ?? 'off'}${ctx.writeApproval === 'required' ? ' (a write needs a person to approve it in a client that supports MCP elicitation, such as Claude Code)' : ''}.`,
         `Tools: ${allowedTools ? allowedTools.join(', ') : 'unknown'}.`,
         ...(unavailable.length > 0
           ? [`Not offered here: ${unavailable.map((u) => `${u.name} (${u.reason})`).join('; ')}.`]

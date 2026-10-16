@@ -41,7 +41,7 @@ and `telemetry.sdk.language` for language-aware pages.
 
 | Signal | Name | Attributes |
 | --- | --- | --- |
-| Span (one per tool call, sampled) | `tools/call <tool>` (`tools/call other` for an unknown name) | `tool`, `status` (`ok`/`error`), `error.code` (an `RB_*` code, errors only), `fault` (`caller`/`server`, errors only, see [Caller and server errors](#caller-and-server-errors)), `project` (slug, token connections), `mode` (`token`/`passthrough`/`stdio`), `nerdgraph.calls`, `nerdgraph.response_bytes` |
+| Span (one per tool call, sampled) | `tools/call <tool>` (`tools/call other` for an unknown name) | `tool`, `status` (`ok`/`error`), `error.code` (an `RB_*` code, errors only), `fault` (`caller`/`server`, errors only, see [Caller and server errors](#caller-and-server-errors)), `project` (slug, token connections), `mode` (`token`/`passthrough`/`stdio`), `nerdgraph.calls`, `nerdgraph.response_bytes`, and for write tools `write.applied` (`true`/`false`) and `write.confirmation` (`approved`, `not_required`, `dry_run`, `asked`, `declined`, `cancelled`, `unavailable`) |
 | Histogram (ms, delta) | `rpc.server.duration` | `rpc.system=jsonrpc`, `rpc.service=mcp`, `rpc.method` (the tool name, else `other`), and on **server** errors only `error.type` (the `RB_*` code) and `rpc.grpc.status_code` (an integer, see below). New Relic builds the service's throughput, response time and error rate from this metric |
 | Counter | `relic_bridge.tool.calls` | same as the span |
 | Histogram (ms, delta) | `relic_bridge.tool.duration` | same as the span |
@@ -77,6 +77,7 @@ convention's "invalid params", which a server SHOULD NOT treat as an error): spa
 | `RB_LIMIT_RATE`, `RB_LIMIT_QUOTA` | caller | | The caller's rate limit or quota. |
 | `RB_QUERY_NOT_FOUND` | caller | | The `query_id` is unknown or expired. |
 | `RB_TOOL_DISABLED` | caller | | The connection is not granted the tool (or arbitrary NRQL). |
+| `RB_WRITE_APPROVAL_UNAVAILABLE`, `RB_WRITE_APPROVAL_DECLINED` | caller | | A write was refused for lack of a person's approval (P8-88). Nothing was changed. The span status is still ERROR. |
 | `RB_BUDGET_EXHAUSTED` | caller | | The request needs more NerdGraph calls than one tool call may make: like a query limit, the hint is to narrow the request (fewer entities, shorter window). |
 | `RB_AUTH_INVALID_KEY`, `RB_AUTH_WRONG_REGION` | server (token, stdio); caller (pass-through) | 13 (INTERNAL) | New Relic refused the key. On a token connection or stdio it is the operator's stored key, which no caller can fix; on pass-through it is the caller's own key. |
 | `RB_NERDGRAPH_UNAVAILABLE` | server | 14 (UNAVAILABLE) | New Relic could not be reached or answered 5xx. |

@@ -23,8 +23,11 @@ import { cleanName } from './identity.ts';
 import { ISSUE_ID_RE, type IssueRow, lookupIssue } from './issues.ts';
 import { accountInput, DAY_MS, label, singleAccount, type ToolDeps } from './shared.ts';
 import {
+  APPROVAL_NOTICE,
   assertConfirmed,
   assertWriteGranted,
+  type Confirmation,
+  confirmationOf,
   confirmInput,
   dryRunInput,
   gateStopped,
@@ -102,11 +105,23 @@ const changeOutput = z.object({
   changeType: z.string(),
   changeTrackingId: z.string().nullable(),
   messages: z.array(z.string()),
+  /** The change as it would be (dry run) or was sent; null when the call did not get that far. */
+  plan: z
+    .object({
+      changeType: z.string(),
+      version: z.string().optional(),
+      commit: z.string().optional(),
+      featureFlagId: z.string().optional(),
+      shortDescription: z.string().optional(),
+      user: z.string().optional(),
+      groupId: z.string().optional(),
+    })
+    .nullable(),
 });
 
 const CHANGE_DESCRIPTION = `Record a change event (deployment, configuration change, feature flag, operational or business event) on one entity, so it shows in New Relic's change tracking next to the entity's charts.
 
-Write tool, opt-in. ${SIDE_EFFECT_NOTICE} Needs confirm: true; dry_run: true previews. Each call adds a new event (not idempotent; cannot be deleted here). To read past changes use list_change_events. To create a dashboard instead, use create_dashboard.`;
+Write tool, opt-in. ${SIDE_EFFECT_NOTICE} Needs confirm: true; dry_run: true previews. Each call adds a new event (not idempotent; cannot be deleted here). ${APPROVAL_NOTICE} To read past changes use list_change_events. To create a dashboard instead, use create_dashboard.`;
 
 // ---------------------------------------------------------------------------------------------------------------------
 // acknowledge_issue / close_issue
@@ -129,11 +144,11 @@ const issueOutput = z.object({
 
 const ACK_DESCRIPTION = `Acknowledge one alert issue: marks it as being handled by someone; it stays open and keeps its incidents.
 
-Write tool, opt-in. ${SIDE_EFFECT_NOTICE} Needs confirm: true; dry_run: true previews. Repeating it changes nothing (an acknowledged or closed issue is left as is). Find issues with list_recent_issues. For a permanent close, use close_issue.`;
+Write tool, opt-in. ${SIDE_EFFECT_NOTICE} Needs confirm: true; dry_run: true previews. Repeating it changes nothing (an acknowledged or closed issue is left as is). ${APPROVAL_NOTICE} Find issues with list_recent_issues. For a permanent close, use close_issue.`;
 
 const CLOSE_DESCRIPTION = `Close (resolve) one alert issue by hand: it stops notifying and moves to CLOSED; relic-bridge cannot reopen it, and New Relic opens a new issue if the condition still violates.
 
-Destructive write tool, opt-in. ${SIDE_EFFECT_NOTICE} Needs confirm: true; dry_run: true previews. Closing a closed issue changes nothing. Use acknowledge_issue to mark it as handled without closing.`;
+Destructive write tool, opt-in. ${SIDE_EFFECT_NOTICE} Needs confirm: true; dry_run: true previews. Closing a closed issue changes nothing. ${APPROVAL_NOTICE} Use acknowledge_issue to mark it as handled without closing.`;
 
 /** Write tools (P7-09). Hosts register them only with the server flag on (`RB_WRITE_TOOLS=on`). */
 export function createWriteTools(deps: ToolDeps = {}): ToolDefinition[] {
@@ -240,11 +255,13 @@ export function createWriteTools(deps: ToolDeps = {}): ToolDefinition[] {
           structured: {
             applied: false,
             dryRun: true,
+            confirmation: 'dry_run' as const,
             accountId: account,
             entityGuid: input.entity_guid,
             changeType: input.change_type,
             changeTrackingId: null,
             messages: [],
+            plan: planned,
           },
           meta: writeMeta(record),
         };
@@ -277,15 +294,6 @@ export function createWriteTools(deps: ToolDeps = {}): ToolDefinition[] {
       );
       if (gate.state !== 'go') {
         return gateStopped(gate, {
-          structured: {
-            applied: false,
-            dryRun: false,
-            accountId: account,
-            entityGuid: input.entity_guid,
-            changeType: input.change_type,
-            changeTrackingId: null,
-            messages: [],
-          },
           record: {
             action: 'change_event.create',
             accountId: account,
@@ -342,11 +350,13 @@ export function createWriteTools(deps: ToolDeps = {}): ToolDefinition[] {
         structured: {
           applied: true,
           dryRun: false,
+          confirmation: confirmationOf(false, gate.confirmation),
           accountId: account,
           entityGuid: input.entity_guid,
           changeType: input.change_type,
           changeTrackingId: id,
           messages,
+          plan: planned,
         },
         meta: writeMeta(record),
       };
@@ -406,9 +416,15 @@ export function createWriteTools(deps: ToolDeps = {}): ToolDefinition[] {
         const plannedAfter = closing
           ? { state: 'CLOSED', acknowledged: issue.acknowledgedAt !== null }
           : { state: issue.state, acknowledged: true };
-        const shaped = (applied: boolean, after: typeof plannedAfter | null, note: string | null) => ({
+        const shaped = (
+          applied: boolean,
+          after: typeof plannedAfter | null,
+          note: string | null,
+          confirmation: Confirmation | undefined = undefined,
+        ) => ({
           applied,
           dryRun,
+          confirmation: confirmationOf(dryRun, confirmation),
           accountId: account,
           issueId: input.issue_id,
           before,
@@ -447,7 +463,6 @@ export function createWriteTools(deps: ToolDeps = {}): ToolDefinition[] {
         );
         if (gate.state !== 'go') {
           return gateStopped(gate, {
-            structured: shaped(false, plannedAfter, null),
             record: record(false, plannedAfter),
           });
         }
@@ -487,7 +502,7 @@ export function createWriteTools(deps: ToolDeps = {}): ToolDefinition[] {
         }
         return {
           text: `${closing ? 'Closed' : 'Acknowledged'} issue ${input.issue_id} in account ${account} (was ${issue.state ?? 'unknown'}).\n${titleBlock}`,
-          structured: shaped(true, plannedAfter, null),
+          structured: shaped(true, plannedAfter, null, gate.confirmation),
           meta: writeMeta({
             ...record(true, plannedAfter),
             ...(gate.confirmation === undefined ? {} : { confirmation: gate.confirmation }),

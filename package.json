@@ -49,12 +49,12 @@
     "@playwright/test": "1.64.0",
     "@types/jsdom": "30.0.0",
     "@types/node": "24.19.2",
-    "@vitest/coverage-v8": "4.1.11",
+    "@vitest/coverage-v8": "5.0.4",
     "graphql": "17.0.2",
     "jsdom": "30.1.2",
     "lefthook": "2.2.1",
     "typescript": "7.0.2",
-    "vitest": "4.1.11",
+    "vitest": "5.0.4",
     "yaml": "2.9.1"
   }
 }

@@ -8,8 +8,14 @@ import {
 import { clientAppsSupport, toolUiMeta } from './apps/index.ts';
 import { toCallToolResult } from './call-result.ts';
 import { budgetUsage, type ElicitationBinding, type ToolContext } from './context.ts';
-import { ERROR_META_KEY, isRbError, toToolErrorResult } from './errors.ts';
-import { type PromptDefinition, promptConfig, renderPrompt, selectPrompts } from './prompts.ts';
+import { ERROR_META_KEY, isRbError, toProtocolError, toToolErrorResult } from './errors.ts';
+import {
+  type PromptDefinition,
+  promptConfig,
+  renderPrompt,
+  selectPrompts,
+  validatePromptArgs,
+} from './prompts.ts';
 import { additiveOutput, withoutDialect } from './registry.ts';
 import { type ResourceDefinition, registerResources, selectResources } from './resources.ts';
 import { clientDeclaresTasks, createTask, TASKS_EXTENSION } from './tasks.ts';
@@ -52,6 +58,11 @@ export interface BuildServerOptions {
    * pushes a list change, so a `subscriptions/listen` is acknowledged with nothing to deliver and closed at once.
    */
   toolsListChanged?: boolean;
+  /**
+   * The protocol era this server instance will serve (`McpRequestContext.era`; default `modern`). `legacy`: the Tasks
+   * extension is not advertised, since a 2025-era connection has no per-request capabilities to declare it with.
+   */
+  era?: 'legacy' | 'modern';
   /**
    * Prompt catalogue to offer (default: the built-in investigation prompts). Only prompts with a tool in `tools` are
    * registered, so `prompts/list` never mentions a tool the caller can't use.
@@ -211,6 +222,9 @@ function elicitationFrom(extra: unknown): ElicitationBinding {
   };
 }
 
+const allowedToolNames = (tools: readonly ToolDefinition[]): ReadonlySet<string> =>
+  new Set(tools.map((t) => t.name));
+
 /**
  * Build a fresh MCP server for one request (ADR-0005: stateless, one server per request).
  * Tools not in `tools` are simply not registered, so they are neither listed nor callable.
@@ -227,14 +241,26 @@ export function buildMcpServer({
   elicitWrites = true,
   requireWriteApproval = false,
   offerTasks = false,
+  era = 'modern',
 }: BuildServerOptions): McpServer {
   // Tasks (P7-13) are offered only where the host bound a task store to the request (HTTP project routes).
-  const offersTasks = offerTasks || (typeof context !== 'function' && context.tasks !== undefined);
+  // The extension is declared per request in the 2026-07-28 `_meta` envelope; a 2025-era connection has none, so it can
+  // neither be given a task nor poll one: do not advertise what cannot work there (P8-92).
+  const offersTasks =
+    era !== 'legacy' && (offerTasks || (typeof context !== 'function' && context.tasks !== undefined));
+  const offeredPrompts = selectPrompts(allowedToolNames(tools), prompts);
+  const offeredResources = selectResources(allowedToolNames(tools), resources).filter(
+    (r) => mcpApps || r.kind !== 'app',
+  );
   const server = new McpServer(
     { name: info.name, version: info.version },
     {
       capabilities: {
         tools: { listChanged: toolsListChanged },
+        // A stateless server never pushes a notification, so it must not promise one (P8-92). Declared only when the
+        // capability exists at all; the SDK keeps a declared value when the first prompt or resource is registered.
+        ...(offeredPrompts.length > 0 ? { prompts: { listChanged: toolsListChanged } } : {}),
+        ...(offeredResources.length > 0 ? { resources: { listChanged: toolsListChanged } } : {}),
         ...(offersTasks ? { extensions: { [TASKS_EXTENSION]: {} } } : {}),
       },
       // Human-paced, but bounded: no answer in time ends the round, nothing is changed (P7-20).
@@ -280,9 +306,6 @@ export function buildMcpServer({
     }
   };
 
-  const offeredResources = selectResources(allowedTools, resources).filter(
-    (r) => mcpApps || r.kind !== 'app',
-  );
   // The client's capabilities are read when a request is served, not when the server is built: on 2026-07-28 they
   // come from that request's `_meta`, on a 2025-era connection from its `initialize`. A per-request server instance
   // never shares them with another request (T21).
@@ -376,19 +399,27 @@ export function buildMcpServer({
       });
     }
   }
-  for (const def of selectPrompts(allowedTools, prompts)) {
-    server.registerPrompt(def.name, promptConfig(def, withCachedJsonSchema), (args: unknown) => ({
-      description: def.description,
-      messages: [
-        {
-          role: 'user' as const,
-          content: {
-            type: 'text' as const,
-            text: renderPrompt(def, args as Record<string, string | undefined>, allowedTools),
+  for (const def of offeredPrompts) {
+    server.registerPrompt(def.name, promptConfig(def, withCachedJsonSchema), (args: unknown) => {
+      const values = args as Record<string, string | undefined>;
+      try {
+        validatePromptArgs(values, contextFor());
+      } catch (error) {
+        throw toProtocolError(error);
+      }
+      return {
+        description: def.description,
+        messages: [
+          {
+            role: 'user' as const,
+            content: {
+              type: 'text' as const,
+              text: renderPrompt(def, values, allowedTools),
+            },
           },
-        },
-      ],
-    }));
+        ],
+      };
+    });
   }
   const registeredResources = registerResources(server, {
     defs: offeredResources,

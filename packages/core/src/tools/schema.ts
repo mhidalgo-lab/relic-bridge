@@ -4,7 +4,7 @@ import type { ToolContext } from '../context.ts';
 import { ErrorCode, RbError } from '../errors.ts';
 import { type NrqlComplete, resolveAccounts, runNrql } from '../nrql/engine.ts';
 import { enforceQueryLimits } from '../nrql/limits.ts';
-import { type NrqlQuery, nrql } from '../nrql/template.ts';
+import { type NrqlIdentifier, type NrqlQuery, nrql } from '../nrql/template.ts';
 import { shapeRows } from '../output/format.ts';
 import type { TimeRange } from '../time/index.ts';
 import { parseTimeRange } from '../time/range.ts';
@@ -97,6 +97,8 @@ const attributesOutput = z.object({
   truncated: z.boolean(),
   sample: z.record(z.string(), z.unknown()).nullable(),
   cached: z.boolean(),
+  /** True when the event type has no events in the window (its keyset is then just `timestamp`, which is dropped). */
+  noEvents: z.boolean().optional(),
 });
 
 const LIST_DESCRIPTION = `List the event types (NRQL tables such as Transaction, PageView, Log, Metric, SystemSample) that have data in one account.
@@ -207,9 +209,25 @@ export function createSchemaTools(deps: ToolDeps = {}): ToolDefinition[] {
         { client: client(ctx), ...(deps.sleep ? { sleep: deps.sleep } : {}) },
       ),
     );
+  /** `count(*)` of one event type in the window (the first numeric value of the row). */
+  const countEvents = async (
+    ctx: ToolContext,
+    account: number,
+    type: NrqlIdentifier,
+    clause: NrqlQuery,
+  ): Promise<number> => {
+    const row = (await run(ctx, account, nrql`SELECT count(*) FROM ${type} ${clause}`)).results[0];
+    const value = row === undefined ? undefined : Object.values(row).find((v) => typeof v === 'number');
+    // No row or no number: do not claim the type is empty.
+    return typeof value === 'number' ? value : -1;
+  };
   // Keys include credential id, region and account (T21); values hold only schema names.
   const typesCache = createCache<string[]>();
-  const attrCache = createCache<{ attributes: { name: string; type: string }[]; incomplete: boolean }>();
+  const attrCache = createCache<{
+    attributes: { name: string; type: string }[];
+    incomplete: boolean;
+    noEvents: boolean;
+  }>();
   const scopeKey = (ctx: ToolContext, account: number) =>
     `${ctx.credential.id}|${ctx.credential.region}|${account}`;
 
@@ -332,9 +350,13 @@ export function createSchemaTools(deps: ToolDeps = {}): ToolDefinition[] {
       if (!schema) {
         const parsed = parseKeyset((await run(ctx, account, query)).results);
         // Cache the whole keyset (bounded): the name filter must see every key, the cap applies to the output.
+        // An event type with no events still answers keyset() with `timestamp`: confirm with a count before saying so.
+        const onlyTimestamp = parsed.length <= 1 && parsed.every((a) => a.name === 'timestamp');
+        const noEvents = onlyTimestamp && (await countEvents(ctx, account, type, clause)) === 0;
         schema = {
-          attributes: parsed.slice(0, MAX_CACHED_ATTRIBUTES),
+          attributes: noEvents ? [] : parsed.slice(0, MAX_CACHED_ATTRIBUTES),
           incomplete: parsed.length > MAX_CACHED_ATTRIBUTES,
+          noEvents,
         };
         attrCache.set(key, schema, ctx.clock.now());
       }
@@ -365,7 +387,11 @@ export function createSchemaTools(deps: ToolDeps = {}): ToolDefinition[] {
           `${needle === undefined ? '' : ` matching "${cleanName(args.name_contains ?? '', 64)}" (of ${all.length})`}` +
           `${cached ? ', cached' : ''}.`,
       ];
-      if (attributes.length === 0 && all.length > 0) {
+      if (schema.noEvents) {
+        lines.push(
+          `No events of type ${args.event_type} in this window, so it has no attributes to list. Call list_event_types for the types that have data, or widen time_range.`,
+        );
+      } else if (attributes.length === 0 && all.length > 0) {
         lines.push(`No attribute name contains "${cleanName(args.name_contains ?? '', 64)}".`);
       } else if (attributes.length === 0) {
         lines.push(
@@ -410,6 +436,7 @@ export function createSchemaTools(deps: ToolDeps = {}): ToolDefinition[] {
           truncated,
           sample,
           cached,
+          ...(schema.noEvents ? { noEvents: true } : {}),
         },
       };
     },

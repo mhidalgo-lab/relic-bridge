@@ -49,7 +49,7 @@ The contract is what scripts, grants and clients depend on. Wording meant for pe
 
 ### Clients keep the tool list they connected with
 
-Over HTTP (`serve`, Docker, the Worker) relic-bridge is stateless and advertises `tools.listChanged: false`, so it
+Over HTTP (`serve`, Docker, the Worker) relic-bridge is stateless and advertises `listChanged: false` for tools, prompts and resources, so it
 cannot tell a connected client that tools changed. After an upgrade a client still holds the old `tools/list`: it does
 not see new tools or arguments until it reconnects. A stdio server is a process the client starts, so the new version
 runs, and its tool list is read, only once the client restarts it. Since 0.9.0 the advertised output schemas accept fields they do not list, so a client

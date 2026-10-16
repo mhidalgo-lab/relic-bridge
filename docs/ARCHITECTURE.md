@@ -175,7 +175,9 @@ Implemented by `createHttpApp` in `packages/http-app` (P2-06); `relic-bridge ser
 5. **Build MCP server**: one `createMcpHandler(factory, { legacy: 'stateless' })` per app; the per-request scope
    (granted tool definitions + `ToolContext { credential (decrypted for this request), accounts, budget, limiter,
    limits, connection, logger }`) travels in `authInfo.extra`. The factory registers only allowed tools and
-   advertises `tools.listChanged: false`, so a `subscriptions/listen` is acknowledged and closed at once.
+   advertises `listChanged: false` for tools, prompts and resources, so a `subscriptions/listen` is acknowledged and
+   closed at once. The Tasks extension is advertised to 2026-07-28 requests only (P8-92): a 2025-era connection has no
+   per-request capabilities to declare it with.
 6. **Tool execution** in core:
    - validate input (JSON Schema)
    - build NRQL with escaped values

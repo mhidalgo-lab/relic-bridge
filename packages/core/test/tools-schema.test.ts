@@ -268,6 +268,39 @@ describe('get_attributes', () => {
     expect(calls).toHaveLength(1);
   });
 
+  it('says so when the event type has no events instead of listing the `timestamp` keyset (P8-92)', async () => {
+    const { fetch, calls } = recorder((q) =>
+      q.includes('keyset') ? nrqlBody([{ key: 'timestamp', type: 'numeric' }]) : nrqlBody([{ count: 0 }]),
+    );
+    const client = await connect(fetch);
+    const r = await client.callTool({
+      name: 'get_attributes',
+      arguments: { event_type: 'Nothing', sample: true },
+    });
+    expect(r.isError).toBeFalsy();
+    expect(calls.map((c) => c.variables['nrql'])).toEqual([
+      'SELECT keyset() FROM `Nothing` SINCE 86400 seconds ago',
+      'SELECT count(*) FROM `Nothing` SINCE 86400 seconds ago',
+    ]);
+    expect(r.structuredContent).toMatchObject({ attributes: [], totalAttributes: 0, noEvents: true });
+    expect(text(r)).toMatch(/No events of type Nothing in this window/);
+    expect(text(r)).toContain('list_event_types');
+    expect(text(r)).not.toContain('timestamp');
+    // The finding is cached with the keyset: no second pair of queries.
+    await client.callTool({ name: 'get_attributes', arguments: { event_type: 'Nothing' } });
+    expect(calls).toHaveLength(2);
+  });
+
+  it('keeps a type whose only attribute is timestamp when it does have events', async () => {
+    const { fetch } = recorder((q) =>
+      q.includes('keyset') ? nrqlBody([{ key: 'timestamp', type: 'numeric' }]) : nrqlBody([{ count: 7 }]),
+    );
+    const client = await connect(fetch);
+    const r = await client.callTool({ name: 'get_attributes', arguments: { event_type: 'Sparse' } });
+    expect(r.structuredContent).toMatchObject({ attributes: [{ name: 'timestamp', type: 'numeric' }] });
+    expect((r.structuredContent as { noEvents?: boolean }).noEvents).toBeUndefined();
+  });
+
   it('adds an enveloped one-row sample that is never cached', async () => {
     const { fetch, calls } = recorder((q) =>
       q.includes('keyset')

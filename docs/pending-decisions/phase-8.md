@@ -231,3 +231,24 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   size and cursor apply to the merged list.
 - **Needs:** none unless a server-side entity filter on `changeTrackingSearch` is confirmed.
 
+
+### P8-92 — Tasks extension is advertised to 2026-07-28 requests only
+- **Context:** the review found the extension advertised but unusable after a 2025-era `initialize` that declares it
+  (`tasks/get` answered `-32021`, `tasks/list` and `tasks/result` are not methods). In 2026-07-28 the extension is
+  declared per request in `_meta`, and relic-bridge already reads it per request, so tasks work statelessly there
+  (creation, `tasks/get`, `tasks/update`, `tasks/cancel`, tested over HTTP). Only the 2025-era advertisement was wrong.
+- **Assumption made:** keep the P7 design (no new ADR: ADR-0005 stays true) and stop advertising the extension to 2025-era
+  connections (`McpRequestContext.era`). This reverses only that part of P7-13's "advertise when a binding exists". Also
+  `prompts` / `resources` `listChanged: false` over HTTP, matching the P8-63 decision (stay stateless).
+- **Options:** (a) as made; (b) implement the 2025-11-25 experimental tasks (`params.task`, `tasks/list`, `tasks/result`,
+  capability from `initialize`): needs a session to carry the capability, so it contradicts ADR-0005; (c) drop the
+  extension from HTTP entirely (loses P7-13/P7-21 to P7-23 for modern clients).
+- **Needs:** none unless you want 2025-era Tasks (b), which needs the sessions ADR from P8-63.
+
+### P8-92 — Resource read errors: which `RB_*` codes are `-32602`
+- **Context:** the task asks for input and authorization errors as `-32602`. Resource reads can also fail for
+  server-side reasons (New Relic errors, limits, budget, rate).
+- **Assumption made:** `RB_INPUT_INVALID`, `RB_AUTH_UNAUTHORIZED`, `RB_AUTH_FORBIDDEN` and `RB_TOOL_DISABLED` are `-32602`;
+  every other `RB_*` (limits, rate, quota, NerdGraph, budget) stays `-32603`; the code is in `error.data.code` either way.
+  `prompts/get` uses the same mapping for a refused `time_range`, `deployment_time` or `account`.
+- **Needs:** say if limit and rate errors should be `-32602` too (or a custom server error code).

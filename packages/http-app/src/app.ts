@@ -748,6 +748,7 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
         tools: scope.tools,
         ctx: scope.ctx,
         toolsListChanged: false,
+        era: ctx.era,
         mcpApps: options.mcpApps !== false,
         requireWriteApproval: options.requireWriteApproval === true,
         ...(scope.onToolCall ? { onToolCall: scope.onToolCall } : {}),

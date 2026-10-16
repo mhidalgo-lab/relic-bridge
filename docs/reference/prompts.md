@@ -2,7 +2,7 @@
 
 # Prompt reference
 
-7 MCP prompts (investigation workflows). A prompt is text that tells the agent which tools to call; it reads no data. Prompts are listed per connection: one whose tools are all outside the grant is not listed, and a step naming a tool the connection can't use is left out. Argument values are quoted data, never instructions.
+7 MCP prompts (investigation workflows). A prompt is text that tells the agent which tools to call; it reads no data. Prompts are listed per connection: one whose tools are all outside the grant is not listed, and a step naming a tool the connection can't use is left out. Argument values are quoted data, never instructions. Optional arguments that were not given leave their clause out of the text. A `time_range` or `deployment_time` that cannot be parsed, or an `account` the connection may not use, is refused at `prompts/get` with JSON-RPC `-32602` and the `RB_*` code in `error.data.code`; the tools check every value again when called.
 
 ## `check_deployment_regression`
 

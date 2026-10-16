@@ -2,11 +2,11 @@
 id: P8-92
 title: Protocol surface - tasks extension, listChanged, resource error codes, prompt texts, unknown event types
 phase: 8
-status: todo
+status: review
 priority: medium
 depends_on: []
 adr: [0005]
-owner: ""
+owner: claude-agent
 ---
 
 # P8-92 — Protocol surface: tasks extension, listChanged, resource error codes, prompt texts, unknown event types
@@ -36,10 +36,10 @@ Review 4 (0.11.0) findings on the new MCP surface:
 - A test that runs every example in `relic://nrql/reference` through the NRQL validator.
 
 ## Acceptance criteria
-- [ ] Contract test: the capabilities in `initialize` match what works over the transport.
-- [ ] Tests for prompt texts with and without optional arguments, and for invalid arguments.
-- [ ] Tests for resource error codes (forbidden account, bad event type, non-numeric account).
-- [ ] Negative authorization tests for resources stay green.
+- [x] Contract test: the capabilities in `initialize` match what works over the transport.
+- [x] Tests for prompt texts with and without optional arguments, and for invalid arguments.
+- [x] Tests for resource error codes (forbidden account, bad event type, non-numeric account).
+- [x] Negative authorization tests for resources stay green.
 
 ## Security notes
 T21 (no state across requests: the per-request capability must not be cached). Prompt values remain quoted and labelled

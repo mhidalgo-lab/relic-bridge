@@ -1,5 +1,0 @@
----
-"relic-bridge": minor
----
-
-A write refused for lack of approval is now an error. When `RB_WRITE_APPROVAL=required` and the client cannot be asked, or the person declines, cancels or does not answer, `create_change_event`, `acknowledge_issue`, `close_issue` and `create_dashboard` return `isError: true` with the code `RB_WRITE_APPROVAL_UNAVAILABLE` or `RB_WRITE_APPROVAL_DECLINED` and "nothing was changed", instead of `applied: false` with no error. Successful write results gain `confirmation` (`approved`, `not_required` or `dry_run`), and the dry run of `create_change_event` returns the planned payload as `plan`. `whoami` reports `limits.writeApproval` (`required` or `off`). The refusal is an audit row with `applied: false`, and the span records `write.applied` and `write.confirmation`. A request that declares elicitation only in its `_meta` on a connection that cannot carry the question is refused with a message that no longer tells the caller to add `confirm: true`. New guide: write tools and approval (how a client is detected, which clients work).

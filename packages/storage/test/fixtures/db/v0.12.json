@@ -1,0 +1,122 @@
+{
+  "minor": "0.12",
+  "tag": "v0.12.0",
+  "generatedBy": "node scripts/gen-db-fixtures.ts",
+  "migrations": [
+    {
+      "version": 1,
+      "name": "0000_init",
+      "checksum": "08c9638f80e80e270bd43fe8d7714f02d9d2ea75b356a7231aa43001add6d761",
+      "statements": [
+        "CREATE TABLE `access_tokens` (\n\t`id` text PRIMARY KEY NOT NULL,\n\t`grant_id` text NOT NULL,\n\t`prefix` text NOT NULL,\n\t`token_hash` text NOT NULL,\n\t`label` text NOT NULL,\n\t`created_at` integer NOT NULL,\n\t`expires_at` integer,\n\t`last_used_at` integer,\n\t`revoked_at` integer,\n\tFOREIGN KEY (`grant_id`) REFERENCES `grants`(`id`) ON UPDATE no action ON DELETE cascade,\n\tCONSTRAINT \"access_tokens_hash_check\" CHECK(length(\"access_tokens\".\"token_hash\") = 64 AND \"access_tokens\".\"token_hash\" NOT GLOB '*[^0-9a-f]*'),\n\tCONSTRAINT \"access_tokens_prefix_check\" CHECK(length(\"access_tokens\".\"prefix\") <= 12)\n);",
+        "CREATE UNIQUE INDEX `access_tokens_hash_unique` ON `access_tokens` (`token_hash`);",
+        "CREATE INDEX `access_tokens_grant_idx` ON `access_tokens` (`grant_id`);",
+        "CREATE TABLE `audit_log` (\n\t`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,\n\t`ts` integer NOT NULL,\n\t`kind` text NOT NULL,\n\t`action` text NOT NULL,\n\t`status` text NOT NULL,\n\t`request_id` text,\n\t`user_id` text,\n\t`grant_id` text,\n\t`token_id` text,\n\t`client_id` text,\n\t`project_id` text,\n\t`account_ids` text,\n\t`nrql` text,\n\t`duration_ms` integer,\n\t`inspected_count` integer,\n\t`error_code` text,\n\t`target_type` text,\n\t`target_id` text,\n\t`details` text,\n\tCONSTRAINT \"audit_log_kind_check\" CHECK(\"audit_log\".\"kind\" IN ('tool_call', 'admin')),\n\tCONSTRAINT \"audit_log_status_check\" CHECK(\"audit_log\".\"status\" IN ('ok', 'error', 'denied'))\n);",
+        "CREATE INDEX `audit_log_ts_idx` ON `audit_log` (`ts`);",
+        "CREATE INDEX `audit_log_project_ts_idx` ON `audit_log` (`project_id`,`ts`);",
+        "CREATE INDEX `audit_log_user_ts_idx` ON `audit_log` (`user_id`,`ts`);",
+        "CREATE TABLE `credentials` (\n\t`id` text PRIMARY KEY NOT NULL,\n\t`owner_user_id` text,\n\t`label` text NOT NULL,\n\t`region` text NOT NULL,\n\t`key_ciphertext` blob NOT NULL,\n\t`key_iv` blob NOT NULL,\n\t`key_version` integer NOT NULL,\n\t`key_hint` text,\n\t`validation_status` text DEFAULT 'unvalidated' NOT NULL,\n\t`validation_error_code` text,\n\t`validated_at` integer,\n\t`nr_user_id` integer,\n\t`nr_user_email` text,\n\t`reachable_account_ids` text,\n\t`created_at` integer NOT NULL,\n\t`updated_at` integer NOT NULL,\n\t`revoked_at` integer,\n\tFOREIGN KEY (`owner_user_id`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE restrict,\n\tCONSTRAINT \"credentials_region_check\" CHECK(\"credentials\".\"region\" IN ('US', 'EU', 'JP')),\n\tCONSTRAINT \"credentials_validation_status_check\" CHECK(\"credentials\".\"validation_status\" IN ('unvalidated', 'valid', 'invalid')),\n\tCONSTRAINT \"credentials_key_version_check\" CHECK(\"credentials\".\"key_version\" > 0),\n\tCONSTRAINT \"credentials_key_iv_check\" CHECK(length(\"credentials\".\"key_iv\") = 12),\n\tCONSTRAINT \"credentials_key_hint_check\" CHECK(\"credentials\".\"key_hint\" IS NULL OR length(\"credentials\".\"key_hint\") <= 4)\n);",
+        "CREATE INDEX `credentials_owner_idx` ON `credentials` (`owner_user_id`);",
+        "CREATE TABLE `grants` (\n\t`id` text PRIMARY KEY NOT NULL,\n\t`project_id` text NOT NULL,\n\t`user_id` text,\n\t`label` text,\n\t`credential_id` text,\n\t`tools` text,\n\t`account_ids` text,\n\t`limits` text NOT NULL,\n\t`rate_limit` text,\n\t`created_at` integer NOT NULL,\n\t`updated_at` integer NOT NULL,\n\t`expires_at` integer,\n\t`revoked_at` integer,\n\tFOREIGN KEY (`project_id`) REFERENCES `projects`(`id`) ON UPDATE no action ON DELETE cascade,\n\tFOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE cascade,\n\tFOREIGN KEY (`credential_id`) REFERENCES `credentials`(`id`) ON UPDATE no action ON DELETE restrict,\n\tCONSTRAINT \"grants_principal_check\" CHECK(\"grants\".\"user_id\" IS NOT NULL OR \"grants\".\"label\" IS NOT NULL)\n);",
+        "CREATE INDEX `grants_project_idx` ON `grants` (`project_id`);",
+        "CREATE INDEX `grants_user_idx` ON `grants` (`user_id`);",
+        "CREATE INDEX `grants_credential_idx` ON `grants` (`credential_id`);",
+        "CREATE TABLE `kv` (\n\t`key` text PRIMARY KEY NOT NULL,\n\t`value` text NOT NULL,\n\t`expires_at` integer\n);",
+        "CREATE INDEX `kv_expires_idx` ON `kv` (`expires_at`);",
+        "CREATE TABLE `projects` (\n\t`id` text PRIMARY KEY NOT NULL,\n\t`slug` text NOT NULL,\n\t`name` text,\n\t`default_account_id` integer NOT NULL,\n\t`allowed_account_ids` text NOT NULL,\n\t`enabled_tools` text,\n\t`limits` text NOT NULL,\n\t`default_credential_id` text,\n\t`created_at` integer NOT NULL,\n\t`updated_at` integer NOT NULL,\n\t`disabled_at` integer,\n\tFOREIGN KEY (`default_credential_id`) REFERENCES `credentials`(`id`) ON UPDATE no action ON DELETE restrict\n);",
+        "CREATE UNIQUE INDEX `projects_slug_unique` ON `projects` (`slug`);",
+        "CREATE INDEX `projects_default_credential_idx` ON `projects` (`default_credential_id`);",
+        "CREATE TABLE `settings` (\n\t`key` text PRIMARY KEY NOT NULL,\n\t`value` text NOT NULL,\n\t`updated_at` integer NOT NULL\n);",
+        "CREATE TABLE `users` (\n\t`id` text PRIMARY KEY NOT NULL,\n\t`email` text NOT NULL,\n\t`display_name` text,\n\t`idp` text,\n\t`idp_subject` text,\n\t`role` text NOT NULL,\n\t`created_at` integer NOT NULL,\n\t`updated_at` integer NOT NULL,\n\t`disabled_at` integer,\n\tCONSTRAINT \"users_role_check\" CHECK(\"users\".\"role\" IN ('owner', 'admin', 'member')),\n\tCONSTRAINT \"users_email_lower_check\" CHECK(\"users\".\"email\" = lower(\"users\".\"email\"))\n);",
+        "CREATE UNIQUE INDEX `users_email_unique` ON `users` (`email`);",
+        "CREATE UNIQUE INDEX `users_identity_unique` ON `users` (`idp`,`idp_subject`);"
+      ]
+    },
+    {
+      "version": 2,
+      "name": "0001_audit_auth_kind",
+      "checksum": "86e23e3afc7083d8e1d0e7ea09d42e68dcf4c12ff59830b8907f4e8de98807e4",
+      "statements": [
+        "PRAGMA foreign_keys=OFF;",
+        "CREATE TABLE `__new_audit_log` (\n\t`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,\n\t`ts` integer NOT NULL,\n\t`kind` text NOT NULL,\n\t`action` text NOT NULL,\n\t`status` text NOT NULL,\n\t`request_id` text,\n\t`user_id` text,\n\t`grant_id` text,\n\t`token_id` text,\n\t`client_id` text,\n\t`project_id` text,\n\t`account_ids` text,\n\t`nrql` text,\n\t`duration_ms` integer,\n\t`inspected_count` integer,\n\t`error_code` text,\n\t`target_type` text,\n\t`target_id` text,\n\t`details` text,\n\tCONSTRAINT \"audit_log_kind_check\" CHECK(\"__new_audit_log\".\"kind\" IN ('tool_call', 'admin', 'auth')),\n\tCONSTRAINT \"audit_log_status_check\" CHECK(\"__new_audit_log\".\"status\" IN ('ok', 'error', 'denied'))\n);",
+        "INSERT INTO `__new_audit_log`(\"id\", \"ts\", \"kind\", \"action\", \"status\", \"request_id\", \"user_id\", \"grant_id\", \"token_id\", \"client_id\", \"project_id\", \"account_ids\", \"nrql\", \"duration_ms\", \"inspected_count\", \"error_code\", \"target_type\", \"target_id\", \"details\") SELECT \"id\", \"ts\", \"kind\", \"action\", \"status\", \"request_id\", \"user_id\", \"grant_id\", \"token_id\", \"client_id\", \"project_id\", \"account_ids\", \"nrql\", \"duration_ms\", \"inspected_count\", \"error_code\", \"target_type\", \"target_id\", \"details\" FROM `audit_log`;",
+        "DROP TABLE `audit_log`;",
+        "ALTER TABLE `__new_audit_log` RENAME TO `audit_log`;",
+        "PRAGMA foreign_keys=ON;",
+        "CREATE INDEX `audit_log_ts_idx` ON `audit_log` (`ts`);",
+        "CREATE INDEX `audit_log_project_ts_idx` ON `audit_log` (`project_id`,`ts`);",
+        "CREATE INDEX `audit_log_user_ts_idx` ON `audit_log` (`user_id`,`ts`);"
+      ]
+    },
+    {
+      "version": 3,
+      "name": "0002_audit_key_id",
+      "checksum": "19988265361a74f89a1e700b9773a693ad8ad5c8477d749aa5d86417f664c5f0",
+      "statements": [
+        "ALTER TABLE `audit_log` ADD `key_id` text;",
+        "CREATE INDEX `audit_log_key_ts_idx` ON `audit_log` (`key_id`,`ts`);"
+      ]
+    },
+    {
+      "version": 4,
+      "name": "0003_grant_quota_usage",
+      "checksum": "1e87c4a4bc787563c9215ad0b2223936d1ad71efe28cbfb9e89ea1d8765441ac",
+      "statements": [
+        "CREATE TABLE `grant_usage` (\n\t`grant_id` text NOT NULL,\n\t`period` text NOT NULL,\n\t`queries` integer DEFAULT 0 NOT NULL,\n\t`inspected` integer DEFAULT 0 NOT NULL,\n\t`updated_at` integer NOT NULL,\n\tPRIMARY KEY(`grant_id`, `period`),\n\tFOREIGN KEY (`grant_id`) REFERENCES `grants`(`id`) ON UPDATE no action ON DELETE cascade,\n\tCONSTRAINT \"grant_usage_counts_check\" CHECK(\"grant_usage\".\"queries\" >= 0 AND \"grant_usage\".\"inspected\" >= 0)\n);",
+        "CREATE INDEX `grant_usage_updated_idx` ON `grant_usage` (`updated_at`);",
+        "ALTER TABLE `grants` ADD `quota` text;"
+      ]
+    }
+  ],
+  "dump": [
+    "CREATE TABLE `schema_migrations` (`version` integer PRIMARY KEY NOT NULL, `name` text NOT NULL, `checksum` text NOT NULL, `applied_at` integer NOT NULL)",
+    "CREATE TABLE `access_tokens` (\n\t`id` text PRIMARY KEY NOT NULL,\n\t`grant_id` text NOT NULL,\n\t`prefix` text NOT NULL,\n\t`token_hash` text NOT NULL,\n\t`label` text NOT NULL,\n\t`created_at` integer NOT NULL,\n\t`expires_at` integer,\n\t`last_used_at` integer,\n\t`revoked_at` integer,\n\tFOREIGN KEY (`grant_id`) REFERENCES `grants`(`id`) ON UPDATE no action ON DELETE cascade,\n\tCONSTRAINT \"access_tokens_hash_check\" CHECK(length(\"access_tokens\".\"token_hash\") = 64 AND \"access_tokens\".\"token_hash\" NOT GLOB '*[^0-9a-f]*'),\n\tCONSTRAINT \"access_tokens_prefix_check\" CHECK(length(\"access_tokens\".\"prefix\") <= 12)\n)",
+    "CREATE TABLE `credentials` (\n\t`id` text PRIMARY KEY NOT NULL,\n\t`owner_user_id` text,\n\t`label` text NOT NULL,\n\t`region` text NOT NULL,\n\t`key_ciphertext` blob NOT NULL,\n\t`key_iv` blob NOT NULL,\n\t`key_version` integer NOT NULL,\n\t`key_hint` text,\n\t`validation_status` text DEFAULT 'unvalidated' NOT NULL,\n\t`validation_error_code` text,\n\t`validated_at` integer,\n\t`nr_user_id` integer,\n\t`nr_user_email` text,\n\t`reachable_account_ids` text,\n\t`created_at` integer NOT NULL,\n\t`updated_at` integer NOT NULL,\n\t`revoked_at` integer,\n\tFOREIGN KEY (`owner_user_id`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE restrict,\n\tCONSTRAINT \"credentials_region_check\" CHECK(\"credentials\".\"region\" IN ('US', 'EU', 'JP')),\n\tCONSTRAINT \"credentials_validation_status_check\" CHECK(\"credentials\".\"validation_status\" IN ('unvalidated', 'valid', 'invalid')),\n\tCONSTRAINT \"credentials_key_version_check\" CHECK(\"credentials\".\"key_version\" > 0),\n\tCONSTRAINT \"credentials_key_iv_check\" CHECK(length(\"credentials\".\"key_iv\") = 12),\n\tCONSTRAINT \"credentials_key_hint_check\" CHECK(\"credentials\".\"key_hint\" IS NULL OR length(\"credentials\".\"key_hint\") <= 4)\n)",
+    "CREATE TABLE `grants` (\n\t`id` text PRIMARY KEY NOT NULL,\n\t`project_id` text NOT NULL,\n\t`user_id` text,\n\t`label` text,\n\t`credential_id` text,\n\t`tools` text,\n\t`account_ids` text,\n\t`limits` text NOT NULL,\n\t`rate_limit` text,\n\t`created_at` integer NOT NULL,\n\t`updated_at` integer NOT NULL,\n\t`expires_at` integer,\n\t`revoked_at` integer, `quota` text,\n\tFOREIGN KEY (`project_id`) REFERENCES `projects`(`id`) ON UPDATE no action ON DELETE cascade,\n\tFOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE cascade,\n\tFOREIGN KEY (`credential_id`) REFERENCES `credentials`(`id`) ON UPDATE no action ON DELETE restrict,\n\tCONSTRAINT \"grants_principal_check\" CHECK(\"grants\".\"user_id\" IS NOT NULL OR \"grants\".\"label\" IS NOT NULL)\n)",
+    "CREATE TABLE `kv` (\n\t`key` text PRIMARY KEY NOT NULL,\n\t`value` text NOT NULL,\n\t`expires_at` integer\n)",
+    "CREATE TABLE `projects` (\n\t`id` text PRIMARY KEY NOT NULL,\n\t`slug` text NOT NULL,\n\t`name` text,\n\t`default_account_id` integer NOT NULL,\n\t`allowed_account_ids` text NOT NULL,\n\t`enabled_tools` text,\n\t`limits` text NOT NULL,\n\t`default_credential_id` text,\n\t`created_at` integer NOT NULL,\n\t`updated_at` integer NOT NULL,\n\t`disabled_at` integer,\n\tFOREIGN KEY (`default_credential_id`) REFERENCES `credentials`(`id`) ON UPDATE no action ON DELETE restrict\n)",
+    "CREATE TABLE `settings` (\n\t`key` text PRIMARY KEY NOT NULL,\n\t`value` text NOT NULL,\n\t`updated_at` integer NOT NULL\n)",
+    "CREATE TABLE `users` (\n\t`id` text PRIMARY KEY NOT NULL,\n\t`email` text NOT NULL,\n\t`display_name` text,\n\t`idp` text,\n\t`idp_subject` text,\n\t`role` text NOT NULL,\n\t`created_at` integer NOT NULL,\n\t`updated_at` integer NOT NULL,\n\t`disabled_at` integer,\n\tCONSTRAINT \"users_role_check\" CHECK(\"users\".\"role\" IN ('owner', 'admin', 'member')),\n\tCONSTRAINT \"users_email_lower_check\" CHECK(\"users\".\"email\" = lower(\"users\".\"email\"))\n)",
+    "CREATE TABLE \"audit_log\" (\n\t`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,\n\t`ts` integer NOT NULL,\n\t`kind` text NOT NULL,\n\t`action` text NOT NULL,\n\t`status` text NOT NULL,\n\t`request_id` text,\n\t`user_id` text,\n\t`grant_id` text,\n\t`token_id` text,\n\t`client_id` text,\n\t`project_id` text,\n\t`account_ids` text,\n\t`nrql` text,\n\t`duration_ms` integer,\n\t`inspected_count` integer,\n\t`error_code` text,\n\t`target_type` text,\n\t`target_id` text,\n\t`details` text, `key_id` text,\n\tCONSTRAINT \"audit_log_kind_check\" CHECK(\"audit_log\".\"kind\" IN ('tool_call', 'admin', 'auth')),\n\tCONSTRAINT \"audit_log_status_check\" CHECK(\"audit_log\".\"status\" IN ('ok', 'error', 'denied'))\n)",
+    "CREATE TABLE `grant_usage` (\n\t`grant_id` text NOT NULL,\n\t`period` text NOT NULL,\n\t`queries` integer DEFAULT 0 NOT NULL,\n\t`inspected` integer DEFAULT 0 NOT NULL,\n\t`updated_at` integer NOT NULL,\n\tPRIMARY KEY(`grant_id`, `period`),\n\tFOREIGN KEY (`grant_id`) REFERENCES `grants`(`id`) ON UPDATE no action ON DELETE cascade,\n\tCONSTRAINT \"grant_usage_counts_check\" CHECK(\"grant_usage\".\"queries\" >= 0 AND \"grant_usage\".\"inspected\" >= 0)\n)",
+    "CREATE UNIQUE INDEX `access_tokens_hash_unique` ON `access_tokens` (`token_hash`)",
+    "CREATE INDEX `access_tokens_grant_idx` ON `access_tokens` (`grant_id`)",
+    "CREATE INDEX `credentials_owner_idx` ON `credentials` (`owner_user_id`)",
+    "CREATE INDEX `grants_project_idx` ON `grants` (`project_id`)",
+    "CREATE INDEX `grants_user_idx` ON `grants` (`user_id`)",
+    "CREATE INDEX `grants_credential_idx` ON `grants` (`credential_id`)",
+    "CREATE INDEX `kv_expires_idx` ON `kv` (`expires_at`)",
+    "CREATE UNIQUE INDEX `projects_slug_unique` ON `projects` (`slug`)",
+    "CREATE INDEX `projects_default_credential_idx` ON `projects` (`default_credential_id`)",
+    "CREATE UNIQUE INDEX `users_email_unique` ON `users` (`email`)",
+    "CREATE UNIQUE INDEX `users_identity_unique` ON `users` (`idp`,`idp_subject`)",
+    "CREATE INDEX `audit_log_ts_idx` ON `audit_log` (`ts`)",
+    "CREATE INDEX `audit_log_project_ts_idx` ON `audit_log` (`project_id`,`ts`)",
+    "CREATE INDEX `audit_log_user_ts_idx` ON `audit_log` (`user_id`,`ts`)",
+    "CREATE INDEX `audit_log_key_ts_idx` ON `audit_log` (`key_id`,`ts`)",
+    "CREATE INDEX `grant_usage_updated_idx` ON `grant_usage` (`updated_at`)",
+    "INSERT INTO `audit_log` (`account_ids`, `action`, `client_id`, `details`, `duration_ms`, `error_code`, `grant_id`, `id`, `inspected_count`, `key_id`, `kind`, `nrql`, `project_id`, `request_id`, `status`, `target_id`, `target_type`, `token_id`, `ts`, `user_id`) VALUES ('[1111111]', 'run_nrql', NULL, NULL, 120, NULL, 'gr_member', 1, 5000, NULL, 'tool_call', 'SELECT count(*) FROM Transaction SINCE ? minutes ago', 'prj_main', 'req-1', 'ok', NULL, NULL, 'tok_laptop', 1790814060000, 'usr_member')",
+    "INSERT INTO `audit_log` (`account_ids`, `action`, `client_id`, `details`, `duration_ms`, `error_code`, `grant_id`, `id`, `inspected_count`, `key_id`, `kind`, `nrql`, `project_id`, `request_id`, `status`, `target_id`, `target_type`, `token_id`, `ts`, `user_id`) VALUES (NULL, 'token.revoke', NULL, '{\"actor\":\"admin_token\"}', NULL, NULL, NULL, 2, NULL, NULL, 'admin', NULL, NULL, NULL, 'ok', 'tok_ci', 'token', NULL, 1790814120000, NULL)",
+    "INSERT INTO `audit_log` (`account_ids`, `action`, `client_id`, `details`, `duration_ms`, `error_code`, `grant_id`, `id`, `inspected_count`, `key_id`, `kind`, `nrql`, `project_id`, `request_id`, `status`, `target_id`, `target_type`, `token_id`, `ts`, `user_id`) VALUES (NULL, 'auth.denied', NULL, NULL, NULL, 'invalid_token', NULL, 3, NULL, NULL, 'auth', NULL, NULL, NULL, 'denied', NULL, NULL, NULL, 1790814180000, NULL)",
+    "INSERT INTO `audit_log` (`account_ids`, `action`, `client_id`, `details`, `duration_ms`, `error_code`, `grant_id`, `id`, `inspected_count`, `key_id`, `kind`, `nrql`, `project_id`, `request_id`, `status`, `target_id`, `target_type`, `token_id`, `ts`, `user_id`) VALUES ('[1111111]', 'whoami', NULL, NULL, NULL, NULL, NULL, 4, NULL, 'pt_0123456789ab', 'tool_call', NULL, NULL, NULL, 'ok', NULL, NULL, NULL, 1790814300000, NULL)",
+    "INSERT INTO `kv` (`expires_at`, `key`, `value`) VALUES (NULL, 'fixture:forever', 'plain')",
+    "INSERT INTO `kv` (`expires_at`, `key`, `value`) VALUES (3367612800000, 'fixture:live', '{\"v\":1}')",
+    "INSERT INTO `schema_migrations` (`applied_at`, `checksum`, `name`, `version`) VALUES (1790812800000, '08c9638f80e80e270bd43fe8d7714f02d9d2ea75b356a7231aa43001add6d761', '0000_init', 1)",
+    "INSERT INTO `schema_migrations` (`applied_at`, `checksum`, `name`, `version`) VALUES (1790812800000, '86e23e3afc7083d8e1d0e7ea09d42e68dcf4c12ff59830b8907f4e8de98807e4', '0001_audit_auth_kind', 2)",
+    "INSERT INTO `schema_migrations` (`applied_at`, `checksum`, `name`, `version`) VALUES (1790812800000, '19988265361a74f89a1e700b9773a693ad8ad5c8477d749aa5d86417f664c5f0', '0002_audit_key_id', 3)",
+    "INSERT INTO `schema_migrations` (`applied_at`, `checksum`, `name`, `version`) VALUES (1790812800000, '1e87c4a4bc787563c9215ad0b2223936d1ad71efe28cbfb9e89ea1d8765441ac', '0003_grant_quota_usage', 4)",
+    "INSERT INTO `settings` (`key`, `updated_at`, `value`) VALUES ('oauth.registration', 1790814240000, '\"approval\"')",
+    "INSERT INTO `users` (`created_at`, `disabled_at`, `display_name`, `email`, `id`, `idp`, `idp_subject`, `role`, `updated_at`) VALUES (1790812860000, NULL, NULL, 'member@example.com', 'usr_member', NULL, NULL, 'member', 1790812920000)",
+    "INSERT INTO `users` (`created_at`, `disabled_at`, `display_name`, `email`, `id`, `idp`, `idp_subject`, `role`, `updated_at`) VALUES (1790812800000, NULL, 'Owner', 'owner@example.com', 'usr_owner', 'google', 'sub-owner', 'owner', 1790812800000)",
+    "INSERT INTO `credentials` (`created_at`, `id`, `key_ciphertext`, `key_hint`, `key_iv`, `key_version`, `label`, `nr_user_email`, `nr_user_id`, `owner_user_id`, `reachable_account_ids`, `region`, `revoked_at`, `updated_at`, `validated_at`, `validation_error_code`, `validation_status`) VALUES (1790813040000, 'cred_member', X'020d18232e39444f5a65707b86919ca7b2bdc8d3dee9f4ff0a15202b36414c57626d78838e99a4af', NULL, X'02030405060708090a0b0c0d', 2, 'My key', NULL, NULL, 'usr_member', NULL, 'EU', NULL, 1790813040000, NULL, NULL, 'unvalidated')",
+    "INSERT INTO `credentials` (`created_at`, `id`, `key_ciphertext`, `key_hint`, `key_iv`, `key_version`, `label`, `nr_user_email`, `nr_user_id`, `owner_user_id`, `reachable_account_ids`, `region`, `revoked_at`, `updated_at`, `validated_at`, `validation_error_code`, `validation_status`) VALUES (1790812980000, 'cred_shared', X'01080f161d242b323940474e555c636a71787f868d949ba2a9b0b7bec5ccd3dae1e8eff6fd040b12', 'AB12', X'0102030405060708090a0b0c', 1, 'Shared key', 'nr-user@example.com', 1001, NULL, '[1111111,2222222]', 'US', NULL, 1790812980000, 1790812980000, NULL, 'valid')",
+    "INSERT INTO `projects` (`allowed_account_ids`, `created_at`, `default_account_id`, `default_credential_id`, `disabled_at`, `enabled_tools`, `id`, `limits`, `name`, `slug`, `updated_at`) VALUES ('[1111111,2222222]', 1790813100000, 1111111, 'cred_shared', NULL, NULL, 'prj_main', '{\"maxLimit\":500,\"maxWindowDays\":7,\"eventTypes\":{\"deny\":[\"Secret\"]}}', 'Main project', 'main', 1790813100000)",
+    "INSERT INTO `projects` (`allowed_account_ids`, `created_at`, `default_account_id`, `default_credential_id`, `disabled_at`, `enabled_tools`, `id`, `limits`, `name`, `slug`, `updated_at`) VALUES ('[3333333]', 1790813160000, 3333333, NULL, 1790813220000, '[\"whoami\",\"run_nrql\"]', 'prj_off', '{}', NULL, 'off', 1790813160000)",
+    "INSERT INTO `grants` (`account_ids`, `created_at`, `credential_id`, `expires_at`, `id`, `label`, `limits`, `project_id`, `quota`, `rate_limit`, `revoked_at`, `tools`, `updated_at`, `user_id`) VALUES ('[1111111]', 1790813280000, 'cred_member', 1822348800000, 'gr_member', NULL, '{\"maxLimit\":100}', 'prj_main', '{\"day\":{\"queries\":100},\"month\":{\"inspectedEvents\":1000000},\"warnPercent\":80}', '{\"requests\":60,\"perSeconds\":60}', NULL, '[\"whoami\",\"run_nrql\"]', 1790813280000, 'usr_member')",
+    "INSERT INTO `grants` (`account_ids`, `created_at`, `credential_id`, `expires_at`, `id`, `label`, `limits`, `project_id`, `quota`, `rate_limit`, `revoked_at`, `tools`, `updated_at`, `user_id`) VALUES (NULL, 1790813340000, NULL, NULL, 'gr_service', 'ci-bot', '{}', 'prj_main', NULL, NULL, NULL, NULL, 1790813340000, NULL)",
+    "INSERT INTO `access_tokens` (`created_at`, `expires_at`, `grant_id`, `id`, `label`, `last_used_at`, `prefix`, `revoked_at`, `token_hash`) VALUES (1790813460000, NULL, 'gr_service', 'tok_ci', 'ci', NULL, 'rb_ef01', 1790813520000, 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb')",
+    "INSERT INTO `access_tokens` (`created_at`, `expires_at`, `grant_id`, `id`, `label`, `last_used_at`, `prefix`, `revoked_at`, `token_hash`) VALUES (1790813400000, NULL, 'gr_member', 'tok_laptop', 'laptop', 1790814000000, 'rb_abcd', NULL, 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa')",
+    "INSERT INTO `grant_usage` (`grant_id`, `inspected`, `period`, `queries`, `updated_at`) VALUES ('gr_member', 15000, 'd2026-10-01', 3, 1790814360000)",
+    "INSERT INTO `grant_usage` (`grant_id`, `inspected`, `period`, `queries`, `updated_at`) VALUES ('gr_member', 15000, 'm2026-10', 3, 1790814360000)"
+  ]
+}

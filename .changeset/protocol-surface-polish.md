@@ -1,5 +1,0 @@
----
-"relic-bridge": minor
----
-
-Protocol surface fixes from the 0.11.0 review. The Tasks extension is now advertised only to 2026-07-28 requests (it is declared per request there, and a 2025-era connection cannot use it), and prompts and resources advertise `listChanged: false` over HTTP like tools. Prompts leave out the clause of an absent optional argument (no more "(account (no account given))"), `investigate_slow_transactions` uses real `list_top_transactions` sorts, and a `time_range`, `deployment_time` or `account` that the tools would refuse is refused at `prompts/get` with `-32602`. Resource errors for a bad URI or an account outside the connection are `-32602` with the `RB_*` code in `error.data.code` instead of `-32603`. The NRQL reference no longer shows an invalid `average(name)` query and every example in it is checked in tests. `get_attributes` (and the attributes resource) says "no events of this type in the window" instead of listing only `timestamp`, and points to `list_event_types`.

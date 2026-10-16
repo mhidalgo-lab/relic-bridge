@@ -10,7 +10,7 @@
 services:
   relic-bridge:
     # Pin the digest of the release you verified (cosign verify, see the self-hosting guide): ...:0.7.0@sha256:...
-    image: ghcr.io/mhidalgo-lab/relic-bridge:0.7.0
+    image: ghcr.io/mhidalgo-lab/relic-bridge:0.11.0@sha256:d3bd00a041b8c282c64e4a7aa3973a1b316f4b28a5f6ba2334b098562d52967f
     restart: unless-stopped
     read_only: true
     cap_drop: [ALL]

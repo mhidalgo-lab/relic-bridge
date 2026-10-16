@@ -625,8 +625,9 @@ describe('create_dashboard (P7-19)', () => {
   it('sends one allow-listed mutation: PRIVATE, typed configuration, checked NRQL, variables only', async () => {
     const { r, ng } = await call(DASH);
     expect(r.isError ?? false, text(r)).toBe(false);
-    expect(ng.calls.map((c) => c.operationName)).toEqual(['RbCreateDashboard']);
-    const m = ng.calls[0] as Recorded;
+    // P8-101: the syntax probes of the two queries come first, then the one mutation.
+    expect(ng.calls.map((c) => c.operationName)).toEqual(['RbNrql', 'RbNrql', 'RbCreateDashboard']);
+    const m = ng.calls[2] as Recorded;
     expect(ALLOWED_MUTATIONS).toContain(m.operationName);
     expect(m.query).not.toContain('Checkout');
     expect(m.query).not.toContain('"');
@@ -756,6 +757,93 @@ describe('create_dashboard (P7-19)', () => {
     expect(text(r)).toMatch(/<untrusted-data[^>]*>[\s\S]*Page 1 widget 1 query 1: [\s\S]*<\/untrusted-data/);
   });
 
+  const rejectedNrql = () =>
+    json({
+      data: { actor: { account: { nrql: null } } },
+      errors: [
+        {
+          message: 'NRQL Syntax Error: Error at line 1 position 30, unexpected SINCE',
+          path: ['actor', 'account', 'nrql'],
+          extensions: { errorClass: 'INVALID_INPUT' },
+        },
+      ],
+    });
+  const badPages = [
+    {
+      name: 'P',
+      widgets: [
+        chart('SELECT count(*) FROM Transaction SINCE 1 hour ago'),
+        chart('SELECT count(*) FROM Transaction WHERE SINCE 1 hour ago', { title: 'Broken' }),
+      ],
+    },
+  ];
+
+  it('a dry run warns when New Relic rejects queries (NEW-36)', async () => {
+    const ng = nerdGraph({
+      RbNrql: (c) =>
+        String(c.variables['nrql']).includes('WHERE')
+          ? rejectedNrql()
+          : json({
+              data: {
+                actor: {
+                  account: {
+                    nrql: {
+                      results: [],
+                      metadata: { eventTypes: [], facets: null, messages: null, timeWindow: null },
+                      totalResult: null,
+                      otherResult: null,
+                      queryProgress: {
+                        queryId: null,
+                        completed: true,
+                        retryAfter: null,
+                        resultExpiration: null,
+                      },
+                    },
+                  },
+                },
+              },
+            }),
+    });
+    const client = await connect(ng.fetch);
+    const r = await client.callTool({
+      name: 'create_dashboard',
+      arguments: { name: 'D', pages: badPages, dry_run: true },
+    });
+    expect(r.isError ?? false, text(r)).toBe(false);
+    const s = r.structuredContent as { warnings: string[] };
+    expect(s.warnings).toEqual(['1 query rejected by New Relic: Page 1 widget 2 query 1.']);
+    expect(text(r)).toContain('1 query rejected by New Relic');
+    expect(mutationsOf(ng.calls)).toEqual([]);
+  });
+
+  it('a confirmed call refuses a query New Relic rejects, writes nothing and names the widget (NEW-36)', async () => {
+    const ng = nerdGraph({ RbNrql: rejectedNrql });
+    const client = await connect(ng.fetch);
+    const r = await client.callTool({
+      name: 'create_dashboard',
+      arguments: { name: 'D', pages: badPages, confirm: true },
+    });
+    expect(r.isError).toBe(true);
+    expect(code(r)).toBe(ErrorCode.InputInvalid);
+    expect(text(r)).toContain('Page 1 widget 1 query 1: New Relic rejected this query (and 1 more)');
+    expect(text(r)).toContain('Nothing was changed');
+    expect(mutationsOf(ng.calls)).toEqual([]);
+  });
+
+  it('a confirmed call keeps a request for the mutation when the budget is short (NEW-36)', async () => {
+    const widgets = Array.from({ length: 4 }, (_, i) =>
+      chart('SELECT count(*) FROM Transaction SINCE 1 hour ago', { title: `W${i}` }),
+    );
+    const { r, ng } = await call(
+      { name: 'D', pages: [{ name: 'P', widgets }], confirm: true },
+      { budget: createBudget(4) },
+    );
+    expect(r.isError ?? false, text(r)).toBe(false);
+    expect(mutationsOf(ng.calls)).toHaveLength(1);
+    expect(ng.calls.filter((c) => c.operationName === 'RbNrql')).toHaveLength(2);
+    expect((r.structuredContent as { notes: string[] }).notes.join(' ')).toContain('not syntax-checked');
+  });
+
   it('refuses a query that does not start with SELECT or FROM, offline (NEW-20)', async () => {
     const { r, ng } = await call({
       ...DASH,
@@ -819,7 +907,7 @@ describe('create_dashboard (P7-19)', () => {
       ],
     });
     expect(r.isError ?? false, text(r)).toBe(false);
-    const sent = JSON.stringify(ng.calls[0]?.variables);
+    const sent = JSON.stringify(mutationsOf(ng.calls)[0]?.variables);
     expect(sent).toContain(`LIMIT ${DEFAULT_LIMITS.maxLimit}`);
     expect(sent).not.toContain('hi */');
     expect((r.structuredContent as { notes: string[] }).notes.join(' ')).toContain('Page 1 widget 1');
@@ -1078,6 +1166,42 @@ const ELICIT_DASH = {
 };
 
 const yes = (): Answer => ({ action: 'accept', content: { confirm: true } });
+
+describe('create_dashboard checks its queries before asking (P8-101, NEW-36)', () => {
+  it('a rejected query is refused before the question: nothing is asked, nothing is written', async () => {
+    const ng = nerdGraph({
+      RbNrql: () =>
+        json({
+          data: { actor: { account: { nrql: null } } },
+          errors: [
+            {
+              message: 'NRQL Syntax Error',
+              path: ['actor', 'account', 'nrql'],
+              extensions: { errorClass: 'INVALID_INPUT' },
+            },
+          ],
+        }),
+    });
+    const { client, asked } = await connectAsking(ng.fetch, 'legacy', yes);
+    const r = await client.callTool({ name: 'create_dashboard', arguments: ELICIT_DASH });
+    expect(r.isError).toBe(true);
+    expect(code(r)).toBe(ErrorCode.InputInvalid);
+    expect(text(r)).toContain('Page 1 widget 1 query 1');
+    expect(asked).toEqual([]);
+    expect(mutationsOf(ng.calls)).toEqual([]);
+  });
+
+  it('valid queries are checked in each round, then the person is asked and the dashboard is created', async () => {
+    const ng = nerdGraph();
+    const { client, asked } = await connectAsking(ng.fetch, 'legacy', yes);
+    const r = await client.callTool({ name: 'create_dashboard', arguments: ELICIT_DASH });
+    expect(r.isError ?? false, text(r)).toBe(false);
+    expect(asked).toHaveLength(1);
+    // The server keeps no state: the question round and the answer round each probe the query, before the gate.
+    expect(ng.calls.map((c) => c.operationName)).toEqual(['RbNrql', 'RbNrql', 'RbCreateDashboard']);
+    expect(r.structuredContent).toMatchObject({ applied: true, confirmation: 'approved' });
+  });
+});
 
 describe('write confirmation through elicitation (2025-era connection, as on stdio)', () => {
   const era = 'legacy' as const;

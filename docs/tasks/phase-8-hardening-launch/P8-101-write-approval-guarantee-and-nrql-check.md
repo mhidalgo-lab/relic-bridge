@@ -2,11 +2,11 @@
 id: P8-101
 title: State what write approval guarantees, and warn on rejected dashboard queries
 phase: 8
-status: todo
+status: review
 priority: medium
 depends_on: []
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P8-101 — State what write approval guarantees, and warn on rejected dashboard queries
@@ -34,10 +34,10 @@ Review 5 (0.12.0) findings on the write tools:
 - THREAT_MODEL: record the residual risk (approval as strong as the client) on the write-approval threat.
 
 ## Acceptance criteria
-- [ ] Tests: dry run with a rejected query has a warning; confirm with a rejected query refuses before asking and
+- [x] Tests: dry run with a rejected query has a warning; confirm with a rejected query refuses before asking and
       writes nothing; confirm with valid queries still asks and writes.
-- [ ] `whoami` and description texts updated; generated tool docs regenerated.
-- [ ] THREAT_MODEL updated.
+- [x] `whoami` and description texts updated; generated tool docs regenerated.
+- [x] THREAT_MODEL updated.
 
 ## Security notes
 Write path (T23 neighbours, write approval). The check must run before the elicitation question so a refused plan is

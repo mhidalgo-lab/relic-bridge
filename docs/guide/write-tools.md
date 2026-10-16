@@ -40,3 +40,25 @@ the capability arrives with the request itself:
   not a 2026-07-28 request is refused with a message saying so (nothing is changed).
 
 Known to work: Claude Code. A client that cannot approve can still dry-run and use the read tools.
+
+## What approval guarantees
+
+The approval is answered through the client's elicitation prompt. The server guarantees that:
+
+- an approval is bound to the exact change (tool, arguments and a 10 to 20 minute window) and cannot be moved to
+  other arguments, and each approval is used once;
+- `confirm: true` alone never writes, and a client that cannot be asked cannot write;
+- the question is shown before anything is sent to New Relic.
+
+The server cannot verify that a person answered. A conforming client such as Claude Code shows the prompt to a person,
+but a custom client that speaks the protocol could answer its own question. The approval is as strong as the client you
+connect. A stronger guarantee (a signed approval token or a second factor) would need something outside MCP and is not
+part of relic-bridge.
+
+## Dashboard queries are checked before approval
+
+`create_dashboard` sends each widget query (at most 10) to New Relic as a read-only probe (`LIMIT 1`, last 5 minutes).
+A dry run reports a rejected query in `checks` and as a warning (`N queries rejected by New Relic: ...`). A confirmed
+call runs the same check before it asks for approval: if New Relic rejects a query, the call fails with
+`RB_INPUT_INVALID` naming the widget, nothing is created and no question is asked. The check repeats in the round that carries the answer (the server keeps no state). Queries beyond the 10-query cap or
+the request budget are not checked and are listed in `notes`; one request always stays for the mutation.

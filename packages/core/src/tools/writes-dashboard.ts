@@ -184,7 +184,7 @@ const dashboardOutput = z.object({
 
 const DESCRIPTION = `Create a new private New Relic dashboard from NRQL queries: pages of charts (line, area, bar, billboard, pie, table) and plain-text markdown widgets.
 
-Write tool, opt-in. ${SIDE_EFFECT_NOTICE} Needs confirm: true; dry_run: true returns the plan and syntax-checks each query (LIMIT 1) without creating it. Runs 1 request (up to 20 with dry_run). ${APPROVAL_NOTICE} Each call creates a new PRIVATE dashboard (not idempotent; no edit or delete here). Widget NRQL is checked like run_nrql; every query account must be on this connection. Limits: ${DASHBOARD_LIMITS.pages} pages, ${DASHBOARD_LIMITS.widgetsPerPage} widgets per page, ${DASHBOARD_LIMITS.widgets} in all, ${DASHBOARD_LIMITS.queriesPerWidget} queries per widget. To read dashboards use list_dashboards and get_dashboard. To record a change event instead, use create_change_event.`;
+Write tool, opt-in. ${SIDE_EFFECT_NOTICE} Needs confirm: true; dry_run: true previews. A query New Relic rejects (LIMIT 1 check) warns on a dry run, stops a call before approval. Runs up to ${1 + MAX_CHECKS * NRQL_COST} requests. ${APPROVAL_NOTICE} Each call creates a new PRIVATE dashboard (not idempotent; no edit or delete here). Widget NRQL is checked like run_nrql; every query account must be on this connection. Limits: ${DASHBOARD_LIMITS.pages} pages, ${DASHBOARD_LIMITS.widgetsPerPage} widgets per page, ${DASHBOARD_LIMITS.widgets} in all, ${DASHBOARD_LIMITS.queriesPerWidget} queries per widget. To read dashboards use list_dashboards and get_dashboard. To record a change event instead, use create_change_event.`;
 
 const SPLIT_HINT = `A query holds one statement: put each in its own query of the widget (up to ${DASHBOARD_LIMITS.queriesPerWidget}) or its own widget, or use COMPARE WITH / FACET to combine them.`;
 
@@ -204,13 +204,15 @@ function assertStartsLikeQuery(checked: string): void {
 type Check = z.infer<typeof queryCheck>;
 
 /**
- * The dry run's syntax check: each widget query as a probe (LIMIT 1, last 5 minutes), one NRQL each, paid from the
- * request budget (NRQL_COST apiece, at most MAX_CHECKS). Read-only: the probe is a query, and nothing is created.
+ * The syntax check, on a dry run and before a confirmed call asks for approval: each widget query as a probe (LIMIT 1,
+ * last 5 minutes), one NRQL each, paid from the request budget (NRQL_COST apiece, at most MAX_CHECKS), keeping `reserve`
+ * requests for what follows. Read-only: the probe is a query, and nothing is created.
  */
 async function checkQueries(
   ctx: ToolContext,
   nerdGraph: NerdGraphClient,
   plan: Plan,
+  reserve = 0,
 ): Promise<{ checks: Check[]; notes: string[] }> {
   const checks: Check[] = [];
   let skipped = 0;
@@ -218,7 +220,7 @@ async function checkQueries(
     const base = { page: probe.page, widget: probe.widget, query: probe.query };
     if (
       checks.filter((c) => c.status !== 'not_checked').length >= MAX_CHECKS ||
-      ctx.budget.remaining < NRQL_COST
+      ctx.budget.remaining < NRQL_COST + reserve
     ) {
       skipped += 1;
       checks.push({ ...base, status: 'not_checked', message: null });
@@ -257,6 +259,14 @@ async function checkQueries(
         : [],
   };
 }
+
+const checkWhere = (c: Check): string => `Page ${c.page} widget ${c.widget} query ${c.query}`;
+
+/** The dry run's warning for rejected queries (the details are in `checks` and the text). */
+const rejectedWarning = (bad: readonly Check[]): string | undefined =>
+  bad.length === 0
+    ? undefined
+    : `${bad.length} quer${bad.length === 1 ? 'y' : 'ies'} rejected by New Relic: ${bad.map(checkWhere).join('; ')}.`;
 
 /** Prefix an error with where it happened, keeping its code (limits → RB_LIMIT_QUERY, accounts → RB_AUTH_FORBIDDEN). */
 function at(where: string, e: unknown): never {
@@ -542,7 +552,7 @@ export function createDashboardWriteTool(client: (ctx: ToolContext) => NerdGraph
         warnings: [...plan.warnings, ...warnings],
         checks,
       });
-      const notesText =
+      const notesText = () =>
         plan.notes.length > 0 ? `\nAdjusted by the connection's limits:\n- ${plan.notes.join('\n- ')}` : '';
 
       const warningText = plan.warnings.length > 0 ? `\nWarning:\n- ${plan.warnings.join('\n- ')}` : '';
@@ -550,27 +560,42 @@ export function createDashboardWriteTool(client: (ctx: ToolContext) => NerdGraph
       if (dryRun) {
         const { checks, notes: checkNotes } = await checkQueries(ctx, client(ctx), plan);
         const bad = checks.filter((c) => c.status === 'error');
+        const rejected = rejectedWarning(bad);
+        const rejectedText = rejected === undefined ? '' : `\nWarning:\n- ${rejected}`;
         const checkText =
           `\nSyntax check (LIMIT 1, last 5 minutes): ${checks.filter((c) => c.status === 'ok').length} ok, ${bad.length} rejected` +
           `${checks.some((c) => c.status === 'not_checked') ? `, ${checks.filter((c) => c.status === 'not_checked').length} not checked` : ''}.` +
           (bad.length > 0
-            ? `\n${envelope(
-                bad
-                  .map((c) => `Page ${c.page} widget ${c.widget} query ${c.query}: ${c.message ?? ''}`)
-                  .join('\n'),
-                { source: 'New Relic syntax errors' },
-              )}`
+            ? `\n${envelope(bad.map((c) => `${checkWhere(c)}: ${c.message ?? ''}`).join('\n'), {
+                source: 'New Relic syntax errors',
+              })}`
             : '') +
           (checkNotes.length > 0 ? `\n${checkNotes.join('\n')}` : '');
         return {
-          text: `Dry run: would create the private dashboard "${input.name}" in account ${account} with ${plan.widgets} widget(s) on ${plan.pages.length} page(s). Nothing was changed.\n${outline(plan)}${notesText}${warningText}${checkText}`,
+          text: `Dry run: would create the private dashboard "${input.name}" in account ${account} with ${plan.widgets} widget(s) on ${plan.pages.length} page(s). Nothing was changed.\n${outline(plan)}${notesText()}${warningText}${rejectedText}${checkText}`,
           structured: {
-            ...shaped(false, null, [], undefined, checks),
+            ...shaped(false, null, rejected === undefined ? [] : [rejected], undefined, checks),
             notes: [...plan.notes, ...checkNotes],
           },
           meta: metaOf(record(false, null)),
         };
       }
+
+      // New Relic's syntax check comes before the question: a plan it rejects is never shown for approval (P8-101, NEW-36).
+      // One request stays for the mutation. The question round and the answer round each check (the server keeps no state).
+      const { checks, notes: checkNotes } = await checkQueries(ctx, client(ctx), plan, 1);
+      const bad = checks.filter((c) => c.status === 'error');
+      if (bad[0] !== undefined) {
+        throw new RbError(
+          ErrorCode.InputInvalid,
+          `${checkWhere(bad[0])}: New Relic rejected this query${bad.length > 1 ? ` (and ${bad.length - 1} more)` : ''}. Nothing was changed.`,
+          {
+            hint: 'Fix the NRQL of the widget (a dry run lists every rejected query) and try again.',
+            details: { at: checkWhere(bad[0]), message: bad[0].message ?? '' },
+          },
+        );
+      }
+      plan.notes.push(...checkNotes);
 
       const gate = await humanGate(
         ctx,
@@ -645,7 +670,7 @@ export function createDashboardWriteTool(client: (ctx: ToolContext) => NerdGraph
       if (allWarnings.length > 0) lines.push(`Warning:\n- ${allWarnings.join('\n- ')}`);
       if (messages.length > 0) lines.push(envelope(messages.join('\n'), { source: 'New Relic messages' }));
       return {
-        text: lines.join('\n') + notesText,
+        text: lines.join('\n') + notesText(),
         structured: shaped(true, guid, warnings, gate.confirmation),
         meta: metaOf({
           ...record(

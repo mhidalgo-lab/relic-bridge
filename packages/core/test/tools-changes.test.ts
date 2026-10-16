@@ -357,7 +357,8 @@ describe('list_change_events', () => {
       events: { id: string; version: string }[];
       hiddenOutsideScope: boolean;
     };
-    expect(s).toMatchObject({ accountId: B, scope: 'entity_deployments', hiddenOutsideScope: true });
+    expect(s).toMatchObject({ accountId: B, scope: 'entity_changes', hiddenOutsideScope: true });
+    expect(r.structuredContent).not.toMatchObject({ scope: 'entity_deployments' });
     expect(s.events.map((e) => e.id)).toEqual(['d1']);
     const bad = await client.callTool({
       name: 'list_change_events',

@@ -1138,6 +1138,7 @@ export function createInvestigationTools(deps: ToolDeps = {}): ToolDefinition[] 
     args: z.infer<typeof depInput>,
     base: DepBase,
     entries: readonly DepEntry[],
+    callBudget: number,
   ): ToolOutput => {
     const metricsEach = args.max_metrics ?? DEFAULT_METRICS;
     const notes = [...base.notes];
@@ -1206,7 +1207,7 @@ export function createInvestigationTools(deps: ToolDeps = {}): ToolDefinition[] 
     const bySize = notRun.filter((e) => e?.note === SIZE_NOTE).length;
     if (notRun.length - bySize > 0)
       notes.push(
-        'Some entities were skipped: the request budget ran out (a limit of this call, not max_dependencies; the server call budget is RB_CALL_BUDGET).',
+        `Some entities were skipped: the request budget ran out (a limit of this call, not max_dependencies; the server's per-call budget is ${callBudget} requests; see whoami limits.perCallBudget).`,
       );
     if (bySize > 0) notes.push('Some entities were skipped: the task size limit was reached.');
     if (notMeasured > 0) {
@@ -1285,7 +1286,12 @@ export function createInvestigationTools(deps: ToolDeps = {}): ToolDefinition[] 
     const ran = await Promise.all(
       plan.run.map(({ name, granted }) => runDepEntry(args, name, granted, base, ctx)),
     );
-    return assembleDep(args, base, [...ran, ...plan.skipped.map((g) => notRunDep(g, BUDGET_NOTE))]);
+    return assembleDep(
+      args,
+      base,
+      [...ran, ...plan.skipped.map((g) => notRunDep(g, BUDGET_NOTE))],
+      ctx.budget.limit,
+    );
   };
 
   const depJob = (state: DepTaskState): TaskJob => ({
@@ -1370,7 +1376,7 @@ export function createInvestigationTools(deps: ToolDeps = {}): ToolDefinition[] 
       }
       if (remaining.length > 0)
         return { text: 'The check continues as a task.', task: depJob({ ...state, entries }) };
-      return assembleDep(state.args, base, entries);
+      return assembleDep(state.args, base, entries, ctx.budget.limit);
     },
   });
 

@@ -2,11 +2,11 @@
 id: P8-103
 title: Review 5 tool output polish - implicit groups, change event scope, budget note
 phase: 8
-status: todo
+status: review
 priority: low
 depends_on: []
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P8-103 — Review 5 tool output polish: implicit groups, change event scope, budget note
@@ -31,8 +31,8 @@ Review 5 (0.12.0) output findings:
   limits.perCallBudget)") instead of the variable name, everywhere the same text appears.
 
 ## Acceptance criteria
-- [ ] Tests for each of the three changes.
-- [ ] Generated tool docs regenerated.
+- [x] Tests for each of the three changes.
+- [x] Generated tool docs regenerated.
 
 ## Security notes
 None.

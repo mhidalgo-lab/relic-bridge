@@ -315,8 +315,8 @@ describe('one state per issue (P8-107)', () => {
   });
 });
 
-describe('list_recent_issues repeated conditions (BUG-15)', () => {
-  it('summarises near-identical issues per condition, largest first', async () => {
+describe('list_recent_issues group_by (BUG-15, NEW-30)', () => {
+  it('returns no groups, scope or note without group_by, even when a condition repeats (NEW-30)', async () => {
     const rows = [
       issue(A, 'i1', 'High error rate', { createdAt: NOW - 3_000_000 }),
       issue(A, 'i2', 'High error rate', { createdAt: NOW - 2_000_000 }),
@@ -324,10 +324,24 @@ describe('list_recent_issues repeated conditions (BUG-15)', () => {
     ];
     const { client } = await setup([issuesBody(rows)]);
     const r = await client.callTool({ name: 'list_recent_issues', arguments: {} });
+    expect(r.structuredContent).toHaveProperty('issues');
+    expect(r.structuredContent).not.toHaveProperty('groups');
+    expect(r.structuredContent).not.toHaveProperty('groupsScope');
+    expect(r.structuredContent).not.toHaveProperty('groupsNote');
+    expect(text(r)).not.toContain('Repeated conditions');
+  });
+
+  it('group_by condition groups repeated issues, largest first, with their ids', async () => {
+    const rows = [
+      issue(A, 'i1', 'High error rate', { createdAt: NOW - 3_000_000 }),
+      issue(A, 'i2', 'High error rate', { createdAt: NOW - 2_000_000 }),
+      issue(A, 'i3', 'Slow', { conditionName: ['Latency'], entityNames: ['db'] }),
+    ];
+    const { client } = await setup([issuesBody(rows), issuesBody(rows)]);
+    const r = await client.callTool({ name: 'list_recent_issues', arguments: { group_by: 'condition' } });
     const s = r.structuredContent as { groups: { key: string; count: number; issueIds: string[] }[] };
-    expect(s.groups.map((g) => [g.key, g.count])).toEqual([['High error rate', 2]]);
+    expect(s.groups[0]?.count).toBe(2);
     expect(s.groups[0]?.issueIds).toEqual(['i1', 'i2']);
-    expect(text(r)).toContain('Repeated conditions on this page (2 of 3 issues');
   });
 
   it('group_by entity counts per entity, singles included', async () => {
@@ -357,13 +371,6 @@ describe('list_recent_issues repeated conditions (BUG-15)', () => {
     const { client } = await setup([issuesBody([])]);
     const r = await client.callTool({ name: 'list_recent_issues', arguments: { group_by: 'policy' } });
     expect(r.isError).toBe(true);
-  });
-
-  it('adds no summary when every condition appears once', async () => {
-    const { client } = await setup([issuesBody([issue(A, 'i1', 'x')])]);
-    const r = await client.callTool({ name: 'list_recent_issues', arguments: {} });
-    expect(r.structuredContent).not.toHaveProperty('groups');
-    expect(text(r)).not.toContain('Repeated conditions');
   });
 });
 

@@ -894,6 +894,10 @@ describe('dependency_health', () => {
     expect(resultText(stopped)).toContain(
       'the request budget ran out (a limit of this call, not max_dependencies',
     );
+    expect(resultText(stopped)).toContain(
+      "the server's per-call budget is 7 requests; see whoami limits.perCallBudget",
+    );
+    expect(resultText(stopped)).not.toContain('RB_CALL_BUDGET');
   });
 
   it('plans against the budget: entity first, neighbours skipped when nothing is left', async () => {

@@ -159,6 +159,13 @@ export interface AdminAuditEvent {
    * `auth` refusal rows, so a flood of bad requests can't fill the table (T20).
    */
   readonly refusal?: boolean;
+  /**
+   * A legitimate event that a client can repeat at will (token issuance and refresh, a credential that cannot be
+   * opened) rather than a refusal: written through its own per-minute cap, separate from the refusal cap, so a flood
+   * of refusals cannot hide it and it cannot fill the table (T20). Rows beyond the cap are counted into one
+   * `admin.suppressed` summary row (`details.rows: "capped"`).
+   */
+  readonly capped?: boolean;
   /** Small non-secret facts (label, region, which fields changed). Redacted and size-bounded before storage. */
   readonly details?: Readonly<Record<string, unknown>>;
 }
@@ -298,6 +305,7 @@ export function createAuditRecorder(options: AuditRecorderOptions): AuditRecorde
   };
   const admitAuthRow = createCap(authCap);
   const admitAdminRefusal = createCap(authCap);
+  const admitAdminCapped = createCap(authCap);
 
   const writeAuth = async (entry: AuditEntry): Promise<void> => {
     const { admit, flushed } = admitAuthRow(entry.ts);
@@ -517,6 +525,19 @@ export function createAuditRecorder(options: AuditRecorderOptions): AuditRecorde
             action: 'admin.suppressed',
             status: 'denied',
             details: { suppressedRows: flushed, perMinuteCap: authCap },
+          });
+        }
+        if (!admit) return;
+      }
+      if (event.capped) {
+        const { admit, flushed } = admitAdminCapped(clock.now());
+        if (flushed > 0) {
+          await write({
+            ts: clock.now(),
+            kind,
+            action: 'admin.suppressed',
+            status: 'denied',
+            details: { suppressedRows: flushed, perMinuteCap: authCap, rows: 'capped' },
           });
         }
         if (!admit) return;

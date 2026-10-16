@@ -20,7 +20,7 @@ import {
 } from '@relic-bridge/auth';
 import { createBuiltinTools, type Identity, Secret } from '@relic-bridge/core';
 import { openSqliteStorage } from '@relic-bridge/storage-sqlite';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { FAKE_KEY, identityBody } from './helpers.ts';
 
 const CLI_DIR = fileURLToPath(new URL('..', import.meta.url));
@@ -356,6 +356,40 @@ describe('relic-bridge serve (built CLI)', () => {
       expect(await server.exit()).toBe(0);
     }
     for (const t of Object.values(tokens)) expect(server.stderr).not.toContain(t);
+  }, 60_000);
+
+  it('records the automatic audit purge as audit.purge with source schedule (P8-85)', async () => {
+    const old = Date.now() - 10 * 86_400_000;
+    const seeded = await openSqliteStorage({ path: dbPath });
+    try {
+      for (const action of ['old.one', 'old.two']) {
+        await seeded.auditLog.append({ ts: old, kind: 'auth', action, status: 'denied' });
+      }
+    } finally {
+      await seeded.close();
+    }
+    const server = new ServeProcess(['--port', '0', '--db', dbPath], env({ RB_AUDIT_RETENTION_DAYS: '1' }));
+    try {
+      await server.url;
+      await vi.waitFor(() => expect(server.stderr).toContain('audit rows purged'), { timeout: 10_000 });
+    } finally {
+      server.child.kill('SIGTERM');
+      expect(await server.exit()).toBe(0);
+    }
+    const reopened = await openSqliteStorage({ path: dbPath });
+    try {
+      const rows = await reopened.auditLog.list({ action: 'audit.purge', limit: 10 });
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({
+        kind: 'admin',
+        status: 'ok',
+        targetType: 'audit_log',
+        details: { removed: 2, olderThanDays: 1, source: 'schedule' },
+      });
+      expect((await reopened.auditLog.list({ action: 'old.one', limit: 10 })).length).toBe(0);
+    } finally {
+      await reopened.close();
+    }
   }, 60_000);
 
   it('refuses to start with the wrong master key', async () => {

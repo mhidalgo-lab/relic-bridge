@@ -147,7 +147,7 @@ itself when its grant stops working (revoked, expired, key removed): you are ask
 - Codes go only to the redirect address the app registered (or listed in its metadata document), with `state` and the
   issuer (`iss`). Codes are single use.
 - Approvals and denials are in the audit log (`oauth.consent.approve`, `oauth.consent.deny`, `oauth.consent.forget`),
-  as are disconnects (`oauth_device.revoke`), refused renewals (`oauth.token.refused`) and reused refresh tokens
+  as are disconnects (`oauth_device.revoke`), every successful authorization and renewal (`oauth.token.issue`, `oauth.token.refresh`), refused renewals (`oauth.token.refused`) and reused refresh tokens
   (`oauth.token.reuse`), renewals answered again inside the reuse window (`oauth.token.replay`), and earlier connections replaced by a new one of the same app (`oauth.device.replace`). Each row's token id is `oauth_…`, the same for every request of that connected app.
 - Scopes: every token carries `mcp:read`. `mcp:write` is advertised (authorization server and protected resource
   metadata) only when the server runs with `RB_WRITE_TOOLS=on`; a token gets it only when the app asked for it, you

@@ -27,6 +27,6 @@ overrides:
   # (GHSA-wq5f-xc86-pv6w, librsvg). sharp is not in any shipped artifact.
   sharp: 0.35.5
   # @changesets/cli > launch-editor (GHSA-pqg4-j6r4-53mv).
-  shell-quote: 1.11.0
+  shell-quote: 1.12.0
   # vite/postcss/jsdom/css-tree (GHSA-68fv-2mgg-jv7q).
   source-map-js: 1.2.2

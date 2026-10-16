@@ -2,7 +2,7 @@
 id: P8-85
 title: Audit coverage gaps from the logging inventory
 phase: 8
-status: review
+status: done
 priority: low
 depends_on: []
 adr: []

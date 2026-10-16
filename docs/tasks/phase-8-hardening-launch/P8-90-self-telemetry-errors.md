@@ -2,7 +2,7 @@
 id: P8-90
 title: Self-telemetry - error status on spans, logs in context, spans for every MCP method
 phase: 8
-status: review
+status: done
 priority: medium
 depends_on: []
 adr: []

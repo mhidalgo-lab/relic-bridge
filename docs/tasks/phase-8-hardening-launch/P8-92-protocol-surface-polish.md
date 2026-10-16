@@ -2,7 +2,7 @@
 id: P8-92
 title: Protocol surface - tasks extension, listChanged, resource error codes, prompt texts, unknown event types
 phase: 8
-status: review
+status: done
 priority: medium
 depends_on: []
 adr: [0005]

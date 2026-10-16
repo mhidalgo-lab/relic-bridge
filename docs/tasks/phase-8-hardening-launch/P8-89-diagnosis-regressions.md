@@ -2,7 +2,7 @@
 id: P8-89
 title: Restore the tracing-off diagnosis and remove false zeros in the user impact report
 phase: 8
-status: review
+status: done
 priority: high
 depends_on: []
 adr: []

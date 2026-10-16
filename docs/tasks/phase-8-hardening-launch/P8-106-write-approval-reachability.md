@@ -1,0 +1,41 @@
+---
+id: P8-106
+title: Tell a client in advance that it cannot approve writes
+phase: 8
+status: todo
+priority: medium
+depends_on: [P8-101]
+adr: []
+owner: ""
+---
+
+# P8-106 — Tell a client in advance that it cannot approve writes
+
+## Goal
+First mobile test (Claude Android), issue 6: every write dry run succeeds, then every real run fails with
+`RB_WRITE_APPROVAL_UNAVAILABLE` because the mobile connection can't answer the elicitation prompt. Nothing tells the user
+or the model beforehand.
+
+## Scope
+- The server already knows, per request, whether the client can answer an approval (2026-07-28 envelope with the
+  elicitation capability, or not). Use that in:
+  - `whoami`: say whether writes can be approved from this client (for example `limits.writeApprovalReachable` or a
+    note), without changing `limits.writeApproval`;
+  - write dry runs: a warning that the real run will be refused from this client, and why.
+- Guide: which clients can approve writes (Claude Code), and that `RB_WRITE_APPROVAL=off` is the operator's switch for
+  a sandbox project. No new way to relax approval from the client side.
+- Check `whoami`'s output schema stays backward compatible.
+
+## Acceptance criteria
+- [ ] Tests: legacy handshake → whoami and dry run say approval isn't reachable; 2026-07-28 with elicitation → they
+      don't; `writeApproval: off` → no warning.
+- [ ] Generated tool docs regenerated; guide updated.
+
+## Security notes
+Informational only: the write path and its refusals are unchanged. Per-request capability, not cached (T21).
+
+## Docs to update
+- Write tools guide, generated tool docs, changeset (patch).
+
+## Out of scope
+- A per-project approval setting.

@@ -21,7 +21,7 @@ strictPeerDependencies: true
 # drizzle-kit 0.31 pulls esbuild 0.18 through the deprecated @esbuild-kit loader (GHSA-67mh-4wv8-2f99, dev server
 # only). Pin it to the patched line we already use; drizzle-kit only calls its transform API.
 overrides:
-  '@esbuild-kit/core-utils>esbuild': 0.25.12
+  '@esbuild-kit/core-utils>esbuild': 0.28.2
   # Dev-only advisories (THREAT_MODEL T18, P8-10). Pinned to the first patched release until the parents catch up.
   # miniflare (wrangler, @cloudflare/vitest-plugin) pins sharp 0.35.4; no miniflare release pins >= 0.35.5 yet
   # (GHSA-wq5f-xc86-pv6w, librsvg). sharp is not in any shipped artifact.

@@ -232,6 +232,51 @@ async function recordDatabaseId(deps: SetupDeps, localConfig: string, localName:
   );
 }
 
+/** Tables whose rows make the migration import refuse the target (the guard in `db export --format d1`). */
+const IMPORT_GUARD_TABLES = ['users', 'credentials', 'projects', 'grants', 'access_tokens'] as const;
+const EMPTINESS_SQL = `SELECT ${IMPORT_GUARD_TABLES.map((t) => `(SELECT count(*) FROM ${t})`).join(' + ')} AS n`;
+
+/** Reads the count out of `wrangler d1 execute --json` output (`[{ "results": [{ "n": 0 }], ... }]`). */
+export function rowCountFromD1Json(stdout: string): number | undefined {
+  try {
+    const parsed: unknown = JSON.parse(stdout);
+    const first: unknown = Array.isArray(parsed) ? parsed[0] : parsed;
+    const results = (first as { results?: unknown } | undefined)?.results;
+    const n = Array.isArray(results) ? (results[0] as { n?: unknown } | undefined)?.n : undefined;
+    return typeof n === 'number' && Number.isInteger(n) && n >= 0 ? n : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Whether the deployed database already holds users, keys, projects, grants or tokens (P8-104). One read-only
+ * `SELECT count(*)` with the operator's own Wrangler login; `unknown` when it fails (before the first request the
+ * tables do not exist yet, or the login lacks the scope), and the next steps then print both branches.
+ */
+async function databaseState(deps: SetupDeps, localConfig: string): Promise<'empty' | 'in-use' | 'unknown'> {
+  try {
+    const binding = d1Binding(deps.fs.read(localConfig));
+    if (binding === undefined) return 'unknown';
+    const r = await deps.wrangler([
+      'd1',
+      'execute',
+      binding.name,
+      '--remote',
+      '-c',
+      localConfig,
+      '--command',
+      EMPTINESS_SQL,
+      '--json',
+    ]);
+    if (r.code !== 0) return 'unknown';
+    const n = rowCountFromD1Json(r.stdout);
+    return n === undefined ? 'unknown' : n === 0 ? 'empty' : 'in-use';
+  } catch {
+    return 'unknown';
+  }
+}
+
 export function parseArgs(argv: readonly string[]): SetupOptions | 'help' {
   const o: SetupOptions = {
     name: DEFAULT_NAME,
@@ -875,19 +920,36 @@ export async function runSetup(opts: SetupOptions, deps: SetupDeps): Promise<{ u
   );
   if (!cliBuilt) log('  pnpm --filter ./apps/cli build   # once: builds the CLI (pnpm install does not)');
   log(`  export RB_REMOTE=${remote}`);
+  const migrating = [
+    '  # Your data comes from the server you migrate from: do NOT run credential add / project add (that duplicates it).',
+    '  # Import the export, then check it: see "Migrate from a self-hosted server" in docs/guide/cloudflare-deploy.md',
+  ];
+  const fresh = [
+    `  ${CLI} credential add --label main --region US   # your New Relic User API key: prompted, never a flag`,
+    `  ${CLI} project add ...  &&  ... grant create ...  &&  ... token create ...`,
+    '  (details: docs/guide/cloudflare-deploy.md and docs/guide/multi-device.md)',
+  ];
   if (opts.masterKeyStdin) {
-    log(
-      '  # Your data comes from the server you migrate from: do NOT run credential add / project add (that duplicates it).',
-    );
-    log(
-      '  # Import the export, then check it: see "Migrate from a self-hosted server" in docs/guide/cloudflare-deploy.md',
-    );
+    for (const l of migrating) log(l);
   } else {
-    log(
-      `  ${CLI} credential add --label main --region US   # your New Relic User API key: prompted, never a flag`,
-    );
-    log(`  ${CLI} project add ...  &&  ... grant create ...  &&  ... token create ...`);
-    log('  (details: docs/guide/cloudflare-deploy.md and docs/guide/multi-device.md)');
+    // Base the steps on the database, not on this run's flags: a re-run between setup and import has no
+    // --master-key-stdin, and credential add / project add would make the database non-empty (the import refuses it).
+    const state = await databaseState(deps, localConfig);
+    if (state === 'in-use') {
+      for (const l of fresh) log(l);
+    } else {
+      log(
+        state === 'empty'
+          ? '  # The database is empty, so there are two ways on:'
+          : '  # Could not check whether the database is empty, so both ways on are shown:',
+      );
+      log(
+        '  # (a) Migrating from a self-hosted server: import the export first, do NOT run credential add / project add.',
+      );
+      log('  #     See "Migrate from a self-hosted server" in docs/guide/cloudflare-deploy.md');
+      log('  # (b) A new deployment, with nothing to import:');
+      for (const l of fresh) log(l);
+    }
   }
   log(`  curl ${url === undefined ? '"$RB_REMOTE"' : remote}/health`);
   if (signIn !== undefined) {

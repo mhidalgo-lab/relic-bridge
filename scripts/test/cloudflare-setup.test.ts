@@ -15,6 +15,7 @@ import {
   localConfigName,
   parseArgs,
   rateLimitNamespace,
+  rowCountFromD1Json,
   runSetup,
   type SetupDeps,
   SetupError,
@@ -692,7 +693,7 @@ describe('D1 database id in the local copy (P8-81)', () => {
     expect(h.replaced).toEqual([[`/w/${LOCAL_CONFIG}`, withDatabaseId(JSONC, DB_ID)]]);
     const done = harness(ok, true, [], withDatabaseId(JSONC, DB_ID));
     await runSetup(OPTS, done.deps);
-    expect(done.calls.some((c) => c.args[0] === 'd1')).toBe(false);
+    expect(done.calls.some((c) => c.args[0] === 'd1' && c.args[1] === 'list')).toBe(false);
     expect(done.replaced).toEqual([]);
   });
 
@@ -969,5 +970,79 @@ describe('migration next steps and dry run secrets (P8-94)', () => {
     const plain = harness(ok);
     await runSetup({ ...OPTS, dryRun: true }, plain.deps);
     expect(plain.logs.find((l) => l.includes('generate '))).toContain('RB_MASTER_KEY');
+  });
+});
+
+describe('next steps follow the database contents (P8-104)', () => {
+  const d1Count = (n: number): string => JSON.stringify([{ results: [{ n }], success: true }]);
+  const run = async (reply: Partial<WranglerResult> | undefined) => {
+    const h = harness((args) =>
+      args[0] === 'd1' && args[1] === 'execute' && reply !== undefined ? reply : ok(args),
+    );
+    await runSetup(OPTS, h.deps);
+    return { h, out: h.logs.join('\n') };
+  };
+
+  it('prints both branches for an empty database, after one read-only query', async () => {
+    const { h, out } = await run({ stdout: d1Count(0) });
+    expect(out).toContain('The database is empty');
+    expect(out).toContain('Migrating from a self-hosted server');
+    expect(out).toContain('credential add --label main');
+    const q = h.calls.filter((c) => c.args[0] === 'd1' && c.args[1] === 'execute');
+    expect(q).toHaveLength(1);
+    const args = q[0]?.args ?? [];
+    expect(args).toContain('--remote');
+    expect(args).toContain('--json');
+    const sql = args[args.indexOf('--command') + 1] ?? '';
+    expect(sql).toMatch(/^SELECT /);
+    expect(sql).not.toMatch(/INSERT|UPDATE|DELETE|DROP|CREATE/i);
+  });
+
+  it('prints only the usual steps for a database that has data', async () => {
+    const { out } = await run({ stdout: d1Count(7) });
+    expect(out).toContain('credential add --label main');
+    expect(out).not.toContain('Migrating from a self-hosted server');
+    expect(out).not.toContain('two ways on');
+  });
+
+  it('prints both branches when the check fails or is not understood', async () => {
+    for (const reply of [
+      { code: 1, stderr: 'no such table: users' },
+      { stdout: 'not json' },
+      { stdout: '[]' },
+    ]) {
+      const { out } = await run(reply);
+      expect(out).toContain('Could not check whether the database is empty');
+      expect(out).toContain('Migrating from a self-hosted server');
+      expect(out).toContain('credential add --label main');
+    }
+  });
+
+  it('does not query D1 with --master-key-stdin and keeps only the migration steps', async () => {
+    const h = harness(ok);
+    await runSetup(
+      { ...OPTS, masterKeyStdin: true },
+      {
+        ...h.deps,
+        readMasterKey: async () =>
+          `v1:${Buffer.from(Array.from({ length: 32 }, (_, i) => i + 1)).toString('base64')}`,
+      },
+    );
+    expect(h.calls.some((c) => c.args[0] === 'd1' && c.args[1] === 'execute')).toBe(false);
+    expect(h.logs.join('\n')).not.toContain('credential add --label');
+  });
+
+  it('does not query D1 in a dry run', async () => {
+    const h = harness(ok);
+    await runSetup({ ...OPTS, dryRun: true }, h.deps);
+    expect(h.calls.some((c) => c.args[0] === 'd1' && c.args[1] === 'execute')).toBe(false);
+  });
+
+  it('rowCountFromD1Json reads the count only from a well-formed result', () => {
+    expect(rowCountFromD1Json(d1Count(0))).toBe(0);
+    expect(rowCountFromD1Json(d1Count(3))).toBe(3);
+    expect(rowCountFromD1Json('{"results":[{"n":-1}]}')).toBeUndefined();
+    expect(rowCountFromD1Json('[{"results":[]}]')).toBeUndefined();
+    expect(rowCountFromD1Json('')).toBeUndefined();
   });
 });

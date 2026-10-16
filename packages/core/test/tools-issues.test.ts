@@ -404,10 +404,10 @@ describe('list_recent_issues group_by scope (NEW-07)', () => {
     expect(s.groupsNote).toBeTruthy();
   });
 
-  it('always reports groupsScope; without group_by it is page-local', async () => {
+  it('reports groupsScope only with group_by (P8-93)', async () => {
     const { client } = await setup([issuesBody([issue(A, 'i1', 'x')])]);
     const r = await client.callTool({ name: 'list_recent_issues', arguments: {} });
-    expect((r.structuredContent as { groupsScope: string }).groupsScope).toBe('page');
+    expect(r.structuredContent).not.toHaveProperty('groupsScope');
   });
 });
 

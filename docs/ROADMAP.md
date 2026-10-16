@@ -361,7 +361,7 @@ Generated from task front matter (`pnpm tasks index`). Status lives in each task
 | P8-90 | [Self-telemetry - error status on spans, logs in context, spans for every MCP method](tasks/phase-8-hardening-launch/P8-90-self-telemetry-errors.md) | medium | — | review |
 | P8-91 | [Insights lookback clamp, create_dashboard errors and NRQL check, change events by entity, error group message match](tasks/phase-8-hardening-launch/P8-91-composite-and-write-polish.md) | medium | — | review |
 | P8-92 | [Protocol surface - tasks extension, listChanged, resource error codes, prompt texts, unknown event types](tasks/phase-8-hardening-launch/P8-92-protocol-surface-polish.md) | medium | — | review |
-| P8-93 | [Workers query cache honesty, budget notes, and review 4 polish items](tasks/phase-8-hardening-launch/P8-93-workers-cache-and-polish.md) | low | — | todo |
+| P8-93 | [Workers query cache honesty, budget notes, and review 4 polish items](tasks/phase-8-hardening-launch/P8-93-workers-cache-and-polish.md) | low | — | review |
 | P8-94 | [cf:setup --name writes the Worker name, migration next steps, and guide fixes](tasks/phase-8-hardening-launch/P8-94-cf-setup-name-and-migration.md) | high | — | review |
 | P8-95 | [ASVS refresh after P8-65/66/73 and the documentation-only open items](tasks/phase-8-hardening-launch/P8-95-asvs-docs-refresh.md) | medium | — | review |
 | P8-96 | [ASVS product open items - end all sessions, Clear-Site-Data, outbound redirect policy, metadata host allow-list](tasks/phase-8-hardening-launch/P8-96-asvs-product-hardening.md) | medium | — | review |

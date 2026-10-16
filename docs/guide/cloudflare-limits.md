@@ -28,6 +28,9 @@ the platform limits logs a warning at start.
 - **Tool too expensive for the budget:** a tool whose declared cost is above `RB_CALL_BUDGET` is not offered at all,
   and `whoami` lists it under "Not offered here" with the reason. With the presets this never happens
   (the most expensive tool, `get_golden_metrics`, needs 11).
+- **Shared query cache (`RB_QUERY_CACHE=on`) on a `workers.dev` name:** the Cache API does nothing there, so results are
+  kept per isolate only and `cache.note` says so; use a custom domain for the shared per-colo cache
+  ([query cache](query-cache.md)).
 - **Response too large:** `RB_LIMIT_RESPONSE_TOO_LARGE`; narrow the query (fewer rows or attributes, shorter window).
 - **D1 daily quota (Free: 5 M rows read, 100 k rows written):** Cloudflare fails D1 queries until 00:00 UTC. Reads fail
   closed (503); audit writes are logged and skipped.

@@ -86,6 +86,24 @@ export function cleanName(value: string, max: number = MAX_NAME_CHARS): string {
 }
 
 /**
+ * Like `cleanName` but keeps line breaks (markdown widget text): redacted and capped the same way, CR/LF folded to LF,
+ * control characters dropped, spaces collapsed within a line and runs of blank lines cut to one.
+ */
+export function cleanMultiline(value: string, max: number = MAX_NAME_CHARS): string {
+  const head = redactHead(value, max);
+  const text = head.text
+    .replace(/\r\n?/g, '\n')
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: stripping control characters is the point
+    .replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, '')
+    .split('\n')
+    .map((line) => line.replace(/[ \t]+/g, ' ').trim())
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+  return head.cut && text.length < max ? `${text}…` : truncateText(text, max);
+}
+
+/**
  * A note for a failed section or sub-query. New Relic error messages are free text a user in that account can shape, and
  * notes sit outside the untrusted-data envelope, so only the error code is shown; the message goes to the log.
  */

@@ -30,6 +30,8 @@ export interface QueryCacheInfo {
   readonly ttlSeconds?: number;
   /** Miss / bypass: whether the fresh result was stored (false: too large, or no store could take it). */
   readonly stored?: boolean;
+  /** Miss / bypass: why a store that should serve later requests cannot (e.g. the Cache API on `workers.dev`). */
+  readonly note?: string;
 }
 
 /** One stored result: the serialised outcome and its validity window (epoch ms). */
@@ -46,6 +48,8 @@ export interface QueryCacheStore {
   readonly spendsBudget: boolean;
   get(id: string, now: number): Promise<QueryCacheEntry | undefined>;
   put(id: string, entry: QueryCacheEntry): Promise<void>;
+  /** Set while the store is known not to serve later requests (checked first; the cache skips it and says why). */
+  readonly unavailable?: string | undefined;
 }
 
 /** Valid at `now`: stored no later than now (a clock that went back is a miss) and not yet expired. */
@@ -126,11 +130,20 @@ export const CACHE_API_ORIGIN = 'https://query-cache.relic-bridge.invalid';
 const CACHE_API_AAD = 'relic-bridge/query-cache/v1:';
 const IV_BYTES = 12;
 
+/** Why a colo store that stored an entry but cannot read it back is reported unavailable. */
+export const CACHE_API_UNAVAILABLE: string =
+  'the per-colo Cache API did not return an entry it just stored (it is a no-op on *.workers.dev hostnames, in ' +
+  'dashboard previews and behind Cloudflare Access; a custom domain on a Cloudflare zone makes it work)';
+/** After this long an unavailable colo store is probed again on the next write. */
+export const CACHE_API_RECHECK_MS: number = 300_000;
+
 export interface CacheApiStoreOptions {
   /** The Cache API instance, or a function that opens it (called once, lazily). */
   readonly cache: CacheApiLike | (() => Promise<CacheApiLike>);
   /** AES-256-GCM key (derived from the master key) that encrypts every body. */
   readonly aesKey: CacheCryptoKey;
+  /** Clock for the recheck interval (tests). Default `Date.now`. */
+  readonly now?: () => number;
 }
 
 /**
@@ -145,11 +158,21 @@ export class CacheApiQueryCacheStore implements QueryCacheStore {
   readonly #open: () => Promise<CacheApiLike>;
   readonly #aesKey: CacheCryptoKey;
   #cache: Promise<CacheApiLike> | undefined;
+  /** Read-your-write probe: undefined until the first write is read back; false: the Cache API stores nothing. */
+  #working: boolean | undefined;
+  #recheckAt = 0;
+  readonly #now: () => number;
 
   constructor(options: CacheApiStoreOptions) {
+    this.#now = options.now ?? Date.now;
     const source = options.cache;
     this.#open = typeof source === 'function' ? source : () => Promise.resolve(source);
     this.#aesKey = options.aesKey;
+  }
+
+  /** The reason this store cannot serve later requests, while it is known (until the next recheck). */
+  get unavailable(): string | undefined {
+    return this.#working === false && this.#now() < this.#recheckAt ? CACHE_API_UNAVAILABLE : undefined;
   }
 
   #store(): Promise<CacheApiLike> {
@@ -161,6 +184,7 @@ export class CacheApiQueryCacheStore implements QueryCacheStore {
   }
 
   async get(id: string, now: number): Promise<QueryCacheEntry | undefined> {
+    if (this.unavailable !== undefined) return undefined;
     const response = await (await this.#store()).match(new Request(`${CACHE_API_ORIGIN}/v1/${id}`));
     if (response === undefined) return undefined;
     const sealed = new Uint8Array(await response.arrayBuffer());
@@ -201,12 +225,22 @@ export class CacheApiQueryCacheStore implements QueryCacheStore {
     body.set(iv);
     body.set(sealed, IV_BYTES);
     const maxAge = Math.max(1, Math.ceil((entry.expiresAt - entry.storedAt) / 1000));
-    await (await this.#store()).put(
-      new Request(`${CACHE_API_ORIGIN}/v1/${id}`),
+    const cache = await this.#store();
+    const key = new Request(`${CACHE_API_ORIGIN}/v1/${id}`);
+    await cache.put(
+      key,
       new Response(body, {
         headers: { 'Content-Type': 'application/octet-stream', 'Cache-Control': `max-age=${maxAge}` },
       }),
     );
+    // First write of an isolate (and after a recheck interval): read it back once. `put` succeeds without storing
+    // anything where the Cache API is a no-op (workers.dev), which made every later lookup a silent miss.
+    if (this.#working === undefined || (this.#working === false && this.#now() >= this.#recheckAt)) {
+      const back = await cache.match(key);
+      this.#working = back !== undefined;
+      this.#recheckAt = this.#now() + CACHE_API_RECHECK_MS;
+      await back?.body?.cancel();
+    }
   }
 }
 
@@ -374,7 +408,7 @@ export class QueryCache {
   ): Promise<{ entry: QueryCacheEntry; store: QueryCacheStoreName } | undefined> {
     const now = ctx.clock.now();
     for (const [i, store] of this.stores.entries()) {
-      if (!this.#affordable(ctx, store)) continue;
+      if (store.unavailable !== undefined || !this.#affordable(ctx, store)) continue;
       if (store.spendsBudget) ctx.budget.spend(1, 'query cache lookup');
       let entry: QueryCacheEntry | undefined;
       try {
@@ -393,16 +427,24 @@ export class QueryCache {
     return undefined;
   }
 
-  /** Store `body` for `ttlMs`. Returns whether at least one store took it (false when too large). */
-  async put(ctx: ToolContext, id: string, body: string, ttlMs: number): Promise<boolean> {
+  /**
+   * Store `body` for `ttlMs`. `stored`: at least one store took it (false when too large). `note`: a store that
+   * should serve other requests cannot (the entry then only helps this isolate).
+   */
+  async put(
+    ctx: ToolContext,
+    id: string,
+    body: string,
+    ttlMs: number,
+  ): Promise<{ readonly stored: boolean; readonly note?: string }> {
     // UTF-8 never takes fewer bytes than UTF-16 code units, so the length alone rules out most large bodies.
     const max = this.policy.maxEntryBytes;
-    if (body.length > max || encoder.encode(body).byteLength > max) return false;
+    if (body.length > max || encoder.encode(body).byteLength > max) return { stored: false };
     const storedAt = ctx.clock.now();
     const entry: QueryCacheEntry = { body, storedAt, expiresAt: storedAt + ttlMs };
     let stored = false;
     for (const store of this.stores) {
-      if (!this.#affordable(ctx, store)) continue;
+      if (store.unavailable !== undefined || !this.#affordable(ctx, store)) continue;
       if (store.spendsBudget) ctx.budget.spend(1, 'query cache write');
       try {
         await store.put(id, entry);
@@ -411,7 +453,10 @@ export class QueryCache {
         ctx.logger.warn('query cache write failed', { store: store.name, error: errorName(error) });
       }
     }
-    return stored;
+    const reason = this.stores.find((s) => s.unavailable !== undefined)?.unavailable;
+    return reason === undefined
+      ? { stored }
+      : { stored, note: `Not shared across requests on other isolates: ${reason}.` };
   }
 }
 

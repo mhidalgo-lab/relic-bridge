@@ -144,7 +144,7 @@ Start here for "what is alerting?" or "what broke?": states ["ACTIVATED"] gives 
 | --- | --- | --- | --- |
 | `issues` | `object[]` | yes |  |
 | `groups` | `object[]` | no |  |
-| `groupsScope` | `"window" \| "page"` | yes |  |
+| `groupsScope` | `"window" \| "page"` | no |  |
 | `groupsNote` | `string` | no |  |
 | `limitNote` | `string` | no |  |
 | `accountId` | `integer` | yes |  |

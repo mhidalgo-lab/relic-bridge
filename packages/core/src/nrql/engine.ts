@@ -392,11 +392,12 @@ async function run(
   }
   const outcome = await execute(ctx, { ...input, nrql: checked.nrql }, accounts, deps);
   if (outcome.status !== 'complete') return finish(outcome, undefined);
-  const stored = await binding.cache.put(ctx, id, toCache(outcome), life.ttlMs);
+  const { stored, note } = await binding.cache.put(ctx, id, toCache(outcome), life.ttlMs);
   return finish(outcome, {
     status: bypass ? 'bypass' : 'miss',
     stored,
     ...(stored ? { ttlSeconds: Math.round(life.ttlMs / 1000) } : {}),
+    ...(note === undefined ? {} : { note }),
   });
 }
 

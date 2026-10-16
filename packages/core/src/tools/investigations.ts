@@ -1204,12 +1204,20 @@ export function createInvestigationTools(deps: ToolDeps = {}): ToolDefinition[] 
     const targets = [args.entity_guid, ...base.chosen.map((c) => c.guid)];
     const notRun = targets.map(entryOf).filter((e) => e === undefined || e.granted === 0);
     const bySize = notRun.filter((e) => e?.note === SIZE_NOTE).length;
-    if (notRun.length - bySize > 0) notes.push('Some entities were skipped: the request budget ran out.');
-    if (bySize > 0) notes.push('Some entities were skipped: the task size limit was reached.');
-    if (notMeasured > 0)
+    if (notRun.length - bySize > 0)
       notes.push(
-        `${notMeasured} more related entit${notMeasured === 1 ? 'y was' : 'ies were'} not measured: raise max_dependencies.`,
+        'Some entities were skipped: the request budget ran out (a limit of this call, not max_dependencies; the server call budget is RB_CALL_BUDGET).',
       );
+    if (bySize > 0) notes.push('Some entities were skipped: the task size limit was reached.');
+    if (notMeasured > 0) {
+      const cap = args.max_dependencies ?? DEFAULT_DEPENDENCIES;
+      const more = `${notMeasured} more related entit${notMeasured === 1 ? 'y was' : 'ies were'} not measured`;
+      notes.push(
+        cap < MAX_DEPENDENCIES
+          ? `${more}: max_dependencies is ${cap} (raise it, up to ${MAX_DEPENDENCIES}).`
+          : `${more}: max_dependencies is already at its maximum (${MAX_DEPENDENCIES}).`,
+      );
+    }
     if (entries.some((e) => e.granted > 0 && goldenMetricsFor(e.granted) < metricsEach))
       notes.push('Golden metrics were reduced to fit the request budget.');
 

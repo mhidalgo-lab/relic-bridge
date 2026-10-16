@@ -19,6 +19,13 @@ Every NRQL result says what the cache did in `_meta["relic-bridge/result"].cache
 `{ "status": "hit" | "miss" | "bypass" | "off", "store", "ageSeconds", "ttlSeconds", "stored" }`. A hit also adds
 one line before the rows: `Served from the query cache, 12 s old.`
 
+`note` appears on a miss when the shared per-colo tier (Worker, `RB_QUERY_CACHE=on`) cannot serve later requests. This
+is the case on `*.workers.dev` hostnames, where the Workers Cache API accepts a write and returns nothing. The result is
+then kept in the memory of that isolate only (`stored` stays `true`, and a repeat that reaches the same isolate is a
+`hit` from `memory`), and a repeat served by another isolate runs the query again. Use a custom domain or a route on a
+Cloudflare zone for the shared cache. The Worker checks once per isolate (and every 5 minutes while it fails), at the
+cost of one extra Cache API call.
+
 ## Fresh answers
 
 - `run_nrql` takes `cache: "bypass"`: the query runs again and the fresh result replaces the stored one.

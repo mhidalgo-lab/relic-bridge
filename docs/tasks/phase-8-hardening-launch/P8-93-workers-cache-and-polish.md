@@ -2,11 +2,11 @@
 id: P8-93
 title: Workers query cache honesty, budget notes, and review 4 polish items
 phase: 8
-status: todo
+status: review
 priority: low
 depends_on: []
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P8-93 — Workers query cache honesty, budget notes, and review 4 polish items
@@ -30,9 +30,9 @@ Review 4 (0.11.0) NEW-28 and its "minor polish" table.
   - `list_recent_issues`: no `groupsScope` without `group_by`.
 
 ## Acceptance criteria
-- [ ] A Workers runtime test (Miniflare) shows a second identical query is a `hit`, or that `stored` is `false` with
+- [x] A Workers runtime test (Miniflare) shows a second identical query is a `hit`, or that `stored` is `false` with
       the reason.
-- [ ] One test per polish item.
+- [x] One test per polish item.
 
 ## Security notes
 Cached results stay encrypted and scoped per credential (T7, the cryptographic inventory). Don't widen the cache key

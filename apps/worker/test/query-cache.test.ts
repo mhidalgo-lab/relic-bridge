@@ -154,6 +154,35 @@ describe('query cache on the Workers Cache API', () => {
     expect(body).not.toContain('count');
   });
 
+  it('a Cache API that stores nothing (workers.dev) is reported, and the memory tier still serves the isolate (NEW-28)', async () => {
+    const noop = {
+      match: async () => undefined,
+      put: async () => undefined,
+    };
+    const keyring = await Keyring.create({ current: masterKey(13) });
+    const cache = createWorkerQueryCache(
+      { mode: 'on', relativeTtlMs: 30_000 },
+      keyring.queryCacheKeys(),
+      noop,
+    );
+    if (cache === null) throw new Error('cache off');
+    const ng = nerdGraph();
+    const q = unique();
+    const a = await run(ctx(cache), ng.fetch, { nrql: q });
+    expect(a.cache).toMatchObject({ status: 'miss', stored: true });
+    expect(a.cache?.note).toContain('workers.dev');
+    const b = await run(ctx(cache), ng.fetch, { nrql: q });
+    expect(b.cache).toMatchObject({ status: 'hit', store: 'memory' });
+    expect(ng.keys).toHaveLength(1);
+    // Colo only: nothing can serve a later request, and the result says so.
+    const colo = cache.stores.find((st) => st.name === 'colo');
+    if (colo === undefined) throw new Error('no Cache API store');
+    const coloOnlyCache = new QueryCache({ stores: [colo], macKey: keyring.queryCacheKeys().id });
+    const c = await run(ctx(coloOnlyCache), ng.fetch, { nrql: q });
+    expect(c.cache).toMatchObject({ status: 'miss' });
+    expect(c.cache?.note).toContain('workers.dev');
+  });
+
   it('memory mode and off mode', async () => {
     const keyring = await Keyring.create({ current: masterKey(12) });
     expect(

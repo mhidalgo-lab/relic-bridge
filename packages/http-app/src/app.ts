@@ -24,6 +24,7 @@ import {
   checkTokenFormat,
   type EffectiveAccess,
   hashToken,
+  isCryptoError,
   isKeyRejection,
   type Keyring,
   type KeyValidator,
@@ -1545,6 +1546,24 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
     } catch (error) {
       log['error'] = error instanceof Error ? error.name : typeof error;
       logger.error('credential could not be opened', { requestId, credential: access.credential.id });
+      // P8-85 (V16.3.4): a secret-use failure is a row too. The credential id and the master key version only (never
+      // key material, ciphertext or the error's message); capped (T20) because every request would write one.
+      const stored = resolved.credential.key;
+      const reason = isCryptoError(error) ? error.code : 'credential_unavailable';
+      await uiAudit?.({
+        actor: { requestId, userId: access.userId, grantId: access.grantId, tokenId, clientId },
+        action: 'credential.decrypt_failed',
+        targetType: 'credential',
+        targetId: access.credential.id,
+        projectId: access.projectId,
+        status: 'error',
+        errorCode: reason,
+        capped: true,
+        details: {
+          project: access.projectSlug,
+          ...(stored.kind === 'encrypted' ? { keyVersion: stored.keyVersion } : {}),
+        },
+      });
       return json(503, '{"error":"unavailable"}', { 'Retry-After': '30' });
     }
     scopes.add(scope);

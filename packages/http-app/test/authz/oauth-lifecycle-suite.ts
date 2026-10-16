@@ -172,6 +172,58 @@ export function oauthLifecycleSuite(): void {
     });
   });
 
+  describe('successful issuance is audited (P8-85, V16.3.1, T17)', () => {
+    const rowsOf = async (action: string) => (await h.auditRows()).filter((r) => r.action === action);
+
+    it('a code exchange writes oauth.token.issue and a refresh writes oauth.token.refresh: ids only', async () => {
+      await client.register();
+      const t = await client.tokens('prod');
+      const device = `oauth_${providerGrantOf(t)}`;
+      const [issue] = await rowsOf('oauth.token.issue');
+      expect(await rowsOf('oauth.token.issue')).toHaveLength(1);
+      expect(issue).toMatchObject({
+        kind: 'admin',
+        status: 'ok',
+        userId: 'usr_a',
+        grantId: h.world.grantIds.prod,
+        clientId: client.clientId,
+        tokenId: device,
+        targetType: 'oauth_device',
+        targetId: device,
+        projectId: h.world.projectIds.prod,
+        details: { project: 'prod', oauthGrant: providerGrantOf(t) },
+      });
+      expect(await rowsOf('oauth.token.refresh')).toHaveLength(0);
+
+      const r1 = await refresh(t.refresh_token);
+      expect(r1.status, r1.text).toBe(200);
+      const [again] = await rowsOf('oauth.token.refresh');
+      expect(await rowsOf('oauth.token.refresh')).toHaveLength(1);
+      expect(again).toMatchObject({
+        status: 'ok',
+        userId: 'usr_a',
+        clientId: client.clientId,
+        targetId: device,
+      });
+      expect(await rowsOf('oauth.token.issue')).toHaveLength(1);
+      // No token, code or hash in either row (the suite's afterEach also scans every secret it saw).
+      const dump = JSON.stringify([issue, again]);
+      for (const secret of [...secrets, t.refresh_token, tokensOf(r1).refresh_token]) {
+        expect(dump.includes(secret)).toBe(false);
+      }
+      expect(Object.keys((issue as { details: object }).details).sort()).toEqual(['oauthGrant', 'project']);
+    });
+
+    it('a refused refresh writes oauth.token.refused and no refresh row', async () => {
+      await client.register();
+      const t = await client.tokens('prod');
+      await h.world.storage.grants.update(h.world.grantIds.prod, { revokedAt: h.world.clock.now() });
+      expectInvalidGrant(await refresh(t.refresh_token));
+      await adminRow('oauth.token.refused');
+      expect(await rowsOf('oauth.token.refresh')).toHaveLength(0);
+    });
+  });
+
   describe('refresh rotation and reuse detection (P5-05, T9)', () => {
     it('each refresh token works once; reusing a rotated one revokes the whole family and is audited', async () => {
       await client.register();

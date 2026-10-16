@@ -92,7 +92,7 @@ id), `project_id`, `account_ids`, `nrql`, `duration_ms`, `inspected_count`, `err
 | `auth` | `login.ok`, `login.denied` | `recorder.login` (`packages/http-app/src/identity.ts`) | Provider, outcome, reason, `identityHash` (keyed, never the email or subject), `previousRole`, `ip`. |
 | `auth` / `admin` | `auth.suppressed`, `admin.suppressed` | the per-minute caps | Refusal rows above 120 per minute (per process or isolate) are counted into one summary row (T20). |
 | `admin` | `admin.forbidden` | admin API, admin panel, logout | Role, CSRF, fetch-metadata and Origin refusals of a signed-in session; `refusal` rows are capped. |
-| `admin` | `user.*`, `credential.*`, `project.*`, `grant.*`, `token.*`, `session.create`, `session.revoke`, `session.revoke_all`, `session.revoke_all_users`, `setup_link.create`, `keys.rotate`, `config.export`, `config.import`, `audit.purge`, `oauth.consent.*`, `oauth.device.replace`, `oauth_device.revoke`, `oauth_client.remove`, `oauth_registration.set`, `oauth.client.refused`, `oauth.token.refused`, `oauth.token.reuse`, `oauth.token.replay`, and the write verbs `change_event.create`, `dashboard.create`, `issue.acknowledge`, `issue.close` | `recorder.admin` from the admin API (`details.via`: `admin_token` or `session`), the panel, the local CLI (`via: cli`, `cliUser`), the OAuth server and the purge jobs | `details` is deep-redacted and capped at 2000 characters (`sanitizeDetails`); never a secret value (a setup link row has the lifetime and provider, never the code). |
+| `admin` | `user.*`, `credential.*`, `project.*`, `grant.*`, `token.*`, `session.create`, `session.revoke`, `session.revoke_all`, `session.revoke_all_users`, `setup_link.create`, `keys.rotate`, `config.export`, `config.import`, `audit.purge`, `oauth.consent.*`, `oauth.device.replace`, `oauth_device.revoke`, `oauth_client.remove`, `oauth_registration.set`, `oauth.client.refused`, `oauth.token.issue`, `oauth.token.refresh`, `oauth.token.refused`, `oauth.token.reuse`, `oauth.token.replay`, `credential.decrypt_failed`, and the write verbs `change_event.create`, `dashboard.create`, `issue.acknowledge`, `issue.close` | `recorder.admin` from the admin API (`details.via`: `admin_token` or `session`), the panel, the local CLI (`via: cli`, `cliUser`), the OAuth server and the purge jobs | `details` is deep-redacted and capped at 2000 characters (`sanitizeDetails`); never a secret value (a setup link row has the lifetime and provider, never the code). |
 
 **Protection of content:** NRQL is masked by default (`mask`: literals replaced by `?`, then redacted and cut at 2000
 characters with `redactHead`); `hash` keeps `sha256:` and 32 hex characters of the masked shape; `full` keeps the
@@ -151,17 +151,34 @@ timing and volume (THREAT_MODEL T30).
 | Authentication success: device token, OAuth bearer, admin token (V16.3.1) | stderr access line (`tokenId`, `grantId`, `oauthClient`, `principal`); audit `tool_call` and `admin` rows carry the actor | covered | — |
 | Authentication success: admin sign-in (V16.3.1) | audit `login.ok`, `session.create` | covered | — |
 | Authentication failure: tokens, admin token, OAuth bearer, sign-in (V16.3.1) | audit `auth.denied`, `login.denied`; stderr `deny` | covered | — |
-| Logout and session revocation (V16.3.1) | audit `session.revoke`, `session.revoke_all` | covered | Idle or absolute session expiry is not logged ([P8-85](../tasks/phase-8-hardening-launch/P8-85-audit-coverage-gaps.md)) |
-| OAuth token issuance (code exchange, refresh) (V16.3.1) | stderr access line only (route, status); failures and reuse are audited (`oauth.token.refused`, `oauth.token.reuse`) | partial | No audit row for a successful issuance ([P8-85](../tasks/phase-8-hardening-launch/P8-85-audit-coverage-gaps.md)) |
+| Logout and session revocation (V16.3.1) | audit `session.revoke`, `session.revoke_all` | covered | Expiry is not a row of its own, by decision (below) |
+| Session expiry, idle or absolute (V16.3.1) | audit `auth.denied` with `error_code` `session_idle` or `session_expired`, when the lapsed cookie is next presented | covered | No `session.expired` row, by decision (below) |
+| OAuth token issuance (code exchange, refresh) (V16.3.1) | audit `oauth.token.issue` (code exchange) and `oauth.token.refresh`: user, grant, OAuth client, `oauth_<provider grant id>`, project; failures and reuse as `oauth.token.refused`, `oauth.token.reuse` | covered | Success rows are capped per minute (T20); never a token, code or hash |
 | Access-control refusals (V16.3.2) | audit `admin.forbidden`, `tool.not_granted`, `quota.denied`, `request.rejected`; stderr `deny` | covered | — |
 | Admin and configuration changes (V16.3.3) | audit `admin` rows, `details.via` | covered | — |
 | Bypass attempts: rate limits, size, Host, Origin, CSRF, fetch metadata (V16.3.3) | audit `request.rejected`, `admin.forbidden`; stderr `reject` | covered | — |
 | Input validation refusals (V16.3.3) | admin API: audit row (`invalid_request`, capped, no values); tools: `tool_call` row with `RB_INPUT_INVALID`; oversized or batch MCP bodies: `request.rejected` and stderr `reject` | covered | — |
-| Secret use failures: undecryptable credential (V16.3.4) | stderr `credential could not be opened` (error) | partial | No audit row ([P8-85](../tasks/phase-8-hardening-launch/P8-85-audit-coverage-gaps.md)) |
+| Secret use failures: undecryptable credential (V16.3.4) | audit `credential.decrypt_failed` (`status` `error`, `error_code` = the crypto reason such as `decrypt_failed` or `key_version_unknown`, credential id, project, key version; capped) and stderr `credential could not be opened` | covered | — |
 | Secret use failures: wrong or retired master key, bad admin token or fingerprint secret at boot (V16.3.4) | stderr boot error naming the variable; the Worker answers 503 | covered | — |
 | Unexpected errors (V16.3.4) | stderr `unhandled error`, `admin api error`, `login failed` | covered | — |
 | Audit failures (V16.3.4) | stderr `audit write failed`; write intents fail closed | covered | — |
-| Log retention changes (V16.4) | audit `audit.purge` from the CLI and the Worker cron; `serve`'s hourly purge only logs to stderr | partial | [P8-85](../tasks/phase-8-hardening-launch/P8-85-audit-coverage-gaps.md) |
+| Log retention changes (V16.4) | audit `audit.purge` (`details.source`: `cli`, `cron` or `schedule`, the hourly purge of `serve`) with the number of rows removed, when any were | covered | — |
+
+### Session expiry: decision (P8-85)
+
+No `session.expired` row. A session lapses by the clock; no code runs at that moment, so a row could only be written when
+someone next presents the old cookie, and that request already writes `auth.denied` with `error_code` `session_idle` or
+`session_expired` (capped like every refusal, throttled by the failed-credential limiter). A second row per stale cookie
+would add volume on an unauthenticated path (T20) and no information: the sign-in (`login.ok`, `session.create`) and the
+fixed timeouts give the expiry time. Pinned by `packages/http-app/test/authz/session-expiry-audit.test.ts`.
+
+### Volume of the new rows (T20)
+
+`oauth.token.issue`, `oauth.token.refresh` and `credential.decrypt_failed` are written with `capped: true`: their own
+per-minute cap (the same size as the `auth` refusal cap, default 120), separate from the refusal cap so a flood of
+refusals cannot hide them, with one `admin.suppressed` summary row (`details.rows: "capped"`) for what was dropped.
+Issuance rows need a valid code or refresh token and pass the token endpoint's rate limits first. No new
+unauthenticated path writes a row.
 
 ## What is never logged
 

@@ -119,6 +119,18 @@ the error code `RB_LIMIT_QUOTA`. At most one such row per grant, period and cap 
 share the per-minute cap of all refusal rows; every refused call is also an ordinary `tool_call` row with that error code.
 Changes to a quota are `admin` rows `grant.quota_set` (the new caps in `details.quota`).
 
+## OAuth and credential rows
+
+| Action | When | Fields |
+|---|---|---|
+| `oauth.token.issue` | A phone or desktop app finished the authorization (code exchange) and was given tokens. | `user_id`, `grant_id`, `client_id`, `token_id` and `target_id` (`oauth_<provider grant id>`), `project_id`, `details` `{project, oauthGrant}`. |
+| `oauth.token.refresh` | A refresh token was exchanged for a new pair. | The same. |
+| `credential.decrypt_failed` | A request could not open the stored New Relic key (damaged data, a key version this server does not hold, a missing master key). The caller got `503`. | `status` `error`, `error_code` the reason (`decrypt_failed`, `key_version_unknown`, ...), `target_id` the credential id, `user_id`, `grant_id`, `token_id`, `project_id`, `details` `{project, keyVersion}`. |
+
+Never a token, code, key or hash. All three are capped per minute (default 120, a bucket separate from the refusal rows, with an
+`admin.suppressed` summary row for the rest). A session that lapsed is not a row of its own: the next request with that
+cookie is `auth.denied` with `error_code` `session_idle` or `session_expired`.
+
 ## Retention
 
 `RB_AUDIT_RETENTION_DAYS` (default `90`; `0` keeps everything). `serve` deletes older rows at startup and every hour.
@@ -134,8 +146,8 @@ On Cloudflare Workers an hourly cron trigger (`triggers.crons` in `wrangler.json
 the next run continues; a failure is logged as `audit purge failed` and never affects requests. It is recorded as
 `audit.purge` with `source: cron` when it removed rows. Delete the trigger (or set the retention to `0`) to keep history.
 
-`relic-bridge audit purge` and the Worker cron record the purge (`admin` / `audit.purge`, with the number of rows
-removed); the hourly purge of `serve` only logs `audit rows purged` to stderr (P8-85). `RB_AUDIT=off` turns recording
+Every purge that removed rows is recorded as `admin` / `audit.purge` with the number of rows removed and
+`details.source`: `cli` (the command), `cron` (the Worker) or `schedule` (the hourly purge of `serve`). `RB_AUDIT=off` turns recording
 off entirely: no audit row of any kind (tool calls, refusals and admin changes made through that server), warned at
 start. Management commands run on the database itself (`relic-bridge` without `--remote`, `audit purge`) still record
 their rows.

@@ -765,9 +765,26 @@ export function createOAuthRuntime(deps: OAuthRuntimeDeps): OAuthRuntime {
     if (!decision.ok) return refuse(decision.reason);
     if (decision.access.userId !== o.userId) return refuse('principal_mismatch');
     const grantEnd = decision.access.expiresAt;
-    if (grantEnd === null) return undefined;
-    const remaining = Math.floor((grantEnd - clock.now()) / 1000);
-    if (remaining < 60) return refuse('grant_expired');
+    const remaining = grantEnd === null ? null : Math.floor((grantEnd - clock.now()) / 1000);
+    if (remaining !== null && remaining < 60) return refuse('grant_expired');
+    // P8-85 (V16.3.1, T17): a successful issuance is a row too. Ids only: never a code, a token or its hash. Capped
+    // (T20): a valid device can refresh as often as the token endpoint's rate limit lets it.
+    await deps.audit?.({
+      actor: {
+        requestId: o.env.RB_REQUEST_ID ?? null,
+        userId: o.userId,
+        grantId: props.grantId,
+        clientId: o.clientId.slice(0, 200),
+        tokenId: `oauth_${o.grantId}`,
+      },
+      action: code ? 'oauth.token.issue' : 'oauth.token.refresh',
+      targetType: 'oauth_device',
+      targetId: `oauth_${o.grantId}`,
+      projectId: decision.access.projectId,
+      capped: true,
+      details: { project: slug, oauthGrant: o.grantId },
+    });
+    if (remaining === null) return undefined;
     return {
       accessTokenTTL: Math.min(accessTtl, remaining),
       ...(code && refreshTtl !== 0 ? { refreshTokenTTL: Math.min(refreshTtl, remaining) } : {}),

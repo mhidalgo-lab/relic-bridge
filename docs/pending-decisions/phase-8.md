@@ -182,3 +182,25 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Assumption made:** one sample rate for all spans.
 - **Needs:** none unless the span volume matters (then a lower `RB_OTEL_SAMPLE`).
 
+
+### P8-85 — Session expiry stays an `auth.denied` row
+- **Context:** the task asked whether an idle or absolute expiry deserves `session.expired`.
+- **Assumption made:** no. Nothing runs when a session lapses; the next request with the old cookie already writes
+  `auth.denied` with `session_idle` / `session_expired`, so a second row would add unauthenticated volume (T20) and no
+  information. Documented in `docs/security/logging.md`.
+- **Options:** (a) as made; (b) a `session.expired` row when the purge removes lapsed sessions (needs a per-session
+  read in the purge, and the count is already visible in `kv purge finished`).
+- **Needs:** confirm (a).
+
+### P8-85 — Success rows are capped
+- **Context:** `oauth.token.issue`, `oauth.token.refresh` and `credential.decrypt_failed` can be repeated by a holder of a
+  valid token (or by every request while a key is broken).
+- **Assumption made:** a per-minute cap of its own (same default as refusals, 120), separate from the refusal cap, with an
+  `admin.suppressed` summary row. Under a flood some issuances are summarised rather than listed.
+- **Options:** (a) as made; (b) no cap on issuance rows (complete history, unbounded under a refresh loop that the token
+  endpoint's rate limit allows).
+- **Needs:** confirm (a).
+
+### P8-85 — ASVS evidence not in asvs-l2.md yet
+- **Context:** PR #281 edits `docs/security/asvs-l2.md`, so this task did not.
+- **Needs:** after both merge, copy the V16.3.1 and V16.3.4 evidence from the task file into asvs-l2.md.

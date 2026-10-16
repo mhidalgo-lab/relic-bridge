@@ -656,14 +656,23 @@ export async function startServer(options: StartServerOptions): Promise<RunningS
     : undefined;
   const purgeAudit = (): void => {
     if (audit === undefined || settings.audit.retentionDays <= 0) return;
-    audit.purge(settings.audit.retentionDays).then(
-      (removed) => {
-        if (removed > 0)
-          logger.info('audit rows purged', { removed, retentionDays: settings.audit.retentionDays });
-      },
-      (error: unknown) =>
+    const days = settings.audit.retentionDays;
+    audit
+      .purge(days)
+      .then(async (removed) => {
+        if (removed === 0) return;
+        logger.info('audit rows purged', { removed, retentionDays: days });
+        // The purge is an administrative action worth a row, as for the CLI command and the Worker cron (P8-85).
+        await audit.admin({
+          actor: {},
+          action: 'audit.purge',
+          targetType: 'audit_log',
+          details: { removed, olderThanDays: days, source: 'schedule' },
+        });
+      })
+      .catch((error: unknown) =>
         logger.warn('audit purge failed', { error: error instanceof Error ? error.name : typeof error }),
-    );
+      );
   };
   // Expired `kv` rows (P4-09): abandoned logins, unused setup links, ended sessions. Always on, whatever the audit retention.
   let kvPurging = false;

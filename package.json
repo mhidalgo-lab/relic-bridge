@@ -43,16 +43,16 @@
     "db:fixtures": "node scripts/gen-db-fixtures.ts"
   },
   "devDependencies": {
-    "@anthropic-ai/sdk": "0.131.0",
-    "@biomejs/biome": "2.5.14",
+    "@anthropic-ai/sdk": "0.133.0",
+    "@biomejs/biome": "2.5.15",
     "@changesets/cli": "3.0.3",
-    "@playwright/test": "1.63.0",
+    "@playwright/test": "1.64.0",
     "@types/jsdom": "30.0.0",
-    "@types/node": "24.19.0",
+    "@types/node": "24.19.2",
     "@vitest/coverage-v8": "4.1.11",
     "graphql": "17.0.2",
-    "jsdom": "30.1.1",
-    "lefthook": "2.1.14",
+    "jsdom": "30.1.2",
+    "lefthook": "2.2.1",
     "typescript": "7.0.2",
     "vitest": "4.1.11",
     "yaml": "2.9.1"

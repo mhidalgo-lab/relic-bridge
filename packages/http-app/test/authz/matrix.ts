@@ -204,6 +204,13 @@ export const ADMIN_ROUTES: readonly RouteCase[] = [
     pattern: `${A}/me/oauth-devices/:id/revoke`,
     path: `${A}/me/oauth-devices/oauth_none/revoke`,
   },
+  // P8-96: my browser sessions (list; end one by its short reference).
+  { method: 'GET', pattern: `${A}/me/sessions`, path: `${A}/me/sessions` },
+  {
+    method: 'POST',
+    pattern: `${A}/me/sessions/:id/revoke`,
+    path: `${A}/me/sessions/sess_none/revoke`,
+  },
   // P5-08: OAuth clients and the registration switch (owners only). Without OAuth: an empty list and 404s.
   { method: 'GET', pattern: `${A}/oauth/clients`, path: `${A}/oauth/clients` },
   {
@@ -218,6 +225,14 @@ export const ADMIN_ROUTES: readonly RouteCase[] = [
     pattern: `${A}/oauth/registration`,
     path: `${A}/oauth/registration`,
     body: { enabled: false },
+  },
+  // P8-96: end every user's sessions (owners only, recent sign-in, typed confirmation). LAST: it signs out every
+  // session but the caller's, and the admin token's call all of them, so the routes after it would answer 401.
+  {
+    method: 'POST',
+    pattern: `${A}/users/sessions/revoke-all`,
+    path: `${A}/users/sessions/revoke-all`,
+    body: { confirm: 'end all sessions' },
   },
   // Not a registered route: the admin catch-all (`ALL /api/admin/v1/*`) must authenticate before saying 404.
   { method: 'GET', pattern: `${A}/*`, path: `${A}/no-such-endpoint` },
@@ -289,6 +304,9 @@ export const UI_ROUTES: readonly RouteCase[] = [
   ui('POST', '/admin/users/:id/signout', '/admin/users/usr_none/signout'),
   ui('GET', '/admin/users/:id/unbind', '/admin/users/usr_none/unbind'),
   ui('POST', '/admin/users/:id/unbind', '/admin/users/usr_none/unbind'),
+  // P8-96: end every user's sessions (owners only; typed confirmation).
+  ui('GET', '/admin/users/sessions/revoke-all'),
+  ui('POST', '/admin/users/sessions/revoke-all'),
   // P5-05: disconnect a user's OAuth app (admin; an owner's only by owners, decided by the API).
   ui('POST', '/admin/users/:id/apps/:device/revoke', '/admin/users/usr_none/apps/oauth_none/revoke'),
   // P5-08: OAuth apps and the registration switch (owners only).
@@ -312,6 +330,8 @@ export const UI_ROUTES: readonly RouteCase[] = [
   ui('POST', '/admin/me/tokens/:id/revoke', '/admin/me/tokens/tok_none/revoke'),
   // P5-05: disconnect one of my OAuth apps (any role; ids not in my own list are the 404 page).
   ui('POST', '/admin/me/apps/:id/revoke', '/admin/me/apps/oauth_none/revoke'),
+  // P8-96: end one of my browser sessions (any role; ids not in my own list are the 404 page).
+  ui('POST', '/admin/me/sessions/:id/revoke', '/admin/me/sessions/sess_none/revoke'),
   // P4-05: the audit viewer and CSV (any role; members see their own rows) and usage statistics (admin and owner).
   ui('GET', '/admin/audit'),
   ui('GET', '/admin/audit.csv'),

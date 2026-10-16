@@ -28,7 +28,18 @@ Sign-in itself (Google, GitHub, Cloudflare Access, OIDC, the first-owner setup l
   sign-in never becomes a signed-in session.
 - **Sign out**: `POST /auth/logout` with the CSRF token (form field `_csrf` or header `X-CSRF-Token`). Add
   `everywhere=1` to end every session of your user (all devices). An admin can do the same for a user with
-  `POST /api/admin/v1/users/{id}/sessions/revoke`.
+  `POST /api/admin/v1/users/{id}/sessions/revoke`. The sign-out response carries `Clear-Site-Data: "cookies",
+  "storage"`, so the browser also drops anything it kept for this site (only when a session cookie was presented: a
+  cross-site form cannot wipe your data).
+- **See and end your own sessions** (P8-96): `GET /api/admin/v1/me/sessions` lists your live browser sessions (sign-in
+  time, last use, end, and a coarse label such as "Firefox on Linux"; never the cookie), and
+  `POST /api/admin/v1/me/sessions/{id}/revoke` ends one (another user's id is a `404`). The admin panel shows the same
+  list under **My access**, "My browser sessions". These need no recent sign-in: ending a session only reduces access.
+- **End every user's sessions** (P8-96, owners): `POST /api/admin/v1/users/sessions/revoke-all` with
+  `{"confirm": "end all sessions"}` signs every user out of every browser at once, for example after a suspected
+  leak. Your own session stays unless you send `"includeSelf": true`; the admin token has no session and ends all of
+  them. Device tokens, OAuth apps and New Relic keys are not touched. It needs a recent sign-in and is audited as
+  `session.revoke_all_users`. The panel has it under **Users**, "End all sessions…" (type the phrase).
 - **Recent sign-in for sensitive actions** (P8-73): see [below](#re-authentication-for-sensitive-actions).
 - **Privilege changes end sessions**: changing a user's role or disabling them ends all their sessions at once. A
   disabled user's session is also refused on every request (the user record is re-read at most every 5 seconds per
@@ -72,6 +83,7 @@ refusal is audited (`admin.forbidden`, or the action's own `denied` row, with `r
 | Creating an administrator or an owner | `POST /users` with `role` `admin` or `owner` |
 | Changing a role, disabling or re-enabling a user | `PATCH /users/{id}` with `role` or `disabled` |
 | Signing another user out everywhere | `POST /users/{id}/sessions/revoke` (not yourself) |
+| Signing every user out | `POST /users/sessions/revoke-all` |
 | A device token for more than 90 days, or `never` | `POST /tokens` with `ttlSeconds` above 7776000 or `never` |
 
 How it works:
@@ -101,7 +113,7 @@ How it works:
 |---|---|
 | `owner` | Everything, including master-key rotation (`POST /keys/rotate`), owner setup links (`POST /setup-links`) and managing other owners and administrators. |
 | `admin` | Manage users, credentials, projects, grants, tokens; read the audit log. Cannot create an owner, promote anyone to owner, or change or sign out an owner. Administrators are not peers either (P4-21): an admin session gets `403` (`detail: owner`) for creating a user as `admin`, promoting anyone to `admin`, and for editing, demoting, disabling, enabling, unbinding or signing out another admin; only an owner or the admin token does. An admin still manages members and can edit their own name or sign themselves out. Cannot act on an owner's keys, grants or tokens either: a credential owned by an owner, a grant of an owner or on an owner's key, and its tokens answer `403` (`detail: owner`) to change, rotate, delete, revoke and token issue; so do `ownerUserId` = an owner and a project `defaultCredentialId` that is an owner's key. |
-| `member` | `GET /session`, signing out their own sessions, and `GET /audit` limited to their own entries (the `userId` filter is forced; usage statistics are admin-only). The self-service namespace `/api/admin/v1/me/*` (below): their own keys, their grants and device tokens. |
+| `member` | `GET /session`, signing out their own sessions (`GET /me/sessions` lists them), and `GET /audit` limited to their own entries (the `userId` filter is forced; usage statistics are admin-only). The self-service namespace `/api/admin/v1/me/*` (below): their own keys, their grants and device tokens. |
 
 ### Member self-service (`/api/admin/v1/me/*`)
 

@@ -118,6 +118,9 @@ export interface IdentityRouteDeps {
   readonly identityHash?: (idp: string, subject: string) => Promise<string>;
 }
 
+/** Sent when a sign-out clears the session cookie: the browser drops cookies and any storage for this origin. */
+export const CLEAR_SITE_DATA = '"cookies", "storage"';
+
 /** Largest logout form body (it carries a CSRF token and a flag). */
 const MAX_LOGOUT_BODY = 2048;
 /** Largest setup form body (a code, a provider id and a `next` path). */
@@ -556,7 +559,9 @@ export function createIdentityRoutes(
         status: 303,
         headers: {
           Location: `${IDENTITY_BASE}/login`,
-          ...(clear ? { 'Set-Cookie': sessions.clearCookie } : {}),
+          // `Clear-Site-Data` (V14.3.1) rides with the cookie clearing: a request that presented no cookie (a cross-site
+          // form) must not wipe this browser's data either.
+          ...(clear ? { 'Set-Cookie': sessions.clearCookie, 'Clear-Site-Data': CLEAR_SITE_DATA } : {}),
         },
       });
     const sessionAudit = (c: Context, event: Omit<AdminAuditEvent, 'actor'>, userId: string | null) => {

@@ -60,6 +60,36 @@ describe('member screens: reading', () => {
     }
   });
 
+  it('lists my browser sessions: the current one marked, the label escaped, an action per row', async () => {
+    const { app } = setup();
+    const { html } = await get(app, '/admin/me');
+    expect(html).toContain('<caption>My browser sessions</caption>');
+    expect(html).toContain('this browser');
+    expect(html).toContain('Firefox on &lt;b&gt;Linux&lt;/b&gt;');
+    expect(html).not.toContain('<b>Linux</b>');
+    expect(html).toContain('Unknown browser');
+    expect(html).toContain('action="/admin/me/sessions/0123456789abcdef/revoke"');
+    expect(html).toContain('action="/admin/me/sessions/fedcba9876543210/revoke"');
+  });
+
+  it('ending a session asks first, then posts to the member endpoint; an id not in my list is the 404 page', async () => {
+    const { app, fake } = setup();
+    const ask = await post(app, '/admin/me/sessions/fedcba9876543210/revoke');
+    expect(ask.res.status).toBe(200);
+    expect(ask.html).toContain('End this browser session?');
+    expect(fake.calls.some((c) => c.method === 'POST')).toBe(false);
+    const done = await post(app, '/admin/me/sessions/fedcba9876543210/revoke', { confirm: 'yes' });
+    expect(done.res.status).toBe(303);
+    expect(done.res.headers.get('location')).toBe('/admin/me');
+    expect(fake.calls.filter((c) => c.method === 'POST').map((c) => c.path)).toEqual([
+      '/me/sessions/fedcba9876543210/revoke',
+    ]);
+    const current = await post(app, '/admin/me/sessions/0123456789abcdef/revoke', { confirm: 'yes' });
+    expect(current.res.headers.get('location')).toBe('/auth/login');
+    const theirs = await post(app, '/admin/me/sessions/aaaaaaaaaaaaaaaa/revoke', { confirm: 'yes' });
+    expect(theirs.res.status).toBe(404);
+  });
+
   it('the navigation offers "My access" to members and admins; admin entries stay hidden from members', async () => {
     const member = (await get(setup().app, '/admin')).html;
     expect(member).toContain('>My access</a>');
@@ -101,6 +131,8 @@ describe('member screens: reading', () => {
       expect(res.status, path).toBe(200);
       expect(await axeViolations(html), path).toEqual([]);
     }
+    const endSession = (await post(app, '/admin/me/sessions/fedcba9876543210/revoke')).html;
+    expect(await axeViolations(endSession), 'end session confirmation').toEqual([]);
     const confirm = (await post(app, '/admin/me/tokens/tok_mine/revoke')).html;
     expect(await axeViolations(confirm), 'revoke confirmation').toEqual([]);
     const bad = (await post(app, '/admin/me/keys', { label: '', region: 'US', apiKey: KEY })).html;

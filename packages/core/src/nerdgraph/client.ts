@@ -2,6 +2,7 @@
 import type { Budget, Clock, Credential, Limiter, QuotaGuard, Region, ToolContext } from '../context.ts';
 import { ErrorCode, RbError } from '../errors.ts';
 import type { Logger } from '../logger.ts';
+import { outboundFetch } from '../outbound.ts';
 import { redactHead } from '../redact.ts';
 import type { Secret } from '../secret.ts';
 import { USER_AGENT } from '../version.ts';
@@ -232,7 +233,7 @@ export class NerdGraphClient {
       sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
       random: Math.random,
       ...options,
-      fetch: options.fetch ?? ((url, init) => fetch(url, init)),
+      fetch: options.fetch ?? outboundFetch,
     };
   }
 

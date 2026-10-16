@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-import type { FetchLike, Logger } from '@relic-bridge/core';
+import { type FetchLike, type Logger, outboundFetch } from '@relic-bridge/core';
 import { ConfigError, type Env } from './config.ts';
 
 /** Whether this build honours test-only hooks. False in the published build and when running from source. */
@@ -19,7 +19,7 @@ export function nerdGraphFetch(
   env: Env,
   logger: Logger,
   enabled: boolean = TEST_HOOKS_BUILD,
-  baseFetch: FetchLike = (url, init) => fetch(url, init),
+  baseFetch: FetchLike = outboundFetch,
 ): FetchLike | undefined {
   const raw = env[TEST_ENDPOINT_VAR]?.trim();
   if (raw === undefined || raw === '') return undefined;

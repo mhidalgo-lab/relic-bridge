@@ -32,6 +32,7 @@ import {
   projectWriteScope,
   revalidateCredential,
   revokeAccessToken,
+  revokeAllSessions,
   revokeUserSessions,
   rotateCredentialKey,
   rotateCredentialKeysBatch,
@@ -74,6 +75,7 @@ import {
   isUnsafeMethod,
   ROLE_RANK,
   type SessionManager,
+  type SessionPrincipal,
 } from '../session.ts';
 import {
   ADMIN_RETRY_AFTER_SECONDS,
@@ -530,6 +532,41 @@ const routes = {
       'for members and themselves (another admin or an owner: owners only). A role change or disabling a user does this automatically.',
     request: { params: S.IdParam },
     responses: { 200: json(S.SessionsRevokedOne, 'Sessions ended'), ...errors(404) },
+  }),
+
+  revokeAllUserSessions: route({
+    method: 'post',
+    path: '/users/sessions/revoke-all',
+    tags: ['sessions'],
+    summary: "End every user's browser sessions",
+    description:
+      'Owners only, and a session needs a recent sign-in (`reauth_required`). Ends the admin sessions of every user ' +
+      'at once, for example after a suspected leak. `confirm` must be `end all sessions`. The caller stays signed in ' +
+      'unless `includeSelf` is true (the admin token has no session). Device tokens, OAuth apps and New Relic keys ' +
+      'are not touched. Audited as `session.revoke_all_users`.',
+    request: BODY(S.RevokeAllSessionsBody),
+    responses: { 200: json(S.AllSessionsRevokedOne, 'Sessions ended'), ...errors(413, 415) },
+  }),
+  mySessions: route({
+    method: 'get',
+    path: '/me/sessions',
+    tags: ['me'],
+    summary: 'List my active browser sessions',
+    description:
+      'Sign-in time, last use, end of the session and a coarse browser label; `current` marks the session making ' +
+      'the request. Never the cookie or any token.',
+    responses: { 200: json(S.SessionPage, 'Your sessions (one page: a person holds few)'), ...errors() },
+  }),
+  revokeMySession: route({
+    method: 'post',
+    path: '/me/sessions/{id}/revoke',
+    tags: ['me'],
+    summary: 'End one of my browser sessions',
+    description:
+      "The id comes from `GET /me/sessions`. Another user's session id is `404`. Ending the current session signs " +
+      'this browser out. Audited as `session.revoke`.',
+    request: { params: S.IdParam },
+    responses: { 200: json(S.SessionEndedOne, 'Session ended'), ...errors(404) },
   }),
 
   getSession: route({
@@ -992,6 +1029,7 @@ const REFUSAL_ROUTES: readonly (readonly [string, RegExp, string, string])[] = [
   ['POST', /^\/config\/export$/, 'config.export', 'config'],
   ['POST', /^\/config\/import$/, 'config.import', 'config'],
   ['POST', /^\/setup-links$/, 'setup_link.create', 'setup_link'],
+  ['POST', /^\/users\/sessions\/revoke-all$/, 'session.revoke_all_users', 'session'],
 ];
 
 function validationError(error: z.ZodError): AdminApiError {
@@ -1052,6 +1090,7 @@ export function requiredRole(method: string, rel: string): 'owner' | 'admin' | '
       rel === '/setup-links' ||
       rel === '/config/export' ||
       rel === '/config/import' ||
+      rel === '/users/sessions/revoke-all' ||
       UNBIND.test(rel))
   )
     return 'owner';
@@ -1075,6 +1114,7 @@ export function sensitiveRoute(method: string, rel: string): boolean {
       rel === '/keys/rotate' ||
       rel === '/config/import' ||
       rel === '/setup-links' ||
+      rel === '/users/sessions/revoke-all' ||
       rel === '/oauth/clients/remove' ||
       rel === '/oauth/registration' ||
       UNBIND.test(rel) ||
@@ -1674,6 +1714,43 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
       (n) => ({ details: { revoked: n } }),
     );
     return c.json({ data: { userId: id, revoked } }, 200);
+  });
+
+  api.openapi(routes.revokeAllUserSessions, async (c) => {
+    const body = c.req.valid('json');
+    const principal = c.get('principal') as AdminPrincipal | undefined;
+    const result = await change(
+      c,
+      // Never the typed phrase: the choice about the caller's own session only.
+      {
+        action: 'session.revoke_all_users',
+        targetType: 'session',
+        details: { includeSelf: body.includeSelf === true },
+      },
+      async () => {
+        if (!actsAsOwner(c)) throw denied('role');
+        requireFresh(c);
+        if (body.confirm.trim().toLowerCase() !== S.REVOKE_ALL_SESSIONS_CONFIRMATION) {
+          throw new AdminApiError(
+            'invalid_request',
+            `confirm must be "${S.REVOKE_ALL_SESSIONS_CONFIRMATION}"`,
+            { field: 'confirm' },
+          );
+        }
+        const keep = principal?.kind === 'session' && body.includeSelf !== true ? principal : undefined;
+        const ended = deps.sessions
+          ? await deps.sessions.revokeEverySession(keep)
+          : deps.sessionKv
+            ? await revokeAllSessions(deps.sessionKv)
+            : { users: 0, sessions: 0 };
+        return { ...ended, ownSessionKept: keep !== undefined };
+      },
+      (r) => ({ details: { users: r.users, revoked: r.sessions, ownSessionKept: r.ownSessionKept } }),
+    );
+    return c.json(
+      { data: { users: result.users, revoked: result.sessions, ownSessionKept: result.ownSessionKept } },
+      200,
+    );
   });
 
   // ------------------------------------------------------------------------------------------------- session
@@ -2711,6 +2788,30 @@ export function createAdminApi(deps: AdminApiDeps): OpenAPIHono<AdminEnv> {
     return c.json({ data: deviceView(await revokeDeviceOf(c, self.id, id, true)) }, 200);
   });
 
+  api.openapi(routes.mySessions, async (c) => {
+    const self = me(c);
+    const principal = c.get('principal') as SessionPrincipal;
+    const rows = deps.sessions ? await deps.sessions.listSessions(self.id, principal.session.ref) : [];
+    return c.json({ data: rows, nextCursor: null }, 200);
+  });
+
+  api.openapi(routes.revokeMySession, async (c) => {
+    const self = me(c);
+    const principal = c.get('principal') as SessionPrincipal;
+    const { id } = c.req.valid('param');
+    await change(
+      c,
+      { action: 'session.revoke', targetType: 'session', targetId: id, details: { reason: 'self_service' } },
+      async () => {
+        // Looked up inside the caller's own sessions: another user's id (or none) is the same 404.
+        const ended = deps.sessions ? await deps.sessions.revokeSessionRef(self.id, id) : false;
+        if (!ended) throw notFound('session', id);
+      },
+      () => ({ details: { current: id === principal.session.ref } }),
+    );
+    return c.json({ data: { id, current: id === principal.session.ref } }, 200);
+  });
+
   api.openapi(routes.listUserOAuthDevices, async (c) => {
     const { id } = c.req.valid('param');
     const q = c.req.valid('query');
@@ -2911,7 +3012,7 @@ export function adminOpenApiDocument(api: OpenAPIHono<AdminEnv>): Record<string,
         'New Relic keys are accepted in request bodies only and never returned; token hashes are never returned. ' +
         'Sensitive actions from a session need a recent sign-in (`RB_SESSION_REAUTH_MINUTES`, default 10), else ' +
         '`403 forbidden` with `detail: reauth_required`: `POST /keys/rotate`, `/config/import`, `/setup-links`, ' +
-        '`/users/{id}/unbind`, `/oauth/clients/remove`, `/oauth/registration`, `/credentials/{id}/rotate`, ' +
+        '`/users/{id}/unbind`, `/users/sessions/revoke-all`, `/oauth/clients/remove`, `/oauth/registration`, `/credentials/{id}/rotate`, ' +
         '`DELETE /projects/{id}`, creating an admin or owner, changing a role or disabling a user, signing out another ' +
         'user, and a device token longer than 90 days or `never`. The admin token is exempt.',
     },

@@ -75,12 +75,36 @@ export interface MeScript {
   keys: Record<string, unknown>[];
   grants: Record<string, unknown>[];
   tokens: Record<string, unknown>[];
+  /** Browser sessions (P8-96); the first is the current one. */
+  sessions: Record<string, unknown>[];
   /** Answers for anything that changes something; undefined = the default for that call. */
   other?: (call: AdminCall) => AdminCallResult | undefined;
 }
 
+export const MY_SESSION: Record<string, unknown> = {
+  id: '0123456789abcdef',
+  createdAt: T,
+  lastSeenAt: T,
+  expiresAt: T + 12 * 3_600_000,
+  idleExpiresAt: T + 1_800_000,
+  client: 'Firefox on <b>Linux</b>',
+  provider: 'github',
+  current: true,
+};
+export const MY_OTHER_SESSION: Record<string, unknown> = {
+  ...MY_SESSION,
+  id: 'fedcba9876543210',
+  client: null,
+  current: false,
+};
+
 export function meScript(): MeScript {
-  return { keys: [MY_KEY, MY_BAD_KEY], grants: [MY_GRANT, MY_REVOKED_GRANT], tokens: [MY_TOKEN] };
+  return {
+    keys: [MY_KEY, MY_BAD_KEY],
+    grants: [MY_GRANT, MY_REVOKED_GRANT],
+    tokens: [MY_TOKEN],
+    sessions: [MY_SESSION, MY_OTHER_SESSION],
+  };
 }
 
 const ID = /^\/me\/(credentials|grants|tokens)\/([^/]+)(?:\/(\w+))?$/;
@@ -97,8 +121,17 @@ export function meApi(script: MeScript): (call: AdminCall) => AdminCallResult {
             ? script.grants
             : call.path === '/me/tokens'
               ? script.tokens
-              : undefined;
+              : call.path === '/me/sessions'
+                ? script.sessions
+                : undefined;
       if (rows !== undefined) return { status: 200, body: { data: rows, nextCursor: null } };
+    }
+    const sess = /^\/me\/sessions\/([^/]+)\/revoke$/.exec(call.path);
+    if (sess !== null && call.method === 'POST') {
+      const row = script.sessions.find((r) => r['id'] === sess[1]);
+      return row === undefined
+        ? notFound
+        : { status: 200, body: { data: { id: sess[1], current: row['current'] } } };
     }
     const m = ID.exec(call.path);
     if (m !== null) {

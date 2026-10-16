@@ -22,6 +22,7 @@ import {
 } from 'graphql';
 import type { Region } from '../packages/core/src/context.ts';
 import { endpointFor, REGIONS } from '../packages/core/src/nerdgraph/endpoints.ts';
+import { outboundFetch } from '../packages/core/src/outbound.ts';
 
 export const SNAPSHOT_PATH = fileURLToPath(new URL('./fixtures/nerdgraph-schema.json.gz', import.meta.url));
 
@@ -76,12 +77,14 @@ export interface FetchOptions {
 export async function fetchIntrospection({
   apiKey,
   region,
-  fetchImpl = fetch,
+  fetchImpl = (url, init) => outboundFetch(String(url), init ?? {}),
 }: FetchOptions): Promise<IntrospectionQuery> {
   const res = await fetchImpl(endpointFor(region), {
     method: 'POST',
     headers: { 'content-type': 'application/json', 'api-key': apiKey },
     body: JSON.stringify({ query: INTROSPECTION_QUERY }),
+    // The API key must never follow a redirect (P8-96).
+    redirect: 'manual',
   });
   if (!res.ok) throw new Error(`NerdGraph introspection failed: HTTP ${res.status}`);
   const body = (await res.json()) as { data?: IntrospectionQuery; errors?: unknown[] };
@@ -95,7 +98,7 @@ export async function fetchIntrospection({
 export async function main(
   env: Readonly<Record<string, string | undefined>>,
   out: (line: string) => void = (l) => console.warn(l),
-  fetchImpl: typeof fetch = fetch,
+  fetchImpl: typeof fetch = (url, init) => outboundFetch(String(url), init ?? {}),
   path: string = SNAPSHOT_PATH,
 ): Promise<number> {
   const apiKey = env['RB_LIVE_API_KEY'];

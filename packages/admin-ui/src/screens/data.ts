@@ -329,6 +329,30 @@ export function parseOAuthDevice(r: Row): OAuthDevice | null {
   };
 }
 
+/** One live browser session of the signed-in person (P8-96). `id` is a short reference, never a credential. */
+export interface BrowserSession {
+  readonly id: string;
+  readonly createdAt: number;
+  readonly lastSeenAt: number;
+  readonly expiresAt: number;
+  /** Coarse "Firefox on Linux" label from the server; untrusted text, rendered escaped. */
+  readonly client: string | null;
+  readonly current: boolean;
+}
+
+export function parseBrowserSession(r: Row): BrowserSession | null {
+  const id = str(r['id']);
+  if (!/^[0-9a-f]{16}$/.test(id)) return null;
+  return {
+    id,
+    createdAt: int(r['createdAt']),
+    lastSeenAt: int(r['lastSeenAt']),
+    expiresAt: int(r['expiresAt']),
+    client: strOrNull(r['client']),
+    current: r['current'] === true,
+  };
+}
+
 /** An OAuth client (P5-08). The name is untrusted text: render escaped, never as a link. */
 export interface OAuthClient {
   readonly id: string;

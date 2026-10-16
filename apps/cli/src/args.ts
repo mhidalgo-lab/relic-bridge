@@ -394,6 +394,8 @@ OAuth for MCP clients (serve; off by default; needs sign-in; docs/guide/oauth.md
                          policy, accepted or not (default 10), or off.
   RB_OAUTH_DCR_REDIRECT_HOSTS
                          Comma-separated https redirect hosts dynamic clients may use.
+  RB_OAUTH_CIMD_HOSTS    Comma-separated host names whose client metadata documents may be fetched
+                         (default: any public host; apps on other hosts are refused).
   RB_OAUTH_ACCESS_TTL    Access-token lifetime (default 1h; 60s-24h; seconds or 90m, 12h, 30d).
   RB_OAUTH_REFRESH_TTL   Absolute lifetime of an app authorization (default 30d; 1h-365d); refreshing
                          does not extend it.

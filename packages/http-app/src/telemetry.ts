@@ -24,6 +24,7 @@ import {
   type LogFields,
   type Logger,
   type LogLevel,
+  outboundFetch,
   redact,
   redactValue,
   silentLogger,
@@ -374,7 +375,7 @@ export function createTelemetry(options: TelemetryOptions): Telemetry {
   const base = options.endpoint.replace(/\/+$/, '');
   const logger = options.logger ?? silentLogger;
   const clock = options.clock ?? systemClock;
-  const doFetch: FetchLike = options.fetch ?? ((url, init) => fetch(url, init));
+  const doFetch: FetchLike = options.fetch ?? outboundFetch;
   const random = options.random ?? Math.random;
   const sampleRate = options.traceSampleRate ?? 1;
   const timeoutMs = options.timeoutMs ?? DEFAULT_TELEMETRY_TIMEOUT_MS;

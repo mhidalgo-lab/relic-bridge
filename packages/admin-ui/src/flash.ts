@@ -26,6 +26,7 @@ export type FlashCode =
   | 'disabled'
   | 'enabled'
   | 'signed_out_everywhere'
+  | 'all_sessions_ended'
   | 'user_added'
   | 'identity_cleared'
   | 'identity_none'
@@ -74,6 +75,10 @@ export const FLASH_MESSAGES: Readonly<Record<FlashCode, FlashMessage>> = Object.
   disabled: { kind: 'success', text: 'Disabled.' },
   enabled: { kind: 'success', text: 'Enabled.' },
   signed_out_everywhere: { kind: 'success', text: 'Signed out on every device.' },
+  all_sessions_ended: {
+    kind: 'success',
+    text: 'Every other browser session of every user is ended. Device tokens and apps are not affected.',
+  },
   user_added: {
     kind: 'success',
     text: 'User added. They can sign in with a provider that confirms this email address.',

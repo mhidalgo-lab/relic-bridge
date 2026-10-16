@@ -7,6 +7,8 @@
 //   RB_OAUTH_DCR_IP_LIMIT        registration attempts per hour for one client address that passed the policy,
 //                                accepted or not (default 10), or off
 //   RB_OAUTH_DCR_REDIRECT_HOSTS  comma-separated https redirect hosts dynamic clients may use (default: any)
+//   RB_OAUTH_CIMD_HOSTS          comma-separated host names whose client metadata documents may be fetched (default:
+//                                any public host), P8-96
 //   RB_OAUTH_ACCESS_TTL          access-token lifetime (default 1h; 60s-24h), P5-05
 //   RB_OAUTH_REFRESH_TTL         absolute refresh lifetime of a device authorization (default 30d; 1h-365d), P5-05
 //   RB_OAUTH_REFRESH_REUSE_WINDOW refresh token reuse interval (default 30s; 0 or off = strict; up to 120s), P5-09
@@ -36,6 +38,7 @@ export type OAuthSettings = Required<
   Pick<
     OAuthOptions,
     | 'registrationRedirectHosts'
+    | 'clientMetadataHosts'
     | 'accessTokenTtlSeconds'
     | 'refreshTokenTtlSeconds'
     | 'refreshReuseWindowSeconds'
@@ -137,6 +140,20 @@ export function oauthSettingsFromEnv(env: OAuthEnv, signIn: boolean): OAuthSetti
       );
     }
   }
+  const cimdHostsRaw = text(env, 'RB_OAUTH_CIMD_HOSTS');
+  let clientMetadataHosts: string[] | undefined;
+  if (cimdHostsRaw !== undefined) {
+    clientMetadataHosts = cimdHostsRaw
+      .split(',')
+      .map((h) => h.trim().toLowerCase())
+      .filter((h) => h !== '');
+    if (clientMetadataHosts.length === 0 || !clientMetadataHosts.every((h) => HOST_RE.test(h))) {
+      throw new OAuthConfigError(
+        'RB_OAUTH_CIMD_HOSTS',
+        'RB_OAUTH_CIMD_HOSTS must list host names (e.g. claude.ai)',
+      );
+    }
+  }
   const accessTokenTtlSeconds = duration(env, 'RB_OAUTH_ACCESS_TTL', 60, 86_400, '60s and 24h');
   const refreshTokenTtlSeconds = duration(env, 'RB_OAUTH_REFRESH_TTL', 3600, 365 * 86_400, '1h and 365d');
   const reuseRaw = text(env, 'RB_OAUTH_REFRESH_REUSE_WINDOW')?.toLowerCase();
@@ -172,6 +189,7 @@ export function oauthSettingsFromEnv(env: OAuthEnv, signIn: boolean): OAuthSetti
     registrationLimit,
     registrationIpLimit,
     ...(registrationRedirectHosts === undefined ? {} : { registrationRedirectHosts }),
+    ...(clientMetadataHosts === undefined ? {} : { clientMetadataHosts }),
     ...(accessTokenTtlSeconds === undefined ? {} : { accessTokenTtlSeconds }),
     ...(refreshTokenTtlSeconds === undefined ? {} : { refreshTokenTtlSeconds }),
     ...(refreshReuseWindowSeconds === undefined ? {} : { refreshReuseWindowSeconds }),

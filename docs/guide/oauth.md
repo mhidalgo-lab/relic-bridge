@@ -25,6 +25,7 @@ themselves.
 | `RB_OAUTH_DCR_LIMIT` | `30` | Dynamic registrations per hour for the whole server, or `off`. |
 | `RB_OAUTH_DCR_IP_LIMIT` | `10` | Dynamic registration attempts per hour for one client address (refused ones count too), or `off`. |
 | `RB_OAUTH_DCR_REDIRECT_HOSTS` | any | Comma-separated https hosts dynamically registered clients may send codes to (for example `claude.ai`). Loopback addresses are always allowed. |
+| `RB_OAUTH_CIMD_HOSTS` | any public host | Comma-separated host names whose metadata documents (the address an app uses as its client id) may be fetched, for example `claude.ai`. An app on any other host is refused, and the refusal is audited as `oauth.client.refused` with the host. Exact names only. Narrowing the list takes effect at once, also for apps already cached. |
 | `RB_OAUTH_ACCESS_TTL` | `1h` | How long one access token lives (60 s to 24 h; seconds, or `90m`, `12h`). Apps renew it on their own. |
 | `RB_OAUTH_REFRESH_TTL` | `30d` | How long an approval lasts in total (1 h to 365 days). Renewing does not extend it: after it the app asks you again. |
 | `RB_OAUTH_REFRESH_REUSE_WINDOW` | `30` | Seconds during which an app that renews twice at once with the same refresh token gets the same new tokens instead of being disconnected (0 to 120; `0` or `off` = strict). See [Lifetimes and renewal](#lifetimes-and-renewal). |

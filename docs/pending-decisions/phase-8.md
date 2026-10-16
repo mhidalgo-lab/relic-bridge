@@ -124,3 +124,28 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   "sampled out" wording stays. The earlier entity-scoped check for an error group with no traced occurrence is unchanged.
   A total in the user impact report is `null` as soon as any front end's part is `null` (not a partial sum).
 - **Needs:** none unless a partial sum with a note is preferred over `null`.
+
+### P8-96 — Ending a browser session needs no recent sign-in
+- **Context:** the ASVS row V7.5.2 listed "no re-authentication before ending them" as a gap. P8-73 classified `/me/*` out
+  of the re-authentication set because those routes only touch the caller's own rows.
+- **Assumption made:** `POST /me/sessions/{id}/revoke` and the list need no recent sign-in: ending a session only
+  reduces access, and a person who sees an unknown browser should be able to end it at once. Residual: a stolen live
+  session can end the owner's other sessions (a nuisance, not an escalation); recorded in THREAT_MODEL.
+- **Options:** (a) as made; (b) require a recent sign-in to end any session other than the current one.
+- **Needs:** confirm (a), or choose (b) (one line in `sensitiveRoute`'s handler path and one test).
+
+### P8-96 — `RB_OAUTH_CIMD_HOSTS` semantics
+- **Context:** the task left the name open and did not say how hosts match.
+- **Assumption made:** the name follows `RB_OAUTH_DCR_REDIRECT_HOSTS`; exact host names only (no wildcards, no
+  schemes), lowercased; unset keeps "any public host"; the check runs before the cache, so narrowing the list refuses
+  already-cached apps at once; a miss is a `400 invalid_client` page plus a capped `oauth.client.refused` audit row.
+- **Options:** (a) as made; (b) allow `*.example.com` wildcards; (c) default to `claude.ai` for new installs.
+- **Needs:** confirm (a). The owner's own deployment can set `RB_OAUTH_CIMD_HOSTS=claude.ai` once the checklist
+  confirms Claude Code and claude.ai both use `claude.ai` document hosts.
+
+### P8-96 — "End all sessions" keeps the caller by default
+- **Context:** the task said it should not end the caller's own session "or else say so".
+- **Assumption made:** the caller stays signed in; `includeSelf: true` (a checkbox in the panel) ends it too, and the
+  response says which happened (`ownSessionKept`). Browser sessions only: device tokens, OAuth apps and keys are
+  untouched.
+- **Needs:** none unless "end all" should also revoke OAuth devices (that is a separate, larger action).

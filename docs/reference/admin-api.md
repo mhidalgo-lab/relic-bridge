@@ -3,7 +3,7 @@
 
 # Admin API reference
 
-API-first management of a relic-bridge instance: users, New Relic credentials, projects, grants, device tokens and the audit log. Authenticate with the bootstrap admin token (`Authorization: Bearer …`, role `owner`) or, from a browser, an admin session (cookie + `X-CSRF-Token`; roles `owner` > `admin` > `member`). New Relic keys are accepted in request bodies only and never returned; token hashes are never returned. Sensitive actions from a session need a recent sign-in (`RB_SESSION_REAUTH_MINUTES`, default 10), else `403 forbidden` with `detail: reauth_required`: `POST /keys/rotate`, `/config/import`, `/setup-links`, `/users/{id}/unbind`, `/oauth/clients/remove`, `/oauth/registration`, `/credentials/{id}/rotate`, `DELETE /projects/{id}`, creating an admin or owner, changing a role or disabling a user, signing out another user, and a device token longer than 90 days or `never`. The admin token is exempt.
+API-first management of a relic-bridge instance: users, New Relic credentials, projects, grants, device tokens and the audit log. Authenticate with the bootstrap admin token (`Authorization: Bearer …`, role `owner`) or, from a browser, an admin session (cookie + `X-CSRF-Token`; roles `owner` > `admin` > `member`). New Relic keys are accepted in request bodies only and never returned; token hashes are never returned. Sensitive actions from a session need a recent sign-in (`RB_SESSION_REAUTH_MINUTES`, default 10), else `403 forbidden` with `detail: reauth_required`: `POST /keys/rotate`, `/config/import`, `/setup-links`, `/users/{id}/unbind`, `/users/sessions/revoke-all`, `/oauth/clients/remove`, `/oauth/registration`, `/credentials/{id}/rotate`, `DELETE /projects/{id}`, creating an admin or owner, changing a role or disabling a user, signing out another user, and a device token longer than 90 days or `never`. The admin token is exempt.
 
 Base path: `/api/admin/v1`. OpenAPI 3.1 document: `GET /api/admin/v1/openapi.json` (admin token required).
 Guide: [self-hosting](../guide/self-hosting.md#admin-api).
@@ -196,6 +196,26 @@ Ends every admin session of the user at once (all devices). Members may do this 
 | 200 | `SessionsRevokedResponse` | Sessions ended |
 | 403 | `Error` | Session refused (`forbidden`): role too low, missing/invalid CSRF token, cross-origin request, or a sensitive action whose sign-in is too old (`detail: reauth_required`) |
 | 404 | `Error` | No such resource (`not_found`) |
+
+### POST /users/sessions/revoke-all
+
+End every user's browser sessions
+
+Owners only, and a session needs a recent sign-in (`reauth_required`). Ends the admin sessions of every user at once, for example after a suspected leak. `confirm` must be `end all sessions`. The caller stays signed in unless `includeSelf` is true (the admin token has no session). Device tokens, OAuth apps and New Relic keys are not touched. Audited as `session.revoke_all_users`.
+
+Request body (`RevokeAllSessions`):
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `confirm` | `string` | yes | The phrase `end all sessions`, typed as a confirmation. |
+| `includeSelf` | `boolean` | no | Also end the caller’s own session. Default false: the caller stays signed in. |
+
+| Status | Body | Description |
+| --- | --- | --- |
+| 200 | `AllSessionsRevokedResponse` | Sessions ended |
+| 403 | `Error` | Session refused (`forbidden`): role too low, missing/invalid CSRF token, cross-origin request, or a sensitive action whose sign-in is too old (`detail: reauth_required`) |
+| 413 | `Error` | Body too large (`payload_too_large`) |
+| 415 | `Error` | Body is not JSON (`unsupported_media_type`) |
 
 ### GET /session
 
@@ -1033,6 +1053,33 @@ Revokes every access and refresh token of that authorization at once and forgets
 | 403 | `Error` | Session refused (`forbidden`): role too low, missing/invalid CSRF token, cross-origin request, or a sensitive action whose sign-in is too old (`detail: reauth_required`) |
 | 404 | `Error` | No such resource (`not_found`) |
 
+### GET /me/sessions
+
+List my active browser sessions
+
+Sign-in time, last use, end of the session and a coarse browser label; `current` marks the session making the request. Never the cookie or any token.
+
+| Status | Body | Description |
+| --- | --- | --- |
+| 200 | `SessionPage` | Your sessions (one page: a person holds few) |
+| 403 | `Error` | Session refused (`forbidden`): role too low, missing/invalid CSRF token, cross-origin request, or a sensitive action whose sign-in is too old (`detail: reauth_required`) |
+
+### POST /me/sessions/{id}/revoke
+
+End one of my browser sessions
+
+The id comes from `GET /me/sessions`. Another user's session id is `404`. Ending the current session signs this browser out. Audited as `session.revoke`.
+
+| Parameter | In | Type | Required | Description |
+| --- | --- | --- | --- | --- |
+| `id` | path | `string` | yes |  |
+
+| Status | Body | Description |
+| --- | --- | --- |
+| 200 | `SessionEndedResponse` | Session ended |
+| 403 | `Error` | Session refused (`forbidden`): role too low, missing/invalid CSRF token, cross-origin request, or a sensitive action whose sign-in is too old (`detail: reauth_required`) |
+| 404 | `Error` | No such resource (`not_found`) |
+
 ## Oauth
 
 ### GET /oauth/clients
@@ -1135,6 +1182,21 @@ Token metadata. The token hash is never returned.
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `data` | `AccessToken` | yes | Token metadata. The token hash is never returned. |
+| `warnings` | `string[]` | no | Non-fatal notes about the change (e.g. parts of a grant the project does not allow). |
+
+### AllSessionsRevoked
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `users` | `integer` | yes | Users who had sessions that ended. |
+| `revoked` | `integer` | yes | Browser sessions ended. |
+| `ownSessionKept` | `boolean` | yes | The caller’s own session was left alone. |
+
+### AllSessionsRevokedResponse
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `data` | `AllSessionsRevoked` | yes |  |
 | `warnings` | `string[]` | no | Non-fatal notes about the change (e.g. parts of a grant the project does not allow). |
 
 ### AuditEntry
@@ -1630,6 +1692,13 @@ Caps per UTC day and UTC month. Past a cap the connection gets `RB_LIMIT_QUOTA` 
 | `data` | `Revalidation` | yes |  |
 | `credential` | `Credential` | yes | Masked credential metadata. Key plaintext and ciphertext are never returned. |
 
+### RevokeAllSessions
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `confirm` | `string` | yes | The phrase `end all sessions`, typed as a confirmation. |
+| `includeSelf` | `boolean` | no | Also end the caller’s own session. Default false: the caller stays signed in. |
+
 ### RotateCredential
 
 | Field | Type | Required | Description |
@@ -1654,6 +1723,42 @@ Caps per UTC day and UTC month. Past a cap the connection gets `RB_LIMIT_QUOTA` 
 | `provider` | `string \| null` | yes | Sign-in provider of the session. |
 | `expiresAt` | `integer \| null` | yes | Absolute end of the session (epoch ms). |
 | `idleExpiresAt` | `integer \| null` | yes | When the session ends unless another request comes (epoch ms). |
+
+### SessionEnded
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `id` | `string` | yes |  |
+| `current` | `boolean` | yes | It was the caller’s own session. |
+
+### SessionEndedResponse
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `data` | `SessionEnded` | yes |  |
+| `warnings` | `string[]` | no | Non-fatal notes about the change (e.g. parts of a grant the project does not allow). |
+
+### SessionItem
+
+One live browser session of the caller (P8-96). Never the cookie, its hash or the CSRF token.
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `id` | `string` | yes | Short reference of the session (16 hex characters). Not a credential: it only names the session. |
+| `createdAt` | `integer` | yes | Sign-in time (epoch ms) |
+| `lastSeenAt` | `integer` | yes | Last request (epoch ms) |
+| `expiresAt` | `integer` | yes | Absolute end of the session (epoch ms) |
+| `idleExpiresAt` | `integer` | yes | End of the session if no request comes (epoch ms) |
+| `client` | `string \| null` | yes | Coarse browser and system label ("Firefox on Linux"); null for a session older than the label. |
+| `provider` | `string` | yes | The sign-in provider used |
+| `current` | `boolean` | yes | The session making this request |
+
+### SessionPage
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `data` | `SessionItem[]` | yes |  |
+| `nextCursor` | `string \| null` | yes | Pass as `cursor` for the next page; null at the end. |
 
 ### SessionResponse
 

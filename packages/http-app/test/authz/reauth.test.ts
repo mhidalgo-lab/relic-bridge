@@ -92,6 +92,12 @@ async function sensitiveActions(): Promise<Action[]> {
     { name: 'disable', method: 'PATCH', path: `/users/${other}`, body: { disabled: true } },
     { name: 'sign out another user', method: 'POST', path: `/users/${signedOut}/sessions/revoke` },
     {
+      name: 'end every user session',
+      method: 'POST',
+      path: '/users/sessions/revoke-all',
+      body: { confirm: 'end all sessions' },
+    },
+    {
       name: 'token never expires',
       method: 'POST',
       path: '/tokens',
@@ -144,13 +150,20 @@ describe('re-authentication for sensitive admin actions (P8-73)', () => {
     const actions = await sensitiveActions();
     h.world.clock.advance(STALE);
     const fresh = await h.addSession({ userId: stale.userId });
-    for (const a of actions) {
+    // "End every user's sessions" signs the stale session out for good, so it runs last, below.
+    const endAll = actions.find((a) => a.name === 'end every user session') as Action;
+    for (const a of actions.filter((x) => x !== endAll)) {
       const res = await call(fresh, a.method, a.path, a.body);
       expect(res.status, `${a.name}: ${res.text.slice(0, 200)}`).not.toBe(403);
       expect(res.status, `${a.name}: ${res.text.slice(0, 200)}`).toBeLessThan(500);
     }
     // The window is the session's own sign-in time: the stale session is still refused next to the fresh one.
     expect(errorOf(await call(stale, 'POST', '/keys/rotate', {}))?.['detail']).toBe('reauth_required');
+    expect(errorOf(await call(stale, endAll.method, endAll.path, endAll.body))?.['detail']).toBe(
+      'reauth_required',
+    );
+    const done = await call(fresh, endAll.method, endAll.path, endAll.body);
+    expect(done.status, done.text).toBe(200);
   });
 
   it('the window boundary: allowed just inside it, refused at it', async () => {

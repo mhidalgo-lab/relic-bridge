@@ -272,7 +272,7 @@ the resolver's reason or `grant_not_offered`), `oauth.consent.deny`, `oauth.cons
 `state` or PKCE values.
 
 **Host switch.** `oauthSettingsFromEnv` (`settings.ts`) reads `RB_OAUTH` (off by default; needs sign-in, else a boot
-error), `RB_OAUTH_DCR`, `RB_OAUTH_DCR_LIMIT` (per hour or `off`), `RB_OAUTH_DCR_IP_LIMIT` (per address, default 10), `RB_OAUTH_DCR_REDIRECT_HOSTS`. `serve` adds
+error), `RB_OAUTH_DCR`, `RB_OAUTH_DCR_LIMIT` (per hour or `off`), `RB_OAUTH_DCR_IP_LIMIT` (per address, default 10), `RB_OAUTH_DCR_REDIRECT_HOSTS`, `RB_OAUTH_CIMD_HOSTS` (exact host names allowed to serve client metadata documents, P8-96; `clientMetadataHosts` in `OAuthOptions`, checked in `resolveClient` before the cache and any fetch, refusal audited as `oauth.client.refused`). `serve` adds
 `createCimdFetch()`; the Worker adds `strictlyPublicCimdFetch()` (null without the compatibility flag: CIMD off, a
 warning at boot). A programmatic `createWorker({ oauth })` wins over the variables (tests).
 

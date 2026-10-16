@@ -45,3 +45,6 @@ T4: attribute names with dots go through `nrql.identifier()`.
 
 ## Out of scope
 - Mapping `severity.number` ranges to names when `severity.text` is absent (note it if seen).
+
+## Owner decisions
+- 2026-10-16: the level-count facet keeps `LIMIT 20` (real level vocabularies are smaller; the total stays exact).

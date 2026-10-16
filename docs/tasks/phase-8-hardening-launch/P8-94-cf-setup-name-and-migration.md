@@ -2,11 +2,11 @@
 id: P8-94
 title: cf:setup --name writes the Worker name, migration next steps, and guide fixes
 phase: 8
-status: todo
+status: review
 priority: high
 depends_on: []
 adr: []
-owner: ""
+owner: "claude-agent"
 ---
 
 # P8-94 — cf:setup --name writes the Worker name, migration next steps, and guide fixes
@@ -36,9 +36,9 @@ A second Cloudflare deploy report (v0.11.0, migration from a self-hosted server)
   `install -m 600`).
 
 ## Acceptance criteria
-- [ ] Script tests: new copy has the right name; a mismatched name refuses; an old default-named copy is rewritten once.
-- [ ] Script tests for the migration next steps and the dry-run secret list.
-- [ ] Guide updated; `pnpm lint` passes.
+- [x] Script tests: new copy has the right name; a mismatched name refuses; an old default-named copy is rewritten once.
+- [x] Script tests for the migration next steps and the dry-run secret list.
+- [x] Guide updated; `pnpm lint` passes.
 
 ## Security notes
 T15-style operator mistakes: the bug can push secrets to, or delete them from, the wrong Worker. Note this in

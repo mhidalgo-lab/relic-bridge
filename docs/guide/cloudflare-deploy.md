@@ -30,8 +30,9 @@ The script:
 3. deploys using `apps/worker/wrangler.local.jsonc`, a git-ignored copy of `wrangler.jsonc`. Wrangler creates the D1
    database on the first deploy (or binds an existing database with the same name), and the script then records the
    database's id in the copy, never in a committed file. Another `--name` gets its own copy
-   (`wrangler.<name>.local.jsonc`) and its own D1 database named after the Worker, so a staging Worker never binds to
-   the production database, and its own Rate Limiting namespace (two Workers on one account would otherwise share the
+   (`wrangler.<name>.local.jsonc`) that names the Worker `<name>` (so `wrangler -c wrangler.<name>.local.jsonc` commands act
+   on that Worker, never on `relic-bridge`) and its own D1 database named after the Worker, so a staging Worker never
+   binds to the production database, and its own Rate Limiting namespace (two Workers on one account would otherwise share the
    `1701` counters);
 4. prints the URLs Wrangler deployed (custom domain and `workers.dev`) and the next steps, with `RB_REMOTE` set to the
    custom domain when there is one. The steps call the CLI from the clone (`node apps/cli/dist/index.mjs`) and start
@@ -185,8 +186,9 @@ dashboard (Workers & Pages, your Worker, Settings, Domains & Routes, Add, Custom
 ```
 
 Cloudflare then creates the DNS record and the certificate. Every Worker response, the `503` of a failed boot
-included, carries `Strict-Transport-Security: max-age=31536000; includeSubDomains`: on a custom domain this covers
-the zone's subdomains too, so only use a hostname under a domain whose subdomains are all served over https. Set `RB_ALLOWED_HOSTS=mcp.example.com`: the Host check is
+included, carries `Strict-Transport-Security: max-age=31536000; includeSubDomains`: a browser applies it to the host that
+sent it and that host's own subdomains (`mcp.example.com` and `*.mcp.example.com`), not to the rest of the zone
+([RFC 6797 section 8.2](https://www.rfc-editor.org/rfc/rfc6797#section-8.2)). Only use a hostname whose subdomains are all served over https. Set `RB_ALLOWED_HOSTS=mcp.example.com`: the Host check is
 **off** by default on Workers (Cloudflare only routes your own hostnames to the Worker); set it to refuse any other name.
 Use the new URL in the tokens you create from then on (`--url`); existing device configurations keep working on
 `workers.dev` until you set `"workers_dev": false`, which turns that address off. Source:
@@ -333,6 +335,18 @@ server's key: a Worker with another key answers `503` (`key_mismatch`) and canno
    relic-bridge db export /secure/place/relic-bridge-d1.sql --format d1     # --db <path> if not the default database
    ```
 
+   With Docker, run it inside the container and write to the data volume, then copy the file out with its mode kept
+   (`0600`: `docker cp` and a plain `scp` do not promise that):
+
+   ```sh
+   docker exec <container> relic-bridge db export /data/relic-bridge-d1.sql --format d1   # /data: the volume of the server
+   docker cp <container>:/data/relic-bridge-d1.sql ./ && chmod 600 relic-bridge-d1.sql
+   # or, from another machine, keeping the mode:  scp -p user@host:/path/to/relic-bridge-d1.sql .
+   # or, on the host, when the volume is a directory you can read:  install -m 600 /path/to/volume/relic-bridge-d1.sql ./
+   ```
+
+   Delete the copy in the volume once the import succeeded.
+
    The file is created with mode `0600` and never overwrites an existing one (`--force` replaces it). It holds encrypted
    New Relic keys and token hashes: keep it away from the master key (the command refuses to write next to
    `RB_MASTER_KEY_FILE`), never in the repository, and delete it after the import. The command prints the row counts and
@@ -356,6 +370,9 @@ server's key: a Worker with another key answers `503` (`key_mismatch`) and canno
    relic-bridge project list && relic-bridge token list && relic-bridge audit tail
    ```
 
+   Do not run `credential add` or `project add` here: the import already holds them, and adding again creates duplicates
+   (the setup's next steps say so after `--master-key-stdin`).
+
    Then point each device at the Worker URL with its existing token (only the URL changes), and reconnect OAuth apps.
    A `503` with `key_mismatch` in the Worker log means the Worker's `RB_MASTER_KEY` is not the server's: set the right
    one with `wrangler secret put RB_MASTER_KEY` (never generate a new one) and retry.
@@ -375,6 +392,17 @@ copies diverge: there is no way back from D1 to SQLite other than `relic-bridge 
 The Worker holds both keys during a rotation and re-encrypts the stored New Relic keys itself; the CLI only drives it
 through the Admin API (`POST /api/admin/v1/keys/rotate`, admin token required), one bounded batch per call. Run the
 `wrangler` commands from `apps/worker` (or through `pnpm --filter @relic-bridge/worker exec`).
+
+Every command below uses `-c wrangler.local.jsonc`, which names the Worker `relic-bridge`. With another `--name`, use
+`-c wrangler.<name>.local.jsonc` instead: that copy names your Worker `<name>` (setup writes it), so the command acts on
+that Worker and not on production. Before the first secret change, check which Worker the config targets:
+
+```sh
+pnpm --filter @relic-bridge/worker exec wrangler deployments list -c wrangler.<name>.local.jsonc   # shows the Worker name
+```
+
+If it shows `relic-bridge` for a staging config, stop: run `pnpm cf:setup --name <name>` again (it fixes the name in a
+copy made by an older version), or set `"name": "<name>"` in the copy.
 
 1. Generate the next version, one above the current, and keep it in your password manager:
    ```sh
@@ -411,7 +439,7 @@ through the Admin API (`POST /api/admin/v1/keys/rotate`, admin token required), 
    pnpm --filter @relic-bridge/worker exec wrangler secret delete RB_MASTER_KEY_PREVIOUS -c wrangler.local.jsonc
    ```
    Only after step 4 reported `0 not on version 2`: rows still on v1 become unreadable without the previous key.
-   (With another `--name`, use `-c wrangler.<name>.local.jsonc` in these commands.)
+   (With another `--name`, use `-c wrangler.<name>.local.jsonc` in these commands, as above.)
 6. Destroy the old key and any `wrangler d1 export` taken before the rotation if the old key may have leaked (those
    files are encrypted with it). D1 Time Travel can restore a pre-rotation state; that state needs the old key again.
 

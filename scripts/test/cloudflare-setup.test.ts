@@ -4,6 +4,7 @@ import {
   checkLogin,
   checkMasterKey,
   configDrift,
+  configWorkerName,
   d1Binding,
   databaseIdFromList,
   deployedUrls,
@@ -20,6 +21,7 @@ import {
   type SetupOptions,
   type WranglerResult,
   withDatabaseId,
+  withWorkerName,
 } from '../cloudflare-setup.ts';
 
 const OPTS: SetupOptions = {
@@ -881,5 +883,91 @@ describe('CLI next steps (P8-82)', () => {
     const h = harness(ok);
     await runSetup({ ...OPTS, dryRun: true }, h.deps);
     expect(h.logs.join('\n')).toMatch(/node apps\/cli\/dist\/index\.mjs.*pnpm --filter \.\/apps\/cli build/);
+  });
+});
+
+describe('Worker name in the local copy (P8-94)', () => {
+  it('writes the name into a new --name copy, byte for byte otherwise', () => {
+    const copy = localConfigFor(COMMITTED, 'rb-staging');
+    expect(configWorkerName(copy)).toBe('rb-staging');
+    expect(withWorkerName(COMMITTED, 'x')).toBe(COMMITTED.replace('"name": "relic-bridge"', '"name": "x"'));
+    expect(configWorkerName(localConfigFor(COMMITTED, 'relic-bridge'))).toBe('relic-bridge');
+    expect(() => localConfigFor('{ "d1_databases": [] }', 'x')).toThrow(/top-level "name"/);
+  });
+
+  it('creates the copy with the name, so -c commands never reach the production Worker', async () => {
+    const h = harness(ok);
+    await runSetup({ ...OPTS, name: 'rb-staging' }, h.deps);
+    expect(configWorkerName(h.copies[0]?.[1] ?? '')).toBe('rb-staging');
+  });
+
+  it('refuses a copy that names another Worker, with the fix, before anything is sent', async () => {
+    const other = localConfigFor(COMMITTED, 'rb-staging').replace(
+      '"name": "rb-staging"',
+      '"name": "other-app"',
+    );
+    const h = harness(ok, true, [], other);
+    await expect(runSetup({ ...OPTS, name: 'rb-staging' }, h.deps)).rejects.toThrow(
+      /names the Worker "other-app", but --name is "rb-staging".*"name": "rb-staging"/,
+    );
+    expect(h.calls.some((c) => c.args[0] === 'secret' || c.args[0] === 'deploy')).toBe(false);
+    expect(h.replaced).toEqual([]);
+    const h2 = harness(ok, true, [], localConfigFor(COMMITTED, 'rb-staging'));
+    await expect(runSetup(OPTS, h2.deps)).rejects.toThrow(/but --name is "relic-bridge"/);
+  });
+
+  it('rewrites an old copy that kept the default name, once, and says so', async () => {
+    const oldCopy = localConfigFor(COMMITTED, 'rb-staging').replace(
+      '"name": "rb-staging"',
+      '"name": "relic-bridge"',
+    );
+    expect(configWorkerName(oldCopy)).toBe('relic-bridge');
+    const h = harness(ok, true, [], oldCopy);
+    await runSetup({ ...OPTS, name: 'rb-staging' }, h.deps);
+    const fixed = h.replaced.find(([p]) => p === '/w/wrangler.rb-staging.local.jsonc')?.[1] ?? '';
+    expect(configWorkerName(fixed)).toBe('rb-staging');
+    expect(h.logs.join('\n')).toMatch(/Rewrote it to "rb-staging"/);
+    expect(h.logs.join('\n')).not.toContain('lacks or changes settings');
+    const again = harness(ok, true, [], fixed);
+    await runSetup({ ...OPTS, name: 'rb-staging' }, again.deps);
+    expect(again.logs.join('\n')).not.toContain('Rewrote it');
+  });
+
+  it('dry run mentions the name in the copy step', async () => {
+    const h = harness(ok);
+    await runSetup({ ...OPTS, name: 'rb-2', dryRun: true }, h.deps);
+    expect(h.logs.join('\n')).toContain('"name": "rb-2"');
+  });
+});
+
+describe('migration next steps and dry run secrets (P8-94)', () => {
+  const SERVER_KEY = `v1:${Buffer.from(Array.from({ length: 32 }, (_, i) => i + 1)).toString('base64')}`;
+  const withKey = (h: ReturnType<typeof harness>): SetupDeps => ({
+    ...h.deps,
+    readMasterKey: async () => SERVER_KEY,
+  });
+
+  it('points to the import and the check instead of credential add after --master-key-stdin', async () => {
+    const h = harness(ok);
+    await runSetup({ ...OPTS, masterKeyStdin: true }, withKey(h));
+    const out = h.logs.join('\n');
+    expect(out).toContain('Migrate from a self-hosted server');
+    expect(out).toMatch(/do NOT run credential add/);
+    expect(out).not.toContain('credential add --label');
+    expect(out).not.toContain('project add ...');
+    const plain = harness(ok);
+    await runSetup(OPTS, plain.deps);
+    expect(plain.logs.join('\n')).toContain('credential add --label main');
+  });
+
+  it('does not list RB_MASTER_KEY as generated in a dry run with --master-key-stdin', async () => {
+    const h = harness(ok);
+    await runSetup({ ...OPTS, masterKeyStdin: true, dryRun: true }, h.deps);
+    const gen = h.logs.find((l) => l.includes('generate ')) ?? '';
+    expect(gen).toContain('RB_ADMIN_TOKEN');
+    expect(gen).not.toContain('RB_MASTER_KEY');
+    const plain = harness(ok);
+    await runSetup({ ...OPTS, dryRun: true }, plain.deps);
+    expect(plain.logs.find((l) => l.includes('generate '))).toContain('RB_MASTER_KEY');
   });
 });

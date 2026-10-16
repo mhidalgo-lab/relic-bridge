@@ -85,3 +85,9 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   beyond best effort.
 - **Needs:** owner confirmation of the policy, since it is a public commitment.
 
+
+### P8-94 — Copy name mismatch policy and threat model entry
+- **Context:** `cf:setup --name X` kept `"name": "relic-bridge"` in `wrangler.X.local.jsonc`, so plain `wrangler -c` commands hit the production Worker.
+- **Assumption made:** a new copy gets `"name": "<name>"`; an old copy still naming `relic-bridge` is rewritten once (with a note); a copy naming anything else, or a default-name run against a copy naming another Worker, is refused with the fix rather than rewritten. No THREAT_MODEL row: no existing threat matches an operator targeting the wrong Worker (T15 is token revocation), so none was added.
+- **Options:** also rewrite any mismatched name (riskier: may overwrite a deliberate rename); add a new threat row for operator mistakes in deployment.
+- **Needs:** owner choice on the new threat row. No changeset: only the private scripts and docs changed.

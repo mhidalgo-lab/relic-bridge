@@ -184,6 +184,21 @@ Sources: <https://modelcontextprotocol.io/specification/2026-07-28/basic/authori
   (`validateToolOutput`, private) fails a result without `structuredContent`, and the result check needs a `content`
   array. The handler sees the request envelope (client capabilities) as `ctx.mcpReq.envelope`; 2025-era requests
   have none.
+- **Tasks over stateless HTTP, per-request capability (verified locally, P8-92, 2026-10-16)**: 2026-07-28 has no
+  initialize-time capability exchange for the extension: the client declares it in each request's
+  `_meta["io.modelcontextprotocol/clientCapabilities"].extensions`, which relic-bridge already reads per request, so tasks
+  work statelessly (creation, `tasks/get`, `tasks/update`, `tasks/cancel`). `tasks/list` and `tasks/result` do not exist in
+  the 2026-07-28 extension (they were 2025-11-25 experimental methods) and answer `-32601`. A 2025-era client that declares
+  the extension in `initialize` cannot be served: nothing carries the capability afterwards, so `tasks/*` answers `-32021`
+  and `tools/call` with `params.task` runs as a normal call. The handler factory's `McpRequestContext.era` (`legacy` |
+  `modern`) tells which era a server instance will serve, so the extension is advertised to `modern` only.
+- **`listChanged` in SDK 2.2.0 (verified locally, P8-92)**: `registerPrompt` / `registerResource` register
+  `{ listChanged: <declared> ?? true }`, so a value passed in the `McpServer` constructor `capabilities` is kept. Declare
+  `prompts` / `resources` there only when something is registered, or the capability would appear without handlers.
+- **JSON-RPC errors from handlers (SDK 2.2.0, P8-92)**: a handler may throw `ProtocolError(code, message, data)`; the SDK
+  sends it as the JSON-RPC error (so `-32602` with `data.code`). Any other thrown `Error` becomes `-32603`.
+- **keyset() on an event type without events (P8-92)**: returns one row, `timestamp`, so a `count(*)` over the same window
+  is needed to tell "no events" from "only a timestamp".
 - Tool input schemas support full JSON Schema 2020-12.
 - **SDK v2** (`@modelcontextprotocol/server`, 2.1.x) supports both protocol eras:
   - `createMcpHandler(factory, { legacy: 'stateless' })` builds a fresh server per request and serves both 2025-era

@@ -110,7 +110,7 @@ No real host rendered it. Since P7-16 the link and the view are shown only to cl
 
 With the Tasks extension (`io.modelcontextprotocol/tasks`, MCP 2026-07-28) a client gets a task for a slow `run_nrql`
 and polls `tasks/get` instead of calling `get_query_result`. Offered on the project HTTP routes of `serve` and the
-Worker only (not stdio, not pass-through). Evidence: the server side is **T** with raw 2026-07-28 JSON-RPC requests
+Worker only (not stdio, not pass-through), and only to 2026-07-28 requests: the extension is declared in each request's `_meta`, so a 2025-era `initialize` does not advertise it (P8-92). Evidence: the server side is **T** with raw 2026-07-28 JSON-RPC requests
 (`packages/http-app/test/tasks.test.ts`, authorization on the HTTP app and the Worker in
 `packages/http-app/test/authz/tasks.test.ts`). The MCP TypeScript SDK client 2.2.0 does not declare the extension, so it
 gets the `queryId` handle (T). No real client was run.

@@ -10,12 +10,16 @@
 // - The MCP Apps view (P7-04) is static HTML that draws the tool result the host hands it; it reads nothing itself.
 // - The URI is client input. `{account}` must be digits; the handlers validate the rest. `resources/list` names only
 //   the connection's effective accounts, and attributes are never enumerated.
-import { type McpServer, type RegisteredResource, ResourceTemplate } from '@modelcontextprotocol/server';
+import {
+  type McpServer,
+  type ProtocolError,
+  type RegisteredResource,
+  ResourceTemplate,
+} from '@modelcontextprotocol/server';
 import { CHART_APP_HTML, CHART_APP_RESOURCE_META, MCP_APP_MIME_TYPE, NRQL_CHART_URI } from './apps/index.ts';
 import type { ToolContext } from './context.ts';
-import { ErrorCode, isRbError } from './errors.ts';
+import { ErrorCode, RbError, toProtocolError } from './errors.ts';
 import { NRQL_REFERENCE } from './nrql-reference.ts';
-import { redact } from './redact.ts';
 import type { ToolDefinition, ToolOutput } from './tool.ts';
 
 export const NRQL_REFERENCE_URI = 'relic://nrql/reference';
@@ -95,13 +99,8 @@ export type InvokeTool = (def: ToolDefinition, input: unknown) => Promise<ToolOu
 
 const one = (v: string | string[] | undefined): string | undefined => (Array.isArray(v) ? v[0] : v);
 
-/** A refusal in the form clients see for a failed read: code, message and hint, redacted. */
-function readError(error: unknown): Error {
-  if (isRbError(error)) {
-    return new Error(redact(`${error.code}: ${error.message}${error.hint ? ` Hint: ${error.hint}` : ''}`));
-  }
-  return new Error('Internal error while reading the resource.');
-}
+const invalidUri = (message: string): ProtocolError =>
+  toProtocolError(new RbError(ErrorCode.InputInvalid, message));
 
 /** Registers the offered resources; returns the MCP Apps view resources by URI (their visibility is per client, P7-16). */
 export function registerResources(
@@ -145,30 +144,26 @@ export function registerResources(
     const read = async (uri: URL, vars: Record<string, string | string[]>) => {
       const account = one(vars['account']);
       if (account === undefined || !ACCOUNT_RE.test(account)) {
-        throw new Error(
-          `${ErrorCode.InputInvalid}: the account in the URI must be a New Relic account id (digits).`,
-        );
+        throw invalidUri('the account in the URI must be a New Relic account id (digits).');
       }
       const input: Record<string, unknown> = { account: Number(account) };
       if (def.kind === 'attributes') {
         const eventType = one(vars['eventType']);
         if (eventType === undefined || eventType === '') {
-          throw new Error(`${ErrorCode.InputInvalid}: the URI needs an event type.`);
+          throw invalidUri('the URI needs an event type.');
         }
         input['event_type'] = eventType;
       }
       // The tool's own input schema, as on `tools/call`: the handler never sees unvalidated URI text.
       const parsed = tool.inputSchema.safeParse(input);
       if (!parsed.success) {
-        throw new Error(
-          `${ErrorCode.InputInvalid}: the URI does not name a valid ${def.kind.replace('_', ' ')}.`,
-        );
+        throw invalidUri(`the URI does not name a valid ${def.kind.replace('_', ' ')}.`);
       }
       try {
         const out = await opts.invoke(tool, parsed.data);
         return { contents: [{ uri: uri.href, mimeType: def.mimeType, text: NOTICE + out.text }] };
       } catch (error) {
-        throw readError(error);
+        throw toProtocolError(error);
       }
     };
     const template = new ResourceTemplate(def.uri, {

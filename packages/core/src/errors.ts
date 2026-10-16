@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-import type { CallToolResult } from '@modelcontextprotocol/server';
+import { type CallToolResult, ProtocolError, ProtocolErrorCode } from '@modelcontextprotocol/server';
 import { envelope } from './output/envelope.ts';
 import { redact } from './redact.ts';
 
@@ -95,4 +95,32 @@ export function toToolErrorResult(error: unknown, requestId: string): CallToolRe
     content: [{ type: 'text', text: redact(lines.join('\n')) }],
     _meta: { [ERROR_META_KEY]: { code: rb.code, requestId } },
   };
+}
+
+/** Codes that mean "the request is wrong or not allowed", not "the server failed": JSON-RPC invalid params (P8-92). */
+const CLIENT_FAULT_CODES: ReadonlySet<string> = new Set([
+  ErrorCode.InputInvalid,
+  ErrorCode.AuthUnauthorized,
+  ErrorCode.AuthForbidden,
+  ErrorCode.ToolDisabled,
+]);
+
+/**
+ * A failed resource read or prompt request as clients see it: input and authorization errors are `-32602`
+ * (invalid params), every other `RB_*` failure stays `-32603`; the `RB_*` code is in `error.data.code` either way. Messages are redacted. Unknown errors
+ * never leak their text.
+ */
+export function toProtocolError(error: unknown): ProtocolError {
+  if (isRbError(error)) {
+    const data: Record<string, unknown> = { code: error.code };
+    if (error.hint) data['hint'] = redact(error.hint);
+    return new ProtocolError(
+      CLIENT_FAULT_CODES.has(error.code) ? ProtocolErrorCode.InvalidParams : ProtocolErrorCode.InternalError,
+      redact(`${error.code}: ${error.message}${error.hint ? ` Hint: ${error.hint}` : ''}`),
+      data,
+    );
+  }
+  return new ProtocolError(ProtocolErrorCode.InternalError, 'Internal error while handling the request.', {
+    code: ErrorCode.Internal,
+  });
 }

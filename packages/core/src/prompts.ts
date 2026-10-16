@@ -10,6 +10,9 @@
 // - No NRQL or GraphQL is built here. Steps tell the agent to use the tools, which validate every value themselves.
 import type { StandardSchemaWithJSON } from '@modelcontextprotocol/server';
 import { z } from 'zod';
+import type { ToolContext } from './context.ts';
+import { ErrorCode, RbError } from './errors.ts';
+import { parseTimeRange } from './time/range.ts';
 
 /** One line, no control or format characters (so no newline, no bidi override), 1..200 chars. */
 const SAFE_LINE_RE = /^[^\p{Cc}\p{Cf}\p{Zl}\p{Zp}]{1,200}$/u;
@@ -40,22 +43,51 @@ export interface PromptDefinition {
   readonly description: string;
   /** Strict object of string arguments (MCP prompt arguments are strings). */
   readonly argsSchema: z.ZodObject<z.ZodRawShape>;
-  /** Intro sentence (our own text), with `{name}` placeholders. */
+  /** Intro sentence (our own text), with `{name}` placeholders. `[ ... {name} ... ]` is dropped when `name` is absent. */
   readonly goal: string;
   /** The prompt is offered when at least one of these tools is allowed. */
   readonly needsAnyOf: readonly string[];
   readonly steps: readonly PromptStep[];
 }
 
-/** Placeholder `{arg}`: the quoted value, or a neutral phrase when the argument wasn't given. */
+/** Placeholder `{arg}`: the argument's value as a quoted JSON string. */
 const PLACEHOLDER_RE = /\{([a-z_]+)\}/g;
+/** Optional clause `[ text with {arg} ]`: kept only when every placeholder inside it was given, else dropped whole. */
+const OPTIONAL_RE = /\[([^[\]]*)\]/g;
 
 function render(template: string, args: Readonly<Record<string, string | undefined>>): string {
-  return template.replace(PLACEHOLDER_RE, (_m, key: string) => {
-    const value = args[key];
-    // JSON.stringify escapes quotes, backslashes and control characters, so the value stays one quoted token.
-    return value === undefined ? `(no ${key} given)` : JSON.stringify(value);
+  // JSON.stringify escapes quotes, backslashes and control characters, so the value stays one quoted token.
+  const fill = (text: string): string =>
+    text.replace(PLACEHOLDER_RE, (_m, key: string) => JSON.stringify(args[key]));
+  const withClauses = template.replace(OPTIONAL_RE, (_m, clause: string) => {
+    const keys = [...clause.matchAll(PLACEHOLDER_RE)].map((m) => m[1] as string);
+    return keys.every((k) => args[k] !== undefined) ? fill(clause) : '';
   });
+  // A required argument is always present (the schema), so a missing one here is a bug: never print "undefined".
+  return fill(withClauses.replace(PLACEHOLDER_RE, (m, key: string) => (args[key] === undefined ? '' : m)));
+}
+
+/**
+ * Check the values of a prompt request against this connection with the same parsers the tools use, so a bad window or
+ * an account the connection may not use fails at `prompts/get` instead of inside a later tool call. Throws `RbError`
+ * (`RB_INPUT_INVALID` / `RB_AUTH_FORBIDDEN`). Spends nothing and calls no tool.
+ */
+export function validatePromptArgs(
+  args: Readonly<Record<string, string | undefined>>,
+  ctx: Pick<ToolContext, 'accounts' | 'clock'>,
+): void {
+  const { time_range: range, account, deployment_time: deployed } = args;
+  if (range !== undefined) parseTimeRange(range, ctx.clock.now());
+  if (deployed !== undefined && !Number.isFinite(Date.parse(deployed))) {
+    throw new RbError(ErrorCode.InputInvalid, 'deployment_time must be an ISO 8601 date or date-time.', {
+      hint: 'Example: 2026-10-05T14:30:00Z.',
+    });
+  }
+  if (account !== undefined && !ctx.accounts.allowed.includes(Number(account))) {
+    throw new RbError(ErrorCode.AuthForbidden, `Account ${account} is not available on this connection.`, {
+      hint: 'Use list_accounts to see the accounts this connection may query.',
+    });
+  }
 }
 
 /** The prompt text for the given arguments and allowed tools. Pure. */
@@ -74,7 +106,7 @@ export function renderPrompt(
     );
   }
   lines.push(
-    'Use only the tools listed in the steps. They are read-only. Every tool takes the values above under the same argument names (entity_guid, time_range, account, issue_id...): pass them only when given above.',
+    'Use only the tools listed in the steps. They are read-only. Pass a value above to a tool parameter of the same name (entity_guid, time_range, account...) only when it was given; the tools check every value again.',
     '',
   );
   let n = 0;
@@ -101,7 +133,7 @@ export const PROMPTS: readonly PromptDefinition[] = [
       issue_id: lineArg('Alert issue id, from list_recent_issues.'),
       account: accountArg.optional(),
     }),
-    goal: 'Investigate the New Relic alert issue {issue_id} (account {account}).',
+    goal: 'Investigate the New Relic alert issue {issue_id}[ (account {account})].',
     needsAnyOf: ['generate_alert_insights_report', 'list_recent_issues', 'search_incidents'],
     steps: [
       {
@@ -147,7 +179,7 @@ export const PROMPTS: readonly PromptDefinition[] = [
       entity_guid: guidArg.optional(),
       account: accountArg.optional(),
     }),
-    goal: 'Triage the alert issues in time range {time_range} for entity {entity_guid} (account {account}).',
+    goal: 'Triage the open and recent alert issues[ in time range {time_range}][ for entity {entity_guid}][ (account {account})].',
     needsAnyOf: ['list_recent_issues', 'search_incidents'],
     steps: [
       {
@@ -176,7 +208,7 @@ export const PROMPTS: readonly PromptDefinition[] = [
     title: 'Investigate an error spike',
     description: 'Find which errors increased on an entity, when they started and what they correlate with.',
     argsSchema: z.strictObject({ entity_guid: guidArg, time_range: timeArg.optional() }),
-    goal: 'Investigate the error spike on entity {entity_guid} in time range {time_range}.',
+    goal: 'Investigate the error spike on entity {entity_guid}[ in time range {time_range}].',
     needsAnyOf: ['list_error_groups', 'get_golden_metrics', 'run_nrql'],
     steps: [
       {
@@ -219,7 +251,7 @@ export const PROMPTS: readonly PromptDefinition[] = [
       time_range: timeArg.optional(),
       transaction_name: lineArg('Exact transaction name, from list_top_transactions.').optional(),
     }),
-    goal: 'Investigate slow transactions on APM application {entity_guid} in time range {time_range} (transaction {transaction_name}).',
+    goal: 'Investigate slow transactions on APM application {entity_guid}[ in time range {time_range}][ (transaction {transaction_name})].',
     needsAnyOf: ['list_top_transactions', 'analyze_transactions'],
     steps: [
       {
@@ -228,7 +260,7 @@ export const PROMPTS: readonly PromptDefinition[] = [
       },
       {
         tool: 'list_top_transactions',
-        text: 'List the top transactions sorted by total time and by average duration.',
+        text: 'List the top transactions with sort_by slowest (highest p95 duration), then again with sort_by throughput to see which busy transactions dominate.',
       },
       {
         tool: 'analyze_transactions',
@@ -262,7 +294,7 @@ export const PROMPTS: readonly PromptDefinition[] = [
         'When the deployment happened, ISO 8601, e.g. 2026-10-05T14:30:00Z. Default: the latest one.',
       ).optional(),
     }),
-    goal: 'Check whether the deployment of APM application {entity_guid} at {deployment_time} caused a regression.',
+    goal: 'Check whether the deployment of APM application {entity_guid}[ at {deployment_time}] caused a regression.',
     needsAnyOf: ['analyze_deployment_impact', 'list_change_events'],
     steps: [
       {
@@ -289,7 +321,7 @@ export const PROMPTS: readonly PromptDefinition[] = [
     title: 'Investigate a log anomaly',
     description: 'Find new or growing log patterns on an entity and relate them to errors and changes.',
     argsSchema: z.strictObject({ entity_guid: guidArg, time_range: timeArg.optional() }),
-    goal: 'Investigate unusual log activity for entity {entity_guid} in time range {time_range}.',
+    goal: 'Investigate unusual log activity for entity {entity_guid}[ in time range {time_range}].',
     needsAnyOf: ['analyze_entity_logs', 'list_recent_logs'],
     steps: [
       {
@@ -315,7 +347,7 @@ export const PROMPTS: readonly PromptDefinition[] = [
       time_range: timeArg.optional(),
       account: accountArg.optional(),
     }),
-    goal: 'Investigate Kubernetes pod problems in cluster {cluster_name} in time range {time_range} (account {account}).',
+    goal: 'Investigate Kubernetes pod problems[ in cluster {cluster_name}][ in time range {time_range}][ (account {account})].',
     needsAnyOf: ['run_nrql'],
     steps: [
       {

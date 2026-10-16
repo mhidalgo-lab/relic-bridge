@@ -243,12 +243,22 @@ and, over HTTP, with clients speaking protocol 2026-07-28; an older client over 
 `confirm: true` flow applies. Never set your client to auto-accept these forms. Which clients show them is not yet
 verified: [client compatibility](../reference/client-compatibility.md).
 
+## Prompts and resources
+
+The server offers investigation **prompts** and read-only **resources** ([prompts](../reference/prompts.md),
+[resources](../reference/resources.md)); which ones you see depends on the tools your connection may use. A prompt only
+adds the parts of its text for the arguments you give it. A value it cannot use (an unparseable `time_range`, an
+account the connection may not query) is refused when you pick the prompt, with JSON-RPC `-32602` and the `RB_*` code in
+the error data, the same code a tool would give. A bad resource URI or an account outside the connection is answered the
+same way. Over HTTP the server cannot push notifications, so it advertises `listChanged: false` for tools, prompts and
+resources: reconnect after an upgrade to see changes.
+
 ## Slow queries and MCP Tasks
 
 A NRQL query that is still running after `timeout_seconds` comes back as a handle: the agent calls `get_query_result`
 with the `queryId` later. On a remote server (`serve`, Cloudflare), a client that supports the MCP **Tasks** extension
 (`io.modelcontextprotocol/tasks`, protocol 2026-07-28) gets a task instead and polls it itself; the result is the same
-as a normal call. Task results are kept for 15 minutes, only for the device (token or OAuth sign-in) that started the
+as a normal call. Only clients speaking protocol 2026-07-28 are offered tasks: the extension is declared on each request, which a 2025-era connection cannot do, so the server does not advertise it there. Task results are kept for 15 minutes, only for the device (token or OAuth sign-in) that started the
 query. Nothing to configure. Which clients support it: [client compatibility](../reference/client-compatibility.md#mcp-tasks-p7-13-2026-10-06).
 
 On a Tasks-declaring client, `generate_alert_insights_report` is also a task: the call looks the issue up and returns the task, and each poll

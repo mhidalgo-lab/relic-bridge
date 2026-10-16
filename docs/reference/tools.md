@@ -268,6 +268,7 @@ Pass event_type from list_event_types. Not paged: at most 1000 attributes (trunc
 | `truncated` | `boolean` | yes |  |
 | `sample` | `object \| null` | yes |  |
 | `cached` | `boolean` | yes |  |
+| `noEvents` | `boolean` | no |  |
 
 ### Annotations
 

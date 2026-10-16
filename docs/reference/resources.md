@@ -4,7 +4,7 @@
 
 4 MCP resources (`resources/list`, `resources/templates/list`, `resources/read`). URIs are stable. A resource is offered only when the tool behind it is in the connection's allowed list, otherwise its URI is unknown.
 
-Schema resources are readers over `list_event_types` and `get_attributes`: the same account check (an account outside the connection is refused with `RB_AUTH_FORBIDDEN`, no New Relic call), event-type allow and deny lists, per-credential cache (5 minutes), request budget and audit row. The window is fixed at the last 24 hours. Names come from the account and are labelled as untrusted data. `{eventType}` is percent-encoded and case-sensitive.
+Schema resources are readers over `list_event_types` and `get_attributes`: the same account check (an account outside the connection is refused with `RB_AUTH_FORBIDDEN`, no New Relic call), event-type allow and deny lists, per-credential cache (5 minutes), request budget and audit row. The window is fixed at the last 24 hours. Names come from the account and are labelled as untrusted data. `{eventType}` is percent-encoded and case-sensitive. A bad URI (non-numeric account, invalid event type) or an account outside the connection is answered with JSON-RPC `-32602` and the `RB_*` code in `error.data.code` (`RB_INPUT_INVALID`, `RB_AUTH_FORBIDDEN`); a failure on the New Relic side stays `-32603`. An event type with no events in the window says so and points to `list_event_types`.
 
 ## `relic://nrql/reference`
 

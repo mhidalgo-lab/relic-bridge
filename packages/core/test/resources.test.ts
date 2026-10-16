@@ -225,4 +225,60 @@ describe('resources over MCP', () => {
     await expect(client.readResource({ uri: 'relic://nrql/reference' })).rejects.toThrow();
     await expect(client.readResource({ uri: `relic://accounts/${A}/event-types` })).rejects.toThrow();
   });
+
+  describe('error codes and capabilities (P8-92)', () => {
+    const failure = async (client: Client, uri: string) =>
+      client.readResource({ uri }).then(
+        () => ({ code: undefined, data: undefined, message: 'read succeeded' }),
+        (e: { code?: number; data?: unknown; message?: string }) => e,
+      );
+
+    it('answers input and authorization errors with -32602 and the RB_* code in data', async () => {
+      const { fetch, queries } = recorder();
+      const client = await connect(schemaTools(fetch), testContext());
+      const cases: [string, string][] = [
+        [`relic://accounts/${B}/event-types`, 'RB_AUTH_FORBIDDEN'],
+        [`relic://accounts/${B}/event-types/Transaction/attributes`, 'RB_AUTH_FORBIDDEN'],
+        ['relic://accounts/abc/event-types', 'RB_INPUT_INVALID'],
+        ['relic://accounts/0/event-types', 'RB_INPUT_INVALID'],
+        [
+          `relic://accounts/${A}/event-types/${encodeURIComponent('Log; DROP')}/attributes`,
+          'RB_INPUT_INVALID',
+        ],
+      ];
+      for (const [uri, code] of cases) {
+        const e = await failure(client, uri);
+        expect(e, uri).toMatchObject({ code: -32602, data: { code } });
+        expect(e.message).toContain(code);
+      }
+      expect(queries).toEqual([]);
+    });
+
+    it('keeps -32603 for a failure that is the server side, with the code in data', async () => {
+      const client = await connect(
+        schemaTools(async () => new Response('boom', { status: 500 })),
+        testContext(),
+      );
+      const e = await failure(client, `relic://accounts/${A}/event-types`);
+      expect(e.code).toBe(-32603);
+      expect(e.data).toMatchObject({ code: expect.stringMatching(/^RB_/) });
+    });
+
+    it('does not promise list-change notifications a stateless server cannot send', async () => {
+      const server = buildMcpServer({
+        tools: createBuiltinTools(),
+        ctx: testContext(),
+        toolsListChanged: false,
+      });
+      const [clientT, serverT] = InMemoryTransport.createLinkedPair();
+      await server.connect(serverT);
+      const client = new Client({ name: 'test', version: '0.0.0' });
+      clients.push(client);
+      await client.connect(clientT);
+      const caps = client.getServerCapabilities();
+      expect(caps?.tools?.listChanged).toBe(false);
+      expect(caps?.prompts).toEqual({ listChanged: false });
+      expect(caps?.resources).toEqual({ listChanged: false });
+    });
+  });
 });

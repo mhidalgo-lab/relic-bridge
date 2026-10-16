@@ -3,7 +3,7 @@
 relic-bridge checked against the [OWASP Application Security Verification Standard](https://owasp.org/www-project-application-security-verification-standard/)
 **5.0.0** (released 2025-05-30, the current stable release per the [OWASP ASVS releases](https://github.com/OWASP/ASVS/releases)),
 Level 2: every L1 and L2 requirement of the chapters that apply. Prepared in P8-01 (2026-10-14) for the independent
-review (P8-02). Refreshed in P8-95 (2026-10-15) after P8-65, P8-66 and P8-73. Requirement text is not copied here (the standard is CC BY-SA 4.0); the **Topic** column is a short
+review (P8-02). Refreshed in P8-95 (2026-10-15) after P8-65, P8-66 and P8-73, and again after P8-85 and P8-96. Requirement text is not copied here (the standard is CC BY-SA 4.0); the **Topic** column is a short
 paraphrase, so read each id against the standard.
 
 **Applies**: whether the requirement can apply to relic-bridge. **Status**: *met*, *partial* (the gap is stated),
@@ -29,15 +29,15 @@ has **no passwords**, no file uploads, no WebSockets and no WebRTC.
 | V4 API and Web Service | yes | 4 | 0 | 1 | 5 |
 | V5 File Handling | partly (config bundle, audit CSV) | 5 | 0 | 0 | 4 |
 | V6 Authentication | yes (IdP sign-in, tokens) | 9 | 2 | 0 | 24 |
-| V7 Session Management | yes | 13 | 2 | 2 | 1 |
+| V7 Session Management | yes | 15 | 0 | 2 | 1 |
 | V8 Authorization | yes | 7 | 0 | 0 | 0 |
 | V9 Self-contained Tokens | consumed only (IdP ID tokens, Access assertions) | 6 | 0 | 0 | 1 |
 | V10 OAuth and OIDC | yes (server and client) | 24 | 0 | 1 | 4 |
 | V11 Cryptography | yes | 12 | 1 | 0 | 1 |
 | V12 Secure Communication | yes (TLS at the hosting layer) | 3 | 1 | 2 | 3 |
-| V13 Configuration | yes | 9 | 2 | 2 | 0 |
-| V14 Data Protection | yes | 8 | 1 | 0 | 0 |
-| V15 Secure Coding and Architecture | yes | 12 | 1 | 0 | 0 |
+| V13 Configuration | yes | 10 | 1 | 2 | 0 |
+| V14 Data Protection | yes | 9 | 0 | 0 | 0 |
+| V15 Secure Coding and Architecture | yes | 13 | 0 | 0 | 0 |
 | V16 Security Logging and Error Handling | yes | 14 | 2 | 0 | 0 |
 | V17 WebRTC | no | 0 | 0 | 0 | 7 |
 
@@ -186,9 +186,9 @@ OAuth tokens or the bootstrap admin token.
 | V7.4.2 | 1 | Sessions end when an account is disabled | yes | met | Disable and role change revoke sessions and OAuth devices; `rb_` tokens are refused for a disabled user. Tests: `authz/session-revocation.test.ts`, `authz/oauth-lifecycle-suite.ts` |
 | V7.4.3 | 2 | Option to end other sessions after a factor change | no | N/A | No factors held by relic-bridge; a role change already ends every session. |
 | V7.4.4 | 2 | Visible logout | yes | met | A sign-out form on every admin page (`ui/src/components.tsx`). Test: `ui/test/components.test.tsx` |
-| V7.4.5 | 2 | Administrators can end sessions of one user or all | yes | partial | Per user: `POST /users/{id}/sessions/revoke`. Gap: no "end every user's sessions" operation. Test: `authz/routes.test.ts` |
+| V7.4.5 | 2 | Administrators can end sessions of one user or all | yes | met | Per user: `POST /users/{id}/sessions/revoke`; for every user: `POST /users/sessions/revoke-all` (administrator, CSRF, recent sign-in, typed phrase; keeps the caller unless `includeSelf`). Code: `http/src/admin/api.ts` (`revokeAllUserSessions`, `requiredRole`, `sensitiveRoute`), `auth/src/identity/session.ts` (`revokeAllSessions`), `http/src/session.ts` (`revokeEverySession`). Tests: `authz/session-hardening.test.ts` (member, administrator, CSRF, cross-site, no session, stale sign-in, wrong phrase, keeps caller, `includeSelf`, admin token), `authz/reauth.test.ts`, `authz/routes.test.ts`, `authz/ui-sessions.test.ts`, `auth/test/session-list.test.ts` |
 | V7.5.1 | 2 | Re-authentication before sensitive account changes | yes | met | Sensitive admin changes (master-key rotation, config import, owner setup links, unbind, credential rotation, project deletion, creating or promoting admins and owners, disabling users, signing another user out, long-lived device tokens, OAuth clients and registration) need a sign-in from the last `RB_SESSION_REAUTH_MINUTES` (default 10, 1-60), decided server side from the stored session (`auth/src/identity/session.ts` `sessionIsFresh`; `http/src/admin/api.ts` `sensitiveRoute`, `requireFresh`), plus CSRF, the role and typed or single-use confirmations. A stale session gets one `403 forbidden` / `reauth_required` answer on every route, audited. The admin token is exempt (a secret held outside the browser). Tests: `authz/reauth.test.ts` (one negative case per action, window boundary, client hints ignored, `/me/*` out of scope, UI round trip), `auth/test/session.test.ts`. Limit: the proof is a relic-bridge sign-in; it does not force the IdP to prompt (V6.8.4) |
-| V7.5.2 | 2 | Users can view and end their sessions | yes | partial | Users can end all their sessions and list and revoke their own OAuth devices (`/me/oauth-devices`). Ending another user's sessions needs a recent sign-in (P8-73, `authz/reauth.test.ts`). Gap: no list of active browser sessions, and ending your own sessions needs no recent sign-in. |
+| V7.5.2 | 2 | Users can view and end their sessions | yes | met | Users can list their active browser sessions and end one or all of them (`/me`), and list and revoke their own OAuth devices (`/me/oauth-devices`). Re-authentication before ending your own session is not required (ending only reduces access; residual noted in THREAT_MODEL). Ending another user's sessions needs a recent sign-in (P8-73). Code: `http/src/admin/api.ts` (`mySessions`, `revokeMySession`), `http/src/session.ts` (`listUserSessions`, `revokeUserSessionByRef`, `coarseClientLabel`), `ui/src/screens/me.tsx`. Tests: `authz/session-hardening.test.ts` (own rows only, another user's id and a prefix of it are 404, no secret in the response, wrong CSRF, admin token `no_user`, idle sessions not listed), `authz/ui-sessions.test.ts`, `ui/test/me.test.ts` (escaping, axe), `auth/test/session-list.test.ts`, `authz/reauth.test.ts` |
 | V7.6.1 | 2 | RP / IdP session lifetimes behave as documented | yes | accepted | The relic-bridge session lifetime is independent of the IdP's; re-authentication at the IdP happens at the next sign-in. |
 | V7.6.2 | 2 | Session creation needs consent or an explicit action | yes | met | A session is created only after an explicit sign-in start and a callback with single-use, browser-bound state. Test: `http/test/identity.test.ts` |
 
@@ -292,7 +292,7 @@ relic-bridge issues no JWTs; it verifies IdP ID tokens and Cloudflare Access ass
 | V13.2.1 | 2 | Backend credentials not static where avoidable | yes | accepted | New Relic accepts only static User API keys; the admin token is static (hashed compare, strength-checked). Device and OAuth tokens are per device and revocable. |
 | V13.2.2 | 2 | Least privilege for backend communication | yes | met | Dedicated User key recommended ([security basics](../guide/security-basics.md)); Docker non-root, read-only root; database `0600`; keys scoped per grant. Test: `packages/storage-sqlite/test/sqlite.test.ts` |
 | V13.2.3 | 2 | No default credentials | yes | met | Master key required; weak or placeholder admin tokens refused (`http/src/admin/token.ts`). Test: `http/test/admin-token.test.ts` |
-| V13.2.4 | 2 | Allow-list of external resources | yes | partial | NerdGraph is a fixed region list; DCR redirect hosts can be allow-listed (`RB_OAUTH_DCR_REDIRECT_HOSTS`). Gap: metadata-document fetches are guarded (public https, port 443, no redirects, budgeted) rather than allow-listed by host. |
+| V13.2.4 | 2 | Allow-list of external resources | yes | met | NerdGraph is a fixed region list; DCR redirect hosts can be allow-listed (`RB_OAUTH_DCR_REDIRECT_HOSTS`); metadata-document hosts can be allow-listed with `RB_OAUTH_CIMD_HOSTS` (opt-in; when unset the fetch stays guarded: any public https host, port 443, no redirects, budgeted). A host outside the list is not fetched and is audited as `oauth.client.refused` (host only), on the token endpoint too. Code: `http/src/oauth/settings.ts`, `http/src/oauth/server.ts` (`clientMetadataHosts`, `resolveClient`), `worker/src/env.ts`, `cli/src/args.ts`. Tests: `authz/oauth-suite.ts` ("RB_OAUTH_CIMD_HOSTS (P8-96)", "narrowing ... cached"), `cli/test/serve-identity.test.ts` |
 | V13.2.5 | 2 | Server allow-list for outbound access | yes | accepted | No egress firewall in the app; Node checks every resolved address at connect time for caller-named URLs, Workers use `global_fetch_strictly_public`. Test: `cli/test/cimd-fetch.test.ts` |
 | V13.3.1 | 2 | Secrets management solution | yes | partial | Master key from a secret store, a `0600` file, the OS keychain or Worker secrets; versioned rotation ([secrets](../guide/secrets.md), `cli/src/keychain.ts`). Gap: no vault / HSM integration (an L3 expectation). |
 | V13.3.2 | 2 | Least privilege for secrets | yes | met | Key files must be `0600`; New Relic keys decrypted per request inside `NerdGraphClient`; never in tool arguments (T23). Tests: `cli/test/doctor.test.ts`, `core/test/registry.test.ts` |
@@ -312,7 +312,7 @@ relic-bridge issues no JWTs; it verifies IdP ID tokens and Cloudflare Access ass
 | V14.2.2 | 2 | No sensitive data in server caches | yes | met | Query cache TTL-bound, bounded, HMAC-keyed and scoped; Workers Cache API bodies encrypted (T16); `Cache-Control: no-store` on responses. Test: `core/test/query-cache.test.ts` |
 | V14.2.3 | 2 | No sensitive data to untrusted parties | yes | met | No trackers or third-party resources (CSP); OTLP export opt-in and allow-listed (T30). Test: `http/test/telemetry.test.ts` |
 | V14.2.4 | 2 | Encryption, retention and handling controls implemented | yes | met | Hashed tokens, AES-256-GCM keys, redacted logs and audit, 90-day audit retention with purge, NRQL masking. Tests: `core/test/redact.test.ts`, `http/test/audit.test.ts` |
-| V14.3.1 | 1 | Client storage cleared at logout | yes | partial | No client storage is used; logout revokes the server session and clears the cookie. Gap: no `Clear-Site-Data` header on logout. |
+| V14.3.1 | 1 | Client storage cleared at logout | yes | met | No client storage is used; logout revokes the server session, clears the cookie and sends `Clear-Site-Data: "cookies", "storage"` (not on a refused sign-out). Code: `http/src/identity.ts` (`CLEAR_SITE_DATA`, `toLogin`). Test: `authz/routes.test.ts` "sign-out (P4-02)": present on a sign-out and on an expired-session sign-out, absent on a refused one and on a cookie-less cross-site form |
 | V14.3.2 | 2 | Anti-caching headers | yes | met | `Cache-Control: no-store` on every response except hashed static assets. Tests: `http/test/app.test.ts`, `http/test/p4-consolidation-owner-assets.test.ts` |
 | V14.3.3 | 2 | No sensitive data in browser storage | yes | met | No `localStorage`, `sessionStorage` or IndexedDB; cookies hold only the session id, a sign-in binding value and a fixed flash code. |
 
@@ -327,7 +327,7 @@ relic-bridge issues no JWTs; it verifies IdP ID tokens and Cloudflare Access ass
 | V15.2.2 | 2 | Availability defences for heavy functionality | yes | met | Per-credential semaphore, call budget, body caps, request deadline, response caps, rate limits, quotas. Tests: `http/test/stream-deadline.test.ts`, `http/test/rate-limit.test.ts`, `http/test/fuzz-http.test.ts` |
 | V15.2.3 | 2 | Only required functionality in production | yes | met | Test hooks compiled out; distroless image; npm package `dist` only; spikes and e2e not shipped. |
 | V15.3.1 | 1 | Only required fields returned | yes | met | Admin API builds outputs field by field (masked keys, tokens without hashes); `whoami` returns no key material. Tests: `http/test/admin.test.ts`, `authz/` leak scan |
-| V15.3.2 | 2 | Outbound calls do not follow redirects | yes | partial | IdP, OTLP, `doctor` and metadata-document fetches refuse or do not follow redirects. Gap: an explicit redirect policy is not set on every outbound client (hardening candidate). |
+| V15.3.2 | 2 | Outbound calls do not follow redirects | yes | met | One policy for every outbound client: `redirect: 'manual'` (or `error`) forced through `outboundFetch` (`core/src/outbound.ts`, `noRedirects`); applied in `core/src/nerdgraph/client.ts`, `auth/src/identity/{github,oidc,cf-access}.ts`, `http/src/telemetry.ts`, `cli/src/manage/host.ts`, `cli/src/test-hooks.ts`, `worker/src/cimd-fetch.ts` and `scripts/nerdgraph-schema.ts`; IdP calls already set it (`auth/src/identity/http.ts`, `jwt.ts`); the Node metadata fetcher uses `node:https`. Tests: `scripts/test/outbound-redirects.test.ts` (fails on any source file that calls the global `fetch`; wrapper behaviour; a 302 stays unfollowed), `authz/oauth-suite.ts` CIMD "redirect" case, `cli/test/cimd-fetch.test.ts` |
 | V15.3.3 | 2 | Mass assignment | yes | met | `strictObject` schemas reject unknown fields (`http/src/admin/schemas.ts`, import schema). Tests: `http/test/admin.test.ts`, `authz/admin-management.test.ts` |
 | V15.3.4 | 2 | Client IP passed and trusted correctly | yes | met | See V4.1.3; IPv6 bucketed per /64; boot warning when `X-Forwarded-For` arrives with hops 0. Tests: `http/test/rate-limit.test.ts`, `http/test/fuzz.test.ts` |
 | V15.3.5 | 2 | Types and strict comparisons | yes | met | Strict TypeScript and zod on all inputs; constant-time compares for secrets. |
@@ -344,10 +344,10 @@ relic-bridge issues no JWTs; it verifies IdP ID tokens and Cloudflare Access ass
 | V16.2.3 | 2 | Logs only to documented sinks | yes | met | stderr (Workers Logs on Cloudflare), the audit table and opt-in OTLP, listed in the [logging inventory](logging.md#sinks-at-a-glance); product code logs only through `console.error`, and the CLI sends third-party `console.log` / `console.info` output to stderr too (`cli/src/index.ts`). |
 | V16.2.4 | 2 | Machine-readable logs | yes | met | Structured JSON, one line each; OTLP export allow-listed. |
 | V16.2.5 | 2 | Sensitive data logged per protection level | yes | met | Mandatory redaction in the logger; audit stores no tokens and masks NRQL by default (T8). Tests: `core/test/redact.test.ts`, `core/test/logger.test.ts`, `http/test/audit.test.ts` |
-| V16.3.1 | 2 | Authentication events logged | yes | met | `auth.denied`, `login.ok` / `login.denied`, session events, admin-token failures. Tests: `http/test/audit.test.ts`, `auth/test/p4-review-signin.test.ts` |
+| V16.3.1 | 2 | Authentication events logged | yes | met | `auth.denied`, `login.ok` / `login.denied`, session events, admin-token failures; token issuance: OAuth code exchange and refresh write `oauth.token.issue` and `oauth.token.refresh` (`http/src/oauth/server.ts`, `checkIssuance`); session expiry is logged as `auth.denied` with `session_idle` / `session_expired`; the retention purge run by `serve` records `audit.purge` with `source: schedule`. Tests: `http/test/audit.test.ts`, `auth/test/p4-review-signin.test.ts`, `authz/oauth-lifecycle-suite.ts` ("successful issuance is audited"; memory, SQLite, D1), `authz/session-expiry-audit.test.ts`, `cli/test/serve-e2e.test.ts` |
 | V16.3.2 | 2 | Failed authorization logged | yes | met | `admin.forbidden`, `request.rejected`, `tool.not_granted`, `quota.denied`. Tests: `authz/ui-role-parity.test.ts`, `authz/routes.test.ts` |
 | V16.3.3 | 2 | Documented security events and bypass attempts | yes | met | Rate-limit, size, batch, Host / Origin, CSRF and validation refusals logged (`reject`), audit refusals recorded. Test: `http/test/app.test.ts` |
-| V16.3.4 | 2 | Unexpected errors and control failures | yes | met | `onError` logs unhandled errors; NerdGraph network errors and storage failures logged. Test: `core/test/server.test.ts` |
+| V16.3.4 | 2 | Unexpected errors and control failures | yes | met | `onError` logs unhandled errors; NerdGraph network errors and storage failures logged; an undecryptable credential writes `credential.decrypt_failed` with the credential id, project and key version, never key material (`http/src/app.ts`). Tests: `core/test/server.test.ts`, `authz/credential-decrypt-audit.test.ts` (also pins the per-minute cap and the T8 scan) |
 | V16.4.1 | 2 | Log injection prevented | yes | met | JSON encoding of whole records; CLI output strips control and bidi characters; MCP headers pattern-checked (`safeMcpHeader`). Tests: `core/test/logger.test.ts`, `http/test/fuzz.test.ts` |
 | V16.4.2 | 2 | Logs protected from access and modification | yes | partial | Audit repository is append-only by API, role-gated viewer, database `0600`. Gap: no tamper evidence; stderr protection is the operator's. |
 | V16.4.3 | 2 | Logs sent to a separate system | yes | partial | Opt-in OTLP and Workers Logs; stderr can be shipped by the operator. Gap: no default separate sink; the audit table lives in the application database. |
@@ -369,10 +369,10 @@ The partial items, grouped. Each is a candidate for a task; none is a known vuln
 documentation items (V7.1.1, V7.1.3, V8.1.2, V13.1.1, V14.1.2, V15.1.1, V15.2.1) and the product items that had been
 fixed since (V3.4.1, V7.5.1, V10.7.1).
 
-- **Product**: IdP-asserted authentication strength or a forced IdP prompt on step-up (V6.3.3, V6.8.4); a list of
-  active browser sessions and a recent-sign-in check before ending your own (V7.5.2); "end every user's sessions"
-  (V7.4.5); `Clear-Site-Data` on logout (V14.3.1); an explicit redirect policy on every outbound client (V15.3.2); an
-  operator allow-list for metadata-document hosts (V13.2.4).
+- **Product**: IdP-asserted authentication strength or a forced IdP prompt on step-up (V6.3.3, V6.8.4). P8-96 closed
+  V7.4.5 (end every user's sessions), V7.5.2 (list and end your own sessions), V14.3.1 (`Clear-Site-Data` on logout),
+  V15.3.2 (one outbound redirect policy) and V13.2.4 (`RB_OAUTH_CIMD_HOSTS`, an opt-in host allow-list); P8-85 closed
+  the evidence gaps for V16.3.1 and V16.3.4 (token issuance, undecryptable credentials and the scheduled purge are audited).
 - **Platform or design** (recorded, no change planned): all-or-nothing multi-row admin operations on D1 (V2.3.3); TLS
   versions and certificates at the hosting layer (V12.1.1); vault / HSM integration (V13.3.1); tamper-evident and
   off-host logs by default (V16.4.2, V16.4.3); crypto agility beyond versioned formats (V11.2.2).

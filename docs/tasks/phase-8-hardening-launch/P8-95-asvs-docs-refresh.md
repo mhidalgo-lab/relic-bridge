@@ -2,7 +2,7 @@
 id: P8-95
 title: ASVS refresh after P8-65/66/73 and the documentation-only open items
 phase: 8
-status: review
+status: done
 priority: medium
 depends_on: []
 adr: []

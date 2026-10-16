@@ -2,7 +2,7 @@
 id: P8-96
 title: ASVS product open items - end all sessions, Clear-Site-Data, outbound redirect policy, metadata host allow-list
 phase: 8
-status: review
+status: done
 priority: medium
 depends_on: []
 adr: []

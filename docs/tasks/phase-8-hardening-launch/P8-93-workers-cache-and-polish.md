@@ -2,7 +2,7 @@
 id: P8-93
 title: Workers query cache honesty, budget notes, and review 4 polish items
 phase: 8
-status: review
+status: done
 priority: low
 depends_on: []
 adr: []

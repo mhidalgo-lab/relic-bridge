@@ -2,7 +2,7 @@
 id: P8-97
 title: OAuth leak scan false positive - public token-response fields listed as secrets
 phase: 8
-status: review
+status: done
 priority: medium
 depends_on: []
 adr: []

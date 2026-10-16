@@ -2,7 +2,7 @@
 id: P8-88
 title: Report refused writes as errors and document how write approval is detected
 phase: 8
-status: review
+status: done
 priority: high
 depends_on: []
 adr: [0015, 0016]

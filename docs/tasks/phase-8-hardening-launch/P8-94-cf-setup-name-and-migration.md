@@ -2,7 +2,7 @@
 id: P8-94
 title: cf:setup --name writes the Worker name, migration next steps, and guide fixes
 phase: 8
-status: review
+status: done
 priority: high
 depends_on: []
 adr: []

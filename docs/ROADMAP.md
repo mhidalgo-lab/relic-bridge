@@ -353,17 +353,17 @@ Generated from task front matter (`pnpm tasks index`). Status lives in each task
 | P8-82 | [cf:setup polish - real URLs, quieter drift warning, login permission check, CLI next steps](tasks/phase-8-hardening-launch/P8-82-cf-setup-polish.md) | low | P8-81 | done |
 | P8-83 | [Cloudflare guide clarity - CLI build step, zone security note, no internal ids, section order](tasks/phase-8-hardening-launch/P8-83-cloudflare-guide-clarity.md) | low | P8-82 | done |
 | P8-84 | [Release guards - DB fixture for a new minor and changesets for private packages](tasks/phase-8-hardening-launch/P8-84-release-guards.md) | medium | P8-05 | review |
-| P8-85 | [Audit coverage gaps from the logging inventory](tasks/phase-8-hardening-launch/P8-85-audit-coverage-gaps.md) | low | — | review |
+| P8-85 | [Audit coverage gaps from the logging inventory](tasks/phase-8-hardening-launch/P8-85-audit-coverage-gaps.md) | low | — | done |
 | P8-86 | [The one-time setup code never travels in a URL](tasks/phase-8-hardening-launch/P8-86-setup-code-out-of-url.md) | high | — | review |
 | P8-87 | [Flaky fuzz properties - CLI config secrets and OAuth registration](tasks/phase-8-hardening-launch/P8-87-fuzz-property-flakes.md) | low | — | review |
-| P8-88 | [Report refused writes as errors and document how write approval is detected](tasks/phase-8-hardening-launch/P8-88-write-refusal-reporting.md) | high | — | review |
-| P8-89 | [Restore the tracing-off diagnosis and remove false zeros in the user impact report](tasks/phase-8-hardening-launch/P8-89-diagnosis-regressions.md) | high | — | review |
-| P8-90 | [Self-telemetry - error status on spans, logs in context, spans for every MCP method](tasks/phase-8-hardening-launch/P8-90-self-telemetry-errors.md) | medium | — | review |
-| P8-91 | [Insights lookback clamp, create_dashboard errors and NRQL check, change events by entity, error group message match](tasks/phase-8-hardening-launch/P8-91-composite-and-write-polish.md) | medium | — | review |
-| P8-92 | [Protocol surface - tasks extension, listChanged, resource error codes, prompt texts, unknown event types](tasks/phase-8-hardening-launch/P8-92-protocol-surface-polish.md) | medium | — | review |
-| P8-93 | [Workers query cache honesty, budget notes, and review 4 polish items](tasks/phase-8-hardening-launch/P8-93-workers-cache-and-polish.md) | low | — | review |
-| P8-94 | [cf:setup --name writes the Worker name, migration next steps, and guide fixes](tasks/phase-8-hardening-launch/P8-94-cf-setup-name-and-migration.md) | high | — | review |
-| P8-95 | [ASVS refresh after P8-65/66/73 and the documentation-only open items](tasks/phase-8-hardening-launch/P8-95-asvs-docs-refresh.md) | medium | — | review |
-| P8-96 | [ASVS product open items - end all sessions, Clear-Site-Data, outbound redirect policy, metadata host allow-list](tasks/phase-8-hardening-launch/P8-96-asvs-product-hardening.md) | medium | — | review |
-| P8-97 | [OAuth leak scan false positive - public token-response fields listed as secrets](tasks/phase-8-hardening-launch/P8-97-oauth-leak-scan-false-positive.md) | medium | — | review |
+| P8-88 | [Report refused writes as errors and document how write approval is detected](tasks/phase-8-hardening-launch/P8-88-write-refusal-reporting.md) | high | — | done |
+| P8-89 | [Restore the tracing-off diagnosis and remove false zeros in the user impact report](tasks/phase-8-hardening-launch/P8-89-diagnosis-regressions.md) | high | — | done |
+| P8-90 | [Self-telemetry - error status on spans, logs in context, spans for every MCP method](tasks/phase-8-hardening-launch/P8-90-self-telemetry-errors.md) | medium | — | done |
+| P8-91 | [Insights lookback clamp, create_dashboard errors and NRQL check, change events by entity, error group message match](tasks/phase-8-hardening-launch/P8-91-composite-and-write-polish.md) | medium | — | done |
+| P8-92 | [Protocol surface - tasks extension, listChanged, resource error codes, prompt texts, unknown event types](tasks/phase-8-hardening-launch/P8-92-protocol-surface-polish.md) | medium | — | done |
+| P8-93 | [Workers query cache honesty, budget notes, and review 4 polish items](tasks/phase-8-hardening-launch/P8-93-workers-cache-and-polish.md) | low | — | done |
+| P8-94 | [cf:setup --name writes the Worker name, migration next steps, and guide fixes](tasks/phase-8-hardening-launch/P8-94-cf-setup-name-and-migration.md) | high | — | done |
+| P8-95 | [ASVS refresh after P8-65/66/73 and the documentation-only open items](tasks/phase-8-hardening-launch/P8-95-asvs-docs-refresh.md) | medium | — | done |
+| P8-96 | [ASVS product open items - end all sessions, Clear-Site-Data, outbound redirect policy, metadata host allow-list](tasks/phase-8-hardening-launch/P8-96-asvs-product-hardening.md) | medium | — | done |
+| P8-97 | [OAuth leak scan false positive - public token-response fields listed as secrets](tasks/phase-8-hardening-launch/P8-97-oauth-leak-scan-false-positive.md) | medium | — | done |
 <!-- tasks:end -->

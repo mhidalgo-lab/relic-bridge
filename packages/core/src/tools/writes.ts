@@ -474,8 +474,12 @@ export function createWriteTools(deps: ToolDeps = {}): ToolDefinition[] {
         if (dryRun) {
           const unreachable = approvalUnreachableWarning(ctx);
           return {
-            text: `Dry run: would ${spec.verb} issue ${input.issue_id} in account ${account} (state ${issue.state ?? 'unknown'}). Nothing was changed.${recordsNote ? ` ${recordsNote}` : ''}${unreachable === undefined ? '' : `
-Warning: ${unreachable}`}
+            text: `Dry run: would ${spec.verb} issue ${input.issue_id} in account ${account} (state ${issue.state ?? 'unknown'}). Nothing was changed.${recordsNote ? ` ${recordsNote}` : ''}${
+              unreachable === undefined
+                ? ''
+                : `
+Warning: ${unreachable}`
+            }
 ${titleBlock}`,
             structured: {
               ...shaped(false, plannedAfter, joined(null)),

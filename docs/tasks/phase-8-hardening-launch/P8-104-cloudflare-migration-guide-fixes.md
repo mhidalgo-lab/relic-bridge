@@ -2,11 +2,11 @@
 id: P8-104
 title: Cloudflare migration - Docker export command, Worker name check, re-run next steps
 phase: 8
-status: todo
+status: review
 priority: medium
 depends_on: []
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P8-104 — Cloudflare migration: Docker export command, Worker name check, re-run next steps
@@ -32,14 +32,18 @@ Third Cloudflare deploy report (v0.12.0 retest of the self-hosted-to-Worker migr
   ("migrating? import now" and "new? credential add"); otherwise the usual steps. If querying D1 fails, print both.
 
 ## Acceptance criteria
-- [ ] Script tests for the next steps on an empty and a non-empty database, and when the check fails.
-- [ ] Guide and any Docker docs updated; `pnpm lint` passes.
+- [x] Script tests for the next steps on an empty and a non-empty database, and when the check fails.
+- [x] Guide and any Docker docs updated; `pnpm lint` passes.
 
 ## Security notes
 The D1 check is read-only and runs with the operator's Wrangler login.
 
 ## Docs to update
-- `docs/guide/cloudflare-deploy.md`, Docker docs if affected, changeset (patch, private scripts if applicable).
+- `docs/guide/cloudflare-deploy.md` (done), `docs/THREAT_MODEL.md` T34 wording (done). No changeset: `scripts/` is not a versioned package; the other Docker docs use the correct `docker exec` form.
 
 ## Out of scope
 - Adding a `relic-bridge` shim to the image.
+
+## Owner decisions
+- 2026-10-16: a fresh deploy (no tables yet, so the check fails) keeps printing both branches; a fresh database is
+  exactly when either path is valid.

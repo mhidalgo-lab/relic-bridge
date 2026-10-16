@@ -36,7 +36,11 @@ The script:
    `1701` counters);
 4. prints the URLs Wrangler deployed (custom domain and `workers.dev`) and the next steps, with `RB_REMOTE` set to the
    custom domain when there is one. The steps call the CLI from the clone (`node apps/cli/dist/index.mjs`) and start
-   with the build command when it is not built yet.
+   with the build command when it is not built yet. They follow the database, not the flags of this run: a read-only
+   `SELECT count(*)` (through your Wrangler login) tells whether it already has users, keys, projects, grants or tokens.
+   When it has, you get the usual steps; when it is empty, or the check fails (for example before the first request
+   has created the tables), both ways on are shown: import an export if you are migrating, `credential add` if the
+   deployment is new.
 
 The two secrets are **shown once**, right after they are set (before the deploy, so a failed deploy doesn't lose them). Save them in a password manager. If you lose `RB_MASTER_KEY`, stored New
 Relic keys can't be decrypted and you must re-add them. `--backup-file <path>` also writes them to a new file with mode
@@ -339,7 +343,7 @@ server's key: a Worker with another key answers `503` (`key_mismatch`) and canno
    (`0600`: `docker cp` and a plain `scp` do not promise that):
 
    ```sh
-   docker exec <container> relic-bridge db export /data/relic-bridge-d1.sql --format d1   # /data: the volume of the server
+   docker exec <container> /nodejs/bin/node /app/dist/index.mjs db export /data/relic-bridge-d1.sql --format d1   # /data: the volume of the server
    docker cp <container>:/data/relic-bridge-d1.sql ./ && chmod 600 relic-bridge-d1.sql
    # or, from another machine, keeping the mode:  scp -p user@host:/path/to/relic-bridge-d1.sql .
    # or, on the host, when the volume is a directory you can read:  install -m 600 /path/to/volume/relic-bridge-d1.sql ./
@@ -398,11 +402,13 @@ Every command below uses `-c wrangler.local.jsonc`, which names the Worker `reli
 that Worker and not on production. Before the first secret change, check which Worker the config targets:
 
 ```sh
-pnpm --filter @relic-bridge/worker exec wrangler deployments list -c wrangler.<name>.local.jsonc   # shows the Worker name
+grep '"name"' apps/worker/wrangler.<name>.local.jsonc   # the first "name" is the Worker the config targets
 ```
 
-If it shows `relic-bridge` for a staging config, stop: run `pnpm cf:setup --name <name>` again (it fixes the name in a
-copy made by an older version), or set `"name": "<name>"` in the copy.
+(`wrangler deployments list` does not print the Worker name, so it cannot tell you.) If the first `"name"` is
+`relic-bridge` for a staging config, stop: run `pnpm cf:setup --name <name>` once with this release. It rewrites the name
+in a copy made by an older version, and refuses a copy that names another Worker. Or set `"name": "<name>"` in the copy
+yourself.
 
 1. Generate the next version, one above the current, and keep it in your password manager:
    ```sh

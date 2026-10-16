@@ -23,7 +23,7 @@
     "runtime": "web"
   },
   "dependencies": {
-    "hono": "4.13.11"
+    "hono": "4.13.13"
   },
   "devDependencies": {
     "@types/jsdom": "30.0.0",

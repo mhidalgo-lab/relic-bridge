@@ -252,7 +252,7 @@ export function TextField(props: FieldProps): JSX.Element {
         maxlength={props.maxlength}
         min={props.min}
         max={props.max}
-        spellcheck={props.spellcheck === undefined ? undefined : props.spellcheck ? 'true' : 'false'}
+        spellcheck={props.spellcheck}
         aria-invalid={props.error ? 'true' : undefined}
         aria-describedby={describedBy(props.name, props.hint, props.error)}
       />

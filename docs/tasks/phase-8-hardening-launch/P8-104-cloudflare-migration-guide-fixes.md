@@ -43,3 +43,7 @@ The D1 check is read-only and runs with the operator's Wrangler login.
 
 ## Out of scope
 - Adding a `relic-bridge` shim to the image.
+
+## Owner decisions
+- 2026-10-16: a fresh deploy (no tables yet, so the check fails) keeps printing both branches; a fresh database is
+  exactly when either path is valid.

@@ -275,7 +275,7 @@ const traceOutput = z.object({
 
 const TRACE_DESCRIPTION = `Follow one failing request through the system: from a trace_id, or from an error group (error_group_id from list_error_groups: its latest occurrence with a trace), get the trace's spans (services, root, error and slowest spans), the error events with request attributes (class, message, path, method, status) and the log lines with that trace id.
 
-Runs 3 queries (5 with error_group_id); a part that fails or does not fit is noted (partial: true). spansMissing means the trace was sampled out or is outside time_range (default last 24 hours); errors and logs still help. Only log lines with the trace id are returned: for other lines use list_recent_logs with a narrow time_range. One account per call (an entity, by entity_guid or name, implies it); synthetic traffic is skipped unless include_synthetic; query strings are removed from paths. ${UNTRUSTED}`;
+Runs 3 queries (5 with error_group_id); a part that fails or does not fit is noted (partial: true). spansMissing: sampled out, outside time_range (default last 24 hours) or tracing off; errors and logs still help. Only log lines with the trace id are returned: for other lines use list_recent_logs with a narrow time_range. One account per call (an entity, by entity_guid or name, implies it); synthetic traffic is skipped unless include_synthetic; query strings are removed from paths. ${UNTRUSTED}`;
 
 const spanQuery = (traceId: string, sinceMs: number, untilMs: number): NrqlQuery =>
   nrql`SELECT ${nrql.identifier('timestamp')}, id, ${nrql.identifier('parent.id')} AS parentId, name, ${nrql.identifier('entity.name')} AS service, category, ${nrql.identifier('duration.ms')} AS durationMs, ${nrql.identifier('error.class')} AS errorClass, ${nrql.identifier('error.message')} AS errorMessage FROM Span WHERE ${nrql.identifier('trace.id')} = ${traceId} LIMIT ${SPAN_LIMIT} SINCE ${Math.floor(sinceMs / 1000)} UNTIL ${Math.ceil(untilMs / 1000)}`;
@@ -390,6 +390,11 @@ export function tracingCheckQuery(
       ? nrql``
       : nrql`WHERE ${nrql.identifier('entity.guid')} = ${entityGuid} OR ${nrql.identifier('entityGuid')} = ${entityGuid}`;
   return nrql`SELECT filter(count(*), WHERE eventType() = 'Span') AS spans, filter(count(*), WHERE eventType() = 'TransactionError' AND traceId IS NOT NULL) AS tracedErrors, filter(count(*), WHERE eventType() = 'TransactionError') AS errors FROM Span, TransactionError ${entity} SINCE ${Math.floor(sinceMs / 1000)} UNTIL ${Math.ceil(untilMs / 1000)}`;
+}
+
+/** Account-wide span count in the window: zero means tracing is off, whatever one trace shows (BUG-12). */
+export function accountSpanCountQuery(sinceMs: number, untilMs: number): NrqlQuery {
+  return nrql`SELECT count(*) AS spans FROM Span SINCE ${Math.floor(sinceMs / 1000)} UNTIL ${Math.ceil(untilMs / 1000)}`;
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -635,7 +640,8 @@ export function createInvestigationTools(deps: ToolDeps = {}): ToolDefinition[] 
     openWorld: true,
     // Spans, error events and logs; for an error group, its NerdGraph lookup and one NRQL for its traced occurrence
     // (or, when none is found, the tracing check instead of the three trace queries).
-    cost: 1 + 4 * NRQL_COST,
+    // Plus, when the trace has no spans, one account-wide span count (BUG-12).
+    cost: 1 + 5 * NRQL_COST,
     group: 'incident-response',
     phase: 6,
     handler: async (args, ctx) => {
@@ -866,10 +872,25 @@ export function createInvestigationTools(deps: ToolDeps = {}): ToolDefinition[] 
       const spansRan = results.get('spans') !== undefined && 'rows' in (results.get('spans') as Outcome);
       const shape = shapeTrace(spanRows);
       const spansMissing = spansRan && shape.total === 0;
-      if (spansMissing)
-        notes.push(
-          'No spans found: the trace may have been sampled out, be older than the window, or live in another account.',
-        );
+      if (spansMissing) {
+        // Zero spans in the whole account is a different problem from one trace being sampled out (BUG-12).
+        let accountSpans: number | null = null;
+        let checkNote: string | null = null;
+        if (ctx.budget.remaining >= NRQL_COST) {
+          const check = await query(ctx, account, accountSpanCountQuery(range.sinceMs, range.untilMs));
+          if ('rows' in check) accountSpans = num(check.rows[0]?.['spans']);
+          else checkNote = check.note;
+        }
+        if (accountSpans === 0)
+          notes.push(
+            `No Span events exist in account ${account} in the window, so traces cannot be followed: distributed tracing or span collection appears to be disabled.`,
+          );
+        else
+          notes.push(
+            'No spans found: the trace may have been sampled out, be older than the window, or live in another account.',
+          );
+        if (checkNote !== null) notes.push(`The tracing check could not run: ${checkNote}`);
+      }
       if (shape.total >= SPAN_LIMIT) notes.push(`Only the first ${SPAN_LIMIT} spans were read.`);
       const partial = [...results.values()].some((r) => 'note' in r);
 

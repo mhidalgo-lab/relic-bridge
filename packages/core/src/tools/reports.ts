@@ -1380,7 +1380,16 @@ export function createReportTools(deps: ToolDeps = {}): ToolDefinition[] {
         current['sessionsWithErrors'] = null;
         sessionsUnknown = true;
       }
-      const previous = prev?.ran && prev.note === null ? (prev.numbers?.[f.guid] ?? empty) : null;
+      const previous = prev?.ran && prev.note === null ? { ...(prev.numbers?.[f.guid] ?? empty) } : null;
+      if (
+        f.kind === 'browser' &&
+        previous !== null &&
+        (previous['jsErrors'] ?? 0) > 0 &&
+        previous['sessionsWithErrors'] === 0
+      ) {
+        previous['sessionsWithErrors'] = null;
+        sessionsUnknown = true;
+      }
       const signals =
         f.kind === 'browser' ? browserSignals(current, previous) : mobileSignals(current, previous);
       return { ...base2, status: 'ok' as const, current, previous, signals };
@@ -1390,10 +1399,21 @@ export function createReportTools(deps: ToolDeps = {}): ToolDefinition[] {
       notes.push(
         'sessionsWithErrors is null where JavaScript errors exist: the error events carry no session id, so the count is unknown (not 0).',
       );
+    const unknownTotals = new Set<string>();
     const sum = (kind: FrontEndKind, field: string): number | null => {
       const rows = frontEnds.filter((f) => f.kind === kind && f.current !== null);
       if (rows.length === 0) return null;
-      return rows.reduce((n, f) => n + (num((f.current as Record<string, unknown>)[field]) ?? 0), 0);
+      let total = 0;
+      for (const f of rows) {
+        const v = num((f.current as Record<string, unknown>)[field]);
+        // One unknown part makes the sum unknown, not smaller (BUG-13).
+        if (v === null) {
+          unknownTotals.add(field);
+          return null;
+        }
+        total += v;
+      }
+      return total;
     };
     const totals = {
       browserSessionsWithErrors: sum('browser', 'sessionsWithErrors'),
@@ -1401,6 +1421,10 @@ export function createReportTools(deps: ToolDeps = {}): ToolDefinition[] {
       failedSyntheticChecks: sum('synthetic', 'failures'),
     };
 
+    if (unknownTotals.size > 0)
+      notes.push(
+        `Totals for ${[...unknownTotals].join(', ')} are null: at least one front end has an unknown value for it, so the sum would be too low.`,
+      );
     const prevSince = range.sinceMs - range.windowMs;
     const lines = [
       `User impact ${issue ? `of issue ${issue.id}` : 'around the entity'}, ${isoText(range.sinceMs)} to ${isoText(range.untilMs)} (UTC)` +

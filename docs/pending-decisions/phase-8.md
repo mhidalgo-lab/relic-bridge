@@ -114,3 +114,13 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Assumption made:** a local rule in `telemetry.ts`: the two `RB_WRITE_APPROVAL_*` codes set span status ERROR while
   keeping `fault=caller` and no `rpc.grpc.status_code`. Replace with the P8-90 helper once it lands.
 - **Needs:** none unless P8-90 chooses a different rule.
+
+### P8-89 — Tracing check scope and the cost of trace_error
+- **Context:** the task asks for an account-wide `count(*) FROM Span` when a trace has no spans, "one extra request at
+  most". For an error group whose trace was found, the worst case is now the group lookup, the trace lookup, three trace
+  queries and the check.
+- **Assumption made:** the check uses the tool's time window and the whole account (not the entity), runs only when budget
+  remains, and the declared cost grows from `1 + 4` to `1 + 5` NRQL units. When the check cannot run, the generic
+  "sampled out" wording stays. The earlier entity-scoped check for an error group with no traced occurrence is unchanged.
+  A total in the user impact report is `null` as soon as any front end's part is `null` (not a partial sum).
+- **Needs:** none unless a partial sum with a note is preferred over `null`.

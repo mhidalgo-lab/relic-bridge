@@ -12,7 +12,7 @@
     "typecheck": "tsc -p tsconfig.json && tsc -p scripts/tsconfig.json"
   },
   "dependencies": {
-    "@cloudflare/workers-oauth-provider": "1.2.1",
+    "@cloudflare/workers-oauth-provider": "1.2.3",
     "@hono/node-server": "2.1.1",
     "@modelcontextprotocol/server": "2.2.0",
     "zod": "4.6.5"

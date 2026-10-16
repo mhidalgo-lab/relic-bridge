@@ -1436,7 +1436,8 @@ did not). The skip rule itself was not run on a zone by the maintainers.
   keeps New Relic's default window (the last hour), since inserting a `SINCE` safely after `COMPARE WITH` needs a parser.
 - Errors Inbox `eventsQuery` is New Relic's own text and `list_error_groups` only passes it through; it is never run
   (T4). New Relic normalises group messages with placeholders such as `<NUMBER>` and `<UUID>`; `trace_error` turns each
-  into `%` and matches with `LIKE` (a template value).
+  into `%` and matches with `LIKE` (a template value). Checked live on 2026-10-16 against 100 error groups: the only
+  placeholders seen were `<NUMBER>` and `<HEX>`, both matched by `<[A-Z][A-Z0-9_]*>` (P8-98).
 - The change-tracking search filter has no entity argument that was verified; `list_change_events(entity_guid)` reads the
   account feed (`changeTrackingSearch`) in the window and keeps the events whose `entity.guid` equals the entity.
 

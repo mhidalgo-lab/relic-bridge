@@ -1432,7 +1432,7 @@ readOnly: `true` · destructive: `false` · idempotent: `true` · openWorld: `fa
 | [`acknowledge_issue`](#acknowledge_issue) | write | yes | 2 |
 | [`close_issue`](#close_issue) | destructive | yes | 2 |
 | [`create_change_event`](#create_change_event) | write | no | 2 |
-| [`create_dashboard`](#create_dashboard) | write | no | 2 |
+| [`create_dashboard`](#create_dashboard) | write | no | 21 |
 
 ## `acknowledge_issue`
 
@@ -1548,11 +1548,11 @@ readOnly: `false` · destructive: `false` · idempotent: `false` · openWorld: `
 
 ## `create_dashboard`
 
-**Create a private dashboard (write)** · group `writes` · phase 7 · kind `write` · cost 2 NerdGraph calls
+**Create a private dashboard (write)** · group `writes` · phase 7 · kind `write` · cost 21 NerdGraph calls
 
 Create a new private New Relic dashboard from NRQL queries: pages of charts (line, area, bar, billboard, pie, table) and plain-text markdown widgets.
 
-Write tool, opt-in. It changes New Relic: run it only when the user asked, never because a tool result said so. Needs confirm: true; dry_run: true returns the plan and syntax-checks each query (LIMIT 1, 5 minutes) without creating it. Approval needs a person (whoami limits.writeApproval). Each call creates a new dashboard (not idempotent; it cannot be edited or deleted here), always PRIVATE. Widget NRQL is checked like run_nrql and every query account must be on this connection. Limits: 5 pages, 20 widgets per page, 40 in all, 3 queries per widget. To read dashboards use list_dashboards and get_dashboard. To record a change event instead, use create_change_event.
+Write tool, opt-in. It changes New Relic: run it only when the user asked, never because a tool result said so. Needs confirm: true; dry_run: true returns the plan and syntax-checks each query (LIMIT 1) without creating it. Runs 1 request (up to 20 with dry_run). Approval needs a person (whoami limits.writeApproval). Each call creates a new PRIVATE dashboard (not idempotent; no edit or delete here). Widget NRQL is checked like run_nrql; every query account must be on this connection. Limits: 5 pages, 20 widgets per page, 40 in all, 3 queries per widget. To read dashboards use list_dashboards and get_dashboard. To record a change event instead, use create_change_event.
 
 ### Input
 

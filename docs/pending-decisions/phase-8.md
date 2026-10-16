@@ -84,6 +84,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   too (`--audit-level moderate`, which will fail builds on advisories with no fix yet); or promise nothing numeric
   beyond best effort.
 - **Needs:** owner confirmation of the policy, since it is a public commitment.
+- **Decision (2026-10-16):** Time frames kept: 7/14/30/90 days, and only high and critical advisories gate merges.
 
 
 ### P8-94 — Copy name mismatch policy and threat model entry
@@ -91,6 +92,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Assumption made:** a new copy gets `"name": "<name>"`; an old copy still naming `relic-bridge` is rewritten once (with a note); a copy naming anything else, or a default-name run against a copy naming another Worker, is refused with the fix rather than rewritten. No THREAT_MODEL row: no existing threat matches an operator targeting the wrong Worker (T15 is token revocation), so none was added.
 - **Options:** also rewrite any mismatched name (riskier: may overwrite a deliberate rename); add a new threat row for operator mistakes in deployment.
 - **Needs:** owner choice on the new threat row. No changeset: only the private scripts and docs changed.
+- **Decision (2026-10-16):** Refuse mismatches, as built. A threat model row was added (T34).
 
 ### P8-88 — Question-round path kept, refused instead of answered when it cannot ask (NEW-16)
 - **Context:** a request that declares form elicitation only in its own `_meta` (the per-request capability path) but is
@@ -106,6 +108,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   `_meta`-declared request as a question round (it would then be charged to the write limit and refused the same way).
 - **Needs:** owner confirmation that (a) is enough, or a decision to pursue (b) after the MCP SDK exposes per-request
   capabilities on 2025-era connections.
+- **Decision (2026-10-16):** (a): keep fail-closed. Revisit when the SDK carries per-request capabilities on 2025-era connections.
 
 ### P8-88 — Span status for a refused write (P8-90 helper not landed)
 - **Context:** P8-59 leaves the span status unset for caller errors. A write refused for lack of approval is classified
@@ -125,6 +128,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   "sampled out" wording stays. The earlier entity-scoped check for an error group with no traced occurrence is unchanged.
   A total in the user impact report is `null` as soon as any front end's part is `null` (not a partial sum).
 - **Needs:** none unless a partial sum with a note is preferred over `null`.
+- **Decision (2026-10-16):** `null` plus a note, as built.
 
 ### P8-96 — Ending a browser session needs no recent sign-in
 - **Context:** the ASVS row V7.5.2 listed "no re-authentication before ending them" as a gap. P8-73 classified `/me/*` out
@@ -134,6 +138,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   session can end the owner's other sessions (a nuisance, not an escalation); recorded in THREAT_MODEL.
 - **Options:** (a) as made; (b) require a recent sign-in to end any session other than the current one.
 - **Needs:** confirm (a), or choose (b) (one line in `sensitiveRoute`'s handler path and one test).
+- **Decision (2026-10-16):** No recent sign-in needed, as built.
 
 ### P8-96 — `RB_OAUTH_CIMD_HOSTS` semantics
 - **Context:** the task left the name open and did not say how hosts match.
@@ -143,6 +148,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Options:** (a) as made; (b) allow `*.example.com` wildcards; (c) default to `claude.ai` for new installs.
 - **Needs:** confirm (a). The owner's own deployment can set `RB_OAUTH_CIMD_HOSTS=claude.ai` once the checklist
   confirms Claude Code and claude.ai both use `claude.ai` document hosts.
+- **Decision (2026-10-16):** Exact hosts, unset means any, as built.
 
 ### P8-96 — "End all sessions" keeps the caller by default
 - **Context:** the task said it should not end the caller's own session "or else say so".
@@ -150,6 +156,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   response says which happened (`ownSessionKept`). Browser sessions only: device tokens, OAuth apps and keys are
   untouched.
 - **Needs:** none unless "end all" should also revoke OAuth devices (that is a separate, larger action).
+- **Decision (2026-10-16):** Browser sessions only, the caller's kept by default, as built.
 
 ### P8-90 — Span ERROR for caller errors too
 - **Context:** P8-59 left the span status unset for caller errors (only `rpc.server.duration` decides what New Relic counts
@@ -162,6 +169,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Options:** (a) as made; (b) ERROR only for server errors and refused writes (the previous behaviour plus P8-88's rule),
   callers' mistakes stay Unset.
 - **Needs:** confirm (a), or choose (b) if Errors Inbox gets noisy.
+- **Decision (2026-10-16):** Span ERROR only for server faults and refused writes (`RB_WRITE_APPROVAL_UNAVAILABLE`, `RB_WRITE_APPROVAL_DECLINED`); other caller errors leave the status Unset and keep `error.type` and `fault=caller`, as the OpenTelemetry server conventions do for a client-side failure. Implemented in P8-98.
 
 ### P8-90 — Method spans take the outcome from the HTTP status; stdio logs carry no trace ids
 - **Context:** the span for `initialize`, `tools/list`, `prompts/get`, `resources/read`, `tasks/*` is recorded in the
@@ -173,6 +181,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Options:** (a) as made; (b) a response wrapper that reads the JSON-RPC `error` member of a small response; (c) carry
   the request id in `ToolCallEvent` so stdio can allocate span ids per call and put them on its logger.
 - **Needs:** say whether (b) or (c) is worth a follow-up task.
+- **Decision (2026-10-16):** Leave as is, no follow-up.
 
 ### P8-90 — Span sampling is decided when the request begins
 - **Context:** log lines need the span id before the span is exported, so the sample decision moved from the end of a tool
@@ -181,6 +190,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   so the span volume grows with `tools/list`, `server/discover` and similar calls (metrics are unchanged).
 - **Assumption made:** one sample rate for all spans.
 - **Needs:** none unless the span volume matters (then a lower `RB_OTEL_SAMPLE`).
+- **Decision (2026-10-16):** One rate for all.
 
 
 ### P8-85 — Session expiry stays an `auth.denied` row
@@ -191,6 +201,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Options:** (a) as made; (b) a `session.expired` row when the purge removes lapsed sessions (needs a per-session
   read in the purge, and the count is already visible in `kv purge finished`).
 - **Needs:** confirm (a).
+- **Decision (2026-10-16):** No row, as built.
 
 ### P8-85 — Success rows are capped
 - **Context:** `oauth.token.issue`, `oauth.token.refresh` and `credential.decrypt_failed` can be repeated by a holder of a
@@ -200,6 +211,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Options:** (a) as made; (b) no cap on issuance rows (complete history, unbounded under a refresh loop that the token
   endpoint's rate limit allows).
 - **Needs:** confirm (a).
+- **Decision (2026-10-16):** Keep the cap.
 
 ### P8-85 — ASVS evidence not in asvs-l2.md yet
 - **Context:** PR #281 edits `docs/security/asvs-l2.md`, so this task did not.
@@ -213,6 +225,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   (`<[A-Z][A-Z0-9_]*>`) into `%` and matches with `LIKE` as a template value. A message that is only placeholders keeps
   the class-only fallback. A literal `%` in a message also acts as a wildcard (it can only widen the match).
 - **Needs:** confirm the placeholder spellings against a live group; add any other form New Relic uses.
+- **Decision (2026-10-16):** Placeholder spellings confirmed live on 2026-10-16 against 100 error groups. The only placeholders seen were `<NUMBER>` and `<HEX>`, both matched by `<[A-Z][A-Z0-9_]*>`.
 
 ### P8-91 — The dashboard syntax check rewrites the checked query for a probe
 - **Context:** NerdGraph cannot parse NRQL without running it. The dry run sends each widget query with `SINCE` replaced
@@ -223,6 +236,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Options:** (a) as built; (b) a cap lower than 10; (c) no probe, warnings only.
 - **Needs:** say whether the dry run should spend NerdGraph requests at all (the declared `cost` of `create_dashboard`
   stays 2, which no longer bounds a dry run).
+- **Decision (2026-10-16):** Keep the probe. The declared cost is fixed in P8-98 (`1 + 10 * NRQL_COST`, the true worst case).
 
 ### P8-91 — `list_change_events(entity_guid)` makes a second request
 - **Context:** the entity path reads deployment search plus the account change feed (filtered to the entity), so it costs
@@ -230,6 +244,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 - **Assumption made:** `scope` stays `entity_deployments` in the output (renaming it would break the schema); the page
   size and cursor apply to the merged list.
 - **Needs:** none unless a server-side entity filter on `changeTrackingSearch` is confirmed.
+- **Decision (2026-10-16):** No change.
 
 
 ### P8-92 — Tasks extension is advertised to 2026-07-28 requests only
@@ -244,6 +259,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   capability from `initialize`): needs a session to carry the capability, so it contradicts ADR-0005; (c) drop the
   extension from HTTP entirely (loses P7-13/P7-21 to P7-23 for modern clients).
 - **Needs:** none unless you want 2025-era Tasks (b), which needs the sessions ADR from P8-63.
+- **Decision (2026-10-16):** 2026-07-28 only, as built.
 
 ### P8-92 — Resource read errors: which `RB_*` codes are `-32602`
 - **Context:** the task asks for input and authorization errors as `-32602`. Resource reads can also fail for
@@ -252,6 +268,7 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   every other `RB_*` (limits, rate, quota, NerdGraph, budget) stays `-32603`; the code is in `error.data.code` either way.
   `prompts/get` uses the same mapping for a refused `time_range`, `deployment_time` or `account`.
 - **Needs:** say if limit and rate errors should be `-32602` too (or a custom server error code).
+- **Decision (2026-10-16):** Keep the error codes as built.
 
 ### P8-93 — Query cache: a no-op Cache API is detected by reading a write back
 - **Context:** NEW-28. On `*.workers.dev` the Cache API accepts `put` and returns nothing, so the shared per-colo tier never
@@ -266,8 +283,10 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   plan, where memory is the intent).
 - **Needs:** confirm on the real deployment (workers.dev and a custom domain) and choose; also whether the repeat misses
   in the review came from separate isolates (the memory tier is per isolate).
+- **Decision (2026-10-16):** Read-back detection, as built; confirm on the real deployment after release.
 
 ### P8-93 — `time_range` entirely in the future warns, it does not refuse
 - **Assumption made:** a range that starts after now gets a `Warning:` line; the bounds are still returned (planning a
   future window is legitimate). `list_recent_issues` omits `groupsScope` without `group_by` (the output field is now optional).
 - **Needs:** say if a refusal is wanted instead.
+- **Decision (2026-10-16):** Refuse (implemented in P8-98): a range that starts in the future is `RB_INPUT_INVALID`, "The range is in the future: New Relic has no data there." A range that only ends in the future still works.

@@ -944,11 +944,11 @@ describe('server and caller errors (P8-59)', () => {
     });
   });
 
-  it('a caller error (P8-90): span ERROR with error.type, but no error.type or status code on the metric', async () => {
+  it('a caller error (P8-98): span status Unset but error.type and fault=caller; nothing on the metric', async () => {
     const t = createTelemetry({ endpoint: base, fetch: receiverFetch });
     await t.hooks.onToolCall?.({} as never, { projectSlug: 'prod' } as never, failed('RB_LIMIT_QUERY'));
     const span = spanOf();
-    expect(span.status).toEqual({ code: 2, message: 'RB_LIMIT_QUERY' });
+    expect(span.status).toEqual({ code: 0 });
     const a = attrMap(span.attributes);
     expect(a).toMatchObject({
       status: 'error',
@@ -1004,7 +1004,7 @@ describe('server and caller errors (P8-59)', () => {
   it('pass-through: the caller’s own refused key is a caller error', async () => {
     const t = createTelemetry({ endpoint: base, fetch: receiverFetch });
     await t.hooks.onPassthroughToolCall?.({} as never, {} as never, failed('RB_AUTH_INVALID_KEY'));
-    expect(spanOf().status).toEqual({ code: 2, message: 'RB_AUTH_INVALID_KEY' });
+    expect(spanOf().status).toEqual({ code: 0 });
     expect(rpcPoint()['rpc.grpc.status_code']).toBeUndefined();
     expect(callsPoint()['fault']).toBe('caller');
   });
@@ -1019,7 +1019,7 @@ describe('server and caller errors (P8-59)', () => {
     expect(rpcPoint()).toEqual({ 'rpc.system': 'jsonrpc', 'rpc.service': 'mcp', 'rpc.method': 'run_nrql' });
   });
 
-  it('a real caller error through the app marks its span (RB_QUERY_NOT_FOUND) and sets no status code', async () => {
+  it('a real caller error through the app leaves its span Unset with error.type (RB_QUERY_NOT_FOUND) and sets no gRPC code', async () => {
     const app = appWith();
     const client = await connect(app, 'prod', world.tokens.prod, 'modern');
     const r = await client.callTool({
@@ -1030,7 +1030,7 @@ describe('server and caller errors (P8-59)', () => {
     await client.close();
     await vi.waitFor(() => expect(spansNamed('tools/call get_query_result').length).toBe(1));
     const span = spansNamed('tools/call get_query_result')[0];
-    expect(span.status).toEqual({ code: 2, message: 'RB_QUERY_NOT_FOUND' });
+    expect(span.status).toEqual({ code: 0 });
     expect(attrMap(span.attributes)).toMatchObject({ fault: 'caller', 'error.type': 'RB_QUERY_NOT_FOUND' });
     expect(attrMap(span.attributes)['rpc.grpc.status_code']).toBeUndefined();
     expect(rpcPoint()['rpc.grpc.status_code']).toBeUndefined();
@@ -1050,10 +1050,22 @@ describe('error status, a span per MCP method and logs in the trace (P8-90)', ()
     );
   const named = (name: string): Json[] => spans().filter((s) => s.name === name);
 
-  it('spanStatus: OK, or ERROR with the code as the message', () => {
-    expect(spanStatus('ok', undefined)).toEqual({ code: 1 });
-    expect(spanStatus('error', 'RB_LIMIT_QUERY')).toEqual({ code: 2, message: 'RB_LIMIT_QUERY' });
-    expect(spanStatus('error', undefined)).toEqual({ code: 2 });
+  it('spanStatus: ERROR only for server faults and refused writes, Unset for other caller errors (P8-98)', () => {
+    expect(spanStatus('ok', undefined, undefined)).toEqual({ code: 1 });
+    expect(spanStatus('error', 'server', 'RB_NERDGRAPH_UNAVAILABLE')).toEqual({
+      code: 2,
+      message: 'RB_NERDGRAPH_UNAVAILABLE',
+    });
+    expect(spanStatus('error', 'server', undefined)).toEqual({ code: 2 });
+    expect(spanStatus('error', 'caller', 'RB_LIMIT_QUERY')).toEqual({ code: 0 });
+    expect(spanStatus('error', 'caller', 'RB_WRITE_APPROVAL_UNAVAILABLE')).toEqual({
+      code: 2,
+      message: 'RB_WRITE_APPROVAL_UNAVAILABLE',
+    });
+    expect(spanStatus('error', 'caller', 'RB_WRITE_APPROVAL_DECLINED')).toEqual({
+      code: 2,
+      message: 'RB_WRITE_APPROVAL_DECLINED',
+    });
   });
 
   it('a resources/read and a prompts/get each produce one span, with no name, URI or argument on it', async () => {
@@ -1096,7 +1108,20 @@ describe('error status, a span per MCP method and logs in the trace (P8-90)', ()
     expect(named('tools/call').length).toBe(0);
   });
 
-  it('an HTTP error on a method marks its span ERROR with the status as the type', async () => {
+  it('an HTTP 4xx on a method leaves its span Unset with the status as the type (P8-98)', async () => {
+    const t = createTelemetry({ endpoint: base, fetch: receiverFetch });
+    const c = {} as never;
+    t.hooks.traceContext?.(c, { mcpMethod: 'resources/read' } as never);
+    await t.hooks.afterMcp?.(c, { mcpMethod: 'resources/read', projectSlug: 'prod' } as never, {
+      status: 404,
+      durationMs: 5,
+    });
+    const span = named('resources/read')[0];
+    expect(span.status).toEqual({ code: 0 });
+    expect(attrsOf(span)).toMatchObject({ fault: 'caller', 'error.type': '404' });
+  });
+
+  it('an HTTP 5xx on a method marks its span ERROR with the status as the type', async () => {
     const t = createTelemetry({ endpoint: base, fetch: receiverFetch });
     const c = {} as never;
     t.hooks.traceContext?.(c, { mcpMethod: 'resources/read' } as never);

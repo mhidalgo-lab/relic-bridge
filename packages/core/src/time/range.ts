@@ -31,6 +31,8 @@ const UNIT_MS: Readonly<Record<string, number>> = {
 const MAX_EXPRESSION_CHARS = 200;
 const MAX_WINDOW_MS = 10 * 366 * DAY;
 const MAX_COUNT = 100_000;
+/** A start this far ahead of the clock is still "now" (skew between the caller's clock and ours). */
+const FUTURE_SKEW_MS = MINUTE;
 
 const RELATIVE_RE =
   /^(?:(?:last|past)\s+)?(?:(\d{1,6})\s+)?(second|minute|hour|day|week|month)s?(?:\s+ago)?$/;
@@ -177,6 +179,10 @@ export function parseTimeRange(expression: string, nowMs: number): TimeRange {
     if (m?.[1] && m[2]) {
       const start = parseInstant(m[1], expression);
       const end = parseInstant(m[2], expression);
+      // A range that starts after now has no data (P8-98): refused. One that only ends in the future is fine, and a
+      // start a few seconds ahead is clock skew, not a future range.
+      if (start.ms > nowMs + FUTURE_SKEW_MS)
+        throw bad('The range is in the future: New Relic has no data there.', expression);
       return absolute(start.ms, end.dateOnly ? end.ms + DAY : end.ms, expression);
     }
   }

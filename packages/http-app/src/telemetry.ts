@@ -336,17 +336,27 @@ export function classifyToolError(code: string, mode: ToolCallOrigin['mode']): E
   return CLASSIFIED.get(code) ?? server(GRPC.unknown);
 }
 
+/** Refused writes (P8-88) are the one caller outcome that still marks its span ERROR: someone must look at them. */
+const REFUSED_WRITE_CODES: ReadonlySet<string> = new Set([
+  'RB_WRITE_APPROVAL_UNAVAILABLE',
+  'RB_WRITE_APPROVAL_DECLINED',
+]);
+
 /**
- * The OTLP span status of a finished request (P8-90), one rule for every span: `OK` on success, `ERROR` with the error
- * code as the message on any failure. The caller/server split (P8-59) stays on `fault` and on `rpc.server.duration`,
- * the only place `rpc.grpc.status_code` is set (server errors only), so a caller error marks its span without moving
- * New Relic's service error rate from that metric.
+ * The OTLP span status of a finished request (P8-90, rule changed in P8-98). Following the OpenTelemetry server
+ * conventions, only the server's own faults set `ERROR` (code as the message), plus a refused write. A caller error
+ * (an `RB_*` input, limit or auth refusal, an HTTP 4xx) leaves the status `Unset` (code 0) but still carries
+ * `error.type` and `fault=caller` on the span. The metric split (P8-59) is unchanged: `rpc.grpc.status_code` on
+ * `rpc.server.duration` is set for server errors only.
  */
 export function spanStatus(
   outcome: 'ok' | 'error',
+  fault: ErrorFault | undefined,
   errorType: string | undefined,
-): { readonly code: 1 } | { readonly code: 2; readonly message?: string } {
+): { readonly code: 0 | 1 } | { readonly code: 2; readonly message?: string } {
   if (outcome === 'ok') return { code: 1 };
+  const refusedWrite = errorType !== undefined && REFUSED_WRITE_CODES.has(errorType);
+  if (fault === 'caller' && !refusedWrite) return { code: 0 };
   return errorType === undefined ? { code: 2 } : { code: 2, message: errorType };
 }
 
@@ -700,7 +710,7 @@ export function createTelemetry(options: TelemetryOptions): Telemetry {
           start,
           end,
           attributes: spanAttrs,
-          status: spanStatus(event.status === 'ok' ? 'ok' : 'error', errorCode),
+          status: spanStatus(event.status === 'ok' ? 'ok' : 'error', failure?.fault, errorCode),
         }),
       );
     }
@@ -727,7 +737,7 @@ export function createTelemetry(options: TelemetryOptions): Telemetry {
         ? request.status
         : undefined;
     const failed = httpStatus !== undefined && httpStatus >= 400;
-    // A 4xx is the caller's request, a 5xx ours (P8-59); both mark the span. The status code is the only error type.
+    // A 4xx is the caller's request (span status Unset), a 5xx ours (ERROR) (P8-59, P8-98). Both carry `error.type`.
     const errorType = failed ? String(httpStatus) : undefined;
     await postSpan({
       ids,
@@ -747,7 +757,11 @@ export function createTelemetry(options: TelemetryOptions): Telemetry {
         ...(errorType === undefined ? [] : [str('error.type', errorType)]),
         str('network.transport', origin.mode === 'stdio' ? 'pipe' : 'tcp'),
       ],
-      status: spanStatus(failed ? 'error' : 'ok', errorType),
+      status: spanStatus(
+        failed ? 'error' : 'ok',
+        httpStatus !== undefined && httpStatus < 500 ? 'caller' : 'server',
+        errorType,
+      ),
     });
   };
 

@@ -577,9 +577,10 @@ describe('parseTimeRange (time_range, T4/T5)', { timeout: FUZZ_TIMEOUT }, () => 
         fc.constantFrom(' to ', ' until ', '/'),
         (start, width, sep) => {
           const end = start + width;
+          // A range that starts after now is refused (P8-98): evaluate it at a clock past the start.
           const range = parseTimeRange(
             `${new Date(start).toISOString()}${sep}${new Date(end).toISOString()}`,
-            NOW,
+            Math.max(NOW, start),
           );
           expect([range.sinceMs, range.untilMs]).toEqual([start, end]);
           expect(range.clause).toBe(`SINCE ${Math.floor(start / 1000)} UNTIL ${Math.ceil(end / 1000)}`);

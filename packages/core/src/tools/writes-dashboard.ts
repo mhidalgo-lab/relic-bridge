@@ -184,7 +184,7 @@ const dashboardOutput = z.object({
 
 const DESCRIPTION = `Create a new private New Relic dashboard from NRQL queries: pages of charts (line, area, bar, billboard, pie, table) and plain-text markdown widgets.
 
-Write tool, opt-in. ${SIDE_EFFECT_NOTICE} Needs confirm: true; dry_run: true returns the plan and syntax-checks each query (LIMIT 1, 5 minutes) without creating it. ${APPROVAL_NOTICE} Each call creates a new dashboard (not idempotent; it cannot be edited or deleted here), always PRIVATE. Widget NRQL is checked like run_nrql and every query account must be on this connection. Limits: ${DASHBOARD_LIMITS.pages} pages, ${DASHBOARD_LIMITS.widgetsPerPage} widgets per page, ${DASHBOARD_LIMITS.widgets} in all, ${DASHBOARD_LIMITS.queriesPerWidget} queries per widget. To read dashboards use list_dashboards and get_dashboard. To record a change event instead, use create_change_event.`;
+Write tool, opt-in. ${SIDE_EFFECT_NOTICE} Needs confirm: true; dry_run: true returns the plan and syntax-checks each query (LIMIT 1) without creating it. Runs 1 request (up to 20 with dry_run). ${APPROVAL_NOTICE} Each call creates a new PRIVATE dashboard (not idempotent; no edit or delete here). Widget NRQL is checked like run_nrql; every query account must be on this connection. Limits: ${DASHBOARD_LIMITS.pages} pages, ${DASHBOARD_LIMITS.widgetsPerPage} widgets per page, ${DASHBOARD_LIMITS.widgets} in all, ${DASHBOARD_LIMITS.queriesPerWidget} queries per widget. To read dashboards use list_dashboards and get_dashboard. To record a change event instead, use create_change_event.`;
 
 const SPLIT_HINT = `A query holds one statement: put each in its own query of the widget (up to ${DASHBOARD_LIMITS.queriesPerWidget}) or its own widget, or use COMPARE WITH / FACET to combine them.`;
 
@@ -483,7 +483,7 @@ export function createDashboardWriteTool(client: (ctx: ToolContext) => NerdGraph
     kind: 'write',
     idempotent: false,
     openWorld: true,
-    cost: 2,
+    cost: 1 + MAX_CHECKS * NRQL_COST, // worst case: the dry run probes up to MAX_CHECKS widget queries (P8-98)
     group: 'writes',
     phase: 7,
     handler: async (input, ctx) => {

@@ -580,8 +580,11 @@ describe('Self-monitoring (P7-08)', () => {
       .filter((s) => s.path === '/v1/traces')
       .flatMap((s) => JSON.parse(s.body).resourceSpans[0].scopeSpans[0].spans);
     const toolSpan = spans.find((s) => s.name === 'tools/call get_query_result');
-    expect(toolSpan.status.code).toBe(2);
-    expect(toolSpan.status.message).toBe('RB_QUERY_NOT_FOUND');
+    // A caller error leaves the span status Unset (P8-98) but names the code in error.type.
+    expect(toolSpan.status.code).toBe(0);
+    expect(toolSpan.attributes.find((a: { key: string }) => a.key === 'error.type').value.stringValue).toBe(
+      'RB_QUERY_NOT_FOUND',
+    );
     expect(spans.some((s) => s.name === 'tools/list')).toBe(true);
     // biome-ignore lint/suspicious/noExplicitAny: raw OTLP JSON
     const records: any[] = sent

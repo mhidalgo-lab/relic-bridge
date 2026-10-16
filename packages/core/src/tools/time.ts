@@ -56,11 +56,6 @@ export function createTimeTools(): ToolDefinition[] {
           `Warning: this window is longer than, or starts further back than, the ${ctx.limits.maxWindowDays}-day limit of this connection; queries over it will be refused.`,
         );
       }
-      if (range.sinceMs > ctx.clock.now()) {
-        lines.push(
-          'Warning: this range is entirely in the future; New Relic has no data for it, so a query over it returns nothing.',
-        );
-      }
       return {
         text: lines.join('\n'),
         structured: {

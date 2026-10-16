@@ -8,7 +8,7 @@
     "node-bench": "node src/node-bench.ts"
   },
   "dependencies": {
-    "@modelcontextprotocol/server": "2.2.0",
+    "@modelcontextprotocol/server": "2.3.1",
     "hono": "4.13.10",
     "zod": "4.6.7"
   },

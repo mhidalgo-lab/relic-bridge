@@ -48,3 +48,10 @@ never shown for approval. Values stay GraphQL variables.
 
 ## Out of scope
 - Signed approval tokens or a second factor.
+
+## Owner decisions
+
+2026-10-16:
+
+1. The shared write-tool notice reads "Approved in the client (whoami limits.writeApproval)." The owner asked for "Approved in the client's prompt" and "Approved in the client prompt", but the description lint rejects both (overlap of create_change_event with acknowledge_issue and close_issue, and the character headroom); this is the closest wording that passes.
+2. Keep the double probe pass (the question round and the answer round each check the queries, the server keeps no state) and let queries beyond the cap or budget go to approval, listed in `notes`.

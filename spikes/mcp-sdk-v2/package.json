@@ -10,7 +10,7 @@
     "test": "tsx test/run.ts"
   },
   "dependencies": {
-    "@hono/node-server": "2.1.1",
+    "@hono/node-server": "2.1.4",
     "@modelcontextprotocol/client": "2.3.1",
     "@modelcontextprotocol/server": "2.2.0",
     "hono": "4.13.10",

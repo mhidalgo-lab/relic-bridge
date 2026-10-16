@@ -301,3 +301,6 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   (option (b) of the P8-90 entry, now done): `-32603` is a server fault, any other code a caller fault. Not read for
   `tools/call` (tool errors have their own event) nor for streams. `tasks/*` answers `-32601` outside 2026-07-28.
 - **Needs:** confirm that refused writes should not open Errors Inbox groups.
+- **Decision (2026-10-16):** One rule: refused writes leave the span status Unset (no Errors Inbox groups; query them by
+  `error.type`). Keep reading the JSON-RPC `error.code` of small non-`tools/call` answers; this supersedes the P8-90
+  "HTTP status only" choice.

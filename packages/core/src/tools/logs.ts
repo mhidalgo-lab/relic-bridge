@@ -51,6 +51,8 @@ const SAMPLE_CHARS = 300;
 const SMALL_SAMPLE_LINES = 150;
 const SMALL_SAMPLE_CHARS = 100;
 const MAX_PATTERNS = 20;
+/** Level shown for lines that have no level attribute at all. */
+const NO_LEVEL = '(no level)';
 const BUCKETS = 24;
 /** Characters of a raw message that are looked at at all: bounds regex work on hostile input. */
 const MAX_RAW_CHARS = 4000;
@@ -65,11 +67,12 @@ const SUMMARY_VALUE_CHARS = 60;
  * `CONTEXT_COLUMNS` is the small fixed set that feeds the `key=value` summary of a line without any text field.
  */
 const TEXT_COLUMNS = ['message', ...MESSAGE_FALLBACKS] as const;
-const LEVEL_COLUMNS = ['level', 'severity', 'log.level'] as const;
+/** `severity.text` is where OpenTelemetry (OTLP) logs carry the level; `level` and the others are classic loggers. */
+const LEVEL_COLUMNS = ['level', 'severity', 'log.level', 'severity.text'] as const;
 const CONTEXT_COLUMNS = ['service.name', 'hostname', 'logger', 'request_id', 'trace.id'] as const;
 /** Attributes that say nothing about what a line is: never part of the summary. */
 const SUMMARY_SKIP =
-  /^(timestamp|level|severity|log\.level|message|log|logged_message|messageId|entity\.|newrelic\.|plugin\.|nr\.)/i;
+  /^(timestamp|level|severity|log\.level|severity\.|message|log|logged_message|messageId|entity\.|newrelic\.|plugin\.|nr\.)/i;
 
 const LEVELS = [
   'fatal',
@@ -224,8 +227,24 @@ export function findSpikes(buckets: readonly Bucket[]): Spike[] {
 
 const scope = (guid: string | undefined): NrqlQuery =>
   guid === undefined ? nrql`` : nrql`AND ${nrql.identifier('entity.guid')} = ${guid}`;
-const levelFilter = (level: Level | undefined): NrqlQuery =>
-  level === undefined ? nrql`` : nrql`AND level IN ${[...LEVEL_VARIANTS[level]]}`;
+/** A line matches when any level column holds one of the spellings (columns a line does not have never match). */
+const levelFilter = (level: Level | undefined): NrqlQuery => {
+  if (level === undefined) return nrql``;
+  const spellings = [...LEVEL_VARIANTS[level]];
+  const any = LEVEL_COLUMNS.map((c) => nrql`${nrql.identifier(c)} IN ${spellings}`).reduce(
+    (acc, c) => nrql`${acc} OR ${c}`,
+  );
+  return nrql`AND (${any})`;
+};
+/**
+ * The level of a line: the first level column it has. NRQL has no coalesce(), so this is nested if() (a line with none
+ * is the null facet).
+ */
+const levelExpression = (): NrqlQuery =>
+  LEVEL_COLUMNS.map((c) => nrql.identifier(c)).reduceRight<NrqlQuery | null>(
+    (rest, c) => (rest === null ? nrql`${c}` : nrql`if(${c} IS NOT NULL, ${c}, ${rest})`),
+    null,
+  ) ?? nrql``;
 const bounds = (sinceMs: number, untilMs: number) => ({
   since: Math.floor(sinceMs / 1000),
   until: Math.ceil(untilMs / 1000),
@@ -261,7 +280,7 @@ export function recentQuery(
 
 export function levelCountQuery(guid: string, sinceMs: number, untilMs: number): NrqlQuery {
   const { since, until } = bounds(sinceMs, untilMs);
-  return nrql`SELECT count(*) AS lines FROM Log WHERE timestamp IS NOT NULL ${scope(guid)} FACET level LIMIT 20 SINCE ${since} UNTIL ${until}`;
+  return nrql`SELECT count(*) AS lines FROM Log WHERE timestamp IS NOT NULL ${scope(guid)} FACET ${levelExpression()} LIMIT 20 SINCE ${since} UNTIL ${until}`;
 }
 
 export function sampleQuery(
@@ -559,7 +578,7 @@ export function createLogTools(deps: ToolDeps = {}): ToolDefinition[] {
     ctx: ToolContext,
     account: number,
     query: NrqlQuery,
-    read: (rows: Record<string, unknown>[]) => T,
+    read: (rows: Record<string, unknown>[], outcome: NrqlComplete) => T,
     /** Report an over-the-limit answer in the result (so the caller can retry smaller) instead of as a note only. */
     flagTooLarge = false,
   ): Promise<Part<T>> {
@@ -567,7 +586,7 @@ export function createLogTools(deps: ToolDeps = {}): ToolDefinition[] {
       const outcome = await run(ctx, account, query);
       if (outcome.status === 'pending')
         return { ok: false, note: 'Still running at New Relic; try again shortly.' };
-      return { ok: true, value: read(outcome.results as Record<string, unknown>[]) };
+      return { ok: true, value: read(outcome.results as Record<string, unknown>[], outcome) };
     } catch (e) {
       // Credential, authorization and connection-limit errors (e.g. Log not allowed) hit every part alike.
       if (!(e instanceof RbError) || FATAL_CODES.has(e.code) || e.code === ErrorCode.LimitQuery) throw e;
@@ -603,17 +622,23 @@ export function createLogTools(deps: ToolDeps = {}): ToolDefinition[] {
       let sampleRetry = false;
       const jobs: Array<() => Promise<unknown>> = [
         () =>
-          part(ctx, account, levelCountQuery(guid, range.sinceMs, range.untilMs), (rows) => {
+          part(ctx, account, levelCountQuery(guid, range.sinceMs, range.untilMs), (rows, outcome) => {
             const byLevel = new Map<string, number>();
             for (const r of rows) {
-              const facet = Array.isArray(r['facet']) ? r['facet'][0] : (r['facet'] ?? r['level']);
+              const facet = Array.isArray(r['facet']) ? r['facet'][0] : r['facet'];
               const count = num(r['lines']);
               if (count === null) continue;
               const key =
-                typeof facet === 'string' ? (label(facet) ? canonicalLevel(facet) : 'other') : 'unknown';
+                typeof facet === 'string' ? (label(facet) ? canonicalLevel(facet) : 'other') : NO_LEVEL;
               byLevel.set(key, (byLevel.get(key) ?? 0) + count);
             }
-            return [...byLevel].map(([level, count]) => ({ level, count })).sort((a, b) => b.count - a.count);
+            const levels = [...byLevel]
+              .map(([level, count]) => ({ level, count }))
+              .sort((a, b) => b.count - a.count);
+            // The total is the unfaceted count when New Relic sends it, so it holds even past the facet LIMIT.
+            const whole = outcome.totalResult;
+            const unfaceted = num(whole !== undefined && !Array.isArray(whole) ? whole['lines'] : null);
+            return { levels, total: unfaceted ?? levels.reduce((n, l) => n + l.count, 0) };
           }),
         async () => {
           const readSample = (rows: Record<string, unknown>[]) => ({
@@ -660,7 +685,10 @@ export function createLogTools(deps: ToolDeps = {}): ToolDefinition[] {
       ];
       const ran = await Promise.all(jobs.slice(0, startable).map((j) => j()));
       const skipped = { ok: false, note: 'Request budget exhausted.' } as const;
-      const levelsPart = (ran[0] ?? skipped) as Part<{ level: string; count: number }[]>;
+      const levelsPart = (ran[0] ?? skipped) as Part<{
+        levels: { level: string; count: number }[];
+        total: number;
+      }>;
       const patternsPart = (ran[1] ?? skipped) as Part<{ lines: number; patterns: MessagePattern[] }>;
       const seriesPart = (ran[2] ?? skipped) as Part<Bucket[]>;
 
@@ -670,8 +698,8 @@ export function createLogTools(deps: ToolDeps = {}): ToolDefinition[] {
       if (!seriesPart.ok) notes.push(`Bursts: ${seriesPart.note}`);
       const partial = !levelsPart.ok || !patternsPart.ok || !seriesPart.ok;
 
-      const levels = levelsPart.ok ? levelsPart.value : [];
-      const total = levelsPart.ok ? levels.reduce((n, l) => n + l.count, 0) : null;
+      const levels = levelsPart.ok ? levelsPart.value.levels : [];
+      const total = levelsPart.ok ? levelsPart.value.total : null;
       const patterns = patternsPart.ok ? patternsPart.value.patterns : [];
       const sampledLines = patternsPart.ok ? patternsPart.value.lines : null;
       const spikes = seriesPart.ok ? findSpikes(seriesPart.value) : [];

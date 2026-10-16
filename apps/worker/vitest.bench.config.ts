@@ -36,6 +36,8 @@ export default defineProject({
   },
   test: {
     name: 'worker-bench',
+    // vitest 5 persists transforms to node_modules/.vitest-cache, which workerd cannot read from inside the isolate.
+    fsModuleCache: false,
     include: ['bench/**/*.bench.ts'],
     testTimeout: 120_000,
     // One file, scenarios in order, nothing else running in the same isolate.

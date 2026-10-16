@@ -51,6 +51,12 @@ const whoamiOutput = z.object({
      * is bound to the exact change, but the server cannot prove a person gave it: it is as strong as the client (P8-101).
      */
     writeApproval: z.enum(['required', 'off']),
+    /**
+     * Whether a write can go through from THIS request's client (P8-106): `true` when no approval is required, or the
+     * client declared the elicitation capability with this request; `false` when approval is required and it did not
+     * (every real write then fails with RB_WRITE_APPROVAL_UNAVAILABLE, e.g. Claude mobile). Per request, never cached.
+     */
+    writeApprovalReachable: z.boolean(),
   }),
 });
 
@@ -188,6 +194,7 @@ export function createIdentityTools(deps: ToolDeps = {}): ToolDefinition[] {
           maxWindowDays: ctx.limits.maxWindowDays,
           rawNrql: ctx.limits.rawNrql,
           writeApproval: ctx.writeApproval ?? 'off',
+          writeApprovalReachable: ctx.writeApproval !== 'required' || ctx.writeApprovalReachable === true,
         },
       };
       const lines = [
@@ -196,7 +203,10 @@ export function createIdentityTools(deps: ToolDeps = {}): ToolDefinition[] {
           `Usable accounts: ${accounts.length} (see list_accounts).`,
         `Query limits: up to ${ctx.limits.maxLimit} rows, ${ctx.limits.maxWindowDays} day window, ` +
           `raw NRQL ${ctx.limits.rawNrql ? 'allowed' : 'disabled'}. ` +
-          `Write approval: ${ctx.writeApproval ?? 'off'}${ctx.writeApproval === 'required' ? ' (a write is approved through the MCP elicitation prompt of the client, e.g. in Claude Code; the approval is bound to the exact change and confirm: true alone never writes, but the server cannot verify that a person answered it)' : ''}.`,
+          `Write approval: ${ctx.writeApproval ?? 'off'}${ctx.writeApproval === 'required' ? ' (a write is approved through the MCP elicitation prompt of the client, e.g. in Claude Code; the approval is bound to the exact change and confirm: true alone never writes, but the server cannot verify that a person answered it)' : ''}.` +
+          (structured.limits.writeApprovalReachable
+            ? ''
+            : ' WARNING: this client cannot answer an approval prompt, so every real write is refused here (dry runs work); use a client with MCP elicitation, e.g. Claude Code.'),
         `Tools: ${allowedTools ? allowedTools.join(', ') : 'unknown'}.`,
         ...(unavailable.length > 0
           ? [`Not offered here: ${unavailable.map((u) => `${u.name} (${u.reason})`).join('; ')}.`]

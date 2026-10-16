@@ -39,7 +39,21 @@ the capability arrives with the request itself:
   `elicitation` in `initialize`: that handshake is not kept. A request that declares elicitation in its `_meta` but is
   not a 2026-07-28 request is refused with a message saying so (nothing is changed).
 
-Known to work: Claude Code. A client that cannot approve can still dry-run and use the read tools.
+Known to work: Claude Code. A client that cannot approve can still dry-run and use the read tools. Claude on mobile
+and the web chat apps are in this group today: their dry runs succeed and every real run is refused with
+`RB_WRITE_APPROVAL_UNAVAILABLE`.
+
+The server tells you before you get there, from the capabilities of the current request (never remembered between
+requests):
+
+- `whoami` reports `limits.writeApprovalReachable`: `false` when approval is required and this client cannot answer it,
+  and its text carries a warning. It is `true` when approval is not required or the client can approve.
+- A dry run of `create_change_event`, `acknowledge_issue`, `close_issue` or `create_dashboard` adds a `warnings` entry
+  (and a line in its text) saying the real run will be refused from this client.
+
+This only informs: nothing here lets a client skip the approval. To use writes from a client that cannot approve, the
+owner can set `RB_WRITE_APPROVAL=client` on a sandbox project's deployment (the model's `confirm: true` is then the only
+gate); otherwise use Claude Code.
 
 ## What approval guarantees
 

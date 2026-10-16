@@ -143,6 +143,12 @@ export interface ToolContext {
    */
   readonly writeApproval?: 'required' | 'off';
   /**
+   * Whether THIS request's client declared the elicitation capability, so it can answer a write approval (P8-106).
+   * Set per `tools/call` on every tool (T21: never cached across requests) so the read tool `whoami` can say it. Absent
+   * (tests, custom hosts) reads as `false`.
+   */
+  readonly writeApprovalReachable?: boolean;
+  /**
    * Set by the host for a write `tools/call` it did not charge to the write limit because it can only ask (P7-35: no
    * `inputResponses`, form elicitation declared). Such a call never sends a change: `humanGate` refuses to let it go on,
    * whatever else the request holds, so the uncharged round cannot be used to mutate.

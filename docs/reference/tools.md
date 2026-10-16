@@ -1456,6 +1456,7 @@ Write tool, opt-in. It changes New Relic: run it only when the user asked, never
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
+| `warnings` | `string[]` | no | Dry run only: set when the real run will be refused because this client cannot approve it. |
 | `applied` | `boolean` | yes |  |
 | `dryRun` | `boolean` | yes |  |
 | `accountId` | `integer` | yes |  |
@@ -1490,6 +1491,7 @@ Destructive write tool, opt-in. It changes New Relic: run it only when the user 
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
+| `warnings` | `string[]` | no | Dry run only: set when the real run will be refused because this client cannot approve it. |
 | `applied` | `boolean` | yes |  |
 | `dryRun` | `boolean` | yes |  |
 | `accountId` | `integer` | yes |  |
@@ -1541,6 +1543,7 @@ Write tool, opt-in. It changes New Relic: run it only when the user asked, never
 | `changeType` | `string` | yes |  |
 | `changeTrackingId` | `string \| null` | yes |  |
 | `messages` | `string[]` | yes |  |
+| `warnings` | `string[]` | no | Dry run only: set when the real run will be refused because this client cannot approve it. |
 | `plan` | `object \| null` | yes |  |
 
 ### Annotations

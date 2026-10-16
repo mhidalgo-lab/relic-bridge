@@ -1103,6 +1103,72 @@ describe('owner switch: a person must approve every write (P7-25, RB_WRITE_APPRO
     });
   }
 
+  // P8-106: whoami and dry runs say, from this request's capabilities, whether a real write can be approved.
+  describe('reachability is reported per request (P8-106)', () => {
+    type Seen = { reachable: boolean; warned: boolean; mutated: boolean };
+    const probe = async (
+      slug: string,
+      era: 'legacy' | 'modern',
+      caps: Record<string, unknown> | undefined,
+      required: boolean,
+    ): Promise<Seen> => {
+      const app = h.makeApp({ writeTools: true, requireWriteApproval: required });
+      const { token } = await setup(slug);
+      const client = await connect(app, slug, token.value, era, undefined, caps);
+      clients.push(client);
+      const before = h.nerdGraph.calls.length;
+      const who = await client.callTool({ name: 'whoami', arguments: {} });
+      const dry = await client.callTool({
+        name: 'create_change_event',
+        arguments: {
+          ...(GOOD['create_change_event'] as Record<string, unknown>),
+          confirm: undefined,
+          dry_run: true,
+        },
+      });
+      expect(dry.isError ?? false).toBe(false);
+      const limits = (who.structuredContent as { limits: { writeApprovalReachable: boolean } }).limits;
+      const warnings = (dry.structuredContent as { warnings?: string[] }).warnings ?? [];
+      return {
+        reachable: limits.writeApprovalReachable,
+        warned: warnings.some((w) => w.includes('RB_WRITE_APPROVAL_UNAVAILABLE')),
+        mutated: mutations(before).length > 0,
+      };
+    };
+
+    it('a 2025-era handshake is told it cannot approve, in whoami and in the dry run', async () => {
+      expect(await probe('reach-legacy', 'legacy', FORM, true)).toEqual({
+        reachable: false,
+        warned: true,
+        mutated: false,
+      });
+    });
+
+    it('a 2026-07-28 client that declares no elicitation is told too', async () => {
+      expect(await probe('reach-none', 'modern', undefined, true)).toEqual({
+        reachable: false,
+        warned: true,
+        mutated: false,
+      });
+    });
+
+    it('a 2026-07-28 client that declares elicitation is not warned', async () => {
+      expect(await probe('reach-ok', 'modern', FORM, true)).toEqual({
+        reachable: true,
+        warned: false,
+        mutated: false,
+      });
+    });
+
+    it('with approval off nothing is reported or warned, for any client', async () => {
+      expect(await probe('reach-off', 'legacy', undefined, false)).toEqual({
+        reachable: true,
+        warned: false,
+        mutated: false,
+      });
+    });
+  });
+
   // P7-33 / ADR-0016: a deployment that never mentions RB_WRITE_APPROVAL gets `required`.
   for (const tool of WRITES) {
     const slug = tool.replaceAll('_', '-');

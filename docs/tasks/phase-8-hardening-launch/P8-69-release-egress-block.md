@@ -2,7 +2,7 @@
 id: P8-69
 title: Release jobs egress policy block
 phase: 8
-status: review
+status: done
 priority: low
 depends_on: [P8-07]
 adr: []
@@ -28,7 +28,10 @@ or build output elsewhere.
 
 ## Acceptance criteria
 - [x] Allowlist derived from a real run; hosts recorded in the PR description.
-- [ ] The first release after the change passes (leave unticked until a release has run with `block`).
+- [x] The first release after the change passes (leave unticked until a release has run with `block`). 0.12.0 on
+  2026-10-16: release.yml runs 38902072692 (mode `publish`) and 38904303151 (mode `release`), docker.yml run 38904826039;
+  every `publish` job ran with `block`, and its harden-runner log shows only allowlisted hosts or harden-runner's implicit
+  Actions endpoints, with nothing dropped.
 - [x] Test asserts `block` on the publish jobs.
 
 ## Security notes

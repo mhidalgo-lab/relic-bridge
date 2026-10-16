@@ -4,7 +4,7 @@
   "description": "Unofficial MCP server for New Relic via NerdGraph — monorepo root",
   "license": "Apache-2.0",
   "type": "module",
-  "packageManager": "pnpm@12.8.1",
+  "packageManager": "pnpm@12.11.2",
   "engines": {
     "node": ">=24.11.0"
   },

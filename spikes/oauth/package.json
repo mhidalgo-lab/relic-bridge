@@ -4,7 +4,7 @@
   "description": "P0-08 spike: OAuth 2.1 (workers-oauth-provider) on Workers and Node with per-slug resources",
   "license": "Apache-2.0",
   "type": "module",
-  "packageManager": "pnpm@12.8.1",
+  "packageManager": "pnpm@12.11.2",
   "scripts": {
     "dev:worker": "wrangler dev --port 8797 --inspector-port 9339 --ip 127.0.0.1",
     "dev:node": "node --import ./src/node-register.ts src/node.ts",

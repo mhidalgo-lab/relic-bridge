@@ -37,6 +37,29 @@ We aim to:
 
 This is a volunteer-maintained project; timelines are best effort, and we will keep you informed.
 
+## Advisories in third-party components
+
+Advisories in our dependencies (npm packages, GitHub Actions, the Docker base image) are handled on a clock that starts
+when the advisory is published and affects a version we ship. Targets, from the day we learn of it:
+
+| Severity of the advisory | Target to update, replace or mitigate |
+|---|---|
+| Critical | 7 days |
+| High | 14 days |
+| Moderate | 30 days |
+| Low | The next scheduled dependency update, or 90 days |
+
+- A fix that needs a major upgrade, or that no maintainer has released, may take longer. In that case we record the
+  reason and the mitigation in the pull request or a security advisory, and say whether the vulnerable code is reachable
+  from relic-bridge.
+- Renovate opens security updates at once, without the usual release-age delay. Every other update waits 3 days for
+  the release to mature.
+- **What blocks a merge:** `pnpm audit --audit-level high`, dependency review (`fail-on-severity: high`) and the Docker
+  image scan (high and critical) fail the build. **Moderate and low advisories do not block a merge.** They are tracked
+  through Renovate's pull requests and the dependency dashboard and are fixed within the targets above.
+- The same targets apply to our own supported versions: a fix for a high or critical advisory in a dependency ships as a
+  patch release of the latest minor.
+
 ## Scope
 
 In scope: code in this repository, published npm packages, Docker images and release artifacts.
@@ -64,5 +87,6 @@ before disclosure.
 ## Our practices
 
 See [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) (threats, with the code and tests that address each),
-[`docs/security/asvs-l2.md`](docs/security/asvs-l2.md) (OWASP ASVS 5.0 Level 2 checklist) and
+[`docs/security/asvs-l2.md`](docs/security/asvs-l2.md) (OWASP ASVS 5.0 Level 2 checklist),
+[`docs/security/data-protection.md`](docs/security/data-protection.md) and
 [`docs/security/repo-settings.md`](docs/security/repo-settings.md).

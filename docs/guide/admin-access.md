@@ -34,6 +34,25 @@ Sign-in itself (Google, GitHub, Cloudflare Access, OIDC, the first-owner setup l
   disabled user's session is also refused on every request (the user record is re-read at most every 5 seconds per
   server instance).
 
+## Why these timeouts
+
+The admin session is the one credential a browser holds. Anyone who copies the cookie can act as the user until the
+session ends, so the timeouts bound that exposure. The server enforces them from stored data on every request; the
+cookie's `Max-Age` only matches the absolute lifetime.
+
+| Setting | Default | Allowed | Why this default | Risk of changing it |
+|---|---|---|---|---|
+| `RB_SESSION_IDLE_MINUTES` | 30 | 5 to 1440 | The panel is used in short visits. A tab left open or a lost laptop stops working after half an hour of silence. | Longer: a stolen or forgotten session stays usable longer. Shorter: more sign-ins. |
+| `RB_SESSION_MAX_HOURS` | 12 | 1 to 168 | One working day. Even a busy session needs a new sign-in every day, so a stolen cookie is useless the next morning. | Longer (up to 7 days): the cookie stays valid for a week. Shorter: a sign-in during the day. |
+| `RB_SESSION_REAUTH_MINUTES` | 10 | 1 to 60 | Long enough to finish a task after signing in. Short enough that an old session can't change keys or roles. | Longer: a recent-sign-in check that proves less. |
+
+Rules the code enforces (`packages/auth/src/identity/session.ts`): a value outside the range is refused at start, and
+the idle time may not be longer than the absolute time. Activity is written at most once a minute per session, so the
+idle limit is accurate to about a minute. A user keeps at most 20 live sessions, and role changes, disabling and
+sign-out end sessions at once (see above). Use shorter values for a shared computer or a high-risk team. These
+timeouts apply to admin sessions only. Device tokens and OAuth sign-ins have their own lifetimes (see the
+[OAuth guide](oauth-how-it-works.md) and [access model](access-model.md)).
+
 ## Re-authentication for sensitive actions
 
 A session alone is not enough for the most damaging changes. They also need a sign-in from the last

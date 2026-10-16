@@ -237,6 +237,18 @@ independently of the audit retention.
 - `next` (where to go after sign-in) only accepts paths on your own origin.
 - A successful sign-in replaces whatever session the browser had with a new one (no session fixation), audited as
   `session.create`. See [admin access](admin-access.md) for timeouts, roles and sign-out.
+- **The relic-bridge session is independent of the identity provider's session.** The provider is asked once, at
+  sign-in. Afterwards relic-bridge trusts only its own session cookie, which lives until its own timeouts (see
+  [admin access](admin-access.md#why-these-timeouts)). There is no back-channel or front-channel logout, so:
+  - signing out of Google, GitHub, your OIDC provider or Cloudflare Access does **not** end a relic-bridge session,
+    and signing out of relic-bridge does not end the provider's session;
+  - removing a person at the provider does not remove their relic-bridge access. Disable the user in relic-bridge
+    (this ends their sessions at once) or use `POST /users/{id}/sessions/revoke`;
+  - relic-bridge keeps no provider token: Google and OIDC ID tokens are verified and dropped, and the GitHub access
+    token is used for the profile lookup and then revoked at GitHub (best effort). Cloudflare Access assertions are
+    read at sign-in only; later requests rely on the relic-bridge cookie;
+  - signing in again while the provider's session is live may succeed without a prompt. This also applies to the
+    recent sign-in check for [sensitive actions](admin-access.md#re-authentication-for-sensitive-actions).
 - Every attempt is in the audit log: `auth` / `login.ok` (user id, provider, outcome) or `login.denied` with a stable
   reason (`not_allowed`, `not_provisioned`, `identity_conflict`, `email_unverified`, `wrong_audience`, `unknown_state`,
   …). The browser only sees a generic message and the request id. Codes, tokens, client secrets and setup links are

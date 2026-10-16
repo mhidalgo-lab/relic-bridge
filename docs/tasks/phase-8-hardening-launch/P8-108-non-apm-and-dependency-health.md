@@ -39,3 +39,8 @@ None.
 
 ## Out of scope
 - New metrics for non-APM entities.
+
+## Owner decisions
+- 2026-10-16: `analyze_deployment_impact` uses the same no-request `requireApmApplication` check and message as the other
+  APM-only tools (`list_top_transactions`, `analyze_transactions`, `analyze_threads`, `list_gc_metrics`). Its later
+  entity lookup stays, to catch a GUID whose reported domain/type disagrees.

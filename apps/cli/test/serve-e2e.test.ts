@@ -370,8 +370,20 @@ describe('relic-bridge serve (built CLI)', () => {
     }
     const server = new ServeProcess(['--port', '0', '--db', dbPath], env({ RB_AUDIT_RETENTION_DAYS: '1' }));
     try {
-      await server.url;
-      await vi.waitFor(() => expect(server.stderr).toContain('audit rows purged'), { timeout: 10_000 });
+      const base = await server.url;
+      // Serving (signal handlers installed), then the purge and its row.
+      expect((await fetch(`${base}/health`)).status).toBe(200);
+      await vi.waitFor(
+        async () => {
+          const peek = await openSqliteStorage({ path: dbPath });
+          try {
+            expect(await peek.auditLog.list({ action: 'audit.purge', limit: 1 })).toHaveLength(1);
+          } finally {
+            await peek.close();
+          }
+        },
+        { timeout: 10_000 },
+      );
     } finally {
       server.child.kill('SIGTERM');
       expect(await server.exit()).toBe(0);

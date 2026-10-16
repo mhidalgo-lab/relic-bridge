@@ -60,11 +60,11 @@ describe('credential.decrypt_failed (V16.3.4)', () => {
     expect(Object.keys((rows[0] as { details: object }).details).sort()).toEqual(['keyVersion', 'project']);
   });
 
-  it('a key version the keyring does not hold is audited with its own reason and that version', async () => {
-    const b = await broken(() => ({ keyVersion: 99 }));
+  it('a replaced IV (wrong AAD input) is the same reason, with the stored key version', async () => {
+    const b = await broken((k) => ({ iv: new Uint8Array(k.iv.length).fill(3) }));
     expect((await call(b.token.value)).status).toBe(503);
     const [row] = await decryptRows();
-    expect(row).toMatchObject({ errorCode: 'key_version_unknown', details: { keyVersion: 99 } });
+    expect(row).toMatchObject({ errorCode: 'decrypt_failed', details: { keyVersion: b.keyVersion } });
   });
 
   it('a refused request writes no such row', async () => {

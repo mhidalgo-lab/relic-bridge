@@ -373,7 +373,7 @@ Generated from task front matter (`pnpm tasks index`). Status lives in each task
 | P8-102 | [Local error formatting, tasks/* method-not-found, and one span status rule](tasks/phase-8-hardening-launch/P8-102-error-and-protocol-consistency.md) | low | — | review |
 | P8-103 | [Review 5 tool output polish - implicit groups, change event scope, budget note](tasks/phase-8-hardening-launch/P8-103-tool-output-polish.md) | low | — | review |
 | P8-104 | [Cloudflare migration - Docker export command, Worker name check, re-run next steps](tasks/phase-8-hardening-launch/P8-104-cloudflare-migration-guide-fixes.md) | medium | — | review |
-| P8-105 | [Read OpenTelemetry log severity, and keep log totals consistent with patterns](tasks/phase-8-hardening-launch/P8-105-otel-log-severity.md) | high | — | todo |
+| P8-105 | [Read OpenTelemetry log severity, and keep log totals consistent with patterns](tasks/phase-8-hardening-launch/P8-105-otel-log-severity.md) | high | — | review |
 | P8-106 | [Tell a client in advance that it cannot approve writes](tasks/phase-8-hardening-launch/P8-106-write-approval-reachability.md) | medium | P8-101 | todo |
 | P8-107 | [One issue state across tools, and names for AIOPS issue entities](tasks/phase-8-hardening-launch/P8-107-issue-state-and-names.md) | medium | — | review |
 | P8-108 | [Non-APM entities in APM tools, and dependency_health with no neighbours](tasks/phase-8-hardening-launch/P8-108-non-apm-and-dependency-health.md) | low | — | todo |

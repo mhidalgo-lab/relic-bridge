@@ -2,11 +2,11 @@
 id: P8-105
 title: Read OpenTelemetry log severity, and keep log totals consistent with patterns
 phase: 8
-status: todo
+status: review
 priority: high
 depends_on: []
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P8-105 — Read OpenTelemetry log severity, and keep log totals consistent with patterns
@@ -32,10 +32,10 @@ line in one null facet, which the level-count code drops, so the total is 0.
 - Same fix wherever `generate_alert_insights_report` reuses the log summary.
 
 ## Acceptance criteria
-- [ ] Tests with OTLP-shaped rows (`severity.text` only), classic rows (`level`), and rows with no level at all:
+- [x] Tests with OTLP-shaped rows (`severity.text` only), classic rows (`level`), and rows with no level at all:
       totals match, levels are named, `level` filter selects the right lines.
-- [ ] `list_recent_logs` shows the level for OTLP rows.
-- [ ] NRQL stays built through the `nrql` template (T4).
+- [x] `list_recent_logs` shows the level for OTLP rows.
+- [x] NRQL stays built through the `nrql` template (T4).
 
 ## Security notes
 T4: attribute names with dots go through `nrql.identifier()`.
@@ -45,3 +45,6 @@ T4: attribute names with dots go through `nrql.identifier()`.
 
 ## Out of scope
 - Mapping `severity.number` ranges to names when `severity.text` is absent (note it if seen).
+
+## Owner decisions
+- 2026-10-16: the level-count facet keeps `LIMIT 20` (real level vocabularies are smaller; the total stays exact).

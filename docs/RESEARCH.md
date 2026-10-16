@@ -1466,3 +1466,15 @@ did not). The skip rule itself was not run on a zone by the maintainers.
 - The change-tracking search filter has no entity argument that was verified; `list_change_events(entity_guid)` reads the
   account feed (`changeTrackingSearch`) in the window and keeps the events whose `entity.guid` equals the entity.
 
+
+## Log level of OTLP logs, and NRQL without coalesce() (P8-105, live sandbox 2026-10-16)
+
+- Logs sent over OTLP (`newrelic.source: api.logs.otlp`) carry `severity.text` (`INFO`, `WARN`) and `severity.number`,
+  and none of `level`, `severity` or `log.level`. `FACET level` puts every such line in one null facet.
+- NRQL has no `coalesce()` (`Unknown function coalesce()`, NRDB:1102004). `FACET if(a IS NOT NULL, a, if(b IS NOT NULL,
+  b, ...))` works with nested `if()`, also for attributes that do not exist in the account; `FACET a, b` gives a facet
+  array with a null in the missing position, which cannot be merged without reading every row. The level count uses the
+  nested `if()` over `level`, `severity`, `log.level`, `severity.text` (first one present wins); the level filter is an
+  `OR` of `IN` over the same four columns.
+- A FACET query's `totalResult.lines` is the unfaceted count, used as the total. Mapping `severity.number` to a name
+  when `severity.text` is absent is not done.

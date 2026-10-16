@@ -104,9 +104,12 @@ describe('NRQL builders', () => {
     const q = recentQuery(guidOf(A), 'error', likePattern("x%_'\\ OR 1=1 --"), 5, NOW - MIN, NOW).text;
     expect(q).toContain(`message LIKE '%x\\\\%\\\\_\\'\\\\\\\\ OR 1=1 --%'`);
     expect(q).toContain(`\`entity.guid\` = '${guidOf(A)}'`);
-    expect(q).toContain(`level IN ('ERROR', 'error', 'Error', 'ERR', 'err')`);
+    expect(q).toContain(`(\`level\` IN ('ERROR', 'error', 'Error', 'ERR', 'err') OR \`severity\` IN (`);
+    expect(q).toContain(`OR \`severity.text\` IN ('ERROR', 'error', 'Error', 'ERR', 'err'))`);
     expect(q).toContain('ORDER BY timestamp DESC LIMIT 5');
-    expect(levelCountQuery(guidOf(A), NOW - MIN, NOW).text).toContain('FACET level');
+    expect(levelCountQuery(guidOf(A), NOW - MIN, NOW).text).toContain(
+      'FACET if(`level` IS NOT NULL, `level`, if(`severity` IS NOT NULL, `severity`, if(`log.level` IS NOT NULL, `log.level`, `severity.text`)))',
+    );
   });
 
   it('reads an explicit, truncated column list and never SELECT * (P8-28)', () => {
@@ -117,7 +120,9 @@ describe('NRQL builders', () => {
     for (const q of variants) {
       expect(q).not.toMatch(/SELECT\s+\*/i);
       expect(q).not.toContain('*');
-      expect(q).toContain('SELECT `timestamp`, `level`, `severity`, `log.level`, `messageId`, ');
+      expect(q).toContain(
+        'SELECT `timestamp`, `level`, `severity`, `log.level`, `severity.text`, `messageId`, ',
+      );
       for (const c of ['message', 'log', 'logged_message'])
         expect(q).toContain(`substring(\`${c}\`, 0, 500) AS \`${c}\``);
       expect(q).toContain('substring(`service.name`, 0, 60) AS `service.name`');
@@ -345,7 +350,7 @@ describe('list_recent_logs', () => {
 
 describe('analyze_entity_logs', () => {
   const kind = (nrql: string) =>
-    nrql.includes('FACET level') ? 'levels' : nrql.includes('TIMESERIES') ? 'series' : 'sample';
+    nrql.includes('FACET if(') ? 'levels' : nrql.includes('TIMESERIES') ? 'series' : 'sample';
   const bucket = (i: number, lines: number) => ({
     beginTimeSeconds: 1000 + i * 180,
     endTimeSeconds: 1180 + i * 180,
@@ -393,7 +398,7 @@ describe('analyze_entity_logs', () => {
     expect(s.total).toBe(403);
     expect(s.levels[0]).toEqual({ level: 'info', count: 300 });
     expect(s.levels.find((l) => l.level === 'error')?.count).toBe(100);
-    expect(s.levels.map((l) => l.level)).toEqual(expect.arrayContaining(['other', 'unknown']));
+    expect(s.levels.map((l) => l.level)).toEqual(expect.arrayContaining(['other', '(no level)']));
     expect(s.patterns[0]).toMatchObject({ pattern: 'timeout after <n> ms', count: 2 });
     expect(s.spikes).toHaveLength(1);
     expect(s.spikes[0]?.count).toBe(90);
@@ -404,9 +409,9 @@ describe('analyze_entity_logs', () => {
     expect(t).toContain('untrusted');
     expect(t).not.toContain(TOKEN);
     // The level filter reaches the sample and series queries but not the level counts.
-    expect(calls.map((c) => String(c.variables['nrql'])).filter((n) => n.includes('level IN'))).toHaveLength(
-      2,
-    );
+    expect(
+      calls.map((c) => String(c.variables['nrql'])).filter((n) => n.includes('`severity.text` IN')),
+    ).toHaveLength(2);
   });
 
   it('returns what it can when the budget stops later parts', async () => {
@@ -478,7 +483,7 @@ describe('BUG-03 pattern sample size', () => {
   it('repeats a too-large sample smaller instead of dropping the section', async () => {
     const big = { message: 'timeout after 30 ms '.repeat(40) };
     const { fetch, calls } = recording((nrql) => {
-      if (nrql.includes('FACET level')) return nrqlBody([{ facet: 'ERROR', lines: 5 }]);
+      if (nrql.includes('FACET if(')) return nrqlBody([{ facet: 'ERROR', lines: 5 }]);
       if (nrql.includes('TIMESERIES')) return nrqlBody([]);
       if (nrql.includes('substring(message, 0, 300)'))
         return nrqlBody(Array.from({ length: 200 }, () => big));
@@ -517,7 +522,7 @@ describe('BUG-11 level vocabulary', () => {
 
   it('is accepted by list_recent_logs and analyze_entity_logs, and counts use the same words', async () => {
     const { fetch, calls } = recording((nrql) =>
-      nrql.includes('FACET level')
+      nrql.includes('FACET if(')
         ? nrqlBody([
             { facet: 'WARNING', lines: 4 },
             { facet: 'warn', lines: 1 },
@@ -662,5 +667,92 @@ describe('BUG-25 empty messages', () => {
     const s = r.structuredContent as { logs: { message: string }[] };
     expect(s.logs[0]?.message).toContain('login');
     expect(s.logs[0]?.message).not.toContain(TOKEN);
+  });
+});
+
+describe('P8-105 OpenTelemetry severity', () => {
+  const withTotal = (rows: Record<string, unknown>[], total: number | null) =>
+    json({
+      data: {
+        actor: {
+          account: {
+            nrql: {
+              results: rows,
+              metadata: { eventTypes: ['Log'], facets: null, messages: null, timeWindow: null },
+              totalResult: total === null ? null : { lines: total },
+              otherResult: null,
+              queryProgress: { queryId: null, completed: true, retryAfter: null, resultExpiration: null },
+            },
+          },
+        },
+      },
+    });
+
+  const analyze = async (levels: Response) => {
+    const { fetch } = recording((nrql) =>
+      nrql.includes('FACET if(')
+        ? levels
+        : nrql.includes('TIMESERIES')
+          ? nrqlBody([])
+          : nrqlBody([{ message: 'http request 1' }, { message: 'http request 2' }]),
+    );
+    const client = await connect(fetch);
+    const r = await client.callTool({ name: 'analyze_entity_logs', arguments: { entity_guid: guidOf(A) } });
+    return r.structuredContent as {
+      total: number;
+      levels: { level: string; count: number }[];
+      notes: string[];
+    };
+  };
+
+  it('shows severity.text as the level of an OTLP line, and still reads classic columns', async () => {
+    const { fetch } = recording(() =>
+      nrqlBody([
+        { timestamp: NOW - MIN, 'severity.text': 'INFO', message: 'otlp' },
+        { timestamp: NOW - 2 * MIN, level: 'ERROR', message: 'classic' },
+        { timestamp: NOW - 3 * MIN, message: 'bare' },
+      ]),
+    );
+    const client = await connect(fetch);
+    const r = await client.callTool({ name: 'list_recent_logs', arguments: {} });
+    const s = r.structuredContent as { logs: { level: string | null }[] };
+    expect(s.logs.map((l) => l.level)).toEqual(['INFO', 'ERROR', null]);
+  });
+
+  it('filters on every level column', () => {
+    const q = recentQuery(undefined, 'info', undefined, 5, NOW - MIN, NOW).text;
+    for (const c of ['level', 'severity', 'log.level', 'severity.text'])
+      expect(q).toContain(`\`${c}\` IN ('INFO', 'info', 'Info')`);
+    expect(q).toMatch(/\)\s+ORDER BY/);
+  });
+
+  it('names the OTLP levels and takes the total from the unfaceted count', async () => {
+    const s = await analyze(
+      withTotal(
+        [
+          { facet: 'INFO', lines: 378 },
+          { facet: 'WARN', lines: 12 },
+        ],
+        400,
+      ),
+    );
+    expect(s.levels).toEqual([
+      { level: 'info', count: 378 },
+      { level: 'warning', count: 12 },
+    ]);
+    expect(s.total).toBe(400);
+  });
+
+  it('counts lines without any level as (no level) instead of dropping them', async () => {
+    const s = await analyze(withTotal([{ facet: null, lines: 556 }], null));
+    expect(s.levels).toEqual([{ level: '(no level)', count: 556 }]);
+    expect(s.total).toBe(556);
+    expect(s.notes.join(' ')).not.toContain('No log lines');
+  });
+
+  it('reads a facet array holding a classic level', async () => {
+    const s = await analyze(withTotal([{ facet: ['ERROR'], lines: 3 }], null));
+    expect(s.levels).toEqual([{ level: 'error', count: 3 }]);
+    expect(s.total).toBe(3);
   });
 });

@@ -321,6 +321,9 @@ describe('generate_alert_insights_report', () => {
     expect(r.isError, resultText(r)).toBeFalsy();
     expect((r.structuredContent as { issue: { state: string } }).issue.state).toBe('ACTIVATED');
     expect(resultText(r)).toContain('state: ACTIVATED');
+    expect(resultText(r)).toContain(
+      'New Relic returned 2 records for issue issue-1 (states: CREATED, ACTIVATED); the newest is shown.',
+    );
   });
 
   it('looks the issue up by id and runs every section through the sibling tools', async () => {

@@ -837,14 +837,14 @@ export function createReportTools(deps: ToolDeps = {}): ToolDefinition[] {
   ): Promise<InsightsPlan> => {
     const account = singleAccount(ctx, args.account);
     const lookback = lookbackRange(ctx, args.lookback);
-    const issue = await lookupIssue(client(ctx), ctx, account, args.issue_id, lookback);
+    const notes: string[] = [];
+    const issue = await lookupIssue(client(ctx), ctx, account, args.issue_id, lookback, { notes });
     const win = issueWindow(
       issue,
       ctx.clock.now(),
       (args.before_minutes ?? DEFAULT_BEFORE_MINUTES) * MINUTE_MS,
       ctx.limits.maxWindowDays * DAY_MS,
     );
-    const notes: string[] = [];
     if (win?.cut)
       notes.push(
         "The issue lasted longer than this connection's window limit: the window was cut after its start.",
@@ -1059,7 +1059,9 @@ export function createReportTools(deps: ToolDeps = {}): ToolDefinition[] {
     let defaultWindow: { sinceMs: number; untilMs: number } | null = null;
     if (args.issue_id !== undefined) {
       const account = singleAccount(ctx, args.account);
-      issue = await lookupIssue(client(ctx), ctx, account, args.issue_id, lookbackRange(ctx, args.lookback));
+      issue = await lookupIssue(client(ctx), ctx, account, args.issue_id, lookbackRange(ctx, args.lookback), {
+        notes,
+      });
       // Empty names are dropped from `issue.entities`, so the two lists pair up only when none was dropped.
       const names = issue.entities.length === issue.entityGuids.length ? issue.entities : [];
       if (names.length === 0 && issue.entityGuids.length > 0 && issue.entities.length > 0)

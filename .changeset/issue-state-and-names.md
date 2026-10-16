@@ -1,4 +1,4 @@
 ---
 'relic-bridge': patch
 ---
-Alert issues report one state across list_recent_issues, generate_alert_insights_report and the acknowledge_issue and close_issue dry runs: when New Relic returns older records of an issue, the freshest one is used. get_related_entities labels entities with no name (AIOPS issues) as "(unnamed issue 661dd2d5)" and marks them with `nameIsFallback`.
+Alert issues report one state across list_recent_issues, generate_alert_insights_report and the acknowledge_issue and close_issue dry runs: when New Relic returns older records of an issue, the freshest one is used. get_related_entities labels entities with no name (AIOPS issues) as "(unnamed issue 661dd2d5)" and marks them with `nameIsFallback`. When New Relic returns several records for one issue id, the result says so (and a warning is logged with the count and states) so the cause can be confirmed.

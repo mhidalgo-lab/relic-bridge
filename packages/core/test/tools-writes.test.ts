@@ -13,6 +13,7 @@ import {
   buildMcpServer,
   createBudget,
   createBuiltinTools,
+  createLogger,
   createWriteTools,
   ERROR_META_KEY,
   ErrorCode,
@@ -450,12 +451,36 @@ describe('acknowledge_issue / close_issue', () => {
     const ng = nerdGraph({
       RbAiIssues: () => json({ data: { actor: { account: { aiIssues: { issues: { issues: records } } } } } }),
     });
-    const client = await connect(ng.fetch);
+    const logged: string[] = [];
+    const client = await connect(ng.fetch, {
+      logger: createLogger({ level: 'debug', sink: (l) => logged.push(l), now: () => 0 }),
+    });
     for (const name of ['acknowledge_issue', 'close_issue']) {
       const dry = await client.callTool({ name, arguments: { issue_id: 'i-1', dry_run: true } });
       expect(dry.structuredContent, name).toMatchObject({ before: { state: 'ACTIVATED' } });
       expect(text(dry), name).toContain('state ACTIVATED');
+      const note =
+        'New Relic returned 3 records for issue i-1 (states: CREATED, ACTIVATED, CREATED); the newest is shown.';
+      expect(dry.structuredContent, name).toMatchObject({ note });
+      expect(text(dry), name).toContain(note);
     }
+    // The warning carries the count and the states, nothing New Relic wrote (no title, no id).
+    const warns = logged
+      .map((l) => JSON.parse(l) as Record<string, unknown>)
+      .filter((l) => l['level'] === 'warn');
+    expect(warns).toHaveLength(2);
+    expect(warns[0]).toMatchObject({ records: 3, states: ['CREATED', 'ACTIVATED', 'CREATED'] });
+    expect(logged.join('\n')).not.toContain('CPU high');
+  });
+
+  it('adds no records note or warning when the lookup returns one record', async () => {
+    const logged: string[] = [];
+    const client = await connect(nerdGraph().fetch, {
+      logger: createLogger({ level: 'debug', sink: (l) => logged.push(l), now: () => 0 }),
+    });
+    const dry = await client.callTool({ name: 'close_issue', arguments: { issue_id: 'i-1', dry_run: true } });
+    expect(dry.structuredContent).toMatchObject({ note: null });
+    expect(logged.filter((l) => l.includes('"level":"warn"'))).toEqual([]);
   });
 
   it('an issue touching another account is refused, never acted on', async () => {

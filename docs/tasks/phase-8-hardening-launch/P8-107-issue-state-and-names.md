@@ -40,3 +40,10 @@ Issue titles are New Relic data: keep them inside the untrusted output (T5).
 
 ## Out of scope
 - Polling after writes (P8-100).
+
+## Owner decisions
+- 2026-10-16: Ship the freshest-record fix, and add a capture signal: when an aiIssues lookup or list returns more
+  than one record for one issue id, the result carries a short note and a structured `warn` log (record count and
+  states only, no New Relic text), so a real occurrence can be spotted and the cause confirmed.
+- 2026-10-16: Keep the id-based label `(unnamed issue <id8>)` for unnamed `AIOPS/ISSUE` entities; no extra request
+  for the issue title.

@@ -291,6 +291,17 @@ describe('one state per issue (P8-107)', () => {
       ['i1', 'ACTIVATED'],
       ['i2', 'ACTIVATED'],
     ]);
+    expect(s).toMatchObject({
+      recordsNote:
+        'New Relic returned 2 records for issue i1 (states: CREATED, ACTIVATED); the newest is shown.',
+    });
+    expect(text(r)).toContain('Note: New Relic returned 2 records for issue i1');
+  });
+
+  it('adds no records note when every id appears once', async () => {
+    const { client } = await setup([issuesBody([issue(A, 'i1', 'CPU'), issue(A, 'i2', 'Disk')])]);
+    const r = await client.callTool({ name: 'list_recent_issues', arguments: {} });
+    expect(r.structuredContent).not.toHaveProperty('recordsNote');
   });
 
   it('freshestRecord prefers the latest update, then the furthest state', () => {

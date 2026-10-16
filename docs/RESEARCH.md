@@ -956,8 +956,11 @@ are verified there, and the **root fields and argument names** come from New Rel
   `activate`, `acknowledge`, `close`) and the `ids` filter can return an older record next to the current one; the
   lookup took the first. All issues in the sandbox were closed when checked, and closed issues read the same everywhere,
   so this could not be confirmed live. The fix reads the freshest record per issue id (latest `updatedAt`, then the
-  furthest state CREATED < ACTIVATED < DEACTIVATED < CLOSED) in the lookup and the list. If a mismatch shows up again,
-  capture the raw `RbAiIssues` response for the id. `relatedEntities` returns `AIOPS/ISSUE` entities with an empty
+  furthest state CREATED < ACTIVATED < DEACTIVATED < CLOSED) in the lookup and the list. When an issue id comes back with
+  more than one record, the result carries a note ("New Relic returned N records for issue <short id> (states: ...); the
+  newest is shown.", `recordsNote` in `list_recent_issues`, the note in the ack/close result and the report notes) and a
+  `warn` log line with the record count and states only. If that note ever appears, capture the raw `RbAiIssues`
+  response for the id: it confirms the cause. `relatedEntities` returns `AIOPS/ISSUE` entities with an empty
   `entity.name` (checked live: two issues, `name: ""`, relationship `CONNECTS_TO`, guid decodes to
   `<account>|AIOPS|ISSUE|<issueId>`). The issue title is not available in that request, so the row gets
   `(unnamed issue <first 8 of the id>)` and `nameIsFallback: true`.

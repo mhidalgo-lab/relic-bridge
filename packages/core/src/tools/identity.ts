@@ -47,7 +47,8 @@ const whoamiOutput = z.object({
      * Whether a person must approve every write (`RB_WRITE_APPROVAL`): `required` (a write fails with
      * RB_WRITE_APPROVAL_UNAVAILABLE unless the client can be asked) or `off` (`confirm: true` is enough). Detection: the
      * server is stateless, so it asks only a client that declares the elicitation capability with each request (MCP
-     * 2026-07-28, e.g. Claude Code); a 2025-era client's `initialize` is not remembered, so it cannot approve.
+     * 2026-07-28, e.g. Claude Code); a 2025-era client's `initialize` is not remembered, so it cannot approve. The answer
+     * is bound to the exact change, but the server cannot prove a person gave it: it is as strong as the client (P8-101).
      */
     writeApproval: z.enum(['required', 'off']),
   }),
@@ -195,7 +196,7 @@ export function createIdentityTools(deps: ToolDeps = {}): ToolDefinition[] {
           `Usable accounts: ${accounts.length} (see list_accounts).`,
         `Query limits: up to ${ctx.limits.maxLimit} rows, ${ctx.limits.maxWindowDays} day window, ` +
           `raw NRQL ${ctx.limits.rawNrql ? 'allowed' : 'disabled'}. ` +
-          `Write approval: ${ctx.writeApproval ?? 'off'}${ctx.writeApproval === 'required' ? ' (a write needs a person to approve it in a client that supports MCP elicitation, such as Claude Code)' : ''}.`,
+          `Write approval: ${ctx.writeApproval ?? 'off'}${ctx.writeApproval === 'required' ? ' (a write is approved through the MCP elicitation prompt of the client, e.g. in Claude Code; the approval is bound to the exact change and confirm: true alone never writes, but the server cannot verify that a person answered it)' : ''}.`,
         `Tools: ${allowedTools ? allowedTools.join(', ') : 'unknown'}.`,
         ...(unavailable.length > 0
           ? [`Not offered here: ${unavailable.map((u) => `${u.name} (${u.reason})`).join('; ')}.`]

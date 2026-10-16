@@ -42,7 +42,7 @@ export const SIDE_EFFECT_NOTICE: string =
  * One sentence in every write tool's description (P8-88): how approval is detected and what a refusal looks like. Keep it
  * in step with `whoami.limits.writeApproval` and docs/guide/write-tools.md.
  */
-export const APPROVAL_NOTICE: string = 'Approval needs a person (whoami limits.writeApproval).';
+export const APPROVAL_NOTICE: string = 'Approved in the client (whoami limits.writeApproval).';
 
 export const confirmInput: z.ZodOptional<z.ZodLiteral<true>> = z
   .literal(true)

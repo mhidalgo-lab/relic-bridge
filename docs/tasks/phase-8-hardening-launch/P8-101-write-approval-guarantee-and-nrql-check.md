@@ -2,11 +2,11 @@
 id: P8-101
 title: State what write approval guarantees, and warn on rejected dashboard queries
 phase: 8
-status: todo
+status: review
 priority: medium
 depends_on: []
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P8-101 — State what write approval guarantees, and warn on rejected dashboard queries
@@ -34,10 +34,10 @@ Review 5 (0.12.0) findings on the write tools:
 - THREAT_MODEL: record the residual risk (approval as strong as the client) on the write-approval threat.
 
 ## Acceptance criteria
-- [ ] Tests: dry run with a rejected query has a warning; confirm with a rejected query refuses before asking and
+- [x] Tests: dry run with a rejected query has a warning; confirm with a rejected query refuses before asking and
       writes nothing; confirm with valid queries still asks and writes.
-- [ ] `whoami` and description texts updated; generated tool docs regenerated.
-- [ ] THREAT_MODEL updated.
+- [x] `whoami` and description texts updated; generated tool docs regenerated.
+- [x] THREAT_MODEL updated.
 
 ## Security notes
 Write path (T23 neighbours, write approval). The check must run before the elicitation question so a refused plan is
@@ -48,3 +48,10 @@ never shown for approval. Values stay GraphQL variables.
 
 ## Out of scope
 - Signed approval tokens or a second factor.
+
+## Owner decisions
+
+2026-10-16:
+
+1. The shared write-tool notice reads "Approved in the client (whoami limits.writeApproval)." The owner asked for "Approved in the client's prompt" and "Approved in the client prompt", but the description lint rejects both (overlap of create_change_event with acknowledge_issue and close_issue, and the character headroom); this is the closest wording that passes.
+2. Keep the double probe pass (the question round and the answer round each check the queries, the server keeps no state) and let queries beyond the cap or budget go to approval, listed in `notes`.

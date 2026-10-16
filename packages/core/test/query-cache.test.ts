@@ -2,6 +2,7 @@
 // P7-02: NRQL query cache. Isolation (T16) first, then TTLs, size caps, stores and output.
 import { describe, expect, it } from 'vitest';
 import {
+  CACHE_API_RECHECK_MS,
   type CacheApiLike,
   CacheApiQueryCacheStore,
   createBudget,
@@ -438,6 +439,37 @@ describe('query cache: Cache API store', () => {
     const hit = await run(w, hitCtx);
     expect(hit.cache).toMatchObject({ status: 'hit', store: 'colo' });
     expect(hitCtx.budget.used).toBe(1);
+  });
+
+  it('a Cache API that stores nothing (workers.dev) is reported once and then skipped', async () => {
+    let calls = 0;
+    const noop: CacheApiLike = {
+      async match() {
+        calls++;
+        return undefined;
+      },
+      async put() {
+        calls++;
+      },
+    };
+    const c = clock();
+    const colo = new CacheApiQueryCacheStore({ cache: noop, aesKey: await aesKey(), now: c.now });
+    const w = world(new QueryCache({ stores: [colo] }));
+    const first = await run(w, ctxFor(w));
+    expect(first.cache).toMatchObject({ status: 'miss', stored: true });
+    expect(first.cache?.note).toContain('workers.dev');
+    expect(colo.unavailable).toContain('no-op');
+    calls = 0;
+    const second = await run(w, ctxFor(w));
+    expect(second.cache).toMatchObject({ status: 'miss' });
+    expect(second.cache?.note).toContain('workers.dev');
+    expect(calls).toBe(0); // no more Cache API calls, no budget spent on them
+    // After the recheck interval the next write probes again; a working cache clears the note.
+    const { api } = fakeCacheApi();
+    const healed = new CacheApiQueryCacheStore({ cache: api, aesKey: await aesKey(), now: c.now });
+    expect(healed.unavailable).toBeUndefined();
+    c.t += CACHE_API_RECHECK_MS;
+    expect(colo.unavailable).toBeUndefined();
   });
 
   it('rejects entries copied to another id, altered, or written under another key', async () => {

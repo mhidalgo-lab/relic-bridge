@@ -522,6 +522,11 @@ export function createEntityTools(deps: ToolDeps = {}): ToolDefinition[] {
         lines.push(
           'More relationships exist: call again with the same filters and cursor set to the nextCursor below.',
         );
+      if (nextCursor && rows.length < limit) {
+        lines.push(
+          `Note: ${rows.length} of up to ${limit} rows: relationships were filtered after paging (types filter, accounts outside this connection, self-links), so this page is short although more exist; follow nextCursor.`,
+        );
+      }
       if (rows.length > 0) lines.push(shaped.text);
       if (nextCursor) lines.push(`nextCursor: ${nextCursor}`);
       return {

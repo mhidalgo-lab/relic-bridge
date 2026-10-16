@@ -429,6 +429,18 @@ describe('get_related_entities', () => {
     expect(calls[1]?.body.variables).toMatchObject({ cursor: 'c1' });
   });
 
+  it('says a short page is short because of filtering after paging (P8-93)', async () => {
+    const { client } = await setup([relatedBody([{ type: 'CALLS', source: self, target: self }], 'more')]);
+    const r = await client.callTool({ name: 'get_related_entities', arguments: { entity_guid: GUID_A } });
+    expect(text(r)).toContain('filtered after paging');
+    expect((r.structuredContent as { nextCursor: string | null }).nextCursor).toBeTruthy();
+    const { client: whole } = await setup([
+      relatedBody([{ type: 'CALLS', source: self, target: vertex(A, 'p') }]),
+    ]);
+    const ok = await whole.callTool({ name: 'get_related_entities', arguments: { entity_guid: GUID_A } });
+    expect(text(ok)).not.toContain('filtered after paging');
+  });
+
   it('drops edges from the entity to itself and says so (BUG-17)', async () => {
     const { client } = await setup([
       relatedBody([

@@ -252,3 +252,22 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
   every other `RB_*` (limits, rate, quota, NerdGraph, budget) stays `-32603`; the code is in `error.data.code` either way.
   `prompts/get` uses the same mapping for a refused `time_range`, `deployment_time` or `account`.
 - **Needs:** say if limit and rate errors should be `-32602` too (or a custom server error code).
+
+### P8-93 — Query cache: a no-op Cache API is detected by reading a write back
+- **Context:** NEW-28. On `*.workers.dev` the Cache API accepts `put` and returns nothing, so the shared per-colo tier never
+  hits. The Cloudflare docs list custom domains as working and do not state what `workers.dev` does; the no-op is inferred
+  from reports and from the review's behaviour, and not re-measured here.
+- **Assumption made:** instead of matching the hostname, the store reads its first write back once per isolate (one extra
+  Cache API call, outside the budget count) and again every 5 minutes while it fails. When it fails the store is skipped
+  and `cache.note` says why. `stored` stays `true` when the memory tier took the entry, because a repeat on the same
+  isolate does hit. A false negative (a slow first read-after-write) turns the colo tier off for 5 minutes.
+- **Options:** (a) as built; (b) match `workers.dev` from the request hostname (no extra call, but misses other no-op
+  cases such as Access); (c) report `stored: false` when only memory took it (it would read as "never stored" on a Free
+  plan, where memory is the intent).
+- **Needs:** confirm on the real deployment (workers.dev and a custom domain) and choose; also whether the repeat misses
+  in the review came from separate isolates (the memory tier is per isolate).
+
+### P8-93 — `time_range` entirely in the future warns, it does not refuse
+- **Assumption made:** a range that starts after now gets a `Warning:` line; the bounds are still returned (planning a
+  future window is legitimate). `list_recent_issues` omits `groupsScope` without `group_by` (the output field is now optional).
+- **Needs:** say if a refusal is wanted instead.

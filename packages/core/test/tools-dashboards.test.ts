@@ -112,11 +112,24 @@ describe('documents and readers', () => {
       allowed,
       true,
     );
-    expect(md.markdown).toBe('# hi there');
+    expect(md.markdown).toBe('# hi\nthere'); // line breaks survive (P8-93)
     expect(readWidget({ title: 'x', rawConfiguration: 'not json' }, allowed, true).queries).toEqual([]);
     expect(
       readWidget({ title: 'x', rawConfiguration: { nrqlQueries: 'nope' } }, allowed, true).queries,
     ).toEqual([]);
+  });
+
+  it('keeps newlines in markdown text, folds CRLF, caps blank lines and drops control characters', () => {
+    const md = readWidget(
+      {
+        id: 'm',
+        title: 'md',
+        rawConfiguration: JSON.stringify({ text: '# Title\r\n\r\n\r\n\r\n- a   b\u0007\n- c  ' }),
+      },
+      new Set([A]),
+      true,
+    );
+    expect(md.markdown).toBe('# Title\n\n- a b\n- c');
   });
 
   it('withholds widgets for foreign or unknown accounts', () => {

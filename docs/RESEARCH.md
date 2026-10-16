@@ -852,6 +852,23 @@ Sources: developers.cloudflare.com/workers/runtime-apis/cache/, /workers/platfor
   misses on other hostnames (e.g. `workers.dev`).
 - Workers Caching (the newer cache in front of a Worker, configured with `Cache-Control` on Worker responses) is a
   separate mechanism; relic-bridge does not use it (MCP responses are per caller and never cacheable).
+- **NEW-28 (review 4, v0.11.0; 2026-10-16, from documentation and code, not re-measured on the deployment):** three
+  identical `run_nrql` calls on a deployed Worker all said `cache: {status: "miss", stored: true}`. Sources:
+  developers.cloudflare.com/workers/runtime-apis/cache/ ("Workers deployed to custom domains have access to
+  functional `cache` operations"; contents "do not replicate outside of the originating data center"; no effect in the
+  dashboard editor / Playground; unavailable behind Access) and /workers/cache/limitations/ (the Cache API "does not
+  read through", only caches when `put()` is called, no tiered caching). The docs list custom domains (and
+  `*.pages.dev` for Pages Functions) as the working cases and say nothing of `workers.dev`; it is widely reported as a
+  no-op there. Why the store reported `stored: true`: `put()` resolves without error where the Cache API is a no-op,
+  and `QueryCache.put` counted the isolate memory tier too. The memory tier serves later requests of the same
+  isolate only, so requests that land on another isolate (or, on a plan with `RB_QUERY_CACHE=memory`, anything not in
+  the isolate) are misses. Cache keys were checked and are stable across calls (scope per grant, credential, key
+  hash, accounts, limits, normalised NRQL, time bucket; nothing per request). `put` is awaited inside the request,
+  so `ctx.waitUntil` is not the cause. Fix: the Cache API store reads its first write back (once per isolate, and
+  every 5 minutes while it fails); an entry that cannot be read back marks the store unavailable, it is skipped (no
+  more Cache API calls or budget) and `cache.note` explains that results are not shared across isolates.
+  `stored` stays true when the memory tier took the entry. A custom domain or route on a Cloudflare zone makes the
+  colo tier work.
 - workerd in `@cloudflare/vitest-plugin` implements `caches.open` / `match` / `put` locally (used by
   `apps/worker/test/query-cache.test.ts`).
 

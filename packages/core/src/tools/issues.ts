@@ -122,8 +122,8 @@ const pageOutput = {
 const issuesOutput = z.object({
   issues: z.array(z.record(z.string(), z.unknown())),
   groups: z.array(z.record(z.string(), z.unknown())).optional(),
-  /** What groups[].count covers: the whole `window`, or only this `page`. */
-  groupsScope: z.enum(['window', 'page']),
+  /** What groups[].count covers: the whole `window`, or only this `page`. Only with group_by. */
+  groupsScope: z.enum(['window', 'page']).optional(),
   /** Why `groupsScope` is `page` when group_by was asked, and how many issues the counts cover. */
   groupsNote: z.string().optional(),
   /** Set when `limit` was lowered to the upstream page size. */
@@ -270,6 +270,8 @@ export async function lookupIssue(
   account: number,
   issueId: string,
   window: { sinceMs: number; untilMs: number },
+  /** `lookback: false` for tools that have no `lookback` input (the writes): the message does not mention one. */
+  options: { readonly lookback?: boolean } = {},
 ): Promise<IssueRow> {
   const result = await client.query(AI_ISSUES_QUERY, {
     accountId: account,
@@ -290,11 +292,16 @@ export async function lookupIssue(
       { hint: 'Use list_recent_issues to see the issues you can read.' },
     );
   }
+  const hasLookback = options.lookback !== false;
   throw new RbError(
     ErrorCode.InputInvalid,
-    `No issue with this id in account ${account} in the lookback window.`,
+    hasLookback
+      ? `No issue with this id in account ${account} in the lookback window.`
+      : `No issue with this id in account ${account} in the last ${ctx.limits.maxWindowDays} days.`,
     {
-      hint: 'Check the id with list_recent_issues, pass the issue account, or widen lookback.',
+      hint: hasLookback
+        ? 'Check the id with list_recent_issues, pass the issue account, or widen lookback.'
+        : 'Check the id with list_recent_issues or pass the issue account.',
     },
   );
 }
@@ -565,7 +572,7 @@ export function createIssueTools(deps: ToolDeps = {}): ToolDefinition[] {
           until,
           issues,
           ...(groups ? { groups } : {}),
-          groupsScope,
+          ...(input.group_by ? { groupsScope } : {}),
           ...(groupsNote ? { groupsNote } : {}),
           ...(limitNote ? { limitNote } : {}),
           nextCursor,

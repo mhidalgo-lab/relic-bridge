@@ -17,7 +17,7 @@ import { envelope } from '../output/envelope.ts';
 import { shapeRows } from '../output/format.ts';
 import { defineTool, type ToolDefinition } from '../tool.ts';
 import { checkGuid, guidAgrees, isNonNull, outOfScope, requireField } from './entities.ts';
-import { cleanName } from './identity.ts';
+import { cleanMultiline, cleanName } from './identity.ts';
 import { bindingOf, pageUpstream } from './paging.ts';
 import {
   accountInput,
@@ -114,7 +114,7 @@ export function readWidget(
     queries: show
       ? parsed.map((q) => ({ accountId: q.accountId, nrql: cleanName(q.nrql, MAX_NRQL_CHARS) }))
       : [],
-    markdown: show && markdown !== null ? cleanName(markdown, MAX_MARKDOWN_CHARS) : null,
+    markdown: show && markdown !== null ? cleanMultiline(markdown, MAX_MARKDOWN_CHARS) : null,
     withheld,
   };
 }
@@ -378,7 +378,7 @@ export function createDashboardTools(deps: ToolDeps = {}): ToolDefinition[] {
               : {
                   nrql: w.withheld ? '(withheld: other account)' : w.queries.map((q) => q.nrql).join(' | '),
                   account: [...new Set(w.queries.map((q) => q.accountId))].join(','),
-                  markdown: w.markdown ?? '',
+                  markdown: (w.markdown ?? '').replace(/\n/g, '\\n'), // one table row per widget
                 }),
           });
         }

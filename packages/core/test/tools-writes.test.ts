@@ -484,6 +484,29 @@ describe('acknowledge_issue / close_issue', () => {
     expect(mutationsOf(ng.calls)).toEqual([]);
   });
 
+  it('a missing issue hint does not mention a lookback these tools do not have (P8-93)', async () => {
+    const ng = nerdGraph({
+      RbAiIssues: () =>
+        json({ data: { actor: { account: { aiIssues: { issues: { nextCursor: null, issues: [] } } } } } }),
+    });
+    const client = await connect(ng.fetch);
+    for (const name of ['acknowledge_issue', 'close_issue']) {
+      const r = await client.callTool({ name, arguments: { issue_id: 'i-1', confirm: true } });
+      expect(code(r), name).toBe(ErrorCode.InputInvalid);
+      expect(text(r).toLowerCase(), name).not.toContain('lookback');
+    }
+  });
+
+  it('create_change_event says https only for an http deep_link (P8-93)', async () => {
+    const client = await connect(nerdGraph().fetch);
+    const r = await client.callTool({
+      name: 'create_change_event',
+      arguments: { ...DEPLOY, deep_link: 'http://example.com/x' },
+    });
+    expect(r.isError).toBe(true);
+    expect(text(r)).toContain('https only');
+  });
+
   it('an error in the answer, or an answer for another issue, is not a success', async () => {
     for (const reply of [
       { aiIssuesAckIssue: { result: null, error: 'Issue not found' } },

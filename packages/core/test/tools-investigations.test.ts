@@ -867,6 +867,35 @@ describe('dependency_health', () => {
     expect(s.dependencies.map((d) => d.guid)).toEqual([CACHE]);
   });
 
+  it('says which limit stopped it: the max_dependencies cap, its maximum, or the request budget (P8-93)', async () => {
+    const capped = await connect(nerdGraph({ related }).fetch);
+    const two = await capped.callTool({
+      name: 'dependency_health',
+      arguments: { entity_guid: MOCK_GUID, max_dependencies: 2 },
+    });
+    expect(resultText(two)).toContain('max_dependencies is 2 (raise it, up to 5)');
+    // Seven neighbours with max_dependencies already 5: raising it is not an option.
+    const many = Array.from({ length: 7 }, (_, i) =>
+      edge(guidOf(A, 'INFRA', 'HOST', `h${i}`), `host-${i}`, null),
+    );
+    const big = await connect(nerdGraph({ related: many }).fetch);
+    const five = await big.callTool({
+      name: 'dependency_health',
+      arguments: { entity_guid: MOCK_GUID, max_dependencies: 5 },
+    });
+    expect(resultText(five)).toContain('max_dependencies is already at its maximum (5)');
+    expect(resultText(five)).not.toContain('raise max_dependencies');
+    // A small call budget: the budget note names itself and not the cap.
+    const tight = await connect(nerdGraph({ related: many }).fetch, { budget: createBudget(1 + 4 + 2) });
+    const stopped = await tight.callTool({
+      name: 'dependency_health',
+      arguments: { entity_guid: MOCK_GUID, max_dependencies: 5, max_metrics: 3 },
+    });
+    expect(resultText(stopped)).toContain(
+      'the request budget ran out (a limit of this call, not max_dependencies',
+    );
+  });
+
   it('plans against the budget: entity first, neighbours skipped when nothing is left', async () => {
     const ng = nerdGraph({ related });
     const client = await connect(ng.fetch, { budget: createBudget(1 + 4 + 2) });

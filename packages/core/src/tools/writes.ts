@@ -86,7 +86,10 @@ const changeInput = z.strictObject({
   commit: text(128, 'Commit id.').optional(),
   changelog: text(1000, 'Changelog URL or text.').optional(),
   deep_link: z
-    .url({ protocol: /^https$/ })
+    .url({
+      protocol: /^https$/,
+      error: 'deep_link must be an https:// URL (https only; http: is not accepted).',
+    })
     .max(500)
     .optional()
     .describe('https link to the system that made the change.'),
@@ -390,10 +393,17 @@ export function createWriteTools(deps: ToolDeps = {}): ToolDefinition[] {
         const nr = client(ctx);
         const now = ctx.clock.now();
         // The issue must be in this account and touch no account or entity outside the connection (T3).
-        const issue: IssueRow = await lookupIssue(nr, ctx, account, input.issue_id, {
-          sinceMs: now - ctx.limits.maxWindowDays * DAY_MS,
-          untilMs: now,
-        });
+        const issue: IssueRow = await lookupIssue(
+          nr,
+          ctx,
+          account,
+          input.issue_id,
+          {
+            sinceMs: now - ctx.limits.maxWindowDays * DAY_MS,
+            untilMs: now,
+          },
+          { lookback: false },
+        );
         const before = { state: issue.state, acknowledgedAt: issue.acknowledgedAt };
         const closing = spec.name === 'close_issue';
         const noop =

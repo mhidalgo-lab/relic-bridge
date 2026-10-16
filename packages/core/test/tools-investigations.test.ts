@@ -80,6 +80,8 @@ interface Overrides {
   nrql?: (nrql: string) => Response | undefined;
   /** Titles of the entity's golden metrics (every one uses the same Throughput-style query). */
   goldenTitles?: string[];
+  /** Query text per golden metric title (default: the same Throughput-style query for all). */
+  goldenQueries?: Record<string, string>;
   /** Errors Inbox groups returned by the group lookup (default: the mock's eg-1). */
   groups?: Record<string, unknown>[];
 }
@@ -159,7 +161,9 @@ function nerdGraph(o: Overrides = {}): { fetch: FetchLike; calls: Recorded[] } {
               goldenMetrics: {
                 metrics: o.goldenTitles.map((title) => ({
                   title,
-                  query: "FROM Metric SELECT rate(count(a), 1 minute) WHERE entity.guid = 'X'",
+                  query:
+                    o.goldenQueries?.[title] ??
+                    "FROM Metric SELECT rate(count(a), 1 minute) WHERE entity.guid = 'X'",
                 })),
               },
             },
@@ -898,6 +902,46 @@ describe('dependency_health', () => {
       "the server's per-call budget is 7 requests; see whoami limits.perCallBudget",
     );
     expect(resultText(stopped)).not.toContain('RB_CALL_BUDGET');
+  });
+
+  it('with no neighbours counts the entity own signals and says why a metric was skipped (P8-108)', async () => {
+    const points = (...v: number[]) =>
+      v.map((x, i) => ({ beginTimeSeconds: i * 60, endTimeSeconds: i * 60 + 60, Throughput: x }));
+    const ng = nerdGraph({
+      related: [],
+      goldenTitles: ['Throughput', 'Response time'],
+      goldenQueries: {
+        Throughput: "FROM Metric SELECT rate(count(a), 1 minute) WHERE entity.guid = 'X'",
+        'Response time': "FROM Metric SELECT average(b) WHERE entity.guid = 'X'",
+      },
+      nrql: (q) =>
+        q.includes('COMPARE WITH')
+          ? nrqlBody([])
+          : q.includes('rate(count')
+            ? nrqlBody(points(10, 10, 5, 5))
+            : nrqlBody([]),
+    });
+    const client = await connect(ng.fetch);
+    const r = await client.callTool({
+      name: 'dependency_health',
+      arguments: { entity_guid: MOCK_GUID, max_dependencies: 2 },
+    });
+    expect(r.isError, resultText(r)).toBeFalsy();
+    const s = r.structuredContent as {
+      entity: { signals: string[]; metrics: { title: string; status: string }[] };
+      dependencies: unknown[];
+      notes: string[];
+    };
+    expect(s.dependencies).toEqual([]);
+    expect(s.entity.signals).toEqual(['Throughput down 50%']);
+    const out = resultText(r);
+    // The summary agrees with the rows: no neighbour has signals, the entity itself has one.
+    expect(out).toContain('0 related entities measured');
+    expect(out).toContain('0 with signals. The entity itself: 1 signal (self row).');
+    expect(out).toContain('No related entities to measure');
+    // The skipped metric has a reason.
+    expect(s.entity.metrics.find((m) => m.title === 'Response time')?.status).toBe('no_data');
+    expect(s.notes.join(' ')).toContain('The entity: Response time no data in the window');
   });
 
   it('plans against the budget: entity first, neighbours skipped when nothing is left', async () => {

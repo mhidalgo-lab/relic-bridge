@@ -29,6 +29,7 @@ const B = 1000004;
 const OTHER = 1000007;
 const NOW = 1790943448000;
 const MIN = 60_000;
+const hostGuid = (account: number) => btoa(`${account}|INFRA|HOST|7`).replace(/=+$/, '');
 const guidOf = (account: number, id = '42') => btoa(`${account}|APM|APPLICATION|${id}`).replace(/=+$/, '');
 
 let clients: Client[] = [];
@@ -165,6 +166,21 @@ describe('readers', () => {
     );
     expect(t.map((x) => x.name)).toEqual(['b', 'a']);
   });
+});
+
+describe('JVM tools given a non-APM entity (P8-108)', () => {
+  it.each(['analyze_threads', 'list_gc_metrics'])(
+    '%s refuses it before any request, naming the entity and what to use',
+    async (name) => {
+      const { fetch, calls } = recording(() => nrqlBody([]));
+      const client = await connect(fetch);
+      const r = await client.callTool({ name, arguments: { entity_guid: hostGuid(A) } });
+      expect(errorCode(r)).toBe(ErrorCode.InputInvalid);
+      expect(text(r)).toContain(`${name} supports APM applications only; this entity is INFRA/HOST.`);
+      expect(text(r)).toContain('get_golden_metrics');
+      expect(calls).toHaveLength(0);
+    },
+  );
 });
 
 describe('analyze_threads', () => {

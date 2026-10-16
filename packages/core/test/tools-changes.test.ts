@@ -726,6 +726,17 @@ describe('analyze_deployment_impact', () => {
       ),
     ).toBe(ErrorCode.AuthForbidden);
     expect(calls).toHaveLength(0);
+    // A non-APM GUID is refused from the GUID alone: no request, same message as the other APM-only tools (P8-108).
+    const host = await client.callTool({
+      name: 'analyze_deployment_impact',
+      arguments: { entity_guid: guidOf(A, '7', 'INFRA', 'HOST') },
+    });
+    expect(errorCode(host)).toBe(ErrorCode.InputInvalid);
+    expect(JSON.stringify(host.content)).toContain(
+      'analyze_deployment_impact supports APM applications only; this entity is INFRA/HOST.',
+    );
+    expect(calls).toHaveLength(0);
+    // A GUID that says APM but whose lookup says otherwise is still refused after the lookup.
     expect(
       errorCode(
         await client.callTool({ name: 'analyze_deployment_impact', arguments: { entity_guid: guidOf(A) } }),

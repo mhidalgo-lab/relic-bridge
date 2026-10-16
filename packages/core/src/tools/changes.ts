@@ -19,7 +19,7 @@ import { shapeRows } from '../output/format.ts';
 import { parseTimeRange } from '../time/range.ts';
 import { defineTool, type ToolDefinition } from '../tool.ts';
 import { checkGuid, guidAgrees, isNonNull, outOfScope, requireField } from './entities.ts';
-import { accountFilter } from './entity-common.ts';
+import { accountFilter, requireApmApplication } from './entity-common.ts';
 import { cleanName, errorNote, maskEmail } from './identity.ts';
 import {
   bindingOf,
@@ -1078,6 +1078,7 @@ export function createChangeTools(deps: ToolDeps = {}): ToolDefinition[] {
     phase: 6,
     handler: async (args, ctx) => {
       const decoded = checkGuid(ctx, args.entity_guid);
+      requireApmApplication(decoded, 'analyze_deployment_impact');
       const account = singleAccount(ctx, decoded.accountId);
       const now = ctx.clock.now();
       const compareMs = (args.compare_minutes ?? DEFAULT_COMPARE_MINUTES) * MINUTE_MS;

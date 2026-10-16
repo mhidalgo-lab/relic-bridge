@@ -252,7 +252,7 @@ describe('fallback: clients without the extension keep the queryId handle', () =
     const res = await rpc(t.app, t.world.tokens.prod, 'tools/call', RUN);
     expect(res.result?.['resultType']).not.toBe('task');
     expect(textOf(res.result)).toContain('get_query_result');
-    for (const method of ['tasks/get', 'tasks/update', 'tasks/cancel']) {
+    for (const method of ['tasks/get', 'tasks/update', 'tasks/cancel', 'tasks/list', 'tasks/result']) {
       const out = await rpc(t.app, t.world.tokens.prod, method, { taskId: 'x'.repeat(43) });
       expect(out.error?.code).toBe(-32601);
     }
@@ -277,16 +277,25 @@ describe('fallback: clients without the extension keep the queryId handle', () =
 });
 
 describe('protocol checks on tasks/*', () => {
-  it('-32021 without the extension in the request capabilities or the 2026-07-28 envelope', async () => {
+  it('-32021 without the extension in the request capabilities of a 2026-07-28 request', async () => {
     const t = await tasksWorld();
     const taskId = await startTask(t);
-    for (const options of [{ tasks: false }, { version: null }, { version: '2025-11-25' }]) {
-      const res = await rpc(t.app, t.world.tokens.prod, 'tasks/get', { taskId }, options);
-      expect(res.status, JSON.stringify(options)).toBe(400);
-      expect(res.error).toMatchObject({
-        code: -32021,
-        data: { requiredCapabilities: { extensions: { [TASKS]: {} } } },
-      });
+    const res = await rpc(t.app, t.world.tokens.prod, 'tasks/get', { taskId }, { tasks: false });
+    expect(res.status).toBe(400);
+    expect(res.error).toMatchObject({
+      code: -32021,
+      data: { requiredCapabilities: { extensions: { [TASKS]: {} } } },
+    });
+  });
+
+  it('-32601 outside 2026-07-28: the extension is not advertised there (P8-102)', async () => {
+    const t = await tasksWorld();
+    const taskId = await startTask(t);
+    for (const options of [{ version: null }, { version: '2025-11-25' }]) {
+      for (const method of ['tasks/get', 'tasks/update', 'tasks/cancel']) {
+        const res = await rpc(t.app, t.world.tokens.prod, method, { taskId }, options);
+        expect(res.error, `${method} ${JSON.stringify(options)}`).toMatchObject({ code: -32601 });
+      }
     }
   });
 

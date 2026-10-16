@@ -962,7 +962,7 @@ describe('server and caller errors (P8-59)', () => {
     expect(callsPoint()).toMatchObject({ status: 'error', 'error.code': 'RB_LIMIT_QUERY', fault: 'caller' });
   });
 
-  it('a refused write (P8-88): span ERROR, write.applied false and write.confirmation, no gRPC status code', async () => {
+  it('a refused write (P8-88, P8-102): span Unset (caller fault), write.applied false and write.confirmation, no gRPC status code', async () => {
     const t = createTelemetry({ endpoint: base, fetch: receiverFetch });
     await t.hooks.onToolCall?.({} as never, { projectSlug: 'prod' } as never, {
       tool: 'close_issue',
@@ -973,7 +973,7 @@ describe('server and caller errors (P8-59)', () => {
       meta: { 'relic-bridge/write': { applied: false, dryRun: false, confirmation: 'unavailable' } },
     });
     const span = spanOf();
-    expect(span.status).toEqual({ code: 2, message: 'RB_WRITE_APPROVAL_UNAVAILABLE' });
+    expect(span.status).toEqual({ code: 0 });
     expect(attrMap(span.attributes)).toMatchObject({
       'write.applied': 'false',
       'write.confirmation': 'unavailable',
@@ -1050,7 +1050,7 @@ describe('error status, a span per MCP method and logs in the trace (P8-90)', ()
     );
   const named = (name: string): Json[] => spans().filter((s) => s.name === name);
 
-  it('spanStatus: ERROR only for server faults and refused writes, Unset for other caller errors (P8-98)', () => {
+  it('spanStatus: ERROR only for server faults, Unset for every caller fault, approval refusals included (P8-102)', () => {
     expect(spanStatus('ok', undefined, undefined)).toEqual({ code: 1 });
     expect(spanStatus('error', 'server', 'RB_NERDGRAPH_UNAVAILABLE')).toEqual({
       code: 2,
@@ -1058,14 +1058,8 @@ describe('error status, a span per MCP method and logs in the trace (P8-90)', ()
     });
     expect(spanStatus('error', 'server', undefined)).toEqual({ code: 2 });
     expect(spanStatus('error', 'caller', 'RB_LIMIT_QUERY')).toEqual({ code: 0 });
-    expect(spanStatus('error', 'caller', 'RB_WRITE_APPROVAL_UNAVAILABLE')).toEqual({
-      code: 2,
-      message: 'RB_WRITE_APPROVAL_UNAVAILABLE',
-    });
-    expect(spanStatus('error', 'caller', 'RB_WRITE_APPROVAL_DECLINED')).toEqual({
-      code: 2,
-      message: 'RB_WRITE_APPROVAL_DECLINED',
-    });
+    expect(spanStatus('error', 'caller', 'RB_WRITE_APPROVAL_UNAVAILABLE')).toEqual({ code: 0 });
+    expect(spanStatus('error', 'caller', 'RB_WRITE_APPROVAL_DECLINED')).toEqual({ code: 0 });
   });
 
   it('a resources/read and a prompts/get each produce one span, with no name, URI or argument on it', async () => {
@@ -1119,6 +1113,44 @@ describe('error status, a span per MCP method and logs in the trace (P8-90)', ()
     const span = named('resources/read')[0];
     expect(span.status).toEqual({ code: 0 });
     expect(attrsOf(span)).toMatchObject({ fault: 'caller', 'error.type': '404' });
+  });
+
+  it('end to end: tasks/list answered -32601 is recorded as a caller fault, not ok (P8-102)', async () => {
+    const app = appWith();
+    const res = await app.fetch(rpcRequest(world.tokens.prod, 'tasks/list', {}));
+    expect((await res.json()) as { error: { code: number } }).toMatchObject({ error: { code: -32601 } });
+    await vi.waitFor(() => expect(named('tasks/list').length).toBe(1));
+    const span = named('tasks/list')[0];
+    expect(span.status).toEqual({ code: 0 });
+    expect(attrsOf(span)).toMatchObject({ status: 'error', fault: 'caller', 'error.type': '-32601' });
+  });
+
+  it('a JSON-RPC -32601 inside an HTTP 200 is a caller fault, not ok (P8-102)', async () => {
+    const t = createTelemetry({ endpoint: base, fetch: receiverFetch });
+    const c = {} as never;
+    t.hooks.traceContext?.(c, { mcpMethod: 'tasks/list' } as never);
+    await t.hooks.afterMcp?.(c, { mcpMethod: 'tasks/list', projectSlug: 'prod' } as never, {
+      status: 200,
+      durationMs: 5,
+      rpcErrorCode: -32601,
+    });
+    const span = named('tasks/list')[0];
+    expect(span.status).toEqual({ code: 0 });
+    expect(attrsOf(span)).toMatchObject({ status: 'error', fault: 'caller', 'error.type': '-32601' });
+  });
+
+  it('a JSON-RPC -32603 inside an HTTP 200 marks the span ERROR', async () => {
+    const t = createTelemetry({ endpoint: base, fetch: receiverFetch });
+    const c = {} as never;
+    t.hooks.traceContext?.(c, { mcpMethod: 'tasks/get' } as never);
+    await t.hooks.afterMcp?.(c, { mcpMethod: 'tasks/get', projectSlug: 'prod' } as never, {
+      status: 200,
+      durationMs: 5,
+      rpcErrorCode: -32603,
+    });
+    const span = named('tasks/get')[0];
+    expect(span.status).toEqual({ code: 2, message: '-32603' });
+    expect(attrsOf(span)).toMatchObject({ fault: 'server', 'error.type': '-32603' });
   });
 
   it('an HTTP 5xx on a method marks its span ERROR with the status as the type', async () => {

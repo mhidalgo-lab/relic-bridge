@@ -22,6 +22,7 @@ const TASK_PROTOCOL_VERSIONS: ReadonlySet<string> = new Set(['2026-07-28']);
 const PROTOCOL_VERSION_META_KEY = 'io.modelcontextprotocol/protocolVersion';
 
 const INVALID_REQUEST = -32600;
+const METHOD_NOT_FOUND = -32601;
 const INVALID_PARAMS = -32602;
 const INTERNAL_ERROR = -32603;
 /** The spec's "headers and body disagree" (SEP-2243), as the SDK answers it. */
@@ -98,7 +99,13 @@ export async function answerTaskRpc(body: unknown, options: TaskRpcOptions): Pro
     meta !== null && typeof meta === 'object'
       ? (meta as Record<string, unknown>)[PROTOCOL_VERSION_META_KEY]
       : undefined;
-  if (typeof version !== 'string' || !TASK_PROTOCOL_VERSIONS.has(version) || !clientDeclaresTasks(meta)) {
+  // The extension is not offered to a request outside 2026-07-28 (a 2025-era connection never sees it advertised), so
+  // for it these are unknown methods, as on a host with tasks off (P8-102).
+  if (typeof version !== 'string' || !TASK_PROTOCOL_VERSIONS.has(version)) {
+    log['reject'] = 'tasks_not_offered';
+    return failure(200, id, METHOD_NOT_FOUND, 'Method not found');
+  }
+  if (!clientDeclaresTasks(meta)) {
     log['reject'] = 'tasks_capability';
     return failure(400, id, MISSING_CLIENT_CAPABILITY, 'Missing required client capability', {
       requiredCapabilities: { extensions: { [TASKS_EXTENSION]: {} } },

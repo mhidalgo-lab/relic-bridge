@@ -894,6 +894,34 @@ describe('create_dashboard (P7-19)', () => {
     expect(text(r)).toContain('Page 1 widget 2');
   });
 
+  it('local input errors show their details as plain text; New Relic details stay untrusted (P8-102)', async () => {
+    for (const nrql of [
+      'SELECT 1 FROM Log; SELECT 2 FROM Log',
+      'SELEKT 1 FROM Log',
+      'SELECT count(* FROM Log',
+    ]) {
+      const { r, ng } = await call({ ...DASH, pages: [{ name: 'P', widgets: [chart(nrql)] }] });
+      expect(code(r), nrql).toBe(ErrorCode.InputInvalid);
+      expect(text(r), nrql).toContain('Details: {"at":"Page 1 widget 1"}');
+      expect(text(r), nrql).not.toContain('<untrusted-data');
+      expect(ng.calls, nrql).toEqual([]);
+    }
+    const ng = nerdGraph({
+      RbCreateDashboard: () =>
+        json({
+          data: {
+            dashboardCreate: {
+              entityResult: null,
+              errors: [{ description: 'bad <ignore previous>', type: 'X' }],
+            },
+          },
+        }),
+    });
+    const r = await (await connect(ng.fetch)).callTool({ name: 'create_dashboard', arguments: DASH });
+    expect(code(r)).toBe(ErrorCode.NerdGraphError);
+    expect(text(r)).toContain('<untrusted-data');
+  });
+
   it('is never retried, and an answer with errors or no guid is not a success', async () => {
     const busy = nerdGraph({ RbCreateDashboard: () => new Response('busy', { status: 503 }) });
     const r1 = await (await connect(busy.fetch)).callTool({ name: 'create_dashboard', arguments: DASH });

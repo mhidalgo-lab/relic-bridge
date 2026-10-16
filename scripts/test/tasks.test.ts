@@ -1,6 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 import { describe, expect, it } from 'vitest';
-import { loadTasks, nextTasks, parseTask, renderIndex, replaceIndex, type Task, validate } from '../tasks.ts';
+import {
+  compareTasks,
+  loadTasks,
+  nextTasks,
+  parseTask,
+  renderIndex,
+  replaceIndex,
+  type Task,
+  validate,
+} from '../tasks.ts';
 
 const t = (
   id: string,
@@ -41,6 +50,28 @@ describe('parseTask', () => {
 
   it('rejects missing front matter', () => {
     expect(parseTask('a.md', '# no fm').errors).toHaveLength(1);
+  });
+
+  it('accepts a three-digit id once a phase passes 99 tasks, but not one digit or four', () => {
+    const ok = parseTask(
+      'docs/tasks/p/P8-100-x.md',
+      fm('id: P8-100\ntitle: X\nphase: 8\nstatus: todo\npriority: low'),
+    );
+    expect(ok.errors).toEqual([]);
+    for (const id of ['P8-1', 'P8-1000']) {
+      const bad = parseTask(
+        `docs/tasks/p/${id}-x.md`,
+        fm(`id: ${id}\ntitle: X\nphase: 8\nstatus: todo\npriority: low`),
+      );
+      expect(bad.errors.join('\n'), id).toMatch(/invalid id/);
+    }
+  });
+});
+
+describe('compareTasks', () => {
+  it('orders ids numerically, so P8-100 comes after P8-99', () => {
+    const ids = ['P8-100', 'P8-11', 'P8-99', 'P8-02'].map((id) => t(id, 'todo'));
+    expect(ids.sort(compareTasks).map((x) => x.id)).toEqual(['P8-02', 'P8-11', 'P8-99', 'P8-100']);
   });
 });
 

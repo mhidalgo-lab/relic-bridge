@@ -2,7 +2,7 @@
 id: P8-99
 title: Fix the open CodeQL code-scanning alerts
 phase: 8
-status: in-progress
+status: done
 priority: medium
 depends_on: []
 adr: []

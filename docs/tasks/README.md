@@ -17,7 +17,7 @@ docs/tasks/
 
 ```yaml
 ---
-id: P1-04            # PHASE-NN, never reused
+id: P1-04            # PHASE-NN (NNN after 99), never reused
 title: NRQL safety and query limits
 phase: 1
 status: todo         # todo | in-progress | blocked | review | done | dropped

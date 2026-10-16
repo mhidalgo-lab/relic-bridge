@@ -939,6 +939,14 @@ are verified there, and the **root fields and argument names** come from New Rel
   header like the reads.
 - To verify (owner, P7-09 pending decision): one `dry_run` and one real call of each tool on a test entity / issue, in
   US and EU.
+- **aiIssues read lag (verified live 2026-10-16, US, P8-100):** `aiIssuesAckIssue` and `aiIssuesResolveIssue` worked on a real
+  sandbox issue, and each wrote an `NrAiIssue` event (`acknowledge`, `close`). Reads trail the mutation: `aiIssues.issues`
+  calls made within about 2 seconds of the acknowledge still returned `acknowledgedAt: null`, while seconds later the
+  `isAcknowledged` filter matched and `acknowledgedAt` was set. Before the acknowledge, a lookup by id (`filter: { ids }`)
+  returned `state: CREATED` for about 20 minutes while the list returned `ACTIVATED` for the same issue; after the
+  acknowledge both said `ACTIVATED`. The close read back at once. relic-bridge therefore adds a note to an applied
+  acknowledge or close that a read (or dry run) right after it may still show the old state. Both tools are idempotent,
+  so a stale read never causes a wrong write.
 - `dashboardCreate(accountId: Int!, dashboard: DashboardInput!)` → `DashboardCreateResult { entityResult { guid
   accountId name permissions … } errors { description type } }` (P7-19). Unlike the notes above, the P0-09
   introspection **does** hold `RootMutationType` (396 fields; re-checked 2026-10-06), and this field, its arguments and

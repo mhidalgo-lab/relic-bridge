@@ -398,6 +398,7 @@ export function createWriteTools(deps: ToolDeps = {}): ToolDefinition[] {
         const nr = client(ctx);
         const now = ctx.clock.now();
         // The issue must be in this account and touch no account or entity outside the connection (T3).
+        const recordNotes: string[] = [];
         const issue: IssueRow = await lookupIssue(
           nr,
           ctx,
@@ -407,8 +408,11 @@ export function createWriteTools(deps: ToolDeps = {}): ToolDefinition[] {
             sinceMs: now - ctx.limits.maxWindowDays * DAY_MS,
             untilMs: now,
           },
-          { lookback: false },
+          { lookback: false, notes: recordNotes },
         );
+        const recordsNote = recordNotes.join(' ');
+        const joined = (base: string | null): string | null =>
+          [base, recordsNote].filter((x) => x).join(' ') || null;
         const before = { state: issue.state, acknowledgedAt: issue.acknowledgedAt };
         const closing = spec.name === 'close_issue';
         const noop =
@@ -449,15 +453,15 @@ export function createWriteTools(deps: ToolDeps = {}): ToolDefinition[] {
 
         if (noop !== null) {
           return {
-            text: `${noop} (account ${account}, state ${issue.state ?? 'unknown'}).\n${titleBlock}`,
-            structured: shaped(false, null, noop),
+            text: `${noop} (account ${account}, state ${issue.state ?? 'unknown'}).${recordsNote ? ` ${recordsNote}` : ''}\n${titleBlock}`,
+            structured: shaped(false, null, joined(noop)),
             meta: writeMeta(record(false, null)),
           };
         }
         if (dryRun) {
           return {
-            text: `Dry run: would ${spec.verb} issue ${input.issue_id} in account ${account} (state ${issue.state ?? 'unknown'}). Nothing was changed.\n${titleBlock}`,
-            structured: shaped(false, plannedAfter, null),
+            text: `Dry run: would ${spec.verb} issue ${input.issue_id} in account ${account} (state ${issue.state ?? 'unknown'}). Nothing was changed.${recordsNote ? ` ${recordsNote}` : ''}\n${titleBlock}`,
+            structured: shaped(false, plannedAfter, joined(null)),
             meta: writeMeta(record(false, plannedAfter)),
           };
         }
@@ -516,8 +520,8 @@ export function createWriteTools(deps: ToolDeps = {}): ToolDefinition[] {
           );
         }
         return {
-          text: `${closing ? 'Closed' : 'Acknowledged'} issue ${input.issue_id} in account ${account} (was ${issue.state ?? 'unknown'}). ${ISSUE_READ_LAG_NOTE}\n${titleBlock}`,
-          structured: shaped(true, plannedAfter, ISSUE_READ_LAG_NOTE, gate.confirmation),
+          text: `${closing ? 'Closed' : 'Acknowledged'} issue ${input.issue_id} in account ${account} (was ${issue.state ?? 'unknown'}). ${joined(ISSUE_READ_LAG_NOTE)}\n${titleBlock}`,
+          structured: shaped(true, plannedAfter, joined(ISSUE_READ_LAG_NOTE), gate.confirmation),
           meta: writeMeta({
             ...record(true, plannedAfter),
             ...(gate.confirmation === undefined ? {} : { confirmation: gate.confirmation }),

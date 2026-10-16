@@ -306,6 +306,26 @@ describe('user impact helpers', () => {
 });
 
 describe('generate_alert_insights_report', () => {
+  it('shows the freshest record of the issue, not an older CREATED one (P8-107)', async () => {
+    const ng = nerdGraph({
+      issues: [
+        issueRow({ state: 'CREATED', updatedAt: NOW - 600_000 }),
+        issueRow({ state: 'ACTIVATED', updatedAt: NOW - 60_000 }),
+      ],
+    });
+    const client = await connect(ng.fetch);
+    const r = await client.callTool({
+      name: 'generate_alert_insights_report',
+      arguments: { issue_id: 'issue-1', sections: ['entity'] },
+    });
+    expect(r.isError, resultText(r)).toBeFalsy();
+    expect((r.structuredContent as { issue: { state: string } }).issue.state).toBe('ACTIVATED');
+    expect(resultText(r)).toContain('state: ACTIVATED');
+    expect(resultText(r)).toContain(
+      'New Relic returned 2 records for issue issue-1 (states: CREATED, ACTIVATED); the newest is shown.',
+    );
+  });
+
   it('looks the issue up by id and runs every section through the sibling tools', async () => {
     const ng = nerdGraph();
     const client = await connect(ng.fetch);

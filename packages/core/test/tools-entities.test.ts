@@ -454,6 +454,28 @@ describe('get_related_entities', () => {
     expect(text(r)).toContain('1 relationship from the entity to itself left out');
   });
 
+  it('labels related entities that have no name, and says so (P8-107)', async () => {
+    const issueGuid = btoa(`${A}|AIOPS|ISSUE|661dd2d5-14c5-47ed-aa35-dc930f8325e2`).replace(/=+$/, '');
+    const unnamed = (guid: string, name?: string) => ({
+      guid,
+      accountId: A,
+      entity: { ...(name === undefined ? {} : { name }), domain: 'AIOPS', type: 'ISSUE' },
+    });
+    const { client } = await setup([
+      relatedBody([
+        { type: 'CONNECTS_TO', source: self, target: unnamed(issueGuid, '') },
+        { type: 'CONNECTS_TO', source: self, target: unnamed(issueGuid.replace(/.$/, 'A')) },
+        { type: 'CALLS', source: self, target: vertex(A, 'payments') },
+      ]),
+    ]);
+    const r = await client.callTool({ name: 'get_related_entities', arguments: { entity_guid: GUID_A } });
+    const s = r.structuredContent as { related: { name: string; nameIsFallback: boolean }[] };
+    expect(s.related[0]).toMatchObject({ name: '(unnamed issue 661dd2d5)', nameIsFallback: true });
+    expect(s.related[1]?.nameIsFallback).toBe(true);
+    expect(s.related[2]).toMatchObject({ name: 'payments', nameIsFallback: false });
+    expect(text(r)).toContain('(unnamed issue 661dd2d5)');
+  });
+
   it('drops related entities in non-allowed accounts', async () => {
     const { client } = await setup([
       relatedBody([

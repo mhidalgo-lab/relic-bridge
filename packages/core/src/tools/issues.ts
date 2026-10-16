@@ -128,6 +128,8 @@ const issuesOutput = z.object({
   groupsNote: z.string().optional(),
   /** Set when `limit` was lowered to the upstream page size. */
   limitNote: z.string().optional(),
+  /** Set when New Relic returned several records for an issue id: the newest of each is shown (P8-107). */
+  recordsNote: z.string().optional(),
   ...pageOutput,
 });
 const incidentsOutput = z.object({ incidents: z.array(z.record(z.string(), z.unknown())), ...pageOutput });
@@ -256,6 +258,51 @@ export type IssueRow = {
   readonly link: string | null;
 };
 
+const STATE_RANK: Record<string, number> = { CREATED: 0, ACTIVATED: 1, DEACTIVATED: 2, CLOSED: 3 };
+
+/**
+ * The records NerdGraph returned for one issue id, reduced to the freshest: the latest `updatedAt`, then the furthest
+ * lifecycle state. aiIssues is built from lifecycle events, so a read may hold an older record of an issue next to the
+ * current one; taking the first would report `CREATED` for an issue the list shows as `ACTIVATED` (P8-107). Pure.
+ */
+export function freshestRecord<T extends Pick<AiIssueData, 'state' | 'updatedAt'>>(
+  records: readonly T[],
+): T | undefined {
+  let best: T | undefined;
+  const key = (r: T): [number, number] => [r.updatedAt ?? 0, STATE_RANK[r.state ?? ''] ?? -1];
+  for (const r of records) {
+    if (best === undefined) {
+      best = r;
+      continue;
+    }
+    const [bu, bs] = key(best);
+    const [ru, rs] = key(r);
+    if (ru > bu || (ru === bu && rs > bs)) best = r;
+  }
+  return best;
+}
+
+/**
+ * A note (and a structured warning, counts and states only: no New Relic text) for each issue id that came back with
+ * more than one record, so a real occurrence can be spotted and captured (P8-107). Returns the notes, one per id.
+ */
+export function noteRepeatedRecords(
+  ctx: ToolContext,
+  groups: readonly (readonly Pick<AiIssueData, 'issueId' | 'state'>[])[],
+): string[] {
+  const notes: string[] = [];
+  for (const g of groups) {
+    if (g.length < 2) continue;
+    const states = g.map((r) => label(r.state) ?? 'unknown');
+    ctx.logger.warn('aiIssues returned several records for one issue', { records: g.length, states });
+    const short = cleanName(g[0]?.issueId ?? '', 64).slice(0, 8);
+    notes.push(
+      `New Relic returned ${g.length} records for issue ${short} (states: ${states.join(', ')}); the newest is shown.`,
+    );
+  }
+  return notes;
+}
+
 /** Characters an issue id may have (NerdGraph issue ids are UUIDs). */
 export const ISSUE_ID_RE: RegExp = /^[A-Za-z0-9_.:-]{1,128}$/;
 
@@ -271,7 +318,11 @@ export async function lookupIssue(
   issueId: string,
   window: { sinceMs: number; untilMs: number },
   /** `lookback: false` for tools that have no `lookback` input (the writes): the message does not mention one. */
-  options: { readonly lookback?: boolean } = {},
+  options: {
+    readonly lookback?: boolean;
+    /** Receives a note when New Relic returned several records for the id (P8-107). */
+    readonly notes?: string[];
+  } = {},
 ): Promise<IssueRow> {
   const result = await client.query(AI_ISSUES_QUERY, {
     accountId: account,
@@ -281,10 +332,14 @@ export async function lookupIssue(
   });
   const acct = requireField(result.data.actor.account, result, ctx);
   const match = (acct.aiIssues?.issues?.issues ?? []).filter(isNonNull).filter((i) => i.issueId === issueId);
-  const scoped = match.find((i) =>
+  const inScopeRecords = match.filter((i) =>
     inScope(ctx, account, { accountIds: accountIdsOf(i.accountIds), guids: listOf(i.entityGuids) }),
   );
-  if (scoped) return toIssue(scoped, ctx, account);
+  const scoped = freshestRecord(inScopeRecords);
+  if (scoped) {
+    options.notes?.push(...noteRepeatedRecords(ctx, [inScopeRecords]));
+    return toIssue(scoped, ctx, account);
+  }
   if (match.length > 0) {
     throw new RbError(
       ErrorCode.AuthForbidden,
@@ -483,7 +538,12 @@ export function createIssueTools(deps: ToolDeps = {}): ToolDefinition[] {
           return { items: (found?.issues ?? []).filter(isNonNull), next: found?.nextCursor };
         },
       });
-      const all = paged.items;
+      // One row per issue even if the API repeats an id with older lifecycle records (P8-107).
+      const freshest = new Map<string, AiIssueData[]>();
+      for (const i of paged.items)
+        freshest.set(i.issueId ?? '', [...(freshest.get(i.issueId ?? '') ?? []), i]);
+      const all = [...freshest.values()].flatMap((g) => freshestRecord(g) ?? []);
+      const recordsNote = noteRepeatedRecords(ctx, [...freshest.values()]).join(' ') || null;
       const since = new Date(paged.window?.sinceMs ?? range.sinceMs).toISOString();
       const until = new Date(paged.window?.untilMs ?? range.untilMs).toISOString();
       const scoped = (i: AiIssueData) =>
@@ -540,6 +600,7 @@ export function createIssueTools(deps: ToolDeps = {}): ToolDefinition[] {
           ? `limit ${input.limit ?? DEFAULT_LIMIT} lowered to ${paged.pageSize} (API page size); page on with nextCursor.`
           : null;
       if (limitNote) lines.push(`Note: ${limitNote}`);
+      if (recordsNote) lines.push(`Note: ${recordsNote}`);
       if (rows.length > 0) {
         lines.push(
           shapeRows(
@@ -575,6 +636,7 @@ export function createIssueTools(deps: ToolDeps = {}): ToolDefinition[] {
           ...(input.group_by ? { groupsScope } : {}),
           ...(groupsNote ? { groupsNote } : {}),
           ...(limitNote ? { limitNote } : {}),
+          ...(recordsNote ? { recordsNote } : {}),
           nextCursor,
           hiddenOutsideScope,
         },

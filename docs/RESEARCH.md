@@ -947,6 +947,23 @@ are verified there, and the **root fields and argument names** come from New Rel
   acknowledge both said `ACTIVATED`. The close read back at once. relic-bridge therefore adds a note to an applied
   acknowledge or close that a read (or dry run) right after it may still show the old state. Both tools are idempotent,
   so a stale read never causes a wrong write.
+- **Issue state across tools and unnamed `AIOPS/ISSUE` entities (P8-107, 2026-10-16):** `list_recent_issues`, the lookup
+  behind `acknowledge_issue` / `close_issue` (and so their dry runs) and `generate_alert_insights_report` all send the
+  same `AI_ISSUES_QUERY` and show the same `state` field, so the `CREATED` vs `ACTIVATED` split is not a different
+  field or query; the only difference is the filter (`ids` for the lookup, none or `states` for the list). The P8-100
+  attribution to read lag does not fit the mobile report either: the lookup said `CREATED` for ~20 minutes with no
+  write in flight. Likeliest cause, not reproduced: aiIssues is built from lifecycle events (`NrAiIssue`: `create`,
+  `activate`, `acknowledge`, `close`) and the `ids` filter can return an older record next to the current one; the
+  lookup took the first. All issues in the sandbox were closed when checked, and closed issues read the same everywhere,
+  so this could not be confirmed live. The fix reads the freshest record per issue id (latest `updatedAt`, then the
+  furthest state CREATED < ACTIVATED < DEACTIVATED < CLOSED) in the lookup and the list. When an issue id comes back with
+  more than one record, the result carries a note ("New Relic returned N records for issue <short id> (states: ...); the
+  newest is shown.", `recordsNote` in `list_recent_issues`, the note in the ack/close result and the report notes) and a
+  `warn` log line with the record count and states only. If that note ever appears, capture the raw `RbAiIssues`
+  response for the id: it confirms the cause. `relatedEntities` returns `AIOPS/ISSUE` entities with an empty
+  `entity.name` (checked live: two issues, `name: ""`, relationship `CONNECTS_TO`, guid decodes to
+  `<account>|AIOPS|ISSUE|<issueId>`). The issue title is not available in that request, so the row gets
+  `(unnamed issue <first 8 of the id>)` and `nameIsFallback: true`.
 - `dashboardCreate(accountId: Int!, dashboard: DashboardInput!)` → `DashboardCreateResult { entityResult { guid
   accountId name permissions … } errors { description type } }` (P7-19). Unlike the notes above, the P0-09
   introspection **does** hold `RootMutationType` (396 fields; re-checked 2026-10-06), and this field, its arguments and

@@ -147,6 +147,7 @@ Start here for "what is alerting?" or "what broke?": states ["ACTIVATED"] gives 
 | `groupsScope` | `"window" \| "page"` | no |  |
 | `groupsNote` | `string` | no |  |
 | `limitNote` | `string` | no |  |
+| `recordsNote` | `string` | no |  |
 | `accountId` | `integer` | yes |  |
 | `since` | `string` | yes |  |
 | `until` | `string` | yes |  |

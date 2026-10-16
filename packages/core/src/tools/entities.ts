@@ -159,6 +159,8 @@ const relatedOutput = z.object({
     entityRow.extend({
       direction: z.enum(['incoming', 'outgoing']),
       relationship: z.string().nullable(),
+      /** The name was empty in New Relic (AIOPS issues have none): `name` is a label made from the guid, not data. */
+      nameIsFallback: z.boolean(),
     }),
   ),
   /** Some relationships pointed to accounts this connection does not allow and were left out. */
@@ -166,6 +168,20 @@ const relatedOutput = z.object({
   /** More relationships exist: pass this as cursor (same filters) to read them. */
   nextCursor: z.string().nullable(),
 });
+
+/** A label for a related entity New Relic gave no name (AIOPS/ISSUE entities): kind and short id from the guid. */
+function unnamedLabel(guid: string, row: { domain: string | null; type: string | null }): string {
+  let id = '';
+  let kindName = row.type?.toLowerCase() ?? 'entity';
+  try {
+    const d = decodeEntityGuid(guid);
+    id = d.domainId.slice(0, 8);
+    kindName = d.type.toLowerCase();
+  } catch {
+    /* keep the generic label */
+  }
+  return cleanName(`(unnamed ${kindName}${id ? ` ${id}` : ''})`);
+}
 
 const MAX_TYPES_LIMIT = 1000;
 const DEFAULT_TYPES_LIMIT = 200;
@@ -488,8 +504,12 @@ export function createEntityTools(deps: ToolDeps = {}): ToolDefinition[] {
           hiddenOutsideScope = true;
           continue;
         }
+        const row = toRow(other.entity ?? {}, { guid: other.guid, accountId: account });
+        const fallback = row.name === '' ? unnamedLabel(other.guid, row) : null;
         rows.push({
-          ...toRow(other.entity ?? {}, { guid: other.guid, accountId: account }),
+          ...row,
+          name: fallback ?? row.name,
+          nameIsFallback: fallback !== null,
           guid: other.guid,
           accountId: account,
           direction: outgoing ? 'outgoing' : 'incoming',

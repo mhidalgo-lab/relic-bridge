@@ -172,9 +172,9 @@ const CASES: Readonly<Record<string, readonly WriteCase[]>> = {
     { args: { ...GOOD['create_dashboard'], confirm: undefined }, expect: 'invalid', offline: true },
     { args: { ...GOOD['create_dashboard'], name: `dash ${NR_KEY}` }, expect: 'invalid', offline: true },
     {
+      // P8-91: a dry run sends read-only syntax probes (queries), never the mutation.
       args: { ...GOOD['create_dashboard'], confirm: undefined, dry_run: true },
       expect: 'ok',
-      offline: true,
       noMutation: true,
     },
     { args: GOOD['create_dashboard'] as Record<string, unknown>, expect: 'ok' },

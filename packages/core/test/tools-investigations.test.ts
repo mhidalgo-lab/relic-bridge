@@ -15,6 +15,7 @@ import {
   httpStatusOf,
   MAX_MATCH_MESSAGE,
   matchable,
+  placeholderPattern,
   shapeTrace,
   spanGroupTraceQuery,
   toSpan,
@@ -288,6 +289,31 @@ describe('pure helpers', () => {
     expect(loose).not.toContain('entityGuid');
   });
 
+  it('matches a group message with New Relic placeholders by LIKE, as values of the nrql tag (NEW-22)', () => {
+    expect(placeholderPattern('User <NUMBER> not found in <UUID>')).toBe('User % not found in %');
+    expect(placeholderPattern('<NUMBER><NUMBER>')).toBeNull();
+    expect(placeholderPattern('plain message')).toBeNull();
+    const q = groupTraceQuery(
+      { errorClass: 'E', message: "User <NUMBER>'s order failed", entityGuid: null },
+      false,
+      1000,
+      2000,
+    ).text;
+    expect(q).toContain("`error.message` LIKE 'User %\\'s order failed'");
+    expect(q).not.toContain('<NUMBER>');
+    expect(q).toContain('AS exactTrace');
+    const span = spanGroupTraceQuery(
+      { errorClass: 'n', message: 'Timeout after <NUMBER> ms', entityGuid: null },
+      1000,
+      2000,
+    ).text;
+    expect(span).toContain("`otel.status_description` LIKE 'Timeout after % ms'");
+    // Without placeholders it stays an equality match.
+    expect(
+      groupTraceQuery({ errorClass: 'E', message: 'plain', entityGuid: null }, false, 1000, 2000).text,
+    ).toContain("`error.message` = 'plain'");
+  });
+
   it('matches only messages the template accepts and that are short enough', () => {
     expect(matchable("a 'quoted' \\ msg")).toBe("a 'quoted' \\ msg");
     expect(matchable('line one\nline two')).toBeNull();
@@ -460,6 +486,17 @@ describe('trace_error', () => {
       expect(s.notes.join(' ')).toContain('Matched on error class and entity only');
       expect(s.notes.join(' ')).toContain(why);
     }
+  });
+
+  it('follows a group whose message has placeholders with a LIKE match, without the class-only note (NEW-22)', async () => {
+    const ng = nerdGraph({ groups: [{ ...GROUP, message: 'No user with id <NUMBER> in <UUID>' }] });
+    const client = await connect(ng.fetch);
+    const r = await client.callTool({ name: 'trace_error', arguments: { error_group_id: 'eg-1' } });
+    expect(r.isError, resultText(r)).toBeFalsy();
+    const nrqls = ng.calls.filter((c) => c.op === 'RbNrql').map((c) => String(c.variables['nrql']));
+    expect(nrqls[0]).toContain("`error.message` LIKE 'No user with id % in %'");
+    expect(nrqls[0]).not.toContain('<NUMBER>');
+    expect((r.structuredContent as { notes: string[] }).notes).toEqual([]);
   });
 
   it('matches on class only when the message has control characters or is too long', async () => {

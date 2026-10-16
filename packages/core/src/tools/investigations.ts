@@ -8,7 +8,7 @@ import { ErrorCode, RbError } from '../errors.ts';
 import { ERROR_GROUPS_QUERY, type ErrorGroupData } from '../nerdgraph/errors-inbox.ts';
 import type { NrqlComplete } from '../nrql/engine.ts';
 import { runNrql } from '../nrql/engine.ts';
-import { type NrqlQuery, nrql } from '../nrql/template.ts';
+import { type NrqlIdentifier, type NrqlQuery, nrql } from '../nrql/template.ts';
 import { envelope } from '../output/envelope.ts';
 import { shapeRows } from '../output/format.ts';
 import type { TaskJob } from '../tasks.ts';
@@ -26,6 +26,7 @@ import {
   MAX_TASK_STATE_CHARS,
   notRun,
   type PlanItem,
+  partialNote,
   planBudget,
   runSection,
   runSectionStep,
@@ -327,9 +328,29 @@ export function matchable(value: string | null | undefined, max: number = MAX_MA
   }
 }
 
+/** A normalised placeholder in a group message: `<NUMBER>`, `<UUID>`, `<HEX>`… */
+const PLACEHOLDER_RE = /<[A-Z][A-Z0-9_]*>/g;
+
+/**
+ * The LIKE pattern of a group message that has New Relic placeholders (`<NUMBER>` becomes `%`), else null (NEW-22).
+ * This is the conversion the group's own eventsQuery applies. Null too when nothing but wildcards would be left.
+ */
+export function placeholderPattern(message: string): string | null {
+  if (!PLACEHOLDER_RE.test(message)) return null;
+  PLACEHOLDER_RE.lastIndex = 0;
+  const pattern = message.replace(PLACEHOLDER_RE, '%').replace(/%{2,}/g, '%');
+  return pattern.replace(/%/g, '') === '' ? null : pattern;
+}
+
+/** `field = message`, or `field LIKE pattern` when the message has placeholders. The value is always a template value (T4). */
+function messageTest(field: NrqlIdentifier, message: string): NrqlQuery {
+  const pattern = placeholderPattern(message);
+  return pattern === null ? nrql`${field} = ${message}` : nrql`${field} LIKE ${pattern}`;
+}
+
 /**
  * The latest traced occurrence of an error group. TransactionError events have no `error.group.guid`: Errors Inbox
- * groups them by error class and message (its eventsQuery), so this matches on those, by equality (no LIKE wildcards).
+ * groups them by error class and message (its eventsQuery), so this matches on those, by equality, or LIKE for a message with New Relic placeholders.
  * The latest traced error of the same class and entity comes back in the same query, as the fallback for a message
  * that does not match exactly (custom groups, messages New Relic shortened or normalised).
  */
@@ -343,7 +364,7 @@ export function groupTraceQuery(
   const exact =
     match.message === null
       ? nrql``
-      : nrql`filter(latest(traceId), WHERE ${message} = ${match.message}) AS exactTrace, filter(count(*), WHERE ${message} = ${match.message}) AS exactCount, `;
+      : nrql`filter(latest(traceId), WHERE ${messageTest(message, match.message)}) AS exactTrace, filter(count(*), WHERE ${messageTest(message, match.message)}) AS exactCount, `;
   const entity =
     match.entityGuid === null ? nrql`` : nrql`AND ${nrql.identifier('entityGuid')} = ${match.entityGuid}`;
   const synthetic = includeSynthetic
@@ -362,7 +383,7 @@ export function spanGroupTraceQuery(match: GroupMatch, sinceMs: number, untilMs:
   const exact =
     match.message === null
       ? nrql``
-      : nrql`filter(latest(${nrql.identifier('trace.id')}), WHERE ${description} = ${match.message}) AS exactTrace, filter(count(*), WHERE ${description} = ${match.message}) AS exactCount, `;
+      : nrql`filter(latest(${nrql.identifier('trace.id')}), WHERE ${messageTest(description, match.message)}) AS exactTrace, filter(count(*), WHERE ${messageTest(description, match.message)}) AS exactCount, `;
   const entity =
     match.entityGuid === null ? nrql`` : nrql`AND ${nrql.identifier('entity.guid')} = ${match.entityGuid}`;
   return nrql`SELECT ${exact}latest(${nrql.identifier('trace.id')}) AS classTrace, count(*) AS classCount FROM Span WHERE name = ${match.errorClass} AND ${nrql.identifier('trace.id')} IS NOT NULL AND ${nrql.identifier('otel.status_code')} = 'ERROR' ${entity} SINCE ${Math.floor(sinceMs / 1000)} UNTIL ${Math.ceil(untilMs / 1000)}`;
@@ -1192,6 +1213,7 @@ export function createInvestigationTools(deps: ToolDeps = {}): ToolDefinition[] 
     if (entries.some((e) => e.granted > 0 && goldenMetricsFor(e.granted) < metricsEach))
       notes.push('Golden metrics were reduced to fit the request budget.');
 
+    if (partial) notes.push(partialNote(all.map((e) => ({ name: e.name ?? e.guid, status: e.status }))));
     const flagged = deps2.filter((d) => d.signals.length > 0);
     const lines = [
       `${deps2.length} related entit${deps2.length === 1 ? 'y' : 'ies'} measured next to the entity, ${base.since} to ${base.until} (UTC): ` +
@@ -1448,6 +1470,7 @@ export function createInvestigationTools(deps: ToolDeps = {}): ToolDefinition[] 
       (name) => ran.find((s) => s.name === name) ?? notRun(name, 'skipped', BUDGET_NOTE),
     );
     const partial = sections.some((s) => s.status !== 'ok');
+    if (partial) notes.push(partialNote(sections));
     const entityData = sections.find((s) => s.name === 'entity')?.data as
       | { alertSeverity?: string | null; reporting?: boolean | null }
       | null

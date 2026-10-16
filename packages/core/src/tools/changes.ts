@@ -103,7 +103,7 @@ const listInput = z.strictObject({
     .min(1)
     .max(256)
     .optional()
-    .describe('Only deployments of this entity (guid). Implies its account.'),
+    .describe('Only change events of this entity (guid). Implies its account.'),
   time_range: timeRangeInput(DEFAULT_WINDOW),
   limit: listLimit('events, newest first', DEFAULT_LIMIT, MAX_LIMIT),
   cursor: cursorInput,
@@ -129,7 +129,7 @@ const listOutput = z.object({
 
 const LIST_DESCRIPTION = `List change events, newest first: deployments, feature flag and configuration changes and other change-tracking markers, with time, type, user, entity, description and, for deployments, version, commit, changelog and link.
 
-Use it for "what changed before things broke?". With an entity (guid or name) it lists that entity's deployments; without one, the account's change events plus deployments of up to 50 APM applications (beyond that, see notes; use entity_guid). Older events: page with cursor (keeps the first window). To judge whether a deployment hurt use analyze_deployment_impact. It cannot record a change. ${UNTRUSTED}`;
+Use it for "what changed before things broke?". With an entity (guid or name) it lists that entity's changes; without one, the account's change events plus deployments of up to 50 APM applications (beyond that, see notes; use entity_guid). Older events: page with cursor (keeps the first window). To judge whether a deployment hurt use analyze_deployment_impact. It cannot record a change. ${UNTRUSTED}`;
 
 /** NerdGraph leaves `type` null on some events: fall back to what `categoryAndType` ("DEPLOYMENT__BASIC") or `category` say. */
 function typeFromCategory(e: ChangeEventData): string | null {
@@ -883,6 +883,38 @@ export function createChangeTools(deps: ToolDeps = {}): ToolDefinition[] {
         const name = typeof entity.name === 'string' ? cleanName(entity.name, 200) : null;
         rows = mine.map((d) => deploymentRow({ ...d, entityGuid: d.entityGuid ?? guid }, name));
         upstreamFull = all.length >= fetchSize;
+
+        // Other change-tracking events of the entity (feature flags, config changes, markers made by
+        // create_change_event) are not deployments (NEW-21): read the account feed and keep this entity's.
+        try {
+          const feed = await client(ctx).query(CHANGE_EVENTS_QUERY, {
+            filter: {
+              accountIds: [account],
+              limit: fetchSize,
+              timeWindow: { startTime: at.sinceMs, endTime: at.untilMs },
+            },
+          });
+          const events = (feed.data.actor.changeTracking?.changeTrackingSearch?.changeEvents ?? []).filter(
+            isNonNull,
+          );
+          const seen = new Set(rows.map(dedupeKey));
+          for (const e of events) {
+            if (e.entity?.guid !== guid) continue;
+            const r = eventRow(e, guid);
+            const k = dedupeKey(r);
+            if (!seen.has(k)) {
+              seen.add(k);
+              rows.push(r);
+            }
+          }
+          // The feed has more events than were read: the entity's own may be among the rest.
+          if (events.length >= fetchSize) upstreamFull = true;
+        } catch (e) {
+          if (!(e instanceof RbError) || e.code === ErrorCode.AuthForbidden) throw e;
+          notes.push(
+            `Other change events of the entity could not be read. ${errorNote(e)} Only deployments are shown.`,
+          );
+        }
       } else {
         account = singleAccount(ctx, args.account);
         scope = 'account';
@@ -957,7 +989,7 @@ export function createChangeTools(deps: ToolDeps = {}): ToolDefinition[] {
       const since = at.pos === null ? range.since : new Date(at.sinceMs).toISOString();
       const until = at.pos === null ? range.until : new Date(at.untilMs).toISOString();
       const lines = [
-        `${rows.length} change event${rows.length === 1 ? '' : 's'} ${scope === 'entity_deployments' ? '(deployments of the entity) ' : ''}in account ${account}, ${since} to ${until} (UTC), newest first.`,
+        `${rows.length} change event${rows.length === 1 ? '' : 's'} ${scope === 'entity_deployments' ? '(of the entity) ' : ''}in account ${account}, ${since} to ${until} (UTC), newest first.`,
       ];
       if (hiddenOutsideScope) lines.push("Note: events outside this connection's accounts were left out.");
       for (const n of notes) lines.push(`Note: ${n}`);

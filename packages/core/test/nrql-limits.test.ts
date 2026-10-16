@@ -8,6 +8,7 @@ import {
   enforceQueryLimits,
   nerdGraphFor,
   nrql,
+  probeNrql,
   type QueryLimits,
   RbError,
   runNrql,
@@ -521,5 +522,37 @@ describe('runNrql applies limits', () => {
     const out = await runNrql(ctx, { nrql: nrql`SELECT * FROM Log WHERE level = ${'error'}` }, deps);
     expect(calls[0]?.body.variables['nrql']).toBe("SELECT * FROM Log WHERE level = 'error' LIMIT 10");
     expect(out.notes).toEqual(['LIMIT 10 added (raw event query without LIMIT).']);
+  });
+});
+
+describe('probeNrql (P8-91)', () => {
+  it('shortens the window and the row count, leaving the rest of the query alone', () => {
+    expect(probeNrql('SELECT count(*) FROM Transaction SINCE 7 days ago UNTIL 1 day ago TIMESERIES')).toEqual(
+      {
+        nrql: 'SELECT count(*) FROM Transaction SINCE 5 minutes ago TIMESERIES LIMIT 1',
+        hasSince: true,
+      },
+    );
+    expect(probeNrql('SELECT count(*) FROM Transaction FACET host LIMIT 50 SINCE 1 hour ago')).toEqual({
+      nrql: 'SELECT count(*) FROM Transaction FACET host LIMIT 1 SINCE 5 minutes ago',
+      hasSince: true,
+    });
+    expect(probeNrql('SELECT * FROM Transaction OFFSET 5')).toEqual({
+      nrql: 'SELECT * FROM Transaction LIMIT 1 OFFSET 5',
+      hasSince: false,
+    });
+    // A nested query is not touched.
+    expect(
+      probeNrql('SELECT count(*) FROM (SELECT * FROM Transaction LIMIT 5 SINCE 1 day ago) SINCE 1 hour ago')
+        .nrql,
+    ).toBe(
+      'SELECT count(*) FROM (SELECT * FROM Transaction LIMIT 5 SINCE 1 day ago) SINCE 5 minutes ago LIMIT 1',
+    );
+  });
+
+  it('takes the split hint from the caller', () => {
+    expect(() =>
+      enforceQueryLimits('SELECT 1 FROM A; SELECT 2 FROM B', DEFAULT_LIMITS, 0, { splitHint: 'x' }),
+    ).toThrow(expect.objectContaining({ hint: 'x' }));
   });
 });

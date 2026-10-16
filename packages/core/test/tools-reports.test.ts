@@ -393,6 +393,51 @@ describe('generate_alert_insights_report', () => {
     expect(ng.calls.length).toBeLessThanOrEqual(11);
   });
 
+  it('clamps the changes lookback to the window limit, with a note, instead of failing (NEW-19)', async () => {
+    const ng = nerdGraph();
+    const client = await connect(ng.fetch);
+    const r = await client.callTool({
+      name: 'generate_alert_insights_report',
+      arguments: {
+        issue_id: 'issue-1',
+        change_lookback_hours: 168,
+        before_minutes: 720,
+        sections: ['changes'],
+      },
+    });
+    expect(r.isError, resultText(r)).toBeFalsy();
+    const s = r.structuredContent as {
+      sections: { name: string; status: string; note: string | null }[];
+      partial: boolean;
+      notes: string[];
+    };
+    expect(s.sections[0]).toMatchObject({ name: 'changes' });
+    expect(['ok', 'partial']).toContain(s.sections[0]?.status);
+    expect(s.partial).toBe(false);
+    expect(s.notes.join(' ')).toContain('window limit of this connection (7 days) cut the lookback');
+    // The range sent stays inside the limit: starts no more than 7 days back and spans at most 7 days.
+    const sent = ng.calls.filter((c) => c.op === 'RbEntityDeployments' || c.op === 'RbChangeEvents');
+    expect(sent.length).toBeGreaterThan(0);
+    for (const c of sent) {
+      const w = (c.variables['filter'] as { timeWindow: { startTime: number; endTime: number } }).timeWindow;
+      expect(NOW - w.startTime).toBeLessThanOrEqual(7 * 24 * 60 * MIN);
+      expect(w.endTime - w.startTime).toBeLessThanOrEqual(7 * 24 * 60 * MIN);
+    }
+  });
+
+  it('names the incomplete sections in a note whenever the report is partial (NEW-19)', async () => {
+    const client = await connect(nerdGraph().fetch, { budget: createBudget(11) });
+    const r = await client.callTool({
+      name: 'generate_alert_insights_report',
+      arguments: { issue_id: 'issue-1' },
+    });
+    const s = r.structuredContent as { partial: boolean; notes: string[] };
+    expect(s.partial).toBe(true);
+    const note = s.notes.find((n) => n.startsWith('Partial report:'));
+    expect(note).toContain('errors (skipped)');
+    expect(note).toContain('related (skipped)');
+  });
+
   it('runs only the requested sections', async () => {
     const ng = nerdGraph();
     const client = await connect(ng.fetch);

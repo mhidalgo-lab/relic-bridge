@@ -204,3 +204,30 @@ Format: `### <task id> — <short title>` then **Context**, **Assumption made**,
 ### P8-85 — ASVS evidence not in asvs-l2.md yet
 - **Context:** PR #281 edits `docs/security/asvs-l2.md`, so this task did not.
 - **Needs:** after both merge, copy the V16.3.1 and V16.3.4 evidence from the task file into asvs-l2.md.
+
+### P8-91 — The "eventsQuery builder" does not exist; `trace_error` got its own placeholder conversion
+- **Context:** the brief said `list_error_groups` builds `eventsQuery` (placeholder to `%`). It does not: it returns New
+  Relic's `eventsQuery` text unchanged, and it is never run (T4). `trace_error` builds its own NRQL from the group's name
+  and message.
+- **Assumption made:** a small helper in `trace_error` (`placeholderPattern`) turns `<NUMBER>`, `<UUID>` and the like
+  (`<[A-Z][A-Z0-9_]*>`) into `%` and matches with `LIKE` as a template value. A message that is only placeholders keeps
+  the class-only fallback. A literal `%` in a message also acts as a wildcard (it can only widen the match).
+- **Needs:** confirm the placeholder spellings against a live group; add any other form New Relic uses.
+
+### P8-91 — The dashboard syntax check rewrites the checked query for a probe
+- **Context:** NerdGraph cannot parse NRQL without running it. The dry run sends each widget query with `SINCE` replaced
+  by the last 5 minutes, `UNTIL` dropped and `LIMIT 1`, at most 10 per call, one request each (synchronous), from the
+  request budget. A query without `SINCE` runs over New Relic's default window; a probe that fails for a reason other
+  than a syntax error is reported `not_checked`. The rewrite is token-based and could in theory turn a valid query into
+  an invalid one (an unusual clause order); the text then shows the New Relic error for the probe.
+- **Options:** (a) as built; (b) a cap lower than 10; (c) no probe, warnings only.
+- **Needs:** say whether the dry run should spend NerdGraph requests at all (the declared `cost` of `create_dashboard`
+  stays 2, which no longer bounds a dry run).
+
+### P8-91 — `list_change_events(entity_guid)` makes a second request
+- **Context:** the entity path reads deployment search plus the account change feed (filtered to the entity), so it costs
+  two requests instead of one; if the feed is full, the entity's older events may not be in the page read.
+- **Assumption made:** `scope` stays `entity_deployments` in the output (renaming it would break the schema); the page
+  size and cursor apply to the merged list.
+- **Needs:** none unless a server-side entity filter on `changeTrackingSearch` is confirmed.
+

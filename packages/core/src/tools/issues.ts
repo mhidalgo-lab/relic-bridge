@@ -256,6 +256,30 @@ export type IssueRow = {
   readonly link: string | null;
 };
 
+const STATE_RANK: Record<string, number> = { CREATED: 0, ACTIVATED: 1, DEACTIVATED: 2, CLOSED: 3 };
+
+/**
+ * The records NerdGraph returned for one issue id, reduced to the freshest: the latest `updatedAt`, then the furthest
+ * lifecycle state. aiIssues is built from lifecycle events, so a read may hold an older record of an issue next to the
+ * current one; taking the first would report `CREATED` for an issue the list shows as `ACTIVATED` (P8-107). Pure.
+ */
+export function freshestRecord<T extends Pick<AiIssueData, 'state' | 'updatedAt'>>(
+  records: readonly T[],
+): T | undefined {
+  let best: T | undefined;
+  const key = (r: T): [number, number] => [r.updatedAt ?? 0, STATE_RANK[r.state ?? ''] ?? -1];
+  for (const r of records) {
+    if (best === undefined) {
+      best = r;
+      continue;
+    }
+    const [bu, bs] = key(best);
+    const [ru, rs] = key(r);
+    if (ru > bu || (ru === bu && rs > bs)) best = r;
+  }
+  return best;
+}
+
 /** Characters an issue id may have (NerdGraph issue ids are UUIDs). */
 export const ISSUE_ID_RE: RegExp = /^[A-Za-z0-9_.:-]{1,128}$/;
 
@@ -281,8 +305,10 @@ export async function lookupIssue(
   });
   const acct = requireField(result.data.actor.account, result, ctx);
   const match = (acct.aiIssues?.issues?.issues ?? []).filter(isNonNull).filter((i) => i.issueId === issueId);
-  const scoped = match.find((i) =>
-    inScope(ctx, account, { accountIds: accountIdsOf(i.accountIds), guids: listOf(i.entityGuids) }),
+  const scoped = freshestRecord(
+    match.filter((i) =>
+      inScope(ctx, account, { accountIds: accountIdsOf(i.accountIds), guids: listOf(i.entityGuids) }),
+    ),
   );
   if (scoped) return toIssue(scoped, ctx, account);
   if (match.length > 0) {
@@ -483,7 +509,11 @@ export function createIssueTools(deps: ToolDeps = {}): ToolDefinition[] {
           return { items: (found?.issues ?? []).filter(isNonNull), next: found?.nextCursor };
         },
       });
-      const all = paged.items;
+      // One row per issue even if the API repeats an id with older lifecycle records (P8-107).
+      const freshest = new Map<string, AiIssueData[]>();
+      for (const i of paged.items)
+        freshest.set(i.issueId ?? '', [...(freshest.get(i.issueId ?? '') ?? []), i]);
+      const all = [...freshest.values()].flatMap((g) => freshestRecord(g) ?? []);
       const since = new Date(paged.window?.sinceMs ?? range.sinceMs).toISOString();
       const until = new Date(paged.window?.untilMs ?? range.untilMs).toISOString();
       const scoped = (i: AiIssueData) =>

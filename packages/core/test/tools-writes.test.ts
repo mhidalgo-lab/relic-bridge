@@ -441,6 +441,23 @@ describe('acknowledge_issue / close_issue', () => {
     }
   });
 
+  it('reports the freshest record when the lookup returns older records of the same issue (P8-107)', async () => {
+    const records = [
+      issue({ state: 'CREATED', updatedAt: NOW - 600_000 }),
+      issue({ state: 'ACTIVATED', updatedAt: NOW - 60_000 }),
+      issue({ state: 'CREATED', updatedAt: NOW - 900_000 }),
+    ];
+    const ng = nerdGraph({
+      RbAiIssues: () => json({ data: { actor: { account: { aiIssues: { issues: { issues: records } } } } } }),
+    });
+    const client = await connect(ng.fetch);
+    for (const name of ['acknowledge_issue', 'close_issue']) {
+      const dry = await client.callTool({ name, arguments: { issue_id: 'i-1', dry_run: true } });
+      expect(dry.structuredContent, name).toMatchObject({ before: { state: 'ACTIVATED' } });
+      expect(text(dry), name).toContain('state ACTIVATED');
+    }
+  });
+
   it('an issue touching another account is refused, never acted on', async () => {
     const ng = nerdGraph({
       RbAiIssues: () =>

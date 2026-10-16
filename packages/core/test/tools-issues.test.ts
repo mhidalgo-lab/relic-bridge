@@ -10,6 +10,7 @@ import {
   ErrorCode,
   type ToolContext,
 } from '../src/index.ts';
+import { freshestRecord } from '../src/tools/issues.ts';
 import { bindingOf, decodePageCursor, encodePageCursor } from '../src/tools/paging.ts';
 import { testContext } from './helpers/context.ts';
 import { json, scriptedFetch } from './helpers/nerdgraph.ts';
@@ -272,6 +273,34 @@ describe('list_recent_issues', () => {
     ]);
     const r = await client.callTool({ name: 'list_recent_issues', arguments: {} });
     expect(r.isError).toBe(true);
+  });
+});
+
+describe('one state per issue (P8-107)', () => {
+  it('list_recent_issues shows one row per id, the freshest record', async () => {
+    const { client } = await setup([
+      issuesBody([
+        issue(A, 'i1', 'CPU', { state: 'CREATED', updatedAt: NOW - 600_000 }),
+        issue(A, 'i1', 'CPU', { state: 'ACTIVATED', updatedAt: NOW - 60_000 }),
+        issue(A, 'i2', 'Disk'),
+      ]),
+    ]);
+    const r = await client.callTool({ name: 'list_recent_issues', arguments: {} });
+    const s = r.structuredContent as { issues: { id: string; state: string }[] };
+    expect(s.issues.map((x) => [x.id, x.state])).toEqual([
+      ['i1', 'ACTIVATED'],
+      ['i2', 'ACTIVATED'],
+    ]);
+  });
+
+  it('freshestRecord prefers the latest update, then the furthest state', () => {
+    expect(freshestRecord([])).toBeUndefined();
+    const a = { state: 'CREATED', updatedAt: 2 };
+    const b = { state: 'ACTIVATED', updatedAt: 2 };
+    const c = { state: 'CLOSED', updatedAt: 1 };
+    expect(freshestRecord([a, b, c])).toBe(b);
+    expect(freshestRecord([c, a])).toBe(a);
+    expect(freshestRecord([{ state: 'CREATED' }, { state: 'ACTIVATED' }])?.state).toBe('ACTIVATED');
   });
 });
 

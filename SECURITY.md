@@ -37,6 +37,9 @@ We aim to:
 
 This is a volunteer-maintained project; timelines are best effort, and we will keep you informed.
 
+Want to review the whole project, not just report one bug? See the
+[call for security reviewers](docs/security/call-for-reviewers.md).
+
 ## Advisories in third-party components
 
 Advisories in our dependencies (npm packages, GitHub Actions, the Docker base image) are handled on a clock that starts
@@ -90,3 +93,10 @@ See [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) (threats, with the code and t
 [`docs/security/asvs-l2.md`](docs/security/asvs-l2.md) (OWASP ASVS 5.0 Level 2 checklist),
 [`docs/security/data-protection.md`](docs/security/data-protection.md) and
 [`docs/security/repo-settings.md`](docs/security/repo-settings.md).
+
+## Security acknowledgements
+
+Thank you to everyone who has reported a vulnerability or published a review of relic-bridge. Credit is given with the
+reporter's consent.
+
+_No acknowledgements yet._

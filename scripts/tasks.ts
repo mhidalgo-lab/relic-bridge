@@ -23,7 +23,8 @@ export interface Task {
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const TASKS_DIR = join(ROOT, 'docs', 'tasks');
 const ROADMAP = join(ROOT, 'docs', 'ROADMAP.md');
-const ID_RE = /^P(\d)-(\d{2})$/;
+// Two digits per phase, three once a phase passes 99 tasks (P8-100).
+const ID_RE = /^P(\d)-(\d{2,3})$/;
 
 export function parseTask(file: string, content: string): { task?: Task; errors: string[] } {
   const errors: string[] = [];
@@ -84,7 +85,7 @@ export function loadTasks(dir: string = TASKS_DIR): { tasks: Task[]; errors: str
 const PRIORITY_RANK: Record<Priority, number> = { high: 0, medium: 1, low: 2 };
 
 export function compareTasks(a: Task, b: Task): number {
-  return a.id.localeCompare(b.id);
+  return a.id.localeCompare(b.id, 'en', { numeric: true });
 }
 
 export function validate(tasks: Task[]): string[] {

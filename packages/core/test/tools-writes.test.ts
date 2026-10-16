@@ -427,6 +427,20 @@ describe('acknowledge_issue / close_issue', () => {
     expect(r.structuredContent).toMatchObject({ applied: true, after: { state: 'CLOSED' } });
   });
 
+  it('an applied acknowledge or close warns that New Relic shows it after a delay; a dry run does not', async () => {
+    for (const name of ['acknowledge_issue', 'close_issue']) {
+      const client = await connect(nerdGraph().fetch);
+      const applied = await client.callTool({ name, arguments: { issue_id: 'i-1', confirm: true } });
+      expect(applied.structuredContent, name).toMatchObject({
+        applied: true,
+        note: expect.stringContaining('a few seconds'),
+      });
+      expect(text(applied), name).toContain('a few seconds');
+      const dry = await client.callTool({ name, arguments: { issue_id: 'i-1', dry_run: true } });
+      expect(dry.structuredContent, name).toMatchObject({ applied: false, note: null });
+    }
+  });
+
   it('an issue touching another account is refused, never acted on', async () => {
     const ng = nerdGraph({
       RbAiIssues: () =>

@@ -145,6 +145,11 @@ const issueOutput = z.object({
   note: z.string().nullable(),
 });
 
+// New Relic's issue reads trail its issue mutations (verified live 2026-10-16, RESEARCH "aiIssues read lag"): a
+// read straight after an acknowledge can still show it unacknowledged, and a lookup by id showed a stale `state`.
+const ISSUE_READ_LAG_NOTE =
+  'New Relic can take a few seconds to show this change: a read (or a dry run) right after it may still show the old state.';
+
 const ACK_DESCRIPTION = `Acknowledge one alert issue: marks it as being handled by someone; it stays open and keeps its incidents.
 
 Write tool, opt-in. ${SIDE_EFFECT_NOTICE} Needs confirm: true; dry_run: true previews. Repeating it changes nothing (an acknowledged or closed issue is left as is). ${APPROVAL_NOTICE} Find issues with list_recent_issues. For a permanent close, use close_issue.`;
@@ -511,8 +516,8 @@ export function createWriteTools(deps: ToolDeps = {}): ToolDefinition[] {
           );
         }
         return {
-          text: `${closing ? 'Closed' : 'Acknowledged'} issue ${input.issue_id} in account ${account} (was ${issue.state ?? 'unknown'}).\n${titleBlock}`,
-          structured: shaped(true, plannedAfter, null, gate.confirmation),
+          text: `${closing ? 'Closed' : 'Acknowledged'} issue ${input.issue_id} in account ${account} (was ${issue.state ?? 'unknown'}). ${ISSUE_READ_LAG_NOTE}\n${titleBlock}`,
+          structured: shaped(true, plannedAfter, ISSUE_READ_LAG_NOTE, gate.confirmation),
           meta: writeMeta({
             ...record(true, plannedAfter),
             ...(gate.confirmation === undefined ? {} : { confirmation: gate.confirmation }),

@@ -2,11 +2,11 @@
 id: P8-107
 title: One issue state across tools, and names for AIOPS issue entities
 phase: 8
-status: todo
+status: review
 priority: medium
 depends_on: []
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P8-107 — One issue state across tools, and names for AIOPS issue entities
@@ -28,9 +28,9 @@ First mobile test (Claude Android), issues 2 and 3:
   real shapes if needed. Never write.
 
 ## Acceptance criteria
-- [ ] Tests showing the same issue reported with the same state by list, insights report and ack/close dry run.
-- [ ] Tests for unnamed related entities.
-- [ ] RESEARCH.md updated.
+- [x] Tests showing the same issue reported with the same state by list, insights report and ack/close dry run.
+- [x] Tests for unnamed related entities.
+- [x] RESEARCH.md updated.
 
 ## Security notes
 Issue titles are New Relic data: keep them inside the untrusted output (T5).

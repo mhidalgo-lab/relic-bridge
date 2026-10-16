@@ -41,7 +41,8 @@ and `telemetry.sdk.language` for language-aware pages.
 
 | Signal | Name | Attributes |
 | --- | --- | --- |
-| Span (one per tool call, sampled) | `tools/call <tool>` (`tools/call other` for an unknown name) | `tool`, `status` (`ok`/`error`), `error.code` (an `RB_*` code, errors only), `fault` (`caller`/`server`, errors only, see [Caller and server errors](#caller-and-server-errors)), `project` (slug, token connections), `mode` (`token`/`passthrough`/`stdio`), `nerdgraph.calls`, `nerdgraph.response_bytes`, and for write tools `write.applied` (`true`/`false`) and `write.confirmation` (`approved`, `not_required`, `dry_run`, `asked`, `declined`, `cancelled`, `unavailable`) |
+| Span (one per tool call, sampled) | `tools/call <tool>` (`tools/call other` for an unknown name) | `tool`, `status` (`ok`/`error`), `error.code` and `error.type` (an `RB_*` code, errors only, caller errors included), `fault` (`caller`/`server`, errors only, see [Caller and server errors](#caller-and-server-errors)), `project` (slug, token connections), `mode` (`token`/`passthrough`/`stdio`), `nerdgraph.calls`, `nerdgraph.response_bytes`, and for write tools `write.applied` (`true`/`false`), `write.confirmation` (`approved`, `not_required`, `dry_run`, `asked`, `declined`, `cancelled`, `unavailable`) and `elicitation.result` (`accepted`, `declined`, `cancelled`, `unavailable`: the outcome of the approval question; absent when no question was involved or it was asked and is not answered yet) |
+| Span (one per other MCP request, sampled) | the method name: `initialize`, `server/discover`, `tools/list`, `prompts/get`, `resources/read`, `tasks/get`, ... (`other` for a name outside the spec's methods) | `mcp.method.name` and `rpc.method` (the method), `rpc.system`, `rpc.service`, `status`, `fault` and `error.type` (the HTTP status code, when it is 4xx or 5xx), `http.response.status_code`, `project`, `mode`, `network.transport`. Never a prompt name, resource URI, argument or result |
 | Histogram (ms, delta) | `rpc.server.duration` | `rpc.system=jsonrpc`, `rpc.service=mcp`, `rpc.method` (the tool name, else `other`), and on **server** errors only `error.type` (the `RB_*` code) and `rpc.grpc.status_code` (an integer, see below). New Relic builds the service's throughput, response time and error rate from this metric |
 | Counter | `relic_bridge.tool.calls` | same as the span |
 | Histogram (ms, delta) | `relic_bridge.tool.duration` | same as the span |
@@ -52,9 +53,21 @@ and `telemetry.sdk.language` for language-aware pages.
 
 Spans also carry the OpenTelemetry MCP attributes `mcp.method.name=tools/call`, `gen_ai.operation.name=execute_tool`,
 `gen_ai.tool.name`, the `rpc.system`, `rpc.service`, `rpc.method` and `error.type` (server errors only) described
-above, and `network.transport` (`tcp` for HTTP, `pipe` for stdio). Span status is `OK` for a successful call, `ERROR`
-(with the `RB_*` code as the description) for a server error and **Unset** for a caller error. Tool arguments, results
-and the MCP session id are never attributes.
+above, and `network.transport` (`tcp` for HTTP, `pipe` for stdio). Span status is `OK` for a successful call and `ERROR`
+(with the `RB_*` code as the description, also in `error.type`) for **every** failed call, caller errors included, so a
+failure is never a span that looks fine. Which side failed is `fault`; the metric below is where the split decides what
+New Relic counts. On a request that is not a tool call the span status comes from the HTTP status (4xx and 5xx are
+`ERROR`); a JSON-RPC error answered with HTTP 200 is not visible there. Tool arguments, results and the MCP session id are
+never attributes.
+
+### Logs in the trace
+
+With a sampled request, the log lines written while it was handled (the `tool error` line, NerdGraph retries, the
+`http request` access line, ...) carry the ids of that request's span: the OTLP log record's `traceId` and `spanId`
+fields (not attributes), so New Relic shows them in the trace's logs. The same two ids, `traceId` and `spanId`, are on the
+structured log line written to stderr (Node) or Workers Logs, so a line can be found from a trace and back. A request
+that is not sampled (`RB_OTEL_SAMPLE`) has neither. Ids are random (or the client's trace id with
+`RB_OTEL_TRACEPARENT=on`) and carry nothing else. stdio does not add them to log lines.
 
 Every value is checked against a fixed pattern before export; anything unexpected (a made-up tool name from a client)
 becomes `other`, so the number of distinct values stays small.
@@ -63,11 +76,12 @@ becomes `other`, so the number of distinct values stays small.
 
 A failed tool call is either the **caller's** (the request can't be served as asked: they can fix it by changing the
 request) or the **server's** (relic-bridge, its New Relic credential or New Relic failed). Following the OpenTelemetry
-conventions for a server operation, only server errors are errors: they set span status `ERROR`, `error.type` and count
-in the New Relic service's Error rate and Errors Inbox. A caller error is the equivalent of an HTTP 4xx (or the MCP
-convention's "invalid params", which a server SHOULD NOT treat as an error): span status stays Unset, there is no
-`error.type`, and it is still counted by `status = 'error'`, `error.code` and `fault = 'caller'` on the spans and the
-`relic_bridge.*` metrics.
+conventions for a server operation, only server errors are errors **on the metric**: they set `error.type` and
+`rpc.grpc.status_code` on `rpc.server.duration` and count in the New Relic service's Error rate. A caller error is the
+equivalent of an HTTP 4xx (or the MCP convention's "invalid params"): the metric carries neither, so the Error rate is not
+moved by it. Both kinds mark their span `ERROR` with `error.type` (P8-90), and both are counted by `status = 'error'`,
+`error.code` and `fault` on the spans and the `relic_bridge.*` metrics; filter on `fault = 'server'` for the operator's
+view.
 
 | `error.code` | `fault` | `rpc.grpc.status_code` | Why |
 | --- | --- | --- | --- |
@@ -77,7 +91,7 @@ convention's "invalid params", which a server SHOULD NOT treat as an error): spa
 | `RB_LIMIT_RATE`, `RB_LIMIT_QUOTA` | caller | | The caller's rate limit or quota. |
 | `RB_QUERY_NOT_FOUND` | caller | | The `query_id` is unknown or expired. |
 | `RB_TOOL_DISABLED` | caller | | The connection is not granted the tool (or arbitrary NRQL). |
-| `RB_WRITE_APPROVAL_UNAVAILABLE`, `RB_WRITE_APPROVAL_DECLINED` | caller | | A write was refused for lack of a person's approval (P8-88). Nothing was changed. The span status is still ERROR. |
+| `RB_WRITE_APPROVAL_UNAVAILABLE`, `RB_WRITE_APPROVAL_DECLINED` | caller | | A write was refused for lack of a person's approval (P8-88). Nothing was changed. The span records `elicitation.result`. |
 | `RB_BUDGET_EXHAUSTED` | caller | | The request needs more NerdGraph calls than one tool call may make: like a query limit, the hint is to narrow the request (fewer entities, shorter window). |
 | `RB_AUTH_INVALID_KEY`, `RB_AUTH_WRONG_REGION` | server (token, stdio); caller (pass-through) | 13 (INTERNAL) | New Relic refused the key. On a token connection or stdio it is the operator's stored key, which no caller can fix; on pass-through it is the caller's own key. |
 | `RB_NERDGRAPH_UNAVAILABLE` | server | 14 (UNAVAILABLE) | New Relic could not be reached or answered 5xx. |
@@ -89,13 +103,13 @@ convention's "invalid params", which a server SHOULD NOT treat as an error): spa
 **Why `rpc.grpc.status_code`.** New Relic counts a `rpc.server.duration` data point in `apm.service.error.count`
 (the service's Error rate) only when `rpc.grpc.status_code` is 2, 4, 12, 13, 14 or 15; `error.type` alone is ignored on
 this metric. relic-bridge speaks JSON-RPC, not gRPC, so setting a gRPC status code is a deliberate deviation from the
-conventions: it is set on server errors only, on that metric only (not on spans), from the fixed table above. If you
+conventions: it is set on server errors only, on that metric only (not on spans or on caller errors), from the fixed table above. If you
 send to another backend, ignore it and use `error.type`.
 
 Count both kinds in New Relic (`fault` exists from the version with this change on):
 
 ```sql
-SELECT count(*) FROM Span WHERE service.name = 'relic-bridge' AND status = 'error' FACET fault, error.code SINCE 1 day ago
+SELECT count(*) FROM Span WHERE service.name = 'relic-bridge' AND status = 'error' FACET fault, error.type SINCE 1 day ago
 ```
 
 ### Logs
@@ -174,8 +188,9 @@ response time, error rate) are computed from `apm.service.transaction.duration`,
 OpenTelemetry **metric** `rpc.server.duration` (or `http.server.request.duration`), not from spans; spans only feed
 the transaction overview and Errors Inbox. relic-bridge exports `rpc.server.duration` for this reason, so the entity's
 transactions are named `WebTransaction/server/jsonrpc/mcp.<tool>`. Spans are named `tools/call <tool>`, so Errors Inbox
-groups are distinct per tool. Only server errors open Errors Inbox groups and count in the Error rate (see
-[Caller and server errors](#caller-and-server-errors)).
+groups are distinct per tool. Only server errors count in the Error rate (see
+[Caller and server errors](#caller-and-server-errors)); every failed span can open an Errors Inbox group, so mute or
+filter on `fault = 'caller'` there if caller errors are noise to you.
 
 Check after deploying (replace `relic-bridge` if you changed the service name; filter on `service.name`: on the
 synthesized metric a `WHERE entity.name = ...` filter returned nothing in our tests although the attribute is there):

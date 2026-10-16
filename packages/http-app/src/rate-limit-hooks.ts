@@ -307,5 +307,19 @@ export function mergeHooks(...sets: readonly (HttpAppHooks | undefined)[]): Http
     async afterMcp(c, info, outcome) {
       await Promise.allSettled(hooks.map((h) => h.afterMcp?.(c, info, outcome)));
     },
+    async afterPassthrough(c, info, outcome) {
+      await Promise.allSettled(hooks.map((h) => h.afterPassthrough?.(c, info, outcome)));
+    },
+    traceContext(c, info) {
+      for (const h of hooks) {
+        try {
+          const ids = h.traceContext?.(c, info);
+          if (ids !== undefined) return ids;
+        } catch {
+          // a failing hook never changes the answer
+        }
+      }
+      return undefined;
+    },
   };
 }

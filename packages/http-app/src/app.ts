@@ -264,6 +264,22 @@ export interface HttpAppHooks {
     info: McpRequestInfo,
     outcome: { readonly status: number; readonly durationMs: number },
   ): Promise<void> | void;
+  /** `afterMcp` for the pass-through route (P8-90). Runs in the background; must not throw. */
+  afterPassthrough?(
+    c: Context,
+    info: PassthroughRequestInfo,
+    outcome: { readonly status: number; readonly durationMs: number },
+  ): Promise<void> | void;
+  /**
+   * An MCP request (a POST with a JSON-RPC method) is about to be handled, after authentication and the pre-handler
+   * hooks (P8-90). Return the ids of the span this request will be recorded as: they are put on the request's log
+   * lines (`traceId`, `spanId`) so New Relic shows the logs in the trace. `undefined`: no span (not sampled). Runs in
+   * the request path, so it must be synchronous, cheap and must not throw.
+   */
+  traceContext?(
+    c: Context,
+    info: McpRequestInfo | PassthroughRequestInfo,
+  ): { readonly traceId: string; readonly spanId: string } | undefined;
 }
 
 /** The admin REST API (P2-09). Without it, `/api/admin/*` answers 404. */
@@ -661,6 +677,26 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
       c.executionCtx.waitUntil(guarded);
     } catch {
       // Node: no execution context. The promise already logs its own failure.
+    }
+  };
+
+  /**
+   * The span ids of this MCP request for its log lines (P8-90): fields for the request's logger and the access-log
+   * record. Empty when telemetry is off, the request is not sampled or the hook fails (never a failed request).
+   */
+  const traceFields = (
+    c: Context,
+    info: McpRequestInfo | PassthroughRequestInfo,
+    log: Record<string, unknown>,
+  ): { traceId?: string; spanId?: string } => {
+    try {
+      const ids = hooks.traceContext?.(c, info);
+      if (ids === undefined) return {};
+      log['traceId'] = ids.traceId;
+      log['spanId'] = ids.spanId;
+      return { traceId: ids.traceId, spanId: ids.spanId };
+    } catch {
+      return {};
     }
   };
 
@@ -1408,7 +1444,13 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
     let scope: RequestScope;
     try {
       const credential = await openCredential(access, resolved.credential, { keyring: options.keyring });
-      const toolLogger = logger.child({ requestId, project: access.projectSlug, grantId: access.grantId });
+      const trace = traceFields(c, info, log);
+      const toolLogger = logger.child({
+        requestId,
+        project: access.projectSlug,
+        grantId: access.grantId,
+        ...trace,
+      });
       const granted = affordable(allTools.filter((t) => access.tools.includes(t.name)));
       scope = Object.freeze({
         tools: granted.tools,
@@ -1671,7 +1713,7 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
                 }),
               }),
           connection: Object.freeze({ allowedTools: ptToolNames, unavailableTools: ptGranted.unavailable }),
-          logger: logger.child({ requestId, keyId }),
+          logger: logger.child({ requestId, keyId, ...traceFields(c, info, log) }),
           clock,
         }),
         ...(hooks.onPassthroughToolCall
@@ -1696,9 +1738,21 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
         scopes: [],
         extra: { [SCOPE_KEY]: scope },
       };
-      return tasksOn && mcpMethod !== null && TASK_METHODS.includes(mcpMethod)
-        ? serveTasks(c, scope)
-        : serveMcp(c, authInfo, mcpMethod, mcpName);
+      const started = clock.now();
+      const response =
+        tasksOn && mcpMethod !== null && TASK_METHODS.includes(mcpMethod)
+          ? await serveTasks(c, scope)
+          : await serveMcp(c, authInfo, mcpMethod, mcpName);
+      if (hooks.afterPassthrough) {
+        const after = hooks.afterPassthrough;
+        const outcome = Object.freeze({ status: response.status, durationMs: clock.now() - started });
+        runInBackground(
+          c,
+          Promise.resolve().then(() => after(c, info, outcome)),
+          'after_passthrough',
+        );
+      }
+      return response;
     });
   }
 

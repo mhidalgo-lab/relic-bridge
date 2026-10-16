@@ -212,6 +212,22 @@ export interface ToolCallOrigin {
   readonly projectSlug?: string | null;
   /** A validated parent from `parseTraceparent`. */
   readonly parent?: TraceParent;
+  /**
+   * The span ids chosen when the request began (`traceContext` hook), so log lines written during the call carry the
+   * same ids as the span (P8-90). `null`: the request was not sampled, export no span. Absent: decide when recording.
+   */
+  readonly trace?: SpanIds | null;
+}
+
+/** The ids a log line carries to join the span of the request it was written in (P8-90). */
+export interface TraceContext {
+  readonly traceId: string;
+  readonly spanId: string;
+}
+
+/** The ids of one span; `parentSpanId` only when an inbound `traceparent` was accepted. */
+export interface SpanIds extends TraceContext {
+  readonly parentSpanId?: string;
 }
 
 export interface TraceParent {
@@ -229,6 +245,11 @@ export interface Telemetry {
    * the wrapped logger exactly as before. Records wait in a bounded buffer for `flush`.
    */
   wrapLogger(logger: Logger): Logger;
+  /**
+   * Begin the span of one MCP request (P8-90): the ids to put on the log lines written during it. `null` when the
+   * request is not sampled. Pass the result as `ToolCallOrigin.trace` when recording.
+   */
+  startSpan(parent?: TraceParent): SpanIds | null;
   /** Send buffered logs and wait for exports in flight (process exit, tests). Never throws. */
   flush(): Promise<void>;
   /** Stop the flush timer. */
@@ -315,6 +336,20 @@ export function classifyToolError(code: string, mode: ToolCallOrigin['mode']): E
   return CLASSIFIED.get(code) ?? server(GRPC.unknown);
 }
 
+/**
+ * The OTLP span status of a finished request (P8-90), one rule for every span: `OK` on success, `ERROR` with the error
+ * code as the message on any failure. The caller/server split (P8-59) stays on `fault` and on `rpc.server.duration`,
+ * the only place `rpc.grpc.status_code` is set (server errors only), so a caller error marks its span without moving
+ * New Relic's service error rate from that metric.
+ */
+export function spanStatus(
+  outcome: 'ok' | 'error',
+  errorType: string | undefined,
+): { readonly code: 1 } | { readonly code: 2; readonly message?: string } {
+  if (outcome === 'ok') return { code: 1 };
+  return errorType === undefined ? { code: 2 } : { code: 2, message: errorType };
+}
+
 type Attr = { key: string; value: { stringValue: string } | { intValue: string } };
 const str = (key: string, value: string): Attr => ({ key, value: { stringValue: value } });
 const int = (key: string, value: number): Attr => ({ key, value: { intValue: String(value) } });
@@ -323,6 +358,9 @@ const TOOL_NAME = /^[a-z][a-z0-9_]{0,63}$/;
 const ERROR_CODE = /^RB_[A-Z0-9_]{1,48}$/;
 const SLUG = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const WRITE_CONFIRMATION = /^(?:asked|accepted|declined|cancelled|unavailable)$/;
+const ELICITATION_RESULT = /^(?:accepted|declined|cancelled|unavailable)$/;
+const TRACE_ID = /^[0-9a-f]{32}$/;
+const SPAN_ID = /^[0-9a-f]{16}$/;
 const REASON = /^[a-z][a-z0-9_]{0,48}$/;
 const SEVERITY: Record<LogLevel, number> = { debug: 5, info: 9, warn: 13, error: 17 };
 // The only log fields that are exported, and the pattern each value must match (`count`: a non-negative number).
@@ -479,6 +517,50 @@ export function createTelemetry(options: TelemetryOptions): Telemetry {
   const count = (v: number | undefined): number | undefined =>
     typeof v === 'number' && Number.isFinite(v) && v >= 0 ? Math.round(v) : undefined;
 
+  /** Sampling and ids for one span; `null` when this request is not sampled. */
+  const startSpan = (parent?: TraceParent): SpanIds | null => {
+    if (!(sampleRate > 0 && random() < sampleRate)) return null;
+    return {
+      traceId: parent?.traceId ?? hex(16),
+      spanId: hex(8),
+      ...(parent === undefined ? {} : { parentSpanId: parent.spanId }),
+    };
+  };
+
+  const postSpan = (span: {
+    readonly ids: SpanIds;
+    readonly name: string;
+    readonly start: number;
+    readonly end: number;
+    readonly attributes: readonly Attr[];
+    readonly status: { readonly code: number; readonly message?: string };
+  }): Promise<void> =>
+    post('/v1/traces', {
+      resourceSpans: [
+        {
+          resource,
+          scopeSpans: [
+            {
+              scope,
+              spans: [
+                {
+                  traceId: span.ids.traceId,
+                  spanId: span.ids.spanId,
+                  ...(span.ids.parentSpanId === undefined ? {} : { parentSpanId: span.ids.parentSpanId }),
+                  name: span.name,
+                  kind: 2,
+                  startTimeUnixNano: nanos(span.start),
+                  endTimeUnixNano: nanos(span.end),
+                  attributes: span.attributes,
+                  status: span.status,
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+
   const record = async (event: ToolCallEvent, origin: ToolCallOrigin): Promise<void> => {
     const end = clock.now();
     const durationMs = Number.isFinite(event.durationMs) ? Math.max(0, event.durationMs) : 0;
@@ -486,16 +568,19 @@ export function createTelemetry(options: TelemetryOptions): Telemetry {
     const tool = pick(event.tool, TOOL_NAME);
     const errorCode = event.status === 'error' ? pick(event.errorCode, ERROR_CODE) : undefined;
     const failure = errorCode === undefined ? undefined : classifyToolError(errorCode, origin.mode);
-    // Semconv: `error.type` (and span status ERROR) only when the operation failed on the server side; a caller's
-    // mistake is not a failed server operation (P8-59). Caller errors stay countable by `status`, `error.code`, `fault`.
-    const errorType = failure?.fault === 'server' ? errorCode : undefined;
+    // `rpc.server.duration` carries `error.type` for server errors only: New Relic counts the service error rate from
+    // it, and a caller's mistake is not a failed server operation (P8-59). The span marks every failure (P8-90).
+    const metricErrorType = failure?.fault === 'server' ? errorCode : undefined;
     // OpenTelemetry `rpc.*` attributes of the server operation, for New Relic's transaction name
     // (`WebTransaction/server/jsonrpc/mcp.<tool>`) and error count.
-    const rpcAttrs: Attr[] = [
+    const rpcBase: Attr[] = [
       str('rpc.system', 'jsonrpc'),
       str('rpc.service', 'mcp'),
       str('rpc.method', tool),
-      ...(errorType === undefined ? [] : [str('error.type', errorType)]),
+    ];
+    const rpcAttrs: Attr[] = [
+      ...rpcBase,
+      ...(metricErrorType === undefined ? [] : [str('error.type', metricErrorType)]),
     ];
     const attrs: Attr[] = [
       str('tool', tool),
@@ -530,9 +615,11 @@ export function createTelemetry(options: TelemetryOptions): Telemetry {
                     : 'not_required',
             ),
           ];
-    const refusedWrite =
-      errorCode === ErrorCode.WriteApprovalUnavailable || errorCode === ErrorCode.WriteApprovalDeclined
-        ? errorCode
+    // The outcome of the approval round (P7-20, P8-90): what the person answered, or that nobody could be asked. A
+    // question that went out without an answer yet (`asked`) has no outcome and a write that needed none has no round.
+    const elicitation =
+      typeof writeFacts?.confirmation === 'string' && ELICITATION_RESULT.test(writeFacts.confirmation)
+        ? writeFacts.confirmation
         : undefined;
     const calls = count(event.nerdgraphCalls);
     const bytes = count(event.nerdgraphBytes);
@@ -590,55 +677,78 @@ export function createTelemetry(options: TelemetryOptions): Telemetry {
         : [sumMetric(TELEMETRY_NAMES.nerdgraphBytes, 'By', attrs, start, end, bytes)]),
     ];
     const tasks: Promise<void>[] = [post('/v1/metrics', metricsBody(metrics)), flushLogs()];
-    if (sampleRate > 0 && random() < sampleRate) {
+    const ids = origin.trace === undefined ? startSpan(origin.parent) : origin.trace;
+    if (ids !== null) {
       const spanAttrs: Attr[] = [
         ...attrs,
         // OpenTelemetry MCP semantic conventions (development) plus `rpc.*`; no arguments, results or ids.
         str('mcp.method.name', 'tools/call'),
         str('gen_ai.operation.name', 'execute_tool'),
         str('gen_ai.tool.name', tool),
-        ...rpcAttrs,
+        ...rpcBase,
+        ...(errorCode === undefined ? [] : [str('error.type', errorCode)]),
         str('network.transport', origin.mode === 'stdio' ? 'pipe' : 'tcp'),
         ...(calls === undefined ? [] : [int('nerdgraph.calls', calls)]),
         ...(bytes === undefined ? [] : [int('nerdgraph.response_bytes', bytes)]),
         ...writeAttrs,
+        ...(elicitation === undefined ? [] : [str('elicitation.result', elicitation)]),
       ];
       tasks.push(
-        post('/v1/traces', {
-          resourceSpans: [
-            {
-              resource,
-              scopeSpans: [
-                {
-                  scope,
-                  spans: [
-                    {
-                      traceId: origin.parent?.traceId ?? hex(16),
-                      spanId: hex(8),
-                      ...(origin.parent === undefined ? {} : { parentSpanId: origin.parent.spanId }),
-                      name: `${TELEMETRY_SPAN_PREFIX} ${tool}`,
-                      kind: 2,
-                      startTimeUnixNano: nanos(start),
-                      endTimeUnixNano: nanos(end),
-                      attributes: spanAttrs,
-                      // OK; ERROR for a server error; Unset (no status) for a caller error (P8-59).
-                      ...(event.status === 'ok'
-                        ? { status: { code: 1 } }
-                        : errorType !== undefined
-                          ? { status: { code: 2, message: errorType } }
-                          : refusedWrite !== undefined
-                            ? { status: { code: 2, message: refusedWrite } }
-                            : {}),
-                    },
-                  ],
-                },
-              ],
-            },
-          ],
+        postSpan({
+          ids,
+          name: `${TELEMETRY_SPAN_PREFIX} ${tool}`,
+          start,
+          end,
+          attributes: spanAttrs,
+          status: spanStatus(event.status === 'ok' ? 'ok' : 'error', errorCode),
         }),
       );
     }
     await Promise.all(tasks);
+  };
+
+  /**
+   * One span for an MCP request that is not a tool call (P8-90: `initialize`, `tools/list`, `prompts/get`,
+   * `resources/read`, `tasks/*`, ...), from the HTTP outcome. Only the method name leaves, from the fixed set of
+   * `LOG_FIELDS.mcpMethod`: never a prompt name, a resource URI or any argument. A JSON-RPC error inside an HTTP 200
+   * is not visible here.
+   */
+  const recordRequest = async (
+    request: { readonly mcpMethod: string | null; readonly status: number; readonly durationMs: number },
+    origin: ToolCallOrigin,
+  ): Promise<void> => {
+    const ids = origin.trace === undefined ? startSpan(origin.parent) : origin.trace;
+    if (ids === null) return;
+    const end = clock.now();
+    const durationMs = Number.isFinite(request.durationMs) ? Math.max(0, request.durationMs) : 0;
+    const method = pick(request.mcpMethod, LOG_FIELDS['mcpMethod'] as RegExp);
+    const httpStatus =
+      Number.isInteger(request.status) && request.status >= 100 && request.status <= 599
+        ? request.status
+        : undefined;
+    const failed = httpStatus !== undefined && httpStatus >= 400;
+    // A 4xx is the caller's request, a 5xx ours (P8-59); both mark the span. The status code is the only error type.
+    const errorType = failed ? String(httpStatus) : undefined;
+    await postSpan({
+      ids,
+      name: method,
+      start: end - durationMs,
+      end,
+      attributes: [
+        str('status', failed ? 'error' : 'ok'),
+        ...(failed ? [str('fault', httpStatus >= 500 ? 'server' : 'caller')] : []),
+        ...(origin.mode === 'token' ? [str('project', pick(origin.projectSlug, SLUG))] : []),
+        str('mode', origin.mode),
+        str('mcp.method.name', method),
+        str('rpc.system', 'jsonrpc'),
+        str('rpc.service', 'mcp'),
+        str('rpc.method', method),
+        ...(httpStatus === undefined ? [] : [int('http.response.status_code', httpStatus)]),
+        ...(errorType === undefined ? [] : [str('error.type', errorType)]),
+        str('network.transport', origin.mode === 'stdio' ? 'pipe' : 'tcp'),
+      ],
+      status: spanStatus(failed ? 'error' : 'ok', errorType),
+    });
   };
 
   // ---- logs ----------------------------------------------------------------------------------------------------
@@ -679,8 +789,18 @@ export function createTelemetry(options: TelemetryOptions): Telemetry {
           attributes.push(str(`log.${key}`, pick(value, kind)));
         }
       }
+      // Log correlation (P8-90): the ids of the span of the request this line was written in, checked as hex so a
+      // hostile field can't put anything else in the record. Read from the raw fields: redaction has no use for them.
+      const traceId = fields['traceId'];
+      const spanId = fields['spanId'];
+      const inSpan =
+        typeof traceId === 'string' &&
+        typeof spanId === 'string' &&
+        TRACE_ID.test(traceId) &&
+        SPAN_ID.test(spanId);
       logBuffer.push({
         timeUnixNano: nanos(clock.now()),
+        ...(inSpan ? { traceId, spanId } : {}),
         severityNumber: SEVERITY[level],
         severityText: level.toUpperCase(),
         body: {
@@ -724,12 +844,56 @@ export function createTelemetry(options: TelemetryOptions): Telemetry {
   const parentOf = (c: Context): TraceParent | undefined =>
     acceptTraceparent ? parseTraceparent(c.req.header('traceparent')) : undefined;
 
+  // The span a request began with (`traceContext`), found again when its tool call or its response is recorded. Keyed
+  // by the request's context object so nothing outlives the request; `used`: a tool call took the span.
+  const begun = new WeakMap<object, { ids: SpanIds | null; used: boolean }>();
+  const take = (c: Context): SpanIds | null | undefined => {
+    const entry = begun.get(c);
+    if (entry !== undefined) entry.used = true;
+    return entry?.ids;
+  };
+  const optTrace = (trace: SpanIds | null | undefined): { trace?: SpanIds | null } =>
+    trace === undefined ? {} : { trace };
+  const requestSpan = async (
+    c: Context,
+    mcpMethod: string | null,
+    outcome: { readonly status: number; readonly durationMs: number },
+    origin: ToolCallOrigin,
+  ): Promise<void> => {
+    const entry = begun.get(c);
+    // No span began (a request that was not an MCP call), or a tool call already recorded this request's span.
+    if (mcpMethod === null || entry === undefined || entry.used) return;
+    entry.used = true;
+    await recordRequest({ mcpMethod, ...outcome }, { ...origin, trace: entry.ids });
+  };
+
   const hooks: HttpAppHooks = {
+    traceContext(c, info) {
+      if (info.mcpMethod === null) return undefined;
+      const ids = startSpan(parentOf(c));
+      begun.set(c, { ids, used: false });
+      return ids === null ? undefined : { traceId: ids.traceId, spanId: ids.spanId };
+    },
     async onToolCall(c, info: McpRequestInfo, event) {
-      await record(event, { mode: 'token', projectSlug: info.projectSlug, ...optParent(parentOf(c)) });
+      await record(event, {
+        mode: 'token',
+        projectSlug: info.projectSlug,
+        ...optParent(parentOf(c)),
+        ...optTrace(take(c)),
+      });
     },
     async onPassthroughToolCall(c, _info: PassthroughRequestInfo, event) {
-      await record(event, { mode: 'passthrough', ...optParent(parentOf(c)) });
+      await record(event, { mode: 'passthrough', ...optParent(parentOf(c)), ...optTrace(take(c)) });
+    },
+    async afterMcp(c, info: McpRequestInfo, outcome) {
+      await requestSpan(c, info.mcpMethod, outcome, {
+        mode: 'token',
+        projectSlug: info.projectSlug,
+        ...optParent(parentOf(c)),
+      });
+    },
+    async afterPassthrough(c, info: PassthroughRequestInfo, outcome) {
+      await requestSpan(c, info.mcpMethod, outcome, { mode: 'passthrough', ...optParent(parentOf(c)) });
     },
     async onRejected(_c, info: RejectInfo) {
       const now = clock.now();
@@ -749,6 +913,7 @@ export function createTelemetry(options: TelemetryOptions): Telemetry {
   return {
     hooks,
     recordToolCall: (event, origin) => record(event, origin).catch(() => undefined),
+    startSpan,
     wrapLogger: (logger) => wrap(logger, {}),
     async flush() {
       await flushLogs();

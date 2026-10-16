@@ -543,10 +543,57 @@ describe('Self-monitoring (P7-08)', () => {
     await client.close();
     await ctx.settle();
     // P7-18: the request log lines (allowlisted) ride along with the first call's export.
-    expect(sent.map((s) => s.path).sort()).toEqual(['/v1/logs', '/v1/metrics', '/v1/traces']);
+    expect([...new Set(sent.map((s) => s.path))].sort()).toEqual(['/v1/logs', '/v1/metrics', '/v1/traces']);
     expect(sent.every((s) => s.key === 'fake-license-key')).toBe(true);
     expect(sent.map((s) => s.body).join('')).not.toContain('a@example.com');
     expect(sent.map((s) => s.body).join('')).not.toContain('fake-license-key');
+  });
+
+  it('log lines written inside a tool call carry the span ids in workerd, and a span exists per MCP method (P8-90)', async () => {
+    const { storage, token } = await seed(MASTER_KEY);
+    const sent: { path: string; body: string }[] = [];
+    const stderr = logs();
+    const worker = createWorker({
+      openStorage: () => storage,
+      fetch: mockNerdGraph().fetch,
+      telemetryFetch: async (url, init) => {
+        sent.push({ path: event(new Request(String(url), init)), body: String(init.body) });
+        return new Response('{}');
+      },
+      logSink: stderr.sink,
+    });
+    const otelEnv = {
+      ...env,
+      RB_OTEL: 'on',
+      RB_OTEL_ENDPOINT: 'https://otlp.example.test:4318',
+      RB_OTEL_HEADERS: 'api-key=fake-license-key',
+    } as WorkerEnv;
+    const ctx = fakeCtx();
+    const client = await connect(worker, otelEnv, ctx, token);
+    await client.listTools();
+    // A tool error logs `tool error` from inside the call.
+    await client.callTool({ name: 'get_query_result', arguments: { query_id: 'nope', account: 1 } });
+    await client.close();
+    await ctx.settle();
+    // biome-ignore lint/suspicious/noExplicitAny: raw OTLP JSON
+    const spans: any[] = sent
+      .filter((s) => s.path === '/v1/traces')
+      .flatMap((s) => JSON.parse(s.body).resourceSpans[0].scopeSpans[0].spans);
+    const toolSpan = spans.find((s) => s.name === 'tools/call get_query_result');
+    expect(toolSpan.status.code).toBe(2);
+    expect(toolSpan.status.message).toBe('RB_QUERY_NOT_FOUND');
+    expect(spans.some((s) => s.name === 'tools/list')).toBe(true);
+    // biome-ignore lint/suspicious/noExplicitAny: raw OTLP JSON
+    const records: any[] = sent
+      .filter((s) => s.path === '/v1/logs')
+      .flatMap((s) => JSON.parse(s.body).resourceLogs[0].scopeLogs[0].logRecords);
+    const toolError = records.find((r) => r.body.stringValue === 'tool error');
+    expect(toolError.traceId).toBe(toolSpan.traceId);
+    expect(toolError.spanId).toBe(toolSpan.spanId);
+    // The same ids are on the structured log line (Workers Logs), so a line can be found from the trace and back.
+    const line = stderr.lines.find((l) => l['msg'] === 'tool error');
+    expect(line?.['traceId']).toBe(toolSpan.traceId);
+    expect(line?.['spanId']).toBe(toolSpan.spanId);
   });
 
   it('fails the boot closed on RB_OTEL=on without an endpoint', async () => {

@@ -12,6 +12,7 @@ import {
   parseOtlpHeaders,
   parseSampleRate,
   parseTraceparent,
+  spanStatus,
   TELEMETRY_LOG_BUFFER,
   TelemetryConfigError,
   telemetrySettingsFromEnv,
@@ -82,13 +83,17 @@ describe('OTLP export', () => {
       arguments: { nrql: "SELECT count(*) FROM Transaction WHERE email = 'SECRET-VALUE@example.com'" },
     });
     await client.close();
-    await vi.waitFor(() => expect(received.filter((r) => r.path === '/v1/traces').length).toBe(2));
     await vi.waitFor(() => expect(received.filter((r) => r.path === '/v1/metrics').length).toBe(2));
+    // A span per tool call, plus one per other MCP request (P8-90: the client's discovery), never a metric.
+    await vi.waitFor(() =>
+      expect(received.filter((r) => r.path === '/v1/traces').length).toBeGreaterThanOrEqual(2),
+    );
 
-    const spans = received
+    const allSpans = received
       .filter((r) => r.path === '/v1/traces')
       // biome-ignore lint/suspicious/noExplicitAny: test inspects raw OTLP JSON
       .flatMap((r) => (JSON.parse(r.body) as any).resourceSpans[0].scopeSpans[0].spans);
+    const spans = allSpans.filter((s: { name: string }) => s.name.startsWith('tools/call '));
     expect(spans.map((s: { name: string }) => s.name).sort()).toEqual([
       'tools/call run_nrql',
       'tools/call whoami',
@@ -98,7 +103,7 @@ describe('OTLP export', () => {
         s.attributes.find((a) => a.key === 'tool')?.value.stringValue,
     );
     expect(tools.sort()).toEqual(['run_nrql', 'whoami']);
-    for (const s of spans) {
+    for (const s of allSpans) {
       expect(s.traceId).toMatch(/^[0-9a-f]{32}$/);
       expect(s.spanId).toMatch(/^[0-9a-f]{16}$/);
       const keys = s.attributes.map((a: { key: string }) => a.key);
@@ -120,6 +125,7 @@ describe('OTLP export', () => {
           'network.transport',
           'error.type',
           'fault',
+          'http.response.status_code',
         ]).toContain(k);
     }
     expect(received[0]?.headers['api-key']).toBe(LICENSE);
@@ -688,8 +694,10 @@ describe('trace context (P7-18)', () => {
     const out = await client.callTool({ name: 'whoami', arguments: {} });
     await client.close();
     expect(out.isError).toBeFalsy();
-    await vi.waitFor(() => expect(bodies('/v1/traces').length).toBe(1));
-    expect(bodies('/v1/traces')[0].resourceSpans[0].scopeSpans[0].spans[0].traceId).toBe(TRACE);
+    await vi.waitFor(() => expect(bodies('/v1/traces').length).toBeGreaterThan(0));
+    // Every span of the request joins the client's trace, the tool call and the protocol methods around it (P8-90).
+    for (const b of bodies('/v1/traces'))
+      expect(b.resourceSpans[0].scopeSpans[0].spans[0].traceId).toBe(TRACE);
     expect(seenHeaders.length).toBeGreaterThan(0);
     expect(seenHeaders.join('')).not.toMatch(/traceparent|tracestate/);
     expect(seenHeaders.join('')).not.toContain(TRACE);
@@ -841,6 +849,13 @@ describe('server and caller errors (P8-59)', () => {
     JSON.parse(received.find((r) => r.path === '/v1/traces')?.body ?? '{}').resourceSpans[0].scopeSpans[0]
       .spans[0];
 
+  // biome-ignore lint/suspicious/noExplicitAny: test inspects raw OTLP JSON
+  const spansNamed = (name: string): any[] =>
+    received
+      .filter((r) => r.path === '/v1/traces')
+      .flatMap((r) => JSON.parse(r.body).resourceSpans[0].scopeSpans[0].spans)
+      .filter((s: { name: string }) => s.name === name);
+
   it('classifies every RB_* code, each server error with a status code New Relic counts', () => {
     expect(Object.keys(ERROR_CLASSIFICATION).sort()).toEqual(Object.values(ErrorCode).sort());
     for (const c of Object.values(ERROR_CLASSIFICATION)) {
@@ -883,7 +898,7 @@ describe('server and caller errors (P8-59)', () => {
       expect(classifyToolError(code, 'stdio').fault).toBe('server');
       expect(classifyToolError(code, 'passthrough')).toEqual({ fault: 'caller' });
     }
-    expect(classifyToolError('RB_INPUT_INVALID', 'passthrough').fault).toBe('caller');
+    expect(classifyToolError('RB_QUERY_NOT_FOUND', 'passthrough').fault).toBe('caller');
     expect(classifyToolError('RB_NERDGRAPH_TIMEOUT', 'passthrough').fault).toBe('server');
   });
 
@@ -929,14 +944,20 @@ describe('server and caller errors (P8-59)', () => {
     });
   });
 
-  it('a caller error: span Unset, no error.type or status code, still counted by error.code and fault', async () => {
+  it('a caller error (P8-90): span ERROR with error.type, but no error.type or status code on the metric', async () => {
     const t = createTelemetry({ endpoint: base, fetch: receiverFetch });
     await t.hooks.onToolCall?.({} as never, { projectSlug: 'prod' } as never, failed('RB_LIMIT_QUERY'));
     const span = spanOf();
-    expect(span.status).toBeUndefined();
+    expect(span.status).toEqual({ code: 2, message: 'RB_LIMIT_QUERY' });
     const a = attrMap(span.attributes);
-    expect(a).toMatchObject({ status: 'error', 'error.code': 'RB_LIMIT_QUERY', fault: 'caller' });
-    expect(a['error.type']).toBeUndefined();
+    expect(a).toMatchObject({
+      status: 'error',
+      'error.code': 'RB_LIMIT_QUERY',
+      'error.type': 'RB_LIMIT_QUERY',
+      fault: 'caller',
+    });
+    expect(a['rpc.grpc.status_code']).toBeUndefined();
+    // The service error rate comes from the metric: a caller error leaves it alone (P8-59).
     expect(rpcPoint()).toEqual({ 'rpc.system': 'jsonrpc', 'rpc.service': 'mcp', 'rpc.method': 'run_nrql' });
     expect(callsPoint()).toMatchObject({ status: 'error', 'error.code': 'RB_LIMIT_QUERY', fault: 'caller' });
   });
@@ -983,7 +1004,7 @@ describe('server and caller errors (P8-59)', () => {
   it('pass-through: the caller’s own refused key is a caller error', async () => {
     const t = createTelemetry({ endpoint: base, fetch: receiverFetch });
     await t.hooks.onPassthroughToolCall?.({} as never, {} as never, failed('RB_AUTH_INVALID_KEY'));
-    expect(spanOf().status).toBeUndefined();
+    expect(spanOf().status).toEqual({ code: 2, message: 'RB_AUTH_INVALID_KEY' });
     expect(rpcPoint()['rpc.grpc.status_code']).toBeUndefined();
     expect(callsPoint()['fault']).toBe('caller');
   });
@@ -998,7 +1019,7 @@ describe('server and caller errors (P8-59)', () => {
     expect(rpcPoint()).toEqual({ 'rpc.system': 'jsonrpc', 'rpc.service': 'mcp', 'rpc.method': 'run_nrql' });
   });
 
-  it('a real caller error through the app is not a span error (RB_INPUT_INVALID)', async () => {
+  it('a real caller error through the app marks its span (RB_QUERY_NOT_FOUND) and sets no status code', async () => {
     const app = appWith();
     const client = await connect(app, 'prod', world.tokens.prod, 'modern');
     const r = await client.callTool({
@@ -1007,9 +1028,172 @@ describe('server and caller errors (P8-59)', () => {
     });
     expect(r.isError).toBe(true);
     await client.close();
-    await vi.waitFor(() => expect(received.some((x) => x.path === '/v1/traces')).toBe(true));
-    const span = spanOf();
-    expect(span.status).toBeUndefined();
-    expect(attrMap(span.attributes)['fault']).toBe('caller');
+    await vi.waitFor(() => expect(spansNamed('tools/call get_query_result').length).toBe(1));
+    const span = spansNamed('tools/call get_query_result')[0];
+    expect(span.status).toEqual({ code: 2, message: 'RB_QUERY_NOT_FOUND' });
+    expect(attrMap(span.attributes)).toMatchObject({ fault: 'caller', 'error.type': 'RB_QUERY_NOT_FOUND' });
+    expect(attrMap(span.attributes)['rpc.grpc.status_code']).toBeUndefined();
+    expect(rpcPoint()['rpc.grpc.status_code']).toBeUndefined();
+  });
+});
+
+describe('error status, a span per MCP method and logs in the trace (P8-90)', () => {
+  // biome-ignore lint/suspicious/noExplicitAny: test inspects raw OTLP JSON
+  type Json = any;
+  const spans = (): Json[] =>
+    received
+      .filter((r) => r.path === '/v1/traces')
+      .flatMap((r) => JSON.parse(r.body).resourceSpans[0].scopeSpans[0].spans);
+  const attrsOf = (span: Json): Record<string, string> =>
+    Object.fromEntries(
+      span.attributes.map((a: Json) => [a.key, a.value.stringValue ?? a.value.intValue] as const),
+    );
+  const named = (name: string): Json[] => spans().filter((s) => s.name === name);
+
+  it('spanStatus: OK, or ERROR with the code as the message', () => {
+    expect(spanStatus('ok', undefined)).toEqual({ code: 1 });
+    expect(spanStatus('error', 'RB_LIMIT_QUERY')).toEqual({ code: 2, message: 'RB_LIMIT_QUERY' });
+    expect(spanStatus('error', undefined)).toEqual({ code: 2 });
+  });
+
+  it('a resources/read and a prompts/get each produce one span, with no name, URI or argument on it', async () => {
+    const app = appWith();
+    const client = await connect(app, 'prod', world.tokens.prod, 'modern');
+    await client.readResource({ uri: 'relic://nrql/reference' });
+    await client.getPrompt({ name: 'triage_alerts', arguments: {} });
+    await client.close();
+    await vi.waitFor(() => {
+      expect(named('resources/read').length).toBe(1);
+      expect(named('prompts/get').length).toBe(1);
+    });
+    for (const name of ['resources/read', 'prompts/get']) {
+      const span = named(name)[0];
+      expect(span.status).toEqual({ code: 1 });
+      expect(span.kind).toBe(2);
+      expect(attrsOf(span)).toMatchObject({
+        'mcp.method.name': name,
+        'rpc.method': name,
+        'rpc.system': 'jsonrpc',
+        'rpc.service': 'mcp',
+        mode: 'token',
+        project: 'prod',
+        status: 'ok',
+      });
+    }
+    const dump = JSON.stringify(spans());
+    expect(dump).not.toContain('relic://');
+    expect(dump).not.toContain('triage_alerts');
+  });
+
+  it('other methods get a span too, and a tool call exactly one (named after the tool)', async () => {
+    const app = appWith();
+    const client = await connect(app, 'prod', world.tokens.prod, 'modern');
+    await client.listTools();
+    await client.callTool({ name: 'whoami', arguments: {} });
+    await client.close();
+    await vi.waitFor(() => expect(named('tools/list').length).toBe(1));
+    await vi.waitFor(() => expect(named('tools/call whoami').length).toBe(1));
+    expect(named('tools/call').length).toBe(0);
+  });
+
+  it('an HTTP error on a method marks its span ERROR with the status as the type', async () => {
+    const t = createTelemetry({ endpoint: base, fetch: receiverFetch });
+    const c = {} as never;
+    t.hooks.traceContext?.(c, { mcpMethod: 'resources/read' } as never);
+    await t.hooks.afterMcp?.(c, { mcpMethod: 'resources/read', projectSlug: 'prod' } as never, {
+      status: 500,
+      durationMs: 5,
+    });
+    const span = named('resources/read')[0];
+    expect(span.status).toEqual({ code: 2, message: '500' });
+    expect(attrsOf(span)).toMatchObject({
+      fault: 'server',
+      'error.type': '500',
+      'http.response.status_code': '500',
+    });
+  });
+
+  it('an unsampled request exports no span and has no ids for its logs', async () => {
+    const t = createTelemetry({ endpoint: base, fetch: receiverFetch, traceSampleRate: 0 });
+    const c = {} as never;
+    expect(t.hooks.traceContext?.(c, { mcpMethod: 'tools/list' } as never)).toBeUndefined();
+    await t.hooks.afterMcp?.(c, { mcpMethod: 'tools/list', projectSlug: 'prod' } as never, {
+      status: 200,
+      durationMs: 5,
+    });
+    expect(spans()).toEqual([]);
+  });
+
+  it('a log line inside a tool call carries the span trace id and span id', async () => {
+    const telemetry = createTelemetry({ endpoint: base, fetch: receiverFetch });
+    const app = createHttpApp({
+      storage: world.storage,
+      keyring: world.keyring,
+      clock: world.clock,
+      logger: telemetry.wrapLogger(logger()),
+      fetch: mockNerdGraph().fetch,
+      hooks: mergeHooks(telemetry.hooks),
+    });
+    const client = await connect(app, 'prod', world.tokens.prod, 'modern');
+    await client.callTool({ name: 'get_query_result', arguments: { query_id: 'nope', account: 1 } });
+    await client.close();
+    await vi.waitFor(() => expect(named('tools/call get_query_result').length).toBe(1));
+    await telemetry.flush();
+    const span = named('tools/call get_query_result')[0];
+    const records: Json[] = received
+      .filter((r) => r.path === '/v1/logs')
+      .flatMap((r) => JSON.parse(r.body).resourceLogs[0].scopeLogs[0].logRecords);
+    const toolError = records.find((r) => r.body.stringValue === 'tool error');
+    expect(toolError).toBeDefined();
+    expect(toolError.traceId).toBe(span.traceId);
+    expect(toolError.spanId).toBe(span.spanId);
+    // The access line of the same request is in the trace as well; the ids are never attributes.
+    expect(records.some((r) => r.body.stringValue === 'http request' && r.traceId === span.traceId)).toBe(
+      true,
+    );
+    expect(JSON.stringify(records.map((r) => r.attributes))).not.toMatch(/traceId|spanId/);
+  });
+
+  it('log ids are exported only when they are well-formed hex', async () => {
+    const t = createTelemetry({ endpoint: base, fetch: receiverFetch });
+    const log = t.wrapLogger(silentLoggerFor());
+    log.info('housekeeping done', { traceId: 'x'.repeat(32), spanId: 'y'.repeat(16) });
+    log.info('housekeeping done', { traceId: 'a'.repeat(32), spanId: 'b'.repeat(16) });
+    await t.flush();
+    const records: Json[] = received.flatMap(
+      (r) => JSON.parse(r.body).resourceLogs[0].scopeLogs[0].logRecords,
+    );
+    expect(records[0].traceId).toBeUndefined();
+    expect(records[1]).toMatchObject({ traceId: 'a'.repeat(32), spanId: 'b'.repeat(16) });
+  });
+
+  it('records the approval round outcome as elicitation.result', async () => {
+    const t = createTelemetry({ endpoint: base, fetch: receiverFetch });
+    const write = (confirmation: string | undefined, status: 'ok' | 'error' = 'error', applied = false) => ({
+      tool: 'close_issue',
+      status,
+      errorCode: status === 'ok' ? null : 'RB_WRITE_APPROVAL_DECLINED',
+      durationMs: 5,
+      input: {},
+      meta: { 'relic-bridge/write': { applied, dryRun: false, confirmation } },
+    });
+    for (const c of ['declined', 'cancelled', 'unavailable', 'asked']) {
+      await t.recordToolCall(write(c), { mode: 'stdio' });
+    }
+    await t.recordToolCall(write('accepted', 'ok', true), { mode: 'stdio' });
+    await t.recordToolCall(write(undefined, 'ok', true), { mode: 'stdio' });
+    await t.recordToolCall(
+      { tool: 'whoami', status: 'ok', errorCode: null, durationMs: 5, input: {}, meta: undefined },
+      { mode: 'stdio' },
+    );
+    expect(spans().map((s) => attrsOf(s)['elicitation.result'])).toEqual([
+      'declined',
+      'cancelled',
+      'unavailable',
+      undefined,
+      'accepted',
+      undefined,
+      undefined,
+    ]);
   });
 });

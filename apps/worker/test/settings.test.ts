@@ -146,12 +146,14 @@ describe('parseWorkerSettings', () => {
     expect(
       parseWorkerSettings({ RB_WRITE_TOOLS: 'on', RB_WRITE_APPROVAL: 'required' }).requireWriteApproval,
     ).toBe(true);
-    const optDown = parseWorkerSettings({ RB_WRITE_TOOLS: 'on', RB_WRITE_APPROVAL: 'client' });
-    expect(optDown.requireWriteApproval).toBe(false);
-    expect(optDown.warnings.join(' ')).toContain('RB_WRITE_APPROVAL=client');
-    expect(parseWorkerSettings({ RB_WRITE_APPROVAL: 'client' }).warnings.join(' ')).not.toContain(
-      'RB_WRITE_APPROVAL=client',
-    );
+    for (const value of ['off', 'client']) {
+      const optDown = parseWorkerSettings({ RB_WRITE_TOOLS: 'on', RB_WRITE_APPROVAL: value });
+      expect(optDown.requireWriteApproval).toBe(false);
+      expect(optDown.warnings.join(' ')).toContain('RB_WRITE_APPROVAL=off');
+      expect(parseWorkerSettings({ RB_WRITE_APPROVAL: value }).warnings.join(' ')).not.toContain(
+        'RB_WRITE_APPROVAL=off',
+      );
+    }
     expect(parseWorkerSettings({ RB_WRITE_APPROVAL: 'required' }).warnings.join(' ')).toContain('no effect');
     fails({ RB_WRITE_APPROVAL: 'always' }, 'RB_WRITE_APPROVAL');
   });

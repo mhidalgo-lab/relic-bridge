@@ -24,6 +24,7 @@ import { ISSUE_ID_RE, type IssueRow, lookupIssue } from './issues.ts';
 import { accountInput, DAY_MS, label, singleAccount, type ToolDeps } from './shared.ts';
 import {
   APPROVAL_NOTICE,
+  approvalUnreachableWarning,
   assertConfirmed,
   assertWriteGranted,
   type Confirmation,
@@ -108,6 +109,11 @@ const changeOutput = z.object({
   changeType: z.string(),
   changeTrackingId: z.string().nullable(),
   messages: z.array(z.string()),
+  /** Dry run only: the real run will be refused from this client (P8-106). */
+  warnings: z
+    .array(z.string())
+    .optional()
+    .describe('Dry run only: set when the real run will be refused because this client cannot approve it.'),
   /** The change as it would be (dry run) or was sent; null when the call did not get that far. */
   plan: z
     .object({
@@ -138,6 +144,11 @@ const issueInput = z.strictObject({
 });
 
 const issueOutput = z.object({
+  /** Dry run only: the real run will be refused from this client (P8-106). */
+  warnings: z
+    .array(z.string())
+    .optional()
+    .describe('Dry run only: set when the real run will be refused because this client cannot approve it.'),
   ...writeOutput,
   issueId: z.string(),
   before: z.object({ state: z.string().nullable(), acknowledgedAt: z.string().nullable() }),
@@ -258,8 +269,9 @@ export function createWriteTools(deps: ToolDeps = {}): ToolDefinition[] {
           before: null,
           after: planned,
         };
+        const unreachable = approvalUnreachableWarning(ctx);
         return {
-          text: `Dry run: would record a ${input.change_type} change on ${kind(row)} in account ${account}. Nothing was changed.\n${entityBlock}`,
+          text: `Dry run: would record a ${input.change_type} change on ${kind(row)} in account ${account}. Nothing was changed.${unreachable === undefined ? '' : `\nWarning: ${unreachable}`}\n${entityBlock}`,
           structured: {
             applied: false,
             dryRun: true,
@@ -269,6 +281,7 @@ export function createWriteTools(deps: ToolDeps = {}): ToolDefinition[] {
             changeType: input.change_type,
             changeTrackingId: null,
             messages: [],
+            ...(unreachable === undefined ? {} : { warnings: [unreachable] }),
             plan: planned,
           },
           meta: writeMeta(record),
@@ -459,9 +472,19 @@ export function createWriteTools(deps: ToolDeps = {}): ToolDefinition[] {
           };
         }
         if (dryRun) {
+          const unreachable = approvalUnreachableWarning(ctx);
           return {
-            text: `Dry run: would ${spec.verb} issue ${input.issue_id} in account ${account} (state ${issue.state ?? 'unknown'}). Nothing was changed.${recordsNote ? ` ${recordsNote}` : ''}\n${titleBlock}`,
-            structured: shaped(false, plannedAfter, joined(null)),
+            text: `Dry run: would ${spec.verb} issue ${input.issue_id} in account ${account} (state ${issue.state ?? 'unknown'}). Nothing was changed.${recordsNote ? ` ${recordsNote}` : ''}${
+              unreachable === undefined
+                ? ''
+                : `
+Warning: ${unreachable}`
+            }
+${titleBlock}`,
+            structured: {
+              ...shaped(false, plannedAfter, joined(null)),
+              ...(unreachable === undefined ? {} : { warnings: [unreachable] }),
+            },
             meta: writeMeta(record(false, plannedAfter)),
           };
         }

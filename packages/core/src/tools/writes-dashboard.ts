@@ -26,6 +26,7 @@ import { MAX_NRQL_CHARS } from './query.ts';
 import { accountIdSchema, accountInput, NRQL_COST, singleAccount } from './shared.ts';
 import {
   APPROVAL_NOTICE,
+  approvalUnreachableWarning,
   assertConfirmed,
   assertWriteGranted,
   type Confirmation,
@@ -560,8 +561,9 @@ export function createDashboardWriteTool(client: (ctx: ToolContext) => NerdGraph
       if (dryRun) {
         const { checks, notes: checkNotes } = await checkQueries(ctx, client(ctx), plan);
         const bad = checks.filter((c) => c.status === 'error');
-        const rejected = rejectedWarning(bad);
-        const rejectedText = rejected === undefined ? '' : `\nWarning:\n- ${rejected}`;
+        const unreachable = approvalUnreachableWarning(ctx);
+        const dryWarnings = [rejectedWarning(bad), unreachable].filter((w): w is string => w !== undefined);
+        const rejectedText = dryWarnings.length === 0 ? '' : `\nWarning:\n- ${dryWarnings.join('\n- ')}`;
         const checkText =
           `\nSyntax check (LIMIT 1, last 5 minutes): ${checks.filter((c) => c.status === 'ok').length} ok, ${bad.length} rejected` +
           `${checks.some((c) => c.status === 'not_checked') ? `, ${checks.filter((c) => c.status === 'not_checked').length} not checked` : ''}.` +
@@ -574,7 +576,7 @@ export function createDashboardWriteTool(client: (ctx: ToolContext) => NerdGraph
         return {
           text: `Dry run: would create the private dashboard "${input.name}" in account ${account} with ${plan.widgets} widget(s) on ${plan.pages.length} page(s). Nothing was changed.\n${outline(plan)}${notesText()}${warningText}${rejectedText}${checkText}`,
           structured: {
-            ...shaped(false, null, rejected === undefined ? [] : [rejected], undefined, checks),
+            ...shaped(false, null, dryWarnings, undefined, checks),
             notes: [...plan.notes, ...checkNotes],
           },
           meta: metaOf(record(false, null)),

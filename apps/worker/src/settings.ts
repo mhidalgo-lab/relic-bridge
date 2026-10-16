@@ -283,17 +283,26 @@ export function parseWorkerSettings(
     throw new WorkerConfigError('RB_WRITE_TOOLS', 'RB_WRITE_TOOLS=on needs RB_AUDIT=on');
   }
   const approvalRaw = text(vars, 'RB_WRITE_APPROVAL')?.toLowerCase();
-  if (approvalRaw !== undefined && approvalRaw !== 'client' && approvalRaw !== 'required') {
-    throw new WorkerConfigError('RB_WRITE_APPROVAL', 'RB_WRITE_APPROVAL must be client or required');
+  if (
+    approvalRaw !== undefined &&
+    approvalRaw !== 'off' &&
+    approvalRaw !== 'client' &&
+    approvalRaw !== 'required'
+  ) {
+    throw new WorkerConfigError(
+      'RB_WRITE_APPROVAL',
+      'RB_WRITE_APPROVAL must be off or required (client is accepted as a synonym of off)',
+    );
   }
-  // ADR-0016: required unless the owner opts down to `client`.
-  const requireWriteApproval = approvalRaw !== 'client';
+  // ADR-0016: required unless the owner opts down to `off` (`client` is a synonym).
+  const optedDown = approvalRaw === 'off' || approvalRaw === 'client';
+  const requireWriteApproval = !optedDown;
   if (approvalRaw === 'required' && !writeTools) {
     warnings.push('RB_WRITE_APPROVAL=required has no effect without RB_WRITE_TOOLS=on.');
   }
-  if (approvalRaw === 'client' && writeTools) {
+  if (optedDown && writeTools) {
     warnings.push(
-      'RB_WRITE_APPROVAL=client with RB_WRITE_TOOLS=on: a client that cannot show an approval form can write when the model sets confirm: true, so a prompt-injected agent is the only gate. Remove RB_WRITE_APPROVAL (default required) unless you accept that.',
+      'RB_WRITE_APPROVAL=off with RB_WRITE_TOOLS=on: a client that cannot show an approval form can write when the model sets confirm: true, so a prompt-injected agent is the only gate. Remove RB_WRITE_APPROVAL (default required) unless you accept that.',
     );
   }
   if (writeTools && !rateLimit) {

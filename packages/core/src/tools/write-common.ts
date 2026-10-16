@@ -177,6 +177,18 @@ export function confirmationOf(dryRun: boolean, confirmation: Confirmation | und
   return confirmation === 'accepted' ? 'approved' : 'not_required';
 }
 
+/**
+ * A dry run's warning when the real run cannot be approved from this request's client (P8-106): the owner requires a
+ * person's approval (`RB_WRITE_APPROVAL=required`) and the request did not declare elicitation (or is a question round on
+ * a connection that cannot carry it). Read per request from `ctx`, never cached (T21). Informational: the real run is
+ * refused by `humanGate` exactly as before. Absent when the real run can go on.
+ */
+export function approvalUnreachableWarning(ctx: ToolContext): string | undefined {
+  if (ctx.requireWriteApproval !== true) return undefined;
+  if (ctx.elicitation !== undefined && ctx.writeQuestionOnly !== true) return undefined;
+  return 'This client cannot answer the approval prompt this server requires (RB_WRITE_APPROVAL=required), so the real run will be refused with RB_WRITE_APPROVAL_UNAVAILABLE and nothing will change. Dry runs work; use a client with MCP elicitation (for example Claude Code) to apply it.';
+}
+
 /** Fields every write tool's structured output starts with. */
 export const writeOutput: {
   applied: z.ZodBoolean;

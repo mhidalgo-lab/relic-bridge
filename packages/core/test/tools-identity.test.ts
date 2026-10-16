@@ -43,6 +43,7 @@ async function setup(
   steps: Parameters<typeof scriptedFetch>,
   overrides: Partial<ToolContext> = {},
   requireWriteApproval = false,
+  clientOptions: ConstructorParameters<typeof Client>[1] = {},
 ) {
   const { fetch, calls } = scriptedFetch(...steps);
   const ctx = testContext({
@@ -58,7 +59,7 @@ async function setup(
   });
   const [clientT, serverT] = InMemoryTransport.createLinkedPair();
   await server.connect(serverT);
-  const client = new Client({ name: 'test', version: '0.0.0' });
+  const client = new Client({ name: 'test', version: '0.0.0' }, clientOptions);
   await client.connect(clientT);
   clients.push(client);
   return { client, calls, ctx };
@@ -141,6 +142,54 @@ describe('whoami write approval (P8-88)', () => {
       expect(props['writeApproval']?.enum).toEqual(['required', 'off']);
     },
   );
+});
+
+describe('whoami write approval reachability (P8-106)', () => {
+  type Limits = { limits: { writeApproval: string; writeApprovalReachable: boolean } };
+  const declares = { capabilities: { elicitation: { form: {} } } } as const;
+
+  it.each([
+    ['a client that declares nothing, approval required', {}, true, false],
+    ['a client that declares elicitation, approval required', declares, true, true],
+    ['a client that declares nothing, approval off', {}, false, true],
+  ] as const)('%s', async (_name, options, required, reachable) => {
+    const { client } = await setup([fixtureResponse('identity_A')], {}, required, options);
+    const r = await client.callTool({ name: 'whoami', arguments: {} });
+    const s = r.structuredContent as Limits;
+    expect(s.limits.writeApprovalReachable).toBe(reachable);
+    expect(s.limits.writeApproval).toBe(required ? 'required' : 'off');
+    expect(/cannot answer an approval prompt/.test(text(r))).toBe(!reachable);
+  });
+
+  it('is decided per request, not remembered', async () => {
+    const first = await setup([fixtureResponse('identity_A')], {}, true, {});
+    const second = await setup([fixtureResponse('identity_A')], {}, true, declares);
+    const a = await first.client.callTool({ name: 'whoami', arguments: {} });
+    const b = await second.client.callTool({ name: 'whoami', arguments: {} });
+    expect((a.structuredContent as Limits).limits.writeApprovalReachable).toBe(false);
+    expect((b.structuredContent as Limits).limits.writeApprovalReachable).toBe(true);
+  });
+
+  it('adds a field to the output schema without removing one', async () => {
+    const { client } = await setup([]);
+    const tool = (await client.listTools()).tools.find((t) => t.name === 'whoami');
+    const props = (
+      (tool as NonNullable<typeof tool>).outputSchema as {
+        properties: { limits: { properties: Record<string, unknown> } };
+      }
+    ).properties.limits.properties;
+    expect(Object.keys(props)).toEqual(
+      expect.arrayContaining([
+        'perCallBudget',
+        'maxResponseBytes',
+        'maxLimit',
+        'maxWindowDays',
+        'rawNrql',
+        'writeApproval',
+        'writeApprovalReachable',
+      ]),
+    );
+  });
 });
 
 describe('list_accounts', () => {

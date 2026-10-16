@@ -48,7 +48,7 @@ function envFor(over: Partial<HttpAppOptions>, approvalUnset = false): WorkerEnv
   if (over.writeTools === true) vars['RB_WRITE_TOOLS'] = 'on';
   // ADR-0016: the Worker default is `required`; these suites exercise the `client` flow unless they ask for `required`.
   if (over.writeTools === true && !approvalUnset) {
-    vars['RB_WRITE_APPROVAL'] = over.requireWriteApproval === true ? 'required' : 'client';
+    vars['RB_WRITE_APPROVAL'] = over.requireWriteApproval === true ? 'required' : 'off';
   }
   if (over.publicToolCatalog === true) vars['RB_PUBLIC_TOOL_CATALOG'] = 'on';
   if (over.mcpApps === false) vars['RB_MCP_APPS'] = 'off';

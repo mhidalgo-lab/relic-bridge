@@ -301,12 +301,14 @@ export function stdioTasks(env: Readonly<Record<string, string | undefined>>): b
   throw new ConfigError('RB_TASKS must be on or off.');
 }
 
-/** `RB_WRITE_APPROVAL` for stdio (P7-25, ADR-0016): `required` (default) or `client`; any other value fails startup. */
+/** `RB_WRITE_APPROVAL` for stdio (P7-25, ADR-0016): `required` (default) or `off` (`client` is a synonym); any other value fails startup. */
 export function stdioWriteApproval(env: Readonly<Record<string, string | undefined>>): boolean {
   const v = env['RB_WRITE_APPROVAL']?.trim().toLowerCase();
   if (v === undefined || v === '' || v === 'required') return true;
-  if (v === 'client') return false;
-  throw new ConfigError('RB_WRITE_APPROVAL must be client or required.');
+  if (v === 'off' || v === 'client') return false;
+  throw new ConfigError(
+    'RB_WRITE_APPROVAL must be off or required (client is accepted as a synonym of off).',
+  );
 }
 
 /** `RB_WRITE_TOOLS` for stdio (P7-09): off unless `on`; any other value fails startup. */

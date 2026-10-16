@@ -94,7 +94,7 @@ describe('parseWorkerSettings (fuzz)', { timeout: FUZZ_TIMEOUT }, () => {
           expect(ON).toContain(norm(vars['RB_WRITE_TOOLS']));
           expect(s.audit.enabled).toBe(true);
         }
-        if (!s.requireWriteApproval) expect(norm(vars['RB_WRITE_APPROVAL'])).toBe('client');
+        if (!s.requireWriteApproval) expect(['off', 'client']).toContain(norm(vars['RB_WRITE_APPROVAL']));
         if (s.publicToolCatalog) expect(ON).toContain(norm(vars['RB_PUBLIC_TOOL_CATALOG']));
         expect(s.callBudget).toBeGreaterThanOrEqual(1);
         expect(s.callBudget).toBeLessThanOrEqual(10_000);

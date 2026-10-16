@@ -1167,6 +1167,62 @@ const ELICIT_DASH = {
 
 const yes = (): Answer => ({ action: 'accept', content: { confirm: true } });
 
+describe('dry runs say when the real run cannot be approved from this client (P8-106)', () => {
+  const ISSUE_DRY = { issue_id: 'i-1', dry_run: true };
+  const calls = [
+    ['create_change_event', { ...DEPLOY, confirm: undefined, dry_run: true }],
+    ['acknowledge_issue', ISSUE_DRY],
+    ['close_issue', ISSUE_DRY],
+    ['create_dashboard', { ...ELICIT_DASH, confirm: undefined, dry_run: true }],
+  ] as const;
+  const warningsOf = (r: { structuredContent?: unknown }) =>
+    (r.structuredContent as { warnings?: string[] }).warnings ?? [];
+
+  it('a client that did not declare elicitation: every dry run warns, nothing is sent', async () => {
+    const ng = nerdGraph();
+    const { client } = await connectAsking(ng.fetch, 'legacy', yes, {
+      declare: false,
+      requireWriteApproval: true,
+    });
+    for (const [name, args] of calls) {
+      const r = await client.callTool({ name, arguments: args });
+      expect(r.isError ?? false, name).toBe(false);
+      expect(
+        warningsOf(r).some((w) => /cannot answer the approval prompt/.test(w)),
+        name,
+      ).toBe(true);
+      expect(text(r), name).toContain('RB_WRITE_APPROVAL_UNAVAILABLE');
+    }
+    expect(mutationsOf(ng.calls)).toEqual([]);
+  });
+
+  it('a client that declares elicitation gets no warning', async () => {
+    const ng = nerdGraph();
+    const { client } = await connectAsking(ng.fetch, 'legacy', yes, { requireWriteApproval: true });
+    for (const [name, args] of calls) {
+      const r = await client.callTool({ name, arguments: args });
+      expect(
+        warningsOf(r).filter((w) => /approval prompt/.test(w)),
+        name,
+      ).toEqual([]);
+      expect(text(r), name).not.toContain('RB_WRITE_APPROVAL_UNAVAILABLE');
+    }
+  });
+
+  it('approval off: no warning even when the client cannot be asked', async () => {
+    const ng = nerdGraph();
+    const { client } = await connectAsking(ng.fetch, 'legacy', yes, { declare: false });
+    for (const [name, args] of calls) {
+      const r = await client.callTool({ name, arguments: args });
+      expect(
+        warningsOf(r).filter((w) => /approval prompt/.test(w)),
+        name,
+      ).toEqual([]);
+      expect(text(r), name).not.toContain('RB_WRITE_APPROVAL_UNAVAILABLE');
+    }
+  });
+});
+
 describe('create_dashboard checks its queries before asking (P8-101, NEW-36)', () => {
   it('a rejected query is refused before the question: nothing is asked, nothing is written', async () => {
     const ng = nerdGraph({

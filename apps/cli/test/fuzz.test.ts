@@ -172,7 +172,7 @@ describe('serve settings from RB_* variables (T20/T24)', { timeout: FUZZ_TIMEOUT
           expect(ON).toContain(norm(env['RB_WRITE_TOOLS']));
           expect(s.audit.enabled).toBe(true);
         }
-        if (!s.requireWriteApproval) expect(norm(env['RB_WRITE_APPROVAL'])).toBe('client');
+        if (!s.requireWriteApproval) expect(['off', 'client']).toContain(norm(env['RB_WRITE_APPROVAL']));
         if (s.publicToolCatalog) expect(ON).toContain(norm(env['RB_PUBLIC_TOOL_CATALOG']));
         if (s.oauth !== null) expect(ON).toContain(norm(env['RB_OAUTH']));
         if (s.telemetry !== null) expect(ON).toContain(norm(env['RB_OTEL']));

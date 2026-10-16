@@ -344,6 +344,7 @@ export function buildMcpServer({
         const ctx = Object.freeze({
           ...gated,
           writeApproval: requireWriteApproval ? 'required' : 'off',
+          writeApprovalReachable: elicitWrites && clientCanElicitForm(server.server.getClientCapabilities()),
         } as const);
         try {
           let out = await invoke(def, input, ctx);

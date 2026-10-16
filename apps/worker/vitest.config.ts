@@ -37,6 +37,8 @@ export default defineProject({
   // The first request into a fresh workerd module graph compiles the SDK and the app (seconds on a cold CI runner).
   test: {
     name: 'worker',
+    // vitest 5 persists transforms to node_modules/.vitest-cache, which workerd cannot read from inside the isolate.
+    fsModuleCache: false,
     testTimeout: 30_000,
     // The Worker tests plus the P2-12 authorization suite, which runs against the Worker here (test/authz-host.ts).
     include: ['test/**/*.test.ts', '../../packages/http-app/test/authz/*.test.ts'],

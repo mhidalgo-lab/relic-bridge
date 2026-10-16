@@ -13,6 +13,7 @@ import { parseTimeRange } from '../time/range.ts';
 import { defineTool, type ToolDefinition } from '../tool.ts';
 import { FATAL_CODES } from './changes.ts';
 import { checkGuid } from './entities.ts';
+import { requireApmApplication } from './entity-common.ts';
 import { cleanName, errorNote } from './identity.ts';
 import {
   accountInput,
@@ -403,8 +404,9 @@ export function createRuntimeTools(deps: ToolDeps = {}): ToolDefinition[] {
     }
   }
 
-  const entityScope = (ctx: ToolContext, guid: string, timeRange: string | undefined) => {
+  const entityScope = (ctx: ToolContext, guid: string, timeRange: string | undefined, tool: string) => {
     const decoded = checkGuid(ctx, guid);
+    requireApmApplication(decoded, tool);
     const account = singleAccount(ctx, decoded.accountId);
     const range = parseTimeRange(timeRange ?? DEFAULT_WINDOW, ctx.clock.now());
     assertWindowWithinLimit(range, ctx.limits, ctx.clock.now());
@@ -424,7 +426,7 @@ export function createRuntimeTools(deps: ToolDeps = {}): ToolDefinition[] {
     group: 'performance',
     phase: 6,
     handler: async (args, ctx) => {
-      const { account, range } = entityScope(ctx, args.entity_guid, args.time_range);
+      const { account, range } = entityScope(ctx, args.entity_guid, args.time_range, 'analyze_threads');
       const startable = startableNrql(2, ctx.budget.remaining);
       const jobs = [
         () =>
@@ -510,7 +512,7 @@ export function createRuntimeTools(deps: ToolDeps = {}): ToolDefinition[] {
     group: 'performance',
     phase: 6,
     handler: async (args, ctx) => {
-      const { account, range } = entityScope(ctx, args.entity_guid, args.time_range);
+      const { account, range } = entityScope(ctx, args.entity_guid, args.time_range, 'list_gc_metrics');
       const outcome = await run(
         ctx,
         account,

@@ -2,11 +2,11 @@
 id: P8-108
 title: Non-APM entities in APM tools, and dependency_health with no neighbours
 phase: 8
-status: todo
+status: review
 priority: low
 depends_on: []
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P8-108 — Non-APM entities in APM tools, and dependency_health with no neighbours
@@ -27,9 +27,9 @@ First mobile test (Claude Android), issues 4 and 5:
   explain in a note why a metric was skipped (for example no data for this entity type).
 
 ## Acceptance criteria
-- [ ] Tests for each APM-only tool with a non-APM entity.
-- [ ] Tests for `dependency_health` with no neighbours: the summary agrees with the rows, skipped metrics have a reason.
-- [ ] Generated tool docs regenerated.
+- [x] Tests for each APM-only tool with a non-APM entity.
+- [x] Tests for `dependency_health` with no neighbours: the summary agrees with the rows, skipped metrics have a reason.
+- [x] Generated tool docs regenerated.
 
 ## Security notes
 None.

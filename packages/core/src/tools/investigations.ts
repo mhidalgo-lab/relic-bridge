@@ -1222,10 +1222,32 @@ export function createInvestigationTools(deps: ToolDeps = {}): ToolDefinition[] 
       notes.push('Golden metrics were reduced to fit the request budget.');
 
     if (partial) notes.push(partialNote(all.map((e) => ({ name: e.name ?? e.guid, status: e.status }))));
+    // Metrics that gave no value (no data for this entity type, an error, a cap): say why, per entity (P8-108).
+    for (const e of all) {
+      const gaps = e.metrics.filter((m) => m['status'] !== 'ok' && m['reason'] !== 'max_metrics');
+      if (gaps.length === 0 || e.status === 'skipped') continue;
+      const why = (reason: unknown) =>
+        reason === 'no_data'
+          ? 'no data in the window (this entity type may not report it)'
+          : reason === 'budget'
+            ? 'skipped for the request budget'
+            : reason === 'error'
+              ? 'could not be read'
+              : 'not measured';
+      notes.push(
+        `${e.direction === 'self' ? 'The entity' : (e.name ?? e.guid)}: ${gaps
+          .map((m) => `${String(m['title'] ?? 'metric')} ${why(m['reason'])}`)
+          .join('; ')}.`,
+      );
+    }
+    if (deps2.length === 0)
+      notes.push('No related entities to measure; only the entity itself was measured.');
     const flagged = deps2.filter((d) => d.signals.length > 0);
+    const own = selfEntity.signals.length;
     const lines = [
       `${deps2.length} related entit${deps2.length === 1 ? 'y' : 'ies'} measured next to the entity, ${base.since} to ${base.until} (UTC): ` +
-        `${flagged.length} with signals.${partial ? ' Partial result: see the notes and the status column.' : ''}`,
+        `${flagged.length} with signals. The entity itself: ${own === 0 ? 'no signals' : `${own} signal${own === 1 ? '' : 's'} (self row)`}.` +
+        `${partial ? ' Partial result: see the notes and the status column.' : ''}`,
     ];
     for (const n of notes) lines.push(`Note: ${n}`);
     lines.push(

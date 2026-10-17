@@ -1,5 +1,43 @@
 # relic-bridge
 
+## 0.13.0
+
+### Minor Changes
+
+- ab87ba6: Tool output polish from review 5 (P8-103). `list_recent_issues` returns `groups` only when `group_by` is set; without it
+  the page-only "repeated conditions" summary is gone (NEW-30). `list_change_events` with `entity_guid` now reports
+  `scope: "entity_changes"` instead of `"entity_deployments"`, since it lists every change type (NEW-31); read `scope` as
+  `"account"` or `"entity_changes"`. The `dependency_health` budget note no longer names the `RB_CALL_BUDGET` variable: it
+  gives the per-call limit and points to `whoami` `limits.perCallBudget` (NEW-35).
+
+### Patch Changes
+
+- 5b05290: Three consistency fixes from review 5. Input errors raised before New Relic is called (for example `create_dashboard`
+  with multi-statement or unbalanced NRQL) now print their details as plain text; only details that came from New Relic
+  stay wrapped as untrusted data. `tasks/get`, `tasks/update` and `tasks/cancel` answer `-32601 Method not found` on a
+  connection that was never offered the Tasks extension (before 2026-07-28), like `tasks/list` and `tasks/result`. Span
+  status follows one rule for every method: `ERROR` only for server or upstream faults; caller faults, declined or
+  unavailable write approvals and JSON-RPC protocol errors such as `-32601` leave it unset, and a JSON-RPC error is no
+  longer recorded as `ok`.
+- 258b994: Alert issues report one state across list_recent_issues, generate_alert_insights_report and the acknowledge_issue and close_issue dry runs: when New Relic returns older records of an issue, the freshest one is used. get_related_entities labels entities with no name (AIOPS issues) as "(unnamed issue 661dd2d5)" and marks them with `nameIsFallback`. When New Relic returns several records for one issue id, the result says so (and a warning is logged with the count and states) so the cause can be confirmed.
+- 3add8cc: `acknowledge_issue` and `close_issue` now note, when applied, that New Relic can take a few seconds to show the change,
+  so a read or dry run right after it may still show the old state (seen in the first live test).
+- 4434da3: `list_top_transactions`, `analyze_transactions`, `analyze_deployment_impact`, `analyze_threads` and `list_gc_metrics` now refuse an entity that is not an APM application with `RB_INPUT_INVALID` (naming its domain and type and the tools to use) instead of returning empty or inconclusive results. `dependency_health` counts the entity's own signals in the summary, says why a metric was skipped, and notes when there are no neighbours.
+- 76c9e4e: `analyze_entity_logs` (and the logs section of `generate_alert_insights_report`) and `list_recent_logs` now read the
+  level of OpenTelemetry logs from `severity.text`. Lines without any level are counted as "(no level)" and the total
+  comes from the unfaceted count, so it no longer says "0 lines" next to message patterns. The `level` filter matches
+  every level column.
+- d7439da: `whoami`, the write tool descriptions and the guide now say what write approval guarantees: it is answered through the
+  client's elicitation prompt and bound to the exact change, but the server cannot verify that a person answered it.
+  `create_dashboard` now warns in a dry run when New Relic rejects widget queries, and a confirmed call checks the queries
+  with New Relic before asking for approval and refuses (nothing created) when one is rejected.
+- de99508: `whoami` now reports `limits.writeApprovalReachable`, and the dry runs of the write tools warn, when this request's
+  client cannot answer the approval prompt the server requires (for example Claude on mobile), so the refusal of the real
+  run (`RB_WRITE_APPROVAL_UNAVAILABLE`) is no surprise. Informational only: the write path is unchanged.
+  
+  `RB_WRITE_APPROVAL` now accepts `off` (the documented value, matching `whoami`'s `writeApproval`) as a synonym for
+  `client` in `serve`, stdio and the Worker; `client` keeps working.
+
 ## 0.12.0
 
 ### Minor Changes

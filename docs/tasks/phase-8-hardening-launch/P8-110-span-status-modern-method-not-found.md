@@ -1,31 +1,35 @@
 ---
 id: P8-110
-title: Span status for -32601 answers on the 2026-07-28 path
+title: Span status for JSON-RPC errors answered over SSE (legacy path)
 phase: 8
-status: todo
+status: review
 priority: low
 depends_on: []
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
-# P8-110 — Span status for -32601 answers on the 2026-07-28 path
+# P8-110 — Span status for JSON-RPC errors answered over SSE (legacy path)
 
 ## Goal
-0.13.0 retest (2026-10-17), rest of NEW-34 (P8-102): on the 2026-07-28 request path, `tasks/list` and `tasks/result`
-answer `-32601 Method not found` with HTTP 404, and their spans record `otel.status_code: OK` with no `fault` or
-`error.type`. The same methods on the legacy path record `fault: caller`, `error.type: -32601`, status unset, which is
-the documented rule.
+0.13.0 retest (2026-10-17), rest of NEW-34 (P8-102): `tasks/list` and `tasks/result` answer `-32601 Method not found` and
+their spans record `otel.status_code: OK` with no `fault` or `error.type`. Corrected cause: this is the **legacy session
+path** (2025-era `initialize`, then `Mcp-Session-Id`), where the SDK answers a JSON-RPC error as HTTP 200
+`text/event-stream` with one `event: message` / `data: {...}`. `rpcErrorOf` only read `application/json`, so the error
+was not seen. The 2026-07-28 path answers HTTP 404 JSON and was already correct.
 
 ## Scope
-- Find where the modern-path `-32601` (HTTP 404) answer bypasses the JSON-RPC error read that sets `fault` and
-  `error.type` (see the comment in `packages/http-app/src/app.ts` near line 208 and `telemetry.ts` near line 345), and
-  apply the one rule to every JSON-RPC error answer on both paths and both hosts (Node and Worker).
+- Read the JSON-RPC error of the single response in an SSE answer to a POST (any non-`tools/call` method, any
+  JSON-RPC error the SDK returns that way, e.g. an unknown prompt), on both routes and both hosts, from a clone of the
+  response, bounded in size and time, never delaying or altering what the client receives. Open-ended streams (GET,
+  `subscriptions/listen`) are not read.
 
 ## Acceptance criteria
-- [ ] Test: a 2026-07-28 `tasks/list` (and `tasks/result`) answered `-32601` gives a span with `fault: caller`,
+- [x] Test: a legacy-path `tasks/list`, `tasks/result` and unknown `prompts/get` answered over SSE give a span with
+      `fault: caller`, `error.type` the JSON-RPC code, status Unset (project route; Worker host too).
+- [x] Regression test: a 2026-07-28 `tasks/list` (and `tasks/result`) answered `-32601` gives a span with `fault: caller`,
       `error.type: "-32601"` and no `otel.status_code: OK`.
-- [ ] The legacy-path tests still pass unchanged.
+- [x] The legacy-path tests still pass unchanged.
 
 ## Security notes
 None (telemetry only; no request data added to spans).
@@ -35,3 +39,13 @@ None (telemetry only; no request data added to spans).
 
 ## Out of scope
 - Implementing `tasks/list` or `tasks/result`.
+
+## Findings
+- The 2026-07-28 path was verified correct (404 JSON, span Unset, `fault: caller`, `error.type: -32601`) on the project and
+  pass-through routes, over a Node socket and in workerd; those regression tests stay.
+- On the legacy path the unread SSE answer left the span `ok`. Fixed in `packages/http-app/src/app.ts`: the answer is
+  cloned synchronously, the clone is read in the background (the hooks now run after the read, off the request path),
+  parsed for the first JSON-RPC response event and cancelled; at most 8 KiB and 5 s.
+- Tests: legacy `tasks/list`, `tasks/result` and an unknown `prompts/get` give a span with `fault: caller` and the
+  code, status Unset, and the client still receives the full SSE body (`packages/http-app/test/telemetry.test.ts`);
+  the Worker host is covered in `apps/worker/test/worker.test.ts`.

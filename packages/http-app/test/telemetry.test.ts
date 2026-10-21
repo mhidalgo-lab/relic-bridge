@@ -55,7 +55,10 @@ beforeEach(async () => {
 
 const logger = () => createLogger({ level: 'debug', sink: (l) => logLines.push(l) });
 
-function appWith(options: Partial<Parameters<typeof createTelemetry>[0]> = {}) {
+function appWith(
+  options: Partial<Parameters<typeof createTelemetry>[0]> = {},
+  appOptions: Partial<Parameters<typeof createHttpApp>[0]> = {},
+) {
   const telemetry = createTelemetry({
     endpoint: base,
     fetch: receiverFetch,
@@ -70,6 +73,7 @@ function appWith(options: Partial<Parameters<typeof createTelemetry>[0]> = {}) {
     logger: logger(),
     fetch: mockNerdGraph().fetch,
     hooks: mergeHooks(telemetry.hooks),
+    ...appOptions,
   });
 }
 
@@ -1123,6 +1127,124 @@ describe('error status, a span per MCP method and logs in the trace (P8-90)', ()
     const span = named('tasks/list')[0];
     expect(span.status).toEqual({ code: 0 });
     expect(attrsOf(span)).toMatchObject({ status: 'error', fault: 'caller', 'error.type': '-32601' });
+  });
+
+  // P8-110: the 2026-07-28 envelope (routing headers, `_meta`) reaches the SDK's own 404 `-32601` for the task methods
+  // the host does not serve (`tasks/list`, `tasks/result`), with and without the tasks extension declared, on the
+  // project route and on the pass-through route. The span follows the same rule as on the legacy path.
+  describe.each([
+    ['project route', false],
+    ['pass-through route', true],
+  ] as const)('2026-07-28 %s (P8-110)', (_name, passthrough) => {
+    it.each([
+      ['tasks/list', {}, true],
+      ['tasks/result', { taskId: 'task-1' }, true],
+      ['tasks/list', {}, false],
+      ['tasks/result', { taskId: 'task-1' }, false],
+    ] as const)(
+      '%s answered -32601 (tasks declared: %s) is a caller fault, not ok',
+      async (method, params, tasks) => {
+        const app = appWith(
+          {},
+          {
+            taskStore: world.storage.kv,
+            ...(passthrough
+              ? {
+                  passthrough: {
+                    validateKey: async () => ({ user: { id: 1 }, accounts: [{ id: 1000001 }] }) as never,
+                  },
+                }
+              : {}),
+          },
+        );
+        const rq = rpcRequest(world.tokens.prod, method, params, { tasks });
+        const headers = new Headers(rq.headers);
+        if (passthrough) {
+          headers.delete('authorization');
+          headers.set('x-newrelic-api-key', NR_KEY);
+        }
+        const url = passthrough ? 'http://localhost/passthrough/mcp' : rq.url;
+        const res = await app.fetch(new Request(url, { method: 'POST', headers, body: await rq.text() }));
+        expect(res.status).toBe(404);
+        expect((await res.json()) as { error: { code: number } }).toMatchObject({ error: { code: -32601 } });
+        await vi.waitFor(() => expect(named(method).length).toBe(1));
+        const span = named(method)[0];
+        expect(span.status).toEqual({ code: 0 });
+        expect(attrsOf(span)).toMatchObject({
+          status: 'error',
+          fault: 'caller',
+          'error.type': '-32601',
+          'http.response.status_code': '404',
+        });
+      },
+    );
+  });
+
+  // P8-110: on the legacy session path the SDK answers a JSON-RPC error as one SSE message in an HTTP 200
+  // (`text/event-stream`), which the span status must read like a JSON answer.
+  describe('legacy session path: JSON-RPC errors in an SSE answer (P8-110)', () => {
+    const legacyCall = async (
+      app: { fetch: (r: Request) => Response | Promise<Response> },
+      method: string,
+      params: Record<string, unknown>,
+    ): Promise<Response> => {
+      const base = {
+        authorization: `Bearer ${world.tokens.prod}`,
+        'content-type': 'application/json',
+        accept: 'application/json, text/event-stream',
+      };
+      const post = (headers: Record<string, string>, body: unknown) =>
+        app.fetch(
+          new Request('http://localhost/p/prod/mcp', {
+            method: 'POST',
+            headers: { ...base, ...headers },
+            body: JSON.stringify(body),
+          }),
+        );
+      const init = await post(
+        {},
+        {
+          jsonrpc: '2.0',
+          id: 1,
+          method: 'initialize',
+          params: {
+            protocolVersion: '2025-06-18',
+            capabilities: {},
+            clientInfo: { name: 'legacy', version: '0' },
+          },
+        },
+      );
+      await init.text();
+      const session = {
+        'mcp-session-id': init.headers.get('mcp-session-id') ?? '',
+        'mcp-protocol-version': '2025-06-18',
+      };
+      await (await post(session, { jsonrpc: '2.0', method: 'notifications/initialized' })).text();
+      return post(session, { jsonrpc: '2.0', id: 5, method, params });
+    };
+
+    it.each([
+      ['tasks/list', {}],
+      ['tasks/result', { taskId: 'task-1' }],
+      ['prompts/get', { name: 'no-such-prompt' }],
+    ] as const)('%s answered with a JSON-RPC error is a caller fault, not ok', async (method, params) => {
+      const app = appWith({}, { taskStore: world.storage.kv });
+      const res = await legacyCall(app, method, params);
+      const body = await res.text();
+      expect(body).toContain('"error"');
+      await vi.waitFor(() => expect(named(method).length).toBe(1));
+      const span = named(method)[0];
+      expect(span.status).toEqual({ code: 0 });
+      expect(attrsOf(span)).toMatchObject({ status: 'error', fault: 'caller' });
+      expect(attrsOf(span)['error.type']).toMatch(/^-?\d+$/);
+    });
+
+    it('the client still gets the whole SSE answer', async () => {
+      const app = appWith({}, { taskStore: world.storage.kv });
+      const res = await legacyCall(app, 'tasks/list', {});
+      expect(res.headers.get('content-type')).toContain('text/event-stream');
+      expect(await res.text()).toContain('-32601');
+    });
   });
 
   it('a JSON-RPC -32601 inside an HTTP 200 is a caller fault, not ok (P8-102)', async () => {

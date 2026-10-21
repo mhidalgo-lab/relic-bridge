@@ -36,3 +36,6 @@ spikes/**/pnpm-lock.yaml
 site/.astro/
 site/src/content/docs/*
 !site/src/content/docs/index.mdx
+
+# P8-113: local agent worktrees (nested checkouts) are not part of this tree
+.claude/worktrees/

@@ -18,6 +18,16 @@ A refused write is an error on purpose: an agent must not read a refusal as a ca
 The text says "nothing was changed", and the code is in the result `_meta` (`relic-bridge/error`). Do not retry a refused
 write with `confirm: true`: `confirm` is set by the model and never counts as a person's approval.
 
+"Cancelled" is worded as "The approval prompt was cancelled (by the user, or by the client without showing it)" because
+some clients declare elicitation but answer `cancel` within about a second without showing the prompt, so the server
+cannot tell a person's cancel from the client's. A decline stays "The user declined this change". If a client always
+cancels, approve the write in another client or ask the owner to check that client's elicitation support.
+
+An approval answers one attempt. If `acknowledge_issue` or `close_issue` is repeated with an answer that was already
+used (New Relic can lag a few seconds after a write, so the issue may still look unchanged), the server reads the issue
+once more: if it is now acknowledged or closed you get the usual "nothing to do" result, otherwise the call is refused
+with `RB_INPUT_INVALID` and nothing is sent. `create_change_event` and `create_dashboard` always refuse a spent approval.
+
 The audit log gets one row for the refusal (status `error`, `details.write.record` with `applied: false` and
 `confirmation: unavailable`, `declined` or `cancelled`), and the tool-call span is marked as an error with the attributes
 `write.applied` and `write.confirmation`.

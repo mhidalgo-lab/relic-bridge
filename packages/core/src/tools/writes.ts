@@ -39,6 +39,7 @@ import {
   rejectSecrets,
   SIDE_EFFECT_NOTICE,
   shown,
+  spentApprovalError,
   text,
   type WriteRecord,
   writeClient,
@@ -428,12 +429,13 @@ export function createWriteTools(deps: ToolDeps = {}): ToolDefinition[] {
           [base, recordsNote].filter((x) => x).join(' ') || null;
         const before = { state: issue.state, acknowledgedAt: issue.acknowledgedAt };
         const closing = spec.name === 'close_issue';
-        const noop =
-          issue.state === 'CLOSED'
+        const noopOf = (row: IssueRow): string | null =>
+          row.state === 'CLOSED'
             ? 'The issue is already closed: nothing to do.'
-            : !closing && issue.acknowledgedAt !== null
+            : !closing && row.acknowledgedAt !== null
               ? 'The issue is already acknowledged: nothing to do.'
               : null;
+        const noop = noopOf(issue);
         const dryRun = input.dry_run === true;
         const titleBlock = envelope(`issue: ${issue.title}`, { source: 'New Relic issue' });
         const record = (applied: boolean, after: Record<string, unknown> | null): WriteRecord => ({
@@ -502,7 +504,33 @@ ${titleBlock}`,
               : 'It stays open; it is marked as being handled.',
           ].join('\n'),
           { tool: spec.name, account, issueId: input.issue_id },
+          { returnSpent: true },
         );
+        if (gate.state === 'spent') {
+          // P8-111: the approval was used by an earlier attempt (often this very change, still not visible because New
+          // Relic lags). Read the issue once more: if it is now in the target state this is the usual no-op; otherwise
+          // the refusal stands. Nothing here can send a mutation: this branch always returns or throws.
+          const fresh: IssueRow = await lookupIssue(
+            nr,
+            ctx,
+            account,
+            input.issue_id,
+            { sinceMs: now - ctx.limits.maxWindowDays * DAY_MS, untilMs: now },
+            { lookback: false, notes: [] },
+          );
+          const freshNoop = noopOf(fresh);
+          if (freshNoop === null) {
+            throw spentApprovalError(
+              `Check the issue with a read tool: ${ISSUE_READ_LAG_NOTE} If it still is not ${closing ? 'closed' : 'acknowledged'} a few seconds from now, ask the user again after a few minutes (the same change cannot be repeated sooner).`,
+            );
+          }
+          const freshBefore = { state: fresh.state, acknowledgedAt: fresh.acknowledgedAt };
+          return {
+            text: `${freshNoop} (account ${account}, state ${fresh.state ?? 'unknown'}).\n${envelope(`issue: ${fresh.title}`, { source: 'New Relic issue' })}`,
+            structured: { ...shaped(false, null, freshNoop), before: freshBefore },
+            meta: writeMeta({ ...record(false, null), before: freshBefore }),
+          };
+        }
         if (gate.state !== 'go') {
           return gateStopped(gate, {
             record: record(false, plannedAfter),

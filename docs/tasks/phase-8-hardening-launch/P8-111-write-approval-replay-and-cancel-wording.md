@@ -2,7 +2,7 @@
 id: P8-111
 title: Reused approval on an issue already changed; honest "cancelled" wording
 phase: 8
-status: in-progress
+status: review
 priority: medium
 depends_on: []
 adr: []
@@ -33,10 +33,10 @@ owner: claude-agent
 - Write tools guide: note that some clients declare elicitation but cancel without showing the prompt.
 
 ## Acceptance criteria
-- [ ] Test: spent approval + issue now in target state → no-op result, no mutation, no error.
-- [ ] Test: spent approval + issue still not in target state → refusal with the lag hint, no mutation.
-- [ ] Test: spent approval on `create_change_event` → unchanged refusal, no mutation.
-- [ ] Test: cancel answer → new wording; decline answer → unchanged wording.
+- [x] Test: spent approval + issue now in target state → no-op result, no mutation, no error.
+- [x] Test: spent approval + issue still not in target state → refusal with the lag hint, no mutation.
+- [x] Test: spent approval on `create_change_event` → unchanged refusal, no mutation.
+- [x] Test: cancel answer → new wording; decline answer → unchanged wording.
 
 ## Security notes
 Write approval (T31): the one-approval-one-attempt rule is unchanged; the extra read happens only after the approval

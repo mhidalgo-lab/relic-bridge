@@ -75,6 +75,9 @@ export interface QueryLimits {
   readonly maxResponseBytes: number;
 }
 
+/** The host runtime, as in the telemetry `process.runtime.name` attribute. */
+export type ServerRuntime = 'node' | 'workers';
+
 /** What the server knows about the connection, for `whoami`. Filled by the stdio CLI (P1-11) and grant resolution (P2). */
 export interface ConnectionInfo {
   /** Project slug, when the connection belongs to a project. */
@@ -148,6 +151,12 @@ export interface ToolContext {
    * (tests, custom hosts) reads as `false`.
    */
   readonly writeApprovalReachable?: boolean;
+  /**
+   * Which relic-bridge answers (P8-112): the version the server reports in `serverInfo` and the host runtime. Set per
+   * `tools/call` by the server on every tool so `whoami` can say it. Never built from request data; absent (tests,
+   * custom hosts) leaves `whoami` without a `server` field.
+   */
+  readonly server?: { readonly version: string; readonly runtime?: ServerRuntime };
   /**
    * Set by the host for a write `tools/call` it did not charge to the write limit because it can only ask (P7-35: no
    * `inputResponses`, form elicitation declared). Such a call never sends a change: `humanGate` refuses to let it go on,

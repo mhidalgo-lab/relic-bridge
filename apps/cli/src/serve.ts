@@ -736,6 +736,7 @@ export async function startServer(options: StartServerOptions): Promise<RunningS
     queryCache: createProcessQueryCache(settings.queryCache, keyring.queryCacheKeys().id),
     writeTools: settings.writeTools,
     requireWriteApproval: settings.requireWriteApproval,
+    runtime: 'node',
     publicToolCatalog: settings.publicToolCatalog,
     mcpApps: settings.mcpApps,
     tasks: settings.tasks,

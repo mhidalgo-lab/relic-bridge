@@ -229,6 +229,7 @@ export function prepareServer(options: StdioServerOptions): PreparedServer {
         onToolCall,
         mcpApps: options.mcpApps !== false,
         requireWriteApproval: options.requireWriteApproval === true,
+        runtime: 'node',
         offerTasks: tasksOn,
       }),
     wrapTransport: (inner) =>
@@ -391,7 +392,8 @@ export function prepareSetupModeServer(options: {
   });
   return {
     tools,
-    factory: () => buildMcpServer({ tools, ctx: contextFor, mcpApps: options.mcpApps !== false }),
+    factory: () =>
+      buildMcpServer({ tools, ctx: contextFor, mcpApps: options.mcpApps !== false, runtime: 'node' }),
     // No tasks without a credential.
     wrapTransport: (inner) => inner,
   };

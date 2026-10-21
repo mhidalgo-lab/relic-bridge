@@ -29,6 +29,8 @@ const whoamiInput = z.strictObject({
 const whoamiOutput = z.object({
   user: z.object({ id: z.number().int(), name: z.string(), email: z.string() }),
   region: z.enum(['US', 'EU', 'JP']),
+  /** Which relic-bridge answered (P8-112): the `serverInfo` version and the host runtime. Absent from custom hosts. */
+  server: z.object({ version: z.string(), runtime: z.enum(['node', 'workers']).optional() }).optional(),
   project: z.string().nullable(),
   defaultAccountId: z.number().int(),
   defaultAccountReachable: z.boolean(),
@@ -181,6 +183,7 @@ export function createIdentityTools(deps: ToolDeps = {}): ToolDefinition[] {
       const structured = {
         user,
         region: ctx.credential.region,
+        ...(ctx.server === undefined ? {} : { server: { ...ctx.server } }),
         project,
         defaultAccountId: ctx.accounts.default,
         defaultAccountReachable: defaultReachable,
@@ -198,6 +201,11 @@ export function createIdentityTools(deps: ToolDeps = {}): ToolDefinition[] {
         },
       };
       const lines = [
+        ...(ctx.server === undefined
+          ? []
+          : [
+              `relic-bridge ${ctx.server.version}${ctx.server.runtime === undefined ? '' : ` (${ctx.server.runtime})`}.`,
+            ]),
         `Connected to New Relic in the ${structured.region} region. Project: ${project ?? 'unknown'}.`,
         `Default account: ${structured.defaultAccountId}${defaultReachable ? '' : ' (WARNING: the key cannot read it)'}. ` +
           `Usable accounts: ${accounts.length} (see list_accounts).`,

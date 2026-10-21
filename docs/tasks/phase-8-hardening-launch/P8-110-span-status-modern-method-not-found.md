@@ -2,7 +2,7 @@
 id: P8-110
 title: Span status for JSON-RPC errors answered over SSE (legacy path)
 phase: 8
-status: review
+status: done
 priority: low
 depends_on: []
 adr: []

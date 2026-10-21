@@ -2,7 +2,7 @@
 id: P8-112
 title: Show the server version in whoami
 phase: 8
-status: review
+status: done
 priority: low
 depends_on: []
 adr: []

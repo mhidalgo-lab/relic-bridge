@@ -377,10 +377,10 @@ Generated from task front matter (`pnpm tasks index`). Status lives in each task
 | P8-106 | [Tell a client in advance that it cannot approve writes](tasks/phase-8-hardening-launch/P8-106-write-approval-reachability.md) | medium | P8-101 | done |
 | P8-107 | [One issue state across tools, and names for AIOPS issue entities](tasks/phase-8-hardening-launch/P8-107-issue-state-and-names.md) | medium | — | done |
 | P8-108 | [Non-APM entities in APM tools, and dependency_health with no neighbours](tasks/phase-8-hardening-launch/P8-108-non-apm-and-dependency-health.md) | low | — | done |
-| P8-109 | [trace_error reads OpenTelemetry log severity; NRQL reference logs example](tasks/phase-8-hardening-launch/P8-109-trace-error-log-severity.md) | medium | — | review |
-| P8-110 | [Span status for JSON-RPC errors answered over SSE (legacy path)](tasks/phase-8-hardening-launch/P8-110-span-status-modern-method-not-found.md) | low | — | review |
-| P8-111 | [Reused approval on an issue already changed; honest "cancelled" wording](tasks/phase-8-hardening-launch/P8-111-write-approval-replay-and-cancel-wording.md) | medium | — | review |
-| P8-112 | [Show the server version in whoami](tasks/phase-8-hardening-launch/P8-112-whoami-server-version.md) | low | — | review |
-| P8-113 | [Repo tooling ignores local agent worktrees under .claude/](tasks/phase-8-hardening-launch/P8-113-ignore-agent-worktrees.md) | low | — | review |
-| P8-114 | [Clear the failing dependency audit (vite and launch-editor, GHSA-587h-7wmj-h5pm)](tasks/phase-8-hardening-launch/P8-114-vite-launch-editor-advisory.md) | high | — | review |
+| P8-109 | [trace_error reads OpenTelemetry log severity; NRQL reference logs example](tasks/phase-8-hardening-launch/P8-109-trace-error-log-severity.md) | medium | — | done |
+| P8-110 | [Span status for JSON-RPC errors answered over SSE (legacy path)](tasks/phase-8-hardening-launch/P8-110-span-status-modern-method-not-found.md) | low | — | done |
+| P8-111 | [Reused approval on an issue already changed; honest "cancelled" wording](tasks/phase-8-hardening-launch/P8-111-write-approval-replay-and-cancel-wording.md) | medium | — | done |
+| P8-112 | [Show the server version in whoami](tasks/phase-8-hardening-launch/P8-112-whoami-server-version.md) | low | — | done |
+| P8-113 | [Repo tooling ignores local agent worktrees under .claude/](tasks/phase-8-hardening-launch/P8-113-ignore-agent-worktrees.md) | low | — | done |
+| P8-114 | [Clear the failing dependency audit (vite and launch-editor, GHSA-587h-7wmj-h5pm)](tasks/phase-8-hardening-launch/P8-114-vite-launch-editor-advisory.md) | high | — | done |
 <!-- tasks:end -->

@@ -2,7 +2,7 @@
 id: P8-114
 title: Clear the failing dependency audit (vite and launch-editor, GHSA-587h-7wmj-h5pm)
 phase: 8
-status: review
+status: done
 priority: high
 depends_on: []
 adr: []

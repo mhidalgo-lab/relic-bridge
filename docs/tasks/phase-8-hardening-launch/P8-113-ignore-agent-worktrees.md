@@ -2,7 +2,7 @@
 id: P8-113
 title: Repo tooling ignores local agent worktrees under .claude/
 phase: 8
-status: review
+status: done
 priority: low
 depends_on: []
 adr: []

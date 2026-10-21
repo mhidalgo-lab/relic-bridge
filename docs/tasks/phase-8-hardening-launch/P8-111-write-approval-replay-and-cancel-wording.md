@@ -2,7 +2,7 @@
 id: P8-111
 title: Reused approval on an issue already changed; honest "cancelled" wording
 phase: 8
-status: review
+status: done
 priority: medium
 depends_on: []
 adr: []

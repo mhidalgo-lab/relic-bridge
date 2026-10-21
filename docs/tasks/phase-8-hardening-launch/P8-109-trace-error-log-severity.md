@@ -2,7 +2,7 @@
 id: P8-109
 title: trace_error reads OpenTelemetry log severity; NRQL reference logs example
 phase: 8
-status: review
+status: done
 priority: medium
 depends_on: []
 adr: []

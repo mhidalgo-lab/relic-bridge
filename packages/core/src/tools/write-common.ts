@@ -263,6 +263,22 @@ export type Gate =
       readonly confirmation: 'declined' | 'cancelled' | 'unavailable';
     };
 
+/** The approval answer was already consumed by an earlier attempt; only returned to a caller that asked for it (P8-111). */
+export type SpentGate = { readonly state: 'spent' };
+
+/** The refusal for a spent approval: one approval, one attempt (P7-26). Sends nothing. */
+export function spentApprovalError(hint?: string): RbError {
+  return new RbError(
+    ErrorCode.InputInvalid,
+    'This approval was already used for one attempt, so the change was not sent again: nothing was changed by this call.',
+    {
+      hint:
+        hint ??
+        'Check the target with a read tool to see whether the first attempt applied. If you still want this change, ask the user again after a few minutes (the same change cannot be repeated sooner).',
+    },
+  );
+}
+
 /**
  * A call the host did not charge to the write limit (it carried no answer) never sends a change (P7-35). Two ways to get
  * here, both refused with nothing sent: the request declared form elicitation in its own `_meta` but this connection
@@ -291,12 +307,22 @@ function questionRoundRefusal(ctx: ToolContext, answered: boolean): RbError {
  * `ctx.elicitation`. The answer is bound to this exact message and change (the key is their hash), so a retry whose
  * arguments changed asks again instead of reusing an approval. Without `ctx.elicitation` nothing is asked.
  */
+export function humanGate(ctx: ToolContext, tool: string, message: string, change: unknown): Promise<Gate>;
+/** With `returnSpent`, an approval found already used comes back as `{ state: 'spent' }` instead of the refusal (P8-111). */
+export function humanGate(
+  ctx: ToolContext,
+  tool: string,
+  message: string,
+  change: unknown,
+  opts: { readonly returnSpent: true },
+): Promise<Gate | SpentGate>;
 export async function humanGate(
   ctx: ToolContext,
   tool: string,
   message: string,
   change: unknown,
-): Promise<Gate> {
+  opts?: { readonly returnSpent?: boolean },
+): Promise<Gate | SpentGate> {
   if (ctx.elicitation === undefined) {
     // P7-35: an uncharged question round on a connection that turns out not to be askable must not mutate.
     if (ctx.writeQuestionOnly === true) throw questionRoundRefusal(ctx, false);
@@ -323,13 +349,10 @@ export async function humanGate(
     // One approval, one attempt: the first call that spends it goes on, a replay of the same answer (a client that
     // resends `inputResponses`, a retry after a lost reply) is refused instead of repeating a non-idempotent write.
     if (ctx.writeApprovals !== undefined && !(await ctx.writeApprovals.consume(answer.key))) {
-      throw new RbError(
-        ErrorCode.InputInvalid,
-        'This approval was already used for one attempt, so the change was not sent again: nothing was changed by this call.',
-        {
-          hint: 'Check the target with a read tool to see whether the first attempt applied. If you still want this change, ask the user again after a few minutes (the same change cannot be repeated sooner).',
-        },
-      );
+      // Only a tool that can tell "my change already happened" from "it did not" may ask to be told (P8-111): it re-reads
+      // the target and turns this into a no-op or the same refusal. The approval stays spent either way.
+      if (opts?.returnSpent === true) return { state: 'spent' };
+      throw spentApprovalError();
     }
     return { state: 'go', confirmation: 'accepted' };
   }
@@ -375,7 +398,9 @@ export function gateStopped(
   }
   throw new RbError(
     ErrorCode.WriteApprovalDeclined,
-    `The user ${gate.state} this change in the confirmation prompt: nothing was changed.`,
+    gate.state === 'declined'
+      ? 'The user declined this change in the confirmation prompt: nothing was changed.'
+      : 'The approval prompt was cancelled (by the user, or by the client without showing it): nothing was changed.',
     { hint: 'Do not retry unless the user asks for it again.', meta },
   );
 }

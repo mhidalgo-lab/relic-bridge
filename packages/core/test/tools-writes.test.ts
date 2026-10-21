@@ -25,6 +25,7 @@ import {
   WRITE_META_KEY,
   WRITE_TOOL_NAMES,
 } from '../src/index.ts';
+import { createMemoryApprovalLedger } from '../src/tools/write-common.ts';
 import { FAKE_KEY, testContext } from './helpers/context.ts';
 import { json } from './helpers/nerdgraph.ts';
 
@@ -1109,7 +1110,12 @@ async function connectAsking(
   fetch: FetchLike,
   era: 'legacy' | 'modern',
   answer: (message: string) => Answer,
-  options: { declare?: boolean; elicitWrites?: boolean; requireWriteApproval?: boolean } = {},
+  options: {
+    declare?: boolean;
+    elicitWrites?: boolean;
+    requireWriteApproval?: boolean;
+    ledger?: boolean;
+  } = {},
 ) {
   const events: ToolCallEvent[] = [];
   const asked: string[] = [];
@@ -1117,6 +1123,7 @@ async function connectAsking(
     accounts: { allowed: [A, B], default: A },
     clock: { now: () => NOW },
     connection: { allowedTools: [...WRITE_TOOL_NAMES] },
+    ...(options.ledger === true ? { writeApprovals: createMemoryApprovalLedger({ now: () => NOW }) } : {}),
   });
   const server = buildMcpServer({
     tools: createWriteTools({ fetch, sleep: async () => {} }),
@@ -1256,6 +1263,90 @@ describe('create_dashboard checks its queries before asking (P8-101, NEW-36)', (
     // The server keeps no state: the question round and the answer round each probe the query, before the gate.
     expect(ng.calls.map((c) => c.operationName)).toEqual(['RbNrql', 'RbNrql', 'RbCreateDashboard']);
     expect(r.structuredContent).toMatchObject({ applied: true, confirmation: 'approved' });
+  });
+});
+
+describe('a spent approval and the cancel wording (P8-111)', () => {
+  const issuesReply =
+    (...rows: Record<string, unknown>[]): Reply =>
+    () =>
+      json({
+        data: { actor: { account: { aiIssues: { issues: { nextCursor: null, issues: rows } } } } },
+      });
+  const ISSUE_CALL = (name: string) => ({ name, arguments: { issue_id: 'i-1', confirm: true } });
+
+  it.each([
+    ['acknowledge_issue', issue({ acknowledgedAt: 1790943000000 }), /already acknowledged: nothing to do/],
+    ['close_issue', issue({ state: 'CLOSED' }), /already closed: nothing to do/],
+  ] as const)(
+    '%s: spent approval, issue now in the target state -> no-op, no second mutation',
+    async (name, now, note) => {
+      // New Relic lags: reads right after the first change still show the old state. The replay reads three times (the
+      // question round, the answered round, then the extra read after the spent approval); only the last sees the change.
+      let postReads = 0;
+      let ng: ReturnType<typeof nerdGraph>;
+      ng = nerdGraph({
+        RbAiIssues: (c) =>
+          mutationsOf(ng.calls).length === 0 || postReads++ < 2
+            ? issuesReply(issue())(c)
+            : issuesReply(now)(c),
+      });
+      const { client } = await connectAsking(ng.fetch, 'legacy', yes, { ledger: true });
+      const first = await client.callTool(ISSUE_CALL(name));
+      expect(first.structuredContent).toMatchObject({ applied: true });
+      const again = await client.callTool(ISSUE_CALL(name));
+      expect(again.isError ?? false).toBe(false);
+      expect(again.structuredContent).toMatchObject({ applied: false, dryRun: false, after: null });
+      expect(text(again)).toMatch(note);
+      expect(mutationsOf(ng.calls)).toHaveLength(1);
+    },
+  );
+
+  it.each(['acknowledge_issue', 'close_issue'])(
+    '%s: spent approval, issue still not in the target state -> refusal with the lag hint, no second mutation',
+    async (name) => {
+      const ng = nerdGraph();
+      const { client } = await connectAsking(ng.fetch, 'legacy', yes, { ledger: true });
+      await client.callTool(ISSUE_CALL(name));
+      const again = await client.callTool(ISSUE_CALL(name));
+      expect(again.isError).toBe(true);
+      expect(code(again)).toBe(ErrorCode.InputInvalid);
+      expect(text(again)).toContain('already used for one attempt');
+      expect(text(again)).toContain('can take a few seconds');
+      expect(mutationsOf(ng.calls)).toHaveLength(1);
+    },
+  );
+
+  it('a spent approval on create_change_event keeps the unchanged refusal and reads nothing more', async () => {
+    const ng = nerdGraph();
+    const { client } = await connectAsking(ng.fetch, 'legacy', yes, { ledger: true });
+    await client.callTool({ name: 'create_change_event', arguments: DEPLOY });
+    const callsBefore = ng.calls.length;
+    const again = await client.callTool({ name: 'create_change_event', arguments: DEPLOY });
+    expect(again.isError).toBe(true);
+    expect(code(again)).toBe(ErrorCode.InputInvalid);
+    expect(text(again)).toContain('already used for one attempt');
+    expect(text(again)).not.toContain('can take a few seconds');
+    expect(mutationsOf(ng.calls)).toHaveLength(1);
+    // Only the pre-read of the target ran for the replay (once per round): no extra read, no mutation.
+    expect(new Set(ng.calls.slice(callsBefore).map((c) => c.operationName))).toEqual(new Set(['RbEntity']));
+  });
+
+  it('cancel says the prompt was cancelled without claiming the user did it; decline is unchanged', async () => {
+    for (const [action, expected] of [
+      [
+        'cancel',
+        'The approval prompt was cancelled (by the user, or by the client without showing it): nothing was changed.',
+      ],
+      ['decline', 'The user declined this change in the confirmation prompt: nothing was changed.'],
+    ] as const) {
+      const ng = nerdGraph({ RbAiIssues: issuesReply(issue()) });
+      const { client } = await connectAsking(ng.fetch, 'legacy', () => ({ action }));
+      const r = await client.callTool(ISSUE_CALL('acknowledge_issue'));
+      expect(code(r)).toBe(ErrorCode.WriteApprovalDeclined);
+      expect(text(r)).toContain(expected);
+      expect(mutationsOf(ng.calls)).toEqual([]);
+    }
   });
 });
 

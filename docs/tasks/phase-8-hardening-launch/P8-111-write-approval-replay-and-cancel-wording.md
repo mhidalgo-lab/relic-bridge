@@ -2,11 +2,11 @@
 id: P8-111
 title: Reused approval on an issue already changed; honest "cancelled" wording
 phase: 8
-status: todo
+status: in-progress
 priority: medium
 depends_on: []
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P8-111 — Reused approval on an issue already changed; honest "cancelled" wording

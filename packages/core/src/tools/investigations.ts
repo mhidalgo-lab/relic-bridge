@@ -20,7 +20,7 @@ import { createErrorTools, vouched } from './errors.ts';
 import { createGoldenMetricTools, goldenCost, goldenMetricsFor } from './golden.ts';
 import { cleanName, errorNote } from './identity.ts';
 import { createIssueTools } from './issues.ts';
-import { cleanLogMessage } from './logs.ts';
+import { cleanLogMessage, LEVEL_COLUMNS, rawLevel } from './logs.ts';
 import {
   BUDGET_NOTE,
   MAX_TASK_STATE_CHARS,
@@ -301,8 +301,12 @@ export function httpStatusOf(row: Record<string, unknown>): number | null {
   return null;
 }
 
+/** Every level column is selected: a column a line lacks comes back null, and OpenTelemetry logs only have `severity.text`. */
+const LOG_LEVEL_SELECT = LEVEL_COLUMNS.map((c) => nrql`${nrql.identifier(c)}`).reduce(
+  (a, c) => nrql`${a}, ${c}`,
+);
 const logQuery = (traceId: string, sinceMs: number, untilMs: number): NrqlQuery =>
-  nrql`SELECT timestamp, level, message FROM Log WHERE ${nrql.identifier('trace.id')} = ${traceId} ORDER BY timestamp ASC LIMIT ${LOG_LIMIT} SINCE ${Math.floor(sinceMs / 1000)} UNTIL ${Math.ceil(untilMs / 1000)}`;
+  nrql`SELECT timestamp, ${LOG_LEVEL_SELECT}, message FROM Log WHERE ${nrql.identifier('trace.id')} = ${traceId} ORDER BY timestamp ASC LIMIT ${LOG_LIMIT} SINCE ${Math.floor(sinceMs / 1000)} UNTIL ${Math.ceil(untilMs / 1000)}`;
 
 /** How trace_error matches an Errors Inbox group to its events (P8-57): what New Relic's eventsQuery matches on. */
 export interface GroupMatch {
@@ -887,7 +891,7 @@ export function createInvestigationTools(deps: ToolDeps = {}): ToolDefinition[] 
       }));
       const logRows = rowsOf('logs').map((r) => ({
         timestamp: isoOf(r['timestamp']),
-        level: label(typeof r['level'] === 'string' ? r['level'] : null),
+        level: label(rawLevel(r)),
         message: cleanLogMessage(typeof r['message'] === 'string' ? r['message'] : ''),
       }));
       const spansRan = results.get('spans') !== undefined && 'rows' in (results.get('spans') as Outcome);

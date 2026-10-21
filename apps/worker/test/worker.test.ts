@@ -3,7 +3,7 @@
 // `waitUntil` audit writes and the client address from `CF-Connecting-IP`.
 import { env } from 'cloudflare:workers';
 import { generateMasterKey } from '@relic-bridge/auth';
-import type { FetchLike } from '@relic-bridge/core';
+import { type FetchLike, VERSION } from '@relic-bridge/core';
 import { MigrationError } from '@relic-bridge/storage';
 import { describe, expect, it } from 'vitest';
 import type { WorkerEnv } from '../src/env.ts';
@@ -40,6 +40,7 @@ describe('Worker MCP endpoint', () => {
     // A tool call reaches NerdGraph with the stored (decrypted) key and is audited in the background.
     const result = await client.callTool({ name: 'whoami', arguments: {} });
     expect(result.isError ?? false).toBe(false);
+    expect(result.structuredContent).toMatchObject({ server: { version: VERSION, runtime: 'workers' } });
     expect(nerdgraph.keys).toEqual([NR_KEY]);
     await client.close();
     await ctx.settle();

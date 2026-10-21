@@ -377,4 +377,9 @@ Generated from task front matter (`pnpm tasks index`). Status lives in each task
 | P8-106 | [Tell a client in advance that it cannot approve writes](tasks/phase-8-hardening-launch/P8-106-write-approval-reachability.md) | medium | P8-101 | done |
 | P8-107 | [One issue state across tools, and names for AIOPS issue entities](tasks/phase-8-hardening-launch/P8-107-issue-state-and-names.md) | medium | — | done |
 | P8-108 | [Non-APM entities in APM tools, and dependency_health with no neighbours](tasks/phase-8-hardening-launch/P8-108-non-apm-and-dependency-health.md) | low | — | done |
+| P8-109 | [trace_error reads OpenTelemetry log severity; NRQL reference logs example](tasks/phase-8-hardening-launch/P8-109-trace-error-log-severity.md) | medium | — | todo |
+| P8-110 | [Span status for -32601 answers on the 2026-07-28 path](tasks/phase-8-hardening-launch/P8-110-span-status-modern-method-not-found.md) | low | — | todo |
+| P8-111 | [Reused approval on an issue already changed; honest "cancelled" wording](tasks/phase-8-hardening-launch/P8-111-write-approval-replay-and-cancel-wording.md) | medium | — | todo |
+| P8-112 | [Show the server version in whoami](tasks/phase-8-hardening-launch/P8-112-whoami-server-version.md) | low | — | todo |
+| P8-113 | [Repo tooling ignores local agent worktrees under .claude/](tasks/phase-8-hardening-launch/P8-113-ignore-agent-worktrees.md) | low | — | todo |
 <!-- tasks:end -->

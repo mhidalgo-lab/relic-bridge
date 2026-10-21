@@ -377,4 +377,5 @@ Generated from task front matter (`pnpm tasks index`). Status lives in each task
 | P8-106 | [Tell a client in advance that it cannot approve writes](tasks/phase-8-hardening-launch/P8-106-write-approval-reachability.md) | medium | P8-101 | done |
 | P8-107 | [One issue state across tools, and names for AIOPS issue entities](tasks/phase-8-hardening-launch/P8-107-issue-state-and-names.md) | medium | — | done |
 | P8-108 | [Non-APM entities in APM tools, and dependency_health with no neighbours](tasks/phase-8-hardening-launch/P8-108-non-apm-and-dependency-health.md) | low | — | done |
+| P8-114 | [Clear the failing dependency audit (vite and launch-editor, GHSA-587h-7wmj-h5pm)](tasks/phase-8-hardening-launch/P8-114-vite-launch-editor-advisory.md) | high | — | review |
 <!-- tasks:end -->

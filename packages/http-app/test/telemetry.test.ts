@@ -1180,6 +1180,73 @@ describe('error status, a span per MCP method and logs in the trace (P8-90)', ()
     );
   });
 
+  // P8-110: on the legacy session path the SDK answers a JSON-RPC error as one SSE message in an HTTP 200
+  // (`text/event-stream`), which the span status must read like a JSON answer.
+  describe('legacy session path: JSON-RPC errors in an SSE answer (P8-110)', () => {
+    const legacyCall = async (
+      app: { fetch: (r: Request) => Response | Promise<Response> },
+      method: string,
+      params: Record<string, unknown>,
+    ): Promise<Response> => {
+      const base = {
+        authorization: `Bearer ${world.tokens.prod}`,
+        'content-type': 'application/json',
+        accept: 'application/json, text/event-stream',
+      };
+      const post = (headers: Record<string, string>, body: unknown) =>
+        app.fetch(
+          new Request('http://localhost/p/prod/mcp', {
+            method: 'POST',
+            headers: { ...base, ...headers },
+            body: JSON.stringify(body),
+          }),
+        );
+      const init = await post(
+        {},
+        {
+          jsonrpc: '2.0',
+          id: 1,
+          method: 'initialize',
+          params: {
+            protocolVersion: '2025-06-18',
+            capabilities: {},
+            clientInfo: { name: 'legacy', version: '0' },
+          },
+        },
+      );
+      await init.text();
+      const session = {
+        'mcp-session-id': init.headers.get('mcp-session-id') ?? '',
+        'mcp-protocol-version': '2025-06-18',
+      };
+      await (await post(session, { jsonrpc: '2.0', method: 'notifications/initialized' })).text();
+      return post(session, { jsonrpc: '2.0', id: 5, method, params });
+    };
+
+    it.each([
+      ['tasks/list', {}],
+      ['tasks/result', { taskId: 'task-1' }],
+      ['prompts/get', { name: 'no-such-prompt' }],
+    ] as const)('%s answered with a JSON-RPC error is a caller fault, not ok', async (method, params) => {
+      const app = appWith({}, { taskStore: world.storage.kv });
+      const res = await legacyCall(app, method, params);
+      const body = await res.text();
+      expect(body).toContain('"error"');
+      await vi.waitFor(() => expect(named(method).length).toBe(1));
+      const span = named(method)[0];
+      expect(span.status).toEqual({ code: 0 });
+      expect(attrsOf(span)).toMatchObject({ status: 'error', fault: 'caller' });
+      expect(attrsOf(span)['error.type']).toMatch(/^-?\d+$/);
+    });
+
+    it('the client still gets the whole SSE answer', async () => {
+      const app = appWith({}, { taskStore: world.storage.kv });
+      const res = await legacyCall(app, 'tasks/list', {});
+      expect(res.headers.get('content-type')).toContain('text/event-stream');
+      expect(await res.text()).toContain('-32601');
+    });
+  });
+
   it('a JSON-RPC -32601 inside an HTTP 200 is a caller fault, not ok (P8-102)', async () => {
     const t = createTelemetry({ endpoint: base, fetch: receiverFetch });
     const c = {} as never;

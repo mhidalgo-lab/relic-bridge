@@ -662,6 +662,71 @@ describe('Self-monitoring (P7-08)', () => {
     }
   });
 
+  it('legacy-session tasks/list answered as an SSE -32601 is a caller fault, not ok (P8-110)', async () => {
+    const { storage, token } = await seed(MASTER_KEY);
+    const sent: { path: string; body: string }[] = [];
+    const worker = createWorker({
+      openStorage: () => storage,
+      fetch: mockNerdGraph().fetch,
+      telemetryFetch: async (url, init) => {
+        sent.push({ path: event(new Request(String(url), init)), body: String(init.body) });
+        return new Response('{}');
+      },
+      logSink: () => {},
+    });
+    const otelEnv = {
+      ...env,
+      RB_OTEL: 'on',
+      RB_OTEL_ENDPOINT: 'https://otlp.example.test:4318',
+      RB_OTEL_HEADERS: 'api-key=fake-license-key',
+    } as WorkerEnv;
+    const ctx = fakeCtx();
+    const post = (headers: Record<string, string>, body: unknown) =>
+      call(worker, otelEnv, ctx, '/p/prod/mcp', {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${token}`,
+          'content-type': 'application/json',
+          accept: 'application/json, text/event-stream',
+          ...headers,
+        },
+        body: JSON.stringify(body),
+      });
+    const init = await post(
+      {},
+      {
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'initialize',
+        params: {
+          protocolVersion: '2025-06-18',
+          capabilities: {},
+          clientInfo: { name: 'legacy', version: '0' },
+        },
+      },
+    );
+    await init.text();
+    const session = {
+      'mcp-session-id': init.headers.get('mcp-session-id') ?? '',
+      'mcp-protocol-version': '2025-06-18',
+    };
+    await (await post(session, { jsonrpc: '2.0', method: 'notifications/initialized' })).text();
+    const res = await post(session, { jsonrpc: '2.0', id: 5, method: 'tasks/list', params: {} });
+    expect(res.headers.get('content-type')).toContain('text/event-stream');
+    expect(await res.text()).toContain('-32601');
+    await ctx.settle();
+    // biome-ignore lint/suspicious/noExplicitAny: raw OTLP JSON
+    const spans: any[] = sent
+      .filter((s) => s.path === '/v1/traces')
+      .flatMap((s) => JSON.parse(s.body).resourceSpans[0].scopeSpans[0].spans);
+    const span = spans.find((s) => s.name === 'tasks/list');
+    expect(span.status.code).toBe(0);
+    const attr = (key: string) =>
+      span.attributes.find((a: { key: string }) => a.key === key)?.value.stringValue;
+    expect(attr('fault')).toBe('caller');
+    expect(attr('error.type')).toBe('-32601');
+  });
+
   it('fails the boot closed on RB_OTEL=on without an endpoint', async () => {
     const { storage } = await seed(MASTER_KEY);
     const worker = createWorker({ openStorage: () => storage, logSink: () => {} });

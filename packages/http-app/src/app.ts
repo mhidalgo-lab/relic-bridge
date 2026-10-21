@@ -205,8 +205,8 @@ export type AuthScope =
 
 /**
  * What a finished MCP request looked like to the hooks. `rpcErrorCode`: the JSON-RPC `error.code` of a JSON answer
- * (an HTTP 200 or 404 can carry one, e.g. `-32601`); not read for `tools/call` (a tool's own errors are tool events) nor for
- * a stream (P8-102).
+ * (an HTTP 200 or 404 can carry one, e.g. `-32601`), or of the one response in an SSE answer to a POST (P8-110); not read
+ * for `tools/call` (a tool's own errors are tool events) nor for open-ended streams (P8-102).
  */
 export interface McpOutcome {
   readonly status: number;
@@ -534,22 +534,94 @@ async function peekWithin(request: Request, maxBytes: number, ms: number): Promi
 }
 
 const RPC_PEEK_MAX = 8192;
+/** How long a clone of a streamed answer is read for its JSON-RPC response before giving up (P8-110). */
+const RPC_PEEK_SSE_MS = 5000;
 
-/** The JSON-RPC error code of a small JSON answer to a non-tool method, for the span status (P8-102). */
-async function rpcErrorOf(
+/** The JSON-RPC error code of one parsed message, when it is a response carrying one. */
+function codeOf(message: unknown): number | undefined {
+  const code = (message as { error?: { code?: unknown } } | null)?.error?.code;
+  return typeof code === 'number' && Number.isInteger(code) ? code : undefined;
+}
+
+/** The first JSON-RPC response in an SSE text (`event: message` / `data: <json>`), as `{ error code }` or `{}`. */
+function rpcErrorFromSse(text: string): { readonly rpcErrorCode?: number } | undefined {
+  for (const event of text.split(/\r?\n\r?\n/)) {
+    const data = event
+      .split(/\r?\n/)
+      .filter((line) => line.startsWith('data:'))
+      .map((line) => line.slice(5).replace(/^ /, ''))
+      .join('\n');
+    if (data === '') continue;
+    try {
+      const message = JSON.parse(data) as { result?: unknown; error?: unknown } | null;
+      if (message === null || typeof message !== 'object') continue;
+      // A notification (progress, log) is not the answer: keep reading for the response.
+      if (message.result === undefined && message.error === undefined) continue;
+      const code = codeOf(message);
+      return code === undefined ? {} : { rpcErrorCode: code };
+    } catch {
+      // A half-read event: nothing to say about it.
+    }
+  }
+  return undefined;
+}
+
+/**
+ * The JSON-RPC error code of a small JSON answer, or of the single response in an SSE answer to a POST, for the span
+ * status (P8-102, P8-110). The response is cloned synchronously (call this before the client reads it); the clone is
+ * read apart from the client's stream, bounded in size and time, and never for `tools/call` (a tool's own errors are
+ * tool events) nor for open-ended streams (a standalone GET, `subscriptions/listen`). Never throws, never delays the
+ * client: await the returned promise only in the background.
+ */
+function rpcErrorOf(
   response: Response,
   mcpMethod: string | null,
+  httpMethod: string,
 ): Promise<{ readonly rpcErrorCode?: number }> {
-  if (mcpMethod === null || mcpMethod === 'tools/call') return {};
-  if (!(response.headers.get('content-type') ?? '').startsWith('application/json')) return {};
+  if (mcpMethod === null || mcpMethod === 'tools/call') return Promise.resolve({});
+  const type = response.headers.get('content-type') ?? '';
+  const sse = type.startsWith('text/event-stream');
+  if (sse && (httpMethod !== 'POST' || mcpMethod === 'subscriptions/listen')) return Promise.resolve({});
+  if (!sse && !type.startsWith('application/json')) return Promise.resolve({});
+  let copy: Response;
   try {
-    const text = await response.clone().text();
-    if (text.length > RPC_PEEK_MAX) return {};
-    const code = (JSON.parse(text) as { error?: { code?: unknown } } | null)?.error?.code;
-    return typeof code === 'number' && Number.isInteger(code) ? { rpcErrorCode: code } : {};
+    copy = response.clone();
   } catch {
-    return {};
+    return Promise.resolve({});
   }
+  const read = async (): Promise<{ readonly rpcErrorCode?: number }> => {
+    if (!sse) {
+      const text = await copy.text();
+      if (text.length > RPC_PEEK_MAX) return {};
+      const code = codeOf(JSON.parse(text));
+      return code === undefined ? {} : { rpcErrorCode: code };
+    }
+    const reader = copy.body?.getReader();
+    if (reader === undefined) return {};
+    const decoder = new TextDecoder();
+    let text = '';
+    let received = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (value !== undefined) {
+        received += value.byteLength;
+        text += decoder.decode(value, { stream: !done });
+      }
+      const found = rpcErrorFromSse(text);
+      if (found !== undefined) return found;
+      if (done || received > RPC_PEEK_MAX) return {};
+    }
+  };
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const guarded = read().catch(() => ({}) as { readonly rpcErrorCode?: number });
+  const timeout = new Promise<{ readonly rpcErrorCode?: number }>((resolve) => {
+    timer = setTimeout(() => resolve({}), RPC_PEEK_SSE_MS);
+  });
+  return Promise.race([guarded, timeout]).finally(() => {
+    clearTimeout(timer);
+    // Release the clone's branch whatever happened, so a half-read stream holds no buffer.
+    void copy.body?.cancel().catch(() => undefined);
+  });
 }
 
 function json(status: number, body: string, extra: Record<string, string> = {}): Response {
@@ -1607,14 +1679,12 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
         : await serveMcp(c, authInfo, mcpMethod, mcpName);
     if (hooks.afterMcp) {
       const after = hooks.afterMcp;
-      const outcome: McpOutcome = Object.freeze({
-        status: response.status,
-        durationMs: clock.now() - started,
-        ...(await rpcErrorOf(response, mcpMethod)),
-      });
+      const status = response.status;
+      const durationMs = clock.now() - started;
+      const rpcError = rpcErrorOf(response, mcpMethod, c.req.method);
       runInBackground(
         c,
-        Promise.resolve().then(() => after(c, info, outcome)),
+        rpcError.then((rpc) => after(c, info, Object.freeze({ status, durationMs, ...rpc }))),
         'after_mcp',
       );
     }
@@ -1791,14 +1861,12 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
           : await serveMcp(c, authInfo, mcpMethod, mcpName);
       if (hooks.afterPassthrough) {
         const after = hooks.afterPassthrough;
-        const outcome: McpOutcome = Object.freeze({
-          status: response.status,
-          durationMs: clock.now() - started,
-          ...(await rpcErrorOf(response, mcpMethod)),
-        });
+        const status = response.status;
+        const durationMs = clock.now() - started;
+        const rpcError = rpcErrorOf(response, mcpMethod, c.req.method);
         runInBackground(
           c,
-          Promise.resolve().then(() => after(c, info, outcome)),
+          rpcError.then((rpc) => after(c, info, Object.freeze({ status, durationMs, ...rpc }))),
           'after_passthrough',
         );
       }

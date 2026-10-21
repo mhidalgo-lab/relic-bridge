@@ -54,6 +54,7 @@ import {
   QueryCache,
   type QueryLimits,
   type Secret,
+  type ServerRuntime,
   silentLogger,
   systemClock,
   type TaskStore,
@@ -382,6 +383,8 @@ export interface HttpAppOptions {
    * (MCP elicitation). Default false: `confirm: true` alone is enough when the client cannot be asked.
    */
   readonly requireWriteApproval?: boolean;
+  /** The host runtime, shown by `whoami` (P8-112). */
+  readonly runtime?: ServerRuntime;
   /**
    * Where per-grant quota counters live (P7-12). Default: `storage.grantUsage` (atomic on SQLite and D1). The Worker passes
    * its Durable Object store when `RB_SHARED_LIMITER=on`.
@@ -773,6 +776,7 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
         era: ctx.era,
         mcpApps: options.mcpApps !== false,
         requireWriteApproval: options.requireWriteApproval === true,
+        ...(options.runtime === undefined ? {} : { runtime: options.runtime }),
         ...(scope.onToolCall ? { onToolCall: scope.onToolCall } : {}),
       });
     },

@@ -2,11 +2,11 @@
 id: P8-112
 title: Show the server version in whoami
 phase: 8
-status: todo
+status: review
 priority: low
 depends_on: []
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P8-112 — Show the server version in whoami
@@ -22,8 +22,8 @@ and on which runtime (Node or Workers), so two deployments of one project can be
   reports in `serverInfo`; never build it from request data.
 
 ## Acceptance criteria
-- [ ] Tests for Node and Worker hosts: version and runtime present, schema validates.
-- [ ] Generated tool docs regenerated.
+- [x] Tests for Node and Worker hosts: version and runtime present, schema validates.
+- [x] Generated tool docs regenerated.
 
 ## Security notes
 Version disclosure to authenticated callers only (`/version` already exposes it). No new data.

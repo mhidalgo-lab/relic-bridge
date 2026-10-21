@@ -702,6 +702,7 @@ Use first when something fails (wrong region, missing account or tool). For the 
 | --- | --- | --- | --- |
 | `user` | `object` | yes |  |
 | `region` | `"US" \| "EU" \| "JP"` | yes |  |
+| `server` | `object` | no |  |
 | `project` | `string \| null` | yes |  |
 | `defaultAccountId` | `integer` | yes |  |
 | `defaultAccountReachable` | `boolean` | yes |  |

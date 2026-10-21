@@ -11,6 +11,7 @@ import {
   QueryCache,
   type QueryLimits,
   Secret,
+  VERSION,
 } from '@relic-bridge/core';
 import { createTelemetry } from '@relic-bridge/http-app';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -205,6 +206,7 @@ describe('prepareServer', () => {
       region: 'US',
       defaultAccountId: 1000001,
       allowedTools: ['whoami', 'list_accounts'],
+      server: { version: VERSION, runtime: 'node' },
     });
     expect(seen).toEqual([{ url: 'https://api.newrelic.com/graphql', key: FAKE_KEY }]);
     expect(JSON.stringify(r)).not.toContain(FAKE_KEY);

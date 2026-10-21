@@ -2,7 +2,7 @@
 id: P8-115
 title: Hold lefthook 2.2.2 (published without provenance)
 phase: 8
-status: review
+status: done
 priority: medium
 depends_on: []
 adr: []
@@ -25,7 +25,7 @@ step, but that cannot be verified, and lefthook runs on every local commit.
 
 ## Acceptance criteria
 - [x] Renovate config excludes lefthook 2.2.2 only.
-- [ ] Renovate regenerates #332 without lefthook 2.2.2 and its checks pass.
+- [x] Renovate regenerates #332 without lefthook 2.2.2 and its checks pass.
 
 ## Security notes
 THREAT_MODEL T18 (dependencies / supply chain): the pnpm trust policy worked as intended; this keeps the repo on the

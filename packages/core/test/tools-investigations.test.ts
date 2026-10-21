@@ -741,6 +741,33 @@ describe('trace_error', () => {
     expect(JSON.stringify(r.structuredContent)).not.toContain('"level":"x </untrusted');
   });
 
+  it('reads the log level from severity.text, level, or leaves it blank', async () => {
+    let logQuery = '';
+    const ng = nerdGraph({
+      nrql: (q) => {
+        if (q.includes('FROM Log')) {
+          logQuery = q;
+          return nrqlBody([
+            { timestamp: 1, 'severity.text': 'WARN', message: 'otel' },
+            { timestamp: 2, level: 'ERROR', message: 'classic' },
+            { timestamp: 3, message: 'none' },
+          ]);
+        }
+        return undefined;
+      },
+    });
+    const client = await connect(ng.fetch);
+    const r = await client.callTool({ name: 'trace_error', arguments: { trace_id: TRACE } });
+    expect(r.isError, resultText(r)).toBeFalsy();
+    const logs = (r.structuredContent as { logs: { message: string; level: string | null }[] }).logs;
+    expect(logs.map((l) => [l.message, l.level])).toEqual([
+      ['otel', 'WARN'],
+      ['classic', 'ERROR'],
+      ['none', null],
+    ]);
+    expect(logQuery).toContain('`severity.text`');
+  });
+
   it('validates input and refuses foreign scope before any request', async () => {
     const ng = nerdGraph();
     const client = await connect(ng.fetch);

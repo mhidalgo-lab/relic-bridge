@@ -68,7 +68,12 @@ const SUMMARY_VALUE_CHARS = 60;
  */
 const TEXT_COLUMNS = ['message', ...MESSAGE_FALLBACKS] as const;
 /** `severity.text` is where OpenTelemetry (OTLP) logs carry the level; `level` and the others are classic loggers. */
-const LEVEL_COLUMNS = ['level', 'severity', 'log.level', 'severity.text'] as const;
+export const LEVEL_COLUMNS = ['level', 'severity', 'log.level', 'severity.text'] as const;
+/** The raw level of a Log row: the first level column it has (a column the line lacks comes back null). */
+export const rawLevel = (r: Record<string, unknown>): string | null => {
+  const l = LEVEL_COLUMNS.map((c) => r[c]).find((v) => typeof v === 'string' && v !== '');
+  return typeof l === 'string' ? l : null;
+};
 const CONTEXT_COLUMNS = ['service.name', 'hostname', 'logger', 'request_id', 'trace.id'] as const;
 /** Attributes that say nothing about what a line is: never part of the summary. */
 const SUMMARY_SKIP =
@@ -530,10 +535,7 @@ export function createLogTools(deps: ToolDeps = {}): ToolDefinition[] {
         const ts = num(r['timestamp']);
         return {
           timestamp: ts === null ? null : new Date(ts).toISOString(),
-          level: (() => {
-            const l = LEVEL_COLUMNS.map((c) => r[c]).find((v) => typeof v === 'string' && v !== '');
-            return typeof l === 'string' ? label(l) : null;
-          })(),
+          level: label(rawLevel(r)),
           message: cleanLogMessage(lineText(r)),
         };
       });

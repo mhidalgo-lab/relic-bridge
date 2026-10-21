@@ -381,5 +381,5 @@ Generated from task front matter (`pnpm tasks index`). Status lives in each task
 | P8-110 | [Span status for -32601 answers on the 2026-07-28 path](tasks/phase-8-hardening-launch/P8-110-span-status-modern-method-not-found.md) | low | — | todo |
 | P8-111 | [Reused approval on an issue already changed; honest "cancelled" wording](tasks/phase-8-hardening-launch/P8-111-write-approval-replay-and-cancel-wording.md) | medium | — | todo |
 | P8-112 | [Show the server version in whoami](tasks/phase-8-hardening-launch/P8-112-whoami-server-version.md) | low | — | todo |
-| P8-113 | [Repo tooling ignores local agent worktrees under .claude/](tasks/phase-8-hardening-launch/P8-113-ignore-agent-worktrees.md) | low | — | todo |
+| P8-113 | [Repo tooling ignores local agent worktrees under .claude/](tasks/phase-8-hardening-launch/P8-113-ignore-agent-worktrees.md) | low | — | review |
 <!-- tasks:end -->

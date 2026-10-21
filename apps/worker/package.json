@@ -14,12 +14,12 @@
     "runtime": "workers"
   },
   "devDependencies": {
-    "@cloudflare/vitest-plugin": "1.4.0",
-    "@cloudflare/workers-types": "5.20261013.1",
+    "@cloudflare/vitest-plugin": "1.4.4",
+    "@cloudflare/workers-types": "5.20261018.1",
     "@modelcontextprotocol/client": "2.3.1",
     "fast-check": "4.10.2",
-    "vitest": "5.0.4",
-    "wrangler": "4.149.0"
+    "vitest": "5.0.5",
+    "wrangler": "4.151.1"
   },
   "dependencies": {
     "@relic-bridge/admin-ui": "workspace:*",

@@ -38,7 +38,7 @@
   "devDependencies": {
     "drizzle-kit": "0.31.11",
     "tsdown": "0.23.1",
-    "vitest": "5.0.4"
+    "vitest": "5.0.5"
   },
   "dependencies": {
     "drizzle-orm": "0.45.4",

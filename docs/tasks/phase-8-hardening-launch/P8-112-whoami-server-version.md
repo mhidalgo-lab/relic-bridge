@@ -2,11 +2,11 @@
 id: P8-112
 title: Show the server version in whoami
 phase: 8
-status: todo
+status: in-progress
 priority: low
 depends_on: []
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P8-112 — Show the server version in whoami

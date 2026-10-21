@@ -18,6 +18,7 @@ import {
   parseTimeRange,
   type ToolContext,
   ToolRegistry,
+  VERSION,
 } from '../src/index.ts';
 import { FAKE_KEY, testContext } from './helpers/context.ts';
 import { fixtureResponse, json, scriptedFetch } from './helpers/nerdgraph.ts';
@@ -44,6 +45,7 @@ async function setup(
   overrides: Partial<ToolContext> = {},
   requireWriteApproval = false,
   clientOptions: ConstructorParameters<typeof Client>[1] = {},
+  runtime?: 'node' | 'workers',
 ) {
   const { fetch, calls } = scriptedFetch(...steps);
   const ctx = testContext({
@@ -56,6 +58,7 @@ async function setup(
     tools: [...createIdentityTools({ fetch }), ...createTimeTools()],
     ctx,
     requireWriteApproval,
+    ...(runtime === undefined ? {} : { runtime }),
   });
   const [clientT, serverT] = InMemoryTransport.createLinkedPair();
   await server.connect(serverT);
@@ -88,6 +91,29 @@ describe('tool listing', () => {
     }
     expect(tools.find((t) => t.name === 'time_range')?.annotations?.openWorldHint).toBe(false);
     expect(tools.find((t) => t.name === 'whoami')?.annotations?.openWorldHint).toBe(true);
+  });
+});
+
+describe('whoami server (P8-112)', () => {
+  it('says which relic-bridge answered and on which runtime, from the server, not from the request', async () => {
+    const { client } = await setup([fixtureResponse('identity_A')], {
+      server: { version: '9.8.7', runtime: 'workers' },
+    });
+    const r = await client.callTool({ name: 'whoami', arguments: {} });
+    expect(r.structuredContent).toEqual(expect.objectContaining({ server: { version: VERSION } }));
+    expect(text(r)).toContain(`relic-bridge ${VERSION}.`);
+    expect(text(r)).not.toContain('9.8.7');
+  });
+
+  it('adds the runtime the host names, and leaves server out when no host sets it', async () => {
+    const { client } = await setup([fixtureResponse('identity_A')], {}, false, {}, 'workers');
+    const r = await client.callTool({ name: 'whoami', arguments: {} });
+    expect(r.structuredContent).toMatchObject({ server: { version: VERSION, runtime: 'workers' } });
+    expect(text(r)).toContain(`relic-bridge ${VERSION} (workers)`);
+    const tool = (await client.listTools()).tools.find((t) => t.name === 'whoami');
+    expect((tool?.outputSchema as { required?: string[] } | undefined)?.required ?? []).not.toContain(
+      'server',
+    );
   });
 });
 

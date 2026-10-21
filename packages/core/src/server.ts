@@ -7,7 +7,7 @@ import {
 } from '@modelcontextprotocol/server';
 import { clientAppsSupport, toolUiMeta } from './apps/index.ts';
 import { toCallToolResult } from './call-result.ts';
-import { budgetUsage, type ElicitationBinding, type ToolContext } from './context.ts';
+import { budgetUsage, type ElicitationBinding, type ServerRuntime, type ToolContext } from './context.ts';
 import { ERROR_META_KEY, isRbError, toProtocolError, toToolErrorResult } from './errors.ts';
 import {
   type PromptDefinition,
@@ -53,6 +53,8 @@ export interface BuildServerOptions {
    */
   ctx: ToolContext | (() => ToolContext);
   info?: ServerInfo;
+  /** The host runtime, shown by `whoami` (P8-112). Hosts that do not say leave it out. */
+  runtime?: ServerRuntime;
   /**
    * Advertise `tools.listChanged` (default true, the SDK default). HTTP passes false: a per-request server never
    * pushes a list change, so a `subscriptions/listen` is acknowledged with nothing to deliver and closed at once.
@@ -233,6 +235,7 @@ export function buildMcpServer({
   tools,
   ctx: context,
   info = DEFAULT_SERVER_INFO,
+  runtime,
   toolsListChanged = true,
   onToolCall,
   prompts,
@@ -345,6 +348,7 @@ export function buildMcpServer({
           ...gated,
           writeApproval: requireWriteApproval ? 'required' : 'off',
           writeApprovalReachable: elicitWrites && clientCanElicitForm(server.server.getClientCapabilities()),
+          server: Object.freeze({ version: info.version, ...(runtime === undefined ? {} : { runtime }) }),
         } as const);
         try {
           let out = await invoke(def, input, ctx);

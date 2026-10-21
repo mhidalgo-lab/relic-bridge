@@ -415,6 +415,7 @@ async function boot(env: WorkerEnv, options: WorkerOptions): Promise<Runtime> {
     queryCache: createWorkerQueryCache(settings.queryCache, keyring.queryCacheKeys(), options.queryCacheApi),
     writeTools: settings.writeTools,
     requireWriteApproval: settings.requireWriteApproval,
+    runtime: 'workers',
     publicToolCatalog: settings.publicToolCatalog,
     mcpApps: settings.mcpApps,
     tasks: settings.tasks,

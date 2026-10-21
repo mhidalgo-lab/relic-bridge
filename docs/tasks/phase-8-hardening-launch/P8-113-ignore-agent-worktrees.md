@@ -2,11 +2,11 @@
 id: P8-113
 title: Repo tooling ignores local agent worktrees under .claude/
 phase: 8
-status: todo
+status: review
 priority: low
 depends_on: []
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P8-113 — Repo tooling ignores local agent worktrees under .claude/
@@ -20,7 +20,7 @@ owner: ""
   Vitest, TypeScript and the `scripts/check-*` walkers skip it too.
 
 ## Acceptance criteria
-- [ ] With a nested worktree under `.claude/worktrees/`, `pnpm lint`, `pnpm typecheck` and `pnpm test` run against
+- [x] With a nested worktree under `.claude/worktrees/`, `pnpm lint`, `pnpm typecheck` and `pnpm test` run against
       the main tree only.
 
 ## Security notes

@@ -41,7 +41,7 @@ export const NRQL_REFERENCE: string = [
   '- Names with dots, dashes or spaces need backticks: `SELECT average(\\`custom.latency\\`)`.',
   '- Metric data: `FROM Metric SELECT average(\\`http.server.duration\\`) SINCE 1 hour ago`; dimensional metrics are one table',
   '  (`Metric`) with the metric name as an attribute. Find names with `FROM Metric SELECT uniques(metricName) SINCE 1 day ago`.',
-  "- Logs: `FROM Log SELECT message, level WHERE level = 'ERROR'`; free text search with `WHERE message LIKE '%timeout%'`.",
+  "- Logs: `FROM Log SELECT message, level WHERE level = 'ERROR'`; OpenTelemetry logs carry the level in `severity.text` instead; free text search with `WHERE message LIKE '%timeout%'`.",
   '',
   '## Common mistakes',
   '- Guessing event type or attribute names: list them first.',

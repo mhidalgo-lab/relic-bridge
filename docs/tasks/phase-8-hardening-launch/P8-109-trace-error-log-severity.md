@@ -2,11 +2,11 @@
 id: P8-109
 title: trace_error reads OpenTelemetry log severity; NRQL reference logs example
 phase: 8
-status: todo
+status: review
 priority: medium
 depends_on: []
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P8-109 — trace_error reads OpenTelemetry log severity; NRQL reference logs example
@@ -25,8 +25,8 @@ row mapping near line 890). The NRQL reference resource also shows `level` as th
   `severity.text`.
 
 ## Acceptance criteria
-- [ ] Tests: trace_error log rows with only `severity.text`, with only `level`, and with neither (blank) map correctly.
-- [ ] The NRQL reference text names `severity.text`; generated docs regenerated if affected.
+- [x] Tests: trace_error log rows with only `severity.text`, with only `level`, and with neither (blank) map correctly.
+- [x] The NRQL reference text names `severity.text`; generated docs regenerated if affected.
 
 ## Security notes
 T4 (identifiers through `nrql.identifier()`), T5 (log text stays inside the untrusted block).

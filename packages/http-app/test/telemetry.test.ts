@@ -55,7 +55,10 @@ beforeEach(async () => {
 
 const logger = () => createLogger({ level: 'debug', sink: (l) => logLines.push(l) });
 
-function appWith(options: Partial<Parameters<typeof createTelemetry>[0]> = {}) {
+function appWith(
+  options: Partial<Parameters<typeof createTelemetry>[0]> = {},
+  appOptions: Partial<Parameters<typeof createHttpApp>[0]> = {},
+) {
   const telemetry = createTelemetry({
     endpoint: base,
     fetch: receiverFetch,
@@ -70,6 +73,7 @@ function appWith(options: Partial<Parameters<typeof createTelemetry>[0]> = {}) {
     logger: logger(),
     fetch: mockNerdGraph().fetch,
     hooks: mergeHooks(telemetry.hooks),
+    ...appOptions,
   });
 }
 
@@ -1123,6 +1127,57 @@ describe('error status, a span per MCP method and logs in the trace (P8-90)', ()
     const span = named('tasks/list')[0];
     expect(span.status).toEqual({ code: 0 });
     expect(attrsOf(span)).toMatchObject({ status: 'error', fault: 'caller', 'error.type': '-32601' });
+  });
+
+  // P8-110: the 2026-07-28 envelope (routing headers, `_meta`) reaches the SDK's own 404 `-32601` for the task methods
+  // the host does not serve (`tasks/list`, `tasks/result`), with and without the tasks extension declared, on the
+  // project route and on the pass-through route. The span follows the same rule as on the legacy path.
+  describe.each([
+    ['project route', false],
+    ['pass-through route', true],
+  ] as const)('2026-07-28 %s (P8-110)', (_name, passthrough) => {
+    it.each([
+      ['tasks/list', {}, true],
+      ['tasks/result', { taskId: 'task-1' }, true],
+      ['tasks/list', {}, false],
+      ['tasks/result', { taskId: 'task-1' }, false],
+    ] as const)(
+      '%s answered -32601 (tasks declared: %s) is a caller fault, not ok',
+      async (method, params, tasks) => {
+        const app = appWith(
+          {},
+          {
+            taskStore: world.storage.kv,
+            ...(passthrough
+              ? {
+                  passthrough: {
+                    validateKey: async () => ({ user: { id: 1 }, accounts: [{ id: 1000001 }] }) as never,
+                  },
+                }
+              : {}),
+          },
+        );
+        const rq = rpcRequest(world.tokens.prod, method, params, { tasks });
+        const headers = new Headers(rq.headers);
+        if (passthrough) {
+          headers.delete('authorization');
+          headers.set('x-newrelic-api-key', NR_KEY);
+        }
+        const url = passthrough ? 'http://localhost/passthrough/mcp' : rq.url;
+        const res = await app.fetch(new Request(url, { method: 'POST', headers, body: await rq.text() }));
+        expect(res.status).toBe(404);
+        expect((await res.json()) as { error: { code: number } }).toMatchObject({ error: { code: -32601 } });
+        await vi.waitFor(() => expect(named(method).length).toBe(1));
+        const span = named(method)[0];
+        expect(span.status).toEqual({ code: 0 });
+        expect(attrsOf(span)).toMatchObject({
+          status: 'error',
+          fault: 'caller',
+          'error.type': '-32601',
+          'http.response.status_code': '404',
+        });
+      },
+    );
   });
 
   it('a JSON-RPC -32601 inside an HTTP 200 is a caller fault, not ok (P8-102)', async () => {

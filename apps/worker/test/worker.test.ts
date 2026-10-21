@@ -599,6 +599,69 @@ describe('Self-monitoring (P7-08)', () => {
     expect(line?.['spanId']).toBe(toolSpan.spanId);
   });
 
+  it('2026-07-28 tasks/list and tasks/result answered -32601 are caller faults, not ok (P8-110)', async () => {
+    const TASKS = 'io.modelcontextprotocol/tasks';
+    for (const [method, params] of [
+      ['tasks/list', {}],
+      ['tasks/result', { taskId: 'task-1' }],
+    ] as const) {
+      const { storage, token } = await seed(MASTER_KEY);
+      const sent: { path: string; body: string }[] = [];
+      const worker = createWorker({
+        openStorage: () => storage,
+        fetch: mockNerdGraph().fetch,
+        telemetryFetch: async (url, init) => {
+          sent.push({ path: event(new Request(String(url), init)), body: String(init.body) });
+          return new Response('{}');
+        },
+        logSink: () => {},
+      });
+      const otelEnv = {
+        ...env,
+        RB_OTEL: 'on',
+        RB_OTEL_ENDPOINT: 'https://otlp.example.test:4318',
+        RB_OTEL_HEADERS: 'api-key=fake-license-key',
+      } as WorkerEnv;
+      const ctx = fakeCtx();
+      const res = await call(worker, otelEnv, ctx, '/p/prod/mcp', {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${token}`,
+          'content-type': 'application/json',
+          accept: 'application/json, text/event-stream',
+          'mcp-method': method,
+          'mcp-protocol-version': '2026-07-28',
+          ...(typeof params['taskId'] === 'string' ? { 'mcp-name': params['taskId'] } : {}),
+        },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 1,
+          method,
+          params: {
+            ...params,
+            _meta: {
+              'io.modelcontextprotocol/protocolVersion': '2026-07-28',
+              'io.modelcontextprotocol/clientInfo': { name: 'worker-test', version: '0' },
+              'io.modelcontextprotocol/clientCapabilities': { extensions: { [TASKS]: {} } },
+            },
+          },
+        }),
+      });
+      expect(((await res.json()) as { error: { code: number } }).error.code).toBe(-32601);
+      await ctx.settle();
+      // biome-ignore lint/suspicious/noExplicitAny: raw OTLP JSON
+      const spans: any[] = sent
+        .filter((s) => s.path === '/v1/traces')
+        .flatMap((s) => JSON.parse(s.body).resourceSpans[0].scopeSpans[0].spans);
+      const span = spans.find((s) => s.name === method);
+      expect(span.status.code).toBe(0);
+      const attr = (key: string) =>
+        span.attributes.find((a: { key: string }) => a.key === key)?.value.stringValue;
+      expect(attr('fault')).toBe('caller');
+      expect(attr('error.type')).toBe('-32601');
+    }
+  });
+
   it('fails the boot closed on RB_OTEL=on without an endpoint', async () => {
     const { storage } = await seed(MASTER_KEY);
     const worker = createWorker({ openStorage: () => storage, logSink: () => {} });

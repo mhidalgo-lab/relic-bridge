@@ -1,5 +1,22 @@
 # relic-bridge
 
+## 0.13.1
+
+### Patch Changes
+
+- 7cac463: Repeating `acknowledge_issue` or `close_issue` with an approval that was already used now re-reads the issue once and
+  returns "nothing to do" when New Relic already shows the change, instead of an input error (nothing is ever sent twice;
+  otherwise the refusal stays, now with a note about New Relic's read lag). A `cancel` answer to the approval prompt is
+  now worded "cancelled (by the user, or by the client without showing it)" because the server cannot tell the two apart.
+- 8564f13: A JSON-RPC error that the MCP SDK sends as a one-message event stream (for example `tasks/list`, `tasks/result` or an
+  unknown prompt on a 2025-era session) now marks its span as a caller fault with `error.type` set to the code, like the
+  same error sent as JSON. The stream reaches the client unchanged and unhurried.
+- f21c15d: `trace_error` now reads the level of a trace's log lines from `severity.text` as well as `level`, `severity` and
+  `log.level`, so OpenTelemetry logs no longer show a blank level. The NRQL reference says that OpenTelemetry logs carry
+  the level in `severity.text`.
+- 7ac0f60: `whoami` now says which relic-bridge answered: an optional `server: { version, runtime }` (`node` or `workers`) and a
+  text line such as "relic-bridge 0.13.0 (workers)", so two deployments of one project can be told apart.
+
 ## 0.13.0
 
 ### Minor Changes

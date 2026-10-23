@@ -12,7 +12,7 @@
 //   100 KB, one row per statement.
 // - The `kv` table is left out: sign-in sessions, login transactions, setup links, OAuth clients, OAuth grants, codes and
 //   refresh tokens, remembered consents, task records and counters are short-lived or bound to the old public URL.
-import { closeSync, existsSync, mkdirSync, openSync, unlinkSync, writeSync } from 'node:fs';
+import { closeSync, existsSync, mkdirSync, openSync, statSync, unlinkSync, writeSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { MIGRATIONS, migrate, StorageError } from '@relic-bridge/storage';
@@ -371,9 +371,16 @@ export async function exportForD1(
     fd = openSync(destination, 'wx', 0o600);
   } catch (cause) {
     if ((cause as NodeJS.ErrnoException).code === 'EEXIST') {
+      // The age tells a stale export (an earlier run, never deleted) from one just made.
+      let modified = '';
+      try {
+        modified = ` (last modified ${statSync(destination).mtime.toISOString()})`;
+      } catch {
+        // removed or unreadable since: say nothing rather than guess
+      }
       throw new StorageError(
         'conflict',
-        'export destination already exists; refusing to overwrite it (use --force)',
+        `export destination already exists${modified}; refusing to overwrite it (use --force)`,
         { cause },
       );
     }

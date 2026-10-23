@@ -2,7 +2,7 @@
 id: P8-116
 title: Cloudflare migration - remove the export from a Docker volume, never copy a stale one
 phase: 8
-status: in-progress
+status: review
 priority: medium
 depends_on: []
 adr: []
@@ -32,9 +32,9 @@ Fourth Cloudflare migration retest (v0.13.1, 2026-10-23), step 4 of "Migrate fro
 - Check other docs that show `db export` (Docker guide, CLI reference) for the same gap.
 
 ## Acceptance criteria
-- [ ] CLI test: the refusal for an existing destination includes its modification time; the success hint says how to
+- [x] CLI test: the refusal for an existing destination includes its modification time; the success hint says how to
       delete the file.
-- [ ] Guide step 4 chains export and copy and shows the delete command; `pnpm lint` passes.
+- [x] Guide step 4 chains export and copy and shows the delete command; `pnpm lint` passes.
 
 ## Security notes
 The export holds encrypted New Relic keys and token hashes (T34): leaving it in the volume widens what a copy of the

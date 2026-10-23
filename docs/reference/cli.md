@@ -107,7 +107,7 @@ holds the schema the embedded migrations create (`CREATE ... IF NOT EXISTS`), th
 literals, every statement under D1's 100 KB limit); a guard makes the import fail when the target database already has
 users, keys, projects, grants or tokens. Left out: the `kv` table (sessions, sign-in state, OAuth clients and
 connections, task results, counters), and the audit log with `--no-audit`. The file is created with mode `0600`, an
-existing file is refused unless `--force` (which replaces it with a new file), and a path next to `RB_MASTER_KEY_FILE`
+existing file is refused, naming its modification time, unless `--force` (which replaces it with a new file), and a path next to `RB_MASTER_KEY_FILE`
 is refused. Prints the row counts and the master key version the Worker needs; warns when stored keys use more than one
 key version or the import would write more than half of the Workers Free daily D1 row writes. Exit `0` on success, `1`
 when refused.

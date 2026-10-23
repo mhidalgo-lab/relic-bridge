@@ -2,7 +2,7 @@
 id: P8-117
 title: Do not ask a person to approve a change whose approval is already spent
 phase: 8
-status: review
+status: done
 priority: medium
 depends_on: []
 adr: []

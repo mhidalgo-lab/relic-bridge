@@ -2,7 +2,7 @@
 id: P8-116
 title: Cloudflare migration - remove the export from a Docker volume, never copy a stale one
 phase: 8
-status: review
+status: done
 priority: medium
 depends_on: []
 adr: []

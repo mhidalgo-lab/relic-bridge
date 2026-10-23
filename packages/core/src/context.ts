@@ -191,6 +191,12 @@ export interface WriteIntent {
 /** Single-use marks for approvals. `consume` resolves true for the first use of `key` and false for any later one. */
 export interface WriteApprovals {
   consume(key: string): Promise<boolean>;
+  /**
+   * Read-only: has `key` already been consumed (P8-117)? Never changes the mark. Optional so a host without a cheap read
+   * still type-checks; without it `humanGate` just asks. It only lets `humanGate` skip a question whose answer could not
+   * be used: the atomic `consume` stays the only guard.
+   */
+  isSpent?(key: string): Promise<boolean>;
 }
 
 /** The answers a retried `tools/call` carries to the questions an earlier round asked (never trusted beyond that). */

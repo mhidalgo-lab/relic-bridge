@@ -1250,7 +1250,8 @@ describe('an approval answers one attempt (P7-26): the kv ledger end to end', ()
       expect(first.isError ?? false, JSON.stringify(first).slice(0, 300)).toBe(false);
       expect(mutations(before).length).toBe(1);
       const second = await client.callTool({ name: tool, arguments: args });
-      expect(asked.length).toBe(2);
+      // P8-117: the spent key is known before the question, so the person is not asked again.
+      expect(asked.length).toBe(1);
       expect(second.isError).toBe(true);
       expect(codeOfResult(second)).toBe(ErrorCode.InputInvalid);
       expect(JSON.stringify(second.content)).toContain('already used');
@@ -1289,4 +1290,50 @@ describe('an approval answers one attempt (P7-26): the kv ledger end to end', ()
       expect(mutations(before).length).toBe(3);
     });
   }
+
+  // The Worker host builds its own store from bindings: the check is covered there by the end-to-end tests above.
+  it.skipIf(authzHostKind() === 'worker')(
+    'P8-117: the spent check reads the scoped key without counting, and a fresh change is still asked',
+    async () => {
+      const counts = new Map<string, number>();
+      const reads: string[] = [];
+      const store = {
+        get: async (key: string) => {
+          reads.push(key);
+          return counts.has(key) ? String(counts.get(key)) : null;
+        },
+        increment: async (key: string) => {
+          counts.set(key, (counts.get(key) ?? 0) + 1);
+          return counts.get(key) as number;
+        },
+      };
+      const app = h.makeApp({ writeTools: true, approvalStore: store });
+      const { token } = await setup('led-peek');
+      const client = await connect(app, 'led-peek', token.value, 'modern', undefined, FORM);
+      clients.push(client);
+      const asked: string[] = [];
+      client.setRequestHandler('elicitation/create', (request) => {
+        asked.push((request.params as { message: string }).message);
+        return { action: 'accept', content: { confirm: true } } as never;
+      });
+      const args = GOOD['create_change_event'] as Record<string, unknown>;
+      await client.callTool({ name: 'create_change_event', arguments: args });
+      expect([...counts.values()]).toEqual([1]);
+      const [spentKey] = [...counts.keys()];
+      expect(spentKey).toMatch(/^write-approval:[^/]+\/[^/]+\/[^/]+\/confirm_/);
+      reads.length = 0;
+      const again = await client.callTool({ name: 'create_change_event', arguments: args });
+      expect(again.isError).toBe(true);
+      expect(asked.length).toBe(1);
+      expect(reads).toContain(spentKey);
+      expect([...counts.values()]).toEqual([1]);
+      const fresh = await client.callTool({
+        name: 'create_change_event',
+        arguments: { ...args, version: '9.9.9' },
+      });
+      expect(fresh.isError ?? false).toBe(false);
+      expect(asked.length).toBe(2);
+      expect(counts.size).toBe(2);
+    },
+  );
 });

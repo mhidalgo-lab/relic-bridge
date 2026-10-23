@@ -407,7 +407,7 @@ export interface HttpAppOptions {
    * hash, is stored, expiring after the approval window). Absent: write approvals are bound to a time
    * window only and a replay inside it is not refused.
    */
-  readonly approvalStore?: Pick<KvRepository, 'increment'>;
+  readonly approvalStore?: Pick<KvRepository, 'get' | 'increment'>;
   /**
    * Registry-friendly discovery (P7-14, `RB_PUBLIC_TOOL_CATALOG=on`). Default false: every MCP request needs a
    * credential. On: `GET /.well-known/relic-bridge/tools.json` serves the static read-only tool catalog, and a POST to
@@ -1545,6 +1545,9 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
     try {
       const credential = await openCredential(access, resolved.credential, { keyring: options.keyring });
       const trace = traceFields(c, info, log);
+      // Spent-approval keys are scoped to project, grant and user (P7-26, T21).
+      const approvalKey = (key: string): string =>
+        `write-approval:${access.projectId}/${access.grantId}/${access.userId ?? '-'}/${key}`;
       const toolLogger = logger.child({
         requestId,
         project: access.projectSlug,
@@ -1607,10 +1610,12 @@ export function createHttpApp(options: HttpAppOptions): Hono<Env> {
             : {
                 writeApprovals: Object.freeze({
                   consume: async (key: string): Promise<boolean> =>
-                    (await approvalStore.increment(
-                      `write-approval:${access.projectId}/${access.grantId}/${access.userId ?? '-'}/${key}`,
-                      { expirationTtl: APPROVAL_LEDGER_TTL_SECONDS },
-                    )) === 1,
+                    (await approvalStore.increment(approvalKey(key), {
+                      expirationTtl: APPROVAL_LEDGER_TTL_SECONDS,
+                    })) === 1,
+                  // Read-only (P8-117): a live counter under the scoped key means the approval was spent.
+                  isSpent: async (key: string): Promise<boolean> =>
+                    (await approvalStore.get(approvalKey(key))) !== null,
                 }),
               }),
           ...(onWriteIntent === undefined

@@ -5,8 +5,8 @@
 // A mock NerdGraph only: no real mutation is ever sent.
 import { Client } from '@modelcontextprotocol/client';
 import { InMemoryTransport } from '@modelcontextprotocol/server';
-import { afterEach, describe, expect, it } from 'vitest';
-import { DEFAULT_LIMITS } from '../src/context.ts';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { DEFAULT_LIMITS, type WriteApprovals } from '../src/context.ts';
 import {
   ALLOWED_MUTATIONS,
   annotationsFor,
@@ -1321,13 +1321,13 @@ describe('a spent approval and the cancel wording (P8-111)', () => {
   ] as const)(
     '%s: spent approval, issue now in the target state -> no-op, no second mutation',
     async (name, now, note) => {
-      // New Relic lags: reads right after the first change still show the old state. The replay reads three times (the
-      // question round, the answered round, then the extra read after the spent approval); only the last sees the change.
+      // New Relic lags: reads right after the first change still show the old state. The replay reads twice (the
+      // pre-read, then the extra read after the spent key is found, P8-117: no second question); only the last sees it.
       let postReads = 0;
       let ng: ReturnType<typeof nerdGraph>;
       ng = nerdGraph({
         RbAiIssues: (c) =>
-          mutationsOf(ng.calls).length === 0 || postReads++ < 2
+          mutationsOf(ng.calls).length === 0 || postReads++ < 1
             ? issuesReply(issue())(c)
             : issuesReply(now)(c),
       });
@@ -1728,6 +1728,85 @@ describe('approval shows and binds the whole change (phase 7 review H2)', () => 
     it('does not carry the approval to another tool', async () => {
       const { ask } = await setup(true);
       expect((await ask('create_dashboard')).state).toBe('ask');
+    });
+
+    describe('a spent key is not asked again (P8-117)', () => {
+      const gate = async (writeApprovals?: WriteApprovals) => {
+        const { humanGate } = await import('../src/tools/write-common.ts');
+        const clock = { now: () => NOW };
+        const ctx = {
+          ...testContext({ clock }),
+          elicitation: { answer: () => 'missing' },
+          ...(writeApprovals === undefined ? {} : { writeApprovals }),
+        } as ToolContext;
+        return { humanGate, ctx };
+      };
+      const keyOf = async (
+        ctx: ToolContext,
+        humanGate: typeof import('../src/tools/write-common.ts').humanGate,
+      ) =>
+        ((await humanGate(ctx, 'create_change_event', message, change)) as { ask: { key: string } }).ask.key;
+
+      it('refuses without a question once the key is spent; returnSpent returns spent', async () => {
+        const { createMemoryApprovalLedger } = await import('../src/tools/write-common.ts');
+        const ledger = createMemoryApprovalLedger({ now: () => NOW });
+        const { humanGate, ctx } = await gate(ledger);
+        const key = await keyOf(ctx, humanGate);
+        expect(await ledger.consume(key)).toBe(true);
+        await expect(humanGate(ctx, 'create_change_event', message, change)).rejects.toThrow(/already used/);
+        expect(await humanGate(ctx, 'create_change_event', message, change, { returnSpent: true })).toEqual({
+          state: 'spent',
+        });
+      });
+
+      it('also refuses when only the previous bucket key is spent', async () => {
+        const { createMemoryApprovalLedger } = await import('../src/tools/write-common.ts');
+        const ledger = createMemoryApprovalLedger({ now: () => NOW });
+        const { humanGate, ctx } = await gate(ledger);
+        const key = await keyOf(ctx, humanGate);
+        const later = { ...ctx, clock: { now: () => NOW + 10 * 60_000 } } as ToolContext;
+        expect(await ledger.consume(key)).toBe(true);
+        await expect(humanGate(later, 'create_change_event', message, change)).rejects.toThrow(
+          /already used/,
+        );
+      });
+
+      it('a fresh key still asks, and the check never marks anything spent', async () => {
+        const { createMemoryApprovalLedger } = await import('../src/tools/write-common.ts');
+        const ledger = createMemoryApprovalLedger({ now: () => NOW });
+        const { humanGate, ctx } = await gate(ledger);
+        const key = await keyOf(ctx, humanGate);
+        expect((await humanGate(ctx, 'create_change_event', message, change)).state).toBe('ask');
+        expect(await ledger.isSpent?.(key)).toBe(false);
+        expect(await ledger.consume(key)).toBe(true);
+        expect(await ledger.consume(key)).toBe(false);
+      });
+
+      it('a ledger read error asks as before', async () => {
+        const consume = vi.fn(async () => true);
+        const { humanGate, ctx } = await gate({
+          consume,
+          isSpent: async () => {
+            throw new Error('store down');
+          },
+        });
+        expect((await humanGate(ctx, 'create_change_event', message, change)).state).toBe('ask');
+        expect(consume).not.toHaveBeenCalled();
+      });
+
+      it('a ledger without isSpent asks as before', async () => {
+        const { humanGate, ctx } = await gate({ consume: async () => false });
+        expect((await humanGate(ctx, 'create_change_event', message, change)).state).toBe('ask');
+      });
+
+      it('a question-only round with a spent key refuses and sends nothing', async () => {
+        const { createMemoryApprovalLedger } = await import('../src/tools/write-common.ts');
+        const ledger = createMemoryApprovalLedger({ now: () => NOW });
+        const { humanGate, ctx } = await gate(ledger);
+        await ledger.consume(await keyOf(ctx, humanGate));
+        const only = { ...ctx, writeQuestionOnly: true } as ToolContext;
+        await expect(humanGate(only, 'create_change_event', message, change)).rejects.toThrow(/already used/);
+      });
     });
 
     it('without a ledger only the window bounds a replay', async () => {

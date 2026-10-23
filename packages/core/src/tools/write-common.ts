@@ -247,6 +247,10 @@ export function createMemoryApprovalLedger(clock: { now(): number }): WriteAppro
       spent.set(key, now + APPROVAL_LEDGER_TTL_SECONDS * 1000);
       return Promise.resolve(true);
     },
+    isSpent: (key) => {
+      const until = spent.get(key);
+      return Promise.resolve(until !== undefined && until > clock.now());
+    },
   };
 }
 
@@ -358,7 +362,28 @@ export async function humanGate(
   }
   if (answer.value === 'decline') return { state: 'declined', confirmation: 'declined' };
   if (answer.value === 'cancel') return { state: 'cancelled', confirmation: 'cancelled' };
+  // P8-117: the question would ask for a key that was already spent (an applied call repeated while New Relic still
+  // shows the old state), so an approval could never be used: do not ask. The check only refuses; the atomic `consume`
+  // above stays the guard. A read error asks as before.
+  if (await approvalSpent(ctx, [key, stale])) {
+    if (opts?.returnSpent === true) return { state: 'spent' };
+    throw spentApprovalError();
+  }
   return { state: 'ask', confirmation: 'asked', ask: { key, message: bounded } };
+}
+
+/** True when any of `keys` is known spent; false when unknown (no ledger, no read, or a read error). */
+async function approvalSpent(ctx: ToolContext, keys: readonly string[]): Promise<boolean> {
+  const isSpent = ctx.writeApprovals?.isSpent;
+  if (isSpent === undefined) return false;
+  try {
+    for (const k of keys) if (await isSpent.call(ctx.writeApprovals, k)) return true;
+  } catch (error) {
+    ctx.logger.warn('approval ledger read failed: asking as usual', {
+      error: error instanceof Error ? error.name : typeof error,
+    });
+  }
+  return false;
 }
 
 /**

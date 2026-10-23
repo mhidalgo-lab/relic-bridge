@@ -346,6 +346,42 @@ describe('create_change_event', () => {
     expect(text(r)).toContain('Nothing was changed');
   });
 
+  it('the plan echoes description, changelog and deepLink when given and omits them when not (P8-118)', async () => {
+    const extra = {
+      description: 'multi\nline',
+      changelog: 'https://example.com/changes',
+      deep_link: 'https://example.com/deploys/1',
+    };
+    const { confirm: _c, ...rest } = DEPLOY;
+    const full = {
+      changeType: 'DEPLOYMENT__BASIC',
+      version: 'v1.2',
+      description: 'multi\nline',
+      changelog: 'https://example.com/changes',
+      deepLink: 'https://example.com/deploys/1',
+    };
+    const dry = await (await connect(nerdGraph().fetch)).callTool({
+      name: 'create_change_event',
+      arguments: { ...rest, ...extra, dry_run: true },
+    });
+    expect(dry.isError ?? false, text(dry)).toBe(false);
+    expect((dry.structuredContent as { plan: unknown }).plan).toEqual(full);
+    const applied = await (await connect(nerdGraph().fetch)).callTool({
+      name: 'create_change_event',
+      arguments: { ...DEPLOY, ...extra },
+    });
+    expect(applied.isError ?? false, text(applied)).toBe(false);
+    expect((applied.structuredContent as { plan: unknown }).plan).toEqual(full);
+    const bare = await (await connect(nerdGraph().fetch)).callTool({
+      name: 'create_change_event',
+      arguments: DEPLOY,
+    });
+    expect((bare.structuredContent as { plan: unknown }).plan).toEqual({
+      changeType: 'DEPLOYMENT__BASIC',
+      version: 'v1.2',
+    });
+  });
+
   it('reports how a write that applied was authorized: not_required without an approval prompt', async () => {
     const ng = nerdGraph();
     const client = await connect(ng.fetch);
@@ -1263,6 +1299,10 @@ describe('create_dashboard checks its queries before asking (P8-101, NEW-36)', (
     // The server keeps no state: the question round and the answer round each probe the query, before the gate.
     expect(ng.calls.map((c) => c.operationName)).toEqual(['RbNrql', 'RbNrql', 'RbCreateDashboard']);
     expect(r.structuredContent).toMatchObject({ applied: true, confirmation: 'approved' });
+    // The checks that ran before the question are in the applied result too (P8-118).
+    const checks = (r.structuredContent as { checks: { status: string }[] }).checks;
+    expect(checks.length).toBeGreaterThan(0);
+    expect(checks.every((c) => c.status === 'ok')).toBe(true);
   });
 });
 

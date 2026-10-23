@@ -23,7 +23,7 @@ can tell before asking.
 ## Scope
 - `WriteApprovals` gains a read-only check (`isSpent(key)` or similar) next to `consume`: memory ledger (stdio) and the
   http-app store (`write-approval:<project>/<grant>/<user>/<key>` in `kv`, read without incrementing).
-- `humanGate`, before returning `ask`: when the key it would ask for (current or previous bucket) is already spent,
+- `humanGate`, before returning `ask`: when the key it would ask for (the current bucket's) is already spent,
   do not ask. With `returnSpent` (ack/close) return `spent`, so P8-111's re-read gives "nothing to do" or the refusal
   with the lag hint; otherwise throw `spentApprovalError()`. A ledger read error falls back to asking as today (the
   answer round still consumes atomically, so this check is only an optimisation, never the guard).
@@ -45,3 +45,8 @@ and can only refuse, never let a change through. Keys stay scoped to project, gr
 
 ## Out of scope
 - A lag note on dry runs (P8-100 keeps them unchanged); polling New Relic after a write.
+
+## Review
+The first version also refused when the previous bucket's key was spent. That was wrong: in the next bucket the question asks
+for a new key, its answer is usable and `consume` succeeds, so refusing blocked a legitimate repeat 10 to 20 minutes later.
+Only the key the question would ask for is checked.

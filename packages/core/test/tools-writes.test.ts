@@ -1759,16 +1759,29 @@ describe('approval shows and binds the whole change (phase 7 review H2)', () => 
         });
       });
 
-      it('also refuses when only the previous bucket key is spent', async () => {
-        const { createMemoryApprovalLedger } = await import('../src/tools/write-common.ts');
-        const ledger = createMemoryApprovalLedger({ now: () => NOW });
-        const { humanGate, ctx } = await gate(ledger);
-        const key = await keyOf(ctx, humanGate);
-        const later = { ...ctx, clock: { now: () => NOW + 10 * 60_000 } } as ToolContext;
-        expect(await ledger.consume(key)).toBe(true);
-        await expect(humanGate(later, 'create_change_event', message, change)).rejects.toThrow(
-          /already used/,
-        );
+      it('a key spent in the previous bucket still gets a question in the next one, and its answer goes on', async () => {
+        const { createMemoryApprovalLedger, humanGate } = await import('../src/tools/write-common.ts');
+        let now = NOW;
+        const clock = { now: () => now };
+        const ledger = createMemoryApprovalLedger(clock);
+        const approved = new Set<string>();
+        const ctx = {
+          ...testContext({ clock }),
+          elicitation: { answer: (k: string) => (approved.has(k) ? 'accept' : 'missing') },
+          writeApprovals: ledger,
+        } as ToolContext;
+        const first = (await humanGate(ctx, 'create_change_event', message, change)) as {
+          ask: { key: string };
+        };
+        expect(await ledger.consume(first.ask.key)).toBe(true);
+        now += 10 * 60_000;
+        const next = await humanGate(ctx, 'create_change_event', message, change);
+        expect(next.state).toBe('ask');
+        const nextKey = (next as { ask: { key: string } }).ask.key;
+        expect(nextKey).not.toBe(first.ask.key);
+        approved.add(nextKey);
+        expect((await humanGate(ctx, 'create_change_event', message, change)).state).toBe('go');
+        expect(await ledger.isSpent?.(nextKey)).toBe(true);
       });
 
       it('a fresh key still asks, and the check never marks anything spent', async () => {

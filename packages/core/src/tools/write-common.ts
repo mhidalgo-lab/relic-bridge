@@ -363,9 +363,10 @@ export async function humanGate(
   if (answer.value === 'decline') return { state: 'declined', confirmation: 'declined' };
   if (answer.value === 'cancel') return { state: 'cancelled', confirmation: 'cancelled' };
   // P8-117: the question would ask for a key that was already spent (an applied call repeated while New Relic still
-  // shows the old state), so an approval could never be used: do not ask. The check only refuses; the atomic `consume`
+  // shows the old state), so an approval could never be used: do not ask. Only the asked key counts: a key spent in the
+  // previous bucket does not make the new one unusable. The check only refuses; the atomic `consume`
   // above stays the guard. A read error asks as before.
-  if (await approvalSpent(ctx, [key, stale])) {
+  if (await approvalSpent(ctx, [key])) {
     if (opts?.returnSpent === true) return { state: 'spent' };
     throw spentApprovalError();
   }

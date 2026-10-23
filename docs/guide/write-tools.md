@@ -28,7 +28,7 @@ used (New Relic can lag a few seconds after a write, so the issue may still look
 once more: if it is now acknowledged or closed you get the usual "nothing to do" result, otherwise the call is refused
 with `RB_INPUT_INVALID` and nothing is sent. `create_change_event` and `create_dashboard` always refuse a spent approval.
 Repeating the same change right after it was applied does not ask you again: the server already knows the approval is spent, so it
-answers as above without showing a question (the same change can be approved again after 10 to 20 minutes).
+answers as above without showing a question (a new approval is asked for once the 10-minute window has passed).
 
 The audit log gets one row for the refusal (status `error`, `details.write.record` with `applied: false` and
 `confirmation: unavailable`, `declined` or `cancelled`), and the tool-call span is marked as an error with the attributes

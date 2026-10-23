@@ -2,7 +2,7 @@
 id: P8-117
 title: Do not ask a person to approve a change whose approval is already spent
 phase: 8
-status: in-progress
+status: review
 priority: medium
 depends_on: []
 adr: []
@@ -30,11 +30,11 @@ can tell before asking.
 - Span/audit: the call records the refusal as today (`confirmation` unchanged vocabulary; no new value unless needed).
 
 ## Acceptance criteria
-- [ ] Test (core): a question round for a change whose key is spent returns the spent refusal (or `spent` with
+- [x] Test (core): a question round for a change whose key is spent returns the spent refusal (or `spent` with
       `returnSpent`) without an input request; a fresh key still asks.
-- [ ] Test (core): a ledger read error still asks; the answer round's atomic `consume` is unchanged.
-- [ ] Test (http-app): the store check reads the scoped key and does not change it.
-- [ ] THREAT_MODEL T31 updated.
+- [x] Test (core): a ledger read error still asks; the answer round's atomic `consume` is unchanged.
+- [x] Test (http-app): the store check reads the scoped key and does not change it.
+- [x] THREAT_MODEL T31 updated.
 
 ## Security notes
 T31: the single-use guarantee stays on the atomic `consume` in the answer round; the new check only removes a prompt

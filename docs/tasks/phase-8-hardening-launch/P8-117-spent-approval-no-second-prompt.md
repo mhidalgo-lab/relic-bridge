@@ -2,11 +2,11 @@
 id: P8-117
 title: Do not ask a person to approve a change whose approval is already spent
 phase: 8
-status: todo
+status: in-progress
 priority: medium
 depends_on: []
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P8-117 — Do not ask a person to approve a change whose approval is already spent

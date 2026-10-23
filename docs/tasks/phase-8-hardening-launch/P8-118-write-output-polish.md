@@ -2,7 +2,7 @@
 id: P8-118
 title: Write tool output - full change event plan, dashboard checks on confirm
 phase: 8
-status: review
+status: done
 priority: low
 depends_on: []
 adr: []

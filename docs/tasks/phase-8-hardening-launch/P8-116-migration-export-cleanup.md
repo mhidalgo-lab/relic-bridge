@@ -2,11 +2,11 @@
 id: P8-116
 title: Cloudflare migration - remove the export from a Docker volume, never copy a stale one
 phase: 8
-status: todo
+status: in-progress
 priority: medium
 depends_on: []
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P8-116 — Cloudflare migration: remove the export from a Docker volume, never copy a stale one

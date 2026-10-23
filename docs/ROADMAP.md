@@ -384,7 +384,7 @@ Generated from task front matter (`pnpm tasks index`). Status lives in each task
 | P8-113 | [Repo tooling ignores local agent worktrees under .claude/](tasks/phase-8-hardening-launch/P8-113-ignore-agent-worktrees.md) | low | — | done |
 | P8-114 | [Clear the failing dependency audit (vite and launch-editor, GHSA-587h-7wmj-h5pm)](tasks/phase-8-hardening-launch/P8-114-vite-launch-editor-advisory.md) | high | — | done |
 | P8-115 | [Hold lefthook 2.2.2 (published without provenance)](tasks/phase-8-hardening-launch/P8-115-hold-lefthook-2-2-2.md) | medium | — | done |
-| P8-116 | [Cloudflare migration - remove the export from a Docker volume, never copy a stale one](tasks/phase-8-hardening-launch/P8-116-migration-export-cleanup.md) | medium | — | todo |
+| P8-116 | [Cloudflare migration - remove the export from a Docker volume, never copy a stale one](tasks/phase-8-hardening-launch/P8-116-migration-export-cleanup.md) | medium | — | in-progress |
 | P8-117 | [Do not ask a person to approve a change whose approval is already spent](tasks/phase-8-hardening-launch/P8-117-spent-approval-no-second-prompt.md) | medium | — | todo |
 | P8-118 | [Write tool output - full change event plan, dashboard checks on confirm](tasks/phase-8-hardening-launch/P8-118-write-output-polish.md) | low | — | todo |
 <!-- tasks:end -->

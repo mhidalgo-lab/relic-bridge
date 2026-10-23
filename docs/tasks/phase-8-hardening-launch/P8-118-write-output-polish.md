@@ -2,11 +2,11 @@
 id: P8-118
 title: Write tool output - full change event plan, dashboard checks on confirm
 phase: 8
-status: todo
+status: review
 priority: low
 depends_on: []
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P8-118 — Write tool output: full change event plan, dashboard checks on confirm
@@ -26,8 +26,8 @@ owner: ""
   shape allows it).
 
 ## Acceptance criteria
-- [ ] Tests: dry run and applied change events echo the three fields; an applied dashboard has the checks that ran.
-- [ ] Generated tool docs regenerated if output schemas change.
+- [x] Tests: dry run and applied change events echo the three fields; an applied dashboard has the checks that ran.
+- [x] Generated tool docs regenerated if output schemas change.
 
 ## Security notes
 None: the values are the caller's own arguments (already checked), and the checks are the existing probe results.

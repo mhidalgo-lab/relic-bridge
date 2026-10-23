@@ -673,7 +673,7 @@ export function createDashboardWriteTool(client: (ctx: ToolContext) => NerdGraph
       if (messages.length > 0) lines.push(envelope(messages.join('\n'), { source: 'New Relic messages' }));
       return {
         text: lines.join('\n') + notesText(),
-        structured: shaped(true, guid, warnings, gate.confirmation),
+        structured: shaped(true, guid, warnings, gate.confirmation, checks),
         meta: metaOf({
           ...record(
             true,

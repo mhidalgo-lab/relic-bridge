@@ -2,11 +2,11 @@
 id: P8-118
 title: Write tool output - full change event plan, dashboard checks on confirm
 phase: 8
-status: todo
+status: in-progress
 priority: low
 depends_on: []
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P8-118 — Write tool output: full change event plan, dashboard checks on confirm

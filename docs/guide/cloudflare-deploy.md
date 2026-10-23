@@ -340,16 +340,25 @@ server's key: a Worker with another key answers `503` (`key_mismatch`) and canno
    ```
 
    With Docker, run it inside the container and write to the data volume, then copy the file out with its mode kept
-   (`0600`: `docker cp` and a plain `scp` do not promise that):
+   (`0600`: `docker cp` and a plain `scp` do not promise that). The `&&` matters: when the export is refused (an old
+   file is still there), nothing is copied, so a stale export never reaches the import:
 
    ```sh
-   docker exec <container> /nodejs/bin/node /app/dist/index.mjs db export /data/relic-bridge-d1.sql --format d1   # /data: the volume of the server
-   docker cp <container>:/data/relic-bridge-d1.sql ./ && chmod 600 relic-bridge-d1.sql
+   docker exec <container> /nodejs/bin/node /app/dist/index.mjs db export /data/relic-bridge-d1.sql --format d1 \
+     && docker cp <container>:/data/relic-bridge-d1.sql ./ && chmod 600 relic-bridge-d1.sql   # /data: the volume of the server
    # or, from another machine, keeping the mode:  scp -p user@host:/path/to/relic-bridge-d1.sql .
    # or, on the host, when the volume is a directory you can read:  install -m 600 /path/to/volume/relic-bridge-d1.sql ./
    ```
 
-   Delete the copy in the volume once the import succeeded.
+   Delete the copy in the volume right after the copy, because the local file is the one you import. The image has no
+   shell or `rm`, so use its own `node`:
+
+   ```sh
+   docker exec <container> /nodejs/bin/node -e "require('fs').unlinkSync('/data/relic-bridge-d1.sql')"
+   ```
+
+   If a later export is refused with "export destination already exists", the message names the old file's modification
+   time: delete it as above (or pass `--force`), then export again.
 
    The file is created with mode `0600` and never overwrites an existing one (`--force` replaces it). It holds encrypted
    New Relic keys and token hashes: keep it away from the master key (the command refuses to write next to

@@ -6,6 +6,7 @@ import { generateMasterKey, Keyring } from '@relic-bridge/auth';
 import { VERSION } from '@relic-bridge/core';
 import { openSqliteStorage } from '@relic-bridge/storage-sqlite';
 import { afterAll, describe, expect, it } from 'vitest';
+import { deleteHint } from '../src/db-export.ts';
 import { type CliRuntime, main } from '../src/main.ts';
 import { FAKE_KEY, memoryFs } from './helpers.ts';
 
@@ -199,6 +200,8 @@ describe('main', () => {
       expect(ok.stdout).toContain('master key (version 3)');
       expect(ok.stdout).toContain('--master-key-stdin');
       expect(ok.stdout).toContain(`wrangler d1 execute <database> --remote --file ${dest}`);
+      expect(ok.stdout).toContain(`Then delete the file: rm ${dest}`);
+      expect(ok.stdout).not.toContain('docker exec'); // only for a path under /data
       if (process.platform !== 'win32') expect(statSync(dest).mode & 0o777).toBe(0o600);
       const text = readFileSync(dest, 'utf8');
       for (const secret of [masterKey, FAKE_KEY, masterKey.slice(3)]) {
@@ -210,9 +213,19 @@ describe('main', () => {
       const again = run(['db', 'export', dest, '--format', 'd1', '--db', db]);
       expect(await pending(again)).toBe(1);
       expect(again.stderr).toContain('--force');
+      expect(again.stderr).toContain(`last modified ${statSync(dest).mtime.toISOString()}`);
       const forced = run(['db', 'export', dest, '--format', 'd1', '--no-audit', '--force', '--db', db]);
       expect(await pending(forced)).toBe(0);
       expect(forced.stdout).toContain('and the audit log');
+    });
+
+    it('says how to delete the export, with the node form for a path in the Docker volume', () => {
+      expect(deleteHint('/srv/x.sql')).toBe('Then delete the file: rm /srv/x.sql\n');
+      const docker = deleteHint('/data/relic-bridge-d1.sql');
+      expect(docker).toContain('rm /data/relic-bridge-d1.sql');
+      expect(docker).toContain(
+        `docker exec <container> /nodejs/bin/node -e "require('fs').unlinkSync('/data/relic-bridge-d1.sql')"`,
+      );
     });
 
     it('refuses to write next to the master key file (T7)', async () => {

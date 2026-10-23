@@ -34,6 +34,13 @@ function keyFileNextTo(file: string, env: Env): string | undefined {
   return undefined;
 }
 
+/** How to delete the export; the distroless image has no shell or `rm`, so a path in its volume gets the node form. */
+export function deleteHint(file: string): string {
+  const plain = `Then delete the file: rm ${file}\n`;
+  if (!file.startsWith('/data/')) return plain;
+  return `${plain}  in the Docker image: docker exec <container> /nodejs/bin/node -e "require('fs').unlinkSync('${file}')"\n`;
+}
+
 export async function dbExport(options: DbExportOptions): Promise<number> {
   const { logger } = options;
   const sameDir = keyFileNextTo(options.file, options.env);
@@ -77,6 +84,7 @@ export async function dbExport(options: DbExportOptions): Promise<number> {
   }
   out("Import into the NEW Worker's D1 database, then delete this file:\n");
   out(`  wrangler d1 execute <database> --remote --file ${options.file}\n`);
+  out(deleteHint(options.file));
   out('See "Migrate from a self-hosted server" in docs/guide/cloudflare-deploy.md.\n');
   if (summary.credentialKeyVersions.length > 1) {
     logger.warn('stored New Relic keys use more than one master key version', {

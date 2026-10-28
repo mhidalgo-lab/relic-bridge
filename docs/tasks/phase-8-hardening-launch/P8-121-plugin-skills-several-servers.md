@@ -2,11 +2,11 @@
 id: P8-121
 title: Claude Code plugin - skills pick one relic-bridge server when several are connected
 phase: 8
-status: todo
+status: review
 priority: medium
 depends_on: []
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P8-121 — Claude Code plugin: skills pick one relic-bridge server when several are connected
@@ -26,9 +26,9 @@ step 1 and another in step 3, or the wrong one throughout.
 - Keep tool names bare in the text so the registry check in `scripts/test/claude-plugin.test.ts` still applies.
 
 ## Acceptance criteria
-- [ ] Every skill and command states the one-server rule (test, like the untrusted-data rule).
-- [ ] `/relic-status` covers every connected relic-bridge server.
-- [ ] `claude plugin validate plugins/relic-bridge` passes.
+- [x] Every skill and command states the one-server rule (test, like the untrusted-data rule).
+- [x] `/relic-status` covers every connected relic-bridge server.
+- [x] `claude plugin validate plugins/relic-bridge` passes.
 
 ## Security notes
 Mixing servers in one investigation can mix data from different New Relic users or accounts in one
@@ -39,3 +39,7 @@ answer. The rule keeps an investigation inside one server's credentials and gran
 
 ## Out of scope
 - Renaming the plugin's MCP server or adding server-side multi-account routing.
+
+## Notes
+Not run against a live client with several servers: the rule is instructions to the agent, checked by the plugin test.
+No changeset: the plugin files are not part of the npm package.

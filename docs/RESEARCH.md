@@ -508,6 +508,10 @@ and known issues before Phase 1.
   is a dependency of `miniflare` only; `pnpm --filter relic-bridge --prod deploy` contains no `sharp`, and the Worker
   bundle (`wrangler deploy --dry-run`) and CLI bundle contain neither `sharp` nor `miniflare`, so it exists only in dev
   and CI installs.
+- Same approach on 2026-10-28: `undici` overridden to 7.30.1 (miniflare) and 8.12.2 (docs site: astro > unifont) for
+  GHSA-xjj6-f33q-929c, GHSA-4w7w-5xrc-9h26, GHSA-2m5v-pch6-74hx, GHSA-qrxm-fqhp-jwvm and four moderate advisories, and
+  the transitive `zod` 4.6.5 (`@anthropic-ai/sdk`, `@cloudflare/vitest-plugin`) to 4.6.7 (GHSA-mrhx-c7xc-m3w5). No
+  shipped artifact contains `undici`; the shipped packages already pinned `zod` 4.6.7.
 - Sources: npm registry metadata; orm.drizzle.team docs (SQLite column types, indexes & constraints).
 
 ## 9. WebCrypto AES-GCM and HKDF (P2-03, checked 2026-10-03)

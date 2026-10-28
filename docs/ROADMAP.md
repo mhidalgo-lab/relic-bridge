@@ -387,7 +387,7 @@ Generated from task front matter (`pnpm tasks index`). Status lives in each task
 | P8-116 | [Cloudflare migration - remove the export from a Docker volume, never copy a stale one](tasks/phase-8-hardening-launch/P8-116-migration-export-cleanup.md) | medium | — | done |
 | P8-117 | [Do not ask a person to approve a change whose approval is already spent](tasks/phase-8-hardening-launch/P8-117-spent-approval-no-second-prompt.md) | medium | — | done |
 | P8-118 | [Write tool output - full change event plan, dashboard checks on confirm](tasks/phase-8-hardening-launch/P8-118-write-output-polish.md) | low | — | done |
-| P8-119 | [Claude Code plugin - start in setup mode when the New Relic variables are not set](tasks/phase-8-hardening-launch/P8-119-plugin-setup-mode-without-env.md) | medium | — | todo |
+| P8-119 | [Claude Code plugin - start in setup mode when the New Relic variables are not set](tasks/phase-8-hardening-launch/P8-119-plugin-setup-mode-without-env.md) | medium | — | review |
 | P8-120 | [Claude Code plugin - one version, kept in step with the npm package](tasks/phase-8-hardening-launch/P8-120-plugin-version-single-source.md) | low | — | review |
 | P8-121 | [Claude Code plugin - skills pick one relic-bridge server when several are connected](tasks/phase-8-hardening-launch/P8-121-plugin-skills-several-servers.md) | medium | — | review |
 <!-- tasks:end -->

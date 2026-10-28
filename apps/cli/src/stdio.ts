@@ -37,7 +37,7 @@ import {
   type TelemetrySettings,
   telemetrySettingsFromEnv,
 } from '@relic-bridge/http-app';
-import { ConfigError, type Env, type ResolvedProject } from './config.ts';
+import { ConfigError, type Env, isUnexpandedReference, type ResolvedProject } from './config.ts';
 
 /**
  * Subrequest budget for one tool call. Node has no platform subrequest cap, so stdio uses the "paid" figure from
@@ -340,9 +340,10 @@ export function isUnconfigured(
   env: Env,
   flags: { readonly config?: string; readonly project?: string },
 ): boolean {
-  // An empty value is "not set" (clients pass '' for an unexpanded variable). Whitespace only is a configuration
-  // mistake: it counts as set, so startup reports it instead of entering setup mode (P7-30, L7).
-  const set = (name: string) => (env[name] ?? '') !== '';
+  // An empty value is "not set" (clients pass '' for an unexpanded variable), and so is a `${NAME}` reference the
+  // client passed through unexpanded (P8-119). Whitespace only is a configuration mistake: it counts as set, so
+  // startup reports it instead of entering setup mode (P7-30, L7).
+  const set = (name: string) => (env[name] ?? '') !== '' && !isUnexpandedReference(env[name]);
   return (
     flags.config === undefined &&
     flags.project === undefined &&

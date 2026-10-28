@@ -4,8 +4,8 @@
       "command": "npx",
       "args": ["-y", "relic-bridge"],
       "env": {
-        "NEW_RELIC_API_KEY": "${NEW_RELIC_API_KEY}",
-        "NEW_RELIC_ACCOUNT_ID": "${NEW_RELIC_ACCOUNT_ID}",
+        "NEW_RELIC_API_KEY": "${NEW_RELIC_API_KEY:-}",
+        "NEW_RELIC_ACCOUNT_ID": "${NEW_RELIC_ACCOUNT_ID:-}",
         "NEW_RELIC_REGION": "${NEW_RELIC_REGION:-US}"
       }
     }

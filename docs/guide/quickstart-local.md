@@ -86,7 +86,8 @@ Ask the agent "who am I in New Relic?": it calls `whoami` and shows your user, r
 With no configuration at all (no `NEW_RELIC_API_KEY`, no `NEW_RELIC_ACCOUNT_ID`, no `--config`), relic-bridge still
 starts in **setup mode**: it lists its read-only tools, so a client, an MCP inspector or a registry can show what it
 offers, and every tool call answers `RB_AUTH_UNAUTHORIZED` with what to set. Nothing reaches New Relic. Add the
-variables above and restart the server. A partial configuration (for example a key without an account id) is still an
+variables above and restart the server. A `${VAR}` reference the client passed through unexpanded counts as not set.
+A partial configuration (for example a key without an account id) is still an
 error at startup.
 
 ## Next steps

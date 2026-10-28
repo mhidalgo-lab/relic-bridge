@@ -2,11 +2,11 @@
 id: P8-119
 title: Claude Code plugin - start in setup mode when the New Relic variables are not set
 phase: 8
-status: todo
+status: review
 priority: medium
 depends_on: []
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P8-119 — Claude Code plugin: start in setup mode when the New Relic variables are not set
@@ -35,12 +35,12 @@ would explain the next step.
   `MCP_TIMEOUT`) in the plugin guide instead of, or as well as, the defaults.
 
 ## Acceptance criteria
-- [ ] Cause recorded in this file.
-- [ ] With the variables unset, a fresh install connects (`/mcp`) and `/relic-bridge:relic-status` reports what to set,
+- [x] Cause recorded in this file.
+- [x] With the variables unset, a fresh install connects (`/mcp`) and `/relic-bridge:relic-status` reports what to set,
       without asking for the key as a tool argument.
-- [ ] With only one of the two variables set, startup still fails with its own error (partial configuration is not
+- [x] With only one of the two variables set, startup still fails with its own error (partial configuration is not
       setup mode).
-- [ ] `scripts/test/claude-plugin.test.ts` updated for the new `env` values; `claude plugin validate` passes for the
+- [x] `scripts/test/claude-plugin.test.ts` updated for the new `env` values; `claude plugin validate` passes for the
       plugin and the marketplace.
 
 ## Security notes
@@ -56,3 +56,22 @@ default sends no secret anywhere. No change to how a set key is handled or logge
 - The marketplace entry's `version` (`0.1.0`) not matching `plugin.json` (`0.7.0`): separate task.
 - The plugin's skills naming tools by bare name when several relic-bridge servers are connected.
 - Publishing the plugin to a marketplace.
+
+## Cause (2026-10-28)
+Two separate failures, both from Claude Code's MCP log (`~/.cache/claude-cli-nodejs/<project>/mcp-logs-plugin-relic-bridge-relic/`):
+
+1. **"Connection closed"**: with `NEW_RELIC_ACCOUNT_ID` unset, Claude Code passed the literal text
+   `${NEW_RELIC_ACCOUNT_ID}` (no default in `.mcp.json`) instead of refusing the config or passing `''`. The server saw a
+   non-empty value, so not setup mode, and exited with `NEW_RELIC_ACCOUNT_ID must be a positive integer.`
+2. **"connection timed out after 30000ms"** (two later sessions starting at the same time, with about 20 other MCP
+   servers): `npx -y relic-bridge` answered `initialize` after more than 30 s. Without that load it answers in 2-5 s
+   (the binary alone in 1-4 s). Pinning the version does not let `npx` skip the registry.
+
+## Done
+- `.mcp.json`: `${NEW_RELIC_API_KEY:-}` and `${NEW_RELIC_ACCOUNT_ID:-}`.
+- CLI: a value that is a whole `${NAME}` / `${NAME:-x}` reference counts as unset for setup mode; when the rest of the
+  configuration is set, startup names the variable ("… is the unexpanded reference ${NAME}: the variable is not set
+  where your MCP client started."). This also covers hand-written client configs without a default.
+- `/relic-status` says what to set when the tools answer with the setup message.
+- Plugin guide: setup mode, `MCP_TIMEOUT`, global install; troubleshooting, quickstart and registry guides; THREAT_MODEL
+  T33 row; patch changeset.

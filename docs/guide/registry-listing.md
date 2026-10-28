@@ -7,7 +7,7 @@ same for everyone; running a tool always needs a credential.
 ## Local (stdio): setup mode
 
 `npx -y relic-bridge` with no configuration at all (no `NEW_RELIC_API_KEY`, no `NEW_RELIC_ACCOUNT_ID`, no `--config` /
-`RB_CONFIG`) starts in setup mode:
+`RB_CONFIG`; empty values and `${VAR}` references the client did not expand count as not set) starts in setup mode:
 
 - `initialize` and `tools/list` work and list the read-only tools with their real schemas;
 - every tool call (and a resource read that needs New Relic) answers

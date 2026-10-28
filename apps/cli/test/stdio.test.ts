@@ -280,6 +280,16 @@ describe('setup mode (P7-14)', () => {
   it('starts only when nothing at all is configured', () => {
     expect(isUnconfigured({}, {})).toBe(true);
     expect(isUnconfigured({ NEW_RELIC_API_KEY: '' }, {})).toBe(true);
+    // P8-119: Claude Code passes `${VAR}` through when VAR is unset where it started.
+    expect(
+      isUnconfigured(
+        { NEW_RELIC_API_KEY: '${NEW_RELIC_API_KEY}', NEW_RELIC_ACCOUNT_ID: '${NEW_RELIC_ACCOUNT_ID}' },
+        {},
+      ),
+    ).toBe(true);
+    expect(
+      isUnconfigured({ NEW_RELIC_API_KEY: FAKE_KEY, NEW_RELIC_ACCOUNT_ID: '${NEW_RELIC_ACCOUNT_ID}' }, {}),
+    ).toBe(false);
     expect(isUnconfigured({ NEW_RELIC_API_KEY: '  ' }, {})).toBe(false); // a blank key is a mistake to report (L7)
     expect(isUnconfigured({ NEW_RELIC_API_KEY: FAKE_KEY }, {})).toBe(false);
     expect(isUnconfigured({ NEW_RELIC_ACCOUNT_ID: '1' }, {})).toBe(false);

@@ -55,11 +55,13 @@ describe('plugin manifests', () => {
   it('marketplace.json lists the plugin at a source that exists', () => {
     const m = json(`${ROOT}.claude-plugin/marketplace.json`) as {
       name: string;
-      plugins: { name: string; source: string }[];
+      plugins: { name: string; source: string; version?: string }[];
     };
     expect(m.name).toBeTruthy();
     const entry = m.plugins.find((p) => p.name === 'relic-bridge');
     expect(entry).toBeDefined();
+    // P8-120: plugin.json is the only version (Claude Code silently prefers it over the entry's).
+    expect(entry?.version).toBeUndefined();
     expect(
       existsSync(`${ROOT}${(entry?.source ?? '').replace(/^\.\//, '')}/.claude-plugin/plugin.json`),
     ).toBe(true);

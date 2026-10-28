@@ -14,6 +14,10 @@ a marketplace manifest (`.claude-plugin/marketplace.json`).
 /plugin install relic-bridge@relic-bridge
 ```
 
+The plugin's version (`plugin.json`) follows the npm package: `pnpm version-packages` sets it on every release, and
+`pnpm lint` fails when they differ. A marketplace added from a local path loads the current files at every session
+start; one added from GitHub updates when the version changes.
+
 Validate the files offline with `claude plugin validate plugins/relic-bridge` and `claude plugin validate .`.
 
 ## Credentials

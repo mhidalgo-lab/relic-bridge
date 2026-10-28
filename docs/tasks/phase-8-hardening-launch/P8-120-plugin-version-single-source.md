@@ -2,11 +2,11 @@
 id: P8-120
 title: Claude Code plugin - one version, kept in step with the npm package
 phase: 8
-status: todo
+status: review
 priority: low
 depends_on: []
 adr: []
-owner: ""
+owner: claude-agent
 ---
 
 # P8-120 — Claude Code plugin: one version, kept in step with the npm package
@@ -25,8 +25,8 @@ copy until that string changes, so a version left behind means users never get s
 - Set it to the current CLI version (`0.13.1`).
 
 ## Acceptance criteria
-- [ ] `claude plugin validate .` and `claude plugin validate plugins/relic-bridge` pass with no version warning.
-- [ ] Tests: sync-version writes and checks `plugin.json`; the plugin test asserts the marketplace entry has no `version`.
+- [x] `claude plugin validate .` and `claude plugin validate plugins/relic-bridge` pass with no version warning.
+- [x] Tests: sync-version writes and checks `plugin.json`; the plugin test asserts the marketplace entry has no `version`.
 
 ## Security notes
 None: version metadata only.
@@ -37,3 +37,6 @@ None: version metadata only.
 
 ## Out of scope
 - Publishing the plugin to a marketplace.
+
+## Notes
+No changeset: the plugin files are not part of the npm package. `plugin.json` is now `0.13.1`.

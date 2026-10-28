@@ -13,12 +13,14 @@ import {
   decidePlan,
   extractNotes,
   pendingChangesets,
+  pluginJsonVersion,
   type ReleaseState,
   readVersionConst,
   releaseRef,
   resolveTagCommit,
   SEMVER_RE,
   versionablePackages,
+  writePluginJsonVersion,
   writeVersionConst,
 } from '../release.ts';
 import { evalGuard } from './gha-expr.ts';
@@ -141,6 +143,22 @@ describe('version constant', () => {
     expect(() => writeVersionConst('no constant here', '0.1.0')).toThrow(/VERSION/);
     expect(SEMVER_RE.test('1.2.3-rc.1')).toBe(true);
     expect(SEMVER_RE.test('1.2.3\nmode=publish')).toBe(false);
+  });
+});
+
+describe('plugin manifest version (P8-120)', () => {
+  const source = '{\n  "name": "relic-bridge",\n  "version": "0.7.0",\n  "keywords": ["mcp"]\n}\n';
+
+  it('rewrites only the top-level version, keeping the formatting', () => {
+    const next = writePluginJsonVersion(source, '0.13.1');
+    expect(pluginJsonVersion(next)).toBe('0.13.1');
+    expect(next).toBe(source.replace('0.7.0', '0.13.1'));
+    expect(writePluginJsonVersion(source, '0.7.0')).toBe(source);
+  });
+
+  it('refuses non-SemVer input and a manifest without a version', () => {
+    expect(() => writePluginJsonVersion(source, 'latest')).toThrow(/SemVer/);
+    expect(() => writePluginJsonVersion('{ "name": "relic-bridge" }', '0.1.0')).toThrow(/no "version"/);
   });
 });
 

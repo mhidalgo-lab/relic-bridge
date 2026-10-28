@@ -7,7 +7,6 @@
       "name": "relic-bridge",
       "source": "./plugins/relic-bridge",
       "description": "Investigate New Relic with relic-bridge: MCP config, investigation skills and slash commands.",
-      "version": "0.1.0",
       "category": "monitoring"
     }
   ]

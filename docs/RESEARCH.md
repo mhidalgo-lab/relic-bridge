@@ -1482,3 +1482,15 @@ did not). The skip rule itself was not run on a zone by the maintainers.
   `OR` of `IN` over the same four columns.
 - A FACET query's `totalResult.lines` is the unfaceted count, used as the total. Mapping `severity.number` to a name
   when `severity.text` is absent is not done.
+
+## Claude Code plugin versions (P8-120, from documentation 2026-10-28)
+
+- Claude Code computes a plugin's version from `plugin.json` first, then the marketplace entry. When both set
+  `version`, `plugin.json` wins without warning and `claude plugin validate` reports the mismatch.
+  ([marketplace reference](https://code.claude.com/docs/en/plugins/marketplace-reference),
+  [host a marketplace](https://code.claude.com/docs/en/plugins/host-marketplace))
+- An install from a git-hosted marketplace stays on its cached copy until that version string changes; omitting
+  `version` everywhere tracks commits instead. A plugin loaded in place from a marketplace added by local path always
+  loads the current files, whatever the version says.
+- relic-bridge keeps `version` only in `plugins/relic-bridge/.claude-plugin/plugin.json`, set by
+  `node scripts/release.ts sync-version` to the npm package version, so every release reaches plugin users.

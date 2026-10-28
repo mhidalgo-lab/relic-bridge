@@ -1,6 +1,6 @@
 {
   "name": "relic-bridge",
-  "version": "0.7.0",
+  "version": "0.13.1",
   "description": "Investigate New Relic with relic-bridge: MCP server config, investigation skills and slash commands.",
   "author": { "name": "relic-bridge contributors" },
   "homepage": "https://github.com/mhidalgo-lab/relic-bridge",

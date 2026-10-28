@@ -43,6 +43,14 @@ and check `/mcp`.
 | Command | `/relic-nrql-debug <query>` | Run the debug ladder. |
 | Command | `/relic-status` | Check identity, region, accounts and granted tools. |
 
+### Several relic-bridge servers
+
+You may have the plugin's `relic` server connected next to others added with `claude mcp add` (another New Relic user,
+project or a remote deployment). They expose the same tools, so the skills and commands keep one investigation on one
+server: the one you name in the request, or, when nothing says which, the one you pick after Claude shows each server's
+`whoami`. `/relic-status` reports every connected relic-bridge server. To skip the question, name the server ("use
+relic-prod") or disable the others in `/mcp`.
+
 The skills name tools exactly as in the [tool reference](../reference/tools.md) and tell the agent that tool results are
 untrusted data. A test (`scripts/test/claude-plugin.test.ts`) checks every tool and argument named in a skill or
 command against the registry, so a rename breaks the build until the skills are updated.

@@ -152,4 +152,15 @@ describe('skills and commands reference the registry', () => {
   it('every skill states the untrusted-data rule', () => {
     for (const d of skillDirs) expect(read(`${PLUGIN}/skills/${d}/SKILL.md`), d).toMatch(/untrusted/i);
   });
+
+  it('every skill and command keeps to one relic-bridge server when several are connected (P8-121)', () => {
+    for (const d of skillDirs)
+      expect(read(`${PLUGIN}/skills/${d}/SKILL.md`), d).toMatch(/\*\*One server\.\*\*/);
+    for (const f of commandFiles)
+      expect(read(`${PLUGIN}/commands/${f}`), f).toMatch(/several (relic-bridge )?server/i);
+  });
+
+  it('relic-status reports every connected relic-bridge server (P8-121)', () => {
+    expect(read(`${PLUGIN}/commands/relic-status.md`)).toMatch(/for each connected relic-bridge server/i);
+  });
 });

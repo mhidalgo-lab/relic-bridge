@@ -33,3 +33,10 @@ overrides:
   # Docs site only: @astrojs/starlight > expressive-code > postcss-nested 6 > postcss-selector-parser 6 (GHSA-rj75-hqrm-r3gf,
   # quadratic selector parsing; build time on our own CSS). postcss-nested 7+ already uses the 7.x parser.
   'postcss-nested>postcss-selector-parser': 7.1.6
+  # undici (GHSA-xjj6-f33q-929c, GHSA-4w7w-5xrc-9h26, GHSA-2m5v-pch6-74hx, GHSA-qrxm-fqhp-jwvm and four moderate):
+  # miniflare (wrangler, @cloudflare/vitest-plugin) on 7.x and the docs site's astro > unifont on 8.x. Dev and docs
+  # build only; the CLI and the Worker use the platform fetch.
+  'undici@>=7.0.0 <7.30.1': 7.30.1
+  'undici@>=8.0.0 <8.12.2': 8.12.2
+  # @anthropic-ai/sdk (dev) and @cloudflare/vitest-plugin resolve zod 4.6.5 (GHSA-mrhx-c7xc-m3w5); packages pin 4.6.7.
+  'zod@<4.6.6': 4.6.7

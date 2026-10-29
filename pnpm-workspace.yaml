@@ -32,7 +32,7 @@ overrides:
   source-map-js: 1.2.2
   # Docs site only: @astrojs/starlight > expressive-code > postcss-nested 6 > postcss-selector-parser 6 (GHSA-rj75-hqrm-r3gf,
   # quadratic selector parsing; build time on our own CSS). postcss-nested 7+ already uses the 7.x parser.
-  'postcss-nested>postcss-selector-parser': 7.1.6
+  'postcss-nested>postcss-selector-parser': 7.1.7
   # undici (GHSA-xjj6-f33q-929c, GHSA-4w7w-5xrc-9h26, GHSA-2m5v-pch6-74hx, GHSA-qrxm-fqhp-jwvm and four moderate):
   # miniflare (wrangler, @cloudflare/vitest-plugin) on 7.x and the docs site's astro > unifont on 8.x. Dev and docs
   # build only; the CLI and the Worker use the platform fetch.

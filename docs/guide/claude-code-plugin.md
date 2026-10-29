@@ -29,8 +29,15 @@ Nothing secret is stored in the plugin. Claude Code expands `${VAR}` from the en
 | Local stdio (default `.mcp.json`) | `NEW_RELIC_API_KEY`, `NEW_RELIC_ACCOUNT_ID`, optional `NEW_RELIC_REGION` (default `US`) | See the [local quickstart](quickstart-local.md). |
 | Remote server | `RELIC_BRIDGE_URL` (`https://<host>/p/<project>/mcp`), `RELIC_BRIDGE_TOKEN` | Copy `mcp-remote.example.json` over `.mcp.json`, or add it with `claude mcp add` ([clients](clients.md#claude-code)). The New Relic key stays on the server. |
 
-A missing variable without a default makes Claude Code refuse to load that server config: set the variables, restart,
-and check `/mcp`.
+If the New Relic variables are not set, the server still connects in setup mode: it lists its tools and every call
+(including `/relic-status`) says what to set. Set the variables, restart Claude Code from that shell, and check `/mcp`.
+A server that receives an unexpanded `${VAR}` reference (a hand-written config without the `:-` default) treats it the
+same way, or names the variable in its startup error when only some are set.
+
+The first start downloads the package with `npx`, and Claude Code waits 30 seconds for a server to connect. If `/mcp`
+shows a connection timeout (common when many servers start at once), retry from `/mcp`, start Claude Code with
+`MCP_TIMEOUT=60000`, or install the package once (`npm install -g relic-bridge`) and change the command to
+`relic-bridge`.
 
 ## What is in it
 

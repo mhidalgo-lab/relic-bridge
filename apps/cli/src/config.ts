@@ -132,9 +132,24 @@ function formatIssues(issues: readonly { path: string; message: string }[], pref
 // Env mode
 // ---------------------------------------------------------------------------------------------------------------
 
+/**
+ * A value that is still a `${NAME}` / `${NAME:-default}` reference: the MCP client did not expand it because the
+ * variable was not set where the client started (Claude Code passes the text through, P8-119).
+ */
+export function isUnexpandedReference(value: string | undefined): boolean {
+  return value !== undefined && /^\$\{[A-Za-z_][A-Za-z0-9_]*(?::?-[^}]*)?\}$/.test(value.trim());
+}
+
 function envString(env: Env, name: string): string | undefined {
   const v = env[name]?.trim();
-  return v === undefined || v === '' ? undefined : v;
+  if (v === undefined || v === '') return undefined;
+  if (isUnexpandedReference(v)) {
+    throw new ConfigError(
+      `${name} is the unexpanded reference ${v}: the variable is not set where your MCP client started.`,
+      'Set it in that environment (or in the client\'s "env" block) and restart the client.',
+    );
+  }
+  return v;
 }
 
 function envList(env: Env, name: string): string[] | undefined {

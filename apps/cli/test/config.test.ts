@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 import {
   ConfigError,
   configFileSchema,
+  isUnexpandedReference,
   loadConfig,
   loadEnvConfig,
   MAX_CONFIG_BYTES,
@@ -73,6 +74,22 @@ describe('env mode', () => {
     expect(errorOf(() => loadEnvConfig({ ...baseEnv, NEW_RELIC_API_KEY: '  ' })).message).toContain(
       'NEW_RELIC_API_KEY',
     );
+  });
+
+  it('names a ${VAR} reference the MCP client passed through unexpanded (P8-119)', () => {
+    const e = errorOf(() => loadEnvConfig({ ...baseEnv, NEW_RELIC_ACCOUNT_ID: '${NEW_RELIC_ACCOUNT_ID}' }));
+    expect(e.message).toBe(
+      'NEW_RELIC_ACCOUNT_ID is the unexpanded reference ${NEW_RELIC_ACCOUNT_ID}: the variable is not set where your MCP client started.',
+    );
+    expect(e.hint).toContain('restart the client');
+    expect(
+      errorOf(() => loadEnvConfig({ ...baseEnv, NEW_RELIC_REGION: '${NEW_RELIC_REGION:-US}' })).message,
+    ).toMatch(/^NEW_RELIC_REGION is the unexpanded reference/);
+    expect(isUnexpandedReference('${A_1}')).toBe(true);
+    expect(isUnexpandedReference(' ${A-x} ')).toBe(true);
+    expect(isUnexpandedReference('$A')).toBe(false);
+    expect(isUnexpandedReference('x${A}')).toBe(false);
+    expect(isUnexpandedReference(undefined)).toBe(false);
   });
 
   it.each([

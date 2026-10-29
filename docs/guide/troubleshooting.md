@@ -20,6 +20,7 @@ path, token shape) and, with the token in `RB_TOKEN` or `--token-file`, whether 
 |---|---|
 | `NEW_RELIC_API_KEY is not set.` / `NEW_RELIC_ACCOUNT_ID is not set.` | The variable isn't in the client's `env` block for this server. Exporting it in your shell isn't enough. |
 | Tools are listed, but every call answers `RB_AUTH_UNAUTHORIZED: relic-bridge is not configured yet` (stderr: `setup mode`) | Neither `NEW_RELIC_API_KEY` nor `NEW_RELIC_ACCOUNT_ID` nor a config file reached the server, so it only lists its tools. Add both variables to the client's `env` block (or `--config`) and restart the server. |
+| `NEW_RELIC_ACCOUNT_ID is the unexpanded reference ${NEW_RELIC_ACCOUNT_ID}: …` (or another variable) | The client config says `"${NAME}"` and `NAME` was not set where the client started, so the client passed the text through (Claude Code does). Set it there and restart the client, or use `"${NAME:-}"` so an unset variable is empty. When none of the variables are set, the server starts in setup mode instead. |
 | `apiKey refers to ${NAME}, which is not set.` | YAML mode: set `NAME` in the client's `env` block. |
 | `<file> has N projects; choose one with --project.` | Add `--project <slug>` to the args. |
 | `Unknown tool name(s) in the tool allowlist` | A typo in `tools` / `RB_TOOLS`; the message lists valid names (see the [tool reference](../reference/tools.md)). |

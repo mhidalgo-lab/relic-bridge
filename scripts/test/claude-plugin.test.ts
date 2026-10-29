@@ -98,7 +98,9 @@ describe('MCP config', () => {
   it('runs relic-bridge over stdio with the key taken from the environment', () => {
     expect(local.command).toBe('npx');
     expect(local.args).toEqual(['-y', 'relic-bridge']);
-    expect(local.env?.['NEW_RELIC_API_KEY']).toBe('${NEW_RELIC_API_KEY}');
+    // P8-119: empty defaults, so an unset variable starts the server in setup mode instead of failing to connect.
+    expect(local.env?.['NEW_RELIC_API_KEY']).toBe('${NEW_RELIC_API_KEY:-}');
+    expect(local.env?.['NEW_RELIC_ACCOUNT_ID']).toBe('${NEW_RELIC_ACCOUNT_ID:-}');
   });
 
   it('the remote template takes url and token from the environment', () => {

@@ -1,5 +1,16 @@
 # relic-bridge
 
+## 0.13.2
+
+### Patch Changes
+
+- 5024632: `db export` names the modification time of an existing destination it refuses to overwrite, so a stale export is easy to spot, and its closing hint says how to delete the file (`rm`, and the `docker exec … node -e` form for a path under `/data` in the distroless image).
+- 0e1bae1: Repeating a write right after it was applied no longer asks the person to approve again: when the approval for that exact
+  change is already spent, the server answers as it would after the answer (nothing to do, or the spent refusal) without
+  showing a question. The single-use check on the answer is unchanged.
+- f619546: `create_change_event` plan now also shows `description`, `changelog` and `deepLink` when given, and a confirmed `create_dashboard` returns the checks that ran before the approval.
+- d356fd8: A `${VAR}` reference that the MCP client passed through unexpanded (the variable was not set where the client started) now counts as unset: with no configuration the server starts in setup mode instead of exiting, and with a partial configuration the startup error names the variable.
+
 ## 0.13.1
 
 ### Patch Changes

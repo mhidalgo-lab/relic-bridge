@@ -168,7 +168,7 @@ overrides:
   shell-quote: 1.12.0
   source-map-js: 1.2.2
   postcss-nested>postcss-selector-parser: 7.1.7
-  undici@>=7.0.0 <7.30.1: 7.30.1
+  undici@>=7.0.0 <7.30.1: 7.30.2
   undici@>=8.0.0 <8.12.2: 8.12.2
   zod@<4.6.6: 4.6.7
 
@@ -3317,8 +3317,8 @@ packages:
   undici-types@8.11.2:
     resolution: {integrity: sha512-iMVNmWZ0leK/goS6eXMizSzmm9CDWtyphwbaCms3DNLqRxDL+mMoNVcZMTyyVgXP0N+Z8neAMzDoUOUJL8veKg==}
 
-  undici@7.30.1:
-    resolution: {integrity: sha512-03KrMbjIFDWQR5RNPrSw3bd1r12JpyFQl9/yxjUbJtqkjmllqC5lFjZh6ujeuJCKr8EOQvRW872Oy/az+nLYxg==}
+  undici@7.30.2:
+    resolution: {integrity: sha512-mLyPQnHwUxaM/rideoK/+KL8DaAJLRl4aBCfmX444aCSLnIaomqPLtNRe2jdCYcsk5wZzXrDIQC8ZeYNRAYyIA==}
     engines: {node: '>=20.18.1'}
 
   undici@8.12.2:
@@ -5830,7 +5830,7 @@ snapshots:
     dependencies:
       '@cspotcode/source-map-support': 0.8.1
       sharp: 0.35.5(@types/node@24.19.2)
-      undici: 7.30.1
+      undici: 7.30.2
       workerd: 1.20261012.1
       ws: 8.21.0
       youch: 4.1.0-beta.10
@@ -6304,7 +6304,7 @@ snapshots:
 
   undici-types@8.11.2: {}
 
-  undici@7.30.1: {}
+  undici@7.30.2: {}
 
   undici@8.12.2: {}
 

@@ -37,6 +37,6 @@ overrides:
   # miniflare (wrangler, @cloudflare/vitest-plugin) on 7.x and the docs site's astro > unifont on 8.x. Dev and docs
   # build only; the CLI and the Worker use the platform fetch.
   'undici@>=7.0.0 <7.30.1': 7.30.1
-  'undici@>=8.0.0 <8.12.2': 8.12.2
+  'undici@>=8.0.0 <8.12.2': 8.12.4
   # @anthropic-ai/sdk (dev) and @cloudflare/vitest-plugin resolve zod 4.6.5 (GHSA-mrhx-c7xc-m3w5); packages pin 4.6.7.
   'zod@<4.6.6': 4.6.7

@@ -2,7 +2,7 @@
 # runs as a non-root user. Base images are pinned by digest; Renovate updates them.
 
 ARG NODE_BUILD_IMAGE=node:24-trixie-slim@sha256:54f84b4cf8432b21aaffd5d3ce8d41e12cea0d10d33c09d2f3c9879d49d6b446
-ARG NODE_RUNTIME_IMAGE=gcr.io/distroless/nodejs24-debian13:nonroot@sha256:9eeb7f5887d0e239e78264b06f7f11d2e14be534050481803a9e4728fcdd278e
+ARG NODE_RUNTIME_IMAGE=gcr.io/distroless/nodejs24-debian13:nonroot@sha256:39b0407357c9fadf1a9708d22088f02de21f0e1e8a688474eea2d8701e7d5693
 
 # Runs on the builder's own architecture: the production dependencies are pure JavaScript, so a multi-arch build
 # needs no emulation (the runtime stage only copies files).

@@ -29,6 +29,6 @@
   "dependencies": {
     "@relic-bridge/core": "workspace:*",
     "@relic-bridge/storage": "workspace:*",
-    "jose": "6.2.12"
+    "jose": "6.2.18"
   }
 }

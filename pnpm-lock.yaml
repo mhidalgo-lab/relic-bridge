@@ -330,8 +330,8 @@ importers:
         specifier: workspace:*
         version: link:../storage
       jose:
-        specifier: 6.2.12
-        version: 6.2.12
+        specifier: 6.2.18
+        version: 6.2.18
     devDependencies:
       fast-check:
         specifier: 4.10.2
@@ -2694,6 +2694,9 @@ packages:
 
   jose@6.2.12:
     resolution: {integrity: sha512-9NiFmJEex0sy2Dk58j2UGBSHgUs2ypF9eZSu4L6vjOX3Dp96Sw1F3uL+H+D1sx02jZZdzUT0HgvCy59CuvXcWw==}
+
+  jose@6.2.18:
+    resolution: {integrity: sha512-doV4thUwgkrycJH4yLeqwTGIIZphHl+pk7CPReuMIhYhncmgzdko85MaCG4YQFTxqMFr1/oEH32tZuKKovcDEg==}
 
   js-tokens@10.0.1:
     resolution: {integrity: sha512-XMt+uh+yEs6srFvEb/pEe4IMvbtoXVdNxF7lZFU+I9sdWI641L97L+gXQMTGm1x3RjPUVizNVjHueclXr0U7sw==}
@@ -5595,6 +5598,8 @@ snapshots:
   jju@1.4.0: {}
 
   jose@6.2.12: {}
+
+  jose@6.2.18: {}
 
   js-tokens@10.0.1: {}
 

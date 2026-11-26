@@ -23,7 +23,7 @@
     "runtime": "web"
   },
   "dependencies": {
-    "@cloudflare/workers-oauth-provider": "1.2.3",
+    "@cloudflare/workers-oauth-provider": "1.2.4",
     "@hono/zod-openapi": "1.6.3",
     "@modelcontextprotocol/server": "2.3.1",
     "@relic-bridge/admin-ui": "workspace:*",

@@ -36,7 +36,37 @@ and make the README point at both, without changing the Claude Code plugin.
       manifests are unchanged.
 - [x] AGENTS.md section under about 40 lines, quoting only commands that exist.
 - [x] README names AGENTS.md and every plugin manifest and links https://mhidalgo.ar/developers/.
-- [ ] GitHub topics set (owner action: repository settings, done when the branch is pushed).
+- [x] GitHub topics set on the repository (`gh repo edit --add-topic`).
+- [x] `pnpm lint && pnpm typecheck && pnpm test` pass (259 files, 5100 tests).
+- [x] The Claude Code plugin still installs (`claude plugin marketplace add` + `claude plugin install` in a clean
+      config dir: 0.13.1, read from `plugins/relic-bridge`).
+
+## Done
+- `plugin.json` (root): `$schema` 1.0.0, `name`, `version` 0.13.1, and description, author, homepage, license and
+  keywords copied from `plugins/relic-bridge/.claude-plugin/plugin.json`; `repository` from `server.json`.
+- `mcp.json` (root): server `relic`, `type: stdio`, `npx -y relic-bridge`, no `env` (see Decisions).
+- `skills` (root): symlink to `plugins/relic-bridge/skills/` (`investigate-service`, `investigate-alert`,
+  `nrql-debug-ladder`).
+- `scripts/release.ts`: `AGENT_PLUGIN_JSON` and `PLUGIN_MANIFESTS`; `sync-version` writes and `--check`s both plugin
+  manifests; `writePluginJsonVersion` names the file in its errors. `scripts/test/release.test.ts` covers it.
+- `scripts/test/agent-plugin.test.ts`: schema constraints of both files, same metadata as the Claude Code manifest,
+  every published version equal (CLI package, `server.json`, both manifests), no `env` or secrets, `skills/` resolves
+  inside the repository and each skill's `name` matches its directory.
+- AGENTS.md "Using relic-bridge from an agent" (about 30 lines); README "For agents" paragraph and author line with
+  https://mhidalgo.ar/developers/; plugin guide and RESEARCH.md sections; changeset
+  `.changeset/p8-122-agent-plugins-manifest.md`.
+- GitHub topics: agent-skills, claude-code-plugin, mcp, mcp-server, nerdgraph, new-relic.
+
+## Decisions
+- MCP config is in `mcp.json`, not `plugin.json`: the spec forbids inline MCP configuration.
+- No `env` in `mcp.json`: the spec expands only `${PLUGIN_ROOT}` / `${PLUGIN_DATA}`, so `${NEW_RELIC_API_KEY:-}` would
+  reach the server as literal text and override a key set in the client's environment; the spec also forbids secrets
+  in `env` and has no credential field. The New Relic variables come from the client's environment.
+- Skills are linked, not copied: the spec finds them only in the root `skills/` and allows links that resolve inside
+  the plugin root. Windows clones need `core.symlinks=true`.
+- Slash commands are not in the Agent Plugins files (v1 has no commands); AGENTS.md lists them.
+- Schema validation is a constraint test like `server.json`'s: the third-party schema is neither vendored nor fetched
+  in CI.
 
 ## Security notes
 No new runtime surface. The manifests hold no secrets and `mcp.json` has no `env`, so no key can be put in package data

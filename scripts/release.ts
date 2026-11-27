@@ -8,7 +8,8 @@
 //   node scripts/release.ts notes <version>      → prints the CHANGELOG section of <version>
 //   node scripts/release.ts sync-version [--check] → writes (or checks) VERSION in packages/core/src/version.ts and
 //                                                  the versions in the MCP Registry metadata (server.json, P7-14)
-//                                                  and the Claude Code plugin manifest (P8-120)
+//                                                  and the Claude Code plugin manifest (P8-120) and the
+//                                                  Agent Plugins manifest (P8-122)
 //   node scripts/release.ts check-changesets     → part of `pnpm lint` (P8-84): every pending changeset names only
 //                                                  packages changesets can version (not private, not ignored)
 //
@@ -24,6 +25,10 @@ export const VERSION_FILE = 'packages/core/src/version.ts';
 export const SERVER_JSON = 'server.json';
 /** Claude Code plugin manifest (P8-120): the plugin's only version, following the npm package it launches. */
 export const PLUGIN_JSON = 'plugins/relic-bridge/.claude-plugin/plugin.json';
+/** Agent Plugins manifest (P8-122, https://agent-plugins.org): same rule as the Claude Code one. */
+export const AGENT_PLUGIN_JSON = 'plugin.json';
+/** Plugin manifests whose top-level `version` follows the CLI package. */
+export const PLUGIN_MANIFESTS = [PLUGIN_JSON, AGENT_PLUGIN_JSON] as const;
 
 /** Strict SemVer (no build metadata), so the value is safe to put into workflow outputs and tag names. */
 export const SEMVER_RE = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
@@ -278,13 +283,13 @@ export function pluginJsonVersion(text: string): unknown {
 }
 
 /** `plugin.json` with its top-level `version` set to `version`, rewritten in place so the file keeps its formatting. */
-export function writePluginJsonVersion(text: string, version: string): string {
+export function writePluginJsonVersion(text: string, version: string, file: string = PLUGIN_JSON): string {
   if (!SEMVER_RE.test(version)) throw new Error(`Not a SemVer version: ${version}`);
   const old = pluginJsonVersion(text);
-  if (typeof old !== 'string') throw new Error(`${PLUGIN_JSON}: no "version" to set`);
+  if (typeof old !== 'string') throw new Error(`${file}: no "version" to set`);
   const out = text.replace(`"version": ${JSON.stringify(old)}`, `"version": ${JSON.stringify(version)}`);
   if (pluginJsonVersion(out) !== version) {
-    throw new Error(`${PLUGIN_JSON}: could not set the version to ${version}`);
+    throw new Error(`${file}: could not set the version to ${version}`);
   }
   return out;
 }
@@ -426,8 +431,10 @@ function main(argv: readonly string[]): number {
       const source = readFileSync(file, 'utf8');
       const serverFile = `${root}/${SERVER_JSON}`;
       const serverText = readFileSync(serverFile, 'utf8');
-      const pluginFile = `${root}/${PLUGIN_JSON}`;
-      const pluginText = readFileSync(pluginFile, 'utf8');
+      const plugins = PLUGIN_MANIFESTS.map((name) => ({
+        name,
+        text: readFileSync(`${root}/${name}`, 'utf8'),
+      }));
       if (arg === '--check') {
         const current = readVersionConst(source);
         if (current !== version) {
@@ -443,18 +450,22 @@ function main(argv: readonly string[]): number {
           );
           return 1;
         }
-        const plugin = pluginJsonVersion(pluginText);
-        if (plugin !== version) {
-          console.error(
-            `✗ ${PLUGIN_JSON} has version ${JSON.stringify(plugin)}, ${CLI_DIR}/package.json has '${version}'. Run node scripts/release.ts sync-version`,
-          );
-          return 1;
+        for (const { name, text } of plugins) {
+          const plugin = pluginJsonVersion(text);
+          if (plugin !== version) {
+            console.error(
+              `✗ ${name} has version ${JSON.stringify(plugin)}, ${CLI_DIR}/package.json has '${version}'. Run node scripts/release.ts sync-version`,
+            );
+            return 1;
+          }
         }
         return 0;
       }
       writeFileSync(file, writeVersionConst(source, version));
       writeFileSync(serverFile, writeServerJsonVersion(serverText, version));
-      writeFileSync(pluginFile, writePluginJsonVersion(pluginText, version));
+      for (const { name, text } of plugins) {
+        writeFileSync(`${root}/${name}`, writePluginJsonVersion(text, version, name));
+      }
       return 0;
     }
     case 'check-changesets': {

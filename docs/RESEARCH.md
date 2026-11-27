@@ -1494,3 +1494,24 @@ did not). The skip rule itself was not run on a zone by the maintainers.
   loads the current files, whatever the version says.
 - relic-bridge keeps `version` only in `plugins/relic-bridge/.claude-plugin/plugin.json`, set by
   `node scripts/release.ts sync-version` to the npm package version, so every release reaches plugin users.
+
+## Agent Plugins 1.0.0 (P8-122, from the specification 2026-11-27)
+
+Source: <https://agent-plugins.org/specification>, schemas
+<https://agent-plugins.org/schemas/1.0.0/plugin.schema.json> and <https://agent-plugins.org/schemas/1.0.0/mcp.schema.json>.
+
+- The manifest is `plugin.json` at the plugin root; `$schema` (the 1.0.0 URL above, a `const`) and `name`
+  (lowercase letters, digits, `.` and `-`, starting and ending with a letter or digit, no `--` or
+  `..`, at most 64 characters) are required. Optional: `version`,
+  `description`, `author` (`name`, `email`, `url` only), `homepage`, `repository` (a string), `license`, `keywords`,
+  `extensions` (reverse-domain namespaces). The schema is closed (`additionalProperties: false`).
+- v1 has two component types, skills and MCP servers, both at fixed locations that the manifest cannot change. Skills:
+  each immediate child of `skills/` with a regular file `SKILL.md` (agentskills.io format; `name` must match the
+  directory). MCP: `mcp.json` at the root ("MUST NOT be declared inline in `plugin.json`"), whose `$schema` version
+  must match `plugin.json`'s. Commands, hooks and agents are not part of v1.
+- stdio servers: `type`, `command` (a bare name such as `npx`, or `./…`), `args`, `env`, `cwd`. Only `${PLUGIN_ROOT}` and
+  `${PLUGIN_DATA}` are expanded; any other `${…}` stays literal. `env` overlays the client's base environment, which the
+  client may inherit or sanitize. `env` and `headers` are visible package data and must not hold secrets; credentials
+  are client-managed and v1 has no field to declare them.
+- Symlinks may resolve inside the plugin root; anything resolving outside it is rejected. No validator CLI is named.
+

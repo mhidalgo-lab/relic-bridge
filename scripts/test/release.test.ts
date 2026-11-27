@@ -6,12 +6,15 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { parse } from 'yaml';
 import {
+  AGENT_PLUGIN_JSON,
   changesetPackages,
   changesetReport,
   classifyChangesets,
   decideMode,
   decidePlan,
   extractNotes,
+  PLUGIN_JSON,
+  PLUGIN_MANIFESTS,
   pendingChangesets,
   pluginJsonVersion,
   type ReleaseState,
@@ -159,6 +162,13 @@ describe('plugin manifest version (P8-120)', () => {
   it('refuses non-SemVer input and a manifest without a version', () => {
     expect(() => writePluginJsonVersion(source, 'latest')).toThrow(/SemVer/);
     expect(() => writePluginJsonVersion('{ "name": "relic-bridge" }', '0.1.0')).toThrow(/no "version"/);
+  });
+
+  it('names the manifest it could not update, and covers the Agent Plugins manifest (P8-122)', () => {
+    expect(() => writePluginJsonVersion('{ "name": "relic-bridge" }', '0.1.0', AGENT_PLUGIN_JSON)).toThrow(
+      /^plugin\.json: no "version"/,
+    );
+    expect(PLUGIN_MANIFESTS).toEqual([PLUGIN_JSON, AGENT_PLUGIN_JSON]);
   });
 });
 

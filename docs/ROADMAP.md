@@ -390,4 +390,5 @@ Generated from task front matter (`pnpm tasks index`). Status lives in each task
 | P8-119 | [Claude Code plugin - start in setup mode when the New Relic variables are not set](tasks/phase-8-hardening-launch/P8-119-plugin-setup-mode-without-env.md) | medium | — | review |
 | P8-120 | [Claude Code plugin - one version, kept in step with the npm package](tasks/phase-8-hardening-launch/P8-120-plugin-version-single-source.md) | low | — | review |
 | P8-121 | [Claude Code plugin - skills pick one relic-bridge server when several are connected](tasks/phase-8-hardening-launch/P8-121-plugin-skills-several-servers.md) | medium | — | review |
+| P8-122 | [Agent Plugins manifest and agent-facing discoverability](tasks/phase-8-hardening-launch/P8-122-agent-plugins-manifest.md) | medium | P8-120 | review |
 <!-- tasks:end -->

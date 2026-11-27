@@ -20,6 +20,17 @@ start; one added from GitHub updates when the version changes.
 
 Validate the files offline with `claude plugin validate plugins/relic-bridge` and `claude plugin validate .`.
 
+## Agent Plugins manifest
+
+The repository root is also an [Agent Plugins](https://agent-plugins.org/specification) 1.0.0 plugin, for clients and
+scanners that read that format: `plugin.json` (same name, version and description as the Claude Code manifest),
+`mcp.json` (the same `npx -y relic-bridge` stdio server) and `skills/`, a link to `plugins/relic-bridge/skills/`.
+Agent Plugins 1.0.0 has no slash commands and no `${VAR}` expansion other than `${PLUGIN_ROOT}` and `${PLUGIN_DATA}`,
+so `mcp.json` sets no `env`: the client passes `NEW_RELIC_API_KEY`, `NEW_RELIC_ACCOUNT_ID` and `NEW_RELIC_REGION` from
+its own environment (or the server starts in setup mode). `pnpm version-packages` keeps its version in step, and
+`scripts/test/agent-plugin.test.ts` checks both files against the 1.0.0 schema constraints. On Windows, clone with
+`core.symlinks=true` for `skills/` to be a directory.
+
 ## Credentials
 
 Nothing secret is stored in the plugin. Claude Code expands `${VAR}` from the environment it starts in:

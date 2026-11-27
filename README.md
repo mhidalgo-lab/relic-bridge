@@ -97,6 +97,13 @@ Other clients and the multi-project YAML mode: [local quickstart](docs/guide/qui
 published from GitHub Actions with npm provenance; each [GitHub Release](https://github.com/mhidalgo-lab/relic-bridge/releases)
 carries the tarball, an SBOM and checksums with build attestations ([how to verify](docs/guide/verify-release.md)). Changes: [CHANGELOG](apps/cli/CHANGELOG.md).
 
+**For agents:** [AGENTS.md](AGENTS.md) explains how to use relic-bridge from an agent. Manifests: [`server.json`](server.json)
+(MCP Registry), [`plugin.json`](plugin.json) and [`mcp.json`](mcp.json) ([Agent Plugins](https://agent-plugins.org/specification),
+skills in [`skills/`](skills/)), and the Claude Code plugin
+([`plugins/relic-bridge/.claude-plugin/plugin.json`](plugins/relic-bridge/.claude-plugin/plugin.json), marketplace
+[`.claude-plugin/marketplace.json`](.claude-plugin/marketplace.json)): `/plugin marketplace add mhidalgo-lab/relic-bridge`,
+then `/plugin install relic-bridge@relic-bridge`.
+
 ## Documentation
 
 The same pages are published as a searchable site at <https://mhidalgo-lab.github.io/relic-bridge/> (built from
@@ -143,3 +150,5 @@ New Relic, Inc. New Relic and NerdGraph are trademarks of New Relic, Inc.
 ## License
 
 [Apache-2.0](LICENSE). See [NOTICE](NOTICE).
+
+Author: Matias Hidalgo ([agent page](https://mhidalgo.ar/developers/)).

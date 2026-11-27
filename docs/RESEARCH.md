@@ -1501,7 +1501,8 @@ Source: <https://agent-plugins.org/specification>, schemas
 <https://agent-plugins.org/schemas/1.0.0/plugin.schema.json> and <https://agent-plugins.org/schemas/1.0.0/mcp.schema.json>.
 
 - The manifest is `plugin.json` at the plugin root; `$schema` (the 1.0.0 URL above, a `const`) and `name`
-  (`^(?!.*(?:--|\.\.))[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$`, at most 64 characters) are required. Optional: `version`,
+  (lowercase letters, digits, `.` and `-`, starting and ending with a letter or digit, no `--` or
+  `..`, at most 64 characters) are required. Optional: `version`,
   `description`, `author` (`name`, `email`, `url` only), `homepage`, `repository` (a string), `license`, `keywords`,
   `extensions` (reverse-domain namespaces). The schema is closed (`additionalProperties: false`).
 - v1 has two component types, skills and MCP servers, both at fixed locations that the manifest cannot change. Skills:
